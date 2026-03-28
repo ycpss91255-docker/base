@@ -6,6 +6,23 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 
 [繁體中文](doc/readme/README.zh-TW.md) | [简体中文](doc/readme/README.zh-CN.md) | [日本語](doc/readme/README.ja.md)
 
+## TL;DR
+
+```bash
+# New repo: add subtree + init
+git subtree add --prefix=docker_template \
+    git@github.com:ycpss91255-docker/docker_template.git main --squash
+./docker_template/scripts/init.sh
+
+# Upgrade to latest
+make upgrade-check   # check
+make upgrade         # pull + update version + workflow tag
+
+# Run CI
+make test            # ShellCheck + Bats + Kcov
+make help            # show all commands
+```
+
 ## Overview
 
 This repo consolidates shared scripts, tests, and CI workflows used across all Docker container repos. Instead of maintaining identical files in 15+ repos, each repo pulls this template as a **git subtree** and uses symlinks.
@@ -20,10 +37,13 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 | `stop.sh` | Stop and remove containers |
 | `setup.sh` | Auto-detect system parameters and generate `.env` |
 | `config/` | Shell configs (bashrc, tmux, terminator, pip) |
-| `smoke_test/` | Shared smoke tests for consumer repos |
+| `test/smoke_test/` | Shared smoke tests for consumer repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
-| `.github/workflows/build-worker.yaml` | Reusable CI build workflow |
-| `.github/workflows/release-worker.yaml` | Reusable CI release workflow |
+| `Makefile` | Unified command entry (`make test`, `make upgrade`, etc.) |
+| `scripts/init.sh` | Consumer repo first-time symlink setup |
+| `scripts/upgrade.sh` | Subtree version upgrade |
+| `scripts/ci.sh` | CI pipeline (local + remote) |
+| `.github/workflows/` | Reusable CI workflows (build + release) |
 
 ### What stays in each repo (not shared)
 
@@ -47,15 +67,18 @@ git subtree add --prefix=docker_template \
 ./docker_template/scripts/init.sh
 ```
 
-### Updating the subtree
+### Updating
 
 ```bash
-git subtree pull --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash \
-    -m "chore: update docker_template subtree"
-```
+# Check if update available
+make upgrade-check
 
-Update `.docker_template_version` to the latest tag.
+# Upgrade to latest (subtree pull + version file + workflow tag)
+make upgrade
+
+# Or specify a version
+./docker_template/scripts/upgrade.sh v0.3.0
+```
 
 ## CI Reusable Workflows
 
@@ -148,6 +171,7 @@ docker_template/
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── scripts/                          # Template management tools
 │   ├── init.sh                       # Consumer repo symlink setup
+│   ├── upgrade.sh                    # Subtree version upgrade
 │   ├── ci.sh                         # CI pipeline (local + remote)
 │   └── migrate.sh                    # Batch repo migration
 ├── .github/workflows/
