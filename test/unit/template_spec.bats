@@ -141,6 +141,40 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Docker compose project name (-p)
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/build.sh
+    assert_success
+}
+
+@test "run.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/run.sh
+    assert_success
+}
+
+@test "exec.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/exec.sh
+    assert_success
+}
+
+@test "stop.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/stop.sh
+    assert_success
+}
+
+@test "exec.sh sources .env" {
+    run grep 'source.*\.env' /source/exec.sh
+    assert_success
+}
+
+@test "stop.sh sources .env" {
+    run grep 'source.*\.env' /source/stop.sh
+    assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
 
