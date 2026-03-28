@@ -19,7 +19,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 TEMPLATE_REPO="git@github.com:ycpss91255-docker/docker_template.git"
-TEMPLATE_VERSION="v0.1.0"
+TEMPLATE_VERSION="v0.2.0"
 DRY_RUN=false
 
 # ── Repo registry ────────────────────────────────────────────────────────────

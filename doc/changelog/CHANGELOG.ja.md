@@ -1,67 +1,67 @@
-# Changelog
+# 変更履歴
 
-All notable changes to this project will be documented in this file.
+本ファイルにはすべての重要な変更を記録します。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+フォーマットは [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) に基づき、
+バージョン番号は [セマンティックバージョニング](https://semver.org/spec/v2.0.0.html) に準拠しています。
 
-## [Unreleased]
+## [未リリース]
 
-### Added
-- `scripts/init.sh`: one-command symlink setup for consumer repos
-- `Makefile`: unified entry point (`make test`, `make lint`, `make migrate`, etc.)
+### 追加
+- `scripts/init.sh`：consumer repo のワンコマンド symlink セットアップ
+- `Makefile`：統一コマンドエントリ（`make test`、`make lint`、`make migrate` 等）
 
-### Changed
-- Move management scripts to `scripts/` (ci.sh, migrate.sh, init.sh) — separate from user-facing Docker scripts
-- `Makefile` and `compose.yaml` stay at root (user-facing)
-- Restructure `test/`: `test/unit/` (self-tests) + `test/smoke_test/` (consumer shared tests)
-- Restructure `doc/`: `doc/readme/`, `doc/test/`, `doc/changelog/` (by file type, with i18n)
-- README: simplify test/changelog sections with links to detailed docs
-- 124 tests (was 114)
+### 変更
+- 管理スクリプトを `scripts/` に移動（ci.sh、migrate.sh、init.sh）— ユーザー向けスクリプトと分離
+- `Makefile` と `compose.yaml` はルートに残置（ユーザー操作用）
+- `test/` の再構成：`test/unit/`（自体テスト）+ `test/smoke_test/`（consumer 共有テスト）
+- `doc/` の再構成：`doc/readme/`、`doc/test/`、`doc/changelog/`（ファイルタイプ別、i18n 対応）
+- README：テスト/変更履歴セクションを簡素化、詳細ドキュメントへのリンクに変更
+- 124 テスト（旧 114）
 
 ## [v0.2.0] - 2026-03-28
 
-### Added
-- `scripts/ci.sh`: CI pipeline script (local + remote)
-- `Makefile`: unified command entry
-- Restructured `test/unit/` and `test/smoke_test/`
-- Restructured `doc/` with i18n (readme/, test/, changelog/)
-- Coverage permissions fix (chown with HOST_UID/HOST_GID)
+### 追加
+- `scripts/ci.sh`：CI パイプラインスクリプト（ローカル + リモート）
+- `Makefile`：統一コマンドエントリ
+- `test/unit/` と `test/smoke_test/` の再構成
+- `doc/` の再構成（i18n 対応：readme/、test/、changelog/）
+- coverage 権限修正（HOST_UID/HOST_GID による chown）
 
-### Changed
-- `smoke_test/` moved to `test/smoke_test/` (**BREAKING**: consumer Dockerfile COPY path change)
-- `compose.yaml` calls `scripts/ci.sh --ci` instead of inline bash
-- `self-test.yaml` calls `scripts/ci.sh` instead of docker compose directly
+### 変更
+- `smoke_test/` を `test/smoke_test/` に移動（**破壊的変更**：consumer Dockerfile COPY パス変更）
+- `compose.yaml` が `scripts/ci.sh --ci` を呼び出すよう変更（inline bash を置換）
+- `self-test.yaml` が `scripts/ci.sh` を呼び出すよう変更（docker compose 直接呼び出しを置換）
 
 ## [v0.1.0] - 2026-03-28
 
-### Added
-- **Shared shell scripts**: `build.sh`, `run.sh` (with X11/Wayland support), `exec.sh`, `stop.sh`
-- **setup.sh**: `.env` generator merged from `docker_setup_helper` (auto-detect UID/GID, GPU, workspace path, image name)
-- **Config files**: bashrc, tmux, terminator, pip configs from `docker_setup_helper`
-- **Shared smoke tests** (`smoke_test/`):
-  - `script_help.bats` — 16 tests for script help/usage
-  - `display_env.bats` — 10 tests for X11/Wayland environment (GUI repos)
-  - `test_helper.bash` — unified bats loader
-- **Template self-tests** (`test/`): 114 tests with ShellCheck + Bats + Kcov coverage
-- **CI reusable workflows**:
-  - `build-worker.yaml` — parameterized Docker build + smoke test
-  - `release-worker.yaml` — parameterized GitHub Release
-  - `self-test.yaml` — template's own CI
-- **`migrate.sh`**: batch migration script for converting repos from `docker_setup_helper` to `docker_template`
-- `.hadolint.yaml`: shared Hadolint rules
-- `.codecov.yaml`: coverage configuration
-- Documentation: README (English), README.zh-TW.md, README.zh-CN.md, README.ja.md, TEST.md
+### 追加
+- **共有シェルスクリプト**：`build.sh`、`run.sh`（X11/Wayland サポート付き）、`exec.sh`、`stop.sh`
+- **setup.sh**：`.env` ジェネレータ、`docker_setup_helper` から統合（UID/GID、GPU、ワークスペースパス、イメージ名の自動検出）
+- **設定ファイル**：bashrc、tmux、terminator、pip 設定（`docker_setup_helper` より）
+- **共有 Smoke Tests**（`smoke_test/`）：
+  - `script_help.bats` — 16 件のスクリプト help/usage テスト
+  - `display_env.bats` — 10 件の X11/Wayland 環境テスト（GUI repos）
+  - `test_helper.bash` — 統一 bats ローダー
+- **テンプレート自体のテスト**（`test/`）：114 件のテスト（ShellCheck + Bats + Kcov カバレッジ）
+- **CI 再利用可能な Workflows**：
+  - `build-worker.yaml` — パラメータ化された Docker build + smoke test
+  - `release-worker.yaml` — パラメータ化された GitHub Release
+  - `self-test.yaml` — テンプレート自体の CI
+- **`migrate.sh`**：バッチ移行スクリプト（`docker_setup_helper` から `docker_template` への変換）
+- `.hadolint.yaml`：共有 Hadolint ルール
+- `.codecov.yaml`：カバレッジ設定
+- ドキュメント：README（英語）、README.zh-TW.md、README.zh-CN.md、README.ja.md、TEST.md
 
-### Changed
-- `setup.sh` default `_base_path` traverses 1 level up (`/..`) instead of 2 (`/../..`) to match new `docker_template/setup.sh` location
+### 変更
+- `setup.sh` デフォルト `_base_path` が 1 レベル上（`/..`）に変更、旧 2 レベル（`/../..`）を置換、新しい `docker_template/setup.sh` の配置に対応
 
-### Migration notes
-- Consumer repos replace `docker_setup_helper/` subtree with `docker_template/` subtree
-- Shell scripts at root become symlinks to `docker_template/`
-- Local `build-worker.yaml` / `release-worker.yaml` replaced by reusable workflow calls in `main.yaml`
-- Dockerfile `CONFIG_SRC` path changes: `docker_setup_helper/src/config` → `docker_template/config`
-- Shared smoke tests loaded via `COPY docker_template/smoke_test/` in Dockerfile (not symlinks — Docker COPY does not follow symlinks)
+### 移行に関する注意事項
+- Consumer repos は `docker_setup_helper/` subtree を `docker_template/` subtree に置換
+- ルートのシェルスクリプトは `docker_template/` への symlinks に変更
+- ローカル `build-worker.yaml` / `release-worker.yaml` は `main.yaml` 内の再利用可能な workflow 呼び出しに置換
+- Dockerfile `CONFIG_SRC` パス変更：`docker_setup_helper/src/config` → `docker_template/config`
+- 共有 smoke tests は Dockerfile `COPY docker_template/test/smoke_test/` で読み込み（symlinks ではない — Docker COPY は symlinks を追跡しない）
 
-[Unreleased]: https://github.com/ycpss91255-docker/docker_template/compare/v0.1.0...HEAD
+[未リリース]: https://github.com/ycpss91255-docker/docker_template/compare/v0.1.0...HEAD
 [v0.1.0]: https://github.com/ycpss91255-docker/docker_template/releases/tag/v0.1.0
