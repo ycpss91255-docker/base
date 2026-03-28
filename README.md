@@ -27,6 +27,61 @@ make help            # show all commands
 
 This repo consolidates shared scripts, tests, and CI workflows used across all Docker container repos. Instead of maintaining identical files in 15+ repos, each repo pulls this template as a **git subtree** and uses symlinks.
 
+### Architecture
+
+```mermaid
+graph TB
+    subgraph docker_template["docker_template (shared repo)"]
+        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
+        smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
+        config["config/<br/>bashrc / tmux / terminator / pip"]
+        mgmt["scripts/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
+    end
+
+    subgraph consumer["Consumer Repo (e.g. ros_noetic)"]
+        symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        repo_test["test/smoke_test/<br/>ros_env.bats (repo-specific)"]
+        main_yaml["main.yaml<br/>→ calls reusable workflows"]
+    end
+
+    docker_template -- "git subtree" --> consumer
+    scripts -. symlink .-> symlinks
+    smoke -. "Dockerfile COPY" .-> repo_test
+    workflows -. "@tag reference" .-> main_yaml
+```
+
+### CI/CD Flow
+
+```mermaid
+flowchart LR
+    subgraph local["Local"]
+        build_test["./build.sh test"]
+        make_test["make test"]
+    end
+
+    subgraph ci_container["CI Container (kcov/kcov)"]
+        shellcheck["ShellCheck"]
+        hadolint["Hadolint"]
+        bats["Bats smoke tests"]
+    end
+
+    subgraph github["GitHub Actions"]
+        build_worker["build-worker.yaml<br/>(from docker_template)"]
+        release_worker["release-worker.yaml<br/>(from docker_template)"]
+    end
+
+    build_test --> ci_container
+    make_test -->|"scripts/ci.sh"| ci_container
+    shellcheck --> hadolint --> bats
+
+    push["git push / PR"] --> build_worker
+    build_worker -->|"docker build test"| ci_container
+    tag["git tag v*"] --> release_worker
+    release_worker -->|"tar.gz + zip"| release["GitHub Release"]
+```
+
 ### What's included
 
 | File | Description |
