@@ -11,7 +11,7 @@
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 组织下所有 Docker 容器 repo 的共用模板。
 
-[English](../../README.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
+**[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## TL;DR
 

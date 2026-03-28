@@ -11,7 +11,7 @@
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織のすべての Docker コンテナ repo 用共有テンプレート。
 
-[English](../../README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+**[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## TL;DR
 
