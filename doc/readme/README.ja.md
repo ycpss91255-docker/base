@@ -13,6 +13,20 @@
 
 **[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
+---
+
+## 目次
+
+- [TL;DR](#tldr)
+- [概要](#概要)
+- [クイックスタート](#クイックスタート)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [ローカルテスト実行](#ローカルテスト実行)
+- [テスト](#テスト)
+- [ディレクトリ構造](#ディレクトリ構造)
+
+---
+
 ## TL;DR
 
 ```bash
