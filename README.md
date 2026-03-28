@@ -13,6 +13,20 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 
 **[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
 
+---
+
+## Table of Contents
+
+- [TL;DR](#tldr)
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [Running Tests Locally](#running-tests-locally)
+- [Tests](#tests)
+- [Directory Structure](#directory-structure)
+
+---
+
 ## TL;DR
 
 ```bash
@@ -195,17 +209,6 @@ Or directly:
 ./script/ci.sh          # Full CI via docker compose
 ./script/ci.sh --ci     # Run inside container (used by compose)
 ```
-
-## Tests
-
-- **124** template self-tests (`test/unit/`)
-- **22** shared smoke tests (`test/smoke_test/`) for consumer repos
-
-See [TEST.md](doc/test/TEST.md) for full test list.
-
-## Changelog
-
-See [CHANGELOG.md](doc/changelog/CHANGELOG.md).
 
 ## Directory Structure
 
