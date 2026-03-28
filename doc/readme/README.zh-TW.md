@@ -203,10 +203,6 @@ make help        # 顯示所有可用指令
 
 詳見 [TEST.md](../test/TEST.md)。
 
-## 變更記錄
-
-詳見 [CHANGELOG.md](../changelog/CHANGELOG.md)。
-
 ## 目錄結構
 
 ```
