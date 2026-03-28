@@ -41,24 +41,16 @@
 ```bash
 git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
-echo "v1.0.0" > .docker_template_version
+
 ```
 
 ### 建立 symlinks
 
 ```bash
 # 根目錄腳本
-ln -sf docker_template/build.sh build.sh
-ln -sf docker_template/run.sh run.sh
-ln -sf docker_template/exec.sh exec.sh
-ln -sf docker_template/stop.sh stop.sh
-ln -sf docker_template/.hadolint.yaml .hadolint.yaml
-
-# Smoke tests
-ln -sf ../../docker_template/smoke_test/test_helper.bash test/smoke_test/test_helper.bash
-ln -sf ../../docker_template/smoke_test/script_help.bats test/smoke_test/script_help.bats
-# 僅 GUI repos:
-ln -sf ../../docker_template/smoke_test/display_env.bats test/smoke_test/display_env.bats
+# 2. Initialize symlinks (one command)
+./docker_template/scripts/init.sh
+```
 ```
 
 ### 更新 subtree

@@ -92,7 +92,7 @@ _fix_permissions() {
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
-    docker compose -f "${SCRIPT_DIR}/compose.yaml" run --rm \
+    docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
         -e HOST_UID="$(id -u)" \
         -e HOST_GID="$(id -g)" \
         ci

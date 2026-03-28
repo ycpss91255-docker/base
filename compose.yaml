@@ -4,7 +4,7 @@ services:
     security_opt:
       - seccomp=unconfined
     volumes:
-      - ..:/source
+      - .:/source
     working_dir: /source
     environment:
       - HOST_UID=${HOST_UID:-1000}

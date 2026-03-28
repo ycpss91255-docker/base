@@ -39,26 +39,12 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ### Adding to a new repo
 
 ```bash
+# 1. Add subtree
 git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
-echo "v1.0.0" > .docker_template_version
-```
 
-### Creating symlinks
-
-```bash
-# Root-level scripts
-ln -sf docker_template/build.sh build.sh
-ln -sf docker_template/run.sh run.sh
-ln -sf docker_template/exec.sh exec.sh
-ln -sf docker_template/stop.sh stop.sh
-ln -sf docker_template/.hadolint.yaml .hadolint.yaml
-
-# Smoke tests
-ln -sf ../../docker_template/smoke_test/test_helper.bash test/smoke_test/test_helper.bash
-ln -sf ../../docker_template/smoke_test/script_help.bats test/smoke_test/script_help.bats
-# GUI repos only:
-ln -sf ../../docker_template/smoke_test/display_env.bats test/smoke_test/display_env.bats
+# 2. Initialize symlinks (one command)
+./docker_template/scripts/init.sh
 ```
 
 ### Updating the subtree
@@ -121,50 +107,20 @@ make help        # Show all available targets
 
 Or directly:
 ```bash
-./ci.sh          # Full CI via docker compose
-./ci.sh --ci     # Run inside container (used by compose)
+./scripts/ci.sh          # Full CI via docker compose
+./scripts/ci.sh --ci     # Run inside container (used by compose)
 ```
 
-## Smoke Tests
+## Tests
 
-Located in `smoke_test/` — **22 tests** total.
+- **124** template self-tests (`test/unit/`)
+- **22** shared smoke tests (`test/smoke_test/`) for consumer repos
 
-<details>
-<summary>Click to expand test details</summary>
+See [TEST.md](doc/test/TEST.md) for full test list.
 
-### script_help.bats (16)
+## Changelog
 
-| Test | Description |
-|------|-------------|
-| `build.sh -h exits 0` | Help flag exits successfully |
-| `build.sh --help exits 0` | Long help flag exits successfully |
-| `build.sh -h prints usage` | Help output contains "Usage:" |
-| `run.sh -h exits 0` | Help flag exits successfully |
-| `run.sh --help exits 0` | Long help flag exits successfully |
-| `run.sh -h prints usage` | Help output contains "Usage:" |
-| `exec.sh -h exits 0` | Help flag exits successfully |
-| `exec.sh --help exits 0` | Long help flag exits successfully |
-| `exec.sh -h prints usage` | Help output contains "Usage:" |
-| `stop.sh -h exits 0` | Help flag exits successfully |
-| `stop.sh --help exits 0` | Long help flag exits successfully |
-| `stop.sh -h prints usage` | Help output contains "Usage:" |
-| `build.sh detects zh` | Auto-detect Chinese from LANG |
-| `build.sh detects ja` | Auto-detect Japanese from LANG |
-| `build.sh defaults to en` | Defaults to English |
-| `build.sh SETUP_LANG overrides` | SETUP_LANG overrides LANG |
-
-### display_env.bats (6)
-
-| Test | Description |
-|------|-------------|
-| `compose.yaml contains WAYLAND_DISPLAY` | Wayland env var present |
-| `compose.yaml contains XDG_RUNTIME_DIR` | XDG runtime dir present |
-| `compose.yaml contains XAUTHORITY` | X authority present |
-| `compose.yaml mounts XDG_RUNTIME_DIR` | Volume mount present |
-| `compose.yaml mounts XAUTHORITY` | Volume mount present |
-| `compose.yaml mounts X11-unix` | X11 socket mount present |
-
-</details>
+See [CHANGELOG.md](doc/changelog/CHANGELOG.md).
 
 ## Directory Structure
 
@@ -186,13 +142,16 @@ docker_template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # Template self-tests (114 tests)
-├── ci.sh                             # CI script (local + remote)
-├── Makefile                          # Unified command entry point
+│   └── unit/                         # Template self-tests (124 tests)
+├── Makefile                          # Unified command entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
+├── scripts/                          # Template management tools
+│   ├── init.sh                       # Consumer repo symlink setup
+│   ├── ci.sh                         # CI pipeline (local + remote)
+│   └── migrate.sh                    # Batch repo migration
 ├── .github/workflows/
-│   ├── self-test.yaml                # Template CI (calls ci.sh)
+│   ├── self-test.yaml                # Template CI (calls scripts/ci.sh)
 │   ├── build-worker.yaml             # Reusable build workflow
 │   └── release-worker.yaml           # Reusable release workflow
 ├── doc/

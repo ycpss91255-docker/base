@@ -48,21 +48,21 @@ setup() {
 }
 
 @test "Makefile exists" {
-    assert [ -f /source/scripts/Makefile ]
+    assert [ -f /source/Makefile ]
 }
 
 @test "Makefile has test target" {
-    run grep -E '^test:' /source/scripts/Makefile
+    run grep -E '^test:' /source/Makefile
     assert_success
 }
 
 @test "Makefile has lint target" {
-    run grep -E '^lint:' /source/scripts/Makefile
+    run grep -E '^lint:' /source/Makefile
     assert_success
 }
 
 @test "Makefile has clean target" {
-    run grep -E '^clean:' /source/scripts/Makefile
+    run grep -E '^clean:' /source/Makefile
     assert_success
 }
 

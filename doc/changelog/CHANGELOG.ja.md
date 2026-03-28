@@ -8,8 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `migrate.sh`: README auto-update for `docker_setup_helper → docker_template` references
-- `CHANGELOG.md`
+- `scripts/init.sh`: one-command symlink setup for consumer repos
+- `Makefile`: unified entry point (`make test`, `make lint`, `make migrate`, etc.)
+
+### Changed
+- Move management scripts to `scripts/` (ci.sh, migrate.sh, init.sh) — separate from user-facing Docker scripts
+- `Makefile` and `compose.yaml` stay at root (user-facing)
+- Restructure `test/`: `test/unit/` (self-tests) + `test/smoke_test/` (consumer shared tests)
+- Restructure `doc/`: `doc/readme/`, `doc/test/`, `doc/changelog/` (by file type, with i18n)
+- README: simplify test/changelog sections with links to detailed docs
+- 124 tests (was 114)
+
+## [v0.2.0] - 2026-03-28
+
+### Added
+- `scripts/ci.sh`: CI pipeline script (local + remote)
+- `Makefile`: unified command entry
+- Restructured `test/unit/` and `test/smoke_test/`
+- Restructured `doc/` with i18n (readme/, test/, changelog/)
+- Coverage permissions fix (chown with HOST_UID/HOST_GID)
+
+### Changed
+- `smoke_test/` moved to `test/smoke_test/` (**BREAKING**: consumer Dockerfile COPY path change)
+- `compose.yaml` calls `scripts/ci.sh --ci` instead of inline bash
+- `self-test.yaml` calls `scripts/ci.sh` instead of docker compose directly
 
 ## [v0.1.0] - 2026-03-28
 
