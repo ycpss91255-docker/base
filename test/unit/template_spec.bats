@@ -47,22 +47,26 @@ setup() {
     assert_success
 }
 
-@test "Makefile exists" {
+@test "Makefile exists (repo entry)" {
     assert [ -f /source/Makefile ]
 }
 
-@test "Makefile has test target" {
-    run grep -E '^test:' /source/Makefile
+@test "Makefile has build target" {
+    run grep -E '^build:' /source/Makefile
     assert_success
 }
 
-@test "Makefile has lint target" {
-    run grep -E '^lint:' /source/Makefile
+@test "Makefile.ci exists (template CI)" {
+    assert [ -f /source/Makefile.ci ]
+}
+
+@test "Makefile.ci has test target" {
+    run grep -E '^test:' /source/Makefile.ci
     assert_success
 }
 
-@test "Makefile has clean target" {
-    run grep -E '^clean:' /source/Makefile
+@test "Makefile.ci has lint target" {
+    run grep -E '^lint:' /source/Makefile.ci
     assert_success
 }
 

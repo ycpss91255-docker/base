@@ -46,7 +46,7 @@ _symlink "${TEMPLATE_REL}/build.sh" "build.sh"
 _symlink "${TEMPLATE_REL}/run.sh" "run.sh"
 _symlink "${TEMPLATE_REL}/exec.sh" "exec.sh"
 _symlink "${TEMPLATE_REL}/stop.sh" "stop.sh"
-_symlink "${TEMPLATE_REL}/Makefile.consumer" "Makefile"
+_symlink "${TEMPLATE_REL}/Makefile" "Makefile"
 
 # .hadolint.yaml: only symlink if no custom version exists
 if [[ ! -f .hadolint.yaml ]] || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" >/dev/null 2>&1; then

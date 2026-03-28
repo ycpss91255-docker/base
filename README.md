@@ -115,7 +115,8 @@ flowchart LR
 | `config/` | Shell configs (bashrc, tmux, terminator, pip) |
 | `test/smoke_test/` | Shared smoke tests for consumer repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
-| `Makefile` | Unified command entry (`make test`, `make upgrade`, etc.) |
+| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
+| `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
 | `script/init.sh` | Consumer repo first-time symlink setup |
 | `script/upgrade.sh` | Subtree version upgrade |
 | `script/ci.sh` | CI pipeline (local + remote) |
@@ -195,13 +196,15 @@ jobs:
 | `archive_name_prefix` | string | yes | - | Archive name prefix |
 | `extra_files` | string | no | `""` | Space-separated extra files |
 
-## Running Tests Locally
+## Running Template Tests
 
+Using `Makefile.ci` (from template root):
 ```bash
-make test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
-make lint        # ShellCheck only
-make clean       # Remove coverage reports
-make help        # Show all available targets
+make -f Makefile.ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
+make -f Makefile.ci lint        # ShellCheck only
+make -f Makefile.ci clean       # Remove coverage reports
+make help        # Show repo targets
+make -f Makefile.ci help  # Show CI targets
 ```
 
 Or directly:
@@ -231,7 +234,8 @@ docker_template/
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
 │   └── unit/                         # Template self-tests (124 tests)
-├── Makefile                          # Unified command entry (make test/lint/...)
+├── Makefile                          # Repo entry (make build/run/stop/...)
+├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── script/                          # Template management tools
