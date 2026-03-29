@@ -93,12 +93,12 @@ flowchart LR
 
 | 檔案 | 說明 |
 |------|------|
-| `build.sh` | 建置容器（呼叫 `setup.sh` 產生 `.env`） |
+| `build.sh` | 建置容器（呼叫 `script/setup.sh` 產生 `.env`） |
 | `run.sh` | 執行容器（支援 X11/Wayland） |
 | `exec.sh` | 進入執行中的容器 |
 | `stop.sh` | 停止並移除容器 |
-| `setup.sh` | 自動偵測系統參數並產生 `.env` |
-| `config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
+| `script/setup.sh` | 自動偵測系統參數並產生 `.env` |
+| `script/config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
 | `test/smoke_test/` | 給各 Docker repo 使用的共用測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
 | `Makefile` | 統一指令入口（`make test`、`make upgrade` 等） |
@@ -211,7 +211,8 @@ docker_template/
 ├── run.sh                            # 共用執行腳本（X11/Wayland）
 ├── exec.sh                           # 共用 exec 腳本
 ├── stop.sh                           # 共用停止腳本
-├── setup.sh                          # .env 產生器
+├── script/
+│   ├── setup.sh                     # .env 產生器
 ├── config/                           # Shell/工具設定
 │   ├── pip/
 │   └── shell/

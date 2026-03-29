@@ -29,8 +29,8 @@ setup() {
 }
 
 @test "setup.sh exists and is executable" {
-    assert [ -f /source/setup.sh ]
-    assert [ -x /source/setup.sh ]
+    assert [ -f /source/script/setup.sh ]
+    assert [ -x /source/script/setup.sh ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -107,16 +107,16 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Path reference: scripts call docker_template/setup.sh
+# Path reference: scripts call docker_template/script/setup.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "build.sh references docker_template/setup.sh" {
-    run grep "docker_template/setup.sh" /source/build.sh
+@test "build.sh references docker_template/script/setup.sh" {
+    run grep "docker_template/script/setup.sh" /source/build.sh
     assert_success
 }
 
-@test "run.sh references docker_template/setup.sh" {
-    run grep "docker_template/setup.sh" /source/run.sh
+@test "run.sh references docker_template/script/setup.sh" {
+    run grep "docker_template/script/setup.sh" /source/run.sh
     assert_success
 }
 
@@ -202,13 +202,13 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.sh default _base_path uses /.." {
-    # In docker_template, setup.sh is at docker_template/setup.sh
+    # In docker_template, setup.sh is at docker_template/script/setup.sh
     # So it should go up 1 level (/..) to reach repo root
-    run grep -E '\.\./\.\.' /source/setup.sh
-    assert_failure  # Should NOT have ../../ (that was old docker_setup_helper/src/ pattern)
+    run grep -E '\.\./\.\.' /source/script/setup.sh
+    assert_success  # Should have ../../ ../../ (that was old docker_setup_helper/src/ pattern)
 }
 
-@test "setup.sh default _base_path uses single parent traversal" {
-    run grep -E 'dirname.*BASH_SOURCE.*\.\.' /source/setup.sh
+@test "setup.sh default _base_path uses double parent traversal" {
+    run grep -E "dirname.*BASH_SOURCE.*\.\..*\.\." /source/script/setup.sh
     assert_success
 }

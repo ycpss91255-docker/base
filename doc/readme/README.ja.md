@@ -107,12 +107,12 @@ flowchart LR
 
 | ファイル | 説明 |
 |----------|------|
-| `build.sh` | コンテナビルド（`setup.sh` を呼び出して `.env` を生成） |
+| `build.sh` | コンテナビルド（`script/setup.sh` を呼び出して `.env` を生成） |
 | `run.sh` | コンテナ実行（X11/Wayland 対応） |
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
-| `setup.sh` | システムパラメータの自動検出と `.env` 生成 |
-| `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
+| `script/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
+| `script/config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `test/smoke_test/` | 各 Docker repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `Makefile` | 統一コマンドエントリ（`make test`、`make upgrade` 等） |
@@ -225,7 +225,8 @@ docker_template/
 ├── run.sh                            # 共有実行スクリプト（X11/Wayland）
 ├── exec.sh                           # 共有 exec スクリプト
 ├── stop.sh                           # 共有停止スクリプト
-├── setup.sh                          # .env ジェネレータ
+├── script/
+│   ├── setup.sh                     # .env ジェネレータ
 ├── config/                           # シェル/ツール設定
 │   ├── pip/
 │   └── shell/

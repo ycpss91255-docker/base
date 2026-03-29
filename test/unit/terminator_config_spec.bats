@@ -2,7 +2,7 @@
 
 setup() {
     load "${BATS_TEST_DIRNAME}/test_helper"
-    CONFIG="/source/config/shell/terminator/config"
+    CONFIG="/source/script/config/shell/terminator/config"
 }
 
 # ════════════════════════════════════════════════════════════════════

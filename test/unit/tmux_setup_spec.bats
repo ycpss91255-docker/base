@@ -7,7 +7,7 @@ setup() {
     export HOME="${TEMP_DIR}"
 
     # shellcheck disable=SC1091
-    source /source/config/shell/tmux/setup.sh
+    source /source/script/config/shell/tmux/setup.sh
 }
 
 teardown() {

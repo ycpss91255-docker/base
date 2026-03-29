@@ -107,12 +107,12 @@ flowchart LR
 
 | File | Description |
 |------|-------------|
-| `build.sh` | Build containers (calls `setup.sh` for `.env` generation) |
+| `build.sh` | Build containers (calls `script/setup.sh` for `.env` generation) |
 | `run.sh` | Run containers (X11/Wayland support) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
-| `setup.sh` | Auto-detect system parameters and generate `.env` |
-| `config/` | Shell configs (bashrc, tmux, terminator, pip) |
+| `script/setup.sh` | Auto-detect system parameters and generate `.env` |
+| `script/config/` | Shell configs (bashrc, tmux, terminator, pip) |
 | `test/smoke_test/` | Shared smoke tests for repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
@@ -221,8 +221,9 @@ docker_template/
 ├── run.sh                            # Shared run script (X11/Wayland)
 ├── exec.sh                           # Shared exec script
 ├── stop.sh                           # Shared stop script
-├── setup.sh                          # .env generator
-├── config/                           # Shell/tool configs
+├── script/
+│   ├── setup.sh                     # .env generator
+│   ├── config/                    # Shell/tool configs
 │   ├── pip/
 │   └── shell/
 │       ├── bashrc

@@ -93,12 +93,12 @@ flowchart LR
 
 | 文件 | 说明 |
 |------|------|
-| `build.sh` | 构建容器（调用 `setup.sh` 生成 `.env`） |
+| `build.sh` | 构建容器（调用 `script/setup.sh` 生成 `.env`） |
 | `run.sh` | 运行容器（支持 X11/Wayland） |
 | `exec.sh` | 进入运行中的容器 |
 | `stop.sh` | 停止并移除容器 |
-| `setup.sh` | 自动检测系统参数并生成 `.env` |
-| `config/` | Shell 配置文件（bashrc、tmux、terminator、pip） |
+| `script/setup.sh` | 自动检测系统参数并生成 `.env` |
+| `script/config/` | Shell 配置文件（bashrc、tmux、terminator、pip） |
 | `test/smoke_test/` | 给各 Docker repo 使用的共用测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `Makefile` | 统一命令入口（`make test`、`make upgrade` 等） |
@@ -211,7 +211,8 @@ docker_template/
 ├── run.sh                            # 共用运行脚本（X11/Wayland）
 ├── exec.sh                           # 共用 exec 脚本
 ├── stop.sh                           # 共用停止脚本
-├── setup.sh                          # .env 生成器
+├── script/
+│   ├── setup.sh                     # .env 生成器
 ├── config/                           # Shell/工具配置
 │   ├── pip/
 │   └── shell/
