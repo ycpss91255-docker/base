@@ -46,7 +46,7 @@ graph TB
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Consumer Repo（如 ros_noetic）"]
+    subgraph consumer["Docker Repo（如 ros_noetic）"]
         symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats（repo 專屬）"]
@@ -99,10 +99,10 @@ flowchart LR
 | `stop.sh` | 停止並移除容器 |
 | `setup.sh` | 自動偵測系統參數並產生 `.env` |
 | `config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
-| `test/smoke_test/` | 給各 consumer repo 使用的共用測試 |
+| `test/smoke_test/` | 給各 Docker repo 使用的共用測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
 | `Makefile` | 統一指令入口（`make test`、`make upgrade` 等） |
-| `script/init.sh` | Consumer repo 首次初始化 symlinks |
+| `script/init.sh` | 首次初始化 symlinks |
 | `script/upgrade.sh` | Subtree 版本升級 |
 | `script/ci.sh` | CI pipeline（本地 + 遠端） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -198,8 +198,8 @@ make help        # 顯示所有可用指令
 
 ## 測試
 
-- **124** 個 template 自身測試（`test/unit/`）
-- **22** 個共用 smoke tests（`test/smoke_test/`）
+- **132** 個 template 自身測試（`test/unit/`）
+- **27** 個共用 smoke tests（`test/smoke_test/`）
 
 詳見 [TEST.md](../test/TEST.md)。
 
@@ -223,12 +223,12 @@ docker_template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # 模板自身測試（124 個）
+│   └── unit/                         # 模板自身測試（132 個）
 ├── Makefile                          # 統一指令入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 執行器
 ├── .hadolint.yaml                    # 共用 Hadolint 規則
 ├── script/                          # 模板管理工具
-│   ├── init.sh                       # Consumer repo symlink 設定
+│   ├── init.sh                       # Symlink 設定
 │   ├── upgrade.sh                    # Subtree 版本升級
 │   ├── ci.sh                         # CI pipeline（本地 + 遠端）
 │   └── migrate.sh                    # 批次 repo 遷移

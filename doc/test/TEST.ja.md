@@ -1,10 +1,10 @@
 # テストドキュメント
 
-テンプレート自体のテスト：合計 **124 件**。
+テンプレート自体のテスト：合計 **132 件**。
 
 ## テストファイル
 
-### test/setup_spec.bats (41)
+### test/setup_spec.bats (42)
 
 | テスト項目 | 説明 |
 |------------|------|
@@ -50,7 +50,7 @@
 | `main --lang zh sets Chinese messages` | --lang フラグ |
 | `main --lang requires a value` | --lang 値不足 |
 
-### test/unit/template_spec.bats (29)
+### test/unit/template_spec.bats (36)
 
 | テスト項目 | 説明 |
 |------------|------|

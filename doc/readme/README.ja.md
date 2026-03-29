@@ -60,7 +60,7 @@ graph TB
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Consumer Repo（例: ros_noetic）"]
+    subgraph consumer["Docker Repo（例: ros_noetic）"]
         symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats（repo 固有）"]
@@ -113,10 +113,10 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `setup.sh` | システムパラメータの自動検出と `.env` 生成 |
 | `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `test/smoke_test/` | 各 consumer repo 用の共有テスト |
+| `test/smoke_test/` | 各 Docker repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `Makefile` | 統一コマンドエントリ（`make test`、`make upgrade` 等） |
-| `script/init.sh` | Consumer repo の初回 symlink セットアップ |
+| `script/init.sh` | 初回 symlink セットアップ |
 | `script/upgrade.sh` | Subtree バージョンアップグレード |
 | `script/ci.sh` | CI パイプライン（ローカル + リモート） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
@@ -212,8 +212,8 @@ make help        # 全ターゲット表示
 
 ## テスト
 
-- **124** テンプレート自身のテスト（`test/unit/`）
-- **22** 共有 smoke tests（`test/smoke_test/`）
+- **132** テンプレート自身のテスト（`test/unit/`）
+- **27** 共有 smoke tests（`test/smoke_test/`）
 
 詳細は [TEST.md](../test/TEST.md) を参照。
 
@@ -237,12 +237,12 @@ docker_template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # テンプレート自身のテスト（124 件）
+│   └── unit/                         # テンプレート自身のテスト（132 件）
 ├── Makefile                          # 統一コマンドエントリ（make test/lint/...）
 ├── compose.yaml                      # Docker CI ランナー
 ├── .hadolint.yaml                    # 共有 Hadolint ルール
 ├── script/                          # テンプレート管理ツール
-│   ├── init.sh                       # Consumer repo symlink セットアップ
+│   ├── init.sh                       # Symlink セットアップ
 │   ├── upgrade.sh                    # Subtree バージョンアップグレード
 │   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
 │   └── migrate.sh                    # バッチ repo 移行

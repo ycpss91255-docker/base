@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # upgrade.sh - Upgrade docker_template subtree to the latest version
 #
-# Run from the consumer repo root:
+# Run from the repo root:
 #   ./docker_template/script/upgrade.sh              # upgrade to latest tag
 #   ./docker_template/script/upgrade.sh v0.3.0       # upgrade to specific version
 #   ./docker_template/script/upgrade.sh --check      # check if update available
@@ -136,7 +136,7 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
-    [[ ! -d docker_template ]] && _error "docker_template/ not found. Run from consumer repo root."
+    [[ ! -d docker_template ]] && _error "docker_template/ not found. Run from repo root."
 
     case "${1:-}" in
         -h|--help) _usage ;;

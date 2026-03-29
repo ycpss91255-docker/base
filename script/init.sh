@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# init.sh - Initialize a consumer repo with docker_template symlinks
+# init.sh - Initialize a repo with docker_template symlinks
 #
-# Run from the consumer repo root after git subtree add:
+# Run from the repo root after git subtree add:
 #   ./docker_template/script/init.sh
 #
 # Creates symlinks for shared scripts and removes old docker_setup_helper

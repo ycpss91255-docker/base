@@ -46,7 +46,7 @@ graph TB
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Consumer Repo（如 ros_noetic）"]
+    subgraph consumer["Docker Repo（如 ros_noetic）"]
         symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats（repo 专属）"]
@@ -99,10 +99,10 @@ flowchart LR
 | `stop.sh` | 停止并移除容器 |
 | `setup.sh` | 自动检测系统参数并生成 `.env` |
 | `config/` | Shell 配置文件（bashrc、tmux、terminator、pip） |
-| `test/smoke_test/` | 给各 consumer repo 使用的共用测试 |
+| `test/smoke_test/` | 给各 Docker repo 使用的共用测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `Makefile` | 统一命令入口（`make test`、`make upgrade` 等） |
-| `script/init.sh` | Consumer repo 首次初始化 symlinks |
+| `script/init.sh` | 首次初始化 symlinks |
 | `script/upgrade.sh` | Subtree 版本升级 |
 | `script/ci.sh` | CI pipeline（本地 + 远端） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -198,8 +198,8 @@ make help        # 显示所有可用命令
 
 ## 测试
 
-- **124** 个 template 自身测试（`test/unit/`）
-- **22** 个共用 smoke tests（`test/smoke_test/`）
+- **132** 个 template 自身测试（`test/unit/`）
+- **27** 个共用 smoke tests（`test/smoke_test/`）
 
 详见 [TEST.md](../test/TEST.md)。
 
@@ -223,12 +223,12 @@ docker_template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # 模板自身测试（124 个）
+│   └── unit/                         # 模板自身测试（132 个）
 ├── Makefile                          # 统一命令入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 运行器
 ├── .hadolint.yaml                    # 共用 Hadolint 规则
 ├── script/                          # 模板管理工具
-│   ├── init.sh                       # Consumer repo symlink 设置
+│   ├── init.sh                       # Symlink 设置
 │   ├── upgrade.sh                    # Subtree 版本升级
 │   ├── ci.sh                         # CI pipeline（本地 + 远端）
 │   └── migrate.sh                    # 批量 repo 迁移

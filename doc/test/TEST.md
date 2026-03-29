@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **124 tests** total.
+Template self-tests: **132 tests** total.
 
 ## Test Files
 
-### test/setup_spec.bats (41)
+### test/setup_spec.bats (42)
 
 | Test | Description |
 |------|-------------|
@@ -50,7 +50,7 @@ Template self-tests: **124 tests** total.
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (29)
+### test/unit/template_spec.bats (36)
 
 | Test | Description |
 |------|-------------|

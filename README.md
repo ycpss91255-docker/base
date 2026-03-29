@@ -60,7 +60,7 @@ graph TB
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Consumer Repo (e.g. ros_noetic)"]
+    subgraph consumer["Docker Repo (e.g. ros_noetic)"]
         symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats (repo-specific)"]
@@ -113,11 +113,11 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `setup.sh` | Auto-detect system parameters and generate `.env` |
 | `config/` | Shell configs (bashrc, tmux, terminator, pip) |
-| `test/smoke_test/` | Shared smoke tests for consumer repos |
+| `test/smoke_test/` | Shared smoke tests for repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
 | `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
-| `script/init.sh` | Consumer repo first-time symlink setup |
+| `script/init.sh` | First-time symlink setup |
 | `script/upgrade.sh` | Subtree version upgrade |
 | `script/ci.sh` | CI pipeline (local + remote) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
@@ -159,7 +159,7 @@ make upgrade
 
 ## CI Reusable Workflows
 
-Consumer repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to this repo's reusable workflows:
+Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to this repo's reusable workflows:
 
 ```yaml
 # .github/workflows/main.yaml
@@ -229,17 +229,17 @@ docker_template/
 │       ├── terminator/
 │       └── tmux/
 ├── test/
-│   ├── smoke_test/                   # Shared tests for consumer repos
+│   ├── smoke_test/                   # Shared tests for repos
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # Template self-tests (124 tests)
+│   └── unit/                         # Template self-tests (132 tests)
 ├── Makefile                          # Repo entry (make build/run/stop/...)
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── script/                          # Template management tools
-│   ├── init.sh                       # Consumer repo symlink setup
+│   ├── init.sh                       # Symlink setup
 │   ├── upgrade.sh                    # Subtree version upgrade
 │   ├── ci.sh                         # CI pipeline (local + remote)
 │   └── migrate.sh                    # Batch repo migration

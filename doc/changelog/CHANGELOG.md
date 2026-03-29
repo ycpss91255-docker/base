@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restructure `test/`: `test/unit/` (self-tests) + `test/smoke_test/` (consumer shared tests)
 - Restructure `doc/`: `doc/readme/`, `doc/test/`, `doc/changelog/` (by file type, with i18n)
 - README: simplify test/changelog sections with links to detailed docs
-- 124 tests (was 114)
+- 132 tests (was 124)
 
 ## [v0.2.0] - 2026-03-28
 

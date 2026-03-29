@@ -1,10 +1,10 @@
 # 測試文件
 
-模板自身測試：共 **124 個**。
+模板自身測試：共 **132 個**。
 
 ## 測試檔案
 
-### test/setup_spec.bats (41)
+### test/setup_spec.bats (42)
 
 | 測試項目 | 說明 |
 |----------|------|
@@ -50,7 +50,7 @@
 | `main --lang zh sets Chinese messages` | --lang 旗標 |
 | `main --lang requires a value` | 缺少 --lang 值 |
 
-### test/unit/template_spec.bats (29)
+### test/unit/template_spec.bats (36)
 
 | 測試項目 | 說明 |
 |----------|------|
