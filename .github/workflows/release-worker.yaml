@@ -31,7 +31,7 @@ jobs:
           cp -r Dockerfile compose.yaml \
                 build.sh run.sh exec.sh stop.sh \
                 script/ .env.example .hadolint.yaml test/smoke_test/ \
-                docker_template/ \
+                template/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
 
           # Copy extra repo-specific files if specified

@@ -72,8 +72,8 @@
 | `doc/readme/ directory exists` | ディレクトリ構造 |
 | `doc/test/ directory exists` | ディレクトリ構造 |
 | `doc/changelog/ directory exists` | ディレクトリ構造 |
-| `build.sh references docker_template/setup.sh` | パス参照 |
-| `run.sh references docker_template/setup.sh` | パス参照 |
+| `build.sh references template/setup.sh` | パス参照 |
+| `run.sh references template/setup.sh` | パス参照 |
 | `build.sh uses set -euo pipefail` | シェル規約 |
 | `run.sh uses set -euo pipefail` | シェル規約 |
 | `exec.sh uses set -euo pipefail` | シェル規約 |

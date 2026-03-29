@@ -1,7 +1,7 @@
-# docker_template
+# template
 
-[![Self Test](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/docker_template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/docker_template)
+[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -17,9 +17,9 @@
 
 ```bash
 # 新 repo：添加 subtree + 初始化
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
-./docker_template/script/init.sh
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
+./template/script/init.sh
 
 # 升级到最新版
 make upgrade-check   # 检查
@@ -38,7 +38,7 @@ make help            # 显示所有命令
 
 ```mermaid
 graph TB
-    subgraph docker_template["docker_template（共用 repo）"]
+    subgraph template["template（共用 repo）"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
@@ -47,13 +47,13 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（如 ros_noetic）"]
-        symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
     end
 
-    docker_template -- "git subtree" --> consumer
+    template -- "git subtree" --> consumer
     scripts -. "symlink" .-> symlinks
     smoke -. "Dockerfile COPY" .-> repo_test
     workflows -. "@tag 引用" .-> main_yaml
@@ -75,8 +75,8 @@ flowchart LR
     end
 
     subgraph github["GitHub Actions"]
-        build_worker["build-worker.yaml<br/>（来自 docker_template）"]
-        release_worker["release-worker.yaml<br/>（来自 docker_template）"]
+        build_worker["build-worker.yaml<br/>（来自 template）"]
+        release_worker["release-worker.yaml<br/>（来自 template）"]
     end
 
     build_test --> ci_container
@@ -122,11 +122,11 @@ flowchart LR
 
 ```bash
 # 1. 添加 subtree
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. 初始化 symlinks（一个命令搞定）
-./docker_template/script/init.sh
+./template/script/init.sh
 ```
 
 ### 升级
@@ -139,7 +139,7 @@ make upgrade-check
 make upgrade
 
 # 或指定版本
-./docker_template/script/upgrade.sh v0.3.0
+./template/script/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -150,7 +150,7 @@ make upgrade
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/docker_template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
       image_name: ros_noetic
       build_args: |
@@ -161,7 +161,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/docker_template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: ros_noetic
 ```
@@ -206,7 +206,7 @@ make help        # 显示所有可用命令
 ## 目录结构
 
 ```
-docker_template/
+template/
 ├── build.sh                          # 共用构建脚本
 ├── run.sh                            # 共用运行脚本（X11/Wayland）
 ├── exec.sh                           # 共用 exec 脚本

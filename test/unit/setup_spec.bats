@@ -302,11 +302,11 @@ EOF
 }
 
 @test "default _base_path resolves to repo root, not script dir" {
-    # Regression: setup.sh lives at docker_template/script/setup.sh
+    # Regression: setup.sh lives at template/script/setup.sh
     # Default _base_path must go up 2 levels to repo root
     local _repo_root="${TEMP_DIR}/docker_myapp"
-    mkdir -p "${_repo_root}/docker_template/script"
-    cp /source/script/setup.sh "${_repo_root}/docker_template/script/setup.sh"
+    mkdir -p "${_repo_root}/template/script"
+    cp /source/script/setup.sh "${_repo_root}/template/script/setup.sh"
 
     # Create .env.example as fallback for IMAGE_NAME
     echo "IMAGE_NAME=myapp" > "${_repo_root}/.env.example"
@@ -316,12 +316,12 @@ EOF
     mkdir -p "${_ws}"
 
     # Run setup.sh directly (no --base-path), simulating user calling it
-    run bash -c "cd '${_repo_root}' && bash docker_template/script/setup.sh"
+    run bash -c "cd '${_repo_root}' && bash template/script/setup.sh"
     assert_success
 
-    # .env should be at repo root, not in docker_template/script/
+    # .env should be at repo root, not in template/script/
     assert [ -f "${_repo_root}/.env" ]
-    assert [ ! -f "${_repo_root}/docker_template/.env" ]
+    assert [ ! -f "${_repo_root}/template/.env" ]
 
     # IMAGE_NAME should derive from repo root dir (docker_myapp → myapp)
     run grep "IMAGE_NAME=myapp" "${_repo_root}/.env"

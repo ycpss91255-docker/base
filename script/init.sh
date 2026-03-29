@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# init.sh - Initialize a repo with docker_template symlinks
+# init.sh - Initialize a repo with template symlinks
 #
 # Run from the repo root after git subtree add:
-#   ./docker_template/script/init.sh
+#   ./template/script/init.sh
 #
 # Creates symlinks for shared scripts and removes old docker_setup_helper
 # artifacts if present.
@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 TEMPLATE_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 REPO_ROOT="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
-TEMPLATE_REL="docker_template"
+TEMPLATE_REL="template"
 
 cd "${REPO_ROOT}"
 
@@ -55,7 +55,7 @@ else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
 fi
 
-# ── Remove old shared smoke tests (now provided by docker_template) ──────────
+# ── Remove old shared smoke tests (now provided by template) ──────────
 
 for f in test/smoke_test/test_helper.bash test/smoke_test/script_help.bats test/smoke_test/display_env.bats; do
     if [[ -f "${f}" ]] && [[ -L "${f}" || ! -s "${f}" ]]; then
@@ -81,16 +81,16 @@ if [[ -f "${TEMPLATE_DIR}/script/migrate.sh" ]]; then
 else
     ver="v0.2.0"
 fi
-echo "${ver}" > .docker_template_version
-_log "Created .docker_template_version (${ver})"
+echo "${ver}" > .template_version
+_log "Created .template_version (${ver})"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 _log ""
 _log "Done! Next steps:"
-_log "  1. Update Dockerfile CONFIG_SRC: docker_setup_helper/src/config → docker_template/config"
+_log "  1. Update Dockerfile CONFIG_SRC: docker_setup_helper/src/config → template/config"
 _log "  2. Update Dockerfile smoke test COPY:"
-_log "       COPY docker_template/test/smoke_test/ /smoke_test/"
+_log "       COPY template/test/smoke_test/ /smoke_test/"
 _log "       COPY test/smoke_test/ /smoke_test/"
 _log "  3. Update .github/workflows/main.yaml to use reusable workflows"
 _log "  4. git add -A && git commit"

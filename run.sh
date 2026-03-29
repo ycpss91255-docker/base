@@ -108,7 +108,7 @@ done
 
 # Generate / refresh .env
 if [[ "${SKIP_ENV}" == false ]]; then
-    "${FILE_PATH}/docker_template/script/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    "${FILE_PATH}/template/script/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
 fi
 
 # Load .env for xhost

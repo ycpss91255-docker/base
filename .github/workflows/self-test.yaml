@@ -39,7 +39,7 @@ jobs:
       - name: Create release archive
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          ARCHIVE_NAME="docker_template-${VERSION}"
+          ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
           cp -r build.sh run.sh exec.sh stop.sh setup.sh \
@@ -58,5 +58,5 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
-            docker_template-*.tar.gz
-            docker_template-*.zip
+            template-*.tar.gz
+            template-*.zip

@@ -1,7 +1,7 @@
-# docker_template
+# template
 
-[![Self Test](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/docker_template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/docker_template)
+[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -31,9 +31,9 @@
 
 ```bash
 # 新規 repo：subtree 追加 + 初期化
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
-./docker_template/script/init.sh
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
+./template/script/init.sh
 
 # 最新版にアップグレード
 make upgrade-check   # 確認
@@ -52,7 +52,7 @@ make help            # 全コマンド表示
 
 ```mermaid
 graph TB
-    subgraph docker_template["docker_template（共有 repo）"]
+    subgraph template["template（共有 repo）"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
@@ -61,13 +61,13 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例: ros_noetic）"]
-        symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
     end
 
-    docker_template -- "git subtree" --> consumer
+    template -- "git subtree" --> consumer
     scripts -. "symlink" .-> symlinks
     smoke -. "Dockerfile COPY" .-> repo_test
     workflows -. "@tag 参照" .-> main_yaml
@@ -89,8 +89,8 @@ flowchart LR
     end
 
     subgraph github["GitHub Actions"]
-        build_worker["build-worker.yaml<br/>（docker_template より）"]
-        release_worker["release-worker.yaml<br/>（docker_template より）"]
+        build_worker["build-worker.yaml<br/>（template より）"]
+        release_worker["release-worker.yaml<br/>（template より）"]
     end
 
     build_test --> ci_container
@@ -136,11 +136,11 @@ flowchart LR
 
 ```bash
 # 1. subtree 追加
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. symlink 初期化（ワンコマンド）
-./docker_template/script/init.sh
+./template/script/init.sh
 ```
 
 ### アップグレード
@@ -153,7 +153,7 @@ make upgrade-check
 make upgrade
 
 # バージョン指定
-./docker_template/script/upgrade.sh v0.3.0
+./template/script/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -164,7 +164,7 @@ make upgrade
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/docker_template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
       image_name: ros_noetic
       build_args: |
@@ -175,7 +175,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/docker_template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: ros_noetic
 ```
@@ -220,7 +220,7 @@ make help        # 全ターゲット表示
 ## ディレクトリ構造
 
 ```
-docker_template/
+template/
 ├── build.sh                          # 共有ビルドスクリプト
 ├── run.sh                            # 共有実行スクリプト（X11/Wayland）
 ├── exec.sh                           # 共有 exec スクリプト

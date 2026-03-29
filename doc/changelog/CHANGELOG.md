@@ -48,20 +48,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `build-worker.yaml` — parameterized Docker build + smoke test
   - `release-worker.yaml` — parameterized GitHub Release
   - `self-test.yaml` — template's own CI
-- **`migrate.sh`**: batch migration script for converting repos from `docker_setup_helper` to `docker_template`
+- **`migrate.sh`**: batch migration script for converting repos from `docker_setup_helper` to `template`
 - `.hadolint.yaml`: shared Hadolint rules
 - `.codecov.yaml`: coverage configuration
 - Documentation: README (English), README.zh-TW.md, README.zh-CN.md, README.ja.md, TEST.md
 
 ### Changed
-- `setup.sh` default `_base_path` traverses 1 level up (`/..`) instead of 2 (`/../..`) to match new `docker_template/setup.sh` location
+- `setup.sh` default `_base_path` traverses 1 level up (`/..`) instead of 2 (`/../..`) to match new `template/setup.sh` location
 
 ### Migration notes
-- Consumer repos replace `docker_setup_helper/` subtree with `docker_template/` subtree
-- Shell scripts at root become symlinks to `docker_template/`
+- Consumer repos replace `docker_setup_helper/` subtree with `template/` subtree
+- Shell scripts at root become symlinks to `template/`
 - Local `build-worker.yaml` / `release-worker.yaml` replaced by reusable workflow calls in `main.yaml`
-- Dockerfile `CONFIG_SRC` path changes: `docker_setup_helper/src/config` → `docker_template/config`
-- Shared smoke tests loaded via `COPY docker_template/smoke_test/` in Dockerfile (not symlinks — Docker COPY does not follow symlinks)
+- Dockerfile `CONFIG_SRC` path changes: `docker_setup_helper/src/config` → `template/config`
+- Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks — Docker COPY does not follow symlinks)
 
-[Unreleased]: https://github.com/ycpss91255-docker/docker_template/compare/v0.1.0...HEAD
-[v0.1.0]: https://github.com/ycpss91255-docker/docker_template/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ycpss91255-docker/template/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/ycpss91255-docker/template/releases/tag/v0.1.0

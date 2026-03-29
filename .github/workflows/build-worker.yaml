@@ -25,17 +25,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check docker_template version
+      - name: Check template version
         run: |
-          if [ -f .docker_template_version ]; then
-            LOCAL_VER=$(cat .docker_template_version)
+          if [ -f .template_version ]; then
+            LOCAL_VER=$(cat .template_version)
             LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
-              https://github.com/ycpss91255-docker/docker_template.git \
+              https://github.com/ycpss91255-docker/template.git \
               | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
             if [ -n "${LATEST_VER}" ] && [ "${LOCAL_VER}" != "${LATEST_VER}" ]; then
-              echo "::warning::docker_template ${LOCAL_VER} → ${LATEST_VER} available"
+              echo "::warning::template ${LOCAL_VER} → ${LATEST_VER} available"
             else
-              echo "docker_template is up to date (${LOCAL_VER})"
+              echo "template is up to date (${LOCAL_VER})"
             fi
           fi
 

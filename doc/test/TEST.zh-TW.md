@@ -72,8 +72,8 @@
 | `doc/readme/ directory exists` | 目錄結構 |
 | `doc/test/ directory exists` | 目錄結構 |
 | `doc/changelog/ directory exists` | 目錄結構 |
-| `build.sh references docker_template/setup.sh` | 路徑引用 |
-| `run.sh references docker_template/setup.sh` | 路徑引用 |
+| `build.sh references template/setup.sh` | 路徑引用 |
+| `run.sh references template/setup.sh` | 路徑引用 |
 | `build.sh uses set -euo pipefail` | Shell 慣例 |
 | `run.sh uses set -euo pipefail` | Shell 慣例 |
 | `exec.sh uses set -euo pipefail` | Shell 慣例 |

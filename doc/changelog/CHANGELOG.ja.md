@@ -48,20 +48,20 @@
   - `build-worker.yaml` — パラメータ化された Docker build + smoke test
   - `release-worker.yaml` — パラメータ化された GitHub Release
   - `self-test.yaml` — テンプレート自体の CI
-- **`migrate.sh`**：バッチ移行スクリプト（`docker_setup_helper` から `docker_template` への変換）
+- **`migrate.sh`**：バッチ移行スクリプト（`docker_setup_helper` から `template` への変換）
 - `.hadolint.yaml`：共有 Hadolint ルール
 - `.codecov.yaml`：カバレッジ設定
 - ドキュメント：README（英語）、README.zh-TW.md、README.zh-CN.md、README.ja.md、TEST.md
 
 ### 変更
-- `setup.sh` デフォルト `_base_path` が 1 レベル上（`/..`）に変更、旧 2 レベル（`/../..`）を置換、新しい `docker_template/setup.sh` の配置に対応
+- `setup.sh` デフォルト `_base_path` が 1 レベル上（`/..`）に変更、旧 2 レベル（`/../..`）を置換、新しい `template/setup.sh` の配置に対応
 
 ### 移行に関する注意事項
-- Consumer repos は `docker_setup_helper/` subtree を `docker_template/` subtree に置換
-- ルートのシェルスクリプトは `docker_template/` への symlinks に変更
+- Consumer repos は `docker_setup_helper/` subtree を `template/` subtree に置換
+- ルートのシェルスクリプトは `template/` への symlinks に変更
 - ローカル `build-worker.yaml` / `release-worker.yaml` は `main.yaml` 内の再利用可能な workflow 呼び出しに置換
-- Dockerfile `CONFIG_SRC` パス変更：`docker_setup_helper/src/config` → `docker_template/config`
-- 共有 smoke tests は Dockerfile `COPY docker_template/test/smoke_test/` で読み込み（symlinks ではない — Docker COPY は symlinks を追跡しない）
+- Dockerfile `CONFIG_SRC` パス変更：`docker_setup_helper/src/config` → `template/config`
+- 共有 smoke tests は Dockerfile `COPY template/test/smoke_test/` で読み込み（symlinks ではない — Docker COPY は symlinks を追跡しない）
 
-[未リリース]: https://github.com/ycpss91255-docker/docker_template/compare/v0.1.0...HEAD
-[v0.1.0]: https://github.com/ycpss91255-docker/docker_template/releases/tag/v0.1.0
+[未リリース]: https://github.com/ycpss91255-docker/template/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/ycpss91255-docker/template/releases/tag/v0.1.0

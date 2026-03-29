@@ -21,11 +21,11 @@ exec: ## Exec into running container (default: bash)
 stop: ## Stop and remove containers
 	./stop.sh
 
-upgrade: ## Upgrade docker_template subtree
-	./docker_template/script/upgrade.sh
+upgrade: ## Upgrade template subtree
+	./template/script/upgrade.sh
 
-upgrade-check: ## Check for docker_template updates
-	./docker_template/script/upgrade.sh --check
+upgrade-check: ## Check for template updates
+	./template/script/upgrade.sh --check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \

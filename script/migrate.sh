@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migrate.sh - Migrate Docker container repos to use docker_template
+# migrate.sh - Migrate Docker container repos to use template
 #
 # Usage:
 #   ./migrate.sh <repo_path>          # migrate a single repo
@@ -9,8 +9,8 @@
 #
 # This script:
 #   1. Removes docker_setup_helper subtree and old CI workflows
-#   2. Adds docker_template as git subtree
-#   3. Replaces shell scripts with symlinks to docker_template/
+#   2. Adds template as git subtree
+#   3. Replaces shell scripts with symlinks to template/
 #   4. Updates Dockerfile (CONFIG_SRC path, smoke test COPY)
 #   5. Generates main.yaml with reusable workflow calls
 #   6. Commits changes and creates a PR
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-TEMPLATE_REPO="git@github.com:ycpss91255-docker/docker_template.git"
+TEMPLATE_REPO="git@github.com:ycpss91255-docker/template.git"
 TEMPLATE_VERSION="v0.3.0"
 DRY_RUN=false
 
@@ -94,8 +94,8 @@ _check_preconditions() {
 
     [[ -d "${repo_path}/.git" ]] || _error "${repo_path} is not a git repository"
 
-    if [[ -f "${repo_path}/.docker_template_version" ]]; then
-        _warn "${repo_path} already has .docker_template_version — skipping"
+    if [[ -f "${repo_path}/.template_version" ]]; then
+        _warn "${repo_path} already has .template_version — skipping"
         return 1
     fi
 
@@ -131,7 +131,7 @@ _remove_old_subtree() {
     git -C "${repo_path}" commit -m "$(cat <<'COMMIT'
 refactor: remove docker_setup_helper subtree and local CI workflows
 
-Preparation for docker_template migration.
+Preparation for template migration.
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 COMMIT
@@ -140,10 +140,10 @@ COMMIT
 
 _add_template_subtree() {
     local repo_path="$1"
-    _log "Adding docker_template subtree (${TEMPLATE_VERSION})"
+    _log "Adding template subtree (${TEMPLATE_VERSION})"
 
     git -C "${repo_path}" subtree add \
-        --prefix=docker_template "${TEMPLATE_REPO}" "${TEMPLATE_VERSION}" --squash
+        --prefix=template "${TEMPLATE_REPO}" "${TEMPLATE_VERSION}" --squash
 }
 
 _create_symlinks() {
@@ -156,15 +156,15 @@ _create_symlinks() {
     git rm -f build.sh run.sh exec.sh stop.sh 2>/dev/null || true
 
     # Create symlinks for scripts
-    ln -sf docker_template/build.sh build.sh
-    ln -sf docker_template/run.sh run.sh
-    ln -sf docker_template/exec.sh exec.sh
-    ln -sf docker_template/stop.sh stop.sh
+    ln -sf template/build.sh build.sh
+    ln -sf template/run.sh run.sh
+    ln -sf template/exec.sh exec.sh
+    ln -sf template/stop.sh stop.sh
 
     # .hadolint.yaml: symlink for GUI repos, keep custom for repos with extra rules
-    if [[ ! -f .hadolint.yaml ]] || diff -q .hadolint.yaml docker_template/.hadolint.yaml >/dev/null 2>&1; then
+    if [[ ! -f .hadolint.yaml ]] || diff -q .hadolint.yaml template/.hadolint.yaml >/dev/null 2>&1; then
         git rm -f .hadolint.yaml 2>/dev/null || true
-        ln -sf docker_template/.hadolint.yaml .hadolint.yaml
+        ln -sf template/.hadolint.yaml .hadolint.yaml
     else
         _log "Keeping custom .hadolint.yaml (has extra rules)"
     fi
@@ -185,16 +185,16 @@ _update_dockerfile() {
     [[ -f "${dockerfile}" ]] || return 0
 
     # Update CONFIG_SRC path
-    sed -i 's|docker_setup_helper/src/config|docker_template/config|g' "${dockerfile}"
+    sed -i 's|docker_setup_helper/src/config|template/config|g' "${dockerfile}"
 
-    # Ensure smoke tests are copied from docker_template
-    if ! grep -q "docker_template/test/smoke_test" "${dockerfile}"; then
+    # Ensure smoke tests are copied from template
+    if ! grep -q "template/test/smoke_test" "${dockerfile}"; then
         if [[ "${has_gui}" == "true" ]]; then
             # GUI repos: copy all shared smoke tests (including display_env.bats)
-            sed -i '/COPY test\/smoke_test\//i COPY docker_template/test/smoke_test/ /smoke_test/' "${dockerfile}"
+            sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke_test/ /smoke_test/' "${dockerfile}"
         else
             # Non-GUI repos: copy only script_help + test_helper (skip display_env.bats)
-            sed -i '/COPY test\/smoke_test\//i COPY docker_template/test/smoke_test/test_helper.bash /smoke_test/test_helper.bash\nCOPY docker_template/test/smoke_test/script_help.bats /smoke_test/script_help.bats' "${dockerfile}"
+            sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke_test/test_helper.bash /smoke_test/test_helper.bash\nCOPY template/test/smoke_test/script_help.bats /smoke_test/script_help.bats' "${dockerfile}"
         fi
     fi
 
@@ -208,7 +208,7 @@ _update_dockerfile() {
 
 _update_readmes() {
     local repo_path="$1"
-    _log "Updating READMEs (docker_setup_helper → docker_template)"
+    _log "Updating READMEs (docker_setup_helper → template)"
 
     for f in "${repo_path}/README.md" "${repo_path}"/doc/README.*.md; do
         [[ -f "${f}" ]] || continue
@@ -216,14 +216,14 @@ _update_readmes() {
         # Replace escaped markdown: docker\_setup\_helper → docker\_template
         sed -i 's/docker\\_setup\\_helper/docker\\_template/g' "${f}"
 
-        # Replace plain text: docker_setup_helper → docker_template
-        sed -i 's/docker_setup_helper/docker_template/g' "${f}"
+        # Replace plain text: docker_setup_helper → template
+        sed -i 's/docker_setup_helper/template/g' "${f}"
 
-        # Fix GitHub org URL: ycpss91255/docker_template → ycpss91255-docker/docker_template
-        sed -i 's|ycpss91255/docker_template|ycpss91255-docker/docker_template|g' "${f}"
+        # Fix GitHub org URL: ycpss91255/template → ycpss91255-docker/template
+        sed -i 's|ycpss91255/template|ycpss91255-docker/template|g' "${f}"
 
         # Update subtree git URL version
-        sed -i "s|docker_template\.git v[0-9.]*|docker_template.git ${TEMPLATE_VERSION}|g" "${f}"
+        sed -i "s|template\.git v[0-9.]*|template.git ${TEMPLATE_VERSION}|g" "${f}"
 
         # Update version in directory tree comment
         sed -i "s|git subtree (v[0-9.]*)|git subtree (${TEMPLATE_VERSION})|g" "${f}"
@@ -233,14 +233,14 @@ _update_readmes() {
 
         # Remove old build-worker/release-worker from directory tree
         sed -i '/│   ├── build-worker.yaml/d' "${f}"
-        sed -i 's|│   └── release-worker.yaml.*|│   └── main.yaml                # CI/CD (docker_template reusable workflows)|' "${f}"
+        sed -i 's|│   └── release-worker.yaml.*|│   └── main.yaml                # CI/CD (template reusable workflows)|' "${f}"
 
         # Remove old shared test files from directory tree
         sed -i '/│       ├── script_help.bats/d' "${f}"
         sed -i '/│       └── test_helper.bash/d' "${f}"
 
-        # Update .docker_setup_helper_version → .docker_template_version
-        sed -i 's/\.docker_setup_helper_version/.docker_template_version/g' "${f}"
+        # Update .docker_setup_helper_version → .template_version
+        sed -i 's/\.docker_setup_helper_version/.template_version/g' "${f}"
     done
 
     git -C "${repo_path}" add README.md doc/ 2>/dev/null || true
@@ -287,7 +287,7 @@ jobs:
   call-docker-build:
     permissions:
       contents: read
-    uses: ycpss91255-docker/docker_template/.github/workflows/build-worker.yaml@${TEMPLATE_VERSION}
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@${TEMPLATE_VERSION}
     with:
       image_name: ${image_name}${args_yaml}${runtime_yaml}
 
@@ -296,7 +296,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
-    uses: ycpss91255-docker/docker_template/.github/workflows/release-worker.yaml@${TEMPLATE_VERSION}
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@${TEMPLATE_VERSION}
     with:
       archive_name_prefix: ${image_name}
     secrets: inherit
@@ -307,9 +307,9 @@ YAML
 
 _add_version_file() {
     local repo_path="$1"
-    _log "Adding .docker_template_version"
-    echo "${TEMPLATE_VERSION}" > "${repo_path}/.docker_template_version"
-    git -C "${repo_path}" add .docker_template_version
+    _log "Adding .template_version"
+    echo "${TEMPLATE_VERSION}" > "${repo_path}/.template_version"
+    git -C "${repo_path}" add .template_version
 }
 
 _commit_migration() {
@@ -318,16 +318,16 @@ _commit_migration() {
 
     git -C "${repo_path}" add -A
     git -C "${repo_path}" commit -m "$(cat <<'COMMIT'
-feat: migrate from docker_setup_helper to docker_template
+feat: migrate from docker_setup_helper to template
 
-BREAKING CHANGE: replaces docker_setup_helper subtree with docker_template.
+BREAKING CHANGE: replaces docker_setup_helper subtree with template.
 
-- Replace shell scripts with symlinks to docker_template/ subtree
-- Replace .hadolint.yaml with symlink to docker_template/.hadolint.yaml
-- Update Dockerfile CONFIG_SRC path to docker_template/config
-- Merge shared smoke tests from docker_template/test/smoke_test/ in Dockerfile
-- Replace local CI workflows with reusable workflows from docker_template
-- Fixes X11/Wayland support via docker_template's run.sh
+- Replace shell scripts with symlinks to template/ subtree
+- Replace .hadolint.yaml with symlink to template/.hadolint.yaml
+- Update Dockerfile CONFIG_SRC path to template/config
+- Merge shared smoke tests from template/test/smoke_test/ in Dockerfile
+- Replace local CI workflows with reusable workflows from template
+- Fixes X11/Wayland support via template's run.sh
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 COMMIT
@@ -343,13 +343,13 @@ _push_and_pr() {
     local pr_url
     pr_url=$(gh pr create \
         --repo "ycpss91255-docker/${image_name}" \
-        --title "feat: migrate to docker_template (v2.0.0)" \
+        --title "feat: migrate to template (v2.0.0)" \
         --body "$(cat <<PR_BODY
 ## Summary
 
-- Replace \`docker_setup_helper\` subtree with \`docker_template\` subtree
-- Shell scripts (build.sh, run.sh, exec.sh, stop.sh) are now symlinks to \`docker_template/\`
-- Local CI workflows replaced with reusable workflows from \`docker_template\`
+- Replace \`docker_setup_helper\` subtree with \`template\` subtree
+- Shell scripts (build.sh, run.sh, exec.sh, stop.sh) are now symlinks to \`template/\`
+- Local CI workflows replaced with reusable workflows from \`template\`
 - Fixes X11/Wayland support
 
 ## BREAKING CHANGE
@@ -424,8 +424,8 @@ _list_repos() {
     for repo_path in "${!REPO_REGISTRY[@]}"; do
         _parse_entry "${REPO_REGISTRY["${repo_path}"]}"
         local status="pending"
-        if [[ -f "${repo_path}/.docker_template_version" ]]; then
-            status="migrated ($(cat "${repo_path}/.docker_template_version"))"
+        if [[ -f "${repo_path}/.template_version" ]]; then
+            status="migrated ($(cat "${repo_path}/.template_version"))"
         elif [[ ! -d "${repo_path}" ]]; then
             status="not found"
         fi
@@ -438,7 +438,7 @@ _usage() {
     cat >&2 <<'EOF'
 Usage: migrate.sh [OPTIONS] <repo_path|--all|--list>
 
-Migrate Docker container repos from docker_setup_helper to docker_template.
+Migrate Docker container repos from docker_setup_helper to template.
 
 Commands:
   <repo_path>     Migrate a single repo

@@ -107,16 +107,16 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Path reference: scripts call docker_template/script/setup.sh
+# Path reference: scripts call template/script/setup.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "build.sh references docker_template/script/setup.sh" {
-    run grep "docker_template/script/setup.sh" /source/build.sh
+@test "build.sh references template/script/setup.sh" {
+    run grep "template/script/setup.sh" /source/build.sh
     assert_success
 }
 
-@test "run.sh references docker_template/script/setup.sh" {
-    run grep "docker_template/script/setup.sh" /source/run.sh
+@test "run.sh references template/script/setup.sh" {
+    run grep "template/script/setup.sh" /source/run.sh
     assert_success
 }
 
@@ -202,7 +202,7 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.sh default _base_path uses /.." {
-    # In docker_template, setup.sh is at docker_template/script/setup.sh
+    # In template, setup.sh is at template/script/setup.sh
     # So it should go up 1 level (/..) to reach repo root
     run grep -E '\.\./\.\.' /source/script/setup.sh
     assert_success  # Should have ../../ ../../ (that was old docker_setup_helper/src/ pattern)

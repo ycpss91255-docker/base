@@ -48,20 +48,20 @@
   - `build-worker.yaml` — 參數化 Docker build + smoke test
   - `release-worker.yaml` — 參數化 GitHub Release
   - `self-test.yaml` — 模板自身 CI
-- **`migrate.sh`**：批次遷移腳本（從 `docker_setup_helper` 轉換至 `docker_template`）
+- **`migrate.sh`**：批次遷移腳本（從 `docker_setup_helper` 轉換至 `template`）
 - `.hadolint.yaml`：共用 Hadolint 規則
 - `.codecov.yaml`：覆蓋率設定
 - 文件：README（英文）、README.zh-TW.md、README.zh-CN.md、README.ja.md、TEST.md
 
 ### 變更
-- `setup.sh` 預設 `_base_path` 改為向上 1 層（`/..`），取代原本的 2 層（`/../..`），以符合新的 `docker_template/setup.sh` 位置
+- `setup.sh` 預設 `_base_path` 改為向上 1 層（`/..`），取代原本的 2 層（`/../..`），以符合新的 `template/setup.sh` 位置
 
 ### 遷移注意事項
-- Consumer repos 將 `docker_setup_helper/` subtree 替換為 `docker_template/` subtree
-- 根目錄的 Shell 腳本改為指向 `docker_template/` 的 symlinks
+- Consumer repos 將 `docker_setup_helper/` subtree 替換為 `template/` subtree
+- 根目錄的 Shell 腳本改為指向 `template/` 的 symlinks
 - 本地 `build-worker.yaml` / `release-worker.yaml` 替換為 `main.yaml` 中的可重用 workflow 呼叫
-- Dockerfile `CONFIG_SRC` 路徑變更：`docker_setup_helper/src/config` → `docker_template/config`
-- 共用 smoke tests 透過 Dockerfile `COPY docker_template/test/smoke_test/` 載入（非 symlinks — Docker COPY 不 follow symlinks）
+- Dockerfile `CONFIG_SRC` 路徑變更：`docker_setup_helper/src/config` → `template/config`
+- 共用 smoke tests 透過 Dockerfile `COPY template/test/smoke_test/` 載入（非 symlinks — Docker COPY 不 follow symlinks）
 
-[未發布]: https://github.com/ycpss91255-docker/docker_template/compare/v0.1.0...HEAD
-[v0.1.0]: https://github.com/ycpss91255-docker/docker_template/releases/tag/v0.1.0
+[未發布]: https://github.com/ycpss91255-docker/template/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/ycpss91255-docker/template/releases/tag/v0.1.0

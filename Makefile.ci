@@ -19,15 +19,15 @@ clean: ## Remove coverage reports
 init: ## Initialize symlinks for consumer repo (first-time setup)
 	./script/init.sh
 
-upgrade: ## Upgrade docker_template subtree to latest version
+upgrade: ## Upgrade template subtree to latest version
 	./script/upgrade.sh
 
-upgrade-check: ## Check if a newer docker_template version is available
+upgrade-check: ## Check if a newer template version is available
 	./script/upgrade.sh --check
 
 # ── Batch management (template repo only) ────────────────────────────────────
 
-migrate: ## Migrate all repos from docker_setup_helper to docker_template
+migrate: ## Migrate all repos from docker_setup_helper to template
 	./script/migrate.sh --all
 
 migrate-list: ## List repos and their migration status

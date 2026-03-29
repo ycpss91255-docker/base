@@ -72,8 +72,8 @@ Template self-tests: **132 tests** total.
 | `doc/readme/ directory exists` | Directory structure |
 | `doc/test/ directory exists` | Directory structure |
 | `doc/changelog/ directory exists` | Directory structure |
-| `build.sh references docker_template/setup.sh` | Path reference |
-| `run.sh references docker_template/setup.sh` | Path reference |
+| `build.sh references template/setup.sh` | Path reference |
+| `run.sh references template/setup.sh` | Path reference |
 | `build.sh uses set -euo pipefail` | Shell convention |
 | `run.sh uses set -euo pipefail` | Shell convention |
 | `exec.sh uses set -euo pipefail` | Shell convention |

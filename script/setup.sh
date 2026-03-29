@@ -279,7 +279,7 @@ main() {
     done
 
     if [[ -z "${_base_path}" ]]; then
-        # setup.sh is at docker_template/script/setup.sh, repo root is ../../
+        # setup.sh is at template/script/setup.sh, repo root is ../../
         _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../.." && pwd -P)"
     fi
 

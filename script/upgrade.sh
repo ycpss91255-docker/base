@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# upgrade.sh - Upgrade docker_template subtree to the latest version
+# upgrade.sh - Upgrade template subtree to the latest version
 #
 # Run from the repo root:
-#   ./docker_template/script/upgrade.sh              # upgrade to latest tag
-#   ./docker_template/script/upgrade.sh v0.3.0       # upgrade to specific version
-#   ./docker_template/script/upgrade.sh --check      # check if update available
+#   ./template/script/upgrade.sh              # upgrade to latest tag
+#   ./template/script/upgrade.sh v0.3.0       # upgrade to specific version
+#   ./template/script/upgrade.sh --check      # check if update available
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-TEMPLATE_REMOTE="git@github.com:ycpss91255-docker/docker_template.git"
-VERSION_FILE="${REPO_ROOT}/.docker_template_version"
+TEMPLATE_REMOTE="git@github.com:ycpss91255-docker/template.git"
+VERSION_FILE="${REPO_ROOT}/.template_version"
 
 cd "${REPO_ROOT}"
 
@@ -74,12 +74,12 @@ _upgrade() {
 
     # Step 1: subtree pull
     _log "Step 1/3: git subtree pull"
-    git subtree pull --prefix=docker_template \
+    git subtree pull --prefix=template \
         "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
-        -m "chore: upgrade docker_template subtree to ${target_ver}"
+        -m "chore: upgrade template subtree to ${target_ver}"
 
     # Step 2: update version file
-    _log "Step 2/3: update .docker_template_version"
+    _log "Step 2/3: update .template_version"
     echo "${target_ver}" > "${VERSION_FILE}"
     git add "${VERSION_FILE}"
 
@@ -88,7 +88,7 @@ _upgrade() {
     local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
     if [[ -f "${main_yaml}" ]]; then
         # Replace @vX.Y.Z with new version in reusable workflow references
-        sed -i "s|docker_template/\.github/workflows/.*@v[0-9.]*|docker_template/.github/workflows/build-worker.yaml@${target_ver}|" "${main_yaml}"
+        sed -i "s|template/\.github/workflows/.*@v[0-9.]*|template/.github/workflows/build-worker.yaml@${target_ver}|" "${main_yaml}"
         sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|" "${main_yaml}"
         sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|" "${main_yaml}"
         git add "${main_yaml}"
@@ -96,9 +96,9 @@ _upgrade() {
 
     # Commit version + workflow updates
     git commit -m "$(cat <<COMMIT
-chore: update docker_template references to ${target_ver}
+chore: update template references to ${target_ver}
 
-- .docker_template_version: ${local_ver} → ${target_ver}
+- .template_version: ${local_ver} → ${target_ver}
 - main.yaml: workflow @tag updated to ${target_ver}
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
@@ -116,9 +116,9 @@ COMMIT
 
 _usage() {
     cat >&2 <<'EOF'
-Usage: ./docker_template/script/upgrade.sh [VERSION|--check]
+Usage: ./template/script/upgrade.sh [VERSION|--check]
 
-Upgrade docker_template subtree to the latest (or specified) version.
+Upgrade template subtree to the latest (or specified) version.
 
 Arguments:
   VERSION       Target version (e.g. v0.3.0). Defaults to latest tag.
@@ -126,9 +126,9 @@ Arguments:
   -h, --help    Show this help
 
 Examples:
-  ./docker_template/script/upgrade.sh              # upgrade to latest
-  ./docker_template/script/upgrade.sh v0.3.0       # upgrade to specific version
-  ./docker_template/script/upgrade.sh --check      # check only
+  ./template/script/upgrade.sh              # upgrade to latest
+  ./template/script/upgrade.sh v0.3.0       # upgrade to specific version
+  ./template/script/upgrade.sh --check      # check only
 EOF
     exit 0
 }
@@ -136,7 +136,7 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
-    [[ ! -d docker_template ]] && _error "docker_template/ not found. Run from repo root."
+    [[ ! -d template ]] && _error "template/ not found. Run from repo root."
 
     case "${1:-}" in
         -h|--help) _usage ;;

@@ -1,7 +1,7 @@
-# docker_template
+# template
 
-[![Self Test](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/docker_template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/docker_template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/docker_template)
+[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -31,9 +31,9 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 
 ```bash
 # New repo: add subtree + init
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
-./docker_template/script/init.sh
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
+./template/script/init.sh
 
 # Upgrade to latest
 make upgrade-check   # check
@@ -52,7 +52,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 
 ```mermaid
 graph TB
-    subgraph docker_template["docker_template (shared repo)"]
+    subgraph template["template (shared repo)"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
@@ -61,13 +61,13 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["build.sh → docker_template/build.sh<br/>run.sh → docker_template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke_test/<br/>ros_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
-    docker_template -- "git subtree" --> consumer
+    template -- "git subtree" --> consumer
     scripts -. symlink .-> symlinks
     smoke -. "Dockerfile COPY" .-> repo_test
     workflows -. "@tag reference" .-> main_yaml
@@ -89,8 +89,8 @@ flowchart LR
     end
 
     subgraph github["GitHub Actions"]
-        build_worker["build-worker.yaml<br/>(from docker_template)"]
-        release_worker["release-worker.yaml<br/>(from docker_template)"]
+        build_worker["build-worker.yaml<br/>(from template)"]
+        release_worker["release-worker.yaml<br/>(from template)"]
     end
 
     build_test --> ci_container
@@ -137,11 +137,11 @@ flowchart LR
 
 ```bash
 # 1. Add subtree
-git subtree add --prefix=docker_template \
-    git@github.com:ycpss91255-docker/docker_template.git main --squash
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. Initialize symlinks (one command)
-./docker_template/script/init.sh
+./template/script/init.sh
 ```
 
 ### Updating
@@ -154,7 +154,7 @@ make upgrade-check
 make upgrade
 
 # Or specify a version
-./docker_template/script/upgrade.sh v0.3.0
+./template/script/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -165,7 +165,7 @@ Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to th
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/docker_template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
       image_name: ros_noetic
       build_args: |
@@ -176,7 +176,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/docker_template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: ros_noetic
 ```
@@ -216,7 +216,7 @@ Or directly:
 ## Directory Structure
 
 ```
-docker_template/
+template/
 ├── build.sh                          # Shared build script
 ├── run.sh                            # Shared run script (X11/Wayland)
 ├── exec.sh                           # Shared exec script
