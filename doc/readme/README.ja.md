@@ -53,10 +53,10 @@ make help            # 全コマンド表示
 ```mermaid
 graph TB
     subgraph template["template（共有 repo）"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
+        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -112,10 +112,11 @@ flowchart LR
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
 | `script/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
-| `script/config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
+| `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `test/smoke_test/` | 各 Docker repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
-| `Makefile` | 統一コマンドエントリ（`make test`、`make upgrade` 等） |
+| `Makefile` | Repo コマンドエントリ（`make build`、`make run`、`make stop` 等） |
+| `Makefile.ci` | Template CI コマンドエントリ（`make test`、`make lint` 等） |
 | `script/init.sh` | 初回 symlink セットアップ |
 | `script/upgrade.sh` | Subtree バージョンアップグレード |
 | `script/ci.sh` | CI パイプライン（ローカル + リモート） |
@@ -197,11 +198,13 @@ jobs:
 
 ## ローカルテスト実行
 
+`Makefile.ci`（template ルートから）を使用：
 ```bash
-make test        # フル CI（ShellCheck + Bats + Kcov）
-make lint        # ShellCheck のみ
-make clean       # カバレッジレポート削除
-make help        # 全ターゲット表示
+make -f Makefile.ci test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
+make -f Makefile.ci lint        # ShellCheck のみ
+make -f Makefile.ci clean       # カバレッジレポート削除
+make help        # repo ターゲット表示
+make -f Makefile.ci help  # CI ターゲット表示
 ```
 
 直接実行：
@@ -225,14 +228,18 @@ template/
 ├── run.sh                            # 共有実行スクリプト（X11/Wayland）
 ├── exec.sh                           # 共有 exec スクリプト
 ├── stop.sh                           # 共有停止スクリプト
+├── config/                           # シェル/ツール設定
+│   ├── pip/
+│   └── shell/
+│       ├── bashrc
+│       ├── terminator/
+│       └── tmux/
 ├── script/
-│   ├── setup.sh                 # .env ジェネレータ
-│   ├── config/                  # シェル/ツール設定
-│   │   ├── pip/
-│   │   └── shell/
-│   │       ├── bashrc
-│   │       ├── terminator/
-│   │       └── tmux/
+│   ├── setup.sh                      # .env ジェネレータ
+│   ├── init.sh                       # Symlink セットアップ
+│   ├── upgrade.sh                    # Subtree バージョンアップグレード
+│   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
+│   └── migrate.sh                    # バッチ repo 移行
 ├── test/
 │   ├── smoke_test/                   # 各 repo 用の共有テスト
 │   │   ├── test_helper.bash
@@ -242,11 +249,6 @@ template/
 ├── Makefile                          # 統一コマンドエントリ（make test/lint/...）
 ├── compose.yaml                      # Docker CI ランナー
 ├── .hadolint.yaml                    # 共有 Hadolint ルール
-├── script/                          # テンプレート管理ツール
-│   ├── init.sh                       # Symlink セットアップ
-│   ├── upgrade.sh                    # Subtree バージョンアップグレード
-│   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
-│   └── migrate.sh                    # バッチ repo 移行
 ├── .github/workflows/
 │   ├── self-test.yaml                # テンプレート CI（script/ci.sh を呼び出し）
 │   ├── build-worker.yaml             # 再利用可能なビルド workflow

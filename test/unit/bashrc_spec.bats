@@ -2,7 +2,7 @@
 
 setup() {
     load "${BATS_TEST_DIRNAME}/test_helper"
-    RC="/source/script/config/shell/bashrc"
+    RC="/source/config/shell/bashrc"
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -13,6 +13,20 @@
 
 **[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
+---
+
+## 目錄
+
+- [TL;DR](#tldr)
+- [概述](#概述)
+- [快速開始](#快速開始)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [本地執行測試](#本地執行測試)
+- [測試](#測試)
+- [目錄結構](#目錄結構)
+
+---
+
 ## TL;DR
 
 ```bash
@@ -39,10 +53,10 @@ make help            # 顯示所有指令
 ```mermaid
 graph TB
     subgraph template["template（共用 repo）"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
+        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -98,10 +112,11 @@ flowchart LR
 | `exec.sh` | 進入執行中的容器 |
 | `stop.sh` | 停止並移除容器 |
 | `script/setup.sh` | 自動偵測系統參數並產生 `.env` |
-| `script/config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
+| `config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
 | `test/smoke_test/` | 給各 Docker repo 使用的共用測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
-| `Makefile` | 統一指令入口（`make test`、`make upgrade` 等） |
+| `Makefile` | Repo 指令入口（`make build`、`make run`、`make stop` 等） |
+| `Makefile.ci` | Template CI 指令入口（`make test`、`make lint` 等） |
 | `script/init.sh` | 首次初始化 symlinks |
 | `script/upgrade.sh` | Subtree 版本升級 |
 | `script/ci.sh` | CI pipeline（本地 + 遠端） |
@@ -183,11 +198,13 @@ jobs:
 
 ## 本地執行測試
 
+使用 `Makefile.ci`（在 template 根目錄）：
 ```bash
-make test        # 完整 CI（ShellCheck + Bats + Kcov）
-make lint        # 只跑 ShellCheck
-make clean       # 清除覆蓋率報表
-make help        # 顯示所有可用指令
+make -f Makefile.ci test        # 完整 CI（ShellCheck + Bats + Kcov）透過 docker compose
+make -f Makefile.ci lint        # 只跑 ShellCheck
+make -f Makefile.ci clean       # 清除覆蓋率報表
+make help        # 顯示 repo 指令
+make -f Makefile.ci help  # 顯示 CI 指令
 ```
 
 或直接執行：
@@ -211,14 +228,18 @@ template/
 ├── run.sh                            # 共用執行腳本（X11/Wayland）
 ├── exec.sh                           # 共用 exec 腳本
 ├── stop.sh                           # 共用停止腳本
+├── config/                           # Shell/工具設定
+│   ├── pip/
+│   └── shell/
+│       ├── bashrc
+│       ├── terminator/
+│       └── tmux/
 ├── script/
-│   ├── setup.sh                 # .env 產生器
-│   ├── config/                  # Shell/工具設定
-│   │   ├── pip/
-│   │   └── shell/
-│   │       ├── bashrc
-│   │       ├── terminator/
-│   │       └── tmux/
+│   ├── setup.sh                      # .env 產生器
+│   ├── init.sh                       # Symlink 設定
+│   ├── upgrade.sh                    # Subtree 版本升級
+│   ├── ci.sh                         # CI pipeline（本地 + 遠端）
+│   └── migrate.sh                    # 批次 repo 遷移
 ├── test/
 │   ├── smoke_test/                   # 給各 repo 使用的共用測試
 │   │   ├── test_helper.bash
@@ -228,11 +249,6 @@ template/
 ├── Makefile                          # 統一指令入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 執行器
 ├── .hadolint.yaml                    # 共用 Hadolint 規則
-├── script/                          # 模板管理工具
-│   ├── init.sh                       # Symlink 設定
-│   ├── upgrade.sh                    # Subtree 版本升級
-│   ├── ci.sh                         # CI pipeline（本地 + 遠端）
-│   └── migrate.sh                    # 批次 repo 遷移
 ├── .github/workflows/
 │   ├── self-test.yaml                # 模板 CI（呼叫 script/ci.sh）
 │   ├── build-worker.yaml             # 可重用建置 workflow

@@ -53,10 +53,10 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ```mermaid
 graph TB
     subgraph template["template (shared repo)"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
+        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -112,7 +112,7 @@ flowchart LR
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
 | `script/setup.sh` | Auto-detect system parameters and generate `.env` |
-| `script/config/` | Shell configs (bashrc, tmux, terminator, pip) |
+| `config/` | Shell configs (bashrc, tmux, terminator, pip) |
 | `test/smoke_test/` | Shared smoke tests for repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
@@ -221,14 +221,18 @@ template/
 ├── run.sh                            # Shared run script (X11/Wayland)
 ├── exec.sh                           # Shared exec script
 ├── stop.sh                           # Shared stop script
+├── config/                           # Shell/tool configs
+│   ├── pip/
+│   └── shell/
+│       ├── bashrc
+│       ├── terminator/
+│       └── tmux/
 ├── script/
-│   ├── setup.sh                 # .env generator
-│   ├── config/                  # Shell/tool configs
-│   │   ├── pip/
-│   │   └── shell/
-│   │       ├── bashrc
-│   │       ├── terminator/
-│   │       └── tmux/
+│   ├── setup.sh                      # .env generator
+│   ├── init.sh                       # Symlink setup
+│   ├── upgrade.sh                    # Subtree version upgrade
+│   ├── ci.sh                         # CI pipeline (local + remote)
+│   └── migrate.sh                    # Batch repo migration
 ├── test/
 │   ├── smoke_test/                   # Shared tests for repos
 │   │   ├── test_helper.bash
@@ -239,11 +243,6 @@ template/
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
-├── script/                          # Template management tools
-│   ├── init.sh                       # Symlink setup
-│   ├── upgrade.sh                    # Subtree version upgrade
-│   ├── ci.sh                         # CI pipeline (local + remote)
-│   └── migrate.sh                    # Batch repo migration
 ├── .github/workflows/
 │   ├── self-test.yaml                # Template CI (calls script/ci.sh)
 │   ├── build-worker.yaml             # Reusable build workflow

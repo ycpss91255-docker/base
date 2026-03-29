@@ -7,7 +7,7 @@ setup() {
     export HOME="${TEMP_DIR}"
 
     # shellcheck disable=SC1091
-    source /source/script/config/shell/terminator/setup.sh
+    source /source/config/shell/terminator/setup.sh
 }
 
 teardown() {
