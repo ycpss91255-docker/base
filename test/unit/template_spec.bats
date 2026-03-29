@@ -74,16 +74,16 @@ setup() {
 # Structure: test directory layout
 # ════════════════════════════════════════════════════════════════════
 
-@test "test/smoke_test/test_helper.bash exists" {
-    assert [ -f /source/test/smoke_test/test_helper.bash ]
+@test "test/smoke/test_helper.bash exists" {
+    assert [ -f /source/test/smoke/test_helper.bash ]
 }
 
-@test "test/smoke_test/script_help.bats exists" {
-    assert [ -f /source/test/smoke_test/script_help.bats ]
+@test "test/smoke/script_help.bats exists" {
+    assert [ -f /source/test/smoke/script_help.bats ]
 }
 
-@test "test/smoke_test/display_env.bats exists" {
-    assert [ -f /source/test/smoke_test/display_env.bats ]
+@test "test/smoke/display_env.bats exists" {
+    assert [ -f /source/test/smoke/display_env.bats ]
 }
 
 @test "test/unit/ directory exists" {

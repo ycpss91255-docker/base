@@ -30,7 +30,7 @@ jobs:
           # Copy standard files (symlinks are resolved by cp)
           cp -r Dockerfile compose.yaml \
                 build.sh run.sh exec.sh stop.sh \
-                script/ .env.example .hadolint.yaml test/smoke_test/ \
+                script/ .env.example .hadolint.yaml test/smoke/ \
                 template/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
 

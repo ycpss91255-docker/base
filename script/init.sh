@@ -61,7 +61,7 @@ fi
 
 # ── Remove old shared smoke tests (now provided by template) ──────────
 
-for f in test/smoke_test/test_helper.bash test/smoke_test/script_help.bats test/smoke_test/display_env.bats; do
+for f in test/smoke/test_helper.bash test/smoke/script_help.bats test/smoke/display_env.bats; do
   if [[ -f "${f}" ]] && [[ -L "${f}" || ! -s "${f}" ]]; then
     rm -f "${f}"
     _log "  Removed old ${f}"
@@ -94,7 +94,7 @@ _log ""
 _log "Done! Next steps:"
 _log "  1. Update Dockerfile CONFIG_SRC: docker_setup_helper/src/config → template/config"
 _log "  2. Update Dockerfile smoke test COPY:"
-_log "       COPY template/test/smoke_test/ /smoke_test/"
-_log "       COPY test/smoke_test/ /smoke_test/"
+_log "       COPY template/test/smoke/ /smoke/"
+_log "       COPY test/smoke/ /smoke/"
 _log "  3. Update .github/workflows/main.yaml to use reusable workflows"
 _log "  4. git add -A && git commit"

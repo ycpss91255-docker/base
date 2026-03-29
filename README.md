@@ -54,7 +54,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 graph TB
     subgraph template["template (shared repo)"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
-        smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
@@ -63,7 +63,7 @@ graph TB
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
         symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke_test/<br/>ros_env.bats (repo-specific)"]
+        repo_test["test/smoke/<br/>ros_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
@@ -113,7 +113,7 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `script/setup.sh` | Auto-detect system parameters and generate `.env` |
 | `config/` | Shell configs (bashrc, tmux, terminator, pip) |
-| `test/smoke_test/` | Shared smoke tests for repos |
+| `test/smoke/` | Shared smoke tests for repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
 | `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
@@ -234,7 +234,7 @@ template/
 │   ├── ci.sh                         # CI pipeline (local + remote)
 │   └── migrate.sh                    # Batch repo migration
 ├── test/
-│   ├── smoke_test/                   # Shared tests for repos
+│   ├── smoke/                   # Shared tests for repos
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats

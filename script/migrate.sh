@@ -172,9 +172,9 @@ _create_symlinks() {
   fi
 
   # Remove old shared smoke tests (keep repo-specific ones)
-  git rm -f test/smoke_test/test_helper.bash 2>/dev/null || true
-  git rm -f test/smoke_test/script_help.bats 2>/dev/null || true
-  git rm -f test/smoke_test/display_env.bats 2>/dev/null || true
+  git rm -f test/smoke/test_helper.bash 2>/dev/null || true
+  git rm -f test/smoke/script_help.bats 2>/dev/null || true
+  git rm -f test/smoke/display_env.bats 2>/dev/null || true
 
   git add build.sh run.sh exec.sh stop.sh .hadolint.yaml
 }
@@ -190,13 +190,13 @@ _update_dockerfile() {
   sed -i 's|docker_setup_helper/src/config|template/config|g' "${dockerfile}"
 
   # Ensure smoke tests are copied from template
-  if ! grep -q "template/test/smoke_test" "${dockerfile}"; then
+  if ! grep -q "template/test/smoke" "${dockerfile}"; then
     if [[ "${has_gui}" == "true" ]]; then
       # GUI repos: copy all shared smoke tests (including display_env.bats)
-      sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke_test/ /smoke_test/' "${dockerfile}"
+      sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke/ /smoke_test/' "${dockerfile}"
     else
       # Non-GUI repos: copy only script_help + test_helper (skip display_env.bats)
-      sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke_test/test_helper.bash /smoke_test/test_helper.bash\nCOPY template/test/smoke_test/script_help.bats /smoke_test/script_help.bats' "${dockerfile}"
+      sed -i '/COPY test\/smoke_test\//i COPY template/test/smoke/test_helper.bash /smoke_test/test_helper.bash\nCOPY template/test/smoke/script_help.bats /smoke_test/script_help.bats' "${dockerfile}"
     fi
   fi
 
@@ -327,7 +327,7 @@ BREAKING CHANGE: replaces docker_setup_helper subtree with template.
 - Replace shell scripts with symlinks to template/ subtree
 - Replace .hadolint.yaml with symlink to template/.hadolint.yaml
 - Update Dockerfile CONFIG_SRC path to template/config
-- Merge shared smoke tests from template/test/smoke_test/ in Dockerfile
+- Merge shared smoke tests from template/test/smoke/ in Dockerfile
 - Replace local CI workflows with reusable workflows from template
 - Fixes X11/Wayland support via template's run.sh
 

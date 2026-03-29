@@ -65,9 +65,9 @@ Template self-tests: **132 tests** total.
 | `Makefile has test target` | Makefile target |
 | `Makefile has lint target` | Makefile target |
 | `Makefile has clean target` | Makefile target |
-| `test/smoke_test/test_helper.bash exists` | Directory structure |
-| `test/smoke_test/script_help.bats exists` | Directory structure |
-| `test/smoke_test/display_env.bats exists` | Directory structure |
+| `test/smoke/test_helper.bash exists` | Directory structure |
+| `test/smoke/script_help.bats exists` | Directory structure |
+| `test/smoke/display_env.bats exists` | Directory structure |
 | `test/unit/ directory exists` | Directory structure |
 | `doc/readme/ directory exists` | Directory structure |
 | `doc/test/ directory exists` | Directory structure |

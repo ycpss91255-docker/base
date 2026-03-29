@@ -65,9 +65,9 @@
 | `Makefile has test target` | Makefile ターゲット |
 | `Makefile has lint target` | Makefile ターゲット |
 | `Makefile has clean target` | Makefile ターゲット |
-| `test/smoke_test/test_helper.bash exists` | ディレクトリ構造 |
-| `test/smoke_test/script_help.bats exists` | ディレクトリ構造 |
-| `test/smoke_test/display_env.bats exists` | ディレクトリ構造 |
+| `test/smoke/test_helper.bash exists` | ディレクトリ構造 |
+| `test/smoke/script_help.bats exists` | ディレクトリ構造 |
+| `test/smoke/display_env.bats exists` | ディレクトリ構造 |
 | `test/unit/ directory exists` | ディレクトリ構造 |
 | `doc/readme/ directory exists` | ディレクトリ構造 |
 | `doc/test/ directory exists` | ディレクトリ構造 |

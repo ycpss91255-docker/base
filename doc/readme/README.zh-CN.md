@@ -54,7 +54,7 @@ make help            # 显示所有命令
 graph TB
     subgraph template["template（共用 repo）"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
-        smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
@@ -63,7 +63,7 @@ graph TB
     subgraph consumer["Docker Repo（如 ros_noetic）"]
         symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke_test/<br/>ros_env.bats（repo 专属）"]
+        repo_test["test/smoke/<br/>ros_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
     end
 
@@ -113,7 +113,7 @@ flowchart LR
 | `stop.sh` | 停止并移除容器 |
 | `script/setup.sh` | 自动检测系统参数并生成 `.env` |
 | `config/` | Shell 配置文件（bashrc、tmux、terminator、pip） |
-| `test/smoke_test/` | 给各 Docker repo 使用的共用测试 |
+| `test/smoke/` | 给各 Docker repo 使用的共用测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `Makefile` | Repo 命令入口（`make build`、`make run`、`make stop` 等） |
 | `Makefile.ci` | Template CI 命令入口（`make test`、`make lint` 等） |
@@ -216,7 +216,7 @@ make -f Makefile.ci help  # 显示 CI 命令
 ## 测试
 
 - **132** 个 template 自身测试（`test/unit/`）
-- **27** 个共用 smoke tests（`test/smoke_test/`）
+- **27** 个共用 smoke tests（`test/smoke/`）
 
 详见 [TEST.md](../test/TEST.md)。
 
@@ -241,7 +241,7 @@ template/
 │   ├── ci.sh                         # CI pipeline（本地 + 远端）
 │   └── migrate.sh                    # 批量 repo 迁移
 ├── test/
-│   ├── smoke_test/                   # 给各 repo 使用的共用测试
+│   ├── smoke/                   # 给各 repo 使用的共用测试
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats

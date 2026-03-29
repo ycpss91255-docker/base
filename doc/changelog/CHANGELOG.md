@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Table of Contents to zh-TW and zh-CN READMEs
 - Add `Makefile.ci` entry to "What's included" table (all translations)
 - Fix "Running Tests" section to use `make -f Makefile.ci` (all translations)
+- Rename `test/smoke_test/` → `test/smoke/`
 
 ## [v0.3.0] - 2026-03-29
 

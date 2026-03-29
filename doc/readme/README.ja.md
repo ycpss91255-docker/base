@@ -54,7 +54,7 @@ make help            # 全コマンド表示
 graph TB
     subgraph template["template（共有 repo）"]
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
-        smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
@@ -63,7 +63,7 @@ graph TB
     subgraph consumer["Docker Repo（例: ros_noetic）"]
         symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke_test/<br/>ros_env.bats（repo 固有）"]
+        repo_test["test/smoke/<br/>ros_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
     end
 
@@ -113,7 +113,7 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `script/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
 | `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `test/smoke_test/` | 各 Docker repo 用の共有テスト |
+| `test/smoke/` | 各 Docker repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `Makefile` | Repo コマンドエントリ（`make build`、`make run`、`make stop` 等） |
 | `Makefile.ci` | Template CI コマンドエントリ（`make test`、`make lint` 等） |
@@ -216,7 +216,7 @@ make -f Makefile.ci help  # CI ターゲット表示
 ## テスト
 
 - **132** テンプレート自身のテスト（`test/unit/`）
-- **27** 共有 smoke tests（`test/smoke_test/`）
+- **27** 共有 smoke tests（`test/smoke/`）
 
 詳細は [TEST.md](../test/TEST.md) を参照。
 
@@ -241,7 +241,7 @@ template/
 │   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
 │   └── migrate.sh                    # バッチ repo 移行
 ├── test/
-│   ├── smoke_test/                   # 各 repo 用の共有テスト
+│   ├── smoke/                   # 各 repo 用の共有テスト
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats

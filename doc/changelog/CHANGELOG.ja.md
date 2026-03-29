@@ -14,6 +14,7 @@
 - zh-TW / zh-CN README に目次（Table of Contents）を追加
 - 翻訳同期：「含まれるもの」テーブルに `Makefile.ci` エントリを追加
 - 翻訳同期：「ローカルテスト実行」を正しい `make -f Makefile.ci` コマンドに修正
+- `test/smoke_test/` → `test/smoke/` にリネーム
 
 ## [v0.3.0] - 2026-03-29
 

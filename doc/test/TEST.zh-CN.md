@@ -65,9 +65,9 @@
 | `Makefile has test target` | Makefile target |
 | `Makefile has lint target` | Makefile target |
 | `Makefile has clean target` | Makefile target |
-| `test/smoke_test/test_helper.bash exists` | 目录结构 |
-| `test/smoke_test/script_help.bats exists` | 目录结构 |
-| `test/smoke_test/display_env.bats exists` | 目录结构 |
+| `test/smoke/test_helper.bash exists` | 目录结构 |
+| `test/smoke/script_help.bats exists` | 目录结构 |
+| `test/smoke/display_env.bats exists` | 目录结构 |
 | `test/unit/ directory exists` | 目录结构 |
 | `doc/readme/ directory exists` | 目录结构 |
 | `doc/test/ directory exists` | 目录结构 |

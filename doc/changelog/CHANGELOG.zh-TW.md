@@ -13,7 +13,8 @@
 - 修正 mermaid 架構圖：`setup.sh` 顯示在正確的 `script/` 區塊
 - zh-TW / zh-CN README 補上目錄（Table of Contents）
 - 翻譯同步：「包含內容」表格補上 `Makefile.ci` 條目
-- 翻譯同步：「��地執行測試」改為正確的 `make -f Makefile.ci` 指令
+- 翻譯同步：「本地執行測試」改為正確的 `make -f Makefile.ci` 指令
+- 重新命名 `test/smoke_test/` → `test/smoke/`
 
 ## [v0.3.0] - 2026-03-29
 

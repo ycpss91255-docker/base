@@ -14,6 +14,7 @@
 - zh-TW / zh-CN README 补上目录（Table of Contents）
 - 翻译同步：「包含内容」表格补上 `Makefile.ci` 条目
 - 翻译同步：「本地运行测试」改为正确的 `make -f Makefile.ci` 命令
+- 重命名 `test/smoke_test/` → `test/smoke/`
 
 ## [v0.3.0] - 2026-03-29
 
