@@ -164,7 +164,7 @@ setup() {
 }
 
 @test "stop.sh uses -p for compose project name" {
-    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/stop.sh
+    run grep -E '\-p.*PROJECT' /source/stop.sh
     assert_success
 }
 

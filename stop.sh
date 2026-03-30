@@ -69,7 +69,26 @@ set -o allexport
 source "${FILE_PATH}/.env"
 set +o allexport
 
-docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+PROJECT="${DOCKER_HUB_USER}-${IMAGE_NAME}"
+
+# Show containers being stopped
+containers=$(docker compose -p "${PROJECT}" \
+  -f "${FILE_PATH}/compose.yaml" \
+  --env-file "${FILE_PATH}/.env" \
+  ps -q 2>/dev/null)
+
+if [[ -n "${containers}" ]]; then
+  echo "Stopping containers:"
+  docker compose -p "${PROJECT}" \
+    -f "${FILE_PATH}/compose.yaml" \
+    --env-file "${FILE_PATH}/.env" \
+    ps --format "  {{.Name}}"
+else
+  echo "No running containers."
+  exit 0
+fi
+
+docker compose -p "${PROJECT}" \
   -f "${FILE_PATH}/compose.yaml" \
   --env-file "${FILE_PATH}/.env" \
   down "$@"
