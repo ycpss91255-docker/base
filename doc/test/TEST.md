@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **136 tests** total.
+Template self-tests: **137 tests** total.
 
 ## Test Files
 
-### test/setup_spec.bats (46)
+### test/setup_spec.bats (47)
 
 | Test | Description |
 |------|-------------|

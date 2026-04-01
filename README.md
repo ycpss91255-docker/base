@@ -215,7 +215,7 @@ Or directly:
 
 ## Tests
 
-- **136** template self-tests (`test/unit/`)
+- **137** template self-tests (`test/unit/`)
 - **27** shared smoke tests (`test/smoke/`)
 
 See [TEST.md](doc/test/TEST.md) for details.

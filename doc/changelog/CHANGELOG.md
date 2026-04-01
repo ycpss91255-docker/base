@@ -11,11 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `setup.sh`: add `APT_MIRROR_UBUNTU` and `APT_MIRROR_DEBIAN` to `.env`
   - Default: `tw.archive.ubuntu.com` (Ubuntu), `mirror.twds.com.tw` (Debian)
   - Preserves existing values from `.env` on re-run
-- `setup.sh`: warn when `IMAGE_NAME` cannot be detected (prints WARNING, uses `unknown`)
-- 4 new tests (136 total)
-
-### Removed
-- `setup.sh`: remove `.env.example` fallback for `IMAGE_NAME` (replaced by warning)
+- `setup.sh`: warn when `IMAGE_NAME` cannot be detected and `.env.example` not found
+- `display_env.bats`: auto-skip GUI tests for headless repos
+- 5 new tests (137 total)
 
 ## [v0.4.2] - 2026-03-30
 
