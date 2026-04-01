@@ -113,6 +113,15 @@ set -o allexport
 source "${FILE_PATH}/.env"
 set +o allexport
 
+# Build test-tools image if Dockerfile exists
+_tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
+if [[ -f "${_tools_dockerfile}" ]]; then
+  docker build -t test-tools:local -f "${_tools_dockerfile}" "${FILE_PATH}" -q >/dev/null
+fi
+
+_cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
+trap _cleanup EXIT
+
 docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
   -f "${FILE_PATH}/compose.yaml" \
   --env-file "${FILE_PATH}/.env" \
