@@ -248,7 +248,7 @@ template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # Template self-tests (137 tests)
+│   └── unit/                         # Template self-tests
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules

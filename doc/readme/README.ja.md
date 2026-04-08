@@ -248,7 +248,7 @@ template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # テンプレート自身のテスト（137 件）
+│   └── unit/                         # テンプレート自身のテスト
 ├── Makefile.ci                       # テンプレート CI エントリ（make test/lint/...）
 ├── compose.yaml                      # Docker CI ランナー
 ├── .hadolint.yaml                    # 共有 Hadolint ルール

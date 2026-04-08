@@ -248,7 +248,7 @@ template/
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # 模板自身测试（137 个）
+│   └── unit/                         # 模板自身测试
 ├── Makefile.ci                       # 模板 CI 入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 运行器
 ├── .hadolint.yaml                    # 共用 Hadolint 规则
