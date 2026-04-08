@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.0] - 2026-04-01
 
 ### Added
 - `build.sh`: `--no-cache` flag for force rebuild (passes to both
@@ -145,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.0]: https://github.com/ycpss91255-docker/template/compare/v0.5.0...v0.6.0
+[v0.5.0]: https://github.com/ycpss91255-docker/template/compare/v0.4.2...v0.5.0
 [v0.4.2]: https://github.com/ycpss91255-docker/template/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/ycpss91255-docker/template/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/ycpss91255-docker/template/compare/v0.3.0...v0.4.0
