@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `stop.sh`: remove orphan container left by `docker compose run --name`
   (`docker compose down` only cleans up `up`-mode containers, not `run`-mode)
+- `upgrade.sh`: re-run `init.sh` after subtree pull to sync symlinks
+  (avoids stale symlinks when template directory structure changes)
 
 ## [v0.5.0] - 2026-03-31
 

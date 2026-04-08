@@ -184,6 +184,26 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# upgrade.sh
+# ════════════════════════════════════════════════════════════════════
+
+@test "upgrade.sh runs init.sh after subtree pull" {
+    run grep -E 'init\.sh' /source/upgrade.sh
+    assert_success
+}
+
+@test "upgrade.sh writes target_ver after init.sh (to override init's latest detection)" {
+    # init.sh writes latest tag to .template_version, but upgrade may target older version
+    # so upgrade.sh must overwrite .template_version AFTER init.sh runs
+    run bash -c "grep -n 'init\.sh\|VERSION_FILE' /source/upgrade.sh | grep -v '^[0-9]*:#'"
+    assert_success
+    # Check that init.sh appears before the final VERSION_FILE write
+    init_line=$(grep -n 'init\.sh' /source/upgrade.sh | head -1 | cut -d: -f1)
+    write_line=$(grep -n 'echo.*target_ver.*>.*VERSION_FILE\|echo.*"\${target_ver}".*VERSION_FILE' /source/upgrade.sh | tail -1 | cut -d: -f1)
+    [[ -n "${init_line}" && -n "${write_line}" && "${init_line}" -lt "${write_line}" ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
 

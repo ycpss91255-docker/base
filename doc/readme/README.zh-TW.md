@@ -215,7 +215,7 @@ make -f Makefile.ci help  # 顯示 CI 指令
 
 ## 測試
 
-- **138** 個 template 自身測試（`test/unit/`）
+- **140** 個 template 自身測試（`test/unit/`）
 - **27** 個共用 smoke tests（`test/smoke/`）
 
 詳見 [TEST.md](../test/TEST.md)。

@@ -77,18 +77,22 @@ _upgrade() {
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
   # Step 1: subtree pull
-  _log "Step 1/3: git subtree pull"
+  _log "Step 1/4: git subtree pull"
   git subtree pull --prefix=template \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade template subtree to ${target_ver}"
 
-  # Step 2: update version file
-  _log "Step 2/3: update .template_version"
+  # Step 2: re-run init.sh to sync symlinks (in case template structure changed)
+  _log "Step 2/4: re-run init.sh to sync symlinks"
+  ./template/init.sh
+
+  # Step 3: update version file (override init.sh's latest-tag detection)
+  _log "Step 3/4: update .template_version"
   echo "${target_ver}" > "${VERSION_FILE}"
   git add "${VERSION_FILE}"
 
-  # Step 3: update main.yaml @tag references
-  _log "Step 3/3: update workflow @tag references"
+  # Step 4: update main.yaml @tag references
+  _log "Step 4/4: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
     # Replace @vX.Y.Z with new version in reusable workflow references
