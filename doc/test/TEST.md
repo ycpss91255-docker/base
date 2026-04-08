@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **137 tests** total.
+Template self-tests: **138 tests** total.
 
 ## Test Files
 

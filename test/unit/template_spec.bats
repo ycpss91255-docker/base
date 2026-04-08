@@ -178,6 +178,11 @@ setup() {
     assert_success
 }
 
+@test "stop.sh removes orphan run-mode container by name" {
+    run grep -E 'docker rm.*-f.*IMAGE_NAME' /source/script/docker/stop.sh
+    assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
