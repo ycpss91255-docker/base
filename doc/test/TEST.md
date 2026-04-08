@@ -4,7 +4,7 @@ Template self-tests: **142 tests** total.
 
 ## Test Files
 
-### test/setup_spec.bats (47)
+### test/unit/setup_spec.bats (47)
 
 | Test | Description |
 |------|-------------|
@@ -35,7 +35,8 @@ Template self-tests: **142 tests** total.
 | `main creates .env when it does not exist` | Fresh .env |
 | `main sources existing .env and reuses valid WS_PATH` | WS_PATH reuse |
 | `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
-| `main warns when IMAGE_NAME is unknown` | Unknown IMAGE_NAME warning |
+| `main reads IMAGE_NAME from .env.example when detection returns unknown` | .env.example fallback |
+| `main warns when IMAGE_NAME is unknown and no .env.example` | WARNING when both fail |
 | `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
 | `default _base_path resolves to repo root, not script dir` | Regression test |
 | `main returns error on unknown argument` | Error handling |
@@ -55,7 +56,7 @@ Template self-tests: **142 tests** total.
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (36)
+### test/unit/template_spec.bats (41)
 
 | Test | Description |
 |------|-------------|
@@ -66,10 +67,11 @@ Template self-tests: **142 tests** total.
 | `setup.sh exists and is executable` | File check |
 | `ci.sh exists and is executable` | File check |
 | `ci.sh uses set -euo pipefail` | Shell convention |
-| `Makefile exists` | File check |
-| `Makefile has test target` | Makefile target |
-| `Makefile has lint target` | Makefile target |
-| `Makefile has clean target` | Makefile target |
+| `Makefile exists (repo entry)` | File check |
+| `Makefile has build target` | Makefile target |
+| `Makefile.ci exists (template CI)` | File check |
+| `Makefile.ci has test target` | Makefile target |
+| `Makefile.ci has lint target` | Makefile target |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -77,46 +79,57 @@ Template self-tests: **142 tests** total.
 | `doc/readme/ directory exists` | Directory structure |
 | `doc/test/ directory exists` | Directory structure |
 | `doc/changelog/ directory exists` | Directory structure |
-| `build.sh references template/setup.sh` | Path reference |
-| `run.sh references template/setup.sh` | Path reference |
+| `build.sh references template/script/docker/setup.sh` | Path reference |
+| `run.sh references template/script/docker/setup.sh` | Path reference |
 | `build.sh uses set -euo pipefail` | Shell convention |
+| `build.sh supports --no-cache flag` | Force rebuild flag |
+| `build.sh passes --no-cache to docker compose build when set` | NO_CACHE forwarded |
 | `run.sh uses set -euo pipefail` | Shell convention |
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
-| `run.sh contains XDG_SESSION_TYPE check` | Wayland support |
+| `build.sh uses -p for compose project name` | Compose project |
+| `run.sh uses -p for compose project name` | Compose project |
+| `exec.sh uses -p for compose project name` | Compose project |
+| `stop.sh uses -p for compose project name` | Compose project |
+| `exec.sh sources .env` | Env loading |
+| `stop.sh sources .env` | Env loading |
+| `stop.sh removes orphan run-mode container by name` | docker rm fallback |
+| `upgrade.sh runs init.sh after subtree pull` | Sync symlinks |
+| `upgrade.sh writes target_ver after init.sh (to override init's latest detection)` | Version override |
+| `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
-| `setup.sh default _base_path uses /..` | No old ../../ path |
-| `setup.sh default _base_path uses single parent traversal` | Correct traversal |
+| `setup.sh default _base_path uses /..` | Path resolution |
+| `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/bashrc_spec.bats (14)
+### test/unit/bashrc_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
-| `defines alias_func` | Function exists |
-| `defines swc` | Function exists |
-| `defines color_git_branch` | Function exists |
-| `defines ros_complete` | Function exists |
-| `defines ros_source` | Function exists |
-| `defines ebc alias` | Alias exists |
-| `defines sbc alias` | Alias exists |
-| `alias_func is called` | Function invoked |
-| `color_git_branch is called` | Function invoked |
-| `ros_complete is called` | Function invoked |
-| `ros_source is called` | Function invoked |
-| `swc searches for catkin devel/setup.bash` | Content check |
-| `ros_source references ROS_DISTRO` | Content check |
-| `color_git_branch sets PS1` | Content check |
+| `defines alias_func` | Function definition |
+| `defines swc` | Function definition |
+| `defines color_git_branch` | Function definition |
+| `defines ros_complete` | Function definition |
+| `defines ros_source` | Function definition |
+| `defines ebc alias` | Alias definition |
+| `defines sbc alias` | Alias definition |
+| `alias_func is called` | Function call |
+| `color_git_branch is called` | Function call |
+| `ros_complete is called` | Function call |
+| `ros_source is called` | Function call |
+| `swc searches for catkin devel/setup.bash` | Catkin search |
+| `ros_source references ROS_DISTRO` | ROS env var |
+| `color_git_branch sets PS1` | PS1 setting |
 
-### test/pip_setup_spec.bats (3)
+### test/unit/pip_setup_spec.bats (3)
 
 | Test | Description |
 |------|-------------|
 | `pip setup.sh runs pip install with requirements.txt` | pip install |
-| `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | env var set |
-| `pip setup.sh fails when pip is not available` | Error handling |
+| `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
+| `pip setup.sh fails when pip is not available` | Missing pip error |
 
-### test/terminator_config_spec.bats (10)
+### test/unit/terminator_config_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -127,48 +140,48 @@ Template self-tests: **142 tests** total.
 | `has [plugins] section` | Config section |
 | `profiles has [[default]]` | Default profile |
 | `default profile disables system font` | Font setting |
-| `default profile has infinite scrollback` | Scrollback |
-| `layouts has Window type` | Layout type |
-| `layouts has Terminal type` | Layout type |
+| `default profile has infinite scrollback` | Scrollback setting |
+| `layouts has Window type` | Window layout |
+| `layouts has Terminal type` | Terminal layout |
 
-### test/terminator_setup_spec.bats (7)
+### test/unit/terminator_setup_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
-| `check_deps returns 0 when terminator is installed` | Dep check pass |
-| `check_deps fails when terminator is not installed` | Dep check fail |
+| `check_deps returns 0 when terminator is installed` | Dependency check |
+| `check_deps fails when terminator is not installed` | Missing dep |
 | `_entry_point calls main when deps pass` | Entry point |
 | `_entry_point fails when deps missing` | Entry point fail |
-| `main creates terminator config directory` | Directory creation |
-| `main copies terminator config file` | File copy |
-| `main calls chown with correct user and group` | Ownership |
+| `main creates terminator config directory` | Config dir |
+| `main copies terminator config file` | Config copy |
+| `main calls chown with correct user and group` | Permissions |
 
-### test/tmux_conf_spec.bats (12)
+### test/unit/tmux_conf_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
-| `defines prefix key` | Core setting |
+| `defines prefix key` | tmux prefix |
 | `sets default shell to bash` | Shell setting |
 | `sets default terminal` | Terminal setting |
-| `enables mouse support` | Mouse support |
-| `enables vi status-keys` | Vi mode |
-| `enables vi mode-keys` | Vi mode |
-| `defines split-window bindings` | Key bindings |
-| `defines reload config binding` | Key bindings |
+| `enables mouse support` | Mouse |
+| `enables vi status-keys` | vi mode |
+| `enables vi mode-keys` | vi mode |
+| `defines split-window bindings` | Split bindings |
+| `defines reload config binding` | Reload binding |
 | `enables status bar` | Status bar |
-| `sets status bar position` | Status bar |
-| `declares tpm plugin` | Plugin manager |
-| `initializes tpm at end of file` | Plugin init |
+| `sets status bar position` | Status bar position |
+| `declares tpm plugin` | tpm plugin |
+| `initializes tpm at end of file` | tpm init |
 
-### test/tmux_setup_spec.bats (8)
+### test/unit/tmux_setup_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
-| `check_deps returns 0 when tmux and git are installed` | Dep check pass |
-| `check_deps fails when tmux is not installed` | tmux missing |
-| `check_deps fails when git is not installed` | git missing |
+| `check_deps returns 0 when tmux and git are installed` | Dependency check |
+| `check_deps fails when tmux is not installed` | Missing tmux |
+| `check_deps fails when git is not installed` | Missing git |
 | `_entry_point calls main when deps pass` | Entry point |
 | `_entry_point fails when deps missing` | Entry point fail |
-| `main clones tpm repository` | TPM clone |
-| `main creates tmux config directory` | Directory creation |
-| `main copies tmux.conf to config directory` | File copy |
+| `main clones tpm repository` | tpm clone |
+| `main creates tmux config directory` | Config dir |
+| `main copies tmux.conf to config directory` | Config copy |

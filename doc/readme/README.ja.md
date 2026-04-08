@@ -215,9 +215,6 @@ make -f Makefile.ci help  # CI ターゲット表示
 
 ## テスト
 
-- **142** テンプレート自身のテスト（`test/unit/`）
-- **27** 共有 smoke tests（`test/smoke/`）
-
 詳細は [TEST.md](../test/TEST.md) を参照。
 
 ## ディレクトリ構造
