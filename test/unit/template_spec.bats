@@ -129,6 +129,16 @@ setup() {
     assert_success
 }
 
+@test "build.sh supports --no-cache flag" {
+    run grep -E '\-\-no-cache' /source/script/docker/build.sh
+    assert_success
+}
+
+@test "build.sh passes --no-cache to docker compose build when set" {
+    run grep -E 'NO_CACHE.*=.*true' /source/script/docker/build.sh
+    assert_success
+}
+
 @test "run.sh uses set -euo pipefail" {
     run grep "set -euo pipefail" /source/script/docker/run.sh
     assert_success

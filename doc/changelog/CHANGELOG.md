@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `build.sh`: `--no-cache` flag for force rebuild (passes to both
+  test-tools image build and docker compose build)
+
 ### Fixed
 - `stop.sh`: remove orphan container left by `docker compose run --name`
   (`docker compose down` only cleans up `up`-mode containers, not `run`-mode)

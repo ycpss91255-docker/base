@@ -17,11 +17,12 @@ usage() {
   case "${_LANG}" in
     zh)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [--no-env] [--no-cache] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help     顯示此說明
   --no-env       跳過 .env 重新產生
+  --no-cache     強制不使用 cache 重建
   --lang LANG    設定訊息語言（預設: en）
 
 目標:
@@ -32,11 +33,12 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [--no-env] [--no-cache] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help     显示此说明
   --no-env       跳过 .env 重新生成
+  --no-cache     强制不使用 cache 重建
   --lang LANG    设置消息语言（默认: en）
 
 目标:
@@ -47,11 +49,12 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [--no-env] [--no-cache] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
   --no-env       .env の再生成をスキップ
+  --no-cache     キャッシュを使わず強制リビルド
   --lang LANG    メッセージ言語を設定（デフォルト: en）
 
 ターゲット:
@@ -62,11 +65,12 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [--no-env] [--no-cache] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help     Show this help
   --no-env       Skip .env regeneration
+  --no-cache     Force rebuild without cache
   --lang LANG    Set message language (default: en)
 
 Targets:
@@ -80,6 +84,7 @@ EOF
 }
 
 SKIP_ENV=false
+NO_CACHE=false
 TARGET="devel"
 
 while [[ $# -gt 0 ]]; do
@@ -89,6 +94,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-env)
       SKIP_ENV=true
+      shift
+      ;;
+    --no-cache)
+      NO_CACHE=true
       shift
       ;;
     --lang)
@@ -115,14 +124,19 @@ set +o allexport
 
 # Build test-tools image if Dockerfile exists
 _tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
+_tools_args=()
+[[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
 if [[ -f "${_tools_dockerfile}" ]]; then
-  docker build -t test-tools:local -f "${_tools_dockerfile}" "${FILE_PATH}" -q >/dev/null
+  docker build "${_tools_args[@]}" -t test-tools:local -f "${_tools_dockerfile}" "${FILE_PATH}" -q >/dev/null
 fi
 
 _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
 trap _cleanup EXIT
 
+_compose_args=()
+[[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
+
 docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
   -f "${FILE_PATH}/compose.yaml" \
   --env-file "${FILE_PATH}/.env" \
-  build "${TARGET}"
+  build "${_compose_args[@]}" "${TARGET}"
