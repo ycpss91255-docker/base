@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # setup.sh - Auto-detect system parameters and generate .env before build
 #
-# Replaces get_param.sh with the following features:
+# Features:
 #   - User info detection (UID/GID/USER/GROUP)
 #   - Hardware architecture detection
 #   - Docker Hub username detection
 #   - GPU support detection
-#   - Image name inference (compatible with docker_* / *_ws naming conventions)
+#   - Image name detection via image_name.conf rule engine
 #   - Workspace path detection (sibling scan → path traversal → parent directory fallback)
+#   - APT mirror configuration
 #   - .env generation
 #
 # Usage: setup.sh [--base-path <path>] [--lang zh|zh-CN|ja]
@@ -248,8 +249,6 @@ detect_image_name() {
 #   1. If current directory is docker_*, use sibling *_ws (strip prefix)
 #   2. Traverse path upward looking for a *_ws component
 #   3. Fall back to parent directory
-#
-# Compatible with get_param.sh get_workdir behaviour.
 #
 # Usage: detect_ws_path <outvar> <base_path>
 # ════════════════════════════════════════════════════════════════════

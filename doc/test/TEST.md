@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **149 tests** total.
+Template self-tests: **150 tests** total.
 
 ## Test Files
 
-### test/unit/setup_spec.bats (54)
+### test/unit/setup_spec.bats (55)
 
 | Test | Description |
 |------|-------------|
@@ -42,7 +42,8 @@ Template self-tests: **149 tests** total.
 | `main creates .env when it does not exist` | Fresh .env |
 | `main sources existing .env and reuses valid WS_PATH` | WS_PATH reuse |
 | `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
-| `main reads IMAGE_NAME from .env.example when detection returns unknown` | .env.example fallback |
+| `main: env_example rule reads IMAGE_NAME from .env.example` | env_example rule via main |
+| `main warns when conf has no fallback and detection fails` | WARNING when no rule matches |
 | `main uses basename for repo without docker_/_ws naming` | basename fallback |
 | `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
 | `default _base_path resolves to repo root, not script dir` | Regression test |

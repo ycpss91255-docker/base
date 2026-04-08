@@ -378,7 +378,8 @@ EOF
     assert_success
 }
 
-@test "main reads IMAGE_NAME from .env.example when detection returns unknown" {
+@test "main: env_example rule reads IMAGE_NAME from .env.example" {
+    # Default conf has env_example before basename, so .env.example wins
     local _ws="${TEMP_DIR}/test_ws"
     local _proj="${TEMP_DIR}/my_generic_project"
     mkdir -p "${_ws}" "${_proj}"
@@ -392,6 +393,27 @@ EOF
     "
     assert_success
     run grep 'IMAGE_NAME=my_custom_image' "${_proj}/.env"
+    assert_success
+}
+
+@test "main warns when conf has no fallback and detection fails" {
+    # Custom conf without basename rule, no .env.example, no matching prefix/suffix
+    local _ws="${TEMP_DIR}/test_ws"
+    local _proj="${TEMP_DIR}/my_generic_project"
+    mkdir -p "${_ws}" "${_proj}"
+
+    cat > "${_proj}/image_name.conf" <<EOF
+prefix:nonexistent_
+EOF
+
+    run bash -c "
+        source /source/script/docker/setup.sh
+        detect_ws_path() { local -n _o=\$1; _o='${_ws}'; }
+        main --base-path '${_proj}'
+    "
+    assert_success
+    assert_line --partial "WARNING"
+    run grep 'IMAGE_NAME=unknown' "${_proj}/.env"
     assert_success
 }
 
