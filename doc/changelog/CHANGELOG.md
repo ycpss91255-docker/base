@@ -19,13 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `detect_image_name`: refactored to read rules from `image_name.conf` instead
-  of hardcoded logic. Default conf includes `@basename` so most repos work
-  without `.env.example`.
+  of hardcoded logic
 - **BREAKING**: `image_name.conf` keywords now require `@` prefix
   (`env_example` → `@env_example`, `basename` → `@basename`) to distinguish
   from user-defined values
-- Default conf moved `@env_example` to first position so `.env.example`
-  takes highest priority
+- Default conf order: `@env_example` → `prefix:docker_` → `suffix:_ws`
+  (`.env.example` highest priority; no `@basename` to avoid matching
+  generic dir names like `docker`. WARNING + `unknown` if no rule matches.)
 
 ### Fixed
 - `stop.sh`: remove orphan container left by `docker compose run --name`

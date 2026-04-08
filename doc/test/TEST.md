@@ -22,8 +22,8 @@ Template self-tests: **150 tests** total.
 | `detect_image_name prefers docker_* over *_ws in path` | Priority check |
 | `detect_image_name strips docker_ prefix from last dir` | Prefix stripping |
 | `detect_image_name strips docker_ from absolute root` | Root path |
-| `detect_image_name uses basename for plain directory (default conf)` | basename rule |
-| `detect_image_name uses basename for generic path (default conf)` | basename rule |
+| `detect_image_name returns unknown for plain directory (default conf)` | Unknown fallback |
+| `detect_image_name returns unknown for generic path (default conf)` | Unknown fallback |
 | `detect_image_name lowercases the result` | Lowercase |
 | `detect_image_name uses repo-level image_name.conf when present` | Per-repo override (env var) |
 | `detect_image_name auto-discovers image_name.conf via BASE_PATH` | Per-repo auto-discover |
@@ -44,7 +44,7 @@ Template self-tests: **150 tests** total.
 | `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
 | `main: env_example rule reads IMAGE_NAME from .env.example` | env_example rule via main |
 | `main warns when conf has no fallback and detection fails` | WARNING when no rule matches |
-| `main uses basename for repo without docker_/_ws naming` | basename fallback |
+| `main warns and uses unknown for repo without docker_/_ws naming` | WARNING + unknown |
 | `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
 | `default _base_path resolves to repo root, not script dir` | Regression test |
 | `main returns error on unknown argument` | Error handling |
