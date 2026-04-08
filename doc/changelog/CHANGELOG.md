@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `build.sh`: `--no-cache` flag for force rebuild (passes to both
   test-tools image build and docker compose build)
 - `config/image_name.conf`: rule-driven IMAGE_NAME detection
-  - Rule types: `prefix:`, `suffix:`, `env_example`, `basename`
+  - Rule types: `prefix:<value>`, `suffix:<value>`, `@env_example`, `@basename`, `@default:<value>`
   - Per-repo override: place `image_name.conf` in repo root
-  - Default rules: `prefix:docker_` → `suffix:_ws` → `env_example` → `basename`
+  - Default rules: `@env_example` → `prefix:docker_` → `suffix:_ws` → `@default:unknown`
 - `init.sh --gen-image-conf`: copy template's image_name.conf to repo root
   for per-repo customization
 
@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: `image_name.conf` keywords now require `@` prefix
   (`env_example` → `@env_example`, `basename` → `@basename`) to distinguish
   from user-defined values
-- Default conf order: `@env_example` → `prefix:docker_` → `suffix:_ws`
-  (`.env.example` highest priority; no `@basename` to avoid matching
-  generic dir names like `docker`. WARNING + `unknown` if no rule matches.)
+- Default conf order: `@env_example` → `prefix:docker_` → `suffix:_ws` → `@default:unknown`
+  (`.env.example` highest priority; `@default:unknown` as final fallback
+  prints INFO log so users know to set IMAGE_NAME explicitly)
+- New `@default:<value>` keyword: explicit fallback value with INFO log
+- WARNING only when no rule matches AND no `@default:` set (custom conf scenario)
 
 ### Fixed
 - `stop.sh`: remove orphan container left by `docker compose run --name`

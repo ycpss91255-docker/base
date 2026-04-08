@@ -232,14 +232,20 @@ detect_image_name() {
         _found="$(BASE_PATH="${BASE_PATH:-${_path}}" _rule_env_example "${_path}")"
       elif [[ "${_line}" == "@basename" ]]; then
         _found="$(_rule_basename "${_path}")"
+      elif [[ "${_line}" == @default:* ]]; then
+        _found="${_line#@default:}"
+        printf "[setup] INFO: IMAGE_NAME using @default:%s\n" "${_found}" >&2
       fi
 
       [[ -n "${_found}" ]] && break
     done < "${_conf}"  # LCOV_EXCL_LINE
   fi
 
-  _outvar="${_found:-unknown}"
-  _outvar="${_outvar,,}"
+  if [[ -z "${_found}" ]]; then
+    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
+    _found="unknown"
+  fi
+  _outvar="${_found,,}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -382,10 +388,6 @@ main() {
   detect_docker_hub_user docker_hub_user
   detect_gpu             gpu_enabled
   BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
-
-  if [[ "${image_name}" == "unknown" ]]; then
-    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
-  fi
 
   if [[ -z "${ws_path}" ]] || [[ ! -d "${ws_path}" ]]; then
     detect_ws_path ws_path "${_base_path}"

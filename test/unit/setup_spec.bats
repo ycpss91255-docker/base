@@ -251,6 +251,39 @@ EOF
     assert_equal "${_result}" "unknown"
 }
 
+@test "detect_image_name uses @basename when no other rule matches" {
+    local _conf="${TEMP_DIR}/image_name.conf"
+    cat > "${_conf}" <<EOF
+prefix:nonexistent_
+@basename
+EOF
+    local _result
+    IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/myapp"
+    assert_equal "${_result}" "myapp"
+}
+
+@test "detect_image_name applies @default:<value> as fallback" {
+    local _conf="${TEMP_DIR}/image_name.conf"
+    cat > "${_conf}" <<EOF
+prefix:nonexistent_
+@default:my_repo
+EOF
+    local _result
+    IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/myapp"
+    assert_equal "${_result}" "my_repo"
+}
+
+@test "detect_image_name @default:<value> is skipped if earlier rule matches" {
+    local _conf="${TEMP_DIR}/image_name.conf"
+    cat > "${_conf}" <<EOF
+prefix:foo_
+@default:my_repo
+EOF
+    local _result
+    IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/foo_realname"
+    assert_equal "${_result}" "realname"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # detect_ws_path
 # ════════════════════════════════════════════════════════════════════
@@ -418,7 +451,7 @@ EOF
     assert_success
 }
 
-@test "main warns and uses unknown for repo without docker_/_ws naming" {
+@test "main: default conf @default:unknown applies for repo without docker_/_ws naming" {
     local _ws="${TEMP_DIR}/test_ws"
     local _proj="${TEMP_DIR}/my_generic_project"
     mkdir -p "${_ws}" "${_proj}"
@@ -429,7 +462,8 @@ EOF
         main --base-path '${_proj}'
     "
     assert_success
-    assert_line --partial "WARNING"
+    assert_line --partial "INFO"
+    assert_line --partial "@default"
     run grep 'IMAGE_NAME=unknown' "${_proj}/.env"
     assert_success
 }
