@@ -124,19 +124,19 @@ COMMIT
 
 _usage() {
   cat >&2 <<'EOF'
-Usage: ./template/script/upgrade.sh [VERSION|--check]
+Usage: ./template/upgrade.sh [VERSION|--check]
 
 Upgrade template subtree to the latest (or specified) version.
 
 Arguments:
-  VERSION       Target version (e.g. v0.3.0). Defaults to latest tag.
+  VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
   -h, --help    Show this help
 
 Examples:
-  ./template/script/upgrade.sh              # upgrade to latest
-  ./template/script/upgrade.sh v0.3.0       # upgrade to specific version
-  ./template/script/upgrade.sh --check      # check only
+  ./template/upgrade.sh              # upgrade to latest
+  ./template/upgrade.sh v0.5.0       # upgrade to specific version
+  ./template/upgrade.sh --check      # check only
 EOF
   exit 0
 }
