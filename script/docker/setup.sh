@@ -228,9 +228,9 @@ detect_image_name() {
       elif [[ "${_line}" == suffix:* ]]; then
         _value="${_line#suffix:}"
         _found="$(_rule_suffix "${_path}" "${_value}")"
-      elif [[ "${_line}" == "env_example" ]]; then
+      elif [[ "${_line}" == "@env_example" ]]; then
         _found="$(BASE_PATH="${BASE_PATH:-${_path}}" _rule_env_example "${_path}")"
-      elif [[ "${_line}" == "basename" ]]; then
+      elif [[ "${_line}" == "@basename" ]]; then
         _found="$(_rule_basename "${_path}")"
       fi
 

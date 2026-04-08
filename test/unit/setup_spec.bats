@@ -174,7 +174,7 @@ esac'
     local _conf="${TEMP_DIR}/image_name.conf"
     cat > "${_conf}" <<EOF
 prefix:foo_
-basename
+@basename
 EOF
     local _result
     IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/foo_myapp"
@@ -184,7 +184,7 @@ EOF
 @test "detect_image_name auto-discovers image_name.conf via BASE_PATH" {
     cat > "${TEMP_DIR}/image_name.conf" <<EOF
 prefix:bar_
-basename
+@basename
 EOF
     local _result
     BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/bar_myapp"
@@ -195,8 +195,8 @@ EOF
     local _conf="${TEMP_DIR}/image_name.conf"
     local _example="${TEMP_DIR}/.env.example"
     cat > "${_conf}" <<EOF
-env_example
-basename
+@env_example
+@basename
 EOF
     echo "IMAGE_NAME=from_example" > "${_example}"
     local _result
@@ -210,7 +210,7 @@ EOF
     cat > "${_conf}" <<EOF
 prefix:docker_
 suffix:_ws
-basename
+@basename
 EOF
     local _result
     # path has both docker_ and _ws — prefix wins
@@ -225,7 +225,7 @@ EOF
 prefix:foo_
 
 # Another comment
-basename
+@basename
 EOF
     local _result
     IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/foo_myapp"
@@ -234,7 +234,7 @@ EOF
 
 @test "detect_image_name skips whitespace-only lines in conf" {
     local _conf="${TEMP_DIR}/image_name.conf"
-    printf 'prefix:foo_\n   \n\t\nbasename\n' > "${_conf}"
+    printf 'prefix:foo_\n   \n\t\n@basename\n' > "${_conf}"
     local _result
     IMAGE_NAME_CONF="${_conf}" detect_image_name _result "/home/user/foo_myapp"
     assert_equal "${_result}" "myapp"
