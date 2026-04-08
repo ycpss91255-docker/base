@@ -73,3 +73,7 @@ docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
   -f "${FILE_PATH}/compose.yaml" \
   --env-file "${FILE_PATH}/.env" \
   down "$@"
+
+# Also remove orphan container started by `docker compose run --name`
+# (compose down does not clean up `compose run` containers)
+docker rm -f "${IMAGE_NAME}" 2>/dev/null || true
