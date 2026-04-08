@@ -148,16 +148,17 @@ esac'
     assert_equal "${_result}" "project"
 }
 
-@test "detect_image_name uses basename for plain directory (default conf)" {
+@test "detect_image_name returns unknown for plain directory (default conf)" {
+    # default conf only has @env_example/prefix:docker_/suffix:_ws (no @basename)
     local _result
     detect_image_name _result "/home/user/projects/ros_noetic"
-    assert_equal "${_result}" "ros_noetic"
+    assert_equal "${_result}" "unknown"
 }
 
-@test "detect_image_name uses basename for generic path (default conf)" {
+@test "detect_image_name returns unknown for generic path (default conf)" {
     local _result
     detect_image_name _result "/home/user/myproject"
-    assert_equal "${_result}" "myproject"
+    assert_equal "${_result}" "unknown"
 }
 
 @test "detect_image_name lowercases the result" {
@@ -417,7 +418,7 @@ EOF
     assert_success
 }
 
-@test "main uses basename for repo without docker_/_ws naming" {
+@test "main warns and uses unknown for repo without docker_/_ws naming" {
     local _ws="${TEMP_DIR}/test_ws"
     local _proj="${TEMP_DIR}/my_generic_project"
     mkdir -p "${_ws}" "${_proj}"
@@ -428,7 +429,8 @@ EOF
         main --base-path '${_proj}'
     "
     assert_success
-    run grep 'IMAGE_NAME=my_generic_project' "${_proj}/.env"
+    assert_line --partial "WARNING"
+    run grep 'IMAGE_NAME=unknown' "${_proj}/.env"
     assert_success
 }
 
