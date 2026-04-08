@@ -51,10 +51,25 @@ jobs:
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
 
+      - name: Extract release notes for current tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          # Extract the section for current version from CHANGELOG.md
+          # Matches "## [vX.Y.Z]" or "## [vX.Y.Z-rcN]" until the next "## ["
+          awk -v ver="${VERSION}" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) { found=1; next }
+            }
+            found
+          ' doc/changelog/CHANGELOG.md > /tmp/release-notes.md
+          echo "--- Extracted release notes ---"
+          cat /tmp/release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/changelog/CHANGELOG.md
+          body_path: /tmp/release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
