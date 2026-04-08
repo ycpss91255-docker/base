@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **150 tests** total.
+Template self-tests: **153 tests** total.
 
 ## Test Files
 
-### test/unit/setup_spec.bats (55)
+### test/unit/setup_spec.bats (58)
 
 | Test | Description |
 |------|-------------|
@@ -32,6 +32,9 @@ Template self-tests: **150 tests** total.
 | `detect_image_name skips comments and empty lines in conf` | Conf parsing |
 | `detect_image_name skips whitespace-only lines in conf` | Conf parsing |
 | `detect_image_name returns unknown when no rule matches and no basename` | Unknown fallback |
+| `detect_image_name uses @basename when no other rule matches` | @basename rule |
+| `detect_image_name applies @default:<value> as fallback` | @default rule |
+| `detect_image_name @default:<value> is skipped if earlier rule matches` | @default skip |
 | `detect_ws_path strategy 1: docker_* finds sibling *_ws` | Sibling scan |
 | `detect_ws_path strategy 1: docker_* without sibling falls through` | No sibling |
 | `detect_ws_path strategy 2: finds _ws component in path` | Path traversal |
@@ -44,7 +47,7 @@ Template self-tests: **150 tests** total.
 | `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
 | `main: env_example rule reads IMAGE_NAME from .env.example` | env_example rule via main |
 | `main warns when conf has no fallback and detection fails` | WARNING when no rule matches |
-| `main warns and uses unknown for repo without docker_/_ws naming` | WARNING + unknown |
+| `main: default conf @default:unknown applies for repo without docker_/_ws naming` | @default:unknown INFO |
 | `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
 | `default _base_path resolves to repo root, not script dir` | Regression test |
 | `main returns error on unknown argument` | Error handling |
