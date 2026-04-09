@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.4] - 2026-04-09
+
+### Fixed
+- `upgrade.sh`: greedy sed pattern clobbered `release-worker.yaml@<ver>` reference,
+  replacing it with `build-worker.yaml@<ver>` and breaking release CI in consumer repos
+  - Root cause: `s|template/\.github/workflows/.*@v[0-9.]*|...build-worker.yaml@...|`
+    matched both worker references; the dedicated `release-worker` line that follows
+    only worked when the first sed didn't already overwrite it
+  - Fix: drop the greedy first sed, keep only the per-worker-name targeted seds
+
 ## [v0.6.3] - 2026-04-09
 
 ### Added
@@ -178,6 +188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.4]: https://github.com/ycpss91255-docker/template/compare/v0.6.3...v0.6.4
 [v0.6.3]: https://github.com/ycpss91255-docker/template/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/ycpss91255-docker/template/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/ycpss91255-docker/template/compare/v0.6.0...v0.6.1

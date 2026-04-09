@@ -303,6 +303,42 @@ setup() {
     assert_output --partial "--gen-image-conf"
 }
 
+@test "upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml" {
+    # Regression: a greedy sed pattern .*@v[0-9.]* matched both build-worker
+    # and release-worker references, replacing both with build-worker.yaml@<ver>
+    local _tmp _yaml
+    _tmp="$(mktemp -d)"
+    _yaml="${_tmp}/main.yaml"
+    mkdir -p "${_tmp}/template" "${_tmp}/.github/workflows"
+    cat > "${_yaml}" <<'EOF'
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.5.0
+  call-release:
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.5.0
+EOF
+    # Source upgrade.sh and exercise just the sed block by inlining the
+    # production sed commands here, mirroring what upgrade.sh does.
+    # We do this by extracting and running the sed commands from upgrade.sh.
+    local _seds
+    _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+    while IFS= read -r _line; do
+        # shellcheck disable=SC2001
+        _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
+        eval "${_line}"
+    done <<< "${_seds}"
+
+    run grep "build-worker.yaml@v0.6.4" "${_yaml}"
+    assert_success
+    run grep "release-worker.yaml@v0.6.4" "${_yaml}"
+    assert_success
+    # Critical: release-worker must NOT be replaced by build-worker
+    run grep -c "build-worker.yaml" "${_yaml}"
+    assert_output "1"
+
+    rm -rf "${_tmp}"
+}
+
 @test "upgrade.sh writes target_ver after init.sh (to override init's latest detection)" {
     # init.sh writes latest tag to .template_version, but upgrade may target older version
     # so upgrade.sh must overwrite .template_version AFTER init.sh runs

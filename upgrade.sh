@@ -95,10 +95,10 @@ _upgrade() {
   _log "Step 4/4: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
-    # Replace @vX.Y.Z with new version in reusable workflow references
-    sed -i "s|template/\.github/workflows/.*@v[0-9.]*|template/.github/workflows/build-worker.yaml@${target_ver}|" "${main_yaml}"
-    sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|" "${main_yaml}"
-    sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|" "${main_yaml}"
+    # Replace @vX.Y.Z with new version in reusable workflow references.
+    # Match each worker file by name to avoid greedy patterns clobbering siblings.
+    sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|g" "${main_yaml}"
+    sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
   fi
 
