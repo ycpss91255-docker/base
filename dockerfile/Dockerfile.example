@@ -68,6 +68,7 @@ RUN apt-get update && \
         git \
         vim \
         tmux \
+        terminator \
         curl \
         wget \
         python3 \
