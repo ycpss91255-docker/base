@@ -21,6 +21,7 @@ ARG USER_UID=1000
 ARG USER_GROUP="user"
 ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
+ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
@@ -57,8 +58,12 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
 ############################## base ##############################
 FROM sys AS base
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
         sudo \
         git \
         vim \
