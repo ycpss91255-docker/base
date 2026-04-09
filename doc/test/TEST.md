@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **201 tests** total (180 unit + 21 integration).
+Template self-tests: **213 tests** total (192 unit + 21 integration).
 
 ## Test Files
 
@@ -67,7 +67,7 @@ Template self-tests: **201 tests** total (180 unit + 21 integration).
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (66)
+### test/unit/template_spec.bats (78)
 
 | Test | Description |
 |------|-------------|
@@ -113,6 +113,18 @@ Template self-tests: **201 tests** total (180 unit + 21 integration).
 | `run.sh devel branch installs trap to auto-down on exit` | Auto cleanup |
 | `run.sh non-devel TARGET still uses compose run --rm` | One-shot stages |
 | `run.sh devel branch does not use 'compose run --name'` | Old pattern gone |
+| `run.sh supports --instance flag` | --instance |
+| `exec.sh supports --instance flag` | --instance |
+| `stop.sh supports --instance flag` | --instance |
+| `stop.sh supports --all flag` | --all |
+| `run.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
+| `exec.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
+| `stop.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
+| `run.sh refuses when default container already running and no --instance` | collision |
+| `init.sh-generated compose.yaml uses parameterized container_name` | template gen |
+| `run.sh -h shows --instance in help` | help text |
+| `exec.sh -h shows --instance in help` | help text |
+| `stop.sh -h shows --instance in help` | help text |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |

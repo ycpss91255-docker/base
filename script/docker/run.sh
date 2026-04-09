@@ -24,13 +24,14 @@ usage() {
   case "${_LANG}" in
     zh)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 選項:
-  -h, --help     顯示此說明
-  -d, --detach   背景執行（docker compose up -d）
-  --no-env       跳過 .env 重新產生
-  --lang LANG    設定訊息語言（預設: en）
+  -h, --help        顯示此說明
+  -d, --detach      背景執行（docker compose up -d）
+  --no-env          跳過 .env 重新產生
+  --instance NAME   啟動命名 instance（與預設並行,suffix=-NAME）
+  --lang LANG       設定訊息語言（預設: en）
 
 目標:
   devel    開發環境（預設）
@@ -39,13 +40,14 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 选项:
-  -h, --help     显示此说明
-  -d, --detach   后台运行（docker compose up -d）
-  --no-env       跳过 .env 重新生成
-  --lang LANG    设置消息语言（默认: en）
+  -h, --help        显示此说明
+  -d, --detach      后台运行（docker compose up -d）
+  --no-env          跳过 .env 重新生成
+  --instance NAME   启动命名 instance（与默认并行,suffix=-NAME）
+  --lang LANG       设置消息语言（默认: en）
 
 目标:
   devel    开发环境（默认）
@@ -54,13 +56,14 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-d|--detach] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 オプション:
-  -h, --help     このヘルプを表示
-  -d, --detach   バックグラウンドで実行（docker compose up -d）
-  --no-env       .env の再生成をスキップ
-  --lang LANG    メッセージ言語を設定（デフォルト: en）
+  -h, --help        このヘルプを表示
+  -d, --detach      バックグラウンドで実行（docker compose up -d）
+  --no-env          .env の再生成をスキップ
+  --instance NAME   名前付き instance を起動（デフォルトと並行、suffix=-NAME）
+  --lang LANG       メッセージ言語を設定（デフォルト: en）
 
 ターゲット:
   devel    開発環境（デフォルト）
@@ -69,13 +72,14 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [--no-env] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 Options:
-  -h, --help     Show this help
-  -d, --detach   Run in background (docker compose up -d)
-  --no-env       Skip .env regeneration
-  --lang LANG    Set message language (default: en)
+  -h, --help        Show this help
+  -d, --detach      Run in background (docker compose up -d)
+  --no-env          Skip .env regeneration
+  --instance NAME   Start a named parallel instance (suffix=-NAME)
+  --lang LANG       Set message language (default: en)
 
 Targets:
   devel    Development environment (default)
@@ -90,6 +94,7 @@ EOF
 SKIP_ENV=false
 DETACH=false
 TARGET="devel"
+INSTANCE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -104,6 +109,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_ENV=true
       shift
       ;;
+    --instance)
+      INSTANCE="${2:?"--instance requires a value"}"
+      shift 2
+      ;;
     --lang)
       _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
       shift 2
@@ -114,6 +123,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# INSTANCE_SUFFIX is appended to project name and (via env var) to compose.yaml's
+# container_name: ${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+if [[ -n "${INSTANCE}" ]]; then
+  INSTANCE_SUFFIX="-${INSTANCE}"
+else
+  INSTANCE_SUFFIX=""
+fi
+export INSTANCE_SUFFIX
 
 # Generate / refresh .env
 if [[ "${SKIP_ENV}" == false ]]; then
@@ -133,12 +151,29 @@ else
   xhost +local: >/dev/null 2>&1 || true
 fi
 
+# Project name includes instance suffix so parallel instances have isolated
+# networks/volumes/containers.
+PROJECT_NAME="${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
+CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+
+# Refuse to start if the target container is already running and user did not
+# explicitly opt into a parallel instance via --instance.
+# (For -d mode, the existing `down` step handles restart, so collision is OK.)
+if [[ "${DETACH}" != true && "${TARGET}" == "devel" ]]; then
+  if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+    printf "[run] ERROR: Container '%s' is already running.\n" "${CONTAINER_NAME}" >&2
+    printf "[run] Either stop it with './stop.sh%s' or start a parallel instance with './run.sh --instance NAME'.\n" \
+      "$([[ -n "${INSTANCE}" ]] && printf ' --instance %s' "${INSTANCE}")" >&2
+    exit 1
+  fi
+fi
+
 if [[ "${DETACH}" == true ]]; then
-  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+  docker compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     down 2>/dev/null || true
-  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+  docker compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     up -d "${TARGET}"
@@ -146,18 +181,19 @@ elif [[ "${TARGET}" == "devel" ]]; then
   # Foreground devel: use `up -d` + `exec` so a second terminal can join via
   # `./exec.sh`. Trap auto-`down` on exit to preserve the original
   # "exit shell = container gone" semantic of the previous `compose run`.
-  trap 'docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" -f "${FILE_PATH}/compose.yaml" --env-file "${FILE_PATH}/.env" down >/dev/null 2>&1 || true' EXIT
-  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+  # shellcheck disable=SC2064  # PROJECT_NAME must be expanded NOW, not at trap time
+  trap "docker compose -p '${PROJECT_NAME}' -f '${FILE_PATH}/compose.yaml' --env-file '${FILE_PATH}/.env' down >/dev/null 2>&1 || true" EXIT
+  docker compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     up -d "${TARGET}"
-  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+  docker compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     exec "${TARGET}" bash
 else
   # Other one-shot stages (test, runtime, ...): keep `compose run --rm`
-  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+  docker compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     run --rm "${TARGET}"
