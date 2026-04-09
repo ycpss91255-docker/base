@@ -205,9 +205,41 @@ setup() {
     assert_success
 }
 
-@test "stop.sh removes orphan run-mode container by name" {
+@test "stop.sh no longer needs orphan cleanup (run.sh devel uses up not run)" {
+    # v0.6.6: run.sh devel switched to compose up + exec, so no more orphan
+    # containers from `compose run --name`. The orphan cleanup line is removed.
     run grep -E 'docker rm.*-f.*IMAGE_NAME' /source/script/docker/stop.sh
+    assert_failure
+}
+
+@test "run.sh devel target uses compose up -d (not compose run --name)" {
+    # Regression: foreground devel previously used `compose run --name` which
+    # created a one-off container that `./exec.sh` (compose exec) couldn't see,
+    # producing "service devel is not running". Switched to up + exec.
+    run grep -E 'up -d' /source/script/docker/run.sh
     assert_success
+}
+
+@test "run.sh devel branch uses compose exec to enter shell" {
+    run grep -E '^\s*exec ' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "run.sh devel branch installs trap to auto-down on exit" {
+    run grep -E "trap .* down.*EXIT" /source/script/docker/run.sh
+    assert_success
+}
+
+@test "run.sh non-devel TARGET still uses compose run --rm" {
+    # test/runtime/etc one-shots stay on compose run --rm (no exec needed)
+    run grep -E 'run --rm' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "run.sh devel branch does not use 'compose run --name'" {
+    # The old buggy pattern must be gone for devel; only run --rm for one-shots
+    run grep -E 'run .*--name' /source/script/docker/run.sh
+    assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -142,9 +142,23 @@ if [[ "${DETACH}" == true ]]; then
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     up -d "${TARGET}"
-else
+elif [[ "${TARGET}" == "devel" ]]; then
+  # Foreground devel: use `up -d` + `exec` so a second terminal can join via
+  # `./exec.sh`. Trap auto-`down` on exit to preserve the original
+  # "exit shell = container gone" semantic of the previous `compose run`.
+  trap 'docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" -f "${FILE_PATH}/compose.yaml" --env-file "${FILE_PATH}/.env" down >/dev/null 2>&1 || true' EXIT
   docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
-    run --rm --name "${IMAGE_NAME}" "${TARGET}"
+    up -d "${TARGET}"
+  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+    -f "${FILE_PATH}/compose.yaml" \
+    --env-file "${FILE_PATH}/.env" \
+    exec "${TARGET}" bash
+else
+  # Other one-shot stages (test, runtime, ...): keep `compose run --rm`
+  docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+    -f "${FILE_PATH}/compose.yaml" \
+    --env-file "${FILE_PATH}/.env" \
+    run --rm "${TARGET}"
 fi

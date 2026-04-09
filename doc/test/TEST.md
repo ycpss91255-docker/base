@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **175 tests** total.
+Template self-tests: **180 tests** total.
 
 ## Test Files
 
@@ -67,7 +67,7 @@ Template self-tests: **175 tests** total.
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (61)
+### test/unit/template_spec.bats (66)
 
 | Test | Description |
 |------|-------------|
@@ -107,7 +107,12 @@ Template self-tests: **175 tests** total.
 | `stop.sh uses -p for compose project name` | Compose project |
 | `exec.sh sources .env` | Env loading |
 | `stop.sh sources .env` | Env loading |
-| `stop.sh removes orphan run-mode container by name` | docker rm fallback |
+| `stop.sh no longer needs orphan cleanup (run.sh devel uses up not run)` | No more orphan |
+| `run.sh devel target uses compose up -d (not compose run --name)` | up + exec model |
+| `run.sh devel branch uses compose exec to enter shell` | up + exec model |
+| `run.sh devel branch installs trap to auto-down on exit` | Auto cleanup |
+| `run.sh non-devel TARGET still uses compose run --rm` | One-shot stages |
+| `run.sh devel branch does not use 'compose run --name'` | Old pattern gone |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
