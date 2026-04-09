@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `build.sh` / `run.sh` / `exec.sh` / `stop.sh`: `--dry-run` flag prints the
+  `docker` / `docker compose` commands that would run instead of executing them.
+  Useful for debugging compose / env / instance resolution without side effects.
+- `exec.sh`: precheck refuses with a friendly error pointing at `./run.sh`
+  (and `--instance NAME` if applicable) when the target container is not running,
+  instead of letting `compose exec` print the cryptic `service "devel" is not running`.
+
 ### Changed
 - Refactor: extracted shared helpers (`_LANG` setup, `_load_env`, `_compute_project_name`,
   `_compose`, `_compose_project`) into `template/script/docker/_lib.sh`. `build.sh`,
@@ -16,8 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so arguments containing whitespace are preserved instead of being word-split.
 - `run.sh`: trap is now `trap _devel_cleanup EXIT` (calls a named function) instead of
   an inline string-expanded command, matching `build.sh`'s style.
-
-No user-facing behavior change.
 
 ## [v0.6.8] - 2026-04-09
 

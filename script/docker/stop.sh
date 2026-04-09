@@ -25,7 +25,7 @@ usage() {
   case "${_LANG}" in
     zh)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [--all]
+用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
 
 停止並移除容器。預設只停止 default instance。
 
@@ -33,11 +33,12 @@ usage() {
   -h, --help        顯示此說明
   --instance NAME   只停止指定的命名 instance
   --all             停止所有 instance(預設 + 全部命名 instance)
+  --dry-run         只印出將執行的 docker 指令，不實際執行
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [--all]
+用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
 
 停止并移除容器。默认只停止 default instance。
 
@@ -45,11 +46,12 @@ EOF
   -h, --help        显示此说明
   --instance NAME   只停止指定的命名 instance
   --all             停止所有 instance(默认 + 全部命名 instance)
+  --dry-run         只打印将执行的 docker 命令，不实际执行
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [--instance NAME] [--all]
+使用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
 
 コンテナを停止・削除します。デフォルトは default instance のみ。
 
@@ -57,11 +59,12 @@ EOF
   -h, --help        このヘルプを表示
   --instance NAME   指定された名前付き instance のみ停止
   --all             すべての instance を停止（デフォルト + 全名前付き instance）
+  --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [--instance NAME] [--all]
+Usage: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
 
 Stop and remove containers. Default: stop only the default instance.
 
@@ -69,6 +72,7 @@ Options:
   -h, --help        Show this help
   --instance NAME   Stop only the named instance
   --all             Stop ALL instances (default + every named instance)
+  --dry-run         Print the docker commands that would run, but do not execute
 EOF
       ;;
   esac
@@ -77,6 +81,7 @@ EOF
 
 INSTANCE=""
 ALL_INSTANCES=false
+DRY_RUN=false
 PASSTHROUGH=()
 
 while [[ $# -gt 0 ]]; do
@@ -92,12 +97,17 @@ while [[ $# -gt 0 ]]; do
       ALL_INSTANCES=true
       shift
       ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
     *)
       PASSTHROUGH+=("$1")
       shift
       ;;
   esac
 done
+export DRY_RUN
 
 # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
 _load_env "${FILE_PATH}/.env"

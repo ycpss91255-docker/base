@@ -121,6 +121,17 @@ EOF
     assert_output --partial "--all"
 }
 
+@test "_compose without DRY_RUN tries to invoke docker compose (sanity)" {
+    # When DRY_RUN is unset/false, _compose calls real docker compose; on a
+    # CI runner without docker the command exits non-zero, but we just want
+    # to confirm the false branch executes (kcov coverage).
+    run bash -c "source ${LIB}; PATH=/nonexistent _compose version"
+    # Either docker compose ran (rc 0) or PATH lookup failed (rc 127);
+    # both are fine. We assert the script *attempted* the call by checking
+    # we did not see the dry-run prefix in output.
+    refute_output --partial "[dry-run]"
+}
+
 @test "_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH" {
     run bash -c "
         source ${LIB}
