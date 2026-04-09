@@ -180,18 +180,18 @@ setup() {
     assert_success
 }
 
-@test "run.sh uses -p for compose project name" {
-    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/run.sh
+@test "run.sh derives project name from DOCKER_HUB_USER and IMAGE_NAME" {
+    run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/run.sh
     assert_success
 }
 
-@test "exec.sh uses -p for compose project name" {
-    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/exec.sh
+@test "exec.sh derives project name from DOCKER_HUB_USER and IMAGE_NAME" {
+    run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/exec.sh
     assert_success
 }
 
-@test "stop.sh uses -p for compose project name" {
-    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/stop.sh
+@test "stop.sh derives project name from DOCKER_HUB_USER and IMAGE_NAME" {
+    run grep -E 'DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/stop.sh
     assert_success
 }
 
@@ -240,6 +240,73 @@ setup() {
     # The old buggy pattern must be gone for devel; only run --rm for one-shots
     run grep -E 'run .*--name' /source/script/docker/run.sh
     assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --instance flag (v0.6.8)
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh supports --instance flag" {
+    run grep -E '\-\-instance' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "exec.sh supports --instance flag" {
+    run grep -E '\-\-instance' /source/script/docker/exec.sh
+    assert_success
+}
+
+@test "stop.sh supports --instance flag" {
+    run grep -E '\-\-instance' /source/script/docker/stop.sh
+    assert_success
+}
+
+@test "stop.sh supports --all flag" {
+    run grep -E '\-\-all' /source/script/docker/stop.sh
+    assert_success
+}
+
+@test "run.sh exports INSTANCE_SUFFIX env var to compose" {
+    # Compose YAML resolves ${INSTANCE_SUFFIX:-} from this env var
+    run grep -E 'INSTANCE_SUFFIX' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "exec.sh exports INSTANCE_SUFFIX env var to compose" {
+    run grep -E 'INSTANCE_SUFFIX' /source/script/docker/exec.sh
+    assert_success
+}
+
+@test "stop.sh exports INSTANCE_SUFFIX env var to compose" {
+    run grep -E 'INSTANCE_SUFFIX' /source/script/docker/stop.sh
+    assert_success
+}
+
+@test "run.sh refuses when default container already running and no --instance" {
+    # The script should grep docker ps for existing container with the
+    # default name and exit non-zero with a helpful message
+    run grep -E 'already running|already exists' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "init.sh-generated compose.yaml uses parameterized container_name" {
+    run grep 'INSTANCE_SUFFIX' /source/init.sh
+    assert_success
+}
+
+@test "run.sh -h shows --instance in help" {
+    run bash -c "bash /source/script/docker/run.sh -h 2>&1"
+    assert_output --partial "--instance"
+}
+
+@test "exec.sh -h shows --instance in help" {
+    run bash -c "bash /source/script/docker/exec.sh -h 2>&1"
+    assert_output --partial "--instance"
+}
+
+@test "stop.sh -h shows --instance in help" {
+    run bash -c "bash /source/script/docker/stop.sh -h 2>&1"
+    assert_output --partial "--instance"
 }
 
 # ════════════════════════════════════════════════════════════════════

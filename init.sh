@@ -86,7 +86,7 @@ services:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-tw.archive.ubuntu.com}
         APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-mirror.twds.com.tw}
     image: \${DOCKER_HUB_USER:-local}/${name}:devel
-    container_name: ${name}
+    container_name: ${name}\${INSTANCE_SUFFIX:-}
     stdin_open: true
     tty: true
 

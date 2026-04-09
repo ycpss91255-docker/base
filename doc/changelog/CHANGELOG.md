@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.8] - 2026-04-09
+
+### Added
+- `run.sh` / `exec.sh` / `stop.sh`: `--instance NAME` flag for parallel container instances
+  - `./run.sh --instance dev2` starts a parallel container alongside the default
+  - `./exec.sh --instance dev2 [cmd]` enters that named instance
+  - `./stop.sh --instance dev2` stops only that one
+  - `./stop.sh --all` stops the default + every named instance for this image
+- Project name and container name now include `${INSTANCE_SUFFIX}` so each
+  instance has isolated docker compose project (own network/volumes)
+- `init.sh`-generated `compose.yaml` uses
+  `container_name: ${IMAGE_NAME}${INSTANCE_SUFFIX:-}`
+  - Default invocation (no `--instance`) keeps the clean name `${IMAGE_NAME}` —
+    backward-compatible with external tools that grep `docker exec ${IMAGE_NAME}`
+
+### Changed
+- `run.sh`: foreground devel now refuses to start if a container with the
+  default name is already running. Use `./stop.sh` first or pass
+  `--instance NAME` to start a parallel one.
+
+### Note
+- Existing 17 consumer repos must update their `compose.yaml` to use
+  `container_name: ${IMAGE_NAME}${INSTANCE_SUFFIX:-}` (one-line edit) before
+  `--instance` works there. Default behavior unchanged until they upgrade.
+
 ## [v0.6.7] - 2026-04-09
 
 ### Added
@@ -230,6 +255,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.8]: https://github.com/ycpss91255-docker/template/compare/v0.6.7...v0.6.8
 [v0.6.7]: https://github.com/ycpss91255-docker/template/compare/v0.6.6...v0.6.7
 [v0.6.6]: https://github.com/ycpss91255-docker/template/compare/v0.6.5...v0.6.6
 [v0.6.5]: https://github.com/ycpss91255-docker/template/compare/v0.6.4...v0.6.5
