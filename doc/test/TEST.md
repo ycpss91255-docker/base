@@ -1,8 +1,27 @@
 # TEST.md
 
-Template self-tests: **219 tests** total (198 unit + 21 integration).
+Template self-tests: **233 tests** total (212 unit + 21 integration).
 
 ## Test Files
+
+### test/unit/lib_spec.bats (14)
+
+| Test | Description |
+|------|-------------|
+| `_lib.sh sets _LANG to 'en' when LANG is unset` | Default language |
+| `_lib.sh sets _LANG to 'zh' for zh_TW.UTF-8` | Traditional Chinese |
+| `_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8` | Simplified Chinese |
+| `_lib.sh sets _LANG to 'zh-CN' for zh_SG (Singapore)` | Singapore variant |
+| `_lib.sh sets _LANG to 'ja' for ja_JP.UTF-8` | Japanese |
+| `_lib.sh honors SETUP_LANG override` | Env override |
+| `_lib.sh is idempotent when sourced twice` | Double-source guard |
+| `_load_env exports variables from a .env file` | Env loader works |
+| `_load_env errors when no path is given` | Required arg check |
+| `_compute_project_name with empty instance produces clean PROJECT_NAME` | Default instance |
+| `_compute_project_name with named instance suffixes both` | Named instance |
+| `_compute_project_name exports INSTANCE_SUFFIX so child processes see it` | Export propagation |
+| `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
+| `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
 
 ### test/unit/setup_spec.bats (58)
 
