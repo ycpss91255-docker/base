@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.7] - 2026-04-09
+
+### Added
+- `test/integration/init_new_repo_spec.bats`: 21 Level-1 integration tests
+  - Verifies `init.sh` produces a complete repo skeleton in an empty dir
+    (Dockerfile, compose.yaml, .env.example, symlinks, doc tree, .github/workflows, etc.)
+  - Runs inside the existing `make -f Makefile.ci test` container — no Docker needed
+  - Total tests: 180 → 201 (180 unit + 21 integration)
+- `.github/workflows/self-test.yaml`: new `integration-e2e` job (Level 2)
+  - Runs `init.sh` → `build.sh test` → `build.sh` → `run.sh -d` → `exec.sh` → `stop.sh`
+    on a synthetic temp repo, on a real GitHub runner with Docker daemon
+  - `release` job now depends on both `test` and `integration-e2e`
+- `script/ci/ci.sh`: now also runs `bats test/integration/` alongside `test/unit/`
+
 ## [v0.6.6] - 2026-04-09
 
 ### Fixed
@@ -216,6 +230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.7]: https://github.com/ycpss91255-docker/template/compare/v0.6.6...v0.6.7
 [v0.6.6]: https://github.com/ycpss91255-docker/template/compare/v0.6.5...v0.6.6
 [v0.6.5]: https://github.com/ycpss91255-docker/template/compare/v0.6.4...v0.6.5
 [v0.6.4]: https://github.com/ycpss91255-docker/template/compare/v0.6.3...v0.6.4

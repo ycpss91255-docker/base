@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **180 tests** total.
+Template self-tests: **201 tests** total (180 unit + 21 integration).
 
 ## Test Files
 
@@ -223,3 +223,35 @@ Template self-tests: **180 tests** total.
 | `main creates tmux config directory` | Config dir |
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
+
+### test/integration/init_new_repo_spec.bats (21)
+
+End-to-end verification that `init.sh` produces a complete repo skeleton in
+an empty directory. **Level 1** (file generation only, no Docker). The
+**Level 2** equivalent (real `build.sh` / `run.sh` / `exec.sh` / `stop.sh`)
+runs as the `integration-e2e` job in `.github/workflows/self-test.yaml`,
+which has access to a Docker daemon on the host runner.
+
+| Test | Description |
+|------|-------------|
+| `init.sh detects empty dir and creates new repo skeleton` | Smoke |
+| `new repo: Dockerfile is copied from template` | Dockerfile gen |
+| `new repo: compose.yaml exists and references the repo name` | compose gen |
+| `new repo: .env.example contains IMAGE_NAME=<reponame>` | env fallback |
+| `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
+| `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
+| `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
+| `new repo: .gitignore exists` | gitignore |
+| `new repo: doc/ tree exists with README translations` | i18n docs |
+| `new repo: doc/test/TEST.md exists` | TEST.md gen |
+| `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
+| `new repo: build.sh symlink → template/script/docker/build.sh` | symlink target |
+| `new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct` | symlink set |
+| `new repo: .template_version exists and matches a known tag format` | version file |
+| `new repo: re-running init.sh on the result is idempotent` | idempotent |
+| `new repo: build.sh -h works against the generated symlink` | smoke build.sh |
+| `new repo: run.sh -h works against the generated symlink` | smoke run.sh |
+| `new repo: exec.sh -h works against the generated symlink` | smoke exec.sh |
+| `new repo: stop.sh -h works against the generated symlink` | smoke stop.sh |
+| `init.sh --gen-image-conf copies image_name.conf to repo root` | conf gen |
+| `init.sh --gen-image-conf refuses to overwrite existing image_name.conf` | conf safety |

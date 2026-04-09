@@ -70,6 +70,8 @@ _run_shellcheck() {
 _run_tests() {
   echo "--- Running Bats Unit Tests ---"
   bats "${REPO_ROOT}/test/unit/"
+  echo "--- Running Bats Integration Tests ---"
+  bats "${REPO_ROOT}/test/integration/"
 }
 
 # ── Kcov coverage ────────────────────────────────────────────────────────────
@@ -80,7 +82,7 @@ _run_coverage() {
     --include-path="${REPO_ROOT}" \
     --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci/,${REPO_ROOT}/init.sh,${REPO_ROOT}/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
     "${REPO_ROOT}/coverage" \
-    bats "${REPO_ROOT}/test/unit/"
+    bats "${REPO_ROOT}/test/unit/" "${REPO_ROOT}/test/integration/"
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
