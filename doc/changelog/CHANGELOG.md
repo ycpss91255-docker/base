@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.2] - 2026-04-09
+
+### Changed
+- Remove all `# LCOV_EXCL_*` markers from shell scripts to expose real coverage
+  - Coverage now reflects actual instrumented lines (95.76% vs prior masked 100%)
+  - 2 new direct-run tests for `tmux/setup.sh` and `terminator/setup.sh` (171 total)
+  - Remaining 10 uncovered lines in `setup.sh` are kcov bash backend limitations
+    (case `;;` arms, `done` redirect close, child-bash guards)
+
 ## [v0.6.1] - 2026-04-08
 
 ### Added
@@ -162,6 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.2]: https://github.com/ycpss91255-docker/template/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/ycpss91255-docker/template/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/ycpss91255-docker/template/compare/v0.5.0...v0.6.0
 [v0.5.0]: https://github.com/ycpss91255-docker/template/compare/v0.4.2...v0.5.0

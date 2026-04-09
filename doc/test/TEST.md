@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **169 tests** total.
+Template self-tests: **171 tests** total.
 
 ## Test Files
 
@@ -171,7 +171,7 @@ Template self-tests: **169 tests** total.
 | `layouts has Window type` | Window layout |
 | `layouts has Terminal type` | Terminal layout |
 
-### test/unit/terminator_setup_spec.bats (7)
+### test/unit/terminator_setup_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
@@ -182,6 +182,7 @@ Template self-tests: **169 tests** total.
 | `main creates terminator config directory` | Config dir |
 | `main copies terminator config file` | Config copy |
 | `main calls chown with correct user and group` | Permissions |
+| `script runs entry_point when executed directly` | Direct-run guard |
 
 ### test/unit/tmux_conf_spec.bats (12)
 
@@ -200,7 +201,7 @@ Template self-tests: **169 tests** total.
 | `declares tpm plugin` | tpm plugin |
 | `initializes tpm at end of file` | tpm init |
 
-### test/unit/tmux_setup_spec.bats (8)
+### test/unit/tmux_setup_spec.bats (9)
 
 | Test | Description |
 |------|-------------|
@@ -212,3 +213,4 @@ Template self-tests: **169 tests** total.
 | `main clones tpm repository` | tpm clone |
 | `main creates tmux config directory` | Config dir |
 | `main copies tmux.conf to config directory` | Config copy |
+| `script runs entry_point when executed directly` | Direct-run guard |

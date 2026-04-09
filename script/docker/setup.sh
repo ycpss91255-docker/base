@@ -25,34 +25,32 @@ _msg() {
         env_done)      echo ".env 更新完成" ;;
         env_comment)   echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
         unknown_arg)   echo "未知參數" ;;
-      esac ;; # LCOV_EXCL_LINE
-    zh-CN) # LCOV_EXCL_LINE
+      esac ;;
+    zh-CN)
       case "${_key}" in
         env_done)      echo ".env 更新完成" ;;
         env_comment)   echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
         unknown_arg)   echo "未知参数" ;;
-      esac ;; # LCOV_EXCL_LINE
-    ja) # LCOV_EXCL_LINE
+      esac ;;
+    ja)
       case "${_key}" in
         env_done)      echo ".env 更新完了" ;;
         env_comment)   echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
         unknown_arg)   echo "不明な引数" ;;
-      esac ;; # LCOV_EXCL_LINE
-    *) # LCOV_EXCL_LINE
+      esac ;;
+    *)
       case "${_key}" in
         env_done)      echo ".env updated" ;;
         env_comment)   echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
         unknown_arg)   echo "Unknown argument" ;;
-      esac ;; # LCOV_EXCL_LINE
+      esac ;;
   esac
 }
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
-# LCOV_EXCL_STOP
 
 # ════════════════════════════════════════════════════════════════════
 # detect_user_info
@@ -230,7 +228,7 @@ detect_image_name() {
       fi
 
       [[ -n "${_found}" ]] && break
-    done < "${_conf}"  # LCOV_EXCL_LINE
+    done < "${_conf}"
   fi
 
   if [[ -z "${_found}" ]]; then
@@ -399,8 +397,6 @@ main() {
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
   main "$@"
 fi
-# LCOV_EXCL_STOP
