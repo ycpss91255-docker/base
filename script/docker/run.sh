@@ -25,12 +25,13 @@ usage() {
   case "${_LANG}" in
     zh)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [--no-env] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help        顯示此說明
   -d, --detach      背景執行（docker compose up -d）
   --no-env          跳過 .env 重新產生
+  --dry-run         只印出將執行的 docker 指令，不實際執行
   --instance NAME   啟動命名 instance（與預設並行,suffix=-NAME）
   --lang LANG       設定訊息語言（預設: en）
 
@@ -41,12 +42,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [--no-env] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help        显示此说明
   -d, --detach      后台运行（docker compose up -d）
   --no-env          跳过 .env 重新生成
+  --dry-run         只打印将执行的 docker 命令，不实际执行
   --instance NAME   启动命名 instance（与默认并行,suffix=-NAME）
   --lang LANG       设置消息语言（默认: en）
 
@@ -57,12 +59,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./run.sh [-h] [-d|--detach] [--no-env] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help        このヘルプを表示
   -d, --detach      バックグラウンドで実行（docker compose up -d）
   --no-env          .env の再生成をスキップ
+  --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
   --instance NAME   名前付き instance を起動（デフォルトと並行、suffix=-NAME）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
 
@@ -73,12 +76,13 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [--no-env] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./run.sh [-h] [-d|--detach] [--no-env] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help        Show this help
   -d, --detach      Run in background (docker compose up -d)
   --no-env          Skip .env regeneration
+  --dry-run         Print the docker commands that would run, but do not execute
   --instance NAME   Start a named parallel instance (suffix=-NAME)
   --lang LANG       Set message language (default: en)
 
@@ -94,6 +98,7 @@ EOF
 # Parse arguments
 SKIP_ENV=false
 DETACH=false
+DRY_RUN=false
 TARGET="devel"
 INSTANCE=""
 
@@ -110,6 +115,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_ENV=true
       shift
       ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
     --instance)
       INSTANCE="${2:?"--instance requires a value"}"
       shift 2
@@ -124,6 +133,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+export DRY_RUN
 
 # Generate / refresh .env
 if [[ "${SKIP_ENV}" == false ]]; then
@@ -147,7 +157,7 @@ CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
 # Refuse to start if the target container is already running and user did not
 # explicitly opt into a parallel instance via --instance.
 # (For -d mode, the existing `down` step handles restart, so collision is OK.)
-if [[ "${DETACH}" != true && "${TARGET}" == "devel" ]]; then
+if [[ "${DETACH}" != true && "${TARGET}" == "devel" && "${DRY_RUN}" != true ]]; then
   if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
     printf "[run] ERROR: Container '%s' is already running.\n" "${CONTAINER_NAME}" >&2
     printf "[run] Either stop it with './stop.sh%s' or start a parallel instance with './run.sh --instance NAME'.\n" \

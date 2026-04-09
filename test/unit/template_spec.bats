@@ -340,6 +340,106 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# --dry-run flag (PR B)
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh supports --dry-run flag" {
+    run grep -E '\-\-dry-run' /source/script/docker/build.sh
+    assert_success
+}
+
+@test "run.sh supports --dry-run flag" {
+    run grep -E '\-\-dry-run' /source/script/docker/run.sh
+    assert_success
+}
+
+@test "exec.sh supports --dry-run flag" {
+    run grep -E '\-\-dry-run' /source/script/docker/exec.sh
+    assert_success
+}
+
+@test "stop.sh supports --dry-run flag" {
+    run grep -E '\-\-dry-run' /source/script/docker/stop.sh
+    assert_success
+}
+
+@test "build.sh -h shows --dry-run in help" {
+    run bash -c "bash /source/script/docker/build.sh -h 2>&1"
+    assert_output --partial "--dry-run"
+}
+
+@test "run.sh -h shows --dry-run in help" {
+    run bash -c "bash /source/script/docker/run.sh -h 2>&1"
+    assert_output --partial "--dry-run"
+}
+
+@test "exec.sh -h shows --dry-run in help" {
+    run bash -c "bash /source/script/docker/exec.sh -h 2>&1"
+    assert_output --partial "--dry-run"
+}
+
+@test "stop.sh -h shows --dry-run in help" {
+    run bash -c "bash /source/script/docker/stop.sh -h 2>&1"
+    assert_output --partial "--dry-run"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# exec.sh container precheck (PR B)
+# ════════════════════════════════════════════════════════════════════
+
+@test "exec.sh checks container is running before exec" {
+    # Should reference docker ps / docker inspect or similar precheck
+    run grep -E 'docker (ps|inspect)' /source/script/docker/exec.sh
+    assert_success
+}
+
+@test "exec.sh precheck error mentions run.sh hint" {
+    # Friendly error pointing user at ./run.sh or --instance
+    run grep -E 'run\.sh|--instance' /source/script/docker/exec.sh
+    assert_success
+}
+
+@test "exec.sh exits non-zero with friendly hint when container not running" {
+    # Simulate a tmp repo with .env so exec.sh gets past _load_env, then call
+    # without docker on PATH so the precheck fails (no container can be found).
+    local _tmp
+    _tmp="$(mktemp -d)"
+    cat > "${_tmp}/.env" <<EOF
+DOCKER_HUB_USER=alice
+IMAGE_NAME=missing-image-$$
+EOF
+    mkdir -p "${_tmp}/template/script/docker"
+    cp /source/script/docker/_lib.sh "${_tmp}/template/script/docker/_lib.sh"
+    cp /source/script/docker/i18n.sh "${_tmp}/template/script/docker/i18n.sh" 2>/dev/null || true
+    cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
+
+    run bash "${_tmp}/exec.sh"
+    assert_failure
+    assert_output --partial "is not running"
+    assert_output --partial "run.sh"
+    rm -rf "${_tmp}"
+}
+
+@test "exec.sh --dry-run skips precheck and prints compose command" {
+    local _tmp
+    _tmp="$(mktemp -d)"
+    cat > "${_tmp}/.env" <<EOF
+DOCKER_HUB_USER=alice
+IMAGE_NAME=ghost-$$
+EOF
+    mkdir -p "${_tmp}/template/script/docker"
+    cp /source/script/docker/_lib.sh "${_tmp}/template/script/docker/_lib.sh"
+    cp /source/script/docker/i18n.sh "${_tmp}/template/script/docker/i18n.sh" 2>/dev/null || true
+    cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
+
+    run bash "${_tmp}/exec.sh" --dry-run
+    assert_success
+    assert_output --partial "[dry-run] docker compose"
+    assert_output --partial "exec"
+    rm -rf "${_tmp}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # i18n.sh shared module
 # ════════════════════════════════════════════════════════════════════
 

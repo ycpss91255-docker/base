@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **233 tests** total (212 unit + 21 integration).
+Template self-tests: **246 tests** total (225 unit + 21 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (14)
+### test/unit/lib_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -21,6 +21,7 @@ Template self-tests: **233 tests** total (212 unit + 21 integration).
 | `_compute_project_name with named instance suffixes both` | Named instance |
 | `_compute_project_name exports INSTANCE_SUFFIX so child processes see it` | Export propagation |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
+| `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
 
 ### test/unit/setup_spec.bats (58)
@@ -86,7 +87,7 @@ Template self-tests: **233 tests** total (212 unit + 21 integration).
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (84)
+### test/unit/template_spec.bats (96)
 
 | Test | Description |
 |------|-------------|
@@ -149,6 +150,18 @@ Template self-tests: **233 tests** total (212 unit + 21 integration).
 | `run.sh -h shows --instance in help` | help text |
 | `exec.sh -h shows --instance in help` | help text |
 | `stop.sh -h shows --instance in help` | help text |
+| `build.sh supports --dry-run flag` | --dry-run |
+| `run.sh supports --dry-run flag` | --dry-run |
+| `exec.sh supports --dry-run flag` | --dry-run |
+| `stop.sh supports --dry-run flag` | --dry-run |
+| `build.sh -h shows --dry-run in help` | --dry-run help |
+| `run.sh -h shows --dry-run in help` | --dry-run help |
+| `exec.sh -h shows --dry-run in help` | --dry-run help |
+| `stop.sh -h shows --dry-run in help` | --dry-run help |
+| `exec.sh checks container is running before exec` | precheck |
+| `exec.sh precheck error mentions run.sh hint` | friendly hint |
+| `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
+| `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
