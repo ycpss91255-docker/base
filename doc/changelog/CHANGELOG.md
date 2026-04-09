@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.6] - 2026-04-09
+
+### Fixed
+- `run.sh`: foreground `devel` mode could not be entered via `./exec.sh` from another terminal
+  - Symptom: `service "devel" is not running` even though `docker ps` showed it
+  - Root cause: foreground used `compose run --name`, which creates a one-off container
+    invisible to `compose exec` (the underlying mechanism behind `./exec.sh`)
+  - Fix: foreground `devel` now uses `compose up -d` + `compose exec devel bash`
+    + a `trap … down EXIT` to preserve the original "exit shell = container gone" semantic
+  - Other targets (`test`, `runtime`, ...) still use `compose run --rm` (one-shot stages
+    that don't need exec)
+  - `compose.yaml` `container_name: ${IMAGE_NAME}` is unchanged, so external scripts
+    that do `docker exec ${IMAGE_NAME}` (e.g. local CI helpers) continue to work
+
+### Removed
+- `stop.sh`: orphan-container cleanup `docker rm -f "${IMAGE_NAME}"` no longer needed
+  (no more orphan from `compose run --name`)
+
 ## [v0.6.5] - 2026-04-09
 
 ### Fixed
@@ -198,6 +216,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.6.6]: https://github.com/ycpss91255-docker/template/compare/v0.6.5...v0.6.6
 [v0.6.5]: https://github.com/ycpss91255-docker/template/compare/v0.6.4...v0.6.5
 [v0.6.4]: https://github.com/ycpss91255-docker/template/compare/v0.6.3...v0.6.4
 [v0.6.3]: https://github.com/ycpss91255-docker/template/compare/v0.6.2...v0.6.3
