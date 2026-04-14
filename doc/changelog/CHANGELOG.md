@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tracing can still be enabled on demand via `bash -x`.
 - `script/ci/ci.sh`: refactor kcov `--exclude-path` into a readable array
   instead of one long comma-joined string. Behavior unchanged.
+- Re-indent all `.bats` files under `test/smoke/`, `test/unit/`, and
+  `test/integration/` from 4-space to 2-space per Google Shell Style Guide.
+  Heredoc bodies untouched. Behavior unchanged; all 247 tests still pass.
 
 ## [v0.7.1] - 2026-04-10
 
