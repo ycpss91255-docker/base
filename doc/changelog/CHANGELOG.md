@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.2] - 2026-04-14
+
 ### Changed
 - Align `build.sh` / `run.sh` / `exec.sh` / `stop.sh` with Google Shell Style
   Guide: wrap top-level logic in a `main()` function with `local` variables,
