@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-04-15
+
 ### Added
 - `test/smoke/test_helper.bash`: shared runtime assertion helpers for
   downstream-repo smoke specs — `assert_cmd_installed`, `assert_cmd_runs`,
