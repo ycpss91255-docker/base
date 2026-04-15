@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `upgrade.sh`: drop the auto-appended `Co-Authored-By: Claude ...`
+  trailer from the `chore: update template references` commit message.
+  AI-attribution lines are visual noise for reviewers and the project
+  convention is to omit them everywhere (PR body, commit message, code).
+
 ## [v0.8.0] - 2026-04-15
 
 ### Added
