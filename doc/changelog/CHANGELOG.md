@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-04-15
+
 ### Fixed
 - `upgrade.sh`: drop the auto-appended `Co-Authored-By: Claude ...`
   trailer from the `chore: update template references` commit message.
