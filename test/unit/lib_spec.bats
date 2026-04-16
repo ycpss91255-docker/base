@@ -5,6 +5,8 @@
 # These tests source _lib.sh in a fresh subshell and call each helper so
 # the bash branches actually run (kcov can then attribute coverage).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   LIB="/source/script/docker/_lib.sh"
@@ -72,8 +74,7 @@ EOF
 }
 
 @test "_load_env errors when no path is given" {
-  run bash -c "source ${LIB}; _load_env"
-  assert_failure
+  run -127 bash -c "source ${LIB}; _load_env"
 }
 
 # ── _compute_project_name ───────────────────────────────────────────────────
@@ -125,10 +126,9 @@ EOF
   # When DRY_RUN is unset/false, _compose calls real docker compose; on a
   # CI runner without docker the command exits non-zero, but we just want
   # to confirm the false branch executes (kcov coverage).
-  run bash -c "source ${LIB}; PATH=/nonexistent _compose version"
-  # Either docker compose ran (rc 0) or PATH lookup failed (rc 127);
-  # both are fine. We assert the script *attempted* the call by checking
-  # we did not see the dry-run prefix in output.
+  run -127 bash -c "source ${LIB}; PATH=/nonexistent _compose version"
+  # PATH=/nonexistent forces `docker compose` lookup to fail with rc 127,
+  # confirming the non-dry-run branch was taken (reached the real invocation).
   refute_output --partial "[dry-run]"
 }
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `test/smoke/test_helper.bash`: `assert_cmd_installed` now returns `1`
+  after calling `fail`, so callers can short-circuit via `|| return 1`
+  instead of silently falling through. `assert_cmd_runs` and
+  `assert_pip_pkg` now short-circuit when the target command is missing,
+  so they no longer execute `run <missing-cmd>` and emit a spurious
+  Bats BW01 warning.
+- `test/unit/lib_spec.bats`, `test/unit/pip_setup_spec.bats`,
+  `test/unit/setup_spec.bats`: replace `run <cmd>` / `assert_failure`
+  pairs with `run -127 <cmd>` on the five tests whose command is
+  expected to exit 127 (`_load_env` missing arg, `_compose` on empty
+  PATH, `pip setup.sh` without pip, `setup.sh main --base-path` /
+  `--lang` missing value). Silences Bats BW01. Files that use `run -N`
+  flags now declare `bats_require_minimum_version 1.5.0` to silence
+  BW02.
+
 ## [v0.8.1] - 2026-04-15
 
 ### Fixed

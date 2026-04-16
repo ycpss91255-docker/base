@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
@@ -540,8 +542,7 @@ EOF
 }
 
 @test "main returns error when --base-path value is missing" {
-  run bash -c "source /source/script/docker/setup.sh; main --base-path"
-  assert_failure
+  run -127 bash -c "source /source/script/docker/setup.sh; main --base-path"
 }
 
 @test "main sets APT_MIRROR defaults in fresh .env" {
@@ -664,6 +665,5 @@ EOF
 }
 
 @test "main --lang requires a value" {
-  run bash -c "source /source/script/docker/setup.sh; main --lang"
-  assert_failure
+  run -127 bash -c "source /source/script/docker/setup.sh; main --lang"
 }
