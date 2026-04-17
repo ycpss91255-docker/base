@@ -124,12 +124,12 @@ teardown() {
   assert_output "template/script/docker/Makefile"
 }
 
-@test "new repo: .template_version exists and matches a known tag format" {
+@test "new repo: template/VERSION exists (no legacy .template_version)" {
   bash template/init.sh
-  assert [ -f "${REPO_DIR}/.template_version" ]
-  run cat "${REPO_DIR}/.template_version"
-  # Should be vX.Y.Z, "unknown", or "main"
-  assert_output --regexp '^(v[0-9]+\.[0-9]+\.[0-9]+|unknown|main)$'
+  assert [ -f "${REPO_DIR}/template/VERSION" ]
+  assert [ ! -f "${REPO_DIR}/.template_version" ]
+  run cat "${REPO_DIR}/template/VERSION"
+  assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
 @test "new repo: re-running init.sh on the result is idempotent" {

@@ -117,37 +117,57 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _create_version_file
+# _detect_template_version: reads VERSION file
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_version_file: writes given version to .template_version" {
+@test "_detect_template_version: reads VERSION file when present (no network)" {
+  echo "v1.5.0" > "${TMP_REPO}/template/VERSION"
+  # Mock git to fail (simulate offline)
+  mock_cmd "git" 'exit 128'
   _source_init
-  _create_version_file "v1.2.3"
-  assert [ -f "${TMP_REPO}/.template_version" ]
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "v1.2.3"
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
 }
 
-@test "_create_version_file: writes 'unknown' when no argument given" {
+@test "_detect_template_version: VERSION file takes priority over git ls-remote" {
+  echo "v1.5.0" > "${TMP_REPO}/template/VERSION"
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+abc123  refs/tags/v2.0.0
+REMOTE
+      exit 0
+    fi
+    exit 0'
   _source_init
-  _create_version_file ""
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "unknown"
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
 }
 
-@test "_create_version_file: writes 'unknown' when called with zero arguments" {
-  _source_init
-  _create_version_file
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "unknown"
+# ════════════════════════════════════════════════════════════════════
+# Legacy .template_version cleanup
+# ════════════════════════════════════════════════════════════════════
+
+@test "init.sh removes legacy .template_version when present" {
+  echo "v0.7.0" > "${TMP_REPO}/.template_version"
+  echo "v1.0.0" > "${TMP_REPO}/template/VERSION"
+  # Need a Dockerfile so init takes existing-repo path
+  touch "${TMP_REPO}/Dockerfile"
+  mock_cmd "git" 'exit 128'
+  run bash "${TMP_REPO}/template/init.sh"
+  assert_success
+  assert [ ! -f "${TMP_REPO}/.template_version" ]
 }
 
-@test "_create_version_file: overwrites existing .template_version" {
-  echo "v0.1.0" > "${TMP_REPO}/.template_version"
-  _source_init
-  _create_version_file "v2.0.0"
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "v2.0.0"
+@test "init.sh succeeds when no legacy .template_version exists" {
+  echo "v1.0.0" > "${TMP_REPO}/template/VERSION"
+  touch "${TMP_REPO}/Dockerfile"
+  mock_cmd "git" 'exit 128'
+  run bash "${TMP_REPO}/template/init.sh"
+  assert_success
+  assert [ ! -f "${TMP_REPO}/.template_version" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
