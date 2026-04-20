@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Version tracking moved from `.template_version` (repo root, manually
+  maintained) to `template/VERSION` (inside subtree, auto-synced by
+  `git subtree pull`). `init.sh` and `upgrade.sh` automatically clean up
+  the legacy `.template_version` file. `build-worker.yaml` reads
+  `template/VERSION` with `.template_version` fallback for transition.
+
 ### Fixed
 - `test/smoke/test_helper.bash`: `assert_cmd_installed` now returns `1`
   after calling `fail`, so callers can short-circuit via `|| return 1`

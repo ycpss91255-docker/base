@@ -547,6 +547,23 @@ EOF
 # upgrade.sh
 # ════════════════════════════════════════════════════════════════════
 
+@test "VERSION file exists in template root" {
+  assert [ -f /source/VERSION ]
+  run cat /source/VERSION
+  assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+@test "upgrade.sh reads version from template/VERSION" {
+  run grep -E 'template/VERSION' /source/upgrade.sh
+  assert_success
+}
+
+@test "upgrade.sh does not write .template_version" {
+  # After migration, upgrade.sh should not create .template_version
+  run grep -cE 'echo.*>.*\.template_version' /source/upgrade.sh
+  assert_output "0"
+}
+
 @test "upgrade.sh runs init.sh after subtree pull" {
   run grep -E 'init\.sh' /source/upgrade.sh
   assert_success
@@ -604,15 +621,11 @@ EOF
   rm -rf "${_tmp}"
 }
 
-@test "upgrade.sh writes target_ver after init.sh (to override init's latest detection)" {
-  # init.sh writes latest tag to .template_version, but upgrade may target older version
-  # so upgrade.sh must overwrite .template_version AFTER init.sh runs
-  run bash -c "grep -n 'init\.sh\|VERSION_FILE' /source/upgrade.sh | grep -v '^[0-9]*:#'"
+@test "upgrade.sh cleans up legacy .template_version" {
+  run grep -E '\.template_version' /source/upgrade.sh
   assert_success
-  # Check that init.sh appears before the final VERSION_FILE write
-  init_line=$(grep -n 'init\.sh' /source/upgrade.sh | head -1 | cut -d: -f1)
-  write_line=$(grep -n 'echo.*target_ver.*>.*VERSION_FILE\|echo.*"\${target_ver}".*VERSION_FILE' /source/upgrade.sh | tail -1 | cut -d: -f1)
-  [[ -n "${init_line}" && -n "${write_line}" && "${init_line}" -lt "${write_line}" ]]
+  run grep -E 'rm.*LEGACY_VERSION_FILE' /source/upgrade.sh
+  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

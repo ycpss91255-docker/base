@@ -14,8 +14,10 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
 TEMPLATE_REMOTE="git@github.com:ycpss91255-docker/template.git"
 readonly TEMPLATE_REMOTE
-VERSION_FILE="${REPO_ROOT}/.template_version"
+VERSION_FILE="${REPO_ROOT}/template/VERSION"
 readonly VERSION_FILE
+LEGACY_VERSION_FILE="${REPO_ROOT}/.template_version"
+readonly LEGACY_VERSION_FILE
 
 cd "${REPO_ROOT}"
 
@@ -27,6 +29,8 @@ _error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
 _get_local_version() {
   if [[ -f "${VERSION_FILE}" ]]; then
     tr -d '[:space:]' < "${VERSION_FILE}"
+  elif [[ -f "${LEGACY_VERSION_FILE}" ]]; then
+    tr -d '[:space:]' < "${LEGACY_VERSION_FILE}"
   else
     echo "unknown"
   fi
@@ -83,16 +87,11 @@ _upgrade() {
     -m "chore: upgrade template subtree to ${target_ver}"
 
   # Step 2: re-run init.sh to sync symlinks (in case template structure changed)
-  _log "Step 2/4: re-run init.sh to sync symlinks"
+  _log "Step 2/3: re-run init.sh to sync symlinks"
   ./template/init.sh
 
-  # Step 3: update version file (override init.sh's latest-tag detection)
-  _log "Step 3/4: update .template_version"
-  echo "${target_ver}" > "${VERSION_FILE}"
-  git add "${VERSION_FILE}"
-
-  # Step 4: update main.yaml @tag references
-  _log "Step 4/4: update workflow @tag references"
+  # Step 3: update main.yaml @tag references
+  _log "Step 3/3: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
     # Replace @vX.Y.Z with new version in reusable workflow references.
@@ -102,11 +101,15 @@ _upgrade() {
     git add "${main_yaml}"
   fi
 
-  # Commit version + workflow updates
+  # cleanup legacy .template_version if present
+  if [[ -f "${LEGACY_VERSION_FILE}" ]]; then
+    git rm -f "${LEGACY_VERSION_FILE}" 2>/dev/null || rm -f "${LEGACY_VERSION_FILE}"
+  fi
+
+  # Commit workflow updates
   git commit -m "$(cat <<COMMIT
 chore: update template references to ${target_ver}
 
-- .template_version: ${local_ver} → ${target_ver}
 - main.yaml: workflow @tag updated to ${target_ver}
 COMMIT
 )" || _log "No additional changes to commit"

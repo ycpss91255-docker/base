@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **292 tests** total (271 unit + 21 integration).
+Template self-tests: **295 tests** total (274 unit + 21 integration).
 
 ## Test Files
 
@@ -90,7 +90,7 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/unit/template_spec.bats (97)
+### test/unit/template_spec.bats (100)
 
 | Test | Description |
 |------|-------------|
@@ -180,8 +180,11 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `exec.sh -h works when i18n.sh is missing` | i18n fallback |
 | `stop.sh -h works when i18n.sh is missing` | i18n fallback |
 | `setup.sh does not redefine _detect_lang` | No duplication |
+| `VERSION file exists in template root` | Version file check |
+| `upgrade.sh reads version from template/VERSION` | VERSION path |
+| `upgrade.sh does not write .template_version` | No legacy write |
 | `upgrade.sh runs init.sh after subtree pull` | Sync symlinks |
-| `upgrade.sh writes target_ver after init.sh (to override init's latest detection)` | Version override |
+| `upgrade.sh cleans up legacy .template_version` | Legacy cleanup |
 | `upgrade.sh supports --gen-image-conf flag` | Flag exists |
 | `upgrade.sh --gen-image-conf delegates to init.sh --gen-image-conf` | Delegation |
 | `upgrade.sh --help mentions --gen-image-conf` | Help text |
@@ -247,10 +250,10 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_detect_template_version: returns empty when git ls-remote fails` | Network-down fallback |
 | `_detect_template_version: returns empty when no v*.*.* tags exist` | Nothing to match |
 | `_detect_template_version: ignores non-semver tags (e.g. rc suffixes)` | Regex filters rc / pre-release |
-| `_create_version_file: writes given version to .template_version` | Happy path |
-| `_create_version_file: writes 'unknown' when no argument given` | Empty-string fallback |
-| `_create_version_file: writes 'unknown' when called with zero arguments` | No-arg fallback |
-| `_create_version_file: overwrites existing .template_version` | Re-init safety |
+| `_detect_template_version: reads VERSION file when present (no network)` | VERSION file priority |
+| `_detect_template_version: VERSION file takes priority over git ls-remote` | Local-first resolution |
+| `init.sh removes legacy .template_version when present` | Legacy cleanup |
+| `init.sh succeeds when no legacy .template_version exists` | Clean state |
 | `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
@@ -369,7 +372,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink → template/script/docker/build.sh` | symlink target |
 | `new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct` | symlink set |
-| `new repo: .template_version exists and matches a known tag format` | version file |
+| `new repo: template/VERSION exists (no legacy .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
 | `new repo: build.sh -h works against the generated symlink` | smoke build.sh |
 | `new repo: run.sh -h works against the generated symlink` | smoke run.sh |

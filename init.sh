@@ -5,7 +5,7 @@
 #   ./template/init.sh
 #
 # Auto-detects:
-#   - Has Dockerfile → existing repo: create symlinks + .template_version
+#   - Has Dockerfile → existing repo: create symlinks
 #   - No Dockerfile → new repo: generate full project structure
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
@@ -51,6 +51,13 @@ _create_symlinks() {
 }
 
 _detect_template_version() {
+  # Prefer VERSION file inside template (auto-synced by subtree pull)
+  local version_file="${TEMPLATE_DIR}/VERSION"
+  if [[ -f "${version_file}" ]]; then
+    tr -d '[:space:]' < "${version_file}"
+    return 0
+  fi
+  # Fallback: query remote tags (for fresh subtree add before VERSION existed)
   git ls-remote --tags --sort=-v:refname \
     git@github.com:ycpss91255-docker/template.git 2>/dev/null \
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
@@ -58,10 +65,11 @@ _detect_template_version() {
     | sed 's|refs/tags/||' || true
 }
 
-_create_version_file() {
-  local ver="${1:-unknown}"
-  echo "${ver}" > .template_version
-  _log "Created .template_version (${ver})"
+_cleanup_legacy_version_file() {
+  if [[ -f .template_version ]]; then
+    rm -f .template_version
+    _log "Removed legacy .template_version (version now in template/VERSION)"
+  fi
 }
 
 # ── New repo scaffolding ────────────────────────────────────────────────────
@@ -271,8 +279,10 @@ main() {
 Usage: ./template/init.sh [--gen-image-conf]
 
 Initialize a repo with template. Auto-detects:
-  - Has Dockerfile → create symlinks + .template_version
+  - Has Dockerfile → create symlinks
   - No Dockerfile  → generate full project structure
+
+Version is tracked in template/VERSION (auto-synced by subtree pull).
 
 Options:
   --gen-image-conf   Copy template's image_name.conf to repo root
@@ -302,7 +312,7 @@ EOF
     _create_symlinks
   fi
 
-  _create_version_file "${template_version}"
+  _cleanup_legacy_version_file
 
   _log ""
   _log "Done!"

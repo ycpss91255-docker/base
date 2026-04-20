@@ -27,8 +27,13 @@ jobs:
 
       - name: Check template version
         run: |
-          if [ -f .template_version ]; then
-            LOCAL_VER=$(cat .template_version)
+          LOCAL_VER=""
+          if [ -f template/VERSION ]; then
+            LOCAL_VER=$(cat template/VERSION | tr -d '[:space:]')
+          elif [ -f .template_version ]; then
+            LOCAL_VER=$(cat .template_version | tr -d '[:space:]')
+          fi
+          if [ -n "${LOCAL_VER}" ]; then
             LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
               https://github.com/ycpss91255-docker/template.git \
               | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
