@@ -7,12 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Single `setup.conf`** at repo root consolidates all runtime
+  configuration consumed by `setup.sh`: `[image_name]`, `[gpu]`,
+  `[gui]`, `[network]`, `[volumes]`. Template default lives at
+  `template/setup.conf`; per-repo override at `<repo>/setup.conf` uses
+  section-level replace strategy (a section present in the per-repo
+  file fully replaces the template's section; omitted sections fall
+  back to template).
+- `setup.sh` new helpers: `_parse_ini_section`, `_load_setup_conf`,
+  `_get_conf_value`, `_get_conf_list_sorted`, `_resolve_gpu`,
+  `_resolve_gui`, `detect_gui`, `_compute_conf_hash`,
+  `_check_setup_drift`, and `generate_compose_yaml`. `setup.sh` now
+  emits a full `compose.yaml` alongside `.env` with conditional GPU
+  `deploy` block, conditional GUI env/volumes, and extra volumes from
+  `[volumes]` section.
+- **Drift detection** via `.env` metadata: setup.sh writes
+  `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, `SETUP_TIMESTAMP` into
+  `.env`; `build.sh` / `run.sh` compare stored values against current
+  state and warn when `setup.conf` was modified, GPU/GUI detection
+  changed, or UID changed. Warnings are non-blocking; user re-runs with
+  `--setup` to regenerate.
+- `build.sh` / `run.sh` **`--setup`** (`-s`) flag: forces setup.sh to
+  regenerate `.env` + `compose.yaml`. Default behaviour: auto-bootstrap
+  on missing `.env` (first run / CI fresh clone); warn on drift if
+  `.env` exists.
+- `init.sh` new option: `--gen-conf` copies `template/setup.conf` to
+  `<repo>/setup.conf` for per-repo override. `--gen-image-conf` is kept
+  as a back-compat alias.
+- New unit spec `test/unit/compose_gen_spec.bats` (14 tests) covering
+  `generate_compose_yaml` conditional output.
+
 ### Changed
+- **PR #74's `template/config/setup/` directory removed**: the
+  separate `image_name.conf` / `gpu.conf` / `gui.conf` / `network.conf`
+  / `volumes.conf` files introduced in #74 are consolidated into a
+  single `setup.conf` INI. `config/` now strictly contains container
+  internal configs (bashrc, tmux, pip, terminator); runtime wiring
+  lives at repo root alongside `Dockerfile`.
+- `compose.yaml` is now a **derived artifact** (gitignored) generated
+  by `setup.sh` on every invocation. Users inspect it for the current
+  effective runtime config; source of truth is `setup.conf`.
+- `detect_image_name` now reads `[image_name] rules` (comma-separated
+  ordered list) from `setup.conf` instead of a dedicated
+  `image_name.conf` rule file. Rule semantics unchanged
+  (`prefix:`, `suffix:`, `@env_example`, `@basename`, `@default:`).
+- `build.sh` / `run.sh`: removed `--no-env` flag (semantic reversed —
+  setup.sh no longer runs by default, so the opposite `--setup` flag
+  was introduced). `exec.sh` / `stop.sh` unchanged (container state is
+  already frozen when they run).
+- `write_env` signature expanded with new columns written to `.env`:
+  `NETWORK_MODE`, `IPC_MODE`, `PRIVILEGED`, `GPU_COUNT`,
+  `GPU_CAPABILITIES`, `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`,
+  `SETUP_TIMESTAMP`.
+- `generate_compose_yaml` baseline: only `${WS_PATH}:/home/${USER_NAME}/work`
+  is always emitted; `/dev:/dev` now lives in `setup.conf`'s
+  `[volumes]` template default (user-replaceable). GUI-related
+  volumes/env are emitted iff `[gui] mode` resolves enabled.
 - Version tracking moved from `.template_version` (repo root, manually
   maintained) to `template/VERSION` (inside subtree, auto-synced by
   `git subtree pull`). `init.sh` and `upgrade.sh` automatically clean up
   the legacy `.template_version` file. `build-worker.yaml` reads
   `template/VERSION` with `.template_version` fallback for transition.
+
+### Removed
+- `template/config/image_name.conf` (content absorbed into
+  `template/setup.conf` under `[image_name] rules =`).
+- `--no-env` flag on `build.sh` / `run.sh` (replaced by default
+  no-run-setup + opt-in `--setup`).
 
 ### Fixed
 - `test/smoke/test_helper.bash`: `assert_cmd_installed` now returns `1`

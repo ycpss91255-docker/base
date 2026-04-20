@@ -165,19 +165,57 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# init.sh --gen-image-conf
+# init.sh --gen-conf / --gen-image-conf (alias)
 # ════════════════════════════════════════════════════════════════════
 
-@test "init.sh --gen-image-conf copies image_name.conf to repo root" {
+@test "init.sh --gen-conf copies setup.conf to repo root" {
   bash template/init.sh        # generate skeleton first
-  bash template/init.sh --gen-image-conf
-  assert [ -f "${REPO_DIR}/image_name.conf" ]
+  bash template/init.sh --gen-conf
+  assert [ -f "${REPO_DIR}/setup.conf" ]
+  # Sanity: copied file contains the full section schema
+  run grep -E '^\[(image_name|gpu|gui|network|volumes)\]' "${REPO_DIR}/setup.conf"
+  assert_success
 }
 
-@test "init.sh --gen-image-conf refuses to overwrite existing image_name.conf" {
+@test "init.sh --gen-image-conf is back-compat alias for --gen-conf" {
   bash template/init.sh
   bash template/init.sh --gen-image-conf
-  run bash template/init.sh --gen-image-conf
+  assert [ -f "${REPO_DIR}/setup.conf" ]
+}
+
+@test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
+  bash template/init.sh
+  bash template/init.sh --gen-conf
+  run bash template/init.sh --gen-conf
   assert_failure
   assert_output --partial "already exists"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Derived artifacts: compose.yaml + .env are setup.sh-generated, gitignored
+# ════════════════════════════════════════════════════════════════════
+
+@test "new repo: .gitignore contains compose.yaml (derived artifact)" {
+  bash template/init.sh
+  run grep -x 'compose.yaml' "${REPO_DIR}/.gitignore"
+  assert_success
+}
+
+@test "new repo: .gitignore contains .env (derived artifact)" {
+  bash template/init.sh
+  run grep -x '.env' "${REPO_DIR}/.gitignore"
+  assert_success
+}
+
+@test "new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)" {
+  bash template/init.sh
+  assert [ -f "${REPO_DIR}/compose.yaml" ]
+  run head -n 1 "${REPO_DIR}/compose.yaml"
+  assert_output --partial "AUTO-GENERATED"
+}
+
+@test "new repo: per-repo setup.conf not created by default" {
+  bash template/init.sh
+  [[ ! -f "${REPO_DIR}/setup.conf" ]] || \
+    fail "per-repo setup.conf should not exist unless user opts in via --gen-conf"
 }

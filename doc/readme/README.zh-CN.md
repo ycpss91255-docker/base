@@ -114,7 +114,8 @@ flowchart LR
 | `script/docker/setup.sh` | 自动检测系统参数并生成 `.env` |
 | `script/docker/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `script/docker/i18n.sh` | 共用语言检测（`_detect_lang`、`_LANG`） |
-| `config/` | Shell 配置文件（bashrc、tmux、terminator、pip）+ IMAGE_NAME 规则 |
+| `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator、pip） |
+| `setup.conf` | 单一 per-repo runtime 配置（image_name / gpu / gui / network / volumes） |
 | `test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
 | `test/unit/` | Template 自身测试（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 集成测试 |
@@ -177,6 +178,58 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `script/entrypoint.sh`
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
+
+## 各 repo runtime 配置
+
+每个下游 repo 通过一个 `setup.conf` INI 文件驱动自己的 runtime 配置
+（GPU、GUI、network、额外 volumes）。`setup.sh` 读它 + 系统检测后
+重新生成 `.env` 和 `compose.yaml`，这两个衍生文件用户不用动手。
+
+### 单一 conf、5 个 section
+
+```
+[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
+[gpu]          mode (auto|force|off)、count、capabilities
+[gui]          mode (auto|force|off)
+[network]      mode (host|bridge|none)、ipc、privileged
+[volumes]      mount_1..mount_N 额外 host mount（含 /dev 设备 pass-through）
+```
+
+Template default 在 `template/setup.conf`；per-repo 覆盖放 `<repo>/setup.conf`。
+Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
+template；没写的 section 则吃 template 默认。
+
+生成 per-repo 覆盖骨架：
+
+```bash
+./template/init.sh --gen-conf          # 复制 template/setup.conf 到 <repo>/setup.conf
+./template/init.sh --gen-image-conf    # 向后兼容 alias
+```
+
+### setup.sh 什么时候运行
+
+- **`./template/init.sh`** 建完骨架自动运行一次
+- **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）用户手动触发重跑
+- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env` 尚未存在，例如 CI 新 clone）会自动运行一次，不用带 `--setup`
+
+### Drift 检测
+
+`setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
+写到 `.env`。每次 `./build.sh` / `./run.sh` 进入时会比对 `setup.conf`
+当前 hash + 系统检测值，以下任一项改变时打印 `[WARNING]`（但不阻止执行）：
+
+- `setup.conf` 内容（conf hash）
+- GPU / GUI 检测结果
+- `USER_UID`（用户身份）
+
+带 `--setup` 重跑以重新生成 `.env` + `compose.yaml`。
+
+### 衍生文件（gitignored）
+
+- `.env` — runtime 变量 + `SETUP_*` drift metadata
+- `compose.yaml` — 含 baseline 与条件区块的完整 compose
+
+任何时候打开 `compose.yaml` 都能看到当下完整 runtime 配置。
 
 ## 快速开始
 
@@ -285,7 +338,8 @@ template/
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # 预构建 lint/测试工具 image
 │   └── Dockerfile.example            # 新 repo 的 Dockerfile 模板（sys → base → devel → test → [runtime]）
-├── config/                           # Shell/工具配置 + IMAGE_NAME 规则
+├── setup.conf                        # 单一 runtime 配置（per-repo override: <repo>/setup.conf）
+├── config/                           # Container 内部 shell / 工具配置
 │   ├── image_name.conf               # 默认 IMAGE_NAME 检测规则
 │   ├── pip/
 │   │   ├── setup.sh

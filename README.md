@@ -114,7 +114,8 @@ flowchart LR
 | `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` |
 | `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
-| `config/` | Shell configs (bashrc, tmux, terminator, pip) + IMAGE_NAME rules |
+| `config/` | Container-internal shell configs (bashrc, tmux, terminator, pip) |
+| `setup.conf` | Single per-repo runtime configuration (image_name / gpu / gui / network / volumes) |
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/unit/` | Template self-tests (bats + kcov) |
 | `test/integration/` | Level-1 `init.sh` end-to-end tests |
@@ -179,6 +180,69 @@ diagnostics pointing at the missing artifact.
 - `doc/` and `README.md`
 - Repo-specific smoke tests
 
+## Per-repo runtime configuration
+
+Each downstream repo drives its runtime config — GPU reservation, GUI
+env/volumes, network mode, extra volume mounts — through a single
+`setup.conf` INI file. `setup.sh` reads it (plus system detection) and
+regenerates both `.env` and `compose.yaml`; users never hand-edit those
+two derived artifacts.
+
+### One conf, five sections
+
+```
+[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
+[gpu]          mode (auto|force|off), count, capabilities
+[gui]          mode (auto|force|off)
+[network]      mode (host|bridge|none), ipc, privileged
+[volumes]      mount_1..mount_N extra host mounts (includes /dev pass-through)
+```
+
+Template default lives at `template/setup.conf`; per-repo overrides go
+at `<repo>/setup.conf`. Section-level **replace** strategy: a section
+present in the per-repo file fully replaces the template's section;
+omitted sections fall back to template.
+
+Generate a per-repo override scaffold with:
+
+```bash
+./template/init.sh --gen-conf          # copies template/setup.conf to <repo>/setup.conf
+./template/init.sh --gen-image-conf    # back-compat alias
+```
+
+### When setup.sh runs
+
+`setup.sh` runs only when explicitly triggered — it is not re-run on
+every build or launch:
+
+- **`./template/init.sh`** runs it once after the skeleton lands
+- **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
+- **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
+  the very first time (when `.env` is missing, e.g. after a fresh CI
+  clone) — no manual `--setup` needed
+
+### Drift detection
+
+`setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
+`SETUP_TIMESTAMP` in `.env`. On every `./build.sh` / `./run.sh`,
+stored values are compared against the current setup.conf hash + system
+detection; a `[WARNING]` is printed (non-blocking) when any of the
+following changed since last setup:
+
+- `setup.conf` contents (conf hash)
+- GPU / GUI detection
+- `USER_UID` (user identity change)
+
+Re-run with `--setup` to regenerate `.env` + `compose.yaml`.
+
+### Derived artifacts (gitignored)
+
+- `.env` — runtime variable values + `SETUP_*` drift metadata
+- `compose.yaml` — full compose with baseline + conditional blocks
+
+Open `compose.yaml` anytime to inspect the repo's current effective
+configuration.
+
 ## Quick Start
 
 ### Adding to a new repo
@@ -188,7 +252,7 @@ diagnostics pointing at the missing artifact.
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
-# 2. Initialize symlinks (one command)
+# 2. Initialize symlinks (one command; runs setup.sh under the hood)
 ./template/init.sh
 ```
 
@@ -286,7 +350,8 @@ template/
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
 │   └── Dockerfile.example            # Dockerfile template for new repos (sys → base → devel → test → [runtime])
-├── config/                           # Shell/tool configs + IMAGE_NAME rules
+├── setup.conf                        # Single runtime config (per-repo override mirror: <repo>/setup.conf)
+├── config/                           # Container-internal shell/tool configs
 │   ├── image_name.conf               # Default IMAGE_NAME detection rules
 │   ├── pip/
 │   │   ├── setup.sh

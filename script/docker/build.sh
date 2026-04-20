@@ -27,11 +27,12 @@ usage() {
   case "${_LANG}" in
     zh)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [--no-env] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help     顯示此說明
-  --no-env       跳過 .env 重新產生
+  -s, --setup    強制重跑 setup.sh 重新生成 .env + compose.yaml
+                 （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
   --no-cache     強制不使用 cache 重建
   --clean-tools  build 結束後移除 test-tools:local image（預設保留以加速下次 build）
   --dry-run      只印出將執行的 docker 指令，不實際執行
@@ -45,11 +46,12 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [--no-env] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help     显示此说明
-  --no-env       跳过 .env 重新生成
+  -s, --setup    强制重跑 setup.sh 重新生成 .env + compose.yaml
+                 （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
   --no-cache     强制不使用 cache 重建
   --clean-tools  build 结束后移除 test-tools:local image（默认保留以加速下次 build）
   --dry-run      只打印将执行的 docker 命令，不实际执行
@@ -63,11 +65,12 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [--no-env] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
-  --no-env       .env の再生成をスキップ
+  -s, --setup    setup.sh を強制実行して .env + compose.yaml を再生成
+                 （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
   --no-cache     キャッシュを使わず強制リビルド
   --clean-tools  build 終了後に test-tools:local image を削除（デフォルトは保持）
   --dry-run      実行される docker コマンドを表示するのみ（実行はしない）
@@ -81,11 +84,12 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [--no-env] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help     Show this help
-  --no-env       Skip .env regeneration
+  -s, --setup    Force rerun setup.sh to regenerate .env + compose.yaml
+                 (default: auto-bootstrap if .env missing; warn on drift if present)
   --no-cache     Force rebuild without cache
   --clean-tools  Remove test-tools:local image after build (default: keep for faster next build)
   --dry-run      Print the docker commands that would run, but do not execute
@@ -102,7 +106,7 @@ EOF
 }
 
 main() {
-  local SKIP_ENV=false
+  local RUN_SETUP=false
   local NO_CACHE=false
   local CLEAN_TOOLS=false
   local TARGET="devel"
@@ -113,8 +117,8 @@ main() {
       -h|--help)
         usage
         ;;
-      --no-env)
-        SKIP_ENV=true
+      -s|--setup)
+        RUN_SETUP=true
         shift
         ;;
       --no-cache)
@@ -141,10 +145,21 @@ main() {
   done
   export DRY_RUN
 
-  # Generate / refresh .env
-  if [[ "${SKIP_ENV}" == false ]]; then
-    "${FILE_PATH}/template/script/docker/setup.sh" \
-      --base-path "${FILE_PATH}" --lang "${_LANG}"
+  local _setup="${FILE_PATH}/template/script/docker/setup.sh"
+
+  # Decide whether to run setup.sh:
+  #   - --setup flag          → always run
+  #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
+  #   - otherwise             → check for drift and warn (but continue)
+  if [[ "${RUN_SETUP}" == true ]]; then
+    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+  elif [[ ! -f "${FILE_PATH}/.env" ]]; then
+    printf "[build] INFO: First run — bootstrapping via setup.sh...\n"
+    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+  else
+    # shellcheck disable=SC1090
+    source "${_setup}"
+    _check_setup_drift "${FILE_PATH}" || true
   fi
 
   # Load .env for project name

@@ -114,7 +114,8 @@ flowchart LR
 | `script/docker/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
 | `script/docker/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `script/docker/i18n.sh` | 共有言語検出（`_detect_lang`、`_LANG`） |
-| `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip）+ IMAGE_NAME ルール |
+| `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
+| `setup.conf` | 単一の repo ランタイム設定（image_name / gpu / gui / network / volumes） |
 | `test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/unit/` | Template 自身のテスト（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
@@ -180,6 +181,61 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `script/entrypoint.sh`
 - `doc/` と `README.md`
 - Repo 固有の smoke test
+
+## repo ごとのランタイム設定
+
+各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
+（GPU / GUI / network / 追加 volumes）を駆動します。`setup.sh` がこれ
++ システム検出結果を読み、`.env` と `compose.yaml` を再生成します —
+この 2 つの生成物をユーザが手動編集する必要はありません。
+
+### 単一 conf、5 つの section
+
+```
+[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
+[gpu]          mode (auto|force|off)、count、capabilities
+[gui]          mode (auto|force|off)
+[network]      mode (host|bridge|none)、ipc、privileged
+[volumes]      mount_1..mount_N 追加 host mount（/dev デバイス pass-through 含む）
+```
+
+テンプレート既定値は `template/setup.conf`；repo ごとの上書きは
+`<repo>/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
+section があれば template の section を全置換；無ければ template 既定値を継承。
+
+repo ごとの上書きスケルトンを生成：
+
+```bash
+./template/init.sh --gen-conf          # template/setup.conf を <repo>/setup.conf にコピー
+./template/init.sh --gen-image-conf    # 後方互換 alias
+```
+
+### setup.sh の実行タイミング
+
+- **`./template/init.sh`** がスケルトン生成後に 1 回自動実行
+- **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが明示的に再実行
+- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env` が無い初回実行
+  （CI の新規 clone 等）では自動で setup.sh を実行。`--setup` 指定不要
+
+### ドリフト検出
+
+`setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
+`SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
+エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
+以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
+
+- `setup.conf` の内容（conf hash）
+- GPU / GUI の検出結果
+- `USER_UID`（ユーザ ID の変化）
+
+`--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
+
+### 生成物（gitignored）
+
+- `.env` — ランタイム変数 + `SETUP_*` drift metadata
+- `compose.yaml` — baseline + 条件ブロック込みの完全な compose
+
+いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
 
 ## クイックスタート
 
@@ -288,7 +344,8 @@ template/
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # プリビルド lint/test ツール image
 │   └── Dockerfile.example            # 新 repo の Dockerfile テンプレート（sys → base → devel → test → [runtime]）
-├── config/                           # シェル/ツール設定 + IMAGE_NAME ルール
+├── setup.conf                        # 単一ランタイム設定（repo 上書き: <repo>/setup.conf）
+├── config/                           # コンテナ内部のシェル / ツール設定
 │   ├── image_name.conf               # デフォルト IMAGE_NAME 検出ルール
 │   ├── pip/
 │   │   ├── setup.sh
