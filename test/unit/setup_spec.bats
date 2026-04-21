@@ -635,6 +635,62 @@ EOF
   run -127 bash -c "source /source/script/docker/setup.sh; main --lang"
 }
 
+@test "main --lang zh sets Chinese messages for full run" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main --base-path '${TEMP_DIR}' --lang zh 2>&1
+  "
+  assert_success
+  assert_output --partial "更新完成"
+}
+
+@test "main resolves default _base_path via BASH_SOURCE when --base-path omitted" {
+  # When invoked without --base-path, setup.sh walks 3 levels up from its own
+  # location (script/docker/../../.. = repo root).  We verify the fallback by
+  # copying setup.sh + its i18n.sh sidecar into a sandbox tree.
+  mkdir -p "${TEMP_DIR}/sandbox_repo/template/script/docker"
+  cp /source/script/docker/setup.sh \
+    "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh \
+    "${TEMP_DIR}/sandbox_repo/template/script/docker/i18n.sh"
+  cp /source/setup.conf "${TEMP_DIR}/sandbox_repo/template/setup.conf"
+
+  run bash "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
+  assert_success
+  assert [ -f "${TEMP_DIR}/sandbox_repo/.env" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _rule_basename
+# ════════════════════════════════════════════════════════════════════
+
+@test "_rule_basename returns last non-empty path component" {
+  result="$(_rule_basename "/home/user/my_project")"
+  assert_equal "${result}" "my_project"
+}
+
+@test "_rule_basename skips trailing slashes" {
+  result="$(_rule_basename "/home/user/my_project/")"
+  assert_equal "${result}" "my_project"
+}
+
+@test "_rule_basename handles single-component path" {
+  result="$(_rule_basename "justname")"
+  assert_equal "${result}" "justname"
+}
+
+@test "detect_image_name uses @basename rule alone (exercises _rule_basename)" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image_name]
+rules = @basename
+EOF
+  unset SETUP_CONF
+  local _result
+  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plainname"
+  assert_equal "${_result}" "plainname"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # i18n
 # ════════════════════════════════════════════════════════════════════
@@ -657,4 +713,33 @@ EOF
 @test "_msg returns Japanese messages when _LANG=ja" {
   _LANG="ja"
   [[ "$(_msg env_done)" =~ 更新完了 ]]
+}
+
+# Exercise every (key, language) branch so kcov sees the zh-CN / ja / default
+# `unknown_arg` and `env_comment` case-arms. The env_done-only tests above
+# only land on the first case of each language block.
+
+@test "_msg env_comment and unknown_arg are defined in zh" {
+  _LANG="zh"
+  [[ "$(_msg env_comment)" =~ 自動偵測 ]]
+  [[ "$(_msg unknown_arg)" =~ 未知參數 ]]
+}
+
+@test "_msg env_comment and unknown_arg are defined in zh-CN" {
+  _LANG="zh-CN"
+  [[ "$(_msg env_comment)" =~ 自动检测 ]]
+  [[ "$(_msg unknown_arg)" =~ 未知参数 ]]
+}
+
+@test "_msg env_comment and unknown_arg are defined in ja" {
+  _LANG="ja"
+  [[ "$(_msg env_comment)" =~ 自動検出 ]]
+  [[ "$(_msg unknown_arg)" =~ 不明な引数 ]]
+}
+
+@test "_msg falls back to English when _LANG is unknown" {
+  _LANG="xx"
+  [[ "$(_msg env_done)" =~ updated ]]
+  [[ "$(_msg env_comment)" =~ Auto-detected ]]
+  [[ "$(_msg unknown_arg)" =~ "Unknown argument" ]]
 }

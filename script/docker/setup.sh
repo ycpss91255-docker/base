@@ -131,31 +131,6 @@ detect_gui() {
 # INI parser for setup.conf
 # ════════════════════════════════════════════════════════════════════
 
-# _resolve_setup_conf <base_path> <outvar>
-#
-# Determines which setup.conf to read. Resolution order:
-#   1. SETUP_CONF env var (test override)
-#   2. <base_path>/setup.conf (per-repo override)
-#   3. <template>/setup.conf (default)
-_resolve_setup_conf() {
-  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
-  local -n _rsc_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
-
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _rsc_out="${SETUP_CONF}"
-    return 0
-  fi
-
-  if [[ -f "${_base}/setup.conf" ]]; then
-    _rsc_out="${_base}/setup.conf"
-    return 0
-  fi
-
-  local _self_dir
-  _self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
-  _rsc_out="${_self_dir}/../../setup.conf"
-}
-
 # _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
 #
 # Reads one section [<section>] from <file> into parallel arrays.

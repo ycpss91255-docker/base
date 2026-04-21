@@ -1,0 +1,211 @@
+#!/usr/bin/env bats
+#
+# Unit tests for script/docker/build.sh argument handling and control flow.
+#
+# Strategy:
+#   * A sandbox tree mirrors the layout build.sh expects (script alongside a
+#     template/ subtree). We copy the real _lib.sh into the sandbox so
+#     _load_env / _compose_project are exercised, while setup.sh is replaced
+#     with a mock that records invocations and touches .env + compose.yaml.
+#   * docker is stubbed via PATH prepend — the stub logs its argv to
+#     ${DOCKER_LOG} and exits 0. Combined with DRY_RUN=true in build.sh's
+#     _compose path, the stub only receives docker build / docker rmi calls.
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  load "${BATS_TEST_DIRNAME}/test_helper"
+
+  # shellcheck disable=SC2154
+  TEMP_DIR="$(mktemp -d)"
+  export TEMP_DIR
+
+  SANDBOX="${TEMP_DIR}/repo"
+  mkdir -p "${SANDBOX}/template/script/docker" \
+           "${SANDBOX}/template/dockerfile"
+
+  cp /source/script/docker/_lib.sh     "${SANDBOX}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh     "${SANDBOX}/template/script/docker/i18n.sh"
+  # Symlink (not copy) so kcov attributes coverage to /source/script/docker/build.sh.
+  ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
+  touch "${SANDBOX}/template/dockerfile/Dockerfile.test-tools"
+
+  MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
+  export MOCK_SETUP_LOG
+
+  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+#!/usr/bin/env bash
+# Mock setup.sh: executable mode writes .env + compose.yaml and logs args;
+# sourced mode exports _check_setup_drift as a no-op.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  set -euo pipefail
+  _base=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --base-path) _base="$2"; shift 2 ;;
+      --lang)      shift 2 ;;
+      *)           shift ;;
+    esac
+  done
+  printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${_base}/.env"
+  echo "# mock compose" > "${_base}/compose.yaml"
+else
+  _check_setup_drift() { :; }
+fi
+EOS
+  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+
+  BIN_DIR="${TEMP_DIR}/bin"
+  mkdir -p "${BIN_DIR}"
+  DOCKER_LOG="${TEMP_DIR}/docker.log"
+  export DOCKER_LOG
+  cat > "${BIN_DIR}/docker" <<'EOS'
+#!/usr/bin/env bash
+{
+  printf 'docker'
+  printf ' %q' "$@"
+  printf '\n'
+} | tee -a "${DOCKER_LOG}"
+EOS
+  chmod +x "${BIN_DIR}/docker"
+  export PATH="${BIN_DIR}:${PATH}"
+}
+
+teardown() {
+  rm -rf "${TEMP_DIR}"
+}
+
+@test "build.sh --help exits 0 and shows usage" {
+  run bash "${SANDBOX}/build.sh" --help
+  assert_success
+  assert_output --partial "build.sh"
+}
+
+@test "build.sh --setup forces setup.sh to run" {
+  run bash "${SANDBOX}/build.sh" --setup --dry-run
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${SANDBOX}"
+}
+
+@test "build.sh -s short flag is equivalent to --setup" {
+  run bash "${SANDBOX}/build.sh" -s --dry-run
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "build.sh bootstraps setup.sh when .env is missing" {
+  # Sandbox starts without .env → build.sh must auto-bootstrap via setup.sh.
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  assert [ -f "${SANDBOX}/.env" ]
+}
+
+@test "build.sh skips setup.sh when .env exists (drift-check path)" {
+  # Pre-create .env → build.sh must NOT execute setup.sh, only source it.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  refute_output --partial "First run"
+  assert [ ! -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "build.sh --no-cache is forwarded to docker build and compose" {
+  run bash "${SANDBOX}/build.sh" --no-cache --dry-run
+  assert_success
+  assert_output --partial "--no-cache"
+}
+
+@test "build.sh --clean-tools schedules docker rmi via trap" {
+  run bash "${SANDBOX}/build.sh" --clean-tools --dry-run
+  assert_success
+}
+
+@test "build.sh accepts positional TARGET argument" {
+  run bash "${SANDBOX}/build.sh" --dry-run test
+  assert_success
+  assert_output --partial "test"
+}
+
+@test "build.sh --lang zh prints Chinese usage text" {
+  run bash "${SANDBOX}/build.sh" --lang zh --help
+  assert_success
+  assert_output --partial "用法"
+}
+
+@test "build.sh --lang requires a value" {
+  run bash "${SANDBOX}/build.sh" --lang
+  assert_failure
+}
+
+@test "build.sh --lang zh-CN prints Simplified Chinese usage text" {
+  run bash "${SANDBOX}/build.sh" --lang zh-CN --help
+  assert_success
+  assert_output --partial "用法"
+}
+
+@test "build.sh --lang ja prints Japanese usage text" {
+  run bash "${SANDBOX}/build.sh" --lang ja --help
+  assert_success
+  assert_output --partial "使用法"
+}
+
+# ── Fallback _detect_lang (no template/ tree) ──────────────────────────────
+# Exercises lines 17-19 of build.sh where _lib.sh is missing and _detect_lang
+# maps LANG → {zh, zh-CN, ja}. Symlink (not copy) so kcov attributes runs.
+
+@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  LANG=zh_TW.UTF-8 run bash "${_tmp}/build.sh" -h
+  assert_success
+  assert_output --partial "用法"
+  rm -rf "${_tmp}"
+}
+
+@test "build.sh fallback _detect_lang maps zh_CN.UTF-8 to zh-CN" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  LANG=zh_CN.UTF-8 run bash "${_tmp}/build.sh" -h
+  assert_success
+  assert_output --partial "用法"
+  rm -rf "${_tmp}"
+}
+
+@test "build.sh fallback _detect_lang maps ja_JP.UTF-8 to ja" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  LANG=ja_JP.UTF-8 run bash "${_tmp}/build.sh" -h
+  assert_success
+  assert_output --partial "使用法"
+  rm -rf "${_tmp}"
+}
+
+@test "build.sh calls real docker build when --dry-run is not set" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+
+  bash "${SANDBOX}/build.sh"
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "docker build"
+  assert_output --partial "-t test-tools:local"
+}

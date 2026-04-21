@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **314 tests** total (288 unit + 26 integration).
+Template self-tests: **359 tests** total (333 unit + 26 integration).
 
 ## Test Files
 
@@ -24,7 +24,7 @@ Template self-tests: **314 tests** total (288 unit + 26 integration).
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
 
-### test/unit/setup_spec.bats (61)
+### test/unit/setup_spec.bats (70)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -47,6 +47,31 @@ runtime values + SETUP_* metadata), and the `main()` CLI.
 | `_check_setup_drift` (no-op, silent, conf drift, GPU drift) | 4 |
 | `main` (unknown arg, --base-path / --lang missing value) | 3 |
 | `_msg` / `_detect_lang` i18n | 6 |
+
+### test/unit/build_sh_spec.bats (18)
+
+Unit tests for `build.sh` argument handling and control flow. Uses a
+sandbox tree mirroring the expected layout (build.sh + `template/` subtree
+with real `_lib.sh` / `i18n.sh`, mock `setup.sh`). `docker` is PATH-shimmed
+so the stub captures argv; `build.sh` is symlinked (not copied) so kcov
+attributes coverage to the real source file.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, auto-bootstrap on
+missing `.env`, drift-check path when `.env` present, `--no-cache`,
+`--clean-tools`, positional `TARGET`, `--lang` argument validation,
+fallback `_detect_lang` branches (zh_TW/zh_CN/ja), and real (non-dry-run)
+docker build invocation.
+
+### test/unit/run_sh_spec.bats (16)
+
+Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
+`docker ps` reads from a controllable stub file so tests can simulate
+"container already running" scenarios.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap / drift
+check, `--detach`, devel vs non-devel TARGET routing, `--instance`,
+already-running guard, Wayland xhost path, `--lang` / `--instance`
+argument validation, fallback `_detect_lang` branches.
 
 ### test/unit/compose_gen_spec.bats (14)
 
