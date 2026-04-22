@@ -834,15 +834,24 @@ _edit_image_rule() {
   elif [[ "${_cur}" == @default:* ]]; then _cur_type="default"; _cur_value="${_cur#@default:}"
   fi
 
-  _type="$(_tui_select "rule" "$(_tui_msg image.type.prompt)" \
-    literal     "$(_tui_msg image.type.literal)"     "$([[ "${_cur_type}" == literal ]]     && echo ON || echo off)" \
-    prefix      "$(_tui_msg image.type.prefix)"      "$([[ "${_cur_type}" == prefix ]]      && echo ON || echo off)" \
-    suffix      "$(_tui_msg image.type.suffix)"      "$([[ "${_cur_type}" == suffix ]]      && echo ON || echo off)" \
-    basename    "$(_tui_msg image.type.basename)"    "$([[ "${_cur_type}" == basename ]]    && echo ON || echo off)" \
-    default     "$(_tui_msg image.type.default)"     "$([[ "${_cur_type}" == default ]]     && echo ON || echo off)" \
-    __move_up   "$(_tui_msg image.type.move_up)"    "off" \
-    __move_down "$(_tui_msg image.type.move_down)"  "off" \
-    __remove    "$(_tui_msg image.type.remove)"      "off")" \
+  # Build radiolist dynamically: remove / move_up / move_down only
+  # make sense when editing an EXISTING rule (_cur non-empty). For
+  # "Add new rule" (_cur empty, N is max+1), hide them — there's
+  # nothing to remove or relocate yet. Also hide move_up when _n == 1
+  # (already at top, target would be < 1).
+  local -a _opts=(
+    literal   "$(_tui_msg image.type.literal)"   "$([[ "${_cur_type}" == literal  ]] && echo ON || echo off)"
+    prefix    "$(_tui_msg image.type.prefix)"    "$([[ "${_cur_type}" == prefix   ]] && echo ON || echo off)"
+    suffix    "$(_tui_msg image.type.suffix)"    "$([[ "${_cur_type}" == suffix   ]] && echo ON || echo off)"
+    basename  "$(_tui_msg image.type.basename)"  "$([[ "${_cur_type}" == basename ]] && echo ON || echo off)"
+    default   "$(_tui_msg image.type.default)"   "$([[ "${_cur_type}" == default  ]] && echo ON || echo off)"
+  )
+  if [[ -n "${_cur}" ]]; then
+    (( _n > 1 )) && _opts+=(__move_up   "$(_tui_msg image.type.move_up)"   "off")
+    _opts+=(__move_down "$(_tui_msg image.type.move_down)" "off")
+    _opts+=(__remove    "$(_tui_msg image.type.remove)"    "off")
+  fi
+  _type="$(_tui_select "rule" "$(_tui_msg image.type.prompt)" "${_opts[@]}")" \
     || return 0
 
   local _final=""
