@@ -38,8 +38,6 @@ source "${_TUI_SCRIPT_DIR}/_tui_conf.sh"
 declare -gA _TUI_MSG_EN=(
   [title]="Docker Container Configuration"
   [main.prompt]=""
-  [action.ok_enter]="Enter"
-  [action.cancel]="Cancel"
   [main.image]="IMAGE_NAME detection rules"
   [main.build]="APT mirrors + Dockerfile build args"
   [main.network]="mode / ipc / name"
@@ -74,7 +72,6 @@ declare -gA _TUI_MSG_EN=(
   [security.security_opt.menu]="Select a security_opt entry or Add one"
   [security.security_opt.add]="Add security_opt"
   [security.security_opt.prompt]=$'security_opt entry\n  - Empty = delete this entry\n  - Examples: seccomp:unconfined, apparmor:unconfined, label=disable'
-  [action.save_exit]="Save & Exit"
   [image.title]="Image"
   [image.menu]="Select a rule to edit, or Add a new one"
   [image.add]="Add rule"
@@ -169,8 +166,6 @@ declare -gA _TUI_MSG_EN=(
 declare -gA _TUI_MSG_ZH_TW=(
   [title]="Docker 容器設定"
   [main.prompt]=""
-  [action.ok_enter]="進入"
-  [action.cancel]="取消"
   [main.image]="IMAGE_NAME 偵測規則"
   [main.build]="APT 鏡像與 Dockerfile build args"
   [main.network]="網路模式／IPC／名稱"
@@ -205,7 +200,6 @@ declare -gA _TUI_MSG_ZH_TW=(
   [security.security_opt.menu]="選擇 security_opt 項目或新增"
   [security.security_opt.add]="新增 security_opt"
   [security.security_opt.prompt]=$'security_opt 項目\n  - 留空 = 刪除此項目\n  - 範例：seccomp:unconfined、apparmor:unconfined、label=disable'
-  [action.save_exit]="儲存並離開"
   [image.title]="Image"
   [image.menu]="選擇規則編輯或新增"
   [image.add]="新增規則"
@@ -300,8 +294,6 @@ declare -gA _TUI_MSG_ZH_TW=(
 declare -gA _TUI_MSG_ZH_CN=(
   [title]="Docker 容器配置"
   [main.prompt]=""
-  [action.ok_enter]="进入"
-  [action.cancel]="取消"
   [main.image]="IMAGE_NAME 检测规则"
   [main.build]="APT 镜像与 Dockerfile build args"
   [main.network]="网络模式／IPC／名称"
@@ -336,7 +328,6 @@ declare -gA _TUI_MSG_ZH_CN=(
   [security.security_opt.menu]="选择 security_opt 项目或新增"
   [security.security_opt.add]="新增 security_opt"
   [security.security_opt.prompt]=$'security_opt 项目\n  - 留空 = 删除此项目\n  - 示例：seccomp:unconfined、apparmor:unconfined、label=disable'
-  [action.save_exit]="保存并离开"
   [image.title]="Image"
   [image.menu]="选择规则编辑或新增"
   [image.add]="新增规则"
@@ -426,8 +417,6 @@ declare -gA _TUI_MSG_ZH_CN=(
 declare -gA _TUI_MSG_JA=(
   [title]="Docker コンテナ設定"
   [main.prompt]=""
-  [action.ok_enter]="開く"
-  [action.cancel]="キャンセル"
   [main.image]="IMAGE_NAME 検出ルール"
   [main.build]="APT ミラー / Dockerfile build args"
   [main.network]="ネットワークモード／IPC／name"
@@ -462,7 +451,6 @@ declare -gA _TUI_MSG_JA=(
   [security.security_opt.menu]="security_opt を選択、または追加"
   [security.security_opt.add]="security_opt を追加"
   [security.security_opt.prompt]=$'security_opt 項目\n  - 空 = この項目を削除\n  - 例: seccomp:unconfined、apparmor:unconfined、label=disable'
-  [action.save_exit]="保存して終了"
   [image.title]="Image"
   [image.menu]="編集または追加するルールを選択"
   [image.add]="ルールを追加"
@@ -1209,10 +1197,14 @@ _edit_section_devices() {
 # ── Main menu ────────────────────────────────────────────────────────────
 
 _render_main_menu() {
+  # Footer button labels are NOT i18n'd — keep a stable English
+  # "Save / Enter / Cancel" row across all locales so users never see
+  # a mix of English widget chrome and translated buttons, and so
+  # screenshots / docs stay consistent.
   export TUI_EXTRA_LABEL TUI_OK_LABEL TUI_CANCEL_LABEL
-  TUI_EXTRA_LABEL="$(_tui_msg action.save_exit)"
-  TUI_OK_LABEL="$(_tui_msg action.ok_enter)"
-  TUI_CANCEL_LABEL="$(_tui_msg action.cancel)"
+  TUI_EXTRA_LABEL="Save"
+  TUI_OK_LABEL="Enter"
+  TUI_CANCEL_LABEL="Cancel"
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
