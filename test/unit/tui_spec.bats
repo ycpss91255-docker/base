@@ -510,15 +510,20 @@ _b5_setup_tui() {
   _TUI_CURRENT[volumes.mount_1]=""
   _TUI_CURRENT[volumes.mount_2]="/x:/y"
 
-  # _tui_menu: first call returns "add", second returns "back".
-  _b5_menu_calls=0
+  # _tui_menu runs inside a command substitution subshell, so a shell
+  # counter wouldn't persist across calls. Use a file to sequence the
+  # returns: first call returns "add", subsequent ones return "back".
+  local _menu_seq="${TEMP_DIR}/menu_seq"
+  : > "${_menu_seq}"
   _tui_menu() {
-    (( _b5_menu_calls++ )) || true
-    if (( _b5_menu_calls == 1 )); then
+    local _n
+    _n="$(wc -l < "${_menu_seq}")"
+    echo "" >> "${_menu_seq}"
+    if (( _n == 0 )); then
       printf 'add'
-      return 0
+    else
+      printf 'back'
     fi
-    printf 'back'
     return 0
   }
 
@@ -544,14 +549,17 @@ _b5_setup_tui() {
   _TUI_CURRENT[volumes.mount_1]="/a:/a"
   _TUI_CURRENT[volumes.mount_2]="/b:/b"
 
-  _b5_menu_calls=0
+  local _menu_seq="${TEMP_DIR}/menu_seq"
+  : > "${_menu_seq}"
   _tui_menu() {
-    (( _b5_menu_calls++ )) || true
-    if (( _b5_menu_calls == 1 )); then
+    local _n
+    _n="$(wc -l < "${_menu_seq}")"
+    echo "" >> "${_menu_seq}"
+    if (( _n == 0 )); then
       printf 'add'
-      return 0
+    else
+      printf 'back'
     fi
-    printf 'back'
     return 0
   }
   _tui_inputbox() {
