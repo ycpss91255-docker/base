@@ -262,6 +262,14 @@ teardown() {
   assert_success
 }
 
+@test "generate_compose_yaml emits TZ build arg with Asia/Taipei default" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'TZ: ${TZ:-Asia/Taipei}' "${COMPOSE_OUT}"
+  assert_success
+}
+
 @test "generate_compose_yaml does NOT emit /dev:/dev by default (not in baseline)" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \

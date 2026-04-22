@@ -640,7 +640,7 @@ EOF
     "testuser" "testgroup" "1001" "1001" \
     "x86_64" "dockerhub" "true" \
     "ros_noetic" "/workspace" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
     "host" "host" "true" \
     "all" "gpu" \
     "true" "abc123"
@@ -660,6 +660,7 @@ EOF
   run grep -E '^SETUP_TIMESTAMP=' "${_env}"; assert_success
   run grep 'APT_MIRROR_UBUNTU=tw.archive.ubuntu.com' "${_env}"; assert_success
   run grep 'APT_MIRROR_DEBIAN=mirror.twds.com.tw' "${_env}"; assert_success
+  run grep 'TZ=Asia/Taipei' "${_env}"; assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -679,7 +680,7 @@ EOF
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
     "host" "host" "true" "all" "gpu" \
     "false" "${_h}"
   # stub detect_gui/detect_gpu to match stored false
@@ -698,7 +699,7 @@ EOF
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
     "host" "host" "true" "all" "gpu" \
     "false" "${_h_old}"
   detect_gui() { local -n _o=$1; _o="false"; }
@@ -723,7 +724,7 @@ EOF
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
     "host" "host" "true" "all" "gpu" \
     "false" "${_h}"
   # Now detection says true

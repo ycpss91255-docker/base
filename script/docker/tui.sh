@@ -89,6 +89,7 @@ declare -gA _TUI_MSG_EN=(
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT mirror host\n  - Empty = Dockerfile / compose default (archive.ubuntu.com)\n  - Example (Taiwan): tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT mirror host\n  - Empty = Dockerfile / compose default (deb.debian.org)\n  - Example (Taiwan): mirror.twds.com.tw'
+  [build.tz.prompt]=$'Container timezone (IANA name)\n  - Empty = Dockerfile default (Asia/Taipei)\n  - Examples: UTC, Asia/Tokyo, America/Los_Angeles'
   [network.title]="Network"
   [network.mode.prompt]="Network mode"
   [network.mode.host]="host (share host network stack)"
@@ -219,6 +220,7 @@ declare -gA _TUI_MSG_ZH_TW=(
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT 鏡像主機\n  - 留空 = Dockerfile / compose 預設（archive.ubuntu.com）\n  - 範例（台灣）：tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT 鏡像主機\n  - 留空 = Dockerfile / compose 預設（deb.debian.org）\n  - 範例（台灣）：mirror.twds.com.tw'
+  [build.tz.prompt]=$'容器時區（IANA 名稱）\n  - 留空 = Dockerfile 預設（Asia/Taipei）\n  - 範例：UTC、Asia/Tokyo、America/Los_Angeles'
   [network.title]="Network"
   [network.mode.prompt]="網路模式"
   [network.mode.host]="host（共用主機網路堆疊）"
@@ -349,6 +351,7 @@ declare -gA _TUI_MSG_ZH_CN=(
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT 镜像主机\n  - 留空 = Dockerfile / compose 默认（archive.ubuntu.com）\n  - 示例（台湾）：tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT 镜像主机\n  - 留空 = Dockerfile / compose 默认（deb.debian.org）\n  - 示例（台湾）：mirror.twds.com.tw'
+  [build.tz.prompt]=$'容器时区（IANA 名称）\n  - 留空 = Dockerfile 默认（Asia/Taipei）\n  - 示例：UTC、Asia/Tokyo、America/Los_Angeles'
   [network.title]="Network"
   [network.mode.prompt]="网络模式"
   [network.mode.host]="host（共用主机网络栈）"
@@ -474,6 +477,7 @@ declare -gA _TUI_MSG_JA=(
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT ミラーホスト\n  - 空 = Dockerfile / compose デフォルト (archive.ubuntu.com)\n  - 例 (台湾): tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT ミラーホスト\n  - 空 = Dockerfile / compose デフォルト (deb.debian.org)\n  - 例 (台湾): mirror.twds.com.tw'
+  [build.tz.prompt]=$'コンテナのタイムゾーン（IANA 名）\n  - 空 = Dockerfile デフォルト (Asia/Taipei)\n  - 例: UTC、Asia/Tokyo、America/Los_Angeles'
   [network.title]="Network"
   [network.mode.prompt]="ネットワークモード"
   [network.mode.host]="host（ホストネットワークスタックを共有）"
@@ -847,6 +851,11 @@ _edit_section_build() {
   _v="$(_tui_inputbox "$(_tui_msg build.title)" "$(_tui_msg build.debian.prompt)" "${_cur}")" \
     || return 0
   _override_set "build.apt_mirror_debian" "${_v}"
+
+  _cur="$(_override_get "build.tz" "")"
+  _v="$(_tui_inputbox "$(_tui_msg build.title)" "$(_tui_msg build.tz.prompt)" "${_cur}")" \
+    || return 0
+  _override_set "build.tz" "${_v}"
 }
 
 _edit_section_network() {

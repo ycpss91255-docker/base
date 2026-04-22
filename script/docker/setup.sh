@@ -575,6 +575,7 @@ services:
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
         APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: \${TZ:-Asia/Taipei}
         USER_NAME: \${USER_NAME}
         USER_GROUP: \${USER_GROUP}
         USER_UID: \${USER_UID}
@@ -707,6 +708,7 @@ YAML
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
         APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: \${TZ:-Asia/Taipei}
         USER_NAME: \${USER_NAME}
         USER_GROUP: \${USER_GROUP}
         USER_UID: \${USER_UID}
@@ -732,7 +734,7 @@ YAML
 # Usage: write_env <env_file> <user_name> <user_group> <uid> <gid>
 #                  <hardware> <docker_hub_user> <gpu_detected>
 #                  <image_name> <ws_path>
-#                  <apt_mirror_ubuntu> <apt_mirror_debian>
+#                  <apt_mirror_ubuntu> <apt_mirror_debian> <tz>
 #                  <network_mode> <ipc_mode> <privileged>
 #                  <gpu_count> <gpu_caps>
 #                  <gui_detected> <conf_hash>
@@ -751,6 +753,7 @@ write_env() {
   local _ws_path="${1}"; shift
   local _apt_mirror_ubuntu="${1}"; shift
   local _apt_mirror_debian="${1}"; shift
+  local _tz="${1}"; shift
   local _network_mode="${1}"; shift
   local _ipc_mode="${1}"; shift
   local _privileged="${1}"; shift
@@ -782,6 +785,9 @@ WS_PATH=${_ws_path}
 # ── APT Mirror ───────────────────────────────
 APT_MIRROR_UBUNTU=${_apt_mirror_ubuntu}
 APT_MIRROR_DEBIAN=${_apt_mirror_debian}
+
+# ── Timezone ─────────────────────────────────
+TZ=${_tz}
 
 # ── Runtime config (from setup.conf) ─────────
 NETWORK_MODE=${_network_mode}
@@ -915,11 +921,13 @@ main() {
   _load_setup_conf "${_base_path}" "tmpfs"       _tmp_k _tmp_v
   _load_setup_conf "${_base_path}" "security"    _sec_k _sec_v
 
-  # APT mirrors: empty means "do not override" — let compose.yaml's
-  # build.args `${VAR:-<default>}` fallback pick the upstream archive.
-  local apt_mirror_ubuntu="" apt_mirror_debian=""
+  # Build args: empty means "do not override" — let compose.yaml's
+  # build.args `${VAR:-<default>}` fallback pick the upstream / Dockerfile
+  # default (e.g. archive.ubuntu.com for APT, Asia/Taipei for TZ).
+  local apt_mirror_ubuntu="" apt_mirror_debian="" tz=""
   _get_conf_value _build_k _build_v "apt_mirror_ubuntu" "" apt_mirror_ubuntu
   _get_conf_value _build_k _build_v "apt_mirror_debian" "" apt_mirror_debian
+  _get_conf_value _build_k _build_v "tz"                "" tz
 
   local gpu_mode="" gpu_count="" gpu_caps=""
   local gui_mode=""
@@ -1043,7 +1051,7 @@ main() {
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
     "${image_name}" "${ws_path}" \
-    "${apt_mirror_ubuntu}" "${apt_mirror_debian}" \
+    "${apt_mirror_ubuntu}" "${apt_mirror_debian}" "${tz}" \
     "${net_mode}" "${ipc_mode}" "${privileged}" \
     "${gpu_count}" "${gpu_caps}" \
     "${gui_detected}" "${conf_hash}" \
