@@ -50,18 +50,39 @@ _create_symlinks() {
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
 
-  # Navigation symlink: <repo>/config → template/config. Lets users
-  # `cd config`, `ls config/shell/...` without having to know about the
-  # subtree layout. Does NOT affect Dockerfile COPY — the Dockerfile
-  # keeps referencing the real `template/config` path because
-  # `docker build` does not follow symlinks in its context.
-  # If a repo has a real `config/` directory (user placed overrides
-  # there), skip — don't clobber user data.
+  _populate_config
+}
+
+# _populate_config
+#
+# On first init (no <repo>/config/), copy `template/config/` out as a
+# real directory the user owns and can edit freely. Rationale:
+#   * a symlink would make edits spill into the subtree and fight
+#     `git subtree pull`;
+#   * a plain Dockerfile COPY from `template/config/` would deny the
+#     user any per-repo override path at all.
+# Copy gives the user a clean, repo-local editing surface; subsequent
+# template upgrades leave this directory untouched and `upgrade.sh`
+# prints a diff hint when the upstream baseline moves so the user can
+# reconcile manually.
+_populate_config() {
+  # User already has a real config/ — preserve (contains their edits).
   if [[ -d config && ! -L config ]]; then
-    _log "  Keeping custom config/ directory (skipping template symlink)"
-  else
-    _symlink "${TEMPLATE_REL}/config" "config"
+    _log "  Keeping existing config/ directory"
+    return 0
   fi
+  # Stale symlink from an earlier init.sh version — drop it before
+  # copying. Without rm, `cp -r` would dereference and write INTO the
+  # symlink's target (i.e. pollute the subtree).
+  if [[ -L config ]]; then
+    rm -f config
+  fi
+  if [[ ! -d "${TEMPLATE_REL}/config" ]]; then
+    _log "  Skipping config/ seed (${TEMPLATE_REL}/config not found)"
+    return 0
+  fi
+  cp -r "${TEMPLATE_REL}/config" config
+  _log "  Copied config/ from ${TEMPLATE_REL}/config (yours to edit)"
 }
 
 _detect_template_version() {

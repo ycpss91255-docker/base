@@ -122,26 +122,48 @@ teardown() {
   assert_output "template/script/docker/Makefile"
 }
 
-@test "new repo: config symlink → template/config (navigation convenience)" {
+@test "new repo: config/ is a real directory copied from template/config" {
   bash template/init.sh
-  assert [ -L "${REPO_DIR}/config" ]
-  run readlink "${REPO_DIR}/config"
-  assert_output "template/config"
-  # Dereferenced path must resolve to a real directory with the
-  # expected subdirs (bashrc / tmux / terminator / pip).
-  assert [ -d "${REPO_DIR}/config/" ]
+  # Must NOT be a symlink — edits should stay in the user's own
+  # repo, not leak into the subtree where subtree pulls would fight
+  # them. Must be a real directory seeded with the template content.
+  assert [ ! -L "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config/shell" ]
+  # Sanity-check one of the seeded files actually made it across.
+  assert [ -f "${REPO_DIR}/config/pip/setup.sh" ] \
+    || assert [ -d "${REPO_DIR}/config/shell/bashrc" ]
 }
 
 @test "new repo: init.sh preserves pre-existing config/ directory (no clobber)" {
-  # Simulate a repo with a real config/ directory (user-provided
-  # overrides). init.sh must not replace it with a symlink.
+  # Simulate a repo with a real config/ directory (user's edits).
+  # init.sh must not overwrite it.
   mkdir -p "${REPO_DIR}/config/custom"
   echo "user-override" > "${REPO_DIR}/config/custom/marker"
   bash template/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
+}
+
+@test "new repo: init.sh drops stale config symlink before copying" {
+  # An older init.sh created config → template/config as a symlink.
+  # Re-running the new init.sh on such a repo must replace the
+  # symlink with a real copy (cp -r through a symlink would otherwise
+  # silently pollute the subtree target).
+  ln -s template/config "${REPO_DIR}/config"
+  bash template/init.sh
+  assert [ ! -L "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config/shell" ]
+}
+
+@test "Dockerfile.example references CONFIG_SRC=\"config\" (not template/config)" {
+  # Sanity: the per-repo copy only pays off if Dockerfile points at it.
+  run grep -F 'ARG CONFIG_SRC="config"' /source/dockerfile/Dockerfile.example
+  assert_success
+  run grep -F 'ARG CONFIG_SRC="template/config"' /source/dockerfile/Dockerfile.example
+  assert_failure
 }
 
 @test "new repo: template/VERSION exists (no legacy .template_version)" {
