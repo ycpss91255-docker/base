@@ -765,11 +765,11 @@ EOF
   run -127 bash -c "source /source/script/docker/setup.sh; main --lang"
 }
 
-@test "main --lang zh sets Chinese messages for full run" {
+@test "main --lang zh-TW sets Chinese messages for full run" {
   cp /source/setup.conf "${TEMP_DIR}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' --lang zh 2>&1
+    main --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
   assert_output --partial "更新完成"
@@ -832,8 +832,8 @@ EOF
   [[ "$(_msg env_done)" =~ updated ]]
 }
 
-@test "_msg returns Chinese messages when _LANG=zh" {
-  _LANG="zh"
+@test "_msg returns Traditional Chinese messages when _LANG=zh-TW" {
+  _LANG="zh-TW"
   [[ "$(_msg env_done)" =~ 更新完成 ]]
 }
 
@@ -852,7 +852,7 @@ EOF
 # only land on the first case of each language block.
 
 @test "_msg env_comment and unknown_arg are defined in zh" {
-  _LANG="zh"
+  _LANG="zh-TW"
   [[ "$(_msg env_comment)" =~ 自動偵測 ]]
   [[ "$(_msg unknown_arg)" =~ 未知參數 ]]
 }

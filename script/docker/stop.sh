@@ -12,7 +12,7 @@ else
   # Fallback for /lint stage. See build.sh for rationale.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -23,7 +23,7 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
 用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
 

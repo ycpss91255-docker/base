@@ -158,8 +158,8 @@ teardown() {
   assert_output --partial "test"
 }
 
-@test "build.sh --lang zh prints Chinese usage text" {
-  run bash "${SANDBOX}/build.sh" --lang zh --help
+@test "build.sh --lang zh-TW prints Chinese usage text" {
+  run bash "${SANDBOX}/build.sh" --lang zh-TW --help
   assert_success
   assert_output --partial "用法"
 }
@@ -185,7 +185,7 @@ teardown() {
 # Exercises lines 17-19 of build.sh where _lib.sh is missing and _detect_lang
 # maps LANG → {zh, zh-CN, ja}. Symlink (not copy) so kcov attributes runs.
 
-@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh" {
+@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"

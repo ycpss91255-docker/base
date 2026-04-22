@@ -23,7 +23,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/_tui_conf.sh"
 _msg() {
   local _key="${1}"
   case "${_LANG}" in
-    zh)
+    zh-TW)
       case "${_key}" in
         env_done)      echo ".env 與 compose.yaml 更新完成" ;;
         env_comment)   echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
@@ -859,7 +859,7 @@ _check_setup_drift() {
 # ════════════════════════════════════════════════════════════════════
 # main
 #
-# Usage: main [--base-path <path>] [--lang <en|zh|zh-CN|ja>]
+# Usage: main [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 # ════════════════════════════════════════════════════════════════════
 main() {
   local _base_path=""
@@ -871,7 +871,7 @@ main() {
         shift 2
         ;;
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         shift 2
         ;;
       *)

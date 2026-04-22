@@ -20,10 +20,10 @@ setup() {
   assert_output "en"
 }
 
-@test "_lib.sh sets _LANG to 'zh' for zh_TW.UTF-8" {
+@test "_lib.sh sets _LANG to 'zh-TW' for zh_TW.UTF-8" {
   run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8 source ${LIB}; echo \"\${_LANG}\""
   assert_success
-  assert_output "zh"
+  assert_output "zh-TW"
 }
 
 @test "_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8" {

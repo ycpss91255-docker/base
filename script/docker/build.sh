@@ -14,7 +14,7 @@ else
   # are unused in this stage.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -25,9 +25,9 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help     顯示此說明
@@ -46,7 +46,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help     显示此说明
@@ -65,7 +65,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
@@ -84,7 +84,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help     Show this help
@@ -134,7 +134,7 @@ main() {
         shift
         ;;
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         shift 2
         ;;
       *)

@@ -176,8 +176,8 @@ teardown() {
   assert_output --partial "already running"
 }
 
-@test "run.sh --lang zh prints Chinese usage text" {
-  run bash "${SANDBOX}/run.sh" --lang zh --help
+@test "run.sh --lang zh-TW prints Chinese usage text" {
+  run bash "${SANDBOX}/run.sh" --lang zh-TW --help
   assert_success
   assert_output --partial "用法"
 }
@@ -211,7 +211,7 @@ teardown() {
 
 # ── Fallback _detect_lang (no template/ tree) ──────────────────────────────
 
-@test "run.sh fallback _detect_lang maps zh_TW.UTF-8 to zh" {
+@test "run.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"

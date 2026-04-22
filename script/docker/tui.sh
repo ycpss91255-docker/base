@@ -166,7 +166,7 @@ declare -gA _TUI_MSG_EN=(
   [action.back]="Back"
 )
 
-declare -gA _TUI_MSG_ZH=(
+declare -gA _TUI_MSG_ZH_TW=(
   [title]="Docker 容器設定"
   [main.prompt]=""
   [action.ok_enter]="進入"
@@ -563,7 +563,7 @@ _tui_msg() {
 
 _tui_init_lang() {
   case "${_LANG}" in
-    zh)    _TUI_LANG_UPPER="ZH" ;;
+    zh-TW) _TUI_LANG_UPPER="ZH_TW" ;;
     zh-CN) _TUI_LANG_UPPER="ZH_CN" ;;
     ja)    _TUI_LANG_UPPER="JA" ;;
     *)     _TUI_LANG_UPPER="EN" ;;
@@ -581,9 +581,9 @@ _tui_init_lang 2>/dev/null || true
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./tui.sh [-h] [--lang <en|zh|zh-CN|ja>] [SECTION]
+用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 互動式編輯 <repo>/setup.conf，完成後自動呼叫 setup.sh 重新產生
 .env 與 compose.yaml。需要已安裝 dialog 或 whiptail。
@@ -599,7 +599,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./tui.sh [-h] [--lang <en|zh|zh-CN|ja>] [SECTION]
+用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 交互式编辑 <repo>/setup.conf，完成后自动调用 setup.sh 重新生成
 .env 和 compose.yaml。需要已安装 dialog 或 whiptail。
@@ -615,7 +615,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./tui.sh [-h] [--lang <en|zh|zh-CN|ja>] [SECTION]
+使用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 <repo>/setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
 .env と compose.yaml を再生成します。dialog または whiptail が必要。
@@ -631,7 +631,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./tui.sh [-h] [--lang <en|zh|zh-CN|ja>] [SECTION]
+Usage: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 Interactively edit <repo>/setup.conf. On save, setup.sh is invoked
 automatically to regenerate .env and compose.yaml. Requires dialog
