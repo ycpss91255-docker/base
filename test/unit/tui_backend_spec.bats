@@ -25,12 +25,15 @@ teardown() {
 
 # Fake dialog/whiptail: log argv to TUI_LOG, emit TUI_STUB_RESPONSE on
 # fd 3 when `--output-fd 3` is passed (matching _tui_run), falling back
-# to stderr otherwise. Exit with TUI_STUB_EXIT (default 0).
+# to stderr otherwise. The first log line records DIALOGRC's value
+# prefixed by `DIALOGRC=` (empty/unset → "DIALOGRC="), so tests can
+# assert whether the wrapper exported it. Exit with TUI_STUB_EXIT
+# (default 0).
 _install_stub() {
   local _bin="${1:?}"
   cat > "${MOCK_DIR}/${_bin}" <<'EOF'
 #!/bin/bash
-: >> "${TUI_LOG}"
+printf 'DIALOGRC=%s\n' "${DIALOGRC:-}" >> "${TUI_LOG}"
 for _arg in "$@"; do
   printf '%s\n' "${_arg}" >> "${TUI_LOG}"
 done
@@ -333,4 +336,107 @@ EOF
   [ "${status}" -eq 1 ]
   run cat "${TUI_LOG}"
   assert_output --partial "--yesno"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# DIALOGRC (vim-style keybindings for dialog backend)
+# ════════════════════════════════════════════════════════════════════
+
+@test "dialogrc file is shipped alongside _tui_backend.sh" {
+  # Canonical path: <template>/config/dialog/dialogrc, accessed as a
+  # sibling of script/docker/_tui_backend.sh via ../../config/...
+  local _rc="/source/config/dialog/dialogrc"
+  [[ -f "${_rc}" ]]
+}
+
+@test "dialogrc contains vim-key bindings for menubox / checklist / radiolist" {
+  local _rc="/source/config/dialog/dialogrc"
+  run grep -E '^bindkey[[:space:]]+menubox[[:space:]]+j[[:space:]]'    "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+menubox[[:space:]]+k[[:space:]]'    "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+menubox[[:space:]]+l[[:space:]]'    "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+menubox[[:space:]]+h[[:space:]]'    "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+checklist[[:space:]]+j[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+checklist[[:space:]]+k[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+checklist[[:space:]]+l[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+checklist[[:space:]]+h[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+radiolist[[:space:]]+j[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+radiolist[[:space:]]+k[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+radiolist[[:space:]]+l[[:space:]]'  "${_rc}"; assert_success
+  run grep -E '^bindkey[[:space:]]+radiolist[[:space:]]+h[[:space:]]'  "${_rc}"; assert_success
+}
+
+@test "dialogrc binds j / k to ITEM_NEXT / ITEM_PREV (valid DLG_KEYS_ENUM names)" {
+  local _rc="/source/config/dialog/dialogrc"
+  run grep -E '^bindkey menubox[[:space:]]+j[[:space:]]+ITEM_NEXT$' "${_rc}"
+  assert_success
+  run grep -E '^bindkey menubox[[:space:]]+k[[:space:]]+ITEM_PREV$' "${_rc}"
+  assert_success
+}
+
+@test "dialogrc does NOT bind h/l/j/k on inputbox, editbox, or formfield" {
+  # Those widgets are text-entry surfaces — binding letter keys there
+  # would prevent the user from typing the letters themselves.
+  local _rc="/source/config/dialog/dialogrc"
+  run grep -E '^bindkey (inputbox|inputbox2|editbox|editbox2|formfield|formbox) ' "${_rc}"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_tui_run exports DIALOGRC pointing at the shipped rc file (dialog backend)" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  unset DIALOGRC
+  export TUI_STUB_RESPONSE=""
+  run _tui_run --msgbox "hi" 10 40
+  run grep '^DIALOGRC=' "${TUI_LOG}"
+  assert_success
+  assert_output --partial "DIALOGRC=/source/config/dialog/dialogrc"
+}
+
+@test "_tui_run does NOT set DIALOGRC when backend is whiptail" {
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  unset DIALOGRC
+  export TUI_STUB_RESPONSE=""
+  run _tui_run --msgbox "hi" 10 40
+  run grep '^DIALOGRC=' "${TUI_LOG}"
+  assert_success
+  # Whiptail doesn't support bindkey — we must not pollute its env with
+  # a dialog rc path. Line should read literally "DIALOGRC=" with nothing
+  # after the `=`.
+  assert_output "DIALOGRC="
+}
+
+@test "_tui_run preserves an existing DIALOGRC set by the caller" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  local _custom="${TEMP_DIR}/user.dialogrc"
+  : > "${_custom}"
+  export DIALOGRC="${_custom}"
+  export TUI_STUB_RESPONSE=""
+  run _tui_run --msgbox "hi" 10 40
+  run grep '^DIALOGRC=' "${TUI_LOG}"
+  assert_success
+  assert_output "DIALOGRC=${_custom}"
+  unset DIALOGRC
+}
+
+@test "_tui_msgbox propagates DIALOGRC to the dialog invocation" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  unset DIALOGRC
+  run _tui_msgbox "Hi" "Hello"
+  run grep '^DIALOGRC=' "${TUI_LOG}"
+  assert_success
+  assert_output --partial "/source/config/dialog/dialogrc"
+}
+
+@test "_tui_menu propagates DIALOGRC to the dialog invocation" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  unset DIALOGRC
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
+  run grep '^DIALOGRC=' "${TUI_LOG}"
+  assert_success
+  assert_output --partial "/source/config/dialog/dialogrc"
 }

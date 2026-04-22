@@ -18,6 +18,27 @@ TUI_BACKEND=""
 TUI_HEIGHT="${TUI_HEIGHT:-20}"
 TUI_WIDTH="${TUI_WIDTH:-70}"
 
+# Canonical path to the shipped dialog rc file (vim-style keybindings).
+# Resolved relative to this script's directory: script/docker/<this>
+# → ../../config/dialog/dialogrc. Wrapped in a subshell so `cd` does not
+# leak into the sourcing shell. `-P` follows symlinks so consumer repos
+# that symlink script/docker/_tui_backend.sh into place still resolve
+# back to the template's config directory.
+_TUI_SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly _TUI_SCRIPT_DIR
+TUI_DIALOGRC="${_TUI_SCRIPT_DIR}/../../config/dialog/dialogrc"
+# Normalise the path so error messages / env don't carry `../..`. Fall
+# back to the un-normalised form if readlink isn't available.
+if command -v readlink >/dev/null 2>&1; then
+  _TUI_RESOLVED="$(readlink -f "${TUI_DIALOGRC}" 2>/dev/null || true)"
+  [[ -n "${_TUI_RESOLVED}" ]] && TUI_DIALOGRC="${_TUI_RESOLVED}"
+  unset _TUI_RESOLVED
+fi
+
+# One-shot flag — whiptail "no vim keys" notice shown at most once per
+# shell session.
+_TUI_WHIPTAIL_NOTICE_SHOWN=""
+
 # _backend_detect
 #
 # Sets ${TUI_BACKEND} to "dialog" or "whiptail" (preferring dialog).
@@ -29,6 +50,14 @@ _backend_detect() {
   fi
   if command -v whiptail >/dev/null 2>&1; then
     TUI_BACKEND="whiptail"
+    # whiptail has no bindkey support → the vim keys we configured via
+    # dialogrc don't take effect. Emit a one-shot hint on stderr so the
+    # user knows to fall back to arrow keys. Kept silent on subsequent
+    # invocations within the same shell session.
+    if [[ -z "${_TUI_WHIPTAIL_NOTICE_SHOWN}" ]]; then
+      printf "[tui] NOTE: whiptail detected — vim-style keys (j/k/h/l) unavailable; use arrow keys.\n" >&2
+      _TUI_WHIPTAIL_NOTICE_SHOWN=1
+    fi
     return 0
   fi
   printf "[tui] ERROR: neither 'dialog' nor 'whiptail' is installed.\n" >&2
@@ -46,9 +75,22 @@ _tui_guard() {
   fi
 }
 
+# _tui_apply_dialogrc
+#
+# Export DIALOGRC pointing at the shipped vim-key rc file when the
+# active backend is dialog. No-op for whiptail (which doesn't support
+# bindkey) and for callers that already set their own DIALOGRC.
+_tui_apply_dialogrc() {
+  [[ "${TUI_BACKEND}" != "dialog" ]] && return 0
+  [[ -n "${DIALOGRC:-}" ]] && return 0
+  [[ -r "${TUI_DIALOGRC}" ]] || return 0
+  export DIALOGRC="${TUI_DIALOGRC}"
+}
+
 # _tui_msgbox <title> <message>
 _tui_msgbox() {
   _tui_guard || return $?
+  _tui_apply_dialogrc
   "${TUI_BACKEND}" --title "${1}" --msgbox "${2}" "${TUI_HEIGHT}" "${TUI_WIDTH}"
 }
 
@@ -57,6 +99,7 @@ _tui_msgbox() {
 # Returns 0 on Yes, 1 on No, non-zero on Esc.
 _tui_yesno() {
   _tui_guard || return $?
+  _tui_apply_dialogrc
   "${TUI_BACKEND}" --title "${1}" --yesno "${2}" "${TUI_HEIGHT}" "${TUI_WIDTH}"
 }
 
@@ -73,6 +116,11 @@ _tui_yesno() {
 _tui_run() {
   local _tmp _rc=0
   _tmp="$(mktemp)"
+  # Vim-style keybindings (j/k/h/l) via the shipped dialogrc. Only
+  # dialog honours bindkey; whiptail has no equivalent so we leave its
+  # env untouched. An explicit user-set DIALOGRC wins — the guard lets
+  # operators point at their own rc without us clobbering it.
+  _tui_apply_dialogrc
   # Session-level OK / Cancel button i18n (env var hooks). Applied to
   # every dialog/whiptail invocation so sub-menus inherit the label the
   # main menu set up.

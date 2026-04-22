@@ -1,0 +1,39 @@
+# dialogrc — vim-style key bindings for the setup.conf TUI editor.
+#
+# Applied via DIALOGRC env var set by script/docker/_tui_backend.sh when
+# the detected backend is "dialog". whiptail ignores this file (no
+# bindkey support) and falls back to stock arrow-key navigation.
+#
+# Syntax reference: `man dialog` → "RUN-TIME CONFIGURATION".
+# Action names correspond to DLG_KEYS_ENUM entries in /usr/include/dlg_keys.h
+# stripped of the `DLGK_` prefix (ITEM_NEXT, ITEM_PREV, ENTER, ESC, TOGGLE).
+#
+# Widget names (see `man dialog` → "Widget Names"):
+#   menubox    — --menu widget (used by _tui_menu / _tui_select)
+#   checklist  — --checklist widget (used by _tui_checklist)
+#   radiolist  — --radiolist widget (used by _tui_radiolist)
+#
+# NOTE: inputbox / inputbox2 / editbox / formfield are deliberately NOT
+# rebound — inside those widgets j/k/h/l must remain ordinary character
+# input, otherwise the user cannot type those letters into text fields.
+
+# ── menubox ────────────────────────────────────────────────────────────
+bindkey menubox   j ITEM_NEXT
+bindkey menubox   k ITEM_PREV
+bindkey menubox   l ENTER
+bindkey menubox   h ESC
+
+# ── checklist ──────────────────────────────────────────────────────────
+# h on checklist toggles the current item (space-equivalent) rather than
+# cancelling — cancelling a partially-checked list via `h` would be a
+# footgun because the user would lose their other toggles.
+bindkey checklist j ITEM_NEXT
+bindkey checklist k ITEM_PREV
+bindkey checklist l ENTER
+bindkey checklist h TOGGLE
+
+# ── radiolist ──────────────────────────────────────────────────────────
+bindkey radiolist j ITEM_NEXT
+bindkey radiolist k ITEM_PREV
+bindkey radiolist l ENTER
+bindkey radiolist h ESC
