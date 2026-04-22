@@ -77,12 +77,15 @@ declare -gA _TUI_MSG_EN=(
   [image.add]="Add rule"
   [image.back]="Back to main menu"
   [image.type.prompt]="Rule type"
+  [image.type.literal]="literal (use the value as-is, no path parsing)"
   [image.type.prefix]="prefix"
   [image.type.suffix]="suffix"
   [image.type.basename]="@basename"
   [image.type.default]="@default"
+  [image.type.move_up]="Move up (swap with previous rule)"
+  [image.type.move_down]="Move down (swap with next rule)"
   [image.type.remove]="Remove (delete this rule)"
-  [image.value.prompt]=$'Rule value\n  - Empty = cancel\n  - e.g. prefix:docker_ → enter: docker_'
+  [image.value.prompt]=$'Rule value\n  - Empty = cancel\n  - prefix / suffix / @default: strip or fall-back value\n  - literal: exact image name (e.g. my_app)\n  - e.g. prefix:docker_ → enter: docker_'
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT mirror host\n  - Empty = Dockerfile / compose default (archive.ubuntu.com)\n  - Example (Taiwan): tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT mirror host\n  - Empty = Dockerfile / compose default (deb.debian.org)\n  - Example (Taiwan): mirror.twds.com.tw'
@@ -210,12 +213,15 @@ declare -gA _TUI_MSG_ZH_TW=(
   [image.add]="新增規則"
   [image.back]="回主選單"
   [image.type.prompt]="規則類型"
+  [image.type.literal]="literal（直接用此值為 image 名稱，不解析路徑）"
   [image.type.prefix]="prefix"
   [image.type.suffix]="suffix"
   [image.type.basename]="@basename"
   [image.type.default]="@default"
+  [image.type.move_up]="往上（與前一條規則交換）"
+  [image.type.move_down]="往下（與後一條規則交換）"
   [image.type.remove]="移除（刪除此規則）"
-  [image.value.prompt]=$'規則參數\n  - 留空 = 取消\n  - 例：prefix:docker_ → 輸入 docker_'
+  [image.value.prompt]=$'規則參數\n  - 留空 = 取消\n  - prefix / suffix / @default：剝除或預設值\n  - literal：直接用做 image 名稱（例：my_app）\n  - 例：prefix:docker_ → 輸入 docker_'
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT 鏡像主機\n  - 留空 = Dockerfile / compose 預設（archive.ubuntu.com）\n  - 範例（台灣）：tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT 鏡像主機\n  - 留空 = Dockerfile / compose 預設（deb.debian.org）\n  - 範例（台灣）：mirror.twds.com.tw'
@@ -343,12 +349,15 @@ declare -gA _TUI_MSG_ZH_CN=(
   [image.add]="新增规则"
   [image.back]="回主菜单"
   [image.type.prompt]="规则类型"
+  [image.type.literal]="literal（直接用此值为 image 名称，不解析路径）"
   [image.type.prefix]="prefix"
   [image.type.suffix]="suffix"
   [image.type.basename]="@basename"
   [image.type.default]="@default"
+  [image.type.move_up]="上移（与前一条规则交换）"
+  [image.type.move_down]="下移（与后一条规则交换）"
   [image.type.remove]="移除（删除此规则）"
-  [image.value.prompt]=$'规则参数\n  - 留空 = 取消\n  - 例：prefix:docker_ → 输入 docker_'
+  [image.value.prompt]=$'规则参数\n  - 留空 = 取消\n  - prefix / suffix / @default：剥除或默认值\n  - literal：直接作为 image 名称（例：my_app）\n  - 例：prefix:docker_ → 输入 docker_'
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT 镜像主机\n  - 留空 = Dockerfile / compose 默认（archive.ubuntu.com）\n  - 示例（台湾）：tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT 镜像主机\n  - 留空 = Dockerfile / compose 默认（deb.debian.org）\n  - 示例（台湾）：mirror.twds.com.tw'
@@ -471,12 +480,15 @@ declare -gA _TUI_MSG_JA=(
   [image.add]="ルールを追加"
   [image.back]="メインメニューへ戻る"
   [image.type.prompt]="ルール種別"
+  [image.type.literal]="literal（この値をそのまま image 名にする、パス解析なし）"
   [image.type.prefix]="prefix"
   [image.type.suffix]="suffix"
   [image.type.basename]="@basename"
   [image.type.default]="@default"
+  [image.type.move_up]="上へ（前のルールと入れ替え）"
+  [image.type.move_down]="下へ（次のルールと入れ替え）"
   [image.type.remove]="削除（このルールを削除）"
-  [image.value.prompt]=$'ルール値\n  - 空 = キャンセル\n  - 例：prefix:docker_ → docker_ と入力'
+  [image.value.prompt]=$'ルール値\n  - 空 = キャンセル\n  - prefix / suffix / @default：除去または fallback 値\n  - literal：そのまま image 名として使用（例：my_app）\n  - 例：prefix:docker_ → docker_ と入力'
   [build.title]="Build"
   [build.ubuntu.prompt]=$'Ubuntu APT ミラーホスト\n  - 空 = Dockerfile / compose デフォルト (archive.ubuntu.com)\n  - 例 (台湾): tw.archive.ubuntu.com'
   [build.debian.prompt]=$'Debian APT ミラーホスト\n  - 空 = Dockerfile / compose デフォルト (deb.debian.org)\n  - 例 (台湾): mirror.twds.com.tw'
@@ -817,15 +829,19 @@ _edit_image_rule() {
   local _cur_type="" _cur_value=""
   if [[ "${_cur}" == prefix:* ]]; then _cur_type="prefix"; _cur_value="${_cur#prefix:}"
   elif [[ "${_cur}" == suffix:* ]]; then _cur_type="suffix"; _cur_value="${_cur#suffix:}"
+  elif [[ "${_cur}" == literal:* ]]; then _cur_type="literal"; _cur_value="${_cur#literal:}"
   elif [[ "${_cur}" == "@basename" ]]; then _cur_type="basename"
   elif [[ "${_cur}" == @default:* ]]; then _cur_type="default"; _cur_value="${_cur#@default:}"
   fi
 
   _type="$(_tui_select "rule" "$(_tui_msg image.type.prompt)" \
+    literal     "$(_tui_msg image.type.literal)"     "$([[ "${_cur_type}" == literal ]]     && echo ON || echo off)" \
     prefix      "$(_tui_msg image.type.prefix)"      "$([[ "${_cur_type}" == prefix ]]      && echo ON || echo off)" \
     suffix      "$(_tui_msg image.type.suffix)"      "$([[ "${_cur_type}" == suffix ]]      && echo ON || echo off)" \
     basename    "$(_tui_msg image.type.basename)"    "$([[ "${_cur_type}" == basename ]]    && echo ON || echo off)" \
     default     "$(_tui_msg image.type.default)"     "$([[ "${_cur_type}" == default ]]     && echo ON || echo off)" \
+    __move_up   "$(_tui_msg image.type.move_up)"    "off" \
+    __move_down "$(_tui_msg image.type.move_down)"  "off" \
     __remove    "$(_tui_msg image.type.remove)"      "off")" \
     || return 0
 
@@ -835,7 +851,15 @@ _edit_image_rule() {
       _mark_removed "image.rule_${_n}"
       return 0
       ;;
-    prefix|suffix|default)
+    __move_up)
+      _swap_image_rule "${_n}" "$(( _n - 1 ))"
+      return 0
+      ;;
+    __move_down)
+      _swap_image_rule "${_n}" "$(( _n + 1 ))"
+      return 0
+      ;;
+    prefix|suffix|literal|default)
       _value="$(_tui_inputbox "rule" "$(_tui_msg image.value.prompt)" "${_cur_value}")" \
         || return 0
       if [[ "${_type}" == default ]]; then
@@ -869,6 +893,39 @@ _edit_image_rule() {
   done
 
   _override_set "image.rule_${_n}" "${_final}"
+}
+
+# _swap_image_rule <n> <m>
+#
+# Swap image.rule_${_n} ↔ image.rule_${_m}. Used by Move up / Move
+# down. Out-of-range targets (m < 1, or m not occupied when moving
+# down) are silently no-ops: UI wise the user sees the list unchanged,
+# which matches the natural "already at top / bottom" expectation.
+_swap_image_rule() {
+  local _n="${1:?}"
+  local _m="${2:?}"
+  (( _m < 1 )) && return 0
+  local _a _b
+  _a="$(_override_get "image.rule_${_n}" "")"
+  _b="$(_override_get "image.rule_${_m}" "")"
+  # Both empty → nothing to do. One empty → treat as swap with empty
+  # (equivalent to moving the non-empty entry into the empty slot and
+  # removing the old one).
+  if [[ -z "${_a}" && -z "${_b}" ]]; then
+    return 0
+  fi
+  if [[ -z "${_b}" ]]; then
+    _mark_removed "image.rule_${_n}"
+    _override_set "image.rule_${_m}" "${_a}"
+    return 0
+  fi
+  if [[ -z "${_a}" ]]; then
+    _mark_removed "image.rule_${_m}"
+    _override_set "image.rule_${_n}" "${_b}"
+    return 0
+  fi
+  _override_set "image.rule_${_n}" "${_b}"
+  _override_set "image.rule_${_m}" "${_a}"
 }
 
 _edit_section_build() {

@@ -1007,3 +1007,31 @@ EOF
   run grep ':/home/${USER_NAME}/work' "${_repo}/compose.yaml"
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# detect_image_name literal rule
+# ════════════════════════════════════════════════════════════════════
+
+@test "detect_image_name literal:<value> short-circuits path parsing" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = literal:my_app
+rule_2 = prefix:docker_
+rule_3 = @default:should_not_reach
+EOF
+  unset SETUP_CONF
+  local _result
+  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/docker_something"
+  assert_equal "${_result}" "my_app"
+}
+
+@test "detect_image_name literal value is still lowercased + sanitized" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = literal:My.App.Name
+EOF
+  unset SETUP_CONF
+  local _result
+  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/tmp/whatever"
+  assert_equal "${_result}" "my-app-name"
+}

@@ -843,3 +843,54 @@ _b6_setup_tui() {
   run _validate_cgroup_rule "c abc:* rwm"
   [ "${status}" -ne 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _swap_image_rule — Move up / Move down
+# ════════════════════════════════════════════════════════════════════
+
+_b_swap_setup() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/tui.sh
+  _tui_init_lang
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+}
+
+@test "_swap_image_rule swaps two populated slots" {
+  _b_swap_setup
+  _TUI_CURRENT[image.rule_1]="prefix:docker_"
+  _TUI_CURRENT[image.rule_2]="@basename"
+  _swap_image_rule 1 2
+  local _v1 _v2
+  _v1="$(_override_get "image.rule_1" "")"
+  _v2="$(_override_get "image.rule_2" "")"
+  [ "${_v1}" == "@basename" ]
+  [ "${_v2}" == "prefix:docker_" ]
+}
+
+@test "_swap_image_rule moving down from empty neighbour relocates the entry" {
+  _b_swap_setup
+  _TUI_CURRENT[image.rule_1]="@basename"
+  # rule_2 absent → "down" effectively relocates rule_1 → rule_2
+  _swap_image_rule 1 2
+  local _found=0 _r
+  for _r in "${_TUI_REMOVED[@]}"; do
+    [[ "${_r}" == "image.rule_1" ]] && _found=1
+  done
+  [ "${_found}" -eq 1 ]
+  local _v
+  _v="$(_override_get "image.rule_2" "")"
+  [ "${_v}" == "@basename" ]
+}
+
+@test "_swap_image_rule target < 1 is a no-op (already at top)" {
+  _b_swap_setup
+  _TUI_CURRENT[image.rule_1]="@basename"
+  _swap_image_rule 1 0
+  # No writes, no removals
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+  [ "${#_TUI_REMOVED[@]}" -eq 0 ]
+}

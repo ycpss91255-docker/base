@@ -381,6 +381,10 @@ detect_image_name() {
       elif [[ "${_rule}" == suffix:* ]]; then
         _value="${_rule#suffix:}"
         _found="$(_rule_suffix "${_path}" "${_value}")"
+      elif [[ "${_rule}" == literal:* ]]; then
+        # Short-circuit: user provided the exact image name they want,
+        # bypass any path-derived inference.
+        _found="${_rule#literal:}"
       elif [[ "${_rule}" == "@basename" ]]; then
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then
