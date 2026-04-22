@@ -185,6 +185,11 @@ main() {
   _load_env "${FILE_PATH}/.env"
   _compute_project_name "${INSTANCE}"
 
+  # Pre-run snapshot so the user can see which files + values this
+  # invocation resolved to before the container replaces the shell.
+  # Mute with QUIET=1 for piped / CI logs.
+  [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
+
   # Allow X11 forwarding (X11 or XWayland)
   if [[ "${XDG_SESSION_TYPE:-x11}" == "wayland" ]]; then
     xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true

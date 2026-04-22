@@ -181,6 +181,12 @@ main() {
   _load_env "${FILE_PATH}/.env"
   _compute_project_name ""
 
+  # Pre-build snapshot so first-time users see which files drove this
+  # run and the effective image/network/GPU/GUI/TZ before docker takes
+  # over the terminal. --dry-run keeps it (still useful); can be muted
+  # with QUIET=1 if someone pipes this into their own CI log.
+  [[ "${QUIET:-0}" != "1" ]] && _print_config_summary build
+
   # Build test-tools image if Dockerfile exists
   local _tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
   local _tools_args=()
