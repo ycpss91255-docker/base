@@ -544,6 +544,7 @@ generate_compose_yaml() {
   local _cap_add_str="${16:-}"
   local _cap_drop_str="${17:-}"
   local _sec_opt_str="${18:-}"
+  local _cgroup_rule_str="${19:-}"
 
   # Convert space-separated caps to YAML array form [a, b, c]
   local -a _caps_arr=()
@@ -673,6 +674,15 @@ YAML
         [[ -z "${_d}" ]] && continue
         echo "      - ${_d}"
       done <<< "${_devices_str}"
+    fi
+    # device_cgroup_rules: (dynamic device permissions, e.g. USB hotplug)
+    if [[ -n "${_cgroup_rule_str}" ]]; then
+      echo "    device_cgroup_rules:"
+      local _cr
+      while IFS= read -r _cr; do
+        [[ -z "${_cr}" ]] && continue
+        echo "      - \"${_cr}\""
+      done <<< "${_cgroup_rule_str}"
     fi
     # tmpfs: RAM-backed mounts
     if [[ -n "${_tmpfs_str}" ]]; then
@@ -995,6 +1005,14 @@ main() {
     _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
   fi
 
+  # ── Collect [devices] cgroup_rule_* ──
+  local -a _cgroup_rule_arr=()
+  _get_conf_list_sorted _dev_k _dev_v "cgroup_rule_" _cgroup_rule_arr
+  local _cgroup_rule_str=""
+  if (( ${#_cgroup_rule_arr[@]} > 0 )); then
+    _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
+  fi
+
   # ── Collect [environment] env_*, [tmpfs] tmpfs_*, [network] port_* ──
   local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
   _get_conf_list_sorted _env_k _env_v "env_"    _env_arr
@@ -1064,7 +1082,8 @@ main() {
     "${_devices_str}" \
     "${_env_str}" "${_tmpfs_str}" "${_ports_str}" \
     "${_shm_size}" "${net_mode}" "${ipc_mode}" \
-    "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}"
+    "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}" \
+    "${_cgroup_rule_str}"
 
   printf "[setup] %s\n" "$(_msg env_done)"
   printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \

@@ -816,3 +816,30 @@ _b6_setup_tui() {
   _v="$(_override_get "image.rule_2" "")"
   [ "${_v}" == "prefix:foo_" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _validate_cgroup_rule (B10)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_cgroup_rule accepts canonical examples" {
+  _validate_cgroup_rule "c 189:* rwm"
+  _validate_cgroup_rule "c 81:* rwm"
+  _validate_cgroup_rule "b 8:0 rw"
+  _validate_cgroup_rule "a *:* rwm"
+  _validate_cgroup_rule "c 189:12 m"
+}
+
+@test "_validate_cgroup_rule rejects bad format" {
+  run _validate_cgroup_rule ""
+  [ "${status}" -ne 0 ]
+  run _validate_cgroup_rule "c 189"
+  [ "${status}" -ne 0 ]
+  run _validate_cgroup_rule "c189:* rwm"
+  [ "${status}" -ne 0 ]
+  run _validate_cgroup_rule "c 189:* xyz"
+  [ "${status}" -ne 0 ]
+  run _validate_cgroup_rule "d 189:* rwm"
+  [ "${status}" -ne 0 ]
+  run _validate_cgroup_rule "c abc:* rwm"
+  [ "${status}" -ne 0 ]
+}

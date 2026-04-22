@@ -385,3 +385,32 @@ teardown() {
   run grep -F "local}/isaac_sim:devel" "${COMPOSE_OUT}"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# [devices] cgroup_rule_* → compose.yaml device_cgroup_rules: (B10)
+# ════════════════════════════════════════════════════════════════════
+
+@test "generate_compose_yaml emits device_cgroup_rules: when cgroup rules provided" {
+  local _extras=()
+  # positional: gui gpu count caps extras net_name devices env tmpfs ports
+  # shm_size net_mode ipc_mode cap_add cap_drop sec_opt cgroup_rules
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" \
+    "" "" "" "" \
+    "" "host" "host" "" "" "" \
+    $'c 189:* rwm\nc 81:* rwm'
+  run grep -F 'device_cgroup_rules:' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- "c 189:* rwm"' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- "c 81:* rwm"' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml omits device_cgroup_rules: when rules list is empty" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'device_cgroup_rules:' "${COMPOSE_OUT}"
+  assert_failure
+}

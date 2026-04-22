@@ -95,6 +95,20 @@ _validate_port_mapping() {
   return 1
 }
 
+# _validate_cgroup_rule <value>
+#
+# docker compose `device_cgroup_rules:` entry. Format:
+#   <type> <major>:<minor|*> <perms>
+# where type is one of c / b / a, major/minor are integers or `*`
+# (all), perms is any non-empty subset of {r, w, m}.
+_validate_cgroup_rule() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" =~ ^[cba][[:space:]]+([0-9]+|\*):([0-9]+|\*)[[:space:]]+[rwm]+$ ]] \
+    && return 0
+  return 1
+}
+
 # _validate_env_kv <value>
 #
 # Linux env var format: KEY must start with letter or underscore,

@@ -123,12 +123,16 @@ declare -gA _TUI_MSG_EN=(
   [volumes.delete.confirm]="Delete mount \"%s\"?"
   [volumes.back]="Back to main menu"
   [devices.title]="Devices"
-  [devices.menu]="Select an entry to edit, or Add a device/cgroup rule"
+  [devices.menu]="Pick which list to edit"
+  [devices.edit_devices]="Device bindings (devices:)"
+  [devices.edit_cgroup]="Cgroup rules (device_cgroup_rules:)"
   [devices.add_device]="Add device binding"
   [devices.add_cgroup]="Add cgroup rule"
   [devices.back]="Back to main menu"
   [devices.device.prompt]=$'Device binding\n  - Format: <host>[:<container>[:rwm]]\n  - Empty = delete this entry\n  - Default: /dev:/dev (bind whole /dev tree)\n  - Example (single): /dev/video0:/dev/video0'
-  [devices.cgroup.prompt]="Cgroup rule: <type> <major>:<minor> <perms>, e.g. 'c 81:* rmw'"
+  [devices.cgroup.title]="Cgroup rules"
+  [devices.cgroup.menu]="Select an entry to edit, or Add a new cgroup rule"
+  [devices.cgroup.prompt]=$'Cgroup rule\n  - Format: <type> <major>:<minor|*> <perms>\n    type: c (char), b (block), a (all)\n    perms: any of r / w / m\n  - Empty = delete this entry\n  - Example (USB): c 189:* rwm\n  - Example (V4L2): c 81:* rwm'
   [resources.title]="Resources"
   [resources.shm_size.prompt]=$'/dev/shm size\n  - Empty = Docker default (64mb)\n  - Examples: 2gb, 512mb\n  - Only applies when [network] ipc != host'
   [resources.shm_size.ignored]="Warning: [network] ipc is currently '%s'. Docker IGNORES shm_size unless ipc is 'private' or 'shareable'. Change ipc first if you need this value to take effect."
@@ -149,6 +153,7 @@ declare -gA _TUI_MSG_EN=(
   [ports.entry.prompt]=$'Port mapping\n  - Format: <host>:<container>[/protocol]\n  - Empty = delete this entry\n  - Example: 8080:80 or 5000:5000/udp'
   [ports.not_bridge]="Note: [network] mode is currently '%s'. Ports are only emitted into compose.yaml when mode=bridge."
   [err.invalid_mount]="Invalid mount format (expected <host>:<container>[:ro|rw])"
+  [err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
   [err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
   [err.invalid_shm_size]=$'Invalid shm_size\n  - Expected: <num><unit>\n  - Units: b, k/kb, m/mb, g/gb (case-insensitive)\n  - Example: 2gb, 512mb'
   [err.invalid_port_mapping]=$'Invalid port mapping\n  - Expected: <host>:<container>[/tcp|udp]\n  - Example: 8080:80, 5000:5000/udp'
@@ -251,12 +256,16 @@ declare -gA _TUI_MSG_ZH_TW=(
   [volumes.delete.confirm]="刪除掛載「%s」？"
   [volumes.back]="回主選單"
   [devices.title]="Devices"
-  [devices.menu]="選擇項目編輯，或新增 device/cgroup 規則"
+  [devices.menu]="選擇要編輯的清單"
+  [devices.edit_devices]="Device bindings（devices:）"
+  [devices.edit_cgroup]="Cgroup 規則（device_cgroup_rules:）"
   [devices.add_device]="新增 device binding"
   [devices.add_cgroup]="新增 cgroup rule"
   [devices.back]="回主選單"
   [devices.device.prompt]=$'Device 綁定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 刪除此項目\n  - 預設：/dev:/dev（綁定整個 /dev）\n  - 範例（單一）：/dev/video0:/dev/video0'
-  [devices.cgroup.prompt]="Cgroup 規則：<type> <major>:<minor> <perms>，例：'c 81:* rmw'"
+  [devices.cgroup.title]="Cgroup 規則"
+  [devices.cgroup.menu]="選擇項目編輯，或新增 cgroup 規則"
+  [devices.cgroup.prompt]=$'Cgroup 規則\n  - 格式：<type> <major>:<minor|*> <perms>\n    type: c（字元）、b（區塊）、a（全部）\n    perms: r / w / m 任意組合\n  - 留空 = 刪除此項目\n  - USB 範例：c 189:* rwm\n  - V4L2 範例：c 81:* rwm'
   [resources.title]="Resources"
   [resources.shm_size.prompt]=$'/dev/shm 大小\n  - 留空 = Docker 預設 64mb\n  - 範例：2gb、512mb\n  - 僅在 [network] ipc ≠ host 時生效'
   [resources.shm_size.ignored]="注意：目前 [network] ipc = '%s'。Docker 會忽略 shm_size（只在 ipc 為 'private' 或 'shareable' 時生效）。"
@@ -277,6 +286,7 @@ declare -gA _TUI_MSG_ZH_TW=(
   [ports.entry.prompt]=$'Port 映射\n  - 格式：<host>:<container>[/protocol]\n  - 留空 = 刪除此項目\n  - 範例：8080:80 或 5000:5000/udp'
   [ports.not_bridge]="注意：目前 [network] mode = '%s'。ports 只在 mode=bridge 時寫入 compose.yaml。"
   [err.invalid_mount]="掛載格式錯誤（預期 <host>:<container>[:ro|rw]）"
+  [err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
   [err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
   [err.invalid_shm_size]=$'shm_size 格式錯誤\n  - 預期：<數字><單位>\n  - 單位：b、k/kb、m/mb、g/gb（大小寫不限）\n  - 範例：2gb、512mb'
   [err.invalid_port_mapping]=$'Port 映射格式錯誤\n  - 預期：<host>:<container>[/tcp|udp]\n  - 範例：8080:80、5000:5000/udp'
@@ -379,12 +389,16 @@ declare -gA _TUI_MSG_ZH_CN=(
   [volumes.delete.confirm]="删除挂载「%s」？"
   [volumes.back]="回主菜单"
   [devices.title]="Devices"
-  [devices.menu]="选择项目编辑，或新增 device/cgroup 规则"
+  [devices.menu]="选择要编辑的列表"
+  [devices.edit_devices]="Device bindings（devices:）"
+  [devices.edit_cgroup]="Cgroup 规则（device_cgroup_rules:）"
   [devices.add_device]="新增 device binding"
   [devices.add_cgroup]="新增 cgroup rule"
   [devices.back]="回主菜单"
   [devices.device.prompt]=$'Device 绑定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 删除此项目\n  - 默认：/dev:/dev（绑定整个 /dev）\n  - 示例（单一）：/dev/video0:/dev/video0'
-  [devices.cgroup.prompt]="Cgroup 规则：<type> <major>:<minor> <perms>，例：'c 81:* rmw'"
+  [devices.cgroup.title]="Cgroup 规则"
+  [devices.cgroup.menu]="选择项目编辑，或新增 cgroup 规则"
+  [devices.cgroup.prompt]=$'Cgroup 规则\n  - 格式：<type> <major>:<minor|*> <perms>\n    type: c（字符）、b（块）、a（全部）\n    perms: r / w / m 任意组合\n  - 留空 = 删除此项目\n  - USB 示例：c 189:* rwm\n  - V4L2 示例：c 81:* rwm'
   [resources.title]="Resources"
   [resources.shm_size.prompt]=$'/dev/shm 大小\n  - 留空 = Docker 默认 64mb\n  - 示例：2gb、512mb\n  - 仅在 [network] ipc ≠ host 时生效'
   [resources.shm_size.ignored]="注意：当前 [network] ipc = '%s'。Docker 会忽略 shm_size（仅在 ipc 为 'private' 或 'shareable' 时生效）。"
@@ -405,6 +419,7 @@ declare -gA _TUI_MSG_ZH_CN=(
   [ports.entry.prompt]=$'Port 映射\n  - 格式：<host>:<container>[/protocol]\n  - 留空 = 删除此项目\n  - 示例：8080:80 或 5000:5000/udp'
   [ports.not_bridge]="注意：当前 [network] mode = '%s'。ports 仅在 mode=bridge 时写入 compose.yaml。"
   [err.invalid_mount]="挂载格式错误（预期 <host>:<container>[:ro|rw]）"
+  [err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
   [err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
   [err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
   [saved]="已保存至 %s，正在重新生成 .env + compose.yaml..."
@@ -502,12 +517,16 @@ declare -gA _TUI_MSG_JA=(
   [volumes.delete.confirm]="マウント「%s」を削除？"
   [volumes.back]="メインメニューへ戻る"
   [devices.title]="Devices"
-  [devices.menu]="編集する項目を選択、または device / cgroup ルールを追加"
+  [devices.menu]="編集するリストを選択"
+  [devices.edit_devices]="Device bindings (devices:)"
+  [devices.edit_cgroup]="Cgroup ルール (device_cgroup_rules:)"
   [devices.add_device]="device binding を追加"
   [devices.add_cgroup]="cgroup rule を追加"
   [devices.back]="メインメニューへ戻る"
   [devices.device.prompt]=$'デバイスバインド\n  - 形式: <host>[:<container>[:rwm]]\n  - 空 = この項目を削除\n  - デフォルト: /dev:/dev (/dev ツリー全体をバインド)\n  - 例 (単一): /dev/video0:/dev/video0'
-  [devices.cgroup.prompt]="Cgroup ルール：<type> <major>:<minor> <perms>、例：'c 81:* rmw'"
+  [devices.cgroup.title]="Cgroup ルール"
+  [devices.cgroup.menu]="編集する項目を選択、または cgroup ルールを追加"
+  [devices.cgroup.prompt]=$'Cgroup ルール\n  - 形式: <type> <major>:<minor|*> <perms>\n    type: c (文字)、b (ブロック)、a (全)\n    perms: r / w / m の任意組合せ\n  - 空 = この項目を削除\n  - USB 例: c 189:* rwm\n  - V4L2 例: c 81:* rwm'
   [resources.title]="Resources"
   [resources.shm_size.prompt]=$'/dev/shm サイズ\n  - 空 = Docker デフォルト 64mb\n  - 例: 2gb、512mb\n  - [network] ipc ≠ host のときのみ有効'
   [resources.shm_size.ignored]="注意：現在 [network] ipc = '%s'。Docker は shm_size を無視します（ipc が 'private' または 'shareable' のときのみ有効）。"
@@ -528,6 +547,7 @@ declare -gA _TUI_MSG_JA=(
   [ports.entry.prompt]=$'Port マッピング\n  - 形式: <host>:<container>[/protocol]\n  - 空 = この項目を削除\n  - 例: 8080:80 または 5000:5000/udp'
   [ports.not_bridge]="注意：現在 [network] mode = '%s'。ports は mode=bridge のときのみ compose.yaml に書き込まれます。"
   [err.invalid_mount]="マウント形式が不正（<host>:<container>[:ro|rw] を期待）"
+  [err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
   [err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
   [err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
   [saved]="%s に保存しました。.env + compose.yaml を再生成中..."
@@ -1212,9 +1232,27 @@ _edit_section_ports() {
 }
 
 _edit_section_devices() {
-  _edit_list_section devices device_ \
-    devices.title devices.menu devices.add_device devices.back \
-    devices.device.prompt _validate_mount err.invalid_mount
+  while :; do
+    local _choice
+    _choice="$(_tui_menu "$(_tui_msg devices.title)" \
+      "$(_tui_msg devices.menu)" \
+      device       "$(_tui_msg devices.edit_devices)" \
+      cgroup_rule  "$(_tui_msg devices.edit_cgroup)" \
+      back         "$(_tui_msg devices.back)")" || return 0
+    case "${_choice}" in
+      back|"") return 0 ;;
+      device)
+        _edit_list_section devices device_ \
+          devices.title devices.menu devices.add_device devices.back \
+          devices.device.prompt _validate_mount err.invalid_mount
+        ;;
+      cgroup_rule)
+        _edit_list_section devices cgroup_rule_ \
+          devices.cgroup.title devices.cgroup.menu devices.add_cgroup devices.back \
+          devices.cgroup.prompt _validate_cgroup_rule err.invalid_cgroup_rule
+        ;;
+    esac
+  done
 }
 
 # ── Main menu ────────────────────────────────────────────────────────────
