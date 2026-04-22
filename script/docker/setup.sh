@@ -334,14 +334,6 @@ _rule_suffix() {
   done
 }
 
-_rule_env_example() {
-  local _base="${BASE_PATH:-$1}"
-  local _file="${_base}/.env.example"
-  if [[ -f "${_file}" ]]; then
-    grep -m1 '^IMAGE_NAME=' "${_file}" 2>/dev/null | cut -d= -f2-
-  fi
-}
-
 _rule_basename() {
   local _path="$1"
   local -a _parts=()
@@ -389,8 +381,6 @@ detect_image_name() {
       elif [[ "${_rule}" == suffix:* ]]; then
         _value="${_rule#suffix:}"
         _found="$(_rule_suffix "${_path}" "${_value}")"
-      elif [[ "${_rule}" == "@env_example" ]]; then
-        _found="$(BASE_PATH="${_base}" _rule_env_example "${_path}")"
       elif [[ "${_rule}" == "@basename" ]]; then
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then

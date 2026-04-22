@@ -192,7 +192,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 ### 单一 conf、6 个 section
 
 ```
-[image]    rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
 [gui]      mode (auto|force|off)

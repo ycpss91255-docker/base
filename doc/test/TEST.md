@@ -41,7 +41,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
 | `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
 | `_resolve_gpu` / `_resolve_gui` | 7 |
-| `detect_image_name` (template default, per-repo rules, @env_example, @default, order) | 8 |
+| `detect_image_name` (template default, per-repo rules, @default, order) | 7 |
 | `detect_ws_path` (strategies 1/2/3 + missing base_path) | 5 |
 | `_compute_conf_hash` | 2 |
 | `write_env` (all fields + SETUP_* metadata) | 1 |

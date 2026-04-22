@@ -84,7 +84,6 @@ declare -gA _TUI_MSG_EN=(
   [image.type.suffix]="suffix:<value> — strip trailing <value> from any path component"
   [image.type.basename]="@basename — use dirname as-is"
   [image.type.default]="@default:<value> — final fallback"
-  [image.type.env_example]="@env_example — read IMAGE_NAME from .env.example (legacy)"
   [image.type.remove]="Remove (delete this rule)"
   [image.value.prompt]=$'Rule value\n  - Empty = cancel\n  - e.g. prefix:docker_ → enter: docker_'
   [build.title]="Build"
@@ -215,7 +214,6 @@ declare -gA _TUI_MSG_ZH_TW=(
   [image.type.suffix]="suffix:<值> — 從路徑中任一段剝除後綴"
   [image.type.basename]="@basename — 直接使用目錄名"
   [image.type.default]="@default:<值> — 最後備用值"
-  [image.type.env_example]="@env_example — 從 .env.example 讀 IMAGE_NAME（舊機制）"
   [image.type.remove]="移除（刪除此規則）"
   [image.value.prompt]=$'規則參數\n  - 留空 = 取消\n  - 例：prefix:docker_ → 輸入 docker_'
   [build.title]="Build"
@@ -346,7 +344,6 @@ declare -gA _TUI_MSG_ZH_CN=(
   [image.type.suffix]="suffix:<值> — 从路径中任一段剥除后缀"
   [image.type.basename]="@basename — 直接使用目录名"
   [image.type.default]="@default:<值> — 最后备用值"
-  [image.type.env_example]="@env_example — 从 .env.example 读 IMAGE_NAME（旧机制）"
   [image.type.remove]="移除（删除此规则）"
   [image.value.prompt]=$'规则参数\n  - 留空 = 取消\n  - 例：prefix:docker_ → 输入 docker_'
   [build.title]="Build"
@@ -472,7 +469,6 @@ declare -gA _TUI_MSG_JA=(
   [image.type.suffix]="suffix:<値> — パス構成要素の末尾を除去"
   [image.type.basename]="@basename — ディレクトリ名をそのまま使用"
   [image.type.default]="@default:<値> — 最終フォールバック"
-  [image.type.env_example]="@env_example — .env.example から IMAGE_NAME を読み込み（旧）"
   [image.type.remove]="削除（このルールを削除）"
   [image.value.prompt]=$'ルール値\n  - 空 = キャンセル\n  - 例：prefix:docker_ → docker_ と入力'
   [build.title]="Build"
@@ -811,7 +807,6 @@ _edit_image_rule() {
   elif [[ "${_cur}" == suffix:* ]]; then _cur_type="suffix"; _cur_value="${_cur#suffix:}"
   elif [[ "${_cur}" == "@basename" ]]; then _cur_type="basename"
   elif [[ "${_cur}" == @default:* ]]; then _cur_type="default"; _cur_value="${_cur#@default:}"
-  elif [[ "${_cur}" == "@env_example" ]]; then _cur_type="env_example"
   fi
 
   _type="$(_tui_select "rule" "$(_tui_msg image.type.prompt)" \
@@ -819,7 +814,6 @@ _edit_image_rule() {
     suffix      "$(_tui_msg image.type.suffix)"      "$([[ "${_cur_type}" == suffix ]]      && echo ON || echo off)" \
     basename    "$(_tui_msg image.type.basename)"    "$([[ "${_cur_type}" == basename ]]    && echo ON || echo off)" \
     default     "$(_tui_msg image.type.default)"     "$([[ "${_cur_type}" == default ]]     && echo ON || echo off)" \
-    env_example "$(_tui_msg image.type.env_example)" "$([[ "${_cur_type}" == env_example ]] && echo ON || echo off)" \
     __remove    "$(_tui_msg image.type.remove)"      "off")" \
     || return 0
 
@@ -838,9 +832,6 @@ _edit_image_rule() {
       ;;
     basename)
       _override_set "image.rule_${_n}" "@basename"
-      ;;
-    env_example)
-      _override_set "image.rule_${_n}" "@env_example"
       ;;
   esac
 }

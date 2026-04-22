@@ -524,19 +524,6 @@ EOF
   assert_equal "${_result}" "bar"
 }
 
-@test "detect_image_name @env_example reads .env.example in base_path" {
-  echo "IMAGE_NAME=from_env" > "${TEMP_DIR}/.env.example"
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
-[image]
-rule_1 = @env_example
-rule_2 = @default:fallback
-EOF
-  unset SETUP_CONF
-  local _result
-  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/anything"
-  assert_equal "${_result}" "from_env"
-}
-
 @test "detect_image_name rules apply in order (first match wins)" {
   cat > "${TEMP_DIR}/setup.conf" <<'EOF'
 [image]
