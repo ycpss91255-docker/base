@@ -1093,9 +1093,17 @@ _edit_list_section() {
     case "${_choice}" in
       back|"") return 0 ;;
       add)
-        local _max=0 _x
-        for _x in "${_nums[@]}"; do (( _x > _max )) && _max="${_x}"; done
-        _edit_list_entry "${_section}" "${_prefix}" "$(( _max + 1 ))" \
+        # Pick the lowest index >= 1 that is free — either the key does
+        # not exist, or its value is empty (user cleared it = opted out,
+        # safe to reuse). Prevents `mount_2` from appearing when the
+        # user cleared `mount_1`, which would leave a confusing hole.
+        local _next=1 _v
+        while :; do
+          _v="$(_override_get "${_section}.${_prefix}${_next}" "")"
+          [[ -z "${_v}" ]] && break
+          (( _next++ ))
+        done
+        _edit_list_entry "${_section}" "${_prefix}" "${_next}" \
           "$(_tui_msg "${_entry_key}")" "${_validator}" "${_err_key}" || true
         ;;
       "${_prefix}"*)

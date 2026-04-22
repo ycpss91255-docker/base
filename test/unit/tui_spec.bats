@@ -451,3 +451,139 @@ EOF
   run grep '^rules' "${TEMP_DIR}/setup.conf"
   [[ "${output}" == "rules = @default:foo" ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_list_section — regression tests for B5 (volumes mount_1)
+# ════════════════════════════════════════════════════════════════════
+#
+# Bug: when setup.conf has `mount_1 =` (empty value, e.g. template
+# default), `_edit_list_section` correctly hid it from the menu because
+# `_cur_v` is empty, but still counted `1` in `_nums` for the `_max`
+# calculation — so `add` created `mount_2`, leapfrogging the empty
+# slot and leaving a hidden hole. Fix: when counting `_nums`, treat
+# keys whose value is empty as free slots so `add` reuses them.
+
+# Shared helper: source tui.sh once, stub interactive wrappers.
+_b5_setup_tui() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/tui.sh
+  _tui_init_lang
+
+  # Reset session state between tests
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+
+  # Capture channel for stubbed interactions
+  _B5_MENU_ARGS_FILE="${TEMP_DIR}/menu_args.log"
+  : > "${_B5_MENU_ARGS_FILE}"
+}
+
+@test "_edit_list_section shows mount_1 when value is non-empty" {
+  _b5_setup_tui
+  _TUI_CURRENT[volumes.mount_1]="/foo:/bar"
+
+  # Stub _tui_menu: record args + return "back" to exit the loop.
+  _tui_menu() {
+    printf '%s\n' "$@" > "${_B5_MENU_ARGS_FILE}"
+    printf 'back'
+    return 0
+  }
+
+  _edit_list_section volumes mount_ \
+    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
+    _validate_mount err.invalid_mount
+
+  run cat "${_B5_MENU_ARGS_FILE}"
+  # The menu tag/label stream must include mount_1 with its value.
+  assert_output --partial "mount_1"
+  assert_output --partial "/foo:/bar"
+}
+
+@test "_edit_list_section add reuses empty mount_1 slot instead of leapfrogging" {
+  _b5_setup_tui
+  # mount_1 cleared (empty value) + mount_2 populated.
+  _TUI_CURRENT[volumes.mount_1]=""
+  _TUI_CURRENT[volumes.mount_2]="/x:/y"
+
+  # _tui_menu: first call returns "add", second returns "back".
+  _b5_menu_calls=0
+  _tui_menu() {
+    (( _b5_menu_calls++ )) || true
+    if (( _b5_menu_calls == 1 )); then
+      printf 'add'
+      return 0
+    fi
+    printf 'back'
+    return 0
+  }
+
+  # _tui_inputbox supplies a new mount value.
+  _tui_inputbox() {
+    printf '/new:/new'
+    return 0
+  }
+
+  _edit_list_section volumes mount_ \
+    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
+    _validate_mount err.invalid_mount
+
+  # Expect the new mount to land in mount_1 (the empty slot), not mount_3.
+  run _override_get "volumes.mount_1" ""
+  assert_output "/new:/new"
+  run _override_get "volumes.mount_3" ""
+  assert_output ""
+}
+
+@test "_edit_list_section add uses max+1 when no empty slots exist" {
+  _b5_setup_tui
+  _TUI_CURRENT[volumes.mount_1]="/a:/a"
+  _TUI_CURRENT[volumes.mount_2]="/b:/b"
+
+  _b5_menu_calls=0
+  _tui_menu() {
+    (( _b5_menu_calls++ )) || true
+    if (( _b5_menu_calls == 1 )); then
+      printf 'add'
+      return 0
+    fi
+    printf 'back'
+    return 0
+  }
+  _tui_inputbox() {
+    printf '/c:/c'
+    return 0
+  }
+
+  _edit_list_section volumes mount_ \
+    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
+    _validate_mount err.invalid_mount
+
+  run _override_get "volumes.mount_3" ""
+  assert_output "/c:/c"
+}
+
+@test "_edit_list_section skips empty value from menu display" {
+  _b5_setup_tui
+  _TUI_CURRENT[volumes.mount_1]=""
+  _TUI_CURRENT[volumes.mount_2]="/x:/y"
+
+  _tui_menu() {
+    printf '%s\n' "$@" > "${_B5_MENU_ARGS_FILE}"
+    printf 'back'
+    return 0
+  }
+
+  _edit_list_section volumes mount_ \
+    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
+    _validate_mount err.invalid_mount
+
+  run cat "${_B5_MENU_ARGS_FILE}"
+  # Empty mount_1 must not appear as an entry row.
+  refute_output --partial $'mount_1\n'
+  # mount_2 must still appear.
+  assert_output --partial "mount_2"
+  assert_output --partial "/x:/y"
+}
