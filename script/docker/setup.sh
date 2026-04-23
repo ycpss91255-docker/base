@@ -12,13 +12,18 @@
 # setup.conf + system detection. WS_PATH is detected once and written back
 # to <repo>/setup.conf [volumes] mount_1; subsequent runs read mount_1.
 #
-# Usage: setup.sh [--base-path <path>] [--lang zh|zh-CN|ja]
+# Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
+# Resolve the symlink (<repo>/setup.sh → template/script/docker/setup.sh)
+# so sibling sources (i18n.sh / _tui_conf.sh) are located in the
+# template directory regardless of how the script was invoked.
+_SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
 # shellcheck disable=SC1091
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/i18n.sh"
+source "${_SETUP_SCRIPT_DIR}/i18n.sh"
 # shellcheck disable=SC1091
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/_tui_conf.sh"
+source "${_SETUP_SCRIPT_DIR}/_tui_conf.sh"
 
 _msg() {
   local _key="${1}"
@@ -54,6 +59,43 @@ _msg() {
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
+
+# ════════════════════════════════════════════════════════════════════
+# usage
+#
+# Prints CLI help. Phase A: English-only text; case scaffolding is in
+# place so per-language translations can be added without restructuring.
+# ════════════════════════════════════════════════════════════════════
+usage() {
+  case "${_LANG}" in
+    *)
+      cat >&2 <<'EOF'
+Usage: ./setup.sh [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
+
+Regenerate .env + compose.yaml from setup.conf + system detection.
+Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
+Save; run directly for non-interactive / scripted / CI use.
+
+Options:
+  -h, --help            Show this help and exit.
+  --base-path PATH      Repo root to operate on. Defaults to the repo
+                        containing this script (template/../..).
+  --lang LANG           Set message language (en|zh-TW|zh-CN|ja).
+                        Defaults to $SETUP_LANG or auto-detected from
+                        $LANG.
+
+Outputs (both derived artifacts, gitignored):
+  <base-path>/.env          Exported variables + SETUP_* drift metadata
+  <base-path>/compose.yaml  Full compose with baseline + conditional
+                            blocks (GPU / GUI / extra volumes / etc.)
+
+Source of truth is setup.conf (template default + optional per-repo
+override via section-replace). Edit setup.conf, not the derived files.
+EOF
+      ;;
+  esac
+  exit 0
+}
 
 # ════════════════════════════════════════════════════════════════════
 # detect_user_info
@@ -225,8 +267,7 @@ _load_setup_conf() {
     return 0
   fi
 
-  local _self_dir
-  _self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  local _self_dir="${_SETUP_SCRIPT_DIR}"
   local _template_conf="${_self_dir}/../../setup.conf"
   local _repo_conf="${_base}/setup.conf"
 
@@ -510,8 +551,7 @@ _resolve_gui() {
 _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
-  local _self_dir
-  _self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  local _self_dir="${_SETUP_SCRIPT_DIR}"
   local _template_conf="${_self_dir}/../../setup.conf"
   local _repo_conf="${_base}/setup.conf"
 
@@ -989,13 +1029,16 @@ _check_setup_drift() {
 # ════════════════════════════════════════════════════════════════════
 # main
 #
-# Usage: main [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
+# Usage: main [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 # ════════════════════════════════════════════════════════════════════
 main() {
   local _base_path=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      -h|--help)
+        usage
+        ;;
       --base-path)
         _base_path="${2:?"--base-path requires a value"}"
         shift 2
@@ -1013,7 +1056,7 @@ main() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
   fi
 
   local _env_file="${_base_path}/.env"
@@ -1161,7 +1204,7 @@ main() {
     fi
     [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)/../../setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
       cp "${_tpl_conf}" "${_repo_conf}"
       _upsert_conf_value "${_repo_conf}" "volumes" "mount_1" \
@@ -1258,7 +1301,7 @@ main() {
   # down default — avoids surprising the user with "my container lost
   # SYS_ADMIN / unconfined seccomp after I cleared the list".
   local _tpl_setup_conf
-  _tpl_setup_conf="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)/../../setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v

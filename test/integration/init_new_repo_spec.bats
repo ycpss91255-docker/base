@@ -225,6 +225,20 @@ teardown() {
   assert_success
 }
 
+@test "new repo: setup.sh symlink → template/script/docker/setup.sh" {
+  bash template/init.sh
+  assert [ -L "${REPO_DIR}/setup.sh" ]
+  run readlink "${REPO_DIR}/setup.sh"
+  assert_output "template/script/docker/setup.sh"
+}
+
+@test "new repo: setup.sh -h works against the generated symlink" {
+  bash template/init.sh
+  run bash "${REPO_DIR}/setup.sh" -h
+  assert_success
+  assert_output --partial "Usage"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # init.sh --gen-conf
 # ════════════════════════════════════════════════════════════════════

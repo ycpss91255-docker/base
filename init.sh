@@ -47,6 +47,7 @@ _create_symlinks() {
   _symlink "${TEMPLATE_REL}/script/docker/run.sh" "run.sh"
   _symlink "${TEMPLATE_REL}/script/docker/exec.sh" "exec.sh"
   _symlink "${TEMPLATE_REL}/script/docker/stop.sh" "stop.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/setup.sh" "setup.sh"
   _symlink "${TEMPLATE_REL}/script/docker/setup_tui.sh" "setup_tui.sh"
   # Upgrade hygiene: drop the pre-rename `tui.sh` symlink if present
   # so we don't leave a dangling pointer after the file was renamed.

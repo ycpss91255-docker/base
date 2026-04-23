@@ -27,7 +27,7 @@ EOF
 
   # Stub scripts referenced by _create_symlinks — empty files are fine
   # because symlinks only need a valid target path, not a valid payload.
-  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
     : > "${TMP_REPO}/template/script/docker/${_f}"
   done
   : > "${TMP_REPO}/template/.hadolint.yaml"
@@ -191,10 +191,10 @@ REMOTE
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: produces all six docker-script symlinks" {
+@test "_create_symlinks: produces all seven docker-script symlinks" {
   _source_init
   _create_symlinks
-  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
     assert [ -L "${TMP_REPO}/${_f}" ]
     run readlink "${TMP_REPO}/${_f}"
     assert_output "template/script/docker/${_f}"

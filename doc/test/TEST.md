@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **590 tests** total (555 unit + 35 integration).
+Template self-tests: **592 tests** total (555 unit + 37 integration).
 
 ## Test Files
 
@@ -440,7 +440,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/integration/init_new_repo_spec.bats (33)
+### test/integration/init_new_repo_spec.bats (35)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The

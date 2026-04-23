@@ -678,6 +678,11 @@ EOF
 }
 
 @test "setup.sh default _base_path uses double parent traversal" {
-  run grep -E "dirname.*BASH_SOURCE.*\.\..*\.\." /source/script/docker/setup.sh
+  # setup.sh resolves the script directory once via readlink -f into
+  # _SETUP_SCRIPT_DIR (so invocation through the root-level symlink works),
+  # then walks up `../../..` to reach the repo root. Accept either the
+  # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
+  run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
+    /source/script/docker/setup.sh
   assert_success
 }
