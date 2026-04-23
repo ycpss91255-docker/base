@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# tui.sh — interactive setup.conf editor (dialog / whiptail front-end).
+# setup_tui.sh — interactive setup.conf editor (dialog / whiptail front-end).
 #
 # Usage:
-#   ./tui.sh                 # main menu
-#   ./tui.sh <section>       # jump directly to one section editor
+#   ./setup_tui.sh                 # main menu
+#   ./setup_tui.sh <section>       # jump directly to one section editor
 #                            # image | build | network | deploy | gui | volumes
-#   ./tui.sh -h | --help     # show help
-#   ./tui.sh --lang <code>   # en | zh | zh-CN | ja
+#   ./setup_tui.sh -h | --help     # show help
+#   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
-# On save, tui.sh writes <repo>/setup.conf and exec()s setup.sh to
+# On save, setup_tui.sh writes <repo>/setup.conf and exec()s setup.sh to
 # regenerate .env + compose.yaml. Cancel / Esc exits 0 without saving.
 #
 # Style: Google Shell Style Guide.
@@ -594,7 +594,7 @@ _tui_init_lang() {
   esac
 }
 
-# Source-time default so _tui_msg works even when tui.sh is sourced
+# Source-time default so _tui_msg works even when setup_tui.sh is sourced
 # without going through main() (e.g. bats tests that source + invoke a
 # specific section editor directly). main() re-runs _tui_init_lang after
 # --lang parsing.
@@ -607,7 +607,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
+用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 互動式編輯 <repo>/setup.conf，完成後自動呼叫 setup.sh 重新產生
 .env 與 compose.yaml。需要已安裝 dialog 或 whiptail。
@@ -623,7 +623,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
+用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 交互式编辑 <repo>/setup.conf，完成后自动调用 setup.sh 重新生成
 .env 和 compose.yaml。需要已安装 dialog 或 whiptail。
@@ -639,7 +639,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
+使用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 <repo>/setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
 .env と compose.yaml を再生成します。dialog または whiptail が必要。
@@ -655,7 +655,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
+Usage: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 Interactively edit <repo>/setup.conf. On save, setup.sh is invoked
 automatically to regenerate .env and compose.yaml. Requires dialog

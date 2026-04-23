@@ -151,11 +151,11 @@ main() {
   export DRY_RUN
 
   local _setup="${FILE_PATH}/template/script/docker/setup.sh"
-  local _tui="${FILE_PATH}/tui.sh"
+  local _tui="${FILE_PATH}/setup_tui.sh"
 
-  # _run_interactive: prefer tui.sh when an interactive TTY is present
-  # and the symlink is executable; otherwise fall back to non-interactive
-  # setup.sh. Keeps CI / non-TTY paths unchanged.
+  # _run_interactive: prefer setup_tui.sh when an interactive TTY is
+  # present and the symlink is executable; otherwise fall back to
+  # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
   _run_interactive() {
     if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
       "${_tui}" --lang "${_LANG}"
@@ -164,7 +164,7 @@ main() {
     fi
   }
 
-  # Decide whether to run setup.sh / tui.sh:
+  # Decide whether to run setup.sh / setup_tui.sh:
   #   - --setup flag          → always run interactive-or-setup
   #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
   #   - otherwise             → check for drift and warn (but continue)

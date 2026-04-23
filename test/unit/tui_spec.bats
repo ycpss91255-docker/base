@@ -465,11 +465,11 @@ EOF
 # slot and leaving a hidden hole. Fix: when counting `_nums`, treat
 # keys whose value is empty as free slots so `add` reuses them.
 
-# Shared helper: source tui.sh once, stub interactive wrappers.
+# Shared helper: source setup_tui.sh once, stub interactive wrappers.
 _b5_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/tui.sh
+  source /source/script/docker/setup_tui.sh
   _tui_init_lang
 
   # Reset session state between tests
@@ -665,11 +665,11 @@ fi'
 # ════════════════════════════════════════════════════════════════════
 
 @test "_edit_section_deploy shows MIG msgbox when host has MIG enabled" {
-  # Source tui.sh to get _edit_section_deploy + i18n tables. The
-  # BASH_SOURCE guard at the bottom of tui.sh prevents main() from
+  # Source setup_tui.sh to get _edit_section_deploy + i18n tables. The
+  # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main() from
   # running on source.
   # shellcheck disable=SC1091
-  source /source/script/docker/tui.sh
+  source /source/script/docker/setup_tui.sh
 
   # Stub the interactive backend wrappers. _edit_section_deploy calls
   # _tui_select (mode), _tui_inputbox (count), _tui_checklist (caps),
@@ -711,7 +711,7 @@ fi'
 
 @test "_edit_section_deploy skips MIG msgbox when MIG disabled" {
   # shellcheck disable=SC1091
-  source /source/script/docker/tui.sh
+  source /source/script/docker/setup_tui.sh
 
   TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"
   : > "${TUI_MSGBOX_LOG}"
@@ -749,7 +749,7 @@ esac'
 _b6_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/tui.sh
+  source /source/script/docker/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -851,7 +851,7 @@ _b6_setup_tui() {
 _b_swap_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/tui.sh
+  source /source/script/docker/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()

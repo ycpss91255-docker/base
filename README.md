@@ -107,14 +107,14 @@ flowchart LR
 
 | File | Description |
 |------|-------------|
-| `build.sh` | Build containers (TTY-aware `--setup` launches `tui.sh`, else runs `setup.sh`) |
+| `build.sh` | Build containers (TTY-aware `--setup` launches `setup_tui.sh`, else runs `setup.sh`) |
 | `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
-| `tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
+| `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
 | `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
-| `script/docker/_tui_backend.sh` | dialog/whiptail wrapper functions used by `tui.sh` |
-| `script/docker/_tui_conf.sh` | INI validators + read/write for `tui.sh` and `setup.sh` writeback |
+| `script/docker/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `script/docker/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
 | `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator, pip) |
@@ -214,9 +214,9 @@ is copied to the repo and the detected workspace is written to
 — clear it to opt out of mounting a workspace. Edit via:
 
 ```bash
-./tui.sh                      # interactive dialog/whiptail editor
-./tui.sh volumes              # jump directly to one section
-./build.sh --setup            # launches tui.sh under TTY; setup.sh otherwise
+./setup_tui.sh                      # interactive dialog/whiptail editor
+./setup_tui.sh volumes              # jump directly to one section
+./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
 ./template/init.sh --gen-conf # plain copy of template/setup.conf to repo root
 ```
 

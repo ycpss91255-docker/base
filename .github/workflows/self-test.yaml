@@ -54,7 +54,7 @@ jobs:
 
           # Sanity: verify symlinks resolve and core files exist
           test -L build.sh && test -L run.sh && test -L exec.sh && test -L stop.sh
-          test -L tui.sh
+          test -L setup_tui.sh
           test -f Dockerfile && test -f compose.yaml && test -f setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"

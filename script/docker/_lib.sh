@@ -112,7 +112,7 @@ _print_config_summary() {
   printf "[%s]   GPU=%s  GUI=%s  network=%s  ipc=%s\n" \
     "${_tag}" "${_gpu}" "${_gui}" "${_net}" "${_ipc}"
   printf "[%s]   TZ=%s  APT=%s\n" "${_tag}" "${_tz}" "${_apt_u}"
-  printf "[%s] Customize: ./tui.sh  |  ./%s.sh --setup  |  edit setup.conf\n" \
+  printf "[%s] Customize: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.conf\n" \
     "${_tag}" "${_tag}"
   printf "[%s] %s\n" "${_tag}" "${_line}"
 }

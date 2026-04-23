@@ -107,14 +107,14 @@ flowchart LR
 
 | 文件 | 说明 |
 |------|------|
-| `build.sh` | 构建容器（`--setup` 有 TTY 时启动 `tui.sh`，否则调用 `setup.sh`） |
+| `build.sh` | 构建容器（`--setup` 有 TTY 时启动 `setup_tui.sh`，否则调用 `setup.sh`） |
 | `run.sh` | 运行容器（支持 X11/Wayland；`--setup` 语义与 `build.sh` 相同） |
 | `exec.sh` | 进入运行中的容器 |
 | `stop.sh` | 停止并移除容器 |
-| `tui.sh` | 交互式 setup.conf 编辑器（dialog / whiptail 前端） |
+| `setup_tui.sh` | 交互式 setup.conf 编辑器（dialog / whiptail 前端） |
 | `script/docker/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
-| `script/docker/_tui_backend.sh` | `tui.sh` 使用的 dialog / whiptail 包装函数 |
-| `script/docker/_tui_conf.sh` | INI validator + 读写逻辑（供 `tui.sh` 和 `setup.sh` 回写使用） |
+| `script/docker/_tui_backend.sh` | `setup_tui.sh` 使用的 dialog / whiptail 包装函数 |
+| `script/docker/_tui_conf.sh` | INI validator + 读写逻辑（供 `setup_tui.sh` 和 `setup.sh` 回写使用） |
 | `script/docker/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `script/docker/i18n.sh` | 共用语言检测（`_detect_lang`、`_LANG`） |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator、pip） |
@@ -210,15 +210,15 @@ template；没写的 section 则吃 template 默认。
 运行以 `mount_1` 为真实来源 — 清空该项即可放弃挂载 workspace。编辑方式：
 
 ```bash
-./tui.sh                      # 交互式 dialog/whiptail 编辑器
-./tui.sh volumes              # 直接跳到指定 section
-./build.sh --setup            # 有 TTY 时启动 tui.sh；无 TTY 时执行 setup.sh
+./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
+./setup_tui.sh volumes              # 直接跳到指定 section
+./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
 ./template/init.sh --gen-conf # 单纯复制 template/setup.conf 到 repo 根目录
 ```
 
 ### 交互式 TUI
 
-`./tui.sh` 打开主菜单，可编辑 6 个 section 的所有值，底层是
+`./setup_tui.sh` 打开主菜单，可编辑 6 个 section 的所有值，底层是
 `dialog` 或 `whiptail`（两者都缺时会打印 `sudo apt install dialog`
 提示并退出）。按 Cancel / Esc 不存档离开；存档后会自动调用
 `setup.sh` 重新生成 `.env` + `compose.yaml`。
@@ -229,7 +229,7 @@ template；没写的 section 则吃 template 默认。
 
 - **`./template/init.sh`** 建完骨架自动运行一次
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 用户手动触发重跑；
-  有 TTY 时先启动 `tui.sh` 让用户修改 `setup.conf`，无 TTY 时直接调用 `setup.sh`
+  有 TTY 时先启动 `setup_tui.sh` 让用户修改 `setup.conf`，无 TTY 时直接调用 `setup.sh`
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env` 尚未存在，
   例如 CI 新 clone）会自动走相同的 TTY-aware 流程，不用带 `--setup`
 
@@ -350,7 +350,7 @@ template/
 │   │   ├── run.sh
 │   │   ├── exec.sh
 │   │   ├── stop.sh
-│   │   ├── tui.sh                    # 交互式 setup.conf 编辑器（dialog/whiptail）
+│   │   ├── setup_tui.sh                    # 交互式 setup.conf 编辑器（dialog/whiptail）
 │   │   ├── setup.sh                  # .env + compose.yaml 生成器
 │   │   ├── _tui_backend.sh           # dialog / whiptail 包装函数
 │   │   ├── _tui_conf.sh              # INI validator + 读写

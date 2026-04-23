@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shown in the value inputbox
 - TUI footer buttons (`Save` / `Enter` / `Cancel`) no longer i18n'd;
   consistent English across all locales
-- `_TUI_LANG_UPPER` initialised at source time so sourcing `tui.sh`
+- `_TUI_LANG_UPPER` initialised at source time so sourcing `setup_tui.sh`
   and calling a section editor directly (tests, REPL) no longer
   crashes on unbound variable under `set -u`
 - **CLI consistency**: `exec.sh` / `stop.sh` now accept `--lang LANG`
@@ -87,9 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cgroup_N = ...` 會被忽略
 
 ### Added
-- **Interactive TUI** (`tui.sh`) for editing `<repo>/setup.conf` via
+- **Interactive TUI** (`setup_tui.sh`) for editing `<repo>/setup.conf` via
   dialog (with whiptail fallback). Main menu + direct-jump subcommands
-  (`./tui.sh image|build|network|deploy|gui|volumes`). Validates
+  (`./setup_tui.sh image|build|network|deploy|gui|volumes`). Validates
   mount format, GPU count, and enum fields before save. On save,
   invokes `setup.sh` automatically to regenerate `.env` +
   `compose.yaml`. Symlinked from each repo root via `init.sh`.
@@ -115,10 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opt-out; the workspace is omitted from `compose.yaml` and `setup.sh`
   does not re-populate it.
 - `build.sh` / `run.sh` `--setup` / `-s` is now **TTY-aware**: under
-  an interactive terminal with `tui.sh` available, it launches the
+  an interactive terminal with `setup_tui.sh` available, it launches the
   TUI; otherwise it runs `setup.sh` non-interactively (unchanged
   behaviour for CI / non-TTY).
-- `init.sh _create_symlinks` adds `tui.sh` alongside the existing
+- `init.sh _create_symlinks` adds `setup_tui.sh` alongside the existing
   five symlinks.
 - **Single `setup.conf`** at repo root consolidates all runtime
   configuration consumed by `setup.sh`: `[image]`, `[build]`,

@@ -181,6 +181,24 @@ teardown() {
   assert_success
 }
 
+@test "new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)" {
+  bash template/init.sh
+  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
+  run readlink "${REPO_DIR}/setup_tui.sh"
+  assert_output "template/script/docker/setup_tui.sh"
+  assert [ ! -e "${REPO_DIR}/tui.sh" ]
+}
+
+@test "new repo: init.sh removes stale tui.sh symlink from earlier versions" {
+  bash template/init.sh
+  # Simulate an upgrade from the old name by planting the legacy symlink
+  ln -sf "template/script/docker/setup_tui.sh" "${REPO_DIR}/tui.sh"
+  run bash template/init.sh
+  assert_success
+  assert [ ! -e "${REPO_DIR}/tui.sh" ]
+  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
+}
+
 @test "new repo: build.sh -h works against the generated symlink" {
   bash template/init.sh
   run bash "${REPO_DIR}/build.sh" -h

@@ -160,7 +160,7 @@ fi'
 @test "template setup.conf [deploy] enables ALL GPU capabilities by default" {
   # Dev-friendly: reserve every GPU capability so new repos get
   # compute + utility + graphics out of the box (no need to tick boxes
-  # in TUI). Users narrow it down via ./tui.sh deploy if they want
+  # in TUI). Users narrow it down via ./setup_tui.sh deploy if they want
   # a minimal reservation.
   run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/setup.conf
   assert_success

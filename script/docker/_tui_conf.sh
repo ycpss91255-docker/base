@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # _tui_conf.sh — Pure-logic helpers for reading, validating, and writing
-# setup.conf. Sourced by tui.sh, setup.sh (for writeback), and bats tests.
+# setup.conf. Sourced by setup_tui.sh, setup.sh (for writeback), and bats tests.
 #
 # Style: Google Shell Style Guide. No interactive I/O here; all dialog
 # interactions live in _tui_backend.sh.

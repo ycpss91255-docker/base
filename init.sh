@@ -39,7 +39,13 @@ _create_symlinks() {
   _symlink "${TEMPLATE_REL}/script/docker/run.sh" "run.sh"
   _symlink "${TEMPLATE_REL}/script/docker/exec.sh" "exec.sh"
   _symlink "${TEMPLATE_REL}/script/docker/stop.sh" "stop.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/tui.sh" "tui.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/setup_tui.sh" "setup_tui.sh"
+  # Upgrade hygiene: drop the pre-rename `tui.sh` symlink if present
+  # so we don't leave a dangling pointer after the file was renamed.
+  if [[ -L tui.sh ]]; then
+    rm -f tui.sh
+    _log "  Removed stale tui.sh symlink (renamed to setup_tui.sh)"
+  fi
   _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
 
   if [[ ! -f .hadolint.yaml ]] \
