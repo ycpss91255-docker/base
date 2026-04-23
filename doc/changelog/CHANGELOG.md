@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.7] - 2026-04-23
+
 ### Changed
 - **Full i18n coverage for `build.sh` / `run.sh` / `exec.sh` / `stop.sh`**.
   Previously only `usage()` (help text) honoured `--lang` / `SETUP_LANG`;
