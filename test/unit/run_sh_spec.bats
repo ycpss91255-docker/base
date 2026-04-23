@@ -330,3 +330,55 @@ EOS
   assert_output --partial "使用法"
   rm -rf "${_tmp}"
 }
+
+# ── i18n log lines (bootstrap / drift / err_no_env / already-running) ──────
+# Exercises _msg() across all four languages on the log lines run.sh emits
+# itself. Usage-text coverage is above.
+
+@test "run.sh --lang zh-TW prints Chinese bootstrap log" {
+  run bash "${SANDBOX}/run.sh" --lang zh-TW --dry-run
+  assert_success
+  assert_output --partial "首次執行"
+}
+
+@test "run.sh --lang zh-CN prints Simplified Chinese bootstrap log" {
+  run bash "${SANDBOX}/run.sh" --lang zh-CN --dry-run
+  assert_success
+  assert_output --partial "首次运行"
+}
+
+@test "run.sh --lang ja prints Japanese bootstrap log" {
+  run bash "${SANDBOX}/run.sh" --lang ja --dry-run
+  assert_success
+  assert_output --partial "初回実行"
+}
+
+@test "run.sh default bootstrap log is English" {
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+}
+
+@test "run.sh --lang zh-TW prints Chinese already-running error" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/run.sh" --lang zh-TW
+  assert_failure
+  assert_output --partial "已在執行中"
+}
+
+@test "run.sh --lang ja prints Japanese already-running error" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/run.sh" --lang ja
+  assert_failure
+  assert_output --partial "すでに実行中"
+}

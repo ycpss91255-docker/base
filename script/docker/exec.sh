@@ -21,6 +21,24 @@ else
   _LANG="${SETUP_LANG:-$(_detect_lang)}"
 fi
 
+_msg() {
+  local _key="${1:?}"
+  case "${_LANG}:${_key}" in
+    zh-TW:err_not_running)     echo "[exec] 錯誤：容器 '%s' 未在執行中。" ;;
+    zh-CN:err_not_running)     echo "[exec] 错误：容器 '%s' 未在运行中。" ;;
+    ja:err_not_running)        echo "[exec] エラー: コンテナ '%s' は実行されていません。" ;;
+    *:err_not_running)         echo "[exec] ERROR: Container '%s' is not running." ;;
+    zh-TW:hint_start_instance) echo "[exec] 請先以 './run.sh --instance %s' 啟動。" ;;
+    zh-CN:hint_start_instance) echo "[exec] 请先以 './run.sh --instance %s' 启动。" ;;
+    ja:hint_start_instance)    echo "[exec] まず './run.sh --instance %s' で起動してください。" ;;
+    *:hint_start_instance)     echo "[exec] Start it first with './run.sh --instance %s'." ;;
+    zh-TW:hint_start_default)  echo "[exec] 請先以 './run.sh' 啟動（或使用 './run.sh --instance NAME' 啟動並行實例）。" ;;
+    zh-CN:hint_start_default)  echo "[exec] 请先以 './run.sh' 启动（或使用 './run.sh --instance NAME' 启动并行实例）。" ;;
+    ja:hint_start_default)     echo "[exec] まず './run.sh' で起動してください（または './run.sh --instance NAME' で並列インスタンスを起動）。" ;;
+    *:hint_start_default)      echo "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one)." ;;
+  esac
+}
+
 usage() {
   case "${_LANG}" in
     zh-TW)
@@ -160,13 +178,13 @@ main() {
   local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
-    printf "[exec] ERROR: Container '%s' is not running.\n" \
-      "${_container_name}" >&2
+    # shellcheck disable=SC2059
+    printf "$(_msg err_not_running)\n" "${_container_name}" >&2
     if [[ -n "${INSTANCE}" ]]; then
-      printf "[exec] Start it first with './run.sh --instance %s'.\n" \
-        "${INSTANCE}" >&2
+      # shellcheck disable=SC2059
+      printf "$(_msg hint_start_instance)\n" "${INSTANCE}" >&2
     else
-      printf "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one).\n" >&2
+      printf "%s\n" "$(_msg hint_start_default)" >&2
     fi
     exit 1
   fi

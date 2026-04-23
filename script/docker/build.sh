@@ -23,6 +23,28 @@ else
   _LANG="${SETUP_LANG:-$(_detect_lang)}"
 fi
 
+_msg() {
+  local _key="${1:?}"
+  case "${_LANG}:${_key}" in
+    zh-TW:bootstrap_info)  echo "[build] 資訊：首次執行 — 初始化中..." ;;
+    zh-CN:bootstrap_info)  echo "[build] 信息：首次运行 — 初始化中..." ;;
+    ja:bootstrap_info)     echo "[build] 情報: 初回実行 — ブートストラップ中..." ;;
+    *:bootstrap_info)      echo "[build] INFO: First run — bootstrapping..." ;;
+    zh-TW:drift_regen)     echo "[build] 重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:drift_regen)     echo "[build] 重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
+    ja:drift_regen)        echo "[build] .env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:drift_regen)         echo "[build] regenerating .env / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:err_no_env)      echo "[build] 錯誤：setup 未產生 .env。" ;;
+    zh-CN:err_no_env)      echo "[build] 错误：setup 未生成 .env。" ;;
+    ja:err_no_env)         echo "[build] エラー: setup が .env を生成しませんでした。" ;;
+    *:err_no_env)          echo "[build] ERROR: setup did not produce .env." ;;
+    zh-TW:err_rerun_setup) echo "[build] 請改以 './build.sh --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:err_rerun_setup) echo "[build] 请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
+    ja:err_rerun_setup)    echo "[build] './build.sh --setup' で再実行してエディタを開いてください。" ;;
+    *:err_rerun_setup)     echo "[build] Re-run with './build.sh --setup' to open the editor." ;;
+  esac
+}
+
 usage() {
   case "${_LANG}" in
     zh-TW)
@@ -176,7 +198,7 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    printf "[build] INFO: First run — bootstrapping...\n"
+    printf "%s\n" "$(_msg bootstrap_info)"
     "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # shellcheck disable=SC1090
@@ -188,7 +210,7 @@ main() {
     # re-running setup.sh is always safe and saves the user from having
     # to remember `./build.sh --setup`.
     if ! _check_setup_drift "${FILE_PATH}"; then
-      printf "[build] regenerating .env / compose.yaml (setup.conf drifted)\n"
+      printf "%s\n" "$(_msg drift_regen)"
       "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
@@ -197,8 +219,8 @@ main() {
   # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
   # a useful error instead of letting _load_env fail on a missing file.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "[build] ERROR: setup did not produce .env.\n" >&2
-    printf "[build] Re-run with './build.sh --setup' to open the editor.\n" >&2
+    printf "%s\n" "$(_msg err_no_env)" >&2
+    printf "%s\n" "$(_msg err_rerun_setup)" >&2
     exit 1
   fi
 

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Full i18n coverage for `build.sh` / `run.sh` / `exec.sh` / `stop.sh`**.
+  Previously only `usage()` (help text) honoured `--lang` / `SETUP_LANG`;
+  runtime log lines (`First run — bootstrapping`, `regenerating .env /
+  compose.yaml`, `ERROR: setup did not produce .env`, `Container is
+  already running`, `is not running`, `No instances found`, ...) were
+  hardcoded English regardless of language. Each script now ships a
+  local `_msg()` translation table covering `en` / `zh-TW` / `zh-CN` /
+  `ja`, matching the existing `setup.sh` pattern. English remains the
+  default when no flag / env var is set, so existing tooling and CI
+  output are unchanged.
+
+### Added
+- **`test/unit/exec_sh_spec.bats`** (18 tests) and
+  **`test/unit/stop_sh_spec.bats`** (17 tests): new unit specs
+  covering argument parsing, the container-running precheck hints in
+  `exec.sh`, the `--all` / `--instance` branches in `stop.sh`, all
+  four languages of usage text, runtime log-line i18n, and the
+  fallback `_detect_lang` branches (`LANG=zh_TW.UTF-8` etc. when
+  `template/` is absent).
+- Log-line i18n regression tests in `test/unit/build_sh_spec.bats`
+  (+7) and `test/unit/run_sh_spec.bats` (+6) assert that `--lang
+  <code>` actually translates the runtime logs (bootstrap, drift-regen,
+  err_no_env, already-running), not just `--help`.
+
 ## [v0.9.6] - 2026-04-23
 
 ### Added
