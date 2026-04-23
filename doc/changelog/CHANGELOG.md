@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output are unchanged.
 
 ### Added
+- **Root-level `setup.sh` symlink**. `init.sh` now links
+  `<repo>/setup.sh` to `template/script/docker/setup.sh` alongside the
+  existing `build.sh` / `run.sh` / `exec.sh` / `stop.sh` / `setup_tui.sh`
+  / `Makefile` symlinks. Consumer repos can now invoke `./setup.sh`
+  directly for scripted / CI regeneration of `.env` + `compose.yaml`,
+  instead of relying on the indirect `./build.sh --setup` or
+  `./setup_tui.sh` Save paths.
+- **`setup.sh -h` / `--help`**. `script/docker/setup.sh` gains a
+  `usage()` block documenting `--base-path` and `--lang`, following the
+  existing `build.sh` case-per-`_LANG` scaffolding (English-only for
+  now; future translations plug in via the existing `_msg` framework).
 - **`test/unit/exec_sh_spec.bats`** (18 tests) and
   **`test/unit/stop_sh_spec.bats`** (17 tests): new unit specs
   covering argument parsing, the container-running precheck hints in
@@ -31,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (+7) and `test/unit/run_sh_spec.bats` (+6) assert that `--lang
   <code>` actually translates the runtime logs (bootstrap, drift-regen,
   err_no_env, already-running), not just `--help`.
+
+### Fixed
+- **`setup.sh` symlink-invocation robustness**. `setup.sh` previously
+  located its `i18n.sh` / `_tui_conf.sh` siblings and the template
+  `setup.conf` via `dirname "${BASH_SOURCE[0]}"`, which resolved to the
+  repo root when the script was invoked through `<repo>/setup.sh`
+  (symlink). `setup.sh` now runs `readlink -f` once at load and stores
+  the real script directory in `_SETUP_SCRIPT_DIR`; every sibling
+  source and template-relative path reads from that variable.
 
 ## [v0.9.6] - 2026-04-23
 
