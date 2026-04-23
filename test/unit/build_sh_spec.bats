@@ -296,6 +296,39 @@ EOS
   refute_output --partial "TARGETARCH"
 }
 
+@test "build.sh passes --network <value> to docker build when BUILD_NETWORK set in .env" {
+  # Seed .env with BUILD_NETWORK. [build] network controls the docker
+  # build network mode for the auxiliary test-tools image. Required on
+  # hosts where Docker's bridge NAT can't reach the outside (e.g.
+  # Jetson L4T without iptable_raw kernel module).
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+    echo "BUILD_NETWORK=host"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "--network host"
+}
+
+@test "build.sh omits --network when BUILD_NETWORK absent from .env" {
+  # No BUILD_NETWORK line → docker build uses its default network
+  # (bridge). build.sh must not pass any --network flag.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  refute_output --partial "--network"
+}
+
 @test "build.sh --lang zh-TW prints Chinese usage text" {
   run bash "${SANDBOX}/build.sh" --lang zh-TW --help
   assert_success

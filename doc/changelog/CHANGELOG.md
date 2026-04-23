@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`[build] network` setup.conf key**: overrides Docker's build-time
+  network mode. Empty (default) = Docker decides (bridge + NAT). Set
+  to `host` when the host's bridge NAT is unusable: stripped embedded
+  kernels (e.g. Jetson L4T missing `iptable_raw`), hosts with
+  `"iptables": false` in daemon.json, or firewall-locked CI runners.
+  `setup.sh` writes `BUILD_NETWORK=<value>` to `.env` and emits
+  `build.network: <value>` under each service in `compose.yaml`;
+  `build.sh` forwards `--network <value>` to the auxiliary
+  `docker build` invocation for `test-tools`. `setup_tui.sh` gains a
+  matching `[build] Build network` menu item and
+  `_validate_build_network` validator (accepts empty / `host` /
+  `bridge` / `none` / `default`).
+- **Integration test** `fresh_clone_portability_spec.bats` covers the
+  fresh-clone-on-a-different-machine path end-to-end (real `build.sh`
+  + `setup.sh`, no mocks): both the stale-absolute-path auto-migrate
+  and the portable `${WS_PATH}` round-trip.
+
+### Changed
+- **`_dump_conf_section` hides empty-valued keys** in the
+  `_print_config_summary` output. Lines like `shm_size =` (using the
+  template default) are noise in the config dump; they're now
+  filtered. Sections whose every key is empty collapse to nothing and
+  the section header is skipped too (via the existing
+  `[[ -z ${_content} ]]` check in the caller).
+
 ## [v0.9.5] - 2026-04-23
 
 ### Changed

@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **531 tests** total (498 unit + 33 integration).
+Template self-tests: **543 tests** total (508 unit + 35 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (25)
+### test/unit/lib_spec.bats (26)
 
 | Test | Description |
 |------|-------------|
@@ -34,7 +34,7 @@ Template self-tests: **531 tests** total (498 unit + 33 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 
-### test/unit/setup_spec.bats (95)
+### test/unit/setup_spec.bats (97)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -61,7 +61,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
 
-### test/unit/tui_spec.bats (59)
+### test/unit/tui_spec.bats (70)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -76,7 +76,7 @@ parsers, and setup.conf round-trip.
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 
-### test/unit/tui_backend_spec.bats (11)
+### test/unit/tui_backend_spec.bats (23)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub
 `dialog` / `whiptail` binary installed on PATH that logs argv and echoes
@@ -92,7 +92,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 
-### test/unit/build_sh_spec.bats (23)
+### test/unit/build_sh_spec.bats (25)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -123,7 +123,7 @@ routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
 branches.
 
-### test/unit/compose_gen_spec.bats (31)
+### test/unit/compose_gen_spec.bats (35)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -444,3 +444,18 @@ which has access to a Docker daemon on the host runner.
 | `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
 | `new repo: per-repo setup.conf not created by default` | template default usage |
+
+### test/integration/fresh_clone_portability_spec.bats (2)
+
+End-to-end verification for the fresh-clone-on-a-different-machine scenario:
+the consumer repo's `setup.conf` has already been committed by another
+contributor and carries either a stale absolute `mount_1` path (the Jetson
+bug) or the portable `${WS_PATH}` form. Runs the real `build.sh` +
+`setup.sh` (no mocks) and asserts the auto-migration / per-machine detection
+pipeline lands a valid `.env` + `compose.yaml`. **Level 1** (no Docker
+invocation — `build.sh --dry-run`).
+
+| Test | Description |
+|------|-------------|
+| `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
+| `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |

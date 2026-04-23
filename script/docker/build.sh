@@ -221,6 +221,12 @@ main() {
   if [[ -n "${TARGET_ARCH:-}" ]]; then
     _tools_args+=(--build-arg "TARGETARCH=${TARGET_ARCH}")
   fi
+  # Forward [build] network when set. Empty = docker default (bridge).
+  # Needed on hosts whose bridge NAT is unusable (Jetson L4T without
+  # iptable_raw, daemon.json with iptables: false, firewall-locked CI).
+  if [[ -n "${BUILD_NETWORK:-}" ]]; then
+    _tools_args+=(--network "${BUILD_NETWORK}")
+  fi
   if [[ -f "${_tools_dockerfile}" ]]; then
     if [[ "${DRY_RUN}" == true ]]; then
       printf '[dry-run] docker build'

@@ -292,6 +292,28 @@ teardown() {
   assert_failure
 }
 
+@test "generate_compose_yaml emits build.network line in both services when build_network set" {
+  local _extras=()
+  # Pos #22 is build_network (new).
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras \
+    "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "host"
+  # Must appear under both devel + test service build blocks.
+  run grep -cE '^      network: host$' "${COMPOSE_OUT}"
+  assert_success
+  assert_output "2"
+}
+
+@test "generate_compose_yaml omits build.network line when build_network empty" {
+  local _extras=()
+  # Default = empty → no network key under build.
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^      network:' "${COMPOSE_OUT}"
+  assert_failure
+}
+
 @test "generate_compose_yaml does NOT emit /dev:/dev by default (not in baseline)" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \

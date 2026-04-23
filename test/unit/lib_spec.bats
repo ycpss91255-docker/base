@@ -240,6 +240,32 @@ EOF
   assert_output ""
 }
 
+@test "_dump_conf_section hides keys with empty values (using default)" {
+  # Empty `key =` means "use the Docker / template default"; surfacing
+  # it in the summary is noise. Populated keys in the same section
+  # still print.
+  local _f="${BATS_TEST_TMPDIR}/setup.conf"
+  cat > "${_f}" <<'EOF'
+[build]
+target_arch =
+network =
+arg_1 = TZ=Asia/Taipei
+[resources]
+shm_size =
+EOF
+  run bash -c "source ${LIB}; _dump_conf_section '${_f}' build"
+  assert_success
+  assert_output --partial "arg_1 = TZ=Asia/Taipei"
+  refute_output --partial "target_arch ="
+  refute_output --partial "network ="
+
+  # Section with only empty keys → empty output → caller skips the
+  # whole section header via the [[ -z ${_content} ]] check.
+  run bash -c "source ${LIB}; _dump_conf_section '${_f}' resources"
+  assert_success
+  assert_output ""
+}
+
 @test "_print_config_summary prints files, identity, all populated sections, resolved" {
   local _fp="${BATS_TEST_TMPDIR}"
   _write_sample_conf "${_fp}/setup.conf"
