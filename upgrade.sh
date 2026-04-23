@@ -18,10 +18,8 @@ readonly REPO_ROOT
 # private forks, or when the user prefers agent-based auth).
 TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
 readonly TEMPLATE_REMOTE
-VERSION_FILE="${REPO_ROOT}/template/VERSION"
+VERSION_FILE="${REPO_ROOT}/template/.version"
 readonly VERSION_FILE
-LEGACY_VERSION_FILE="${REPO_ROOT}/.template_version"
-readonly LEGACY_VERSION_FILE
 
 cd "${REPO_ROOT}"
 
@@ -33,8 +31,6 @@ _error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
 _get_local_version() {
   if [[ -f "${VERSION_FILE}" ]]; then
     tr -d '[:space:]' < "${VERSION_FILE}"
-  elif [[ -f "${LEGACY_VERSION_FILE}" ]]; then
-    tr -d '[:space:]' < "${LEGACY_VERSION_FILE}"
   else
     echo "unknown"
   fi
@@ -115,11 +111,6 @@ _upgrade() {
     sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|g" "${main_yaml}"
     sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
-  fi
-
-  # cleanup legacy .template_version if present
-  if [[ -f "${LEGACY_VERSION_FILE}" ]]; then
-    git rm -f "${LEGACY_VERSION_FILE}" 2>/dev/null || rm -f "${LEGACY_VERSION_FILE}"
   fi
 
   # Commit workflow updates

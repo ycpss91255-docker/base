@@ -571,20 +571,22 @@ EOF
 # upgrade.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "VERSION file exists in template root" {
-  assert [ -f /source/VERSION ]
-  run cat /source/VERSION
+@test ".version file exists in template root" {
+  assert [ -f /source/.version ]
+  run cat /source/.version
   assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
-@test "upgrade.sh reads version from template/VERSION" {
-  run grep -E 'template/VERSION' /source/upgrade.sh
+@test "upgrade.sh reads version from template/.version" {
+  run grep -E 'template/\.version' /source/upgrade.sh
   assert_success
 }
 
-@test "upgrade.sh does not write .template_version" {
-  # After migration, upgrade.sh should not create .template_version
-  run grep -cE 'echo.*>.*\.template_version' /source/upgrade.sh
+@test "upgrade.sh does not reference legacy VERSION or .template_version" {
+  # After the .version rename, upgrade.sh must not mention either
+  # legacy filename — no backward-compat fallback is carried.
+  run grep -cE 'template/VERSION|\.template_version' /source/upgrade.sh
+  assert_failure
   assert_output "0"
 }
 
@@ -643,13 +645,6 @@ EOF
   assert_output "1"
 
   rm -rf "${_tmp}"
-}
-
-@test "upgrade.sh cleans up legacy .template_version" {
-  run grep -E '\.template_version' /source/upgrade.sh
-  assert_success
-  run grep -E 'rm.*LEGACY_VERSION_FILE' /source/upgrade.sh
-  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

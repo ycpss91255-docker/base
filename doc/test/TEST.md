@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **530 tests** total (497 unit + 33 integration).
+Template self-tests: **527 tests** total (494 unit + 33 integration).
 
 ## Test Files
 
@@ -148,7 +148,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `empty extras => no extra mount lines` | empty list |
 | `with GUI+GPU+extras => all sections present` | fully loaded |
 
-### test/unit/template_spec.bats (100)
+### test/unit/template_spec.bats (102)
 
 | Test | Description |
 |------|-------------|
@@ -293,7 +293,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 
-### test/unit/init_spec.bats (15)
+### test/unit/init_spec.bats (13)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements

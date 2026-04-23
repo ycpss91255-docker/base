@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING
+- **`template/VERSION` renamed to `template/.version`**. Dotfile keeps
+  version metadata out of casual `ls`. Clean break — `upgrade.sh` /
+  `init.sh` / `build-worker.yaml` no longer read `template/VERSION` or
+  the even older `.template_version`. Downstream repos pick up the
+  rename automatically via `./template/upgrade.sh <new-tag>`: the
+  subtree pull drops `template/VERSION` and lands `template/.version`,
+  and the new `upgrade.sh`/`init.sh` code reads the new location.
+  Anyone running the old `upgrade.sh` binary against the new tag sees
+  "unknown" as the local version — cosmetic only, the upgrade still
+  succeeds.
+
 ### Changed
 - **Codecov config consolidated** into `.codecov.yaml`. Historical
   duplicate `codecov.yml` removed — Codecov precedence had it silently

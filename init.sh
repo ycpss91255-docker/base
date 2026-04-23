@@ -100,13 +100,13 @@ _populate_config() {
 }
 
 _detect_template_version() {
-  # Prefer VERSION file inside template (auto-synced by subtree pull)
-  local version_file="${TEMPLATE_DIR}/VERSION"
+  # Prefer .version file inside template (auto-synced by subtree pull)
+  local version_file="${TEMPLATE_DIR}/.version"
   if [[ -f "${version_file}" ]]; then
     tr -d '[:space:]' < "${version_file}"
     return 0
   fi
-  # Fallback: query remote tags (for fresh subtree add before VERSION existed).
+  # Fallback: query remote tags (for fresh subtree add before .version existed).
   # HTTPS by default so fresh clones / CI runners without an SSH key still
   # work. Override via TEMPLATE_REMOTE env var (e.g. SSH for private forks).
   local _remote="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
@@ -115,13 +115,6 @@ _detect_template_version() {
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
     | head -1 \
     | sed 's|refs/tags/||' || true
-}
-
-_cleanup_legacy_version_file() {
-  if [[ -f .template_version ]]; then
-    rm -f .template_version
-    _log "Removed legacy .template_version (version now in template/VERSION)"
-  fi
 }
 
 # ── New repo scaffolding ────────────────────────────────────────────────────
@@ -322,7 +315,7 @@ Initialize a repo with template. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
   - No Dockerfile  → generate full project structure, then run setup.sh
 
-Version is tracked in template/VERSION (auto-synced by subtree pull).
+Version is tracked in template/.version (auto-synced by subtree pull).
 
 Options:
   --gen-conf         Copy template/setup.conf to <repo>/setup.conf so the
@@ -354,7 +347,6 @@ EOF
     _create_symlinks
   fi
 
-  _cleanup_legacy_version_file
   _call_setup
 
   _log ""
