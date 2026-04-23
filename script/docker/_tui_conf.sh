@@ -155,6 +155,21 @@ _validate_target_arch() {
   esac
 }
 
+# _validate_build_network <value>
+#
+# Accepts empty (Docker default = bridge) or one of the network modes
+# that docker build / docker compose build accept via their --network
+# flag. `host` is the common workaround for environments where bridge
+# NAT is broken (stripped embedded kernels, iptables:false).
+_validate_build_network() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  case "${_v}" in
+    host|bridge|none|default) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Mount-string parsers
 # ════════════════════════════════════════════════════════════════════

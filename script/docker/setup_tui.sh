@@ -94,8 +94,12 @@ declare -gA _TUI_MSG_EN=(
   [build.target_arch.label]="TARGETARCH override"
   [build.target_arch.prompt]=$'Docker TARGETARCH override\n  - Empty = let BuildKit auto-fill from host / --platform (default)\n  - amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64\n  - Applies to the main image + the test-tools image\n  - Pin when you need cross-builds or explicit control'
   [build.target_arch.auto]="(auto)"
+  [build.network.label]="Build network"
+  [build.network.prompt]=$'Docker build-time network (only the build stage; runtime is separate)\n  - Empty = Docker default (bridge + NAT)\n  - host = use the host network stack. Required when the host\'s bridge\n          NAT is unusable: stripped embedded kernels (e.g. Jetson L4T\n          missing iptable_raw), hosts with iptables: false, or firewall-\n          locked CI runners.\n  - bridge / none / default = explicit variants (rarely needed)'
+  [build.network.default]="(default: bridge)"
   [build.args.label]="Extra build args"
   [err.invalid_target_arch]="Invalid TARGETARCH. Use empty or amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64."
+  [err.invalid_build_network]="Invalid build network. Use empty or host / bridge / none / default."
   [network.title]="Network"
   [network.mode.prompt]="Network mode"
   [network.mode.host]="host (share host network stack)"
@@ -238,8 +242,12 @@ declare -gA _TUI_MSG_ZH_TW=(
   [build.target_arch.label]="TARGETARCH 覆寫"
   [build.target_arch.prompt]=$'Docker TARGETARCH 覆寫\n  - 留空 = 交給 BuildKit 依 host / --platform 自動填（預設）\n  - amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64\n  - 同時套用主 image 與 test-tools image\n  - 需要跨架構編譯或明確指定時才填'
   [build.target_arch.auto]="（自動）"
+  [build.network.label]="Build 網路"
+  [build.network.prompt]=$'Docker build 階段使用的網路（不影響 runtime 容器的網路）\n  - 留空 = Docker 預設（bridge + NAT）\n  - host = 改用 host 網路 stack。當主機的 bridge NAT 無法用時需要：\n          例如 kernel 缺 iptable_raw（Jetson L4T）、\n          daemon.json 有 iptables: false、或 CI runner 防火牆限制。\n  - bridge / none / default = 其他明確選項（很少用到）'
+  [build.network.default]="（預設：bridge）"
   [build.args.label]="額外 build args"
   [err.invalid_target_arch]="TARGETARCH 無效，請填空值或 amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64。"
+  [err.invalid_build_network]="Build 網路無效，請填空值或 host / bridge / none / default。"
   [network.title]="Network"
   [network.mode.prompt]="網路模式"
   [network.mode.host]="host（共用主機網路堆疊）"
@@ -380,8 +388,12 @@ declare -gA _TUI_MSG_ZH_CN=(
   [build.target_arch.label]="TARGETARCH 覆盖"
   [build.target_arch.prompt]=$'Docker TARGETARCH 覆盖\n  - 留空 = 交给 BuildKit 依 host / --platform 自动填（默认）\n  - amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64\n  - 同时应用于主 image 与 test-tools image\n  - 需要跨架构构建或明确指定时才填'
   [build.target_arch.auto]="（自动）"
+  [build.network.label]="Build 网络"
+  [build.network.prompt]=$'Docker build 阶段使用的网络（不影响 runtime 容器的网络）\n  - 留空 = Docker 默认（bridge + NAT）\n  - host = 改用 host 网络 stack。当主机的 bridge NAT 无法用时需要：\n          例如 kernel 缺 iptable_raw（Jetson L4T）、\n          daemon.json 有 iptables: false、或 CI runner 防火墙限制。\n  - bridge / none / default = 其他明确选项（很少用到）'
+  [build.network.default]="（默认：bridge）"
   [build.args.label]="额外 build args"
   [err.invalid_target_arch]="TARGETARCH 无效，请填空值或 amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64。"
+  [err.invalid_build_network]="Build 网络无效，请填空值或 host / bridge / none / default。"
   [network.title]="Network"
   [network.mode.prompt]="网络模式"
   [network.mode.host]="host（共用主机网络栈）"
@@ -517,8 +529,12 @@ declare -gA _TUI_MSG_JA=(
   [build.target_arch.label]="TARGETARCH 上書き"
   [build.target_arch.prompt]=$'Docker TARGETARCH 上書き\n  - 空 = BuildKit が host / --platform から自動補完（デフォルト）\n  - amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64\n  - メイン image と test-tools image の両方に適用\n  - クロスビルドや明示指定が必要なときのみ設定'
   [build.target_arch.auto]="（自動）"
+  [build.network.label]="Build ネットワーク"
+  [build.network.prompt]=$'Docker build 時のネットワーク（runtime コンテナは別管理）\n  - 空 = Docker デフォルト（bridge + NAT）\n  - host = ホストのネットワークスタックを利用。ホストの bridge NAT が\n          使えない場合に必要：kernel が iptable_raw 欠落（Jetson L4T）、\n          daemon.json に iptables: false、CI runner のファイアウォール制限など。\n  - bridge / none / default = 明示指定（めったに使用しない）'
+  [build.network.default]="（デフォルト：bridge）"
   [build.args.label]="追加 build args"
   [err.invalid_target_arch]="TARGETARCH が不正です。空、または amd64 / arm64 / arm / 386 / ppc64le / s390x / riscv64 を指定してください。"
+  [err.invalid_build_network]="Build ネットワークが不正です。空、または host / bridge / none / default を指定してください。"
   [network.title]="Network"
   [network.mode.prompt]="ネットワークモード"
   [network.mode.host]="host（ホストネットワークスタックを共有）"
@@ -965,12 +981,18 @@ _swap_image_rule() {
 
 _edit_section_build() {
   while true; do
-    local _arch_cur _arch_display _args_cnt
+    local _arch_cur _arch_display _net_cur _net_display _args_cnt
     _arch_cur="$(_override_get "build.target_arch" "")"
     if [[ -n "${_arch_cur}" ]]; then
       _arch_display="${_arch_cur}"
     else
       _arch_display="$(_tui_msg build.target_arch.auto)"
+    fi
+    _net_cur="$(_override_get "build.network" "")"
+    if [[ -n "${_net_cur}" ]]; then
+      _net_display="${_net_cur}"
+    else
+      _net_display="$(_tui_msg build.network.default)"
     fi
     # Count populated arg_N slots for the menu-item badge. Pulls from
     # the pending override state (_TUI_CURRENT is the effective view
@@ -986,6 +1008,7 @@ _edit_section_build() {
     local _choice
     _choice="$(_tui_menu "$(_tui_msg build.title)" "$(_tui_msg build.menu)" \
       target_arch "$(_tui_msg build.target_arch.label) = ${_arch_display}" \
+      network     "$(_tui_msg build.network.label) = ${_net_display}" \
       args        "$(_tui_msg build.args.label) (${_args_cnt})" \
       __back      "$(_tui_msg build.back)")" || return 0
 
@@ -1003,6 +1026,16 @@ _edit_section_build() {
         # setup.sh's `[[ -n $target_arch ]]` check handles the empty
         # case by omitting TARGETARCH from .env + compose.yaml.
         _override_set "build.target_arch" "${_new}"
+        ;;
+      network)
+        local _new_net
+        _new_net="$(_tui_inputbox "$(_tui_msg build.title)" \
+          "$(_tui_msg build.network.prompt)" "${_net_cur}")" || continue
+        if ! _validate_build_network "${_new_net}"; then
+          _tui_msgbox "$(_tui_msg build.title)" "$(_tui_msg err.invalid_build_network)"
+          continue
+        fi
+        _override_set "build.network" "${_new_net}"
         ;;
       args)
         _edit_list_section build arg_ \

@@ -82,11 +82,16 @@ _compute_project_name() {
 _dump_conf_section() {
   local _file="$1" _sec="$2"
   [[ -f "${_file}" ]] || return 0
+  # Filter out empty values (`key =` / `key = `). An empty value means
+  # "use the Docker / template default" and is noise in the summary.
+  # Populated keys print as-is; cleared list slots (arg_N = / mount_N =)
+  # are also hidden so they don't show up as blank rows.
   awk -v sec="[${_sec}]" '
     $0 == sec { in_sec=1; next }
     /^\[/ && in_sec { in_sec=0 }
     in_sec && /^[[:space:]]*#/ { next }
     in_sec && /^[[:space:]]*$/ { next }
+    in_sec && /^[[:space:]]*[^#=]+=[[:space:]]*$/ { next }
     in_sec { print }
   ' "${_file}"
 }

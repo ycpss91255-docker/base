@@ -567,6 +567,7 @@ generate_compose_yaml() {
   local _cgroup_rule_str="${19:-}"
   local _user_build_args_str="${20:-}"
   local _target_arch="${21:-}"
+  local _build_network="${22:-}"
 
   # TARGETARCH line emitter: only when target_arch is set. Empty =
   # omit the line entirely so BuildKit auto-fills TARGETARCH from the
@@ -575,6 +576,15 @@ generate_compose_yaml() {
     [[ -z "${_target_arch}" ]] && return 0
     # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
     printf '        TARGETARCH: ${TARGET_ARCH}\n'
+  }
+
+  # build.network emitter: only when build_network is set. Empty =
+  # omit the line so Docker uses its default (bridge). Non-empty =
+  # force the build to use that network (typically "host" for
+  # environments where bridge NAT doesn't work).
+  _emit_build_network_line() {
+    [[ -z "${_build_network}" ]] && return 0
+    printf '      network: %s\n' "${_build_network}"
   }
 
   # Convert space-separated caps to YAML array form [a, b, c]
@@ -604,6 +614,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: devel
+YAML
+    _emit_build_network_line
+    cat <<YAML
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
         APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
@@ -765,6 +778,9 @@ YAML
       context: .
       dockerfile: Dockerfile
       target: test
+YAML
+    _emit_build_network_line
+    cat <<YAML
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
         APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
@@ -838,7 +854,8 @@ write_env() {
   local _conf_hash="${1}"; shift
   local _network_name="${1:-}"; shift || true
   local _user_build_args="${1:-}"; shift || true
-  local _target_arch="${1:-}"
+  local _target_arch="${1:-}"; shift || true
+  local _build_network="${1:-}"
 
   local _comment=""
   _comment="$(_msg env_comment)"
@@ -905,6 +922,16 @@ EOF
     {
       printf '\n# ── TARGETARCH override (from [build] target_arch) ──\n'
       printf 'TARGET_ARCH=%q\n' "${_target_arch}"
+    } >> "${_env_file}"
+  fi
+
+  # BUILD_NETWORK override: only emit when the user set [build] network.
+  # Empty stays unset so build.sh skips the `--network` flag and docker
+  # compose build inherits its default.
+  if [[ -n "${_build_network:-}" ]]; then
+    {
+      printf '\n# ── BUILD_NETWORK override (from [build] network) ──\n'
+      printf 'BUILD_NETWORK=%q\n' "${_build_network}"
     } >> "${_env_file}"
   fi
 }
@@ -1077,6 +1104,14 @@ main() {
   # Non-empty = pin the value for cross-build or explicit control.
   local target_arch=""
   _get_conf_value _build_k _build_v "target_arch" "" target_arch
+
+  # Build-time network override: scalar `[build] network`. Empty =
+  # docker default (bridge). Non-empty = passed as `build.network` in
+  # compose.yaml and `--network <value>` to the auxiliary test-tools
+  # docker build. Typical value: `host`, for hosts whose docker bridge
+  # NAT is unusable (stripped embedded kernels, iptables:false).
+  local build_network=""
+  _get_conf_value _build_k _build_v "network" "" build_network
 
   local gpu_mode="" gpu_count="" gpu_caps=""
   local gui_mode=""
@@ -1269,7 +1304,8 @@ main() {
     "${gui_detected}" "${conf_hash}" \
     "${network_name}" \
     "${_user_build_args_str}" \
-    "${target_arch}"
+    "${target_arch}" \
+    "${build_network}"
 
   generate_compose_yaml "${_base_path}/compose.yaml" "${image_name}" \
     "${gui_enabled_eff}" "${gpu_enabled_eff}" \
@@ -1281,7 +1317,8 @@ main() {
     "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}" \
     "${_cgroup_rule_str}" \
     "${_user_build_args_str}" \
-    "${target_arch}"
+    "${target_arch}" \
+    "${build_network}"
 
   printf "[setup] %s\n" "$(_msg env_done)"
   printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \

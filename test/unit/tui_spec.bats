@@ -224,6 +224,32 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_build_network
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_build_network accepts empty (docker default)" {
+  _validate_build_network ""
+}
+
+@test "_validate_build_network accepts docker-known network modes" {
+  _validate_build_network host
+  _validate_build_network bridge
+  _validate_build_network none
+  _validate_build_network default
+}
+
+@test "_validate_build_network rejects unknown values" {
+  run _validate_build_network "HOST"   # case-sensitive
+  [ "${status}" -ne 0 ]
+  run _validate_build_network "container:foo"  # network aliases not supported
+  [ "${status}" -ne 0 ]
+  run _validate_build_network "my-custom-net"
+  [ "${status}" -ne 0 ]
+  run _validate_build_network "foo"
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _warn_if_lang_rejected — TUI msgbox when --lang fell back to "en"
 # ════════════════════════════════════════════════════════════════════
 #

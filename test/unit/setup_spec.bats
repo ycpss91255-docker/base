@@ -1000,6 +1000,30 @@ EOF
   assert_output "0"
 }
 
+@test "[build] network = host writes BUILD_NETWORK to .env" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf" build network host
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
+  "
+  assert_success
+  assert_output --partial "BUILD_NETWORK=host"
+}
+
+@test "[build] network empty omits BUILD_NETWORK from .env" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf" build network ""
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
+  "
+  assert_failure
+  assert_output "0"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _get_conf_list_sorted skips empty values
 # ════════════════════════════════════════════════════════════════════
