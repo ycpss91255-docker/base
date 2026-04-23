@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # init.sh - Initialize a repo with template
 #
-# Run from the repo root after git subtree add:
+# Full setup from scratch (git subtree add needs HEAD, so an initial commit is
+# required before adding the subtree):
+#   mkdir <repo_name> && cd <repo_name>
+#   git init
+#   git commit --allow-empty -m "chore: initial commit"
+#   git subtree add --prefix=template \
+#       git@github.com:ycpss91255-docker/template.git main --squash
 #   ./template/init.sh
 #
 # Auto-detects:

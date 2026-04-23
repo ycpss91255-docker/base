@@ -30,7 +30,10 @@
 ## TL;DR
 
 ```bash
-# 新 repo：添加 subtree + 初始化
+# 从零开始的新 repo：init + 首个 commit + subtree + init.sh
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 ./template/init.sh
@@ -257,13 +260,20 @@ template；没写的 section 则吃 template 默认。
 ### 添加到新 repo
 
 ```bash
-# 1. 添加 subtree
+# 1. 初始化空的 repo（若已有 repo 且至少一个 commit 则跳过）
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
+
+# 2. 添加 subtree
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
-# 2. 初始化 symlinks（一个命令搞定）
+# 3. 初始化 symlinks（一个命令搞定）
 ./template/init.sh
 ```
+
+> `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
 
 ### 升级
 

@@ -232,6 +232,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the legacy `.template_version` file. `build-worker.yaml` reads
   `template/VERSION` with `.template_version` fallback for transition.
 
+### Documentation
+- README (4 languages) and `init.sh` header now document the full
+  bootstrap sequence for a brand-new repo: `git init` + an empty initial
+  commit must run before `git subtree add`, otherwise subtree fails with
+  `ambiguous argument 'HEAD'` and `working tree has modifications`.
+
 ### Removed
 - `template/config/image_name.conf` (content absorbed into
   `template/setup.conf` under `[image_name] rules =`).

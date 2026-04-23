@@ -30,7 +30,10 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 ## TL;DR
 
 ```bash
-# New repo: add subtree + init
+# New repo from scratch: init + first commit + subtree + init.sh
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 ./template/init.sh
@@ -258,13 +261,20 @@ configuration.
 ### Adding to a new repo
 
 ```bash
-# 1. Add subtree
+# 1. Initialize empty repo (skip if you already have one with at least one commit)
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
+
+# 2. Add subtree
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
-# 2. Initialize symlinks (one command; runs setup.sh under the hood)
+# 3. Initialize symlinks (one command; runs setup.sh under the hood)
 ./template/init.sh
 ```
+
+> `git subtree add` requires `HEAD` to exist. On a freshly `git init`-ed repo with no commits, it fails with `ambiguous argument 'HEAD'` and `working tree has modifications`. The empty commit creates `HEAD` so subtree can merge into it.
 
 ### Updating
 
