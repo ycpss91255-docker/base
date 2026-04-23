@@ -21,6 +21,40 @@ else
   _LANG="${SETUP_LANG:-$(_detect_lang)}"
 fi
 
+_msg() {
+  local _key="${1:?}"
+  case "${_LANG}:${_key}" in
+    zh-TW:bootstrap_info)     echo "[run] 資訊：首次執行 — 初始化中..." ;;
+    zh-CN:bootstrap_info)     echo "[run] 信息：首次运行 — 初始化中..." ;;
+    ja:bootstrap_info)        echo "[run] 情報: 初回実行 — ブートストラップ中..." ;;
+    *:bootstrap_info)         echo "[run] INFO: First run — bootstrapping..." ;;
+    zh-TW:drift_regen)        echo "[run] 重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:drift_regen)        echo "[run] 重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
+    ja:drift_regen)           echo "[run] .env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:drift_regen)            echo "[run] regenerating .env / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:err_no_env)         echo "[run] 錯誤：setup 未產生 .env。" ;;
+    zh-CN:err_no_env)         echo "[run] 错误：setup 未生成 .env。" ;;
+    ja:err_no_env)            echo "[run] エラー: setup が .env を生成しませんでした。" ;;
+    *:err_no_env)             echo "[run] ERROR: setup did not produce .env." ;;
+    zh-TW:err_rerun_setup)    echo "[run] 請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:err_rerun_setup)    echo "[run] 请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
+    ja:err_rerun_setup)       echo "[run] './run.sh --setup' で再実行してエディタを開いてください。" ;;
+    *:err_rerun_setup)        echo "[run] Re-run with './run.sh --setup' to open the editor." ;;
+    zh-TW:err_already_running) echo "[run] 錯誤：容器 '%s' 已在執行中。" ;;
+    zh-CN:err_already_running) echo "[run] 错误：容器 '%s' 已在运行中。" ;;
+    ja:err_already_running)   echo "[run] エラー: コンテナ '%s' はすでに実行中です。" ;;
+    *:err_already_running)    echo "[run] ERROR: Container '%s' is already running." ;;
+    zh-TW:err_stop_hint)      echo "[run] 請以 './stop.sh%s' 停止" ;;
+    zh-CN:err_stop_hint)      echo "[run] 请以 './stop.sh%s' 停止" ;;
+    ja:err_stop_hint)         echo "[run] './stop.sh%s' で停止してください" ;;
+    *:err_stop_hint)          echo "[run] Either stop it with './stop.sh%s'" ;;
+    zh-TW:err_parallel_hint)  echo "[run] 或使用 './run.sh --instance NAME' 啟動並行實例。" ;;
+    zh-CN:err_parallel_hint)  echo "[run] 或使用 './run.sh --instance NAME' 启动并行实例。" ;;
+    ja:err_parallel_hint)     echo "[run] または './run.sh --instance NAME' で並列インスタンスを起動してください。" ;;
+    *:err_parallel_hint)      echo "[run] or start a parallel instance with './run.sh --instance NAME'." ;;
+  esac
+}
+
 usage() {
   case "${_LANG}" in
     zh-TW)
@@ -178,22 +212,22 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    printf "[run] INFO: First run — bootstrapping...\n"
+    printf "%s\n" "$(_msg bootstrap_info)"
     "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # shellcheck disable=SC1090
     source "${_setup}"
     # Drift → auto-regen (see build.sh for the full rationale).
     if ! _check_setup_drift "${FILE_PATH}"; then
-      printf "[run] regenerating .env / compose.yaml (setup.conf drifted)\n"
+      printf "%s\n" "$(_msg drift_regen)"
       "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "[run] ERROR: setup did not produce .env.\n" >&2
-    printf "[run] Re-run with './run.sh --setup' to open the editor.\n" >&2
+    printf "%s\n" "$(_msg err_no_env)" >&2
+    printf "%s\n" "$(_msg err_rerun_setup)" >&2
     exit 1
   fi
 
@@ -222,11 +256,12 @@ main() {
   if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
       && "${DRY_RUN}" != true ]]; then
     if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
-      printf "[run] ERROR: Container '%s' is already running.\n" \
-        "${CONTAINER_NAME}" >&2
-      printf "[run] Either stop it with './stop.sh%s'\n" \
+      # shellcheck disable=SC2059
+      printf "$(_msg err_already_running)\n" "${CONTAINER_NAME}" >&2
+      # shellcheck disable=SC2059
+      printf "$(_msg err_stop_hint)\n" \
         "$([[ -n "${INSTANCE}" ]] && printf ' --instance %s' "${INSTANCE}")" >&2
-      printf "[run] or start a parallel instance with './run.sh --instance NAME'.\n" >&2
+      printf "%s\n" "$(_msg err_parallel_hint)" >&2
       exit 1
     fi
   fi

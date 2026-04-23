@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **543 tests** total (508 unit + 35 integration).
+Template self-tests: **590 tests** total (555 unit + 35 integration).
 
 ## Test Files
 
@@ -92,7 +92,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 
-### test/unit/build_sh_spec.bats (25)
+### test/unit/build_sh_spec.bats (32)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -106,10 +106,12 @@ all three are present, bootstrap staying non-interactive (setup.sh
 direct, not `setup_tui.sh`), defensive guard when setup produces no
 `.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
 positional `TARGET`, `--lang` argument validation, fallback
-`_detect_lang` branches (zh_TW/zh_CN/ja), and real (non-dry-run)
-docker build invocation.
+`_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run) docker
+build invocation, and **runtime log-line i18n** (bootstrap /
+drift-regen / err_no_env messages translate in all four languages via
+the local `_msg()` table; English remains the default).
 
-### test/unit/run_sh_spec.bats (24)
+### test/unit/run_sh_spec.bats (30)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -121,7 +123,38 @@ bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
 when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
 routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
-branches.
+branches, and **runtime log-line i18n** (bootstrap + already-running
+error translate in all four languages via the local `_msg()` table).
+
+### test/unit/exec_sh_spec.bats (18)
+
+Unit tests for `exec.sh` argument parsing, the container-running
+precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
+`docker ps` reads from a controllable stub file so tests can toggle
+"container running" state without a real docker daemon. `.env` is
+pre-seeded so `_load_env` / `_compute_project_name` succeed without a
+bootstrap step.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
+value validation, English-default not-running error, Chinese /
+Simplified Chinese / Japanese not-running error text, instance-specific
+vs default start hints, `--dry-run` bypassing the guard, compose exec
+routing when container is running, and fallback `_detect_lang`
+branches when `template/` is absent.
+
+### test/unit/stop_sh_spec.bats (16)
+
+Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
+teardown, and i18n. `docker ps -a` output is PATH-shimmed via
+`${DOCKER_PS_A_FILE}` so tests can seed the project list for the `--all`
+branch.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--instance` value
+validation, default teardown via `docker compose down`, named-instance
+suffix in project name, `--all` no-instances English message,
+Chinese / Simplified Chinese / Japanese translations of the
+no-instances message, `--all` multi-project teardown loop, and
+fallback `_detect_lang` branches.
 
 ### test/unit/compose_gen_spec.bats (35)
 

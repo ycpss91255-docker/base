@@ -21,6 +21,16 @@ else
   _LANG="${SETUP_LANG:-$(_detect_lang)}"
 fi
 
+_msg() {
+  local _key="${1:?}"
+  case "${_LANG}:${_key}" in
+    zh-TW:no_instances) echo "[stop] 未找到 %s 的執行中實例" ;;
+    zh-CN:no_instances) echo "[stop] 未找到 %s 的运行中实例" ;;
+    ja:no_instances)    echo "[stop] %s のインスタンスが見つかりません" ;;
+    *:no_instances)     echo "[stop] No instances found for %s" ;;
+  esac
+}
+
 usage() {
   case "${_LANG}" in
     zh-TW)
@@ -143,7 +153,8 @@ main() {
         | sort -u | grep -E "^${_prefix}(\$|-)" || true
     )
     if [[ ${#_projects[@]} -eq 0 ]]; then
-      printf "[stop] No instances found for %s\n" "${IMAGE_NAME}" >&2
+      # shellcheck disable=SC2059
+      printf "$(_msg no_instances)\n" "${IMAGE_NAME}" >&2
       exit 0
     fi
     local _proj _suffix
