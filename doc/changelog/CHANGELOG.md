@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.8] - 2026-04-23
+
 ### Fixed
 - **`upgrade.sh` no longer leaves the repo destroyed if `git subtree
   pull` misbehaves**. On Jetson L4T (ships an older `git-subtree.sh`),
