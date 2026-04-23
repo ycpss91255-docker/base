@@ -12,7 +12,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
-TEMPLATE_REMOTE="git@github.com:ycpss91255-docker/template.git"
+# Default to HTTPS so users without an SSH key (fresh clone, CI runner,
+# first-time contributor) can `./template/upgrade.sh` out of the box.
+# Export TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed for
+# private forks, or when the user prefers agent-based auth).
+TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
 readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/template/VERSION"
 readonly VERSION_FILE

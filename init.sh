@@ -7,8 +7,10 @@
 #   git init
 #   git commit --allow-empty -m "chore: initial commit"
 #   git subtree add --prefix=template \
-#       git@github.com:ycpss91255-docker/template.git main --squash
+#       https://github.com/ycpss91255-docker/template.git main --squash
 #   ./template/init.sh
+#
+# (Substitute `git@github.com:...` for SSH if you have a key configured.)
 #
 # Auto-detects:
 #   - Has Dockerfile → existing repo: create symlinks
@@ -104,9 +106,12 @@ _detect_template_version() {
     tr -d '[:space:]' < "${version_file}"
     return 0
   fi
-  # Fallback: query remote tags (for fresh subtree add before VERSION existed)
+  # Fallback: query remote tags (for fresh subtree add before VERSION existed).
+  # HTTPS by default so fresh clones / CI runners without an SSH key still
+  # work. Override via TEMPLATE_REMOTE env var (e.g. SSH for private forks).
+  local _remote="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
   git ls-remote --tags --sort=-v:refname \
-    git@github.com:ycpss91255-docker/template.git 2>/dev/null \
+    "${_remote}" 2>/dev/null \
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
     | head -1 \
     | sed 's|refs/tags/||' || true
@@ -327,7 +332,7 @@ Options:
 
 Run from the repo root after:
   git subtree add --prefix=template \
-      git@github.com:ycpss91255-docker/template.git <version> --squash
+      https://github.com/ycpss91255-docker/template.git <version> --squash
 EOF
     return 0
   fi

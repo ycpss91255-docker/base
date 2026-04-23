@@ -35,7 +35,7 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+    https://github.com/ycpss91255-docker/template.git main --squash
 ./template/init.sh
 
 # 升級到最新版
@@ -267,7 +267,7 @@ git commit --allow-empty -m "chore: initial commit"
 
 # 2. 加入 subtree
 git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+    https://github.com/ycpss91255-docker/template.git main --squash
 
 # 3. 初始化 symlinks（一個指令搞定）
 ./template/init.sh

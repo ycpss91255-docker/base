@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **`upgrade.sh` / `init.sh` default to HTTPS** for the template remote
+  (`https://github.com/ycpss91255-docker/template.git`). Fresh clones /
+  CI runners / first-time contributors no longer need an SSH key to
+  `./template/upgrade.sh`. Override with `TEMPLATE_REMOTE=git@...` env
+  var for private forks or SSH-agent setups. 4-language READMEs and
+  `init.sh` docstring updated accordingly.
+
 ## [v0.9.0] - 2026-04-23
 
 ### Added (Wave 1 + Wave 2 — 2026-04-22)
