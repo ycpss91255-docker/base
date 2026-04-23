@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`upgrade.sh` no longer leaves the repo destroyed if `git subtree
+  pull` misbehaves**. On Jetson L4T (ships an older `git-subtree.sh`),
+  running `upgrade.sh v0.9.5 → v0.9.7` fast-forwarded the synthetic
+  squash commit onto HEAD, moving `template/*` to repo root and
+  deleting repo-specific files (Dockerfile, compose.yaml, bridge.yaml,
+  etc.). `upgrade.sh` now:
+  - **Pre-flight** — fails fast with actionable messages when `git
+    config user.name / user.email` is unset (a Jetson-specific trigger
+    for the partial-state bug), or when a merge / rebase / cherry-pick
+    is in progress (`.git/MERGE_HEAD`, `.git/rebase-merge`, etc.).
+  - **Post-flight integrity check** — after the subtree pull, verifies
+    `template/.version`, `template/init.sh`, and
+    `template/script/docker/setup.sh` still exist. If any is missing,
+    hard-resets to the pre-pull HEAD and exits with a diagnostic. The
+    working tree is restored; no manual cleanup required.
+  - **Step numbering** — corrected from mixed "1/4 / 2/3 / 3/3" to
+    "1/4 / 2/4 / 3/4 / 4/4".
+- **`test/unit/upgrade_spec.bats`** gains 12 regression tests covering
+  the three new guards + structural invariants (ordering: identity
+  check before pull, integrity check after pull, HEAD snapshotted for
+  rollback).
+- **`test/integration/upgrade_spec.bats`** (new, 6 tests) drives the
+  real `upgrade.sh` end-to-end against a fake template remote (bare
+  repo with `v0.9.5` / `v0.9.7` tags) attached to a sandbox downstream
+  repo. Covers happy path (version bump, new content, `main.yaml`
+  `@tag` rewrite), idempotent re-run, `--check`, the two pre-flight
+  guards, and the destructive-FF rollback (stubs `git-subtree pull`
+  via `GIT_EXEC_PATH` to simulate the Jetson bug, asserts repo is
+  restored to pre-pull HEAD). Total: 592 → 610 (+12 unit + 6
+  integration).
+
 ## [v0.9.7] - 2026-04-23
 
 ### Changed
