@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Codecov config consolidated** into `.codecov.yaml`. Historical
+  duplicate `codecov.yml` removed — Codecov precedence had it silently
+  overriding `.codecov.yaml` since PR #62, so the strict `ignore:` +
+  `patch: 100%` rules in `.codecov.yaml` were dead config. `.codecov.yaml`
+  now carries the relaxed policy from `codecov.yml` (threshold 1%,
+  patch informational) plus the previously-ignored `test/**` and
+  `.github/**` ignores. No behavior change for contributors.
+
 ## [v0.9.2] - 2026-04-23
 
 ### Fixed
