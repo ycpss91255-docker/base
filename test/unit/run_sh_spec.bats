@@ -109,6 +109,45 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
+@test "run.sh auto-regens .env / compose.yaml when drift detected" {
+  # Regression (v0.9.5): mirror of the build.sh drift auto-regen test.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
+  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+#!/usr/bin/env bash
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  set -euo pipefail
+  _base=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --base-path) _base="$2"; shift 2 ;;
+      --lang)      shift 2 ;;
+      *)           shift ;;
+    esac
+  done
+  printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${_base}/.env"
+  echo "# mock compose" > "${_base}/compose.yaml"
+else
+  _check_setup_drift() { return 1; }
+fi
+EOS
+  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  assert_output --partial "regenerating"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+}
+
 @test "run.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)" {
   {
     echo "USER_NAME=tester"

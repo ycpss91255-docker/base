@@ -183,7 +183,11 @@ main() {
   else
     # shellcheck disable=SC1090
     source "${_setup}"
-    _check_setup_drift "${FILE_PATH}" || true
+    # Drift → auto-regen (see build.sh for the full rationale).
+    if ! _check_setup_drift "${FILE_PATH}"; then
+      printf "[run] regenerating .env / compose.yaml (setup.conf drifted)\n"
+      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    fi
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.

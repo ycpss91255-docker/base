@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **529 tests** total (496 unit + 33 integration).
+Template self-tests: **531 tests** total (498 unit + 33 integration).
 
 ## Test Files
 
@@ -92,7 +92,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 
-### test/unit/build_sh_spec.bats (22)
+### test/unit/build_sh_spec.bats (23)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -109,7 +109,7 @@ positional `TARGET`, `--lang` argument validation, fallback
 `_detect_lang` branches (zh_TW/zh_CN/ja), and real (non-dry-run)
 docker build invocation.
 
-### test/unit/run_sh_spec.bats (23)
+### test/unit/run_sh_spec.bats (24)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate

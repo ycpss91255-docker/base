@@ -181,7 +181,16 @@ main() {
   else
     # shellcheck disable=SC1090
     source "${_setup}"
-    _check_setup_drift "${FILE_PATH}" || true
+    # Drift-check path. When setup.conf / GPU / GUI / USER_UID changed
+    # since .env was last generated (e.g. after `git pull` or a manual
+    # edit) we regenerate .env + compose.yaml automatically — they are
+    # derived artifacts with no user-owned data to preserve, so
+    # re-running setup.sh is always safe and saves the user from having
+    # to remember `./build.sh --setup`.
+    if ! _check_setup_drift "${FILE_PATH}"; then
+      printf "[build] regenerating .env / compose.yaml (setup.conf drifted)\n"
+      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    fi
   fi
 
   # Defensive: setup above should always produce .env. If it didn't

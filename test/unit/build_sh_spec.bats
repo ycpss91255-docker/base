@@ -109,6 +109,51 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
+@test "build.sh auto-regens .env / compose.yaml when drift detected" {
+  # Regression (v0.9.5): drift used to be warn-only, leaving the stale
+  # .env in place. Users had to remember `./build.sh --setup` after
+  # every git pull / setup.conf edit. Now the drift branch regens
+  # automatically since .env / compose.yaml are derived artifacts.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
+  # Patch the mock so that its sourced form reports drift.
+  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+#!/usr/bin/env bash
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  set -euo pipefail
+  _base=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --base-path) _base="$2"; shift 2 ;;
+      --lang)      shift 2 ;;
+      *)           shift ;;
+    esac
+  done
+  printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${_base}/.env"
+  echo "# mock compose" > "${_base}/compose.yaml"
+else
+  _check_setup_drift() { return 1; }
+fi
+EOS
+  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "regenerating"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${SANDBOX}"
+}
+
 @test "build.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)" {
   # Pre-create all three derived files → build.sh must NOT execute
   # setup.sh, only source it for drift detection.

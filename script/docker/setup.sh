@@ -913,8 +913,9 @@ EOF
 # _check_setup_drift <base_path>
 #
 # Compares current system state + setup.conf hash against .env's SETUP_*
-# metadata. Prints [WARNING] lines to stderr when drift detected. Always
-# returns 0 (non-blocking). Caller is build.sh/run.sh before build/run.
+# metadata. Prints drift descriptions to stderr when drift detected and
+# returns 1 so the caller (build.sh / run.sh) can auto-regenerate the
+# derived artifacts. Returns 0 (silent) when in sync.
 #
 # Requires .env to exist (caller checks first).
 # ════════════════════════════════════════════════════════════════════
@@ -949,12 +950,13 @@ _check_setup_drift() {
 
   if (( ${#_drift[@]} > 0 )); then
     local _d
-    printf "[setup] WARNING: drift detected since last setup.sh run:\n" >&2
+    printf "[setup] drift detected since last setup.sh run:\n" >&2
     for _d in "${_drift[@]}"; do
       printf "[setup]   - %s\n" "${_d}" >&2
     done
-    printf "[setup] Run with --setup to regenerate .env / compose.yaml.\n" >&2
+    return 1
   fi
+  return 0
 }
 
 # ════════════════════════════════════════════════════════════════════

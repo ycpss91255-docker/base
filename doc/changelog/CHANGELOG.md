@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **`build.sh` / `run.sh` auto-regenerate on drift**. `_check_setup_drift`
+  now returns non-zero when `setup.conf` / GPU / GUI / USER_UID drifted
+  from `.env`; the drift branch in `build.sh` / `run.sh` re-runs
+  `setup.sh` automatically instead of printing a WARNING and continuing
+  with stale `.env`. `.env` + `compose.yaml` are derived artifacts with
+  no user-owned data to preserve, so re-running is always safe. Fixes
+  the footgun where `git pull` + `./build.sh` silently used the
+  previous machine's `WS_PATH`. Users who preferred the warn-only
+  behaviour can still edit `.env` freely — drift is only re-triggered
+  by changes to `setup.conf` or detected hardware, not by editing
+  `.env` directly.
+
 ## [v0.9.4] - 2026-04-23
 
 ### Fixed

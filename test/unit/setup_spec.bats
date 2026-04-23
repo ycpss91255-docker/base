@@ -698,7 +698,7 @@ EOF
   refute_output --partial "WARNING"
 }
 
-@test "_check_setup_drift warns when conf hash changes" {
+@test "_check_setup_drift returns non-zero when conf hash changes" {
   local _h_old=""
   _compute_conf_hash "${TEMP_DIR}" _h_old
   write_env "${TEMP_DIR}/.env" \
@@ -718,11 +718,13 @@ mode = off
 EOF
 
   run _check_setup_drift "${TEMP_DIR}"
-  assert_output --partial "WARNING"
+  # Non-zero exit lets build.sh/run.sh trigger auto-regen (v0.9.5+).
+  assert_failure
+  assert_output --partial "drift detected"
   assert_output --partial "setup.conf modified"
 }
 
-@test "_check_setup_drift warns when GPU detection changes" {
+@test "_check_setup_drift returns non-zero when GPU detection changes" {
   local _h=""
   _compute_conf_hash "${TEMP_DIR}" _h
   # Store with GPU=false
@@ -738,6 +740,7 @@ EOF
   detect_gpu() { local -n _o=$1; _o="true"; }
 
   run _check_setup_drift "${TEMP_DIR}"
+  assert_failure
   assert_output --partial "GPU detection changed"
 }
 
