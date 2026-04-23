@@ -27,7 +27,7 @@ EOF
 
   # Stub scripts referenced by _create_symlinks — empty files are fine
   # because symlinks only need a valid target path, not a valid payload.
-  for _f in build.sh run.sh exec.sh stop.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
     : > "${TMP_REPO}/template/script/docker/${_f}"
   done
   : > "${TMP_REPO}/template/.hadolint.yaml"
@@ -205,25 +205,20 @@ REMOTE
   assert_success
 }
 
-@test "_create_new_repo: generates .env.example with IMAGE_NAME=<repo>" {
+@test "_create_new_repo: does NOT generate .env.example (image name via setup.conf)" {
   _source_init
   _create_new_repo "main"
-  run cat "${TMP_REPO}/.env.example"
-  assert_output --partial "IMAGE_NAME="
-  # TMP_REPO's basename is random; the entry should reference it.
-  local _expected
-  _expected="$(basename "${TMP_REPO}")"
-  assert_output "IMAGE_NAME=${_expected}"
+  [[ ! -f "${TMP_REPO}/.env.example" ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: produces all five docker-script symlinks" {
+@test "_create_symlinks: produces all six docker-script symlinks" {
   _source_init
   _create_symlinks
-  for _f in build.sh run.sh exec.sh stop.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
     assert [ -L "${TMP_REPO}/${_f}" ]
     run readlink "${TMP_REPO}/${_f}"
     assert_output "template/script/docker/${_f}"

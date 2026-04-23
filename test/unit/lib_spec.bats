@@ -20,10 +20,10 @@ setup() {
   assert_output "en"
 }
 
-@test "_lib.sh sets _LANG to 'zh' for zh_TW.UTF-8" {
+@test "_lib.sh sets _LANG to 'zh-TW' for zh_TW.UTF-8" {
   run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8 source ${LIB}; echo \"\${_LANG}\""
   assert_success
-  assert_output "zh"
+  assert_output "zh-TW"
 }
 
 @test "_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8" {
@@ -145,4 +145,163 @@ EOF
   assert_output --partial "-f /tmp/fakerepo/compose.yaml"
   assert_output --partial "--env-file /tmp/fakerepo/.env"
   assert_output --partial " ps"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _sanitize_lang (i18n.sh)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_sanitize_lang accepts en / zh-TW / zh-CN / ja unchanged" {
+  run bash -c "source ${LIB}; v=en;    _sanitize_lang v; echo \"\${v}\""
+  assert_success
+  assert_output "en"
+  run bash -c "source ${LIB}; v=zh-TW; _sanitize_lang v; echo \"\${v}\""
+  assert_success
+  assert_output "zh-TW"
+  run bash -c "source ${LIB}; v=zh-CN; _sanitize_lang v; echo \"\${v}\""
+  assert_success
+  assert_output "zh-CN"
+  run bash -c "source ${LIB}; v=ja;    _sanitize_lang v; echo \"\${v}\""
+  assert_success
+  assert_output "ja"
+}
+
+@test "_sanitize_lang warns and falls back to 'en' for unsupported values" {
+  run bash -c "source ${LIB}; v=foo; _sanitize_lang v test 2>&1; echo \"--VALUE=\${v}\""
+  assert_success
+  assert_output --partial "WARNING"
+  assert_output --partial "foo"
+  assert_output --partial "--VALUE=en"
+}
+
+@test "_sanitize_lang warns for the old bare 'zh' code (post zh→zh-TW rename)" {
+  run bash -c "source ${LIB}; v=zh; _sanitize_lang v tui 2>&1; echo \"--VALUE=\${v}\""
+  assert_success
+  assert_output --partial "WARNING"
+  assert_output --partial "--VALUE=en"
+}
+
+# ── _dump_conf_section / _print_config_summary ─────────────────────────────
+
+_write_sample_conf() {
+  # Minimal setup.conf with comments, blanks, and two sections — used by
+  # the dump tests to verify comment/blank skipping and section boundaries.
+  cat > "${1}" <<'EOF'
+[image]
+# rule comment — should be skipped
+rule_1 = @basename
+
+rule_2 = @default:unknown
+
+[build]
+arg_1 = TZ=Asia/Taipei
+arg_2 = APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
+
+[volumes]
+# populated at first init
+mount_1 = /home/alice/work:/home/alice/work
+EOF
+}
+
+@test "_dump_conf_section extracts keys from the named section" {
+  local _f="${BATS_TEST_TMPDIR}/setup.conf"
+  _write_sample_conf "${_f}"
+  run bash -c "source ${LIB}; _dump_conf_section '${_f}' image"
+  assert_success
+  assert_output --partial "rule_1 = @basename"
+  assert_output --partial "rule_2 = @default:unknown"
+  refute_output --partial "arg_1"
+  refute_output --partial "mount_1"
+  refute_output --partial "rule comment"
+}
+
+@test "_dump_conf_section stops at the next section header" {
+  local _f="${BATS_TEST_TMPDIR}/setup.conf"
+  _write_sample_conf "${_f}"
+  run bash -c "source ${LIB}; _dump_conf_section '${_f}' build"
+  assert_success
+  assert_output --partial "arg_1 = TZ=Asia/Taipei"
+  assert_output --partial "arg_2 = APT_MIRROR_UBUNTU=tw.archive.ubuntu.com"
+  refute_output --partial "rule_"
+  refute_output --partial "mount_"
+}
+
+@test "_dump_conf_section returns silent empty for missing file" {
+  run bash -c "source ${LIB}; _dump_conf_section /no/such/file.conf image"
+  assert_success
+  assert_output ""
+}
+
+@test "_dump_conf_section returns silent empty for unknown section" {
+  local _f="${BATS_TEST_TMPDIR}/setup.conf"
+  _write_sample_conf "${_f}"
+  run bash -c "source ${LIB}; _dump_conf_section '${_f}' no_such_section"
+  assert_success
+  assert_output ""
+}
+
+@test "_print_config_summary prints files, identity, all populated sections, resolved" {
+  local _fp="${BATS_TEST_TMPDIR}"
+  _write_sample_conf "${_fp}/setup.conf"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    HARDWARE=x86_64 DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    WS_PATH=/home/alice/work
+    GPU_ENABLED=true GPU_COUNT=all GPU_CAPABILITIES='gpu compute'
+    SETUP_GUI_DETECTED=true NETWORK_MODE=host IPC_MODE=host PRIVILEGED=false
+    TZ=Asia/Taipei APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
+    APT_MIRROR_DEBIAN=mirror.twds.com.tw
+    PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  # File paths
+  assert_output --partial "setup.conf   : ${_fp}/setup.conf"
+  assert_output --partial ".env         : ${_fp}/.env"
+  assert_output --partial "compose.yaml : ${_fp}/compose.yaml"
+  # Identity
+  assert_output --partial "alice (uid=1000)"
+  assert_output --partial "hardware     : x86_64"
+  assert_output --partial "image / tag  : alice/myrepo"
+  assert_output --partial "project      : alice-myrepo"
+  assert_output --partial "workspace    : /home/alice/work"
+  # setup.conf dump — each populated section
+  assert_output --partial "[image]"
+  assert_output --partial "rule_1 = @basename"
+  assert_output --partial "[build]"
+  assert_output --partial "arg_1 = TZ=Asia/Taipei"
+  assert_output --partial "[volumes]"
+  assert_output --partial "mount_1 = /home/alice/work:/home/alice/work"
+  # Resolved
+  assert_output --partial "GPU enabled : true"
+  assert_output --partial "GUI enabled : true"
+  assert_output --partial "network     : host"
+  assert_output --partial "TZ=Asia/Taipei"
+  # Customize hint
+  assert_output --partial "./setup_tui.sh"
+}
+
+@test "_print_config_summary hides sections that are empty in setup.conf" {
+  local _fp="${BATS_TEST_TMPDIR}"
+  # Minimal conf with only [image]; expect no [build]/[volumes] headers
+  cat > "${_fp}/setup.conf" <<'EOF'
+[image]
+rule_1 = @basename
+EOF
+  run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
+  assert_success
+  assert_output --partial "[image]"
+  refute_output --partial "  [build]"
+  refute_output --partial "  [volumes]"
+}
+
+@test "_print_config_summary warns when setup.conf is missing" {
+  local _fp="${BATS_TEST_TMPDIR}/no_conf"
+  mkdir -p "${_fp}"
+  run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
+  assert_success
+  assert_output --partial "setup.conf not found"
+  assert_output --partial "./setup_tui.sh"
 }

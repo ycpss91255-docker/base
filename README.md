@@ -107,15 +107,18 @@ flowchart LR
 
 | File | Description |
 |------|-------------|
-| `build.sh` | Build containers (calls `script/docker/setup.sh` for `.env` generation) |
-| `run.sh` | Run containers (X11/Wayland support) |
+| `build.sh` | Build containers (TTY-aware `--setup` launches `setup_tui.sh`, else runs `setup.sh`) |
+| `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
-| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` |
+| `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
+| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `script/docker/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `script/docker/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
 | `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator, pip) |
-| `setup.conf` | Single per-repo runtime configuration (image_name / gpu / gui / network / volumes) |
+| `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/unit/` | Template self-tests (bats + kcov) |
 | `test/integration/` | Level-1 `init.sh` end-to-end tests |
@@ -188,14 +191,16 @@ env/volumes, network mode, extra volume mounts — through a single
 regenerates both `.env` and `compose.yaml`; users never hand-edit those
 two derived artifacts.
 
-### One conf, five sections
+### One conf, six sections
 
 ```
-[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
-[gpu]          mode (auto|force|off), count, capabilities
-[gui]          mode (auto|force|off)
-[network]      mode (host|bridge|none), ipc, privileged
-[volumes]      mount_1..mount_N extra host mounts (includes /dev pass-through)
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none), ipc, privileged
+[volumes]  mount_1 (workspace, auto-populated on first run)
+           mount_2..mount_N (extra host mounts; devices via /dev path)
 ```
 
 Template default lives at `template/setup.conf`; per-repo overrides go
@@ -203,11 +208,16 @@ at `<repo>/setup.conf`. Section-level **replace** strategy: a section
 present in the per-repo file fully replaces the template's section;
 omitted sections fall back to template.
 
-Generate a per-repo override scaffold with:
+On first `setup.sh` run (no per-repo setup.conf yet), the template file
+is copied to the repo and the detected workspace is written to
+`[volumes] mount_1`. Subsequent runs read `mount_1` as source of truth
+— clear it to opt out of mounting a workspace. Edit via:
 
 ```bash
-./template/init.sh --gen-conf          # copies template/setup.conf to <repo>/setup.conf
-./template/init.sh --gen-image-conf    # back-compat alias
+./setup_tui.sh                      # interactive dialog/whiptail editor
+./setup_tui.sh volumes              # jump directly to one section
+./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
+./template/init.sh --gen-conf # plain copy of template/setup.conf to repo root
 ```
 
 ### When setup.sh runs

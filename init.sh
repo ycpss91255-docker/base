@@ -39,6 +39,13 @@ _create_symlinks() {
   _symlink "${TEMPLATE_REL}/script/docker/run.sh" "run.sh"
   _symlink "${TEMPLATE_REL}/script/docker/exec.sh" "exec.sh"
   _symlink "${TEMPLATE_REL}/script/docker/stop.sh" "stop.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/setup_tui.sh" "setup_tui.sh"
+  # Upgrade hygiene: drop the pre-rename `tui.sh` symlink if present
+  # so we don't leave a dangling pointer after the file was renamed.
+  if [[ -L tui.sh ]]; then
+    rm -f tui.sh
+    _log "  Removed stale tui.sh symlink (renamed to setup_tui.sh)"
+  fi
   _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
 
   if [[ ! -f .hadolint.yaml ]] \
@@ -48,6 +55,40 @@ _create_symlinks() {
   else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
+
+  _populate_config
+}
+
+# _populate_config
+#
+# On first init (no <repo>/config/), copy `template/config/` out as a
+# real directory the user owns and can edit freely. Rationale:
+#   * a symlink would make edits spill into the subtree and fight
+#     `git subtree pull`;
+#   * a plain Dockerfile COPY from `template/config/` would deny the
+#     user any per-repo override path at all.
+# Copy gives the user a clean, repo-local editing surface; subsequent
+# template upgrades leave this directory untouched and `upgrade.sh`
+# prints a diff hint when the upstream baseline moves so the user can
+# reconcile manually.
+_populate_config() {
+  # User already has a real config/ — preserve (contains their edits).
+  if [[ -d config && ! -L config ]]; then
+    _log "  Keeping existing config/ directory"
+    return 0
+  fi
+  # Stale symlink from an earlier init.sh version — drop it before
+  # copying. Without rm, `cp -r` would dereference and write INTO the
+  # symlink's target (i.e. pollute the subtree).
+  if [[ -L config ]]; then
+    rm -f config
+  fi
+  if [[ ! -d "${TEMPLATE_REL}/config" ]]; then
+    _log "  Skipping config/ seed (${TEMPLATE_REL}/config not found)"
+    return 0
+  fi
+  cp -r "${TEMPLATE_REL}/config" config
+  _log "  Copied config/ from ${TEMPLATE_REL}/config (yours to edit)"
 }
 
 _detect_template_version() {
@@ -127,10 +168,6 @@ setup() {
 }
 BATS
   _log "  Created test/smoke/${name}_env.bats"
-
-  # .env.example
-  echo "IMAGE_NAME=${name}" > .env.example
-  _log "  Created .env.example"
 
   # .github/workflows/main.yaml
   mkdir -p .github/workflows
@@ -247,9 +284,6 @@ _gen_setup_conf() {
   _log "Edit it to customize runtime settings for this repo."
 }
 
-# Back-compat alias (older docs/scripts may still reference --gen-image-conf)
-_gen_image_conf() { _gen_setup_conf; }
-
 # ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
 
 _call_setup() {
@@ -271,7 +305,7 @@ _error() { printf "[init] ERROR: %s\n" "$*" >&2; exit 1; }
 main() {
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
-Usage: ./template/init.sh [--gen-conf | --gen-image-conf]
+Usage: ./template/init.sh [--gen-conf]
 
 Initialize a repo with template. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
@@ -281,10 +315,9 @@ Version is tracked in template/VERSION (auto-synced by subtree pull).
 
 Options:
   --gen-conf         Copy template/setup.conf to <repo>/setup.conf so the
-                     user can override any section (gpu / gui / network /
-                     volumes / image_name). Refuses to overwrite an
+                     user can override any section (image / build / deploy /
+                     gui / network / volumes). Refuses to overwrite an
                      existing per-repo setup.conf.
-  --gen-image-conf   Alias for --gen-conf (back-compat).
 
 Run from the repo root after:
   git subtree add --prefix=template \
@@ -295,7 +328,7 @@ EOF
 
   cd "${REPO_ROOT}"
 
-  if [[ "${1:-}" =~ ^--gen-(conf|image-conf)$ ]]; then
+  if [[ "${1:-}" == "--gen-conf" ]]; then
     _gen_setup_conf
     return 0
   fi

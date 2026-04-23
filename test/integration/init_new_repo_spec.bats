@@ -53,11 +53,9 @@ teardown() {
   assert_success
 }
 
-@test "new repo: .env.example contains IMAGE_NAME=<reponame>" {
+@test "new repo: .env.example is NOT generated (image name via setup.conf rules)" {
   bash template/init.sh
-  assert [ -f "${REPO_DIR}/.env.example" ]
-  run grep "IMAGE_NAME=${REPO_NAME}" "${REPO_DIR}/.env.example"
-  assert_success
+  [[ ! -f "${REPO_DIR}/.env.example" ]]
 }
 
 @test "new repo: script/entrypoint.sh exists and is executable" {
@@ -124,6 +122,50 @@ teardown() {
   assert_output "template/script/docker/Makefile"
 }
 
+@test "new repo: config/ is a real directory copied from template/config" {
+  bash template/init.sh
+  # Must NOT be a symlink — edits should stay in the user's own
+  # repo, not leak into the subtree where subtree pulls would fight
+  # them. Must be a real directory seeded with the template content.
+  assert [ ! -L "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config/shell" ]
+  # Sanity-check one of the seeded files actually made it across.
+  assert [ -f "${REPO_DIR}/config/pip/setup.sh" ] \
+    || assert [ -d "${REPO_DIR}/config/shell/bashrc" ]
+}
+
+@test "new repo: init.sh preserves pre-existing config/ directory (no clobber)" {
+  # Simulate a repo with a real config/ directory (user's edits).
+  # init.sh must not overwrite it.
+  mkdir -p "${REPO_DIR}/config/custom"
+  echo "user-override" > "${REPO_DIR}/config/custom/marker"
+  bash template/init.sh
+  assert [ ! -L "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config" ]
+  assert [ -f "${REPO_DIR}/config/custom/marker" ]
+}
+
+@test "new repo: init.sh drops stale config symlink before copying" {
+  # An older init.sh created config → template/config as a symlink.
+  # Re-running the new init.sh on such a repo must replace the
+  # symlink with a real copy (cp -r through a symlink would otherwise
+  # silently pollute the subtree target).
+  ln -s template/config "${REPO_DIR}/config"
+  bash template/init.sh
+  assert [ ! -L "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config" ]
+  assert [ -d "${REPO_DIR}/config/shell" ]
+}
+
+@test "Dockerfile.example references CONFIG_SRC=\"config\" (not template/config)" {
+  # Sanity: the per-repo copy only pays off if Dockerfile points at it.
+  run grep -F 'ARG CONFIG_SRC="config"' /source/dockerfile/Dockerfile.example
+  assert_success
+  run grep -F 'ARG CONFIG_SRC="template/config"' /source/dockerfile/Dockerfile.example
+  assert_failure
+}
+
 @test "new repo: template/VERSION exists (no legacy .template_version)" {
   bash template/init.sh
   assert [ -f "${REPO_DIR}/template/VERSION" ]
@@ -137,6 +179,24 @@ teardown() {
   # Second run should hit _init_existing_repo (Dockerfile exists)
   run bash template/init.sh
   assert_success
+}
+
+@test "new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)" {
+  bash template/init.sh
+  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
+  run readlink "${REPO_DIR}/setup_tui.sh"
+  assert_output "template/script/docker/setup_tui.sh"
+  assert [ ! -e "${REPO_DIR}/tui.sh" ]
+}
+
+@test "new repo: init.sh removes stale tui.sh symlink from earlier versions" {
+  bash template/init.sh
+  # Simulate an upgrade from the old name by planting the legacy symlink
+  ln -sf "template/script/docker/setup_tui.sh" "${REPO_DIR}/tui.sh"
+  run bash template/init.sh
+  assert_success
+  assert [ ! -e "${REPO_DIR}/tui.sh" ]
+  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
 }
 
 @test "new repo: build.sh -h works against the generated symlink" {
@@ -165,27 +225,25 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# init.sh --gen-conf / --gen-image-conf (alias)
+# init.sh --gen-conf
 # ════════════════════════════════════════════════════════════════════
 
 @test "init.sh --gen-conf copies setup.conf to repo root" {
-  bash template/init.sh        # generate skeleton first
+  # init.sh auto-creates setup.conf via workspace writeback; remove it first
+  # to exercise the --gen-conf copy path directly.
+  bash template/init.sh
+  rm -f "${REPO_DIR}/setup.conf"
   bash template/init.sh --gen-conf
   assert [ -f "${REPO_DIR}/setup.conf" ]
   # Sanity: copied file contains the full section schema
-  run grep -E '^\[(image_name|gpu|gui|network|volumes)\]' "${REPO_DIR}/setup.conf"
+  run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/setup.conf"
   assert_success
 }
 
-@test "init.sh --gen-image-conf is back-compat alias for --gen-conf" {
-  bash template/init.sh
-  bash template/init.sh --gen-image-conf
-  assert [ -f "${REPO_DIR}/setup.conf" ]
-}
-
 @test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
+  # init.sh auto-creates <repo>/setup.conf via setup.sh workspace writeback,
+  # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
   bash template/init.sh
-  bash template/init.sh --gen-conf
   run bash template/init.sh --gen-conf
   assert_failure
   assert_output --partial "already exists"
@@ -214,8 +272,33 @@ teardown() {
   assert_output --partial "AUTO-GENERATED"
 }
 
-@test "new repo: per-repo setup.conf not created by default" {
+@test "new repo: compose.yaml ships devices: /dev:/dev by default" {
   bash template/init.sh
-  [[ ! -f "${REPO_DIR}/setup.conf" ]] || \
-    fail "per-repo setup.conf should not exist unless user opts in via --gen-conf"
+  assert [ -f "${REPO_DIR}/compose.yaml" ]
+  run grep -E '^    devices:$' "${REPO_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '- /dev:/dev' "${REPO_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)" {
+  # Regression: fresh repo previously produced an empty [volumes] mount_1
+  # which made the TUI volumes menu appear blank on first open. First-init
+  # must write the detected workspace path into mount_1.
+  bash template/init.sh
+  run grep -E '^mount_1 = .+$' "${REPO_DIR}/setup.conf"
+  assert_success
+  # Must NOT be exactly `mount_1 =` (empty value)
+  run grep -x 'mount_1 =' "${REPO_DIR}/setup.conf"
+  assert_failure
+}
+
+@test "new repo: per-repo setup.conf auto-created on first init (workspace writeback)" {
+  # setup.sh on first run (no <repo>/setup.conf) copies template + fills
+  # [volumes] mount_1 with the detected workspace. Expected behaviour since
+  # setup.conf became the source of truth for WS_PATH.
+  bash template/init.sh
+  assert [ -f "${REPO_DIR}/setup.conf" ]
+  run grep '^mount_1' "${REPO_DIR}/setup.conf"
+  assert_success
 }

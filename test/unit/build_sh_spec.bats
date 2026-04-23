@@ -109,17 +109,36 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
-@test "build.sh skips setup.sh when .env exists (drift-check path)" {
-  # Pre-create .env → build.sh must NOT execute setup.sh, only source it.
+@test "build.sh skips setup.sh when .env AND setup.conf exist (drift-check path)" {
+  # Pre-create .env AND setup.conf → build.sh must NOT execute setup.sh,
+  # only source it for drift detection.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   refute_output --partial "First run"
   assert [ ! -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "build.sh bootstraps setup.sh when setup.conf is missing (even if .env exists)" {
+  # Regression: previously build.sh only checked .env. If the user
+  # manually deleted setup.conf to reset to defaults, .env alone is
+  # stale and build would skip the bootstrap. Now missing setup.conf
+  # also triggers the bootstrap path.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  rm -f "${SANDBOX}/setup.conf"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
 }
 
 @test "build.sh --no-cache is forwarded to docker build and compose" {
@@ -139,8 +158,38 @@ teardown() {
   assert_output --partial "test"
 }
 
-@test "build.sh --lang zh prints Chinese usage text" {
-  run bash "${SANDBOX}/build.sh" --lang zh --help
+@test "build.sh passes --build-arg TARGETARCH=<value> when TARGET_ARCH set in .env" {
+  # Seed .env with TARGET_ARCH so the drift-check path loads it into
+  # the build.sh environment; then the test-tools build should forward
+  # it via --build-arg.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+    echo "TARGET_ARCH=arm64"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "--build-arg TARGETARCH=arm64"
+}
+
+@test "build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env" {
+  # No TARGET_ARCH line → BuildKit auto-fills, build.sh must not pass
+  # any --build-arg for TARGETARCH.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  refute_output --partial "TARGETARCH"
+}
+
+@test "build.sh --lang zh-TW prints Chinese usage text" {
+  run bash "${SANDBOX}/build.sh" --lang zh-TW --help
   assert_success
   assert_output --partial "用法"
 }
@@ -166,7 +215,7 @@ teardown() {
 # Exercises lines 17-19 of build.sh where _lib.sh is missing and _detect_lang
 # maps LANG → {zh, zh-CN, ja}. Symlink (not copy) so kcov attributes runs.
 
-@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh" {
+@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"

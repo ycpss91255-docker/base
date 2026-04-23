@@ -12,7 +12,7 @@ else
   # Fallback for /lint stage. See build.sh for rationale.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -23,55 +23,59 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
+用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 停止並移除容器。預設只停止 default instance。
 
 選項:
   -h, --help        顯示此說明
   --instance NAME   只停止指定的命名 instance
-  --all             停止所有 instance(預設 + 全部命名 instance)
+  -a, --all         停止所有 instance（預設 + 全部命名 instance)
+  --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
+用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 停止并移除容器。默认只停止 default instance。
 
 选项:
   -h, --help        显示此说明
   --instance NAME   只停止指定的命名 instance
-  --all             停止所有 instance(默认 + 全部命名 instance)
+  -a, --all         停止所有 instance（默认 + 全部命名 instance)
+  --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
+使用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 コンテナを停止・削除します。デフォルトは default instance のみ。
 
 オプション:
   -h, --help        このヘルプを表示
   --instance NAME   指定された名前付き instance のみ停止
-  --all             すべての instance を停止（デフォルト + 全名前付き instance）
+  -a, --all         すべての instance を停止（デフォルト + 全名前付き instance）
+  --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [--instance NAME] [--all] [--dry-run]
+Usage: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 Stop and remove containers. Default: stop only the default instance.
 
 Options:
   -h, --help        Show this help
   --instance NAME   Stop only the named instance
-  --all             Stop ALL instances (default + every named instance)
+  -a, --all         Stop ALL instances (default + every named instance)
+  --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
 EOF
       ;;
@@ -106,13 +110,18 @@ main() {
         INSTANCE="${2:?"--instance requires a value"}"
         shift 2
         ;;
-      --all)
+      -a|--all)
         ALL_INSTANCES=true
         shift
         ;;
       --dry-run)
         DRY_RUN=true
         shift
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "stop"
+        shift 2
         ;;
       *)
         PASSTHROUGH+=("$1")

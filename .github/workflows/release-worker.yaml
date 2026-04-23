@@ -27,10 +27,13 @@ jobs:
 
           mkdir -p "${ARCHIVE_NAME}"
 
-          # Copy standard files (symlinks are resolved by cp)
+          # Copy standard files (symlinks are resolved by cp). setup.conf
+          # is intentionally omitted from the archive — downstream clones
+          # generate a fresh per-repo setup.conf on first ./build.sh run
+          # (derived from template/setup.conf + workspace detection).
           cp -r Dockerfile compose.yaml \
-                build.sh run.sh exec.sh stop.sh \
-                script/ .env.example .hadolint.yaml test/smoke/ \
+                build.sh run.sh exec.sh stop.sh setup_tui.sh \
+                script/ .hadolint.yaml test/smoke/ \
                 template/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
 

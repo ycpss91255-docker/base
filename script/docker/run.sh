@@ -12,7 +12,7 @@ else
   # Fallback for /lint stage. See build.sh for rationale.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -23,9 +23,9 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help        顯示此說明
@@ -43,7 +43,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help        显示此说明
@@ -61,7 +61,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help        このヘルプを表示
@@ -79,7 +79,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help        Show this help
@@ -138,7 +138,8 @@ main() {
         shift 2
         ;;
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "run"
         shift 2
         ;;
       *)
@@ -150,16 +151,30 @@ main() {
   export DRY_RUN
 
   local _setup="${FILE_PATH}/template/script/docker/setup.sh"
+  local _tui="${FILE_PATH}/setup_tui.sh"
 
-  # Decide whether to run setup.sh:
-  #   - --setup flag          → always run
+  # _run_interactive: prefer setup_tui.sh when an interactive TTY is
+  # present and the symlink is executable; otherwise fall back to
+  # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
+  _run_interactive() {
+    if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+      "${_tui}" --lang "${_LANG}"
+    else
+      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    fi
+  }
+
+  # Decide whether to run setup.sh / setup_tui.sh:
+  #   - --setup flag          → always run interactive-or-setup
   #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
   #   - otherwise             → check for drift and warn (but continue)
   if [[ "${RUN_SETUP}" == true ]]; then
-    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
-  elif [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "[run] INFO: First run — bootstrapping via setup.sh...\n"
-    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    _run_interactive
+  elif [[ ! -f "${FILE_PATH}/.env" ]] || [[ ! -f "${FILE_PATH}/setup.conf" ]]; then
+    # Missing .env OR setup.conf → bootstrap. Covers fresh clones and
+    # the "I rm'd setup.conf to reset to defaults" reset workflow.
+    printf "[run] INFO: First run — bootstrapping...\n"
+    _run_interactive
   else
     # shellcheck disable=SC1090
     source "${_setup}"
@@ -169,6 +184,11 @@ main() {
   # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
   _load_env "${FILE_PATH}/.env"
   _compute_project_name "${INSTANCE}"
+
+  # Pre-run snapshot so the user can see which files + values this
+  # invocation resolved to before the container replaces the shell.
+  # Mute with QUIET=1 for piped / CI logs.
+  [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
   # Allow X11 forwarding (X11 or XWayland)
   if [[ "${XDG_SESSION_TYPE:-x11}" == "wayland" ]]; then

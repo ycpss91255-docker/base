@@ -84,7 +84,10 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-ARG CONFIG_SRC="template/config"
+# <repo>/config is a per-repo copy of template/config seeded by
+# init.sh. Edit files there freely; template upgrades do not touch
+# this directory (upgrade.sh prints a diff hint when upstream moves).
+ARG CONFIG_SRC="config"
 
 # Add your application-specific packages here
 # RUN apt-get update && \

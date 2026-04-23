@@ -107,15 +107,18 @@ flowchart LR
 
 | ファイル | 説明 |
 |----------|------|
-| `build.sh` | コンテナビルド（`script/docker/setup.sh` を呼び出して `.env` を生成） |
-| `run.sh` | コンテナ実行（X11/Wayland 対応） |
+| `build.sh` | コンテナビルド（`--setup` は TTY がある場合 `setup_tui.sh` を起動、無ければ `setup.sh` を実行） |
+| `run.sh` | コンテナ実行（X11/Wayland 対応；`--setup` の意味は `build.sh` と同じ） |
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
-| `script/docker/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
+| `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
+| `script/docker/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `script/docker/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
+| `script/docker/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
 | `script/docker/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `script/docker/i18n.sh` | 共有言語検出（`_detect_lang`、`_LANG`） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `setup.conf` | 単一の repo ランタイム設定（image_name / gpu / gui / network / volumes） |
+| `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/unit/` | Template 自身のテスト（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
@@ -185,37 +188,60 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
-（GPU / GUI / network / 追加 volumes）を駆動します。`setup.sh` がこれ
-+ システム検出結果を読み、`.env` と `compose.yaml` を再生成します —
-この 2 つの生成物をユーザが手動編集する必要はありません。
+（GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
+駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` と
+`compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
+する必要はありません。
 
-### 単一 conf、5 つの section
+### 単一 conf、6 つの section
 
 ```
-[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
-[gpu]          mode (auto|force|off)、count、capabilities
-[gui]          mode (auto|force|off)
-[network]      mode (host|bridge|none)、ipc、privileged
-[volumes]      mount_1..mount_N 追加 host mount（/dev デバイス pass-through 含む）
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none)、ipc、privileged
+[volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
+           mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
 ```
 
 テンプレート既定値は `template/setup.conf`；repo ごとの上書きは
 `<repo>/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
 section があれば template の section を全置換；無ければ template 既定値を継承。
 
-repo ごとの上書きスケルトンを生成：
+初回の `setup.sh` 実行時（repo 側の setup.conf がまだ無い状態）、
+template ファイルが repo にコピーされ、検出された workspace が
+`[volumes] mount_1` に書き込まれます。以降の実行は `mount_1` を
+真のソースとして扱います — 空にすれば workspace マウントを
+オプトアウトできます。編集方法：
 
 ```bash
-./template/init.sh --gen-conf          # template/setup.conf を <repo>/setup.conf にコピー
-./template/init.sh --gen-image-conf    # 後方互換 alias
+./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
+./setup_tui.sh volumes              # 特定 section に直接ジャンプ
+./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
+./template/init.sh --gen-conf # template/setup.conf を repo ルートに単純コピー
 ```
+
+### インタラクティブ TUI
+
+`./setup_tui.sh` はメインメニューを開き、6 つの section すべての値を
+編集できます。バックエンドは `dialog` または `whiptail`（どちらも
+無い場合は `sudo apt install dialog` のヒントを表示して終了）。
+Cancel / Esc で保存せず退出；保存後は自動的に `setup.sh` を呼び
+出して `.env` + `compose.yaml` を再生成します。
 
 ### setup.sh の実行タイミング
 
+`setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
+の度に再実行されることはありません：
+
 - **`./template/init.sh`** がスケルトン生成後に 1 回自動実行
-- **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが明示的に再実行
+- **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
+  明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.conf`
+  を編集させ、TTY が無い場合は直接 `setup.sh` を呼び出します
 - **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env` が無い初回実行
-  （CI の新規 clone 等）では自動で setup.sh を実行。`--setup` 指定不要
+  （CI の新規 clone 等）では、同じ TTY-aware フローを自動で通ります。
+  `--setup` 指定は不要
 
 ### ドリフト検出
 
@@ -335,7 +361,10 @@ template/
 │   │   ├── run.sh
 │   │   ├── exec.sh
 │   │   ├── stop.sh
-│   │   ├── setup.sh                  # .env ジェネレータ
+│   │   ├── setup_tui.sh                    # インタラクティブな setup.conf エディタ（dialog/whiptail）
+│   │   ├── setup.sh                  # .env + compose.yaml ジェネレータ
+│   │   ├── _tui_backend.sh           # dialog / whiptail ラッパ関数
+│   │   ├── _tui_conf.sh              # INI バリデータ + 読み書き
 │   │   ├── _lib.sh                   # 共有 helper（_load_env、_compose、_compose_project）
 │   │   ├── i18n.sh                   # 共有言語検出（_detect_lang、_LANG）
 │   │   └── Makefile

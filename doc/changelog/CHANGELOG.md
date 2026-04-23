@@ -7,14 +7,170 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Wave 1 + Wave 2 — 2026-04-22)
+- **GPU MIG detection** (`_detect_mig` / `_list_gpu_instances` in
+  `_tui_conf.sh`): when host has NVIDIA MIG mode enabled, the deploy
+  editor opens with a msgbox listing GPU / MIG instance UUIDs and
+  advising `NVIDIA_VISIBLE_DEVICES=<MIG-UUID>` via `[environment]`
+  since `count=N` targets whole GPUs only
+- **`[build] tz` key**: container timezone exposed as a setup.conf
+  value; pipes through to compose.yaml `build.args` as
+  `TZ: ${TZ:-Asia/Taipei}`. Empty keeps Dockerfile default
+- **`[devices] cgroup_rule_*`**: `device_cgroup_rules:` block for USB
+  hotplug / dynamic device nodes; TUI devices editor now has a
+  sub-menu to pick between device bindings and cgroup rules. New
+  `_validate_cgroup_rule` validator
+
+### Changed
+- `[image] rule_*` dedup on write: re-adding a rule that already
+  exists at another slot moves it to the new position instead of
+  leaving two identical entries
+- `_edit_list_section` add now reuses empty slots (e.g. cleared
+  `mount_1` after user opted out of workspace), preventing the next
+  mount from leapfrogging to `mount_2`
+- TUI image-rule type picker simplified to function names only
+  (`prefix` / `suffix` / `@basename` / `@default`); format + example
+  shown in the value inputbox
+- TUI footer buttons (`Save` / `Enter` / `Cancel`) no longer i18n'd;
+  consistent English across all locales
+- `_TUI_LANG_UPPER` initialised at source time so sourcing `setup_tui.sh`
+  and calling a section editor directly (tests, REPL) no longer
+  crashes on unbound variable under `set -u`
+- **CLI consistency**: `exec.sh` / `stop.sh` now accept `--lang LANG`
+  (matches `build.sh` / `run.sh`); `stop.sh` gains `-a` short flag
+  for `--all` (matches common CLI patterns). Unknown lang values
+  warn and fall back to `en` via `_sanitize_lang`
+- **`--gen-image-conf` alias removed** from `init.sh` / `upgrade.sh`;
+  the `--gen-conf` name is the only spelling. The alias was a
+  rename-artifact and not documented outside in-tree help
+- **`tui.sh` → `setup_tui.sh`**: pairs with `setup.sh` and makes the
+  "interactive editor for setup.conf" relationship explicit.
+  `init.sh` now creates `setup_tui.sh` and removes any stale `tui.sh`
+  symlink left behind by pre-rename installs
+- **`_print_config_summary` full dump**: `build.sh` / `run.sh` now
+  print every populated `setup.conf` section (image / build / deploy /
+  gui / network / security / resources / environment / tmpfs /
+  devices / volumes) alongside identity, file paths, and the resolved
+  GPU/GUI/TZ flags — so users see every value this run consumes
+  without having to diff `.env` or run `docker compose config`
+
 ### Added
+- **`[build] target_arch` TARGETARCH override**: new scalar key
+  alongside the `arg_N` list. Non-empty value pins Docker's
+  `TARGETARCH` build arg for both the main image and the test-tools
+  image (main via compose `build.args`, test-tools via
+  `build.sh --build-arg`). Empty (default) leaves BuildKit's
+  auto-detection intact. Valid values: `amd64` / `arm64` / `arm` /
+  `386` / `ppc64le` / `s390x` / `riscv64`. `setup_tui.sh` → Build
+  adds a dedicated menu entry; `_validate_target_arch` catches typos
+  like `aarch64` / `x86_64` (BuildKit uses `arm64` / `amd64`).
+- **`Dockerfile.test-tools` multi-arch**: `ARG TARGETARCH=amd64`
+  branches the ShellCheck + Hadolint download URLs via a `case`
+  statement. BuildKit auto-fills on amd64 / arm64 hosts; falls back
+  to amd64 binaries on legacy builders. Rejects unsupported arches
+  loudly instead of silently grabbing a wrong-arch binary
+- **`setup_tui.sh --lang <invalid>` surfaces a TUI msgbox** before
+  the main menu opens. Previously the `_sanitize_lang` stderr warning
+  scrolled away as soon as dialog/whiptail cleared the screen; the
+  user saw a silently-English TUI with no hint why. New
+  `_warn_if_lang_rejected` helper captures the raw input and opens a
+  "Language fallback" msgbox listing the valid codes
+
+### Performance
+- **`make test` no longer runs kcov** — the dev loop pays for bats +
+  shellcheck only. `make coverage` keeps the full kcov path for CI
+  and release checks. `ci.sh --ci` honors `$COVERAGE=1` to include
+  kcov when the outer `--coverage` flag is set
+- **`bats --jobs $(nproc)` parallelism** — GNU parallel runs the
+  524-test suite concurrently across files and within files. All
+  specs already use per-test `mktemp -d` dirs so there's no shared
+  filesystem state. Combined effect (cached apt):
+  before ~1m27s (serial + kcov) → now ~42s (parallel, no kcov) ≈ 2x
+  faster on the dev loop
+
+### BREAKING
+- **Language code `zh` renamed to `zh-TW`** (BCP-47). `--lang zh`
+  no longer accepted; use `--lang zh-TW` (Taiwan Traditional).
+  `zh-CN` / `ja` / `en` unchanged
+- **`@env_example` image-name rule removed**: legacy rule that read
+  `IMAGE_NAME` from `.env.example` deleted along with its TUI option
+  + i18n keys. `.env` is a setup.sh-derived artifact so the rule
+  created a cycle. Replace with explicit `rule_N = @default:<name>`
+  or set `IMAGE_NAME` directly
+
+### Removed (tried, reverted)
+- **B7 vim keybindings** (attempted `DIALOGRC bindkey j/k/h/l`):
+  reverted in `ccc0dbc`. `dialog` 1.3 rejects letter curses_keys —
+  only symbolic names (`TAB` / `DOWN` / `UP` / `ENTER`) are valid.
+  See repo-root `TODO.md` for alternative-backend options (gum /
+  fzf / textual) queued for a future PR
+
+### Changed (TUI UX 重構 — 2026-04-21 本地)
+- **主選單重組**：11 項平鋪 → 5 常用（network / deploy / gui / volumes /
+  environment）+ `advanced` 子選單（image / build / devices / tmpfs /
+  security）
+- **Save UX**：去掉 `__save` menu item，改用 dialog/whiptail 的
+  `--extra-button --extra-label "Save & Exit"`（exit code 3 = save
+  訊號，0 = 進選中項，1 = Cancel）
+- **List sections 統一 single-layer**：volumes / environment / devices /
+  tmpfs / ports 點 item 直接 inputbox；**空值 + OK = mark_removed**
+  （該 key 從 setup.conf 消失）；list menu 只保留 Add / Back
+- **Conditional triggers**：`shm_size` 不再是主選單項，改為
+  `[network] ipc != host` 時從 network 結尾彈出；`ports` 改為
+  `mode == bridge` 時從 network 結尾彈出
+- **privileged 遷移**：從 `[network] privileged` 搬到新 `[security]
+  privileged`。TUI 的 privileged yesno 由 Advanced → Security 編輯
+- **`[security]` 新 section**：privileged / cap_add_* / cap_drop_* /
+  security_opt_*。先前 compose.yaml 硬編的 SYS_ADMIN / NET_ADMIN /
+  MKNOD / seccomp:unconfined 改為 setup.conf template 預設值，可由
+  TUI 或手編調整
+
+### Removed
+- **cgroup (`device_cgroup_rules`)**：setup.conf 註解、parser、TUI、
+  compose.yaml `device_cgroup_rules:` 產生邏輯全拿掉。使用者手寫
+  `cgroup_N = ...` 會被忽略
+
+### Added
+- **Interactive TUI** (`setup_tui.sh`) for editing `<repo>/setup.conf` via
+  dialog (with whiptail fallback). Main menu + direct-jump subcommands
+  (`./setup_tui.sh image|build|network|deploy|gui|volumes`). Validates
+  mount format, GPU count, and enum fields before save. On save,
+  invokes `setup.sh` automatically to regenerate `.env` +
+  `compose.yaml`. Symlinked from each repo root via `init.sh`.
+  4-language i18n (en / zh / zh-CN / ja).
+- **`_tui_backend.sh`** — dialog/whiptail abstraction
+  (`_tui_menu`, `_tui_radiolist`, `_tui_checklist`, `_tui_inputbox`,
+  `_tui_yesno`, `_tui_msgbox`). Preferred backend auto-detected;
+  exits with install hint when neither is installed.
+- **`_tui_conf.sh`** — pure-logic INI read/write helpers:
+  `_load_setup_conf_full` (full file with section order preserved),
+  `_write_setup_conf` (comment-preserving overwrite),
+  `_upsert_conf_value` (single-key in-place edit), plus validators
+  (`_validate_mount`, `_validate_gpu_count`, `_validate_enum`) and
+  mount-string parsers.
+- **`[build]` section** in `setup.conf` for Dockerfile build args
+  (`apt_mirror_ubuntu`, `apt_mirror_debian`). Empty value keeps the
+  hard-coded Taiwan mirror defaults.
+- **Workspace writeback**: on first run (when `<repo>/setup.conf` does
+  not exist), `setup.sh` detects the workspace host path, copies
+  `template/setup.conf` to `<repo>/setup.conf`, and writes the
+  detected workspace into `[volumes] mount_1`. Subsequent runs read
+  `mount_1` as the source of truth. Clearing `mount_1` is treated as
+  opt-out; the workspace is omitted from `compose.yaml` and `setup.sh`
+  does not re-populate it.
+- `build.sh` / `run.sh` `--setup` / `-s` is now **TTY-aware**: under
+  an interactive terminal with `setup_tui.sh` available, it launches the
+  TUI; otherwise it runs `setup.sh` non-interactively (unchanged
+  behaviour for CI / non-TTY).
+- `init.sh _create_symlinks` adds `setup_tui.sh` alongside the existing
+  five symlinks.
 - **Single `setup.conf`** at repo root consolidates all runtime
-  configuration consumed by `setup.sh`: `[image_name]`, `[gpu]`,
-  `[gui]`, `[network]`, `[volumes]`. Template default lives at
-  `template/setup.conf`; per-repo override at `<repo>/setup.conf` uses
-  section-level replace strategy (a section present in the per-repo
-  file fully replaces the template's section; omitted sections fall
-  back to template).
+  configuration consumed by `setup.sh`: `[image]`, `[build]`,
+  `[deploy]`, `[gui]`, `[network]`, `[volumes]`. Template default
+  lives at `template/setup.conf`; per-repo override at
+  `<repo>/setup.conf` uses section-level replace strategy (a section
+  present in the per-repo file fully replaces the template's section;
+  omitted sections fall back to template).
 - `setup.sh` new helpers: `_parse_ini_section`, `_load_setup_conf`,
   `_get_conf_value`, `_get_conf_list_sorted`, `_resolve_gpu`,
   `_resolve_gui`, `detect_gui`, `_compute_conf_hash`,
@@ -48,7 +204,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `compose.yaml` is now a **derived artifact** (gitignored) generated
   by `setup.sh` on every invocation. Users inspect it for the current
   effective runtime config; source of truth is `setup.conf`.
-- `detect_image_name` now reads `[image_name] rules` (comma-separated
+- **BREAKING — setup.conf section rename**:
+  `[image_name]` → `[image]`; `[gpu]` → `[deploy]` with keys prefixed
+  (`mode` → `gpu_mode`, `count` → `gpu_count`,
+  `capabilities` → `gpu_capabilities`). Also introduces `[build]`
+  (apt mirrors). Template `setup.conf` updated; per-repo overrides
+  must use the new names.
+- `detect_image_name` now reads `[image] rules` (comma-separated
   ordered list) from `setup.conf` instead of a dedicated
   `image_name.conf` rule file. Rule semantics unchanged
   (`prefix:`, `suffix:`, `@env_example`, `@basename`, `@default:`).

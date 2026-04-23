@@ -109,16 +109,30 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
-@test "run.sh skips setup.sh when .env exists (drift-check path)" {
+@test "run.sh skips setup.sh when .env AND setup.conf exist (drift-check path)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   refute_output --partial "First run"
   assert [ ! -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "run.sh bootstraps setup.sh when setup.conf is missing (even if .env exists)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  rm -f "${SANDBOX}/setup.conf"
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
 }
 
 @test "run.sh --detach routes to 'compose up -d'" {
@@ -162,8 +176,8 @@ teardown() {
   assert_output --partial "already running"
 }
 
-@test "run.sh --lang zh prints Chinese usage text" {
-  run bash "${SANDBOX}/run.sh" --lang zh --help
+@test "run.sh --lang zh-TW prints Chinese usage text" {
+  run bash "${SANDBOX}/run.sh" --lang zh-TW --help
   assert_success
   assert_output --partial "用法"
 }
@@ -197,7 +211,7 @@ teardown() {
 
 # ── Fallback _detect_lang (no template/ tree) ──────────────────────────────
 
-@test "run.sh fallback _detect_lang maps zh_TW.UTF-8 to zh" {
+@test "run.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"

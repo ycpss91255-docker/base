@@ -107,15 +107,18 @@ flowchart LR
 
 | 文件 | 说明 |
 |------|------|
-| `build.sh` | 构建容器（调用 `script/docker/setup.sh` 生成 `.env`） |
-| `run.sh` | 运行容器（支持 X11/Wayland） |
+| `build.sh` | 构建容器（`--setup` 有 TTY 时启动 `setup_tui.sh`，否则调用 `setup.sh`） |
+| `run.sh` | 运行容器（支持 X11/Wayland；`--setup` 语义与 `build.sh` 相同） |
 | `exec.sh` | 进入运行中的容器 |
 | `stop.sh` | 停止并移除容器 |
-| `script/docker/setup.sh` | 自动检测系统参数并生成 `.env` |
+| `setup_tui.sh` | 交互式 setup.conf 编辑器（dialog / whiptail 前端） |
+| `script/docker/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
+| `script/docker/_tui_backend.sh` | `setup_tui.sh` 使用的 dialog / whiptail 包装函数 |
+| `script/docker/_tui_conf.sh` | INI validator + 读写逻辑（供 `setup_tui.sh` 和 `setup.sh` 回写使用） |
 | `script/docker/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `script/docker/i18n.sh` | 共用语言检测（`_detect_lang`、`_LANG`） |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator、pip） |
-| `setup.conf` | 单一 per-repo runtime 配置（image_name / gpu / gui / network / volumes） |
+| `setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
 | `test/unit/` | Template 自身测试（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 集成测试 |
@@ -182,35 +185,53 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 ## 各 repo runtime 配置
 
 每个下游 repo 通过一个 `setup.conf` INI 文件驱动自己的 runtime 配置
-（GPU、GUI、network、额外 volumes）。`setup.sh` 读它 + 系统检测后
-重新生成 `.env` 和 `compose.yaml`，这两个衍生文件用户不用动手。
+（GPU 保留、GUI env/volumes、network mode、额外 volume mounts）。
+`setup.sh` 读它 + 系统检测后重新生成 `.env` 和 `compose.yaml`，这两
+个衍生文件用户不用动手编辑。
 
-### 单一 conf、5 个 section
+### 单一 conf、6 个 section
 
 ```
-[image_name]   rules = @env_example, prefix:docker_, suffix:_ws, @default:unknown
-[gpu]          mode (auto|force|off)、count、capabilities
-[gui]          mode (auto|force|off)
-[network]      mode (host|bridge|none)、ipc、privileged
-[volumes]      mount_1..mount_N 额外 host mount（含 /dev 设备 pass-through）
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none)、ipc、privileged
+[volumes]  mount_1（workspace，首次 setup.sh 执行时自动填入）
+           mount_2..mount_N（用户自定义额外 host mount；/dev 设备走 path）
 ```
 
 Template default 在 `template/setup.conf`；per-repo 覆盖放 `<repo>/setup.conf`。
 Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
 template；没写的 section 则吃 template 默认。
 
-生成 per-repo 覆盖骨架：
+首次运行 `setup.sh`（尚无 per-repo setup.conf）时，template 文件会被
+复制到 repo，并把检测到的 workspace 写入 `[volumes] mount_1`。后续
+运行以 `mount_1` 为真实来源 — 清空该项即可放弃挂载 workspace。编辑方式：
 
 ```bash
-./template/init.sh --gen-conf          # 复制 template/setup.conf 到 <repo>/setup.conf
-./template/init.sh --gen-image-conf    # 向后兼容 alias
+./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
+./setup_tui.sh volumes              # 直接跳到指定 section
+./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
+./template/init.sh --gen-conf # 单纯复制 template/setup.conf 到 repo 根目录
 ```
+
+### 交互式 TUI
+
+`./setup_tui.sh` 打开主菜单，可编辑 6 个 section 的所有值，底层是
+`dialog` 或 `whiptail`（两者都缺时会打印 `sudo apt install dialog`
+提示并退出）。按 Cancel / Esc 不存档离开；存档后会自动调用
+`setup.sh` 重新生成 `.env` + `compose.yaml`。
 
 ### setup.sh 什么时候运行
 
+`setup.sh` 仅在显式触发时才执行 — 并不会在每次 build / run 都重跑：
+
 - **`./template/init.sh`** 建完骨架自动运行一次
-- **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）用户手动触发重跑
-- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env` 尚未存在，例如 CI 新 clone）会自动运行一次，不用带 `--setup`
+- **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 用户手动触发重跑；
+  有 TTY 时先启动 `setup_tui.sh` 让用户修改 `setup.conf`，无 TTY 时直接调用 `setup.sh`
+- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env` 尚未存在，
+  例如 CI 新 clone）会自动走相同的 TTY-aware 流程，不用带 `--setup`
 
 ### Drift 检测
 
@@ -329,7 +350,10 @@ template/
 │   │   ├── run.sh
 │   │   ├── exec.sh
 │   │   ├── stop.sh
-│   │   ├── setup.sh                  # .env 生成器
+│   │   ├── setup_tui.sh                    # 交互式 setup.conf 编辑器（dialog/whiptail）
+│   │   ├── setup.sh                  # .env + compose.yaml 生成器
+│   │   ├── _tui_backend.sh           # dialog / whiptail 包装函数
+│   │   ├── _tui_conf.sh              # INI validator + 读写
 │   │   ├── _lib.sh                   # 共用 helper（_load_env、_compose、_compose_project）
 │   │   ├── i18n.sh                   # 共用语言检测（_detect_lang、_LANG）
 │   │   └── Makefile

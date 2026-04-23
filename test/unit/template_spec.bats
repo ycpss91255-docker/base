@@ -465,6 +465,27 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools declares ARG TARGETARCH" {
+  run grep -E '^ARG TARGETARCH' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools branches case for amd64 and arm64" {
+  # Must handle both common arches; amd64 → x86_64 binaries,
+  # arm64 → aarch64 (shellcheck) + arm64 (hadolint) binaries.
+  run grep -E 'amd64\)' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+  run grep -E 'arm64\)' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+  run grep -E 'aarch64' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools fails loud on unsupported TARGETARCH" {
+  run grep -E 'Unsupported TARGETARCH' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "i18n.sh defines _detect_lang function" {
   run grep -E '^_detect_lang\(\)' /source/script/docker/i18n.sh
   assert_success
@@ -572,20 +593,20 @@ EOF
   assert_success
 }
 
-@test "upgrade.sh supports --gen-image-conf flag" {
-  run grep -E '\-\-gen-image-conf' /source/upgrade.sh
+@test "upgrade.sh supports --gen-conf flag" {
+  run grep -E '\-\-gen-conf' /source/upgrade.sh
   assert_success
 }
 
-@test "upgrade.sh --gen-image-conf delegates to init.sh --gen-image-conf" {
-  run grep -E 'init\.sh.*--gen-image-conf' /source/upgrade.sh
+@test "upgrade.sh --gen-conf delegates to init.sh --gen-conf" {
+  run grep -E 'init\.sh.*--gen-conf' /source/upgrade.sh
   assert_success
 }
 
-@test "upgrade.sh --help mentions --gen-image-conf" {
+@test "upgrade.sh --help mentions --gen-conf" {
   run bash -c "bash /source/upgrade.sh --help 2>&1"
   assert_success
-  assert_output --partial "--gen-image-conf"
+  assert_output --partial "--gen-conf"
 }
 
 @test "upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml" {

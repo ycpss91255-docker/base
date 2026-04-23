@@ -12,7 +12,7 @@ else
   # Fallback for /lint stage. See build.sh for rationale.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -23,14 +23,15 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 選項:
   -h, --help        顯示此說明
   -t, --target T    服務名稱（預設: devel）
   --instance NAME   進入命名 instance（預設為 default instance）
+  --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
 
 參數:
@@ -45,12 +46,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 选项:
   -h, --help        显示此说明
   -t, --target T    服务名称（默认: devel）
   --instance NAME   进入命名 instance（默认为 default instance）
+  --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
 
 参数:
@@ -65,12 +67,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+使用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
   -t, --target T    サービス名（デフォルト: devel）
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
+  --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
 
 引数:
@@ -85,12 +88,13 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+Usage: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 Options:
   -h, --help        Show this help
   -t, --target T    Service name (default: devel)
   --instance NAME   Enter a named instance (default: default instance)
+  --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
 
 Arguments:
@@ -128,6 +132,11 @@ main() {
       --dry-run)
         DRY_RUN=true
         shift
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "exec"
+        shift 2
         ;;
       *)
         break

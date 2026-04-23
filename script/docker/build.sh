@@ -14,7 +14,7 @@ else
   # are unused in this stage.
   _detect_lang() {
     case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
+      zh_TW*) echo "zh-TW" ;;
       zh_CN*|zh_SG*) echo "zh-CN" ;;
       ja*) echo "ja" ;;
       *) echo "en" ;;
@@ -25,9 +25,9 @@ fi
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help     顯示此說明
@@ -46,7 +46,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help     显示此说明
@@ -65,7 +65,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
@@ -84,7 +84,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [-s|--setup] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help     Show this help
@@ -134,7 +134,8 @@ main() {
         shift
         ;;
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "build"
         shift 2
         ;;
       *)
@@ -146,16 +147,30 @@ main() {
   export DRY_RUN
 
   local _setup="${FILE_PATH}/template/script/docker/setup.sh"
+  local _tui="${FILE_PATH}/setup_tui.sh"
 
-  # Decide whether to run setup.sh:
-  #   - --setup flag          → always run
+  # _run_interactive: prefer setup_tui.sh when an interactive TTY is
+  # present and the symlink is executable; otherwise fall back to
+  # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
+  _run_interactive() {
+    if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+      "${_tui}" --lang "${_LANG}"
+    else
+      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    fi
+  }
+
+  # Decide whether to run setup.sh / setup_tui.sh:
+  #   - --setup flag          → always run interactive-or-setup
   #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
   #   - otherwise             → check for drift and warn (but continue)
   if [[ "${RUN_SETUP}" == true ]]; then
-    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
-  elif [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "[build] INFO: First run — bootstrapping via setup.sh...\n"
-    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    _run_interactive
+  elif [[ ! -f "${FILE_PATH}/.env" ]] || [[ ! -f "${FILE_PATH}/setup.conf" ]]; then
+    # Missing .env OR setup.conf → bootstrap. Covers fresh clones and
+    # the "I rm'd setup.conf to reset to defaults" reset workflow.
+    printf "[build] INFO: First run — bootstrapping...\n"
+    _run_interactive
   else
     # shellcheck disable=SC1090
     source "${_setup}"
@@ -166,10 +181,21 @@ main() {
   _load_env "${FILE_PATH}/.env"
   _compute_project_name ""
 
+  # Pre-build snapshot so first-time users see which files drove this
+  # run and the effective image/network/GPU/GUI/TZ before docker takes
+  # over the terminal. --dry-run keeps it (still useful); can be muted
+  # with QUIET=1 if someone pipes this into their own CI log.
+  [[ "${QUIET:-0}" != "1" ]] && _print_config_summary build
+
   # Build test-tools image if Dockerfile exists
   local _tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
+  # Forward user's TARGETARCH override when set. Empty = leave unset so
+  # BuildKit auto-fills from host/--platform (no --build-arg passed).
+  if [[ -n "${TARGET_ARCH:-}" ]]; then
+    _tools_args+=(--build-arg "TARGETARCH=${TARGET_ARCH}")
+  fi
   if [[ -f "${_tools_dockerfile}" ]]; then
     if [[ "${DRY_RUN}" == true ]]; then
       printf '[dry-run] docker build'
