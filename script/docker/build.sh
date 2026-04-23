@@ -161,20 +161,36 @@ main() {
   }
 
   # Decide whether to run setup.sh / setup_tui.sh:
-  #   - --setup flag          → always run interactive-or-setup
-  #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
-  #   - otherwise             → check for drift and warn (but continue)
+  #   - --setup flag                         → interactive (TUI on TTY, else setup.sh)
+  #   - missing .env / setup.conf / compose.yaml → non-interactive bootstrap
+  #   - otherwise                            → drift-check only
+  #
+  # Bootstrap MUST stay non-interactive: compose.yaml is gitignored
+  # since v0.9.0, so every fresh clone hits the bootstrap path. If we
+  # dispatched through _run_interactive, a TTY user who cancelled the
+  # TUI (Esc / Ctrl+C) would end up with no .env and the next step
+  # would die inside _load_env with a cryptic "No such file" error.
+  # Direct setup.sh guarantees .env + compose.yaml are generated.
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env" ]] || [[ ! -f "${FILE_PATH}/setup.conf" ]]; then
-    # Missing .env OR setup.conf → bootstrap. Covers fresh clones and
-    # the "I rm'd setup.conf to reset to defaults" reset workflow.
+  elif [[ ! -f "${FILE_PATH}/.env" ]] \
+      || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
+      || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     printf "[build] INFO: First run — bootstrapping...\n"
-    _run_interactive
+    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # shellcheck disable=SC1090
     source "${_setup}"
     _check_setup_drift "${FILE_PATH}" || true
+  fi
+
+  # Defensive: setup above should always produce .env. If it didn't
+  # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
+  # a useful error instead of letting _load_env fail on a missing file.
+  if [[ ! -f "${FILE_PATH}/.env" ]]; then
+    printf "[build] ERROR: setup did not produce .env.\n" >&2
+    printf "[build] Re-run with './build.sh --setup' to open the editor.\n" >&2
+    exit 1
   fi
 
   # Load .env for project name

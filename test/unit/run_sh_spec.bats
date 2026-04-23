@@ -109,13 +109,14 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
-@test "run.sh skips setup.sh when .env AND setup.conf exist (drift-check path)" {
+@test "run.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   refute_output --partial "First run"
@@ -133,6 +134,56 @@ teardown() {
   assert_success
   assert_output --partial "First run"
   assert [ -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "run.sh bootstraps setup.sh when compose.yaml is missing (fresh clone)" {
+  # Regression (v0.9.2): compose.yaml is gitignored since v0.9.0, so
+  # a fresh clone lands here with .env / setup.conf present but no
+  # compose.yaml. That case must also bootstrap.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  rm -f "${SANDBOX}/compose.yaml"
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  assert [ -f "${SANDBOX}/compose.yaml" ]
+}
+
+@test "run.sh bootstrap calls setup.sh directly, not setup_tui.sh" {
+  # Regression (v0.9.2): bootstrap used to launch setup_tui.sh on a
+  # TTY; user cancelling left the repo with no .env. Bootstrap must
+  # always be non-interactive.
+  cat > "${SANDBOX}/setup_tui.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "TUI_INVOKED" >> "${MOCK_SETUP_LOG}.tui"
+exit 0
+EOS
+  chmod +x "${SANDBOX}/setup_tui.sh"
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  assert [ ! -f "${MOCK_SETUP_LOG}.tui" ]
+}
+
+@test "run.sh fails with clear error if setup.sh produced no .env" {
+  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+#!/usr/bin/env bash
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  exit 0
+else
+  _check_setup_drift() { :; }
+fi
+EOS
+  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_failure
+  assert_output --partial ".env"
+  assert_output --partial "--setup"
 }
 
 @test "run.sh --detach routes to 'compose up -d'" {

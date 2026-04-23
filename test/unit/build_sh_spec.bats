@@ -109,15 +109,16 @@ teardown() {
   assert [ -f "${SANDBOX}/.env" ]
 }
 
-@test "build.sh skips setup.sh when .env AND setup.conf exist (drift-check path)" {
-  # Pre-create .env AND setup.conf → build.sh must NOT execute setup.sh,
-  # only source it for drift detection.
+@test "build.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)" {
+  # Pre-create all three derived files → build.sh must NOT execute
+  # setup.sh, only source it for drift detection.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   refute_output --partial "First run"
@@ -139,6 +140,66 @@ teardown() {
   assert_success
   assert_output --partial "First run"
   assert [ -f "${MOCK_SETUP_LOG}" ]
+}
+
+@test "build.sh bootstraps setup.sh when compose.yaml is missing (fresh clone)" {
+  # Regression (v0.9.2): v0.9.0 started gitignoring compose.yaml, so
+  # a fresh clone has .env.example absent + setup.conf tracked +
+  # compose.yaml missing. Prior bootstrap check only looked at .env /
+  # setup.conf and skipped to the drift path, which then blew up in
+  # _load_env because .env also wasn't there. Missing compose.yaml
+  # must now trigger the bootstrap path on its own.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  : > "${SANDBOX}/setup.conf"
+  rm -f "${SANDBOX}/compose.yaml"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "First run"
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  assert [ -f "${SANDBOX}/compose.yaml" ]
+}
+
+@test "build.sh bootstrap calls setup.sh directly, not setup_tui.sh" {
+  # Regression (v0.9.2): bootstrap used to dispatch through
+  # _run_interactive, which on a TTY launches setup_tui.sh. A user who
+  # pressed Esc / Ctrl+C in the TUI ended up with no .env and the next
+  # build step blew up. Bootstrap must always go through setup.sh
+  # non-interactively; TUI is reserved for explicit --setup.
+  cat > "${SANDBOX}/setup_tui.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "TUI_INVOKED" >> "${MOCK_SETUP_LOG}.tui"
+exit 0
+EOS
+  chmod +x "${SANDBOX}/setup_tui.sh"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  assert [ ! -f "${MOCK_SETUP_LOG}.tui" ]
+}
+
+@test "build.sh fails with clear error if setup.sh produced no .env" {
+  # Defensive guard: if bootstrap runs but setup.sh exits without
+  # writing .env (user cancelled a TUI, setup.sh crashed, etc.), the
+  # next step would fail deep in _load_env with a cryptic path error.
+  # Surface a helpful message instead.
+  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+#!/usr/bin/env bash
+# Mock that exits cleanly but produces nothing.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  exit 0
+else
+  _check_setup_drift() { :; }
+fi
+EOS
+  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_failure
+  assert_output --partial ".env"
+  assert_output --partial "--setup"
 }
 
 @test "build.sh --no-cache is forwarded to docker build and compose" {
@@ -169,6 +230,7 @@ teardown() {
     echo "TARGET_ARCH=arm64"
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   assert_output --partial "--build-arg TARGETARCH=arm64"
@@ -183,6 +245,7 @@ teardown() {
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   refute_output --partial "TARGETARCH"

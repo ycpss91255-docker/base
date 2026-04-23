@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **524 tests** total (491 unit + 33 integration).
+Template self-tests: **530 tests** total (497 unit + 33 integration).
 
 ## Test Files
 
@@ -92,7 +92,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 
-### test/unit/build_sh_spec.bats (18)
+### test/unit/build_sh_spec.bats (22)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -101,21 +101,27 @@ so the stub captures argv; `build.sh` is symlinked (not copied) so kcov
 attributes coverage to the real source file.
 
 Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, auto-bootstrap on
-missing `.env`, drift-check path when `.env` present, `--no-cache`,
-`--clean-tools`, positional `TARGET`, `--lang` argument validation,
-fallback `_detect_lang` branches (zh_TW/zh_CN/ja), and real (non-dry-run)
+missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when
+all three are present, bootstrap staying non-interactive (setup.sh
+direct, not `setup_tui.sh`), defensive guard when setup produces no
+`.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
+positional `TARGET`, `--lang` argument validation, fallback
+`_detect_lang` branches (zh_TW/zh_CN/ja), and real (non-dry-run)
 docker build invocation.
 
-### test/unit/run_sh_spec.bats (16)
+### test/unit/run_sh_spec.bats (23)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
 "container already running" scenarios.
 
-Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap / drift
-check, `--detach`, devel vs non-devel TARGET routing, `--instance`,
-already-running guard, Wayland xhost path, `--lang` / `--instance`
-argument validation, fallback `_detect_lang` branches.
+Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on
+missing `.env` / `setup.conf` / `compose.yaml`, drift-check path,
+bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
+when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
+routing, `--instance`, already-running guard, Wayland xhost path,
+`--lang` / `--instance` argument validation, fallback `_detect_lang`
+branches.
 
 ### test/unit/compose_gen_spec.bats (31)
 

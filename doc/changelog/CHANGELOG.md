@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`build.sh` / `run.sh` bootstrap**: fresh clones (where `compose.yaml`
+  is gitignored since v0.9.0) now bootstrap correctly. Two regressions
+  fixed:
+  1. Bootstrap condition now also checks `compose.yaml`; previously a
+     clone with `.env` + `setup.conf` present but `compose.yaml` absent
+     skipped to the drift-check path and died in `_load_env` with a
+     cryptic "No such file" error.
+  2. Bootstrap path no longer dispatches through `_run_interactive`,
+     which on a TTY launches `setup_tui.sh`. A user who pressed
+     Esc / Ctrl+C in the TUI previously ended up with no `.env`.
+     Bootstrap now calls `setup.sh` directly; TUI stays reserved for
+     the explicit `--setup` flag.
+- **`build.sh` / `run.sh` defensive guard**: if `setup.sh` returns
+  without producing `.env` (cancelled TUI, setup crash, …), surface a
+  clear error pointing at `--setup` instead of failing deep in
+  `_load_env`.
+
 ## [v0.9.1] - 2026-04-23
 
 ### Changed

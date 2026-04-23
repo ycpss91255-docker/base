@@ -165,20 +165,32 @@ main() {
   }
 
   # Decide whether to run setup.sh / setup_tui.sh:
-  #   - --setup flag          → always run interactive-or-setup
-  #   - missing .env          → auto-bootstrap (first-time / fresh CI clone)
-  #   - otherwise             → check for drift and warn (but continue)
+  #   - --setup flag                         → interactive (TUI on TTY, else setup.sh)
+  #   - missing .env / setup.conf / compose.yaml → non-interactive bootstrap
+  #   - otherwise                            → drift-check only
+  #
+  # Bootstrap stays non-interactive (see build.sh for the full rationale):
+  # compose.yaml is gitignored since v0.9.0, every fresh clone lands here,
+  # and dispatching through the TUI would leave cancelled sessions
+  # without a .env.
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env" ]] || [[ ! -f "${FILE_PATH}/setup.conf" ]]; then
-    # Missing .env OR setup.conf → bootstrap. Covers fresh clones and
-    # the "I rm'd setup.conf to reset to defaults" reset workflow.
+  elif [[ ! -f "${FILE_PATH}/.env" ]] \
+      || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
+      || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     printf "[run] INFO: First run — bootstrapping...\n"
-    _run_interactive
+    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # shellcheck disable=SC1090
     source "${_setup}"
     _check_setup_drift "${FILE_PATH}" || true
+  fi
+
+  # Defensive: bootstrap must leave .env in place. See build.sh.
+  if [[ ! -f "${FILE_PATH}/.env" ]]; then
+    printf "[run] ERROR: setup did not produce .env.\n" >&2
+    printf "[run] Re-run with './run.sh --setup' to open the editor.\n" >&2
+    exit 1
   fi
 
   # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
