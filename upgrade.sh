@@ -26,6 +26,72 @@ cd "${REPO_ROOT}"
 _log() { printf "[upgrade] %s\n" "$*"; }
 _error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
 
+# ── Safety guards ────────────────────────────────────────────────────────────
+#
+# git-subtree pull is known to misbehave on some versions (reports of
+# destructive fast-forward have been seen on Jetson L4T shipping older
+# git-subtree.sh). These helpers keep `upgrade.sh` safe regardless: fail
+# fast if the repo is not in a state where subtree pull can succeed
+# cleanly, and roll back if the pull ran but left `template/` in a shape
+# that doesn't match a subtree (e.g. markers missing, working tree
+# contains template-repo root files at <repo>/ root).
+
+# _require_git_identity
+#   git-subtree internally calls `git commit-tree`, which needs
+#   user.name + user.email. Missing identity on Jetson was observed to
+#   leave git in a partial state that the next run then fast-forwarded
+#   destructively. Fail fast with an actionable message instead.
+_require_git_identity() {
+  local _name _email
+  _name="$(git config user.name 2>/dev/null || true)"
+  _email="$(git config user.email 2>/dev/null || true)"
+  if [[ -z "${_name}" || -z "${_email}" ]]; then
+    _error "git identity not configured. Set it before upgrading:
+  git config --global user.name \"Your Name\"
+  git config --global user.email \"you@example.com\""
+  fi
+}
+
+# _require_clean_merge_state
+#   Refuse to start if a merge / rebase / cherry-pick / revert is in
+#   progress; our subtree merge would be conflated with the user's
+#   in-flight operation.
+_require_clean_merge_state() {
+  local _git_dir _state
+  _git_dir="$(git rev-parse --git-dir)"
+  for _state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+    if [[ -e "${_git_dir}/${_state}" ]]; then
+      _error "${_state} present in ${_git_dir} — resolve or abort it before upgrading."
+    fi
+  done
+}
+
+# _verify_subtree_intact <pre_head_sha>
+#   Post-pull sanity check: `template/` must still contain the subtree
+#   markers. A known failure mode (older git-subtree) is to fast-forward
+#   the synthetic squash commit, replacing <repo> root with template's
+#   tree (moves `template/*` to `<repo>/*` and deletes repo-specific
+#   files). Detect that by checking subtree markers, and hard-reset back
+#   to <pre_head_sha> if integrity is lost.
+_verify_subtree_intact() {
+  local _pre_head="$1"
+  local _markers=(
+    "template/.version"
+    "template/init.sh"
+    "template/script/docker/setup.sh"
+  )
+  local _marker
+  for _marker in "${_markers[@]}"; do
+    if [[ ! -f "${_marker}" ]]; then
+      printf "[upgrade] ERROR: post-pull integrity check failed — '%s' missing.\n" "${_marker}" >&2
+      printf "[upgrade] Likely cause: git-subtree fast-forwarded destructively.\n" >&2
+      printf "[upgrade] Rolling back to %s ...\n" "${_pre_head:0:12}" >&2
+      git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
+      _error "upgrade aborted; repo restored to pre-upgrade state"
+    fi
+  done
+}
+
 # ── Get versions ─────────────────────────────────────────────────────────────
 
 _get_local_version() {
@@ -78,6 +144,16 @@ _upgrade() {
     return 0
   fi
 
+  # Pre-flight safety checks. Any failure exits non-zero without
+  # touching the working tree.
+  _require_git_identity
+  _require_clean_merge_state
+
+  # Snapshot HEAD so the post-pull integrity check can roll back if
+  # git-subtree corrupts the tree.
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
   # Snapshot the pre-pull tree hash of template/config so we can tell
@@ -98,12 +174,16 @@ _upgrade() {
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade template subtree to ${target_ver}"
 
-  # Step 2: re-run init.sh to sync symlinks (in case template structure changed)
-  _log "Step 2/3: re-run init.sh to sync symlinks"
+  # Step 2: post-pull integrity check (rolls back on corruption)
+  _log "Step 2/4: verify template/ subtree integrity"
+  _verify_subtree_intact "${_pre_head}"
+
+  # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
+  _log "Step 3/4: re-run init.sh to sync symlinks"
   ./template/init.sh
 
-  # Step 3: update main.yaml @tag references
-  _log "Step 3/3: update workflow @tag references"
+  # Step 4: update main.yaml @tag references
+  _log "Step 4/4: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
     # Replace @vX.Y.Z with new version in reusable workflow references.
