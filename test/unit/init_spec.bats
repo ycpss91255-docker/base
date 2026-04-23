@@ -117,11 +117,11 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _detect_template_version: reads VERSION file
+# _detect_template_version: reads .version file
 # ════════════════════════════════════════════════════════════════════
 
-@test "_detect_template_version: reads VERSION file when present (no network)" {
-  echo "v1.5.0" > "${TMP_REPO}/template/VERSION"
+@test "_detect_template_version: reads .version file when present (no network)" {
+  echo "v1.5.0" > "${TMP_REPO}/template/.version"
   # Mock git to fail (simulate offline)
   mock_cmd "git" 'exit 128'
   _source_init
@@ -130,8 +130,8 @@ REMOTE
   assert_equal "${result}" "v1.5.0"
 }
 
-@test "_detect_template_version: VERSION file takes priority over git ls-remote" {
-  echo "v1.5.0" > "${TMP_REPO}/template/VERSION"
+@test "_detect_template_version: .version file takes priority over git ls-remote" {
+  echo "v1.5.0" > "${TMP_REPO}/template/.version"
   mock_cmd "git" '
     if [[ "$1" == "ls-remote" ]]; then
       cat <<REMOTE
@@ -144,30 +144,6 @@ REMOTE
   local result
   result="$(_detect_template_version)"
   assert_equal "${result}" "v1.5.0"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# Legacy .template_version cleanup
-# ════════════════════════════════════════════════════════════════════
-
-@test "init.sh removes legacy .template_version when present" {
-  echo "v0.7.0" > "${TMP_REPO}/.template_version"
-  echo "v1.0.0" > "${TMP_REPO}/template/VERSION"
-  # Need a Dockerfile so init takes existing-repo path
-  touch "${TMP_REPO}/Dockerfile"
-  mock_cmd "git" 'exit 128'
-  run bash "${TMP_REPO}/template/init.sh"
-  assert_success
-  assert [ ! -f "${TMP_REPO}/.template_version" ]
-}
-
-@test "init.sh succeeds when no legacy .template_version exists" {
-  echo "v1.0.0" > "${TMP_REPO}/template/VERSION"
-  touch "${TMP_REPO}/Dockerfile"
-  mock_cmd "git" 'exit 128'
-  run bash "${TMP_REPO}/template/init.sh"
-  assert_success
-  assert [ ! -f "${TMP_REPO}/.template_version" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
