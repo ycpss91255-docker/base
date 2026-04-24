@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING for callers pinned to `@v0.10.0`**: `build-worker.yaml` gains a new input `test_tools_version` (default `"latest"`). Downstream `main.yaml` should pin it to the template release they upgraded from (e.g. `test_tools_version: v0.10.1`) for reproducibility. Repos on `@v0.10.0` or below that never cut a release tag keep working on unpinned `:latest` (unchanged from v0.10.0's silent GHCR fallback during branch / PR pushes).
+
+### Fixed
+- **`build-worker.yaml` auto-parse bug on tagged downstream releases.** v0.10.0's `GITHUB_WORKFLOW_REF` parsing read the **caller's** ref — when a downstream repo pushed its own release tag (e.g. `v1.5.0`), the workflow tried to pull `ghcr.io/.../test-tools:v1.5.0` (doesn't exist) instead of template's pinned `:v0.10.0`. Surfaced first by ros1_bridge's v1.5.0 release attempt. Fix: drop the `GITHUB_WORKFLOW_REF` parse entirely, require caller to pass `test_tools_version` explicitly (defaults to `latest`). Regression test added to `template_spec.bats`.
+
 ## [v0.10.0] - 2026-04-24
 
 First stable minor bump post-v0.9.x. Cuts the rc2 feature work + two fixes. **Recommended upgrade path** for all downstream repos (rc1 / rc2 supersede everything earlier, see rc1/rc2 notes below for the full run-phase UX realignment + arm64 test-tools hotfix).

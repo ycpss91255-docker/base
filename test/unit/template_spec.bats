@@ -800,29 +800,44 @@ EOF
   assert_output "0"
 }
 
-@test "build-worker.yaml: resolves template version from GITHUB_WORKFLOW_REF" {
+@test "build-worker.yaml: declares test_tools_version input" {
+  # Replaces the v0.10.0 GITHUB_WORKFLOW_REF auto-parse, which read the
+  # caller's own tag ref (e.g. a downstream repo's v1.5.0) rather than
+  # template's pinned @tag, so downstream tag pushes tried to pull
+  # `ghcr.io/.../test-tools:<downstream-tag>` and failed 404.
   local _yaml="/source/.github/workflows/build-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
-  run grep -F 'GITHUB_WORKFLOW_REF' "${_yaml}"
+  run grep -F 'test_tools_version:' "${_yaml}"
   assert_success
-  # outputs var must carry the ghcr.io tag for downstream build-arg pass-through
-  run grep -F 'ghcr.io/ycpss91255-docker/test-tools' "${_yaml}"
+  # Default must be `latest` so unpinned callers still work.
+  run awk '
+    /test_tools_version:/ { inside = 1 }
+    inside && /^[[:space:]]+default:/ { print; exit }
+  ' "${_yaml}"
   assert_success
+  assert_output --partial '"latest"'
 }
 
-@test "build-worker.yaml: test build passes TEST_TOOLS_IMAGE build-arg" {
+@test "build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step" {
+  # Regression guard: the legacy auto-parse step must not come back.
+  # Comments referencing it are fine (they explain the deprecation).
   local _yaml="/source/.github/workflows/build-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
-  # The test-stage build step must include TEST_TOOLS_IMAGE so the
-  # downstream Dockerfile's `FROM ${TEST_TOOLS_IMAGE}` stage resolves
-  # to the GHCR image (not the local fallback tag).
+  run grep -Fc 'Resolve template version for test-tools image' "${_yaml}"
+  assert_output "0"
+}
+
+@test "build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs" {
+  local _yaml="/source/.github/workflows/build-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
   run awk '
     /- name: Build test stage/ { inside = 1 }
     inside && /^[[:space:]]*- name:/ && !/Build test stage/ { inside = 0 }
     inside { print }
   ' "${_yaml}"
   assert_success
-  assert_output --partial 'TEST_TOOLS_IMAGE='
+  # build-arg must wire inputs.test_tools_version into the ghcr tag
+  assert_output --partial 'TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
 }
 
 # ════════════════════════════════════════════════════════════════════

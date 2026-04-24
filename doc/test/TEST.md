@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **685 tests** total (642 unit + 43 integration).
+Template self-tests: **686 tests** total (643 unit + 43 integration).
 
 ## Test Files
 
@@ -188,7 +188,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (118)
+### test/unit/template_spec.bats (119)
 
 | Test | Description |
 |------|-------------|
@@ -291,8 +291,9 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
 | `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
-| `build-worker.yaml: resolves template version from GITHUB_WORKFLOW_REF` | GHCR tag resolution |
-| `build-worker.yaml: test build passes TEST_TOOLS_IMAGE build-arg` | build-arg wiring |
+| `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
+| `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
+| `build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs` | build-arg wiring |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
