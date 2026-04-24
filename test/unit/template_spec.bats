@@ -470,6 +470,20 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)" {
+  # Regression guard: `ARG TARGETARCH=amd64` with a default shadows
+  # BuildKit's per-platform auto-inject (moby/buildkit#3403), which
+  # caused every multi-arch build to fall back to amd64 — arm64 image
+  # variants shipped x86_64 shellcheck / hadolint binaries. Symptom
+  # downstream: `shellcheck: Exec format error` on arm64 CI.
+  run grep -E '^ARG TARGETARCH=' /source/dockerfile/Dockerfile.test-tools
+  assert_failure
+  # But the bare declaration must still be there so the stage can
+  # consume the BuildKit-injected value.
+  run grep -E '^ARG TARGETARCH$' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools branches case for amd64 and arm64" {
   # Must handle both common arches; amd64 → x86_64 binaries,
   # arm64 → aarch64 (shellcheck) + arm64 (hadolint) binaries.

@@ -20,10 +20,13 @@ RUN apk add --no-cache git && \
 
 FROM alpine:latest AS lint-tools
 # TARGETARCH is auto-populated by BuildKit (docker 23+) with "amd64" /
-# "arm64" / etc. The default handles the rare case where a legacy
-# builder doesn't provide it; override via --build-arg TARGETARCH=<arch>
-# if you build outside BuildKit.
-ARG TARGETARCH=amd64
+# "arm64" / etc. Do NOT set a default — a default value shadows
+# BuildKit's auto-inject (moby/buildkit#3403), which caused every
+# multi-arch build of this file to fall back to amd64 and ship
+# x86_64 shellcheck / hadolint inside the arm64 image variant
+# (visible symptom: `shellcheck: Exec format error` on arm64 downstream
+# CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
+ARG TARGETARCH
 RUN apk add --no-cache curl xz && \
     case "${TARGETARCH}" in \
       amd64)  sc_arch="x86_64";  hd_arch="x86_64" ;; \

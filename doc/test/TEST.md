@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **674 tests** total (631 unit + 43 integration).
+Template self-tests: **675 tests** total (632 unit + 43 integration).
 
 ## Test Files
 
@@ -188,7 +188,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (115)
+### test/unit/template_spec.bats (116)
 
 | Test | Description |
 |------|-------------|
@@ -266,6 +266,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
+| `Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)` | multi-arch build regression |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
 | `build.sh sources _lib.sh` | build.sh uses shared lib |
 | `run.sh sources _lib.sh` | run.sh uses shared lib |

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Dockerfile.test-tools` `ARG TARGETARCH=amd64` default shadowed BuildKit's per-platform auto-inject** ([moby/buildkit#3403](https://github.com/moby/buildkit/issues/3403)). Every multi-arch build published via `release-test-tools.yaml` (v0.9.13, v0.10.0-rc1) therefore fell back to `amd64` and shipped x86_64 `shellcheck` / `hadolint` binaries inside the arm64 image variant. Symptom downstream: `shellcheck: Exec format error` on arm64 CI (ros1_bridge PR #27 first surfaced it). Fix: declare `ARG TARGETARCH` without default so BuildKit's injected value drives the `case` branch. Regression test added: `Dockerfile.test-tools ARG TARGETARCH has no default value`. Requires a new tag + `release-test-tools.yaml` re-run to reissue `:v0.10.0-rc2` + `:latest` on GHCR.
+
 ## [v0.10.0-rc1] - 2026-04-24
 
 Release candidate for v0.10.0. BREAKING: `run.sh` arg semantics realigned.
