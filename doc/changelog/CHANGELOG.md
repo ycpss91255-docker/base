@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.1] - 2026-04-24
+
+Critical hotfix for v0.10.0. Downstream repos cutting their own release tag (`v*`) hit a hard 404 in the `test` stage via `build-worker.yaml`'s wrong-ref parse, blocking `call-release`. **Strongly recommended** for any downstream repo planning to cut a release.
+
 ### Changed
 - **BREAKING for callers pinned to `@v0.10.0`**: `build-worker.yaml` gains a new input `test_tools_version` (default `"latest"`). Downstream `main.yaml` should pin it to the template release they upgraded from (e.g. `test_tools_version: v0.10.1`) for reproducibility. Repos on `@v0.10.0` or below that never cut a release tag keep working on unpinned `:latest` (unchanged from v0.10.0's silent GHCR fallback during branch / PR pushes).
 
