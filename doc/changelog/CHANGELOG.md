@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.11] - 2026-04-24
+
 ### Fixed
 - **`_lib.sh` fallback `_detect_lang` returned `"zh"` for `zh_TW` (issue
   #103)** — a copy-paste typo in the fallback used when `i18n.sh` was
