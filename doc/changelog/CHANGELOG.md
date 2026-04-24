@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-arch support in `build-worker.yaml`** — new `platforms` input
+  (default `"linux/amd64"`, accepts `"linux/amd64,linux/arm64"`). Each
+  requested platform runs as a parallel matrix shard on its own native
+  runner (amd64 → `ubuntu-latest`, arm64 → `ubuntu-24.04-arm`), so arm64
+  builds avoid QEMU emulation and stay in the 5-15 min range instead of
+  30-60 min. Full pipeline (test-tools → test stage smoke → devel →
+  runtime) runs natively per platform. Covers Jetson (Nano / Xavier /
+  Orin, all aarch64) and modern Raspberry Pi (4 / 5 on 64-bit OS) and
+  standard x86 hosts. 32-bit ARM (armv7/v6) intentionally unsupported —
+  no native runner exists and QEMU emulation would balloon CI time;
+  modern Pi defaults to 64-bit OS.
+
+### Changed
+- **`build-worker.yaml` now uses the `docker-container` buildx driver**
+  (was `docker`). Required for multi-arch builds. Side effect:
+  `test-tools:local` is built via `docker/build-push-action@v6` (not
+  plain `docker build`) so the tag lands in buildx's internal image
+  store, visible to the subsequent test-stage build's
+  `COPY --from=test-tools:local` on the same builder.
+- **Matrix job names**: per-platform shards are called
+  `call-docker-build / build (linux/amd64)` etc. A stable-name
+  aggregator job `call-docker-build / docker-build` gates on all
+  shards — downstream `main` branch protection rules that require
+  `call-docker-build / docker-build` keep working without changes.
+
 ## [v0.9.9] - 2026-04-24
 
 ### Added

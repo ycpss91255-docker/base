@@ -17,10 +17,83 @@ on:
         type: boolean
         default: true
         description: "Whether to build runtime stage"
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+        description: |
+          Comma-separated target platforms. Each runs as a parallel job on
+          its own native runner (linux/amd64 → ubuntu-latest, linux/arm64
+          → ubuntu-24.04-arm), so arm64 builds avoid QEMU emulation
+          (which would take 30-60 min per run on an amd64 host) and stay
+          in the 5-15 min range.
+
+          Each matrix shard runs the full pipeline (test-tools build,
+          test stage smoke tests, devel stage, runtime stage) natively
+          for its platform.
+
+          Default "linux/amd64" preserves single-platform behavior —
+          existing downstream repos see no CI change until they opt in
+          by adding `platforms: linux/amd64,linux/arm64` in their
+          main.yaml call.
+
+          Supported values: linux/amd64, linux/arm64. Other values are
+          rejected by the compute-matrix step.
 
 jobs:
-  docker-build:
+  # ────────────────────────────────────────────────────────────────
+  # Parse the comma-separated `platforms` input into a matrix
+  # definition. Each supported platform gets the right runner label
+  # (native arm64 runners are available for public repos under the
+  # ycpss91255-docker org) and a canonical HARDWARE build-arg value.
+  # ────────────────────────────────────────────────────────────────
+  compute-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          items=""
+          IFS=',' read -ra plats <<< "${PLATFORMS}"
+          for p in "${plats[@]}"; do
+            p="$(echo "${p}" | tr -d '[:space:]')"
+            case "${p}" in
+              linux/amd64)
+                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"},'
+                ;;
+              linux/arm64)
+                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"aarch64"},'
+                ;;
+              "")
+                continue
+                ;;
+              *)
+                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
+                exit 1
+                ;;
+            esac
+          done
+          if [ -z "${items}" ]; then
+            echo "::error::No valid platforms found in '${PLATFORMS}'"
+            exit 1
+          fi
+          json="{\"include\":[${items%,}]}"
+          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+
+  # ────────────────────────────────────────────────────────────────
+  # Per-platform build. Each shard runs on its native runner so
+  # arm64 doesn't pay QEMU emulation cost. Full test + devel +
+  # runtime pipeline runs per platform.
+  # ────────────────────────────────────────────────────────────────
+  build:
+    needs: compute-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,9 +116,17 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
+        # docker-container driver is required even on single-platform
+        # builds now: the downstream Dockerfile's `test` stage
+        # references `test-tools:local` via `COPY --from=`, and with
+        # docker-container the tag built in the previous buildx step
+        # stays in the same builder's internal store, which subsequent
+        # build-push-action steps can resolve. The legacy `docker`
+        # driver stores images in the host daemon, which isn't
+        # accessible from a matrix job's buildx container.
         uses: docker/setup-buildx-action@v3
         with:
-          driver: docker
+          driver: docker-container
 
       - name: Generate .env
         run: |
@@ -54,7 +135,7 @@ jobs:
           USER_GROUP=ci
           USER_UID=1000
           USER_GID=1000
-          HARDWARE=x86_64
+          HARDWARE=${{ matrix.hardware }}
           DOCKER_HUB_USER=ci
           GPU_ENABLED=false
           IMAGE_NAME=${{ inputs.image_name }}
@@ -63,24 +144,32 @@ jobs:
           mkdir -p /tmp/workspace
 
       - name: Build test-tools image
-        run: |
-          if [ -f template/dockerfile/Dockerfile.test-tools ]; then
-            docker build -t test-tools:local \
-              -f template/dockerfile/Dockerfile.test-tools .
-          fi
+        # Must use buildx (not plain `docker build`) so `test-tools:local`
+        # lands in buildx's internal image store — subsequent build
+        # steps on the same builder resolve `COPY --from=test-tools:local`
+        # from there. docker-container's builder container doesn't see
+        # host daemon images.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: template/dockerfile/Dockerfile.test-tools
+          tags: test-tools:local
+          platforms: ${{ matrix.platform }}
+          push: false
 
       - name: Build test stage (includes smoke tests)
         uses: docker/build-push-action@v6
         with:
           context: .
           target: test
+          platforms: ${{ matrix.platform }}
           push: false
           build-args: |
             USER=ci
             GROUP=ci
             UID=1000
             GID=1000
-            HARDWARE=x86_64
+            HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
 
       - name: Build devel stage
@@ -88,13 +177,14 @@ jobs:
         with:
           context: .
           target: devel
+          platforms: ${{ matrix.platform }}
           push: false
           build-args: |
             USER=ci
             GROUP=ci
             UID=1000
             GID=1000
-            HARDWARE=x86_64
+            HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
@@ -103,6 +193,7 @@ jobs:
         with:
           context: .
           target: runtime
+          platforms: ${{ matrix.platform }}
           push: false
           build-args: |
             USER=ci
@@ -110,3 +201,25 @@ jobs:
             UID=1000
             GID=1000
             ${{ inputs.build_args }}
+
+  # ────────────────────────────────────────────────────────────────
+  # Stable-name aggregator so downstream branch-protection rules
+  # keep working. Keeping this job's name as `docker-build`
+  # preserves the status-check context that public-ycpss91255-docker
+  # container repos currently require on their `main` branch
+  # (`call-docker-build / docker-build`). Matrix shards publish as
+  # `call-docker-build / build (linux/amd64)` etc. — those are the
+  # actual build runs; this one just gates on them.
+  # ────────────────────────────────────────────────────────────────
+  docker-build:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix result
+        run: |
+          result="${{ needs.build.result }}"
+          echo "Matrix build result: ${result}"
+          if [ "${result}" != "success" ]; then
+            exit 1
+          fi
