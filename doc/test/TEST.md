@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **632 tests** total (589 unit + 43 integration).
+Template self-tests: **645 tests** total (602 unit + 43 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (34)
+### test/unit/lib_spec.bats (39)
 
 | Test | Description |
 |------|-------------|
@@ -61,7 +61,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
 
-### test/unit/tui_spec.bats (73)
+### test/unit/tui_spec.bats (81)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string

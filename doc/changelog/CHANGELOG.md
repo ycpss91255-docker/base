@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`_lib.sh` fallback `_detect_lang` returned `"zh"` for `zh_TW` (issue
+  #103)** — a copy-paste typo in the fallback used when `i18n.sh` is
+  absent (the Dockerfile `/lint` stage). All other detection sites
+  (`i18n.sh`, `build.sh`, `run.sh`) return `"zh-TW"`; the inconsistent
+  `"zh"` meant zh-TW users in that code path fell through to English
+  because the i18n tables are keyed on `zh-TW:`, not `zh:`. Fixed to
+  `"zh-TW"` with a locked-in regression test that spins up `_lib.sh`
+  without a sibling `i18n.sh` and asserts its fallback agrees with the
+  primary for every supported locale.
+
+### Changed
+- **`_sanitize_lang` warning now localises to the system `$LANG`**. v0.9.7
+  Agent A scoped this helper out of i18n; a user with `LANG=zh_TW.UTF-8`
+  who typed `--lang xxx` still saw an English WARNING. Now we re-detect
+  from the system env (can't trust `_LANG` — it holds the invalid input
+  the user just passed) and print the warning in zh-TW / zh-CN / ja
+  where applicable, falling back to English for other locales.
+
+### Added
+- **Coverage audit follow-up (+9 unit tests)**. Kcov run flagged four
+  small untested branches in `_lib.sh` and `_tui_conf.sh`; filling them
+  raised non-TUI coverage from 94.4% → 95.7%. New tests:
+  - `_lib_msg count` / `caps` translation keys exercised in all four
+    languages (previously only Files / Identity / etc. were asserted).
+  - `_mount_container_path` helper — four cases (plain /
+    with-mode / env-var-interpolated / no-colon fallback). The symmetric
+    `_mount_host_path` was already covered; the container-side parser
+    had zero unit tests.
+  - `_upsert_conf_value` "section not found" branch — appends a fresh
+    `[section]` header + key when called against a conf that doesn't
+    yet have that section.
+  - `_upsert_conf_value` "section present, key absent at EOF" branch —
+    appends the key to the last section when target key isn't there.
+  - `_write_setup_conf` final-section override flush — an override key
+    whose target is the LAST section in the template gets emitted
+    via the EOF-flush path (previously only the mid-file append branch
+    was asserted).
+  - `_write_setup_conf` removed_keys + flush interplay — ensures a key
+    listed in `removed_keys` does NOT reappear via the EOF flush.
+
+  TUI interactive flows (`_edit_section_*`) in `setup_tui.sh` remain
+  at ~17% — they require a dialog/whiptail stub framework to drive,
+  cost doesn't justify coverage-for-its-own-sake. `setup_tui.sh`
+  validators / I/O helpers are covered at unit level via `tui_spec`.
+
 ## [v0.9.10] - 2026-04-24
 
 ### Added

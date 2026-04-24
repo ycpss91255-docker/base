@@ -50,6 +50,27 @@ setup() {
   assert_output "ja"
 }
 
+@test "_lib.sh fallback _detect_lang (no i18n.sh) agrees with primary for every locale (#103)" {
+  # _lib.sh's fallback `_detect_lang` only fires when i18n.sh is
+  # absent (Dockerfile /lint stage). v0.9.10 had a copy-paste typo
+  # returning "zh" for zh_TW where i18n.sh returns "zh-TW" — zh-TW
+  # users in /lint would fall through to English messages because
+  # the i18n tables are keyed on "zh-TW:", not "zh:". Guard against
+  # the four fallbacks drifting again: copy _lib.sh to a temp dir
+  # without i18n.sh so the `else` branch fires, then compare.
+  local _tmp="${BATS_TEST_TMPDIR}/lib_no_i18n"
+  mkdir -p "${_tmp}"
+  cp "${LIB}" "${_tmp}/_lib.sh"
+  # Deliberately NOT copying i18n.sh → fallback _detect_lang runs.
+
+  local _locale _got _want
+  for _locale in en_US.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8 zh_SG.UTF-8 ja_JP.UTF-8; do
+    _got="$(env LANG="${_locale}" bash -c "source '${_tmp}/_lib.sh'; echo \"\${_LANG}\"")"
+    _want="$(env LANG="${_locale}" bash -c "source '${LIB%/*}/i18n.sh'; echo \"\${_LANG}\"")"
+    assert_equal "${_got}" "${_want}"
+  done
+}
+
 # ── double-source guard ─────────────────────────────────────────────────────
 
 @test "_lib.sh is idempotent when sourced twice" {
@@ -166,8 +187,9 @@ EOF
   assert_output "ja"
 }
 
-@test "_sanitize_lang warns and falls back to 'en' for unsupported values" {
-  run bash -c "source ${LIB}; v=foo; _sanitize_lang v test 2>&1; echo \"--VALUE=\${v}\""
+@test "_sanitize_lang warns and falls back to 'en' for unsupported values (English default)" {
+  # Locale-agnostic / English system: English WARNING is emitted.
+  run bash -c "unset LANG; source ${LIB}; v=foo; _sanitize_lang v test 2>&1; echo \"--VALUE=\${v}\""
   assert_success
   assert_output --partial "WARNING"
   assert_output --partial "foo"
@@ -175,10 +197,36 @@ EOF
 }
 
 @test "_sanitize_lang warns for the old bare 'zh' code (post zh→zh-TW rename)" {
-  run bash -c "source ${LIB}; v=zh; _sanitize_lang v tui 2>&1; echo \"--VALUE=\${v}\""
+  run bash -c "unset LANG; source ${LIB}; v=zh; _sanitize_lang v tui 2>&1; echo \"--VALUE=\${v}\""
   assert_success
   assert_output --partial "WARNING"
   assert_output --partial "--VALUE=en"
+}
+
+@test "_sanitize_lang warning is localized to system LANG (zh-TW)" {
+  # Regression: v0.9.7 Agent A scoped this helper out of i18n coverage.
+  # v0.9.11 localizes the warning using the SYSTEM LANG (not _LANG,
+  # which holds the invalid input), so a user whose shell is zh-TW sees
+  # the warning in Traditional Chinese rather than English.
+  run env LANG=zh_TW.UTF-8 bash -c "source ${LIB}; v=foo; _sanitize_lang v test 2>&1"
+  assert_success
+  assert_output --partial "警告"
+  assert_output --partial "foo"
+  refute_output --partial "WARNING"
+}
+
+@test "_sanitize_lang warning is localized to system LANG (zh-CN)" {
+  run env LANG=zh_CN.UTF-8 bash -c "source ${LIB}; v=foo; _sanitize_lang v test 2>&1"
+  assert_success
+  assert_output --partial "警告"
+  refute_output --partial "WARNING"
+}
+
+@test "_sanitize_lang warning is localized to system LANG (ja)" {
+  run env LANG=ja_JP.UTF-8 bash -c "source ${LIB}; v=foo; _sanitize_lang v test 2>&1"
+  assert_success
+  assert_output --partial "警告: サポート外"
+  refute_output --partial "WARNING"
 }
 
 # ── _dump_conf_section / _print_config_summary ─────────────────────────────
@@ -356,6 +404,27 @@ EOF
   run bash -c "source ${LIB}; _LANG=ja; echo \"\$(_lib_msg files)|\$(_lib_msg identity)|\$(_lib_msg user)|\$(_lib_msg hardware)\""
   assert_success
   assert_output "ファイル|ID|ユーザー|ハードウェア"
+}
+
+@test "_lib_msg returns count / caps across all languages" {
+  # Regression: these two keys are only invoked inline in the
+  # "Resolved" block of _print_config_summary and were missed by
+  # spot-check assertions; kcov flagged both branches as uncovered.
+  run bash -c "source ${LIB}; _LANG=en; echo \"\$(_lib_msg count)|\$(_lib_msg caps)\""
+  assert_success
+  assert_output "count|caps"
+
+  run bash -c "source ${LIB}; _LANG=zh-TW; echo \"\$(_lib_msg count)|\$(_lib_msg caps)\""
+  assert_success
+  assert_output "數量|能力"
+
+  run bash -c "source ${LIB}; _LANG=zh-CN; echo \"\$(_lib_msg count)|\$(_lib_msg caps)\""
+  assert_success
+  assert_output "数量|能力"
+
+  run bash -c "source ${LIB}; _LANG=ja; echo \"\$(_lib_msg count)|\$(_lib_msg caps)\""
+  assert_success
+  assert_output "数量|ケーパビリティ"
 }
 
 @test "_lib_msg falls back to English for unknown _LANG value" {
