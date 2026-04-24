@@ -186,10 +186,14 @@ _upgrade() {
   _log "Step 4/4: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
-    # Replace @vX.Y.Z with new version in reusable workflow references.
-    # Match each worker file by name to avoid greedy patterns clobbering siblings.
-    sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|g" "${main_yaml}"
-    sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|g" "${main_yaml}"
+    # Replace @vX.Y.Z(-prerelease)? with new version in reusable workflow
+    # references. Match each worker file by name to avoid greedy patterns
+    # clobbering siblings. The `-E` regex anchors on a full semver shape
+    # (optional pre-release per §9) — the prior `[0-9.]*` stopped at the
+    # first `-`, so upgrading from an RC tag (e.g. v0.10.0-rc1 → -rc2)
+    # left the old suffix in place and produced `@v0.10.0-rc2-rc1`.
+    sed -i -E "s|build-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|build-worker.yaml@${target_ver}|g" "${main_yaml}"
+    sed -i -E "s|release-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
   fi
 

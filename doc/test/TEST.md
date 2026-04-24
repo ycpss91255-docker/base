@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **675 tests** total (632 unit + 43 integration).
+Template self-tests: **677 tests** total (634 unit + 43 integration).
 
 ## Test Files
 
@@ -188,7 +188,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (116)
+### test/unit/template_spec.bats (118)
 
 | Test | Description |
 |------|-------------|
@@ -288,6 +288,8 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `upgrade.sh --gen-conf delegates to init.sh --gen-conf` | Delegation |
 | `upgrade.sh --help mentions --gen-conf` | Help text |
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
+| `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
+| `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
 | `build-worker.yaml: resolves template version from GITHUB_WORKFLOW_REF` | GHCR tag resolution |
 | `build-worker.yaml: test build passes TEST_TOOLS_IMAGE build-arg` | build-arg wiring |
