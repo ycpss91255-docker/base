@@ -288,6 +288,23 @@ make upgrade
 ./template/upgrade.sh v0.3.0
 ```
 
+`upgrade.sh` 一次完成：`git subtree pull --squash`、post-pull 完整性檢查（偵測到 destructive FF 會自動 rollback）、`./template/init.sh` 重整 root symlinks、以及 sed `.github/workflows/main.yaml` 裡的 `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`。不要手動 `git subtree pull` — sed 與 init 步驟很容易漏掉。
+
+#### 自動升版（選用）
+
+下游 repo 可以讓 Dependabot 在 `template` 出新 tag 時自動開 PR。加入 `.github/dependabot.yml`：
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/template/...@vX.Y.Z` ref，比對 template 最新 tag 後開 PR。subtree 本身仍需在本地跑 `./template/upgrade.sh vX.Y.Z` — Dependabot 只負責 workflow ref。
+
 ## CI Reusable Workflows
 
 各 repo 將本地的 `build-worker.yaml` / `release-worker.yaml` 替換為呼叫此 repo 的 reusable workflows：

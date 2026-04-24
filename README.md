@@ -289,6 +289,31 @@ make upgrade
 ./template/upgrade.sh v0.3.0
 ```
 
+`upgrade.sh` handles the full cycle in one go: `git subtree pull --squash`,
+post-pull integrity check (rolls back on destructive FF), `./template/init.sh`
+to resync root symlinks, and `sed` of `.github/workflows/main.yaml`'s
+`build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` references. Don't
+subtree pull by hand — the sed + init steps are easy to forget.
+
+#### Automated version bumps (optional)
+
+Downstream repos can let Dependabot open PRs whenever a new `template` tag
+ships. Add `.github/dependabot.yml`:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot notices the `uses: ycpss91255-docker/template/...@vX.Y.Z` refs in
+`main.yaml`, compares against the template's latest tag, and files a PR. You
+still run `./template/upgrade.sh vX.Y.Z` locally to sync the subtree itself —
+Dependabot only bumps the workflow refs.
+
 ## CI Reusable Workflows
 
 Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to this repo's reusable workflows:

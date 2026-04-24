@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `.github/dependabot.yml` — weekly `github-actions` ecosystem scan so template's own consumed actions (`actions/checkout`, `docker/*`, etc.) stay current without manual audits.
+
+### Changed
+- README "Updating" section (4 languages) clarifies that `./template/upgrade.sh` already automates subtree pull + integrity check + `init.sh` resync + `main.yaml` `@vX.Y.Z` sed; hand-rolling `git subtree pull` is discouraged since the sed + init steps are easy to forget. Adds a Dependabot snippet downstream repos can drop into their `.github/dependabot.yml` so template version bumps surface as PRs automatically (Dependabot handles workflow refs only; subtree still needs `upgrade.sh`).
+
 ## [v0.9.11] - 2026-04-24
 
 ### Fixed

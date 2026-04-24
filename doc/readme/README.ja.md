@@ -299,6 +299,23 @@ make upgrade
 ./template/upgrade.sh v0.3.0
 ```
 
+`upgrade.sh` は一度に完結します：`git subtree pull --squash`、post-pull 整合性チェック（destructive FF を検出したら自動 rollback）、`./template/init.sh` による root symlinks の再同期、そして `.github/workflows/main.yaml` 内の `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` を sed で更新します。手動で `git subtree pull` しないでください — sed と init の手順を忘れがちです。
+
+#### 自動バージョン更新（任意）
+
+ダウンストリーム repo は、`template` の新しい tag が出るたびに Dependabot が PR を立てるよう設定できます。`.github/dependabot.yml` を追加します：
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `./template/upgrade.sh vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
+
 ## CI Reusable Workflows
 
 各 repo のローカル `build-worker.yaml` / `release-worker.yaml` を、本 repo の reusable workflows 呼び出しに置き換えます：
