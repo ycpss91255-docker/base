@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.0-rc1] - 2026-04-24
+
+Release candidate for v0.10.0. BREAKING: `run.sh` arg semantics realigned.
+Validate on `ros1_bridge` (`./run.sh -t runtime` attaches to bridge logs,
+`./run.sh -t runtime bash` drops into runtime shell) + at least one
+GUI-using env repo before promoting to v0.10.0.
+
 ### Added
 - **`runtime` compose service auto-emission (closes #108)**. `setup.sh` now detects a `FROM <base> AS runtime` stage in the sibling Dockerfile and emits a paired `runtime` service that `extends: { service: devel }` (inherits volumes / env / network / GPU / caps), overrides `build.target`, `image` (`:runtime` tag), `container_name` (`<name>-runtime`), and flips `stdin_open: false` / `tty: false` for headless auto-run. Gated by `profiles: [runtime]` so plain `compose up` still scopes to `devel`; `compose run runtime` / `compose up runtime` (and `./run.sh -t runtime`) target it explicitly. Repos without an `AS runtime` stage get no emission (no broken service entry).
 
