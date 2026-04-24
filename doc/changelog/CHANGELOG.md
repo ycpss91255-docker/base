@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.12] - 2026-04-24
+
 ### Added
 - `.github/dependabot.yml` — weekly `github-actions` ecosystem scan so template's own consumed actions (`actions/checkout`, `docker/*`, etc.) stay current without manual audits.
 
