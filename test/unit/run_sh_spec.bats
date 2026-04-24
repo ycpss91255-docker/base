@@ -239,10 +239,37 @@ EOS
 }
 
 @test "run.sh non-devel target routes to 'compose run --rm'" {
-  run bash "${SANDBOX}/run.sh" --dry-run test
+  # -t is now the explicit target flag; positional would be treated as CMD.
+  run bash "${SANDBOX}/run.sh" --dry-run -t test
   assert_success
   assert_output --partial "run"
   assert_output --partial "--rm"
+}
+
+@test "run.sh positional args after options become CMD passthrough (devel)" {
+  # New semantics: positionals = cmd, default target = devel.
+  # Expect exec of `ls /tmp` inside the devel service.
+  run bash "${SANDBOX}/run.sh" --dry-run ls /tmp
+  assert_success
+  assert_output --partial "exec"
+  assert_output --partial "ls /tmp"
+}
+
+@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t runtime bash
+  assert_success
+  assert_output --partial "run"
+  assert_output --partial "--rm"
+  assert_output --partial "runtime"
+  assert_output --partial "bash"
+}
+
+@test "run.sh -d combined with CMD is rejected with exit 2" {
+  run bash "${SANDBOX}/run.sh" --dry-run -d ls /tmp
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "does not accept a CMD"
+  assert_output --partial "./exec.sh"
 }
 
 @test "run.sh --instance is appended to project/container name" {

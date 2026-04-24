@@ -502,3 +502,130 @@ teardown() {
   (( _tty_line < _runtime_line ))
   (( _runtime_line < _cap_line ))
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Runtime service auto-emission (issue #108)
+# ════════════════════════════════════════════════════════════════════
+#
+# When the sibling Dockerfile declares `FROM <base> AS runtime`, setup.sh
+# emits a dedicated `runtime` compose service alongside `devel`/`test`.
+# Absent that stage, emission is skipped so plain-dev repos don't get a
+# broken service entry.
+
+@test "generate_compose_yaml emits runtime service when Dockerfile has AS runtime" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS devel
+CMD ["bash"]
+
+FROM devel AS runtime
+CMD ["/entrypoint.sh"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^  runtime:' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml skips runtime service when Dockerfile lacks AS runtime" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS devel
+CMD ["bash"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -cE '^  runtime:' "${COMPOSE_OUT}"
+  assert_output "0"
+}
+
+@test "generate_compose_yaml skips runtime service when Dockerfile is absent" {
+  # No Dockerfile in TEMP_DIR at all.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -cE '^  runtime:' "${COMPOSE_OUT}"
+  assert_output "0"
+}
+
+@test "runtime service extends devel and overrides target/image/tty/profile" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS devel
+CMD ["bash"]
+
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # extends → devel (compose merges base volumes, env, caps, etc.)
+  run grep -F 'service: devel' "${COMPOSE_OUT}"
+  assert_success
+  # build target override
+  run grep -F 'target: runtime' "${COMPOSE_OUT}"
+  assert_success
+  # image tag is :runtime (not :devel)
+  run grep -E '^    image:.*:runtime$' "${COMPOSE_OUT}"
+  assert_success
+  # container_name uses -runtime suffix + INSTANCE_SUFFIX support
+  run grep -F 'container_name: myrepo-runtime${INSTANCE_SUFFIX:-}' "${COMPOSE_OUT}"
+  assert_success
+  # non-interactive (runtime is headless auto-run, Dockerfile CMD drives)
+  run grep -E '^    stdin_open: false$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^    tty: false$' "${COMPOSE_OUT}"
+  assert_success
+  # profiles gate prevents plain `compose up` from starting runtime.
+  # `--` guards against grep reading the leading `-` as an option.
+  run grep -F -- '- runtime' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "runtime service appears between devel and test blocks" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS devel
+CMD ["bash"]
+
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  local _devel _runtime _test
+  _devel="$(grep -n '^  devel:'   "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _runtime="$(grep -n '^  runtime:' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _test="$(grep -n '^  test:'    "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  (( _devel < _runtime ))
+  (( _runtime < _test ))
+}
+
+@test "runtime detection is robust against weird whitespace" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04    AS    devel
+CMD ["bash"]
+
+FROM   devel   AS   runtime
+CMD ["/app"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^  runtime:' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "runtime detection ignores non-runtime stage names" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS runtime-base
+FROM runtime-base AS devel
+CMD ["bash"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # "runtime-base" doesn't count as the runtime stage (strict match).
+  run grep -cE '^  runtime:' "${COMPOSE_OUT}"
+  assert_output "0"
+}

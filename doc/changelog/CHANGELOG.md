@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`runtime` compose service auto-emission (closes #108)**. `setup.sh` now detects a `FROM <base> AS runtime` stage in the sibling Dockerfile and emits a paired `runtime` service that `extends: { service: devel }` (inherits volumes / env / network / GPU / caps), overrides `build.target`, `image` (`:runtime` tag), `container_name` (`<name>-runtime`), and flips `stdin_open: false` / `tty: false` for headless auto-run. Gated by `profiles: [runtime]` so plain `compose up` still scopes to `devel`; `compose run runtime` / `compose up runtime` (and `./run.sh -t runtime`) target it explicitly. Repos without an `AS runtime` stage get no emission (no broken service entry).
+
+### Changed
+- **BREAKING: `./run.sh` arg semantics aligned with `docker run <image> [cmd]` (closes #118).**
+  - Target is now the explicit `-t TARGET` / `--target TARGET` flag (default `devel`).
+  - Positional args after options are the CMD to run inside the container, mirroring `exec.sh`. Empty CMD → Dockerfile CMD runs (`devel` = `bash`, `runtime` = its auto-run service). Non-empty CMD → overrides Dockerfile CMD.
+  - `-d` + CMD → error (exit 2) with a pointer to `./exec.sh` for the detached-container cmd case; `-d` alone is unchanged (`compose up -d TARGET`).
+  - Migration: `./run.sh runtime` → `./run.sh -t runtime`. `./run.sh test` → `./run.sh -t test`. Plain `./run.sh` still drops into devel bash (unchanged UX).
+
 ## [v0.9.13] - 2026-04-24
 
 ### Added

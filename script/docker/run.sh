@@ -58,74 +58,82 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME]
+              [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [CMD...]
 
 選項:
   -h, --help        顯示此說明
-  -d, --detach      背景執行（docker compose up -d）
+  -t, --target T    Compose service 名稱（預設: devel；例: runtime）
+  -d, --detach      背景執行（docker compose up -d，不接受 CMD）
   -s, --setup       強制重跑 setup.sh 重新生成 .env + compose.yaml
                     （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
   --dry-run         只印出將執行的 docker 指令，不實際執行
   --instance NAME   啟動命名 instance（與預設並行,suffix=-NAME）
   --lang LANG       設定訊息語言（預設: en）
 
-目標:
-  devel    開發環境（預設）
-  runtime  最小化 runtime
+CMD: 啟動容器後要執行的指令，對齊 `docker run <image> [cmd]` 語意：
+  無 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
+  有 CMD  → 覆蓋 Dockerfile CMD（例: ./run.sh -t runtime bash 進 runtime shell）
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME]
+              [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [CMD...]
 
 选项:
   -h, --help        显示此说明
-  -d, --detach      后台运行（docker compose up -d）
+  -t, --target T    Compose service 名称（默认: devel；例: runtime）
+  -d, --detach      后台运行（docker compose up -d，不接受 CMD）
   -s, --setup       强制重跑 setup.sh 重新生成 .env + compose.yaml
                     （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
   --dry-run         只打印将执行的 docker 命令，不实际执行
   --instance NAME   启动命名 instance（与默认并行,suffix=-NAME）
   --lang LANG       设置消息语言（默认: en）
 
-目标:
-  devel    开发环境（默认）
-  runtime  最小化 runtime
+CMD: 启动容器后要执行的指令，对齐 `docker run <image> [cmd]` 语义:
+  无 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
+  有 CMD  → 覆盖 Dockerfile CMD（例: ./run.sh -t runtime bash 进 runtime shell）
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+使用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME]
+               [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
-  -d, --detach      バックグラウンドで実行（docker compose up -d）
+  -t, --target T    Compose サービス名（デフォルト: devel；例: runtime）
+  -d, --detach      バックグラウンド実行（docker compose up -d、CMD は受け付けない）
   -s, --setup       setup.sh を強制実行して .env + compose.yaml を再生成
                     （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
   --instance NAME   名前付き instance を起動（デフォルトと並行、suffix=-NAME）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
 
-ターゲット:
-  devel    開発環境（デフォルト）
-  runtime  最小化ランタイム
+CMD: コンテナ起動後に実行するコマンド。`docker run <image> [cmd]` セマンティクス:
+  CMD 無し → Dockerfile の CMD を実行（例: devel=bash, runtime=auto-run service）
+  CMD あり → Dockerfile CMD を上書き（例: ./run.sh -t runtime bash で runtime shell）
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+Usage: ./run.sh [-h] [-d|--detach] [-s|--setup] [--dry-run] [--instance NAME]
+               [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [CMD...]
 
 Options:
   -h, --help        Show this help
-  -d, --detach      Run in background (docker compose up -d)
+  -t, --target T    Compose service name (default: devel; e.g. runtime)
+  -d, --detach      Run in background (docker compose up -d; no CMD accepted)
   -s, --setup       Force rerun setup.sh to regenerate .env + compose.yaml
                     (default: auto-bootstrap if .env missing; warn on drift if present)
   --dry-run         Print the docker commands that would run, but do not execute
   --instance NAME   Start a named parallel instance (suffix=-NAME)
   --lang LANG       Set message language (default: en)
 
-Targets:
-  devel    Development environment (default)
-  runtime  Minimal runtime
+CMD: Command to run after the container starts; mirrors `docker run <image> [cmd]`:
+  no CMD  → run the Dockerfile CMD (e.g. devel=bash, runtime=auto-run service)
+  with CMD → override the Dockerfile CMD (e.g. ./run.sh -t runtime bash to shell in)
 EOF
       ;;
   esac
@@ -147,6 +155,7 @@ main() {
   local DETACH=false
   local TARGET="devel"
   local INSTANCE=""
+  local -a CMD_ARGS=()
   DRY_RUN=false
 
   while [[ $# -gt 0 ]]; do
@@ -175,13 +184,37 @@ main() {
         _sanitize_lang _LANG "run"
         shift 2
         ;;
+      -t|--target)
+        TARGET="${2:?"-t/--target requires a value (e.g. devel, runtime)"}"
+        shift 2
+        ;;
+      --)
+        shift
+        CMD_ARGS+=("$@")
+        break
+        ;;
       *)
-        TARGET="$1"
+        # Positional from here on is the CMD to run inside the container,
+        # mirroring `docker run <image> [cmd...]` semantics. Empty CMD_ARGS
+        # means "use the Dockerfile CMD".
+        CMD_ARGS+=("$1")
         shift
         ;;
     esac
   done
   export DRY_RUN
+
+  # -d is background `compose up`, which starts the service with its
+  # compose-level command (for devel: tty/stdin_open keep it alive; for
+  # runtime: the Dockerfile CMD runs headless). `up` has no slot for an
+  # override cmd, so -d + CMD is ambiguous — refuse rather than silently
+  # drop the cmd.
+  if [[ "${DETACH}" == true ]] && (( ${#CMD_ARGS[@]} > 0 )); then
+    printf "[run] ERROR: -d/--detach does not accept a CMD (got: %s). " "${CMD_ARGS[*]}" >&2
+    printf "Use './exec.sh -t %s %s' to run a command inside a detached container.\n" \
+      "${TARGET}" "${CMD_ARGS[*]}" >&2
+    exit 2
+  fi
 
   local _setup="${FILE_PATH}/template/script/docker/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
@@ -272,12 +305,25 @@ main() {
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
     # `./exec.sh`. Trap auto-`down` on exit to preserve the
     # "exit shell = container gone" semantic of the previous `compose run`.
+    # CMD_ARGS passthrough: empty → `bash` (matches Dockerfile CMD for devel);
+    # non-empty → override (e.g. `./run.sh ls /tmp`).
     trap _devel_cleanup EXIT
     _compose_project up -d "${TARGET}"
-    _compose_project exec "${TARGET}" bash
+    if (( ${#CMD_ARGS[@]} > 0 )); then
+      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+    else
+      _compose_project exec "${TARGET}" bash
+    fi
   else
-    # Other one-shot stages (test, runtime, ...): keep `compose run --rm`.
-    _compose_project run --rm "${TARGET}"
+    # Other one-shot stages (runtime, test, ...): `compose run --rm` with
+    # CMD passthrough. Empty CMD_ARGS → service's Dockerfile CMD runs
+    # (e.g. runtime auto-boots parameter_bridge). Non-empty overrides
+    # (e.g. `./run.sh -t runtime bash` to debug interactively).
+    if (( ${#CMD_ARGS[@]} > 0 )); then
+      _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
+    else
+      _compose_project run --rm "${TARGET}"
+    fi
   fi
 }
 

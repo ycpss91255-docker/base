@@ -693,6 +693,21 @@ generate_compose_yaml() {
     printf '    runtime: %s\n' "${_runtime}"
   }
 
+  # Detect `FROM … AS runtime` in the sibling Dockerfile — if present,
+  # emit a dedicated `runtime` compose service that extends `devel`'s
+  # baseline (same volumes / network / caps / GPU) but with its own
+  # image tag, container_name, and non-interactive tty settings so
+  # `./run.sh -t runtime` auto-runs the Dockerfile CMD (e.g. a
+  # parameter_bridge process). Absent `AS runtime` → skip emission so
+  # repos without a runtime stage don't get a broken service entry.
+  # Issue #108.
+  local _dockerfile _has_runtime=false
+  _dockerfile="$(dirname -- "${_out}")/Dockerfile"
+  if [[ -f "${_dockerfile}" ]] \
+     && grep -qE '^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$' "${_dockerfile}"; then
+    _has_runtime=true
+  fi
+
   # Convert space-separated caps to YAML array form [a, b, c]
   local -a _caps_arr=()
   read -ra _caps_arr <<< "${_gpu_caps}"
@@ -878,6 +893,33 @@ YAML
               capabilities: ${_caps_yaml}
 YAML
     fi
+
+    # runtime service (when Dockerfile has `AS runtime`): extends devel's
+    # baseline (volumes, network, GPU, capabilities), overrides target +
+    # image + container_name, disables tty/stdin_open since runtime is
+    # auto-run headless (Dockerfile CMD drives). profiles: [runtime]
+    # keeps plain `compose up` scoped to devel; `compose run runtime` or
+    # `compose up runtime` still works because explicit-service targeting
+    # bypasses the profile gate.
+    if [[ "${_has_runtime}" == true ]]; then
+      cat <<YAML
+
+  runtime:
+    extends:
+      service: devel
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: \${DOCKER_HUB_USER:-local}/${_name}:runtime
+    container_name: ${_name}-runtime\${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - runtime
+YAML
+    fi
+
     cat <<YAML
 
   test:

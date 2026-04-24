@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **664 tests** total (621 unit + 43 integration).
+Template self-tests: **674 tests** total (631 unit + 43 integration).
 
 ## Test Files
 
@@ -111,7 +111,7 @@ build invocation, and **runtime log-line i18n** (bootstrap /
 drift-regen / err_no_env messages translate in all four languages via
 the local `_msg()` table; English remains the default).
 
-### test/unit/run_sh_spec.bats (30)
+### test/unit/run_sh_spec.bats (33)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -156,7 +156,7 @@ Chinese / Simplified Chinese / Japanese translations of the
 no-instances message, `--all` multi-project teardown loop, and
 fallback `_detect_lang` branches.
 
-### test/unit/compose_gen_spec.bats (38)
+### test/unit/compose_gen_spec.bats (45)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -180,6 +180,13 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `extra volumes appended after baseline` | volumes list |
 | `empty extras => no extra mount lines` | empty list |
 | `with GUI+GPU+extras => all sections present` | fully loaded |
+| `emits runtime service when Dockerfile has AS runtime` | #108 auto-emit |
+| `skips runtime service when Dockerfile lacks AS runtime` | opt-out by absence |
+| `skips runtime service when Dockerfile is absent` | no-Dockerfile guard |
+| `runtime service extends devel and overrides target/image/tty/profile` | compose extends shape |
+| `runtime service appears between devel and test blocks` | ordering |
+| `runtime detection is robust against weird whitespace` | regex tolerance |
+| `runtime detection ignores non-runtime stage names` | strict match |
 
 ### test/unit/template_spec.bats (115)
 
