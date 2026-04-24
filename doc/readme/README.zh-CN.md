@@ -155,9 +155,7 @@ flowchart LR
 - `test` 总是从 `devel` 继承，所以 `test/smoke/<repo>_env.bats` 中的
   runtime assertion 所看到的二进制与文件，就是用户 `docker run ...
   <repo>:devel` 后会看到的内容。
-- `Dockerfile.test-tools` 另外构建一个 `test-tools:local` image（不在
-  上面的阶段链中），`test` 阶段通过 `COPY --from=test-tools:local`
-  把 bats / shellcheck / hadolint 二进制拉进来。
+- `Dockerfile.test-tools` 构建 lint/test 工具集（bats + shellcheck + hadolint）。下游 `test` 阶段通过 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 默认 `test-tools:local`（对应本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 构建到 host Docker daemon）。CI 则覆盖成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的预构建 multi-arch image）,buildx 直接从 registry 拉对应架构的 bats / shellcheck / hadolint binary,避开 `docker-container` buildx driver 跨 step 不共享 image store 的问题。
 
 ### Smoke test helpers（供下游 repo 使用）
 

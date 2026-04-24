@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **655 tests** total (612 unit + 43 integration).
+Template self-tests: **663 tests** total (620 unit + 43 integration).
 
 ## Test Files
 
@@ -181,7 +181,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `empty extras => no extra mount lines` | empty list |
 | `with GUI+GPU+extras => all sections present` | fully loaded |
 
-### test/unit/template_spec.bats (106)
+### test/unit/template_spec.bats (114)
 
 | Test | Description |
 |------|-------------|
@@ -280,7 +280,15 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `upgrade.sh --gen-conf delegates to init.sh --gen-conf` | Delegation |
 | `upgrade.sh --help mentions --gen-conf` | Help text |
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
-| `build-worker.yaml test-tools step has load:true` | buildx image-store share |
+| `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
+| `build-worker.yaml: resolves template version from GITHUB_WORKFLOW_REF` | GHCR tag resolution |
+| `build-worker.yaml: test build passes TEST_TOOLS_IMAGE build-arg` | build-arg wiring |
+| `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
+| `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
+| `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
+| `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |
+| `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
+| `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |

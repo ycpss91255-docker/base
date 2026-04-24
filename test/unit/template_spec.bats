@@ -703,29 +703,98 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# build-worker.yaml: test-tools step must load:true
+# build-worker.yaml: GHCR test-tools migration (D plan)
 # ════════════════════════════════════════════════════════════════════
 
-@test "build-worker.yaml test-tools step has load:true" {
-  # Regression guard for the docker-container buildx driver:
-  # build-push-action@v6 with `push: false` and no `load: true` discards
-  # the built image. Subsequent `COPY --from=test-tools:local` then
-  # can't resolve the tag, buildx falls back to pulling from Docker
-  # Hub, and the run fails with `pull access denied`. Seen in practice
-  # when ros1_bridge became the first downstream repo to consume the
-  # test-tools:local pattern post-v0.9.11.
+@test "build-worker.yaml: no legacy in-job test-tools build step" {
+  # The old `Build test-tools image` step is replaced by GHCR pull
+  # via the TEST_TOOLS_IMAGE build-arg. If it reappears, CI will hit
+  # the cross-step buildx image-store isolation again (v0.9.12 regression).
   local _yaml="/source/.github/workflows/build-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  run grep -c 'Build test-tools image' "${_yaml}"
+  assert_output "0"
+}
 
-  # Grab the block starting at "Build test-tools image" up to the next
-  # "- name:" step and assert load: true is inside.
+@test "build-worker.yaml: resolves template version from GITHUB_WORKFLOW_REF" {
+  local _yaml="/source/.github/workflows/build-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  run grep -F 'GITHUB_WORKFLOW_REF' "${_yaml}"
+  assert_success
+  # outputs var must carry the ghcr.io tag for downstream build-arg pass-through
+  run grep -F 'ghcr.io/ycpss91255-docker/test-tools' "${_yaml}"
+  assert_success
+}
+
+@test "build-worker.yaml: test build passes TEST_TOOLS_IMAGE build-arg" {
+  local _yaml="/source/.github/workflows/build-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  # The test-stage build step must include TEST_TOOLS_IMAGE so the
+  # downstream Dockerfile's `FROM ${TEST_TOOLS_IMAGE}` stage resolves
+  # to the GHCR image (not the local fallback tag).
   run awk '
-    /- name: Build test-tools image/ { inside = 1; next }
-    inside && /^[[:space:]]*- name:/ { inside = 0 }
+    /- name: Build test stage/ { inside = 1 }
+    inside && /^[[:space:]]*- name:/ && !/Build test stage/ { inside = 0 }
     inside { print }
   ' "${_yaml}"
   assert_success
-  assert_output --partial 'load: true'
+  assert_output --partial 'TEST_TOOLS_IMAGE='
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: TEST_TOOLS_IMAGE ARG + named stage
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -E '^ARG TEST_TOOLS_IMAGE="test-tools:local"' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example FROM \${TEST_TOOLS_IMAGE} AS test-tools-stage" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -F 'FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example test stage copies from test-tools-stage, not test-tools:local" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # All COPY --from referring to the test-tools image must now use the
+  # named stage alias.
+  run grep -c 'COPY --from=test-tools-stage' "${_df}"
+  # 4 copies expected: shellcheck, hadolint, /opt/bats, /usr/lib/bats
+  assert_output "4"
+  # Legacy tag reference must be gone:
+  run grep -c 'COPY --from=test-tools:local' "${_df}"
+  assert_output "0"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# release-test-tools.yaml: GHCR publisher workflow
+# ════════════════════════════════════════════════════════════════════
+
+@test "release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools" {
+  local _yaml="/source/.github/workflows/release-test-tools.yaml"
+  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  run grep -F 'ghcr.io/ycpss91255-docker/test-tools' "${_yaml}"
+  assert_success
+}
+
+@test "release-test-tools.yaml declares packages:write permission" {
+  local _yaml="/source/.github/workflows/release-test-tools.yaml"
+  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  run grep -F 'packages: write' "${_yaml}"
+  assert_success
+}
+
+@test "release-test-tools.yaml builds multi-arch (amd64 + arm64)" {
+  local _yaml="/source/.github/workflows/release-test-tools.yaml"
+  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  run grep -F 'platforms: linux/amd64,linux/arm64' "${_yaml}"
+  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

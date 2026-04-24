@@ -156,10 +156,7 @@ flowchart LR
 - `test` は常に `devel` を継承するため、`test/smoke/<repo>_env.bats` の
   runtime assertion が確認するバイナリやファイルは、ユーザーが
   `docker run ... <repo>:devel` で目にするものと一致します。
-- `Dockerfile.test-tools` は別途 `test-tools:local` image をビルドし
-  （上記ステージ連鎖には含まれません）、`test` ステージが
-  `COPY --from=test-tools:local` で bats / shellcheck / hadolint
-  バイナリを取り込みます。
+- `Dockerfile.test-tools` は lint/test ツールセット（bats + shellcheck + hadolint）をビルドします。ダウンストリームの `test` ステージは `ARG TEST_TOOLS_IMAGE` build arg で参照します — デフォルト `test-tools:local`（ローカル `./build.sh` フロー、`Dockerfile.test-tools` を host Docker daemon に load）。CI では `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（`.github/workflows/release-test-tools.yaml` がタグ push ごとに publish するマルチアーキ image）で override し、buildx が registry からアーキ対応の bats / shellcheck / hadolint binary を直接 pull します。`docker-container` buildx driver の step 間 image store 分離問題を回避。
 
 ### Smoke test ヘルパー（ダウンストリーム repo 用）
 
