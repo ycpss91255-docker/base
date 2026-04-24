@@ -17,9 +17,14 @@ fi
 _DOCKER_LIB_SOURCED=1
 
 # _detect_lang prints the language code derived from $LANG.
+# KEEP IN SYNC with i18n.sh's _detect_lang (this is a fallback used
+# only when i18n.sh is missing, e.g. the Dockerfile /lint stage).
+# Returning "zh" here was a copy-paste typo (issue #103) — all other
+# detection sites return "zh-TW", so the i18n table keyed on zh-TW:
+# would miss and fall through to English messages.
 _detect_lang() {
   case "${LANG:-}" in
-    zh_TW*) echo "zh" ;;
+    zh_TW*) echo "zh-TW" ;;
     zh_CN*|zh_SG*) echo "zh-CN" ;;
     ja*) echo "ja" ;;
     *) echo "en" ;;

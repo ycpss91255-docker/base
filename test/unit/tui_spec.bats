@@ -387,6 +387,34 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _mount_container_path
+# ════════════════════════════════════════════════════════════════════
+
+@test "_mount_container_path extracts plain container path" {
+  local _cont=""
+  _mount_container_path "/data:/data" _cont
+  assert_equal "${_cont}" "/data"
+}
+
+@test "_mount_container_path extracts container path with mode" {
+  local _cont=""
+  _mount_container_path "/data:/data:ro" _cont
+  assert_equal "${_cont}" "/data"
+}
+
+@test "_mount_container_path extracts container path with env var" {
+  local _cont=""
+  _mount_container_path '${WS_PATH}:/home/${USER_NAME}/work' _cont
+  assert_equal "${_cont}" '/home/${USER_NAME}/work'
+}
+
+@test "_mount_container_path empty when input has no colon" {
+  local _cont="sentinel"
+  _mount_container_path "/standalone" _cont
+  assert_equal "${_cont}" ""
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _load_setup_conf_full + _write_setup_conf (INI round-trip)
 # ════════════════════════════════════════════════════════════════════
 
@@ -571,6 +599,84 @@ EOF
 
   run grep '^rules' "${TEMP_DIR}/setup.conf"
   [[ "${output}" == "rules = @default:foo" ]]
+}
+
+@test "_upsert_conf_value creates section + key when section absent" {
+  # Coverage gap: `Section not found at all → append new section + key`
+  # branch at the tail of _upsert_conf_value was never exercised.
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = @default:foo
+EOF
+  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_1" "/a:/b"
+
+  run cat "${TEMP_DIR}/setup.conf"
+  assert_output --partial "[volumes]"
+  assert_output --partial "mount_1 = /a:/b"
+  # Pre-existing section untouched
+  assert_output --partial "rule_1 = @default:foo"
+}
+
+@test "_upsert_conf_value appends key at EOF when section is the last one without target key" {
+  # Coverage gap: "Still in target section at EOF and key not matched →
+  # append" branch of _upsert_conf_value.
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = @default:foo
+
+[volumes]
+mount_1 = /a:/a
+EOF
+  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_2" "/b:/b"
+
+  run cat "${TEMP_DIR}/setup.conf"
+  assert_output --partial "mount_1 = /a:/a"
+  assert_output --partial "mount_2 = /b:/b"
+}
+
+@test "_write_setup_conf flushes unknown override keys that belong to the final template section" {
+  # Coverage gap: the "Flush leftovers belonging to the final section"
+  # block fires when an override's key doesn't match any template line
+  # AND the override's section is the LAST one in the template. Without
+  # that terminal flush, the unknown key would be dropped.
+  cat > "${TEMP_DIR}/template.conf" <<'EOF'
+[image]
+rule_1 = prefix:docker_
+
+[volumes]
+mount_1 = /a:/a
+EOF
+  # volumes is the last section; mount_9 is a new key not in template.
+  local -a _sections=(volumes) \
+    _keys=(volumes.mount_9) \
+    _values=("/extra:/extra")
+  _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
+    _sections _keys _values
+
+  run cat "${TEMP_DIR}/out.conf"
+  assert_output --partial "mount_1 = /a:/a"
+  assert_output --partial "mount_9 = /extra:/extra"
+}
+
+@test "_write_setup_conf removed_keys + final-section flush interplay" {
+  # Regression: ensure removed_keys suppresses the EOF flush so a key
+  # the user explicitly cleared doesn't reappear as a trailing override.
+  cat > "${TEMP_DIR}/template.conf" <<'EOF'
+[image]
+rule_1 = prefix:docker_
+
+[volumes]
+mount_1 = /a:/a
+EOF
+  local -a _sections=(volumes) \
+    _keys=(volumes.mount_9) \
+    _values=("/extra:/extra")
+  _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
+    _sections _keys _values "volumes.mount_9"
+
+  run cat "${TEMP_DIR}/out.conf"
+  refute_output --partial "mount_9"
+  assert_output --partial "mount_1 = /a:/a"
 }
 
 # ════════════════════════════════════════════════════════════════════
