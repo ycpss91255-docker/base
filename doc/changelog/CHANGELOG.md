@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.0] - 2026-04-24
+
+First stable minor bump post-v0.9.x. Cuts the rc2 feature work + two fixes. **Recommended upgrade path** for all downstream repos (rc1 / rc2 supersede everything earlier, see rc1/rc2 notes below for the full run-phase UX realignment + arm64 test-tools hotfix).
+
 ### Added
 - **`--reset-conf` flag** on `build.sh` (closes #124). Overwrites `setup.conf` with the template default, backing up the previous `setup.conf` → `setup.conf.bak` and `.env` → `.env.bak` first. Interactive confirmation prompt; `-y` / `--yes` skips it. Internally delegates to the new `./template/init.sh --gen-conf --force` backend. Triggers a `setup.sh` rerun afterward so `.env` + `compose.yaml` regenerate from the fresh conf.
 - `./template/init.sh --gen-conf --force` — backend for the above. Without `--force`, `--gen-conf` still refuses to clobber an existing `setup.conf` (unchanged default).
@@ -14,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **`upgrade.sh` main.yaml sed regex now handles semver pre-release tags** (closes #61). The prior `[0-9.]*` character class stopped at the first `-`, so upgrading from an existing RC tag (e.g. `v0.10.0-rc1` → `-rc2`) left the old `-rcN` suffix in place and produced `@v0.10.0-rc2-rc1`. First surfaced when ros1_bridge ran `./template/upgrade.sh v0.10.0-rc2` from `@v0.9.13`. Regex now anchored on full semver shape (`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`). Two regression tests added covering RC → RC and RC → stable transitions.
+
+### Release summary
+
+Cumulative highlights from rc1 + rc2 rolled up here for discoverability:
+
+- **Run-phase UX realignment (BREAKING, from rc1, closes #118)**: `./run.sh` target now moves behind explicit `-t/--target`; positional args become CMD passthrough matching `docker run <image> [cmd]`. Migration: `./run.sh runtime` → `./run.sh -t runtime`; plain `./run.sh` unchanged.
+- **Compose `runtime` service auto-emission (from rc1, closes #108)**: `setup.sh` detects `FROM … AS runtime` in the Dockerfile and emits a paired service extending `devel`, so `./run.sh -t runtime` actually works.
+- **arm64 `test-tools` binaries are now genuinely aarch64 (from rc2)**: `Dockerfile.test-tools` `ARG TARGETARCH=amd64` default used to shadow BuildKit's auto-inject (moby/buildkit#3403), shipping x86_64 shellcheck / hadolint inside the arm64 image. v0.10.0-rc2+ drops the default; multi-arch GHCR `:v0.10.0` variants carry the right binaries per arch.
+
+Downstream repos upgrading from v0.9.x straight to v0.10.0 should:
+
+1. `./template/upgrade.sh v0.10.0`
+2. Dockerfile: adopt `ARG TEST_TOOLS_IMAGE="test-tools:local"` + `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` + `COPY --from=test-tools-stage` (see `template/dockerfile/Dockerfile.example`).
+3. Audit any `./run.sh <target>` call sites and rewrite as `./run.sh -t <target>`.
 
 ## [v0.10.0-rc2] - 2026-04-24
 
