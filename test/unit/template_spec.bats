@@ -910,6 +910,37 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# release-worker.yaml: archive composition
+# ════════════════════════════════════════════════════════════════════
+
+@test "release-worker.yaml does not cp compose.yaml into the release archive" {
+  # compose.yaml has been gitignored since v0.9.0 (setup.sh-generated
+  # derived artifact). Earlier release-worker.yaml wrongly included it
+  # in the `cp -r` list, so every tag push hit
+  # `cp: cannot stat 'compose.yaml': No such file or directory` and
+  # action-gh-release never ran — ros1_bridge v1.5.0 release surfaced
+  # this.
+  local _yaml="/source/.github/workflows/release-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "release-worker.yaml not present in /source"
+  run grep -Fc 'compose.yaml' "${_yaml}"
+  # Comments explaining the omission are allowed but the cp line should
+  # not reference the file; we assert the cp-list row does not mention it.
+  run awk '/cp -r/,/"\$\{ARCHIVE_NAME\}\/"/{ if ($0 ~ /compose\.yaml/) found=1 } END { exit !found }' "${_yaml}"
+  assert_failure
+}
+
+@test "release-worker.yaml cp-list still includes Dockerfile + scripts" {
+  # Positive guard: we don't want to accidentally remove too much.
+  local _yaml="/source/.github/workflows/release-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "release-worker.yaml not present in /source"
+  run awk '/cp -r/,/"\$\{ARCHIVE_NAME\}\/"/' "${_yaml}"
+  assert_success
+  assert_output --partial 'Dockerfile'
+  assert_output --partial 'build.sh'
+  assert_output --partial 'template/'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
 

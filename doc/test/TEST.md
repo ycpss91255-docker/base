@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **686 tests** total (643 unit + 43 integration).
+Template self-tests: **688 tests** total (645 unit + 43 integration).
 
 ## Test Files
 
@@ -188,7 +188,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (119)
+### test/unit/template_spec.bats (121)
 
 | Test | Description |
 |------|-------------|
@@ -301,6 +301,8 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
+| `release-worker.yaml does not cp compose.yaml into the release archive` | v0.10.1 cp-list regression |
+| `release-worker.yaml cp-list still includes Dockerfile + scripts` | positive cp-list guard |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
