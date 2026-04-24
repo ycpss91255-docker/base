@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`.github/workflows/release-test-tools.yaml`** — on every tag push (and manual `workflow_dispatch`), builds multi-arch (amd64 + arm64) `Dockerfile.test-tools` and publishes to `ghcr.io/ycpss91255-docker/test-tools:<tag>` + `:latest`. First release triggered by this tag; package visibility should be set to public on first push so downstream Dockerfiles can pull anonymously.
+- **`TEST_TOOLS_IMAGE` build-arg** in `Dockerfile.example` — defaults to `test-tools:local` (preserves the local `./build.sh` flow that builds `Dockerfile.test-tools` into the host daemon). Override in CI to `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z` so buildx pulls the arch-correct pre-built image over the wire.
+
+### Changed
+- **BREAKING for downstream repos adopting v0.9.13+ workflows**: `build-worker.yaml` no longer builds `test-tools:local` in-job. Instead it parses the template version from `GITHUB_WORKFLOW_REF` and passes `TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<template-ver>` as a build-arg to the test stage. Downstream Dockerfiles must add `ARG TEST_TOOLS_IMAGE="test-tools:local"` + `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` + `COPY --from=test-tools-stage` (the previous `COPY --from=test-tools:local` literal stops working once repos bump their `main.yaml` `@tag` to `v0.9.13`). Existing repos pinned to `@v0.9.12` or earlier remain unaffected until they upgrade.
+- `Dockerfile.example` test stage restructured: new `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` alias, 4 `COPY --from=test-tools:local` → `COPY --from=test-tools-stage`, top-level comment updated.
+
+### Fixed
+- **CI `COPY --from=test-tools:local` no longer fails with `pull access denied` on downstream repos** (follow-up to v0.9.12 `load: true` attempt, which turned out not to share images between buildx steps — [docker/build-push-action#581](https://github.com/docker/build-push-action/issues/581)). GHCR-backed approach sidesteps the cross-step image-store isolation entirely.
+
 ## [v0.9.12] - 2026-04-24
 
 ### Added

@@ -116,17 +116,7 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        # docker-container driver is required even on single-platform
-        # builds now: the downstream Dockerfile's `test` stage
-        # references `test-tools:local` via `COPY --from=`, and with
-        # docker-container the tag built in the previous buildx step
-        # stays in the same builder's internal store, which subsequent
-        # build-push-action steps can resolve. The legacy `docker`
-        # driver stores images in the host daemon, which isn't
-        # accessible from a matrix job's buildx container.
         uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
 
       - name: Generate .env
         run: |
@@ -143,31 +133,30 @@ jobs:
           EOF
           mkdir -p /tmp/workspace
 
-      - name: Build test-tools image
-        # `load: true` is critical: without it, build-push-action@v6
-        # with push: false just discards the image after build, leaving
-        # the tag `test-tools:local` unresolvable by the next step.
-        # `COPY --from=test-tools:local` then falls back to registry
-        # lookup (docker.io/library/test-tools:local) → pull access
-        # denied → CI fails. `load: true` pushes it into the runner's
-        # host Docker daemon, which the subsequent buildx step reads
-        # from when resolving the COPY --from source.
-        #
-        # `load: true` is incompatible with multi-platform values for
-        # `platforms:` (Docker's image store can't hold a multi-arch
-        # manifest locally), but this workflow's compute-matrix already
-        # splits platforms across separate matrix shards so each shard
-        # only builds a single platform here.
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: template/dockerfile/Dockerfile.test-tools
-          tags: test-tools:local
-          platforms: ${{ matrix.platform }}
-          push: false
-          load: true
+      - name: Resolve template version for test-tools image
+        # The downstream repo's main.yaml pins this workflow via
+        #   uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@vX.Y.Z
+        # GITHUB_WORKFLOW_REF exposes that full ref at runtime. Parse
+        # out the tag so we can pin the test-tools GHCR image to the
+        # matching template release (prevents version skew between the
+        # workflow logic and the test-tools contract it assumes).
+        id: tplver
+        shell: bash
+        run: |
+          ref="${GITHUB_WORKFLOW_REF##*@}"
+          case "${ref}" in
+            refs/tags/v*) ver="${ref##refs/tags/}" ;;
+            *)            ver="latest" ;;
+          esac
+          printf 'image=ghcr.io/ycpss91255-docker/test-tools:%s\n' "${ver}" >> "${GITHUB_OUTPUT}"
 
       - name: Build test stage (includes smoke tests)
+        # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
+        # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
+        # the image from GHCR on `COPY --from=<name:tag>` when the tag
+        # is not present locally, so no explicit docker-pull step is
+        # needed here. Public visibility of the GHCR package means
+        # anonymous pull works, keeping the build-args simple.
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -180,6 +169,7 @@ jobs:
             UID=1000
             GID=1000
             HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=${{ steps.tplver.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Build devel stage
