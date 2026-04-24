@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`upgrade.sh` main.yaml sed regex now handles semver pre-release tags** (closes #61). The prior `[0-9.]*` character class stopped at the first `-`, so upgrading from an existing RC tag (e.g. `v0.10.0-rc1` → `-rc2`) left the old `-rcN` suffix in place and produced `@v0.10.0-rc2-rc1`. First surfaced when ros1_bridge ran `./template/upgrade.sh v0.10.0-rc2` from `@v0.9.13`. Regex now anchored on full semver shape (`\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?`). Two regression tests added covering RC → RC and RC → stable transitions.
+
 ## [v0.10.0-rc2] - 2026-04-24
 
 Second release candidate. Ships the arm64 test-tools hotfix that v0.10.0-rc1 / v0.9.13 both missed — **strongly recommended** over rc1 for any downstream repo enabling the arm64 build matrix.

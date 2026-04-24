@@ -719,6 +719,73 @@ EOF
   rm -rf "${_tmp}"
 }
 
+@test "upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)" {
+  # Regression: the previous `[0-9.]*` character class stopped at the
+  # first `-`, so upgrading from an existing RC tag left the old
+  # `-rcN` suffix in place and the new version got appended after it
+  # (e.g. @v0.10.0-rc1 → -rc2 produced `@v0.10.0-rc2-rc1`).
+  local _tmp _yaml
+  _tmp="$(mktemp -d)"
+  _yaml="${_tmp}/main.yaml"
+  cat > "${_yaml}" <<'EOF'
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.10.0-rc1
+  call-release:
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.10.0-rc1
+EOF
+  local _seds
+  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  while IFS= read -r _line; do
+    # shellcheck disable=SC2001
+    _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
+    eval "${_line}"
+  done <<< "${_seds}"
+
+  # Must produce the clean new tag — no leftover `-rc1` suffix.
+  run grep -c 'build-worker.yaml@v0.10.0-rc2$' "${_yaml}"
+  assert_output "1"
+  run grep -c 'release-worker.yaml@v0.10.0-rc2$' "${_yaml}"
+  assert_output "1"
+  # And no double suffix anywhere.
+  run grep -c '@v0.10.0-rc2-rc' "${_yaml}"
+  assert_output "0"
+
+  rm -rf "${_tmp}"
+}
+
+@test "upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions" {
+  # Edge cases around the pre-release group: from plain semver to plain,
+  # and from RC back to plain stable (e.g. v0.10.0-rc2 → v0.10.0).
+  local _tmp _yaml
+  _tmp="$(mktemp -d)"
+  _yaml="${_tmp}/main.yaml"
+  cat > "${_yaml}" <<'EOF'
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.10.0-rc2
+  call-release:
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.9.9
+EOF
+  local _seds
+  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  while IFS= read -r _line; do
+    # shellcheck disable=SC2001
+    _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"
+    eval "${_line}"
+  done <<< "${_seds}"
+
+  run grep -c 'build-worker.yaml@v0.10.0$' "${_yaml}"
+  assert_output "1"
+  run grep -c 'release-worker.yaml@v0.10.0$' "${_yaml}"
+  assert_output "1"
+  # Must not leave stale -rc2 anywhere in the file.
+  run grep -c 'rc2' "${_yaml}"
+  assert_output "0"
+
+  rm -rf "${_tmp}"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # build-worker.yaml: GHCR test-tools migration (D plan)
 # ════════════════════════════════════════════════════════════════════
