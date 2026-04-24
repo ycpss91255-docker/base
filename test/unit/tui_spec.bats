@@ -238,6 +238,11 @@ teardown() {
   _validate_build_network default
 }
 
+@test "_validate_build_network accepts auto / off (issue #102)" {
+  _validate_build_network auto
+  _validate_build_network off
+}
+
 @test "_validate_build_network rejects unknown values" {
   run _validate_build_network "HOST"   # case-sensitive
   [ "${status}" -ne 0 ]

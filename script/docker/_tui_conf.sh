@@ -165,7 +165,7 @@ _validate_build_network() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 0
   case "${_v}" in
-    host|bridge|none|default) return 0 ;;
+    auto|host|bridge|none|default|off) return 0 ;;
     *) return 1 ;;
   esac
 }
