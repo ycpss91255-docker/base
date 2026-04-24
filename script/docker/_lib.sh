@@ -16,29 +16,14 @@ if [[ -n "${_DOCKER_LIB_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_SOURCED=1
 
-# _detect_lang prints the language code derived from $LANG.
-# KEEP IN SYNC with i18n.sh's _detect_lang (this is a fallback used
-# only when i18n.sh is missing, e.g. the Dockerfile /lint stage).
-# Returning "zh" here was a copy-paste typo (issue #103) — all other
-# detection sites return "zh-TW", so the i18n table keyed on zh-TW:
-# would miss and fall through to English messages.
-_detect_lang() {
-  case "${LANG:-}" in
-    zh_TW*) echo "zh-TW" ;;
-    zh_CN*|zh_SG*) echo "zh-CN" ;;
-    ja*) echo "ja" ;;
-    *) echo "en" ;;
-  esac
-}
-
-# Load i18n.sh if present, otherwise fall back to a minimal _LANG.
+# i18n.sh lives next to _lib.sh in every deployment surface (consumer
+# repo's template/script/docker/, and the /lint/ stage where the
+# Dockerfile COPYs both). Issue #104 removed the duplicate fallback
+# `_detect_lang` definitions that had already drifted (#103) — the
+# one canonical _detect_lang + _LANG assignment lives in i18n.sh.
 _lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-if [[ -f "${_lib_dir}/i18n.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${_lib_dir}/i18n.sh"
-else
-  _LANG="${SETUP_LANG:-$(_detect_lang)}"
-fi
+# shellcheck disable=SC1091
+source "${_lib_dir}/i18n.sh"
 unset _lib_dir
 
 # _load_env sources the given .env file with allexport so every assignment

@@ -9,16 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **`_lib.sh` fallback `_detect_lang` returned `"zh"` for `zh_TW` (issue
-  #103)** — a copy-paste typo in the fallback used when `i18n.sh` is
-  absent (the Dockerfile `/lint` stage). All other detection sites
-  (`i18n.sh`, `build.sh`, `run.sh`) return `"zh-TW"`; the inconsistent
-  `"zh"` meant zh-TW users in that code path fell through to English
-  because the i18n tables are keyed on `zh-TW:`, not `zh:`. Fixed to
-  `"zh-TW"` with a locked-in regression test that spins up `_lib.sh`
-  without a sibling `i18n.sh` and asserts its fallback agrees with the
-  primary for every supported locale.
+  #103)** — a copy-paste typo in the fallback used when `i18n.sh` was
+  absent (the Dockerfile `/lint` stage). Fixed to `"zh-TW"`. The
+  follow-up `#104` dedupe below then REMOVED the fallback entirely; the
+  only remaining `_detect_lang` is in `i18n.sh`.
 
 ### Changed
+- **`[build] network` now defaults to `auto` (issue #102)**. On Jetson
+  (detected via `/etc/nv_tegra_release`) setup.sh resolves `auto` to
+  `host`, so first-time `./build.sh` succeeds without the DNS failures
+  that Jetson's broken bridge NAT used to cause. Desktop hosts stay on
+  Docker's default bridge. Explicit `host` / `bridge` / `none` /
+  `default` still pass through unchanged; new `off` value for explicit
+  opt-out. New `_resolve_build_network` helper mirrors
+  `_resolve_runtime`'s Jetson-aware pattern.
+- **`_detect_lang` deduplicated: single canonical definition in
+  `i18n.sh` (issue #104)**. Previously `build.sh` / `run.sh` /
+  `exec.sh` / `stop.sh` / `_lib.sh` each shipped an inline fallback
+  `_detect_lang` for when `i18n.sh` wasn't reachable (Dockerfile
+  `/lint` stage). That invited drift — see #103 where `_lib.sh`'s
+  copy had silently returned `zh` instead of `zh-TW` for months.
+  `Dockerfile.example`'s test stage now COPYs `_lib.sh` + `i18n.sh` +
+  `_tui_conf.sh` alongside `*.sh`; scripts look up `_lib.sh` in the
+  template layout OR as a sibling, with a clear error when neither
+  exists. Downstream repos using a custom Dockerfile (not based on
+  `Dockerfile.example`) need to mirror this COPY in their test stage.
 - **`_sanitize_lang` warning now localises to the system `$LANG`**. v0.9.7
   Agent A scoped this helper out of i18n; a user with `LANG=zh_TW.UTF-8`
   who typed `--lang xxx` still saw an English WARNING. Now we re-detect

@@ -352,34 +352,41 @@ EOS
   assert_output --partial "使用法"
 }
 
-# ── Fallback _detect_lang (no template/ tree) ──────────────────────────────
-# Exercises lines 17-19 of build.sh where _lib.sh is missing and _detect_lang
-# maps LANG → {zh, zh-CN, ja}. Symlink (not copy) so kcov attributes runs.
+# ── /lint/-layout _detect_lang (flat dir: build.sh + _lib.sh + i18n.sh) ────
+# After #104 the inline fallback is gone; scripts in the Dockerfile test
+# stage rely on _lib.sh + i18n.sh copied alongside. These tests exercise
+# that layout by symlinking build.sh (for kcov) and copying the helpers.
 
-@test "build.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
+@test "build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
   rm -rf "${_tmp}"
 }
 
-@test "build.sh fallback _detect_lang maps zh_CN.UTF-8 to zh-CN" {
+@test "build.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
   rm -rf "${_tmp}"
 }
 
-@test "build.sh fallback _detect_lang maps ja_JP.UTF-8 to ja" {
+@test "build.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "使用法"

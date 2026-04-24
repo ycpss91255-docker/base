@@ -133,6 +133,16 @@ COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
 COPY compose.yaml /lint/compose.yaml
 COPY *.sh /lint/
+# Helpers sourced by the root-level scripts. Must sit next to them so
+# build.sh / run.sh / exec.sh / stop.sh / setup.sh can source _lib.sh
+# (which in turn sources i18n.sh); setup.sh also sources _tui_conf.sh.
+# Issue #104: removing these used to be compensated by inline
+# `_detect_lang` fallbacks in every script — now the canonical
+# definition lives once in i18n.sh.
+COPY template/script/docker/_lib.sh \
+     template/script/docker/i18n.sh \
+     template/script/docker/_tui_conf.sh \
+     /lint/
 RUN shellcheck -S warning /lint/*.sh
 RUN cd /lint && hadolint Dockerfile
 

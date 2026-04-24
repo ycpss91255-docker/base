@@ -146,32 +146,38 @@ teardown() {
   assert_output --partial "exec"
 }
 
-# ── Fallback _detect_lang (no template/ tree) ──────────────────────────────
+# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
 
-@test "exec.sh fallback _detect_lang maps zh_TW.UTF-8 to zh-TW" {
+@test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
   rm -rf "${_tmp}"
 }
 
-@test "exec.sh fallback _detect_lang maps zh_CN.UTF-8 to zh-CN" {
+@test "exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
   rm -rf "${_tmp}"
 }
 
-@test "exec.sh fallback _detect_lang maps ja_JP.UTF-8 to ja" {
+@test "exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
