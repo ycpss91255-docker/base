@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - README "Updating" section (4 languages) clarifies that `./template/upgrade.sh` already automates subtree pull + integrity check + `init.sh` resync + `main.yaml` `@vX.Y.Z` sed; hand-rolling `git subtree pull` is discouraged since the sed + init steps are easy to forget. Adds a Dependabot snippet downstream repos can drop into their `.github/dependabot.yml` so template version bumps surface as PRs automatically (Dependabot handles workflow refs only; subtree still needs `upgrade.sh`).
 
+### Fixed
+- **`build-worker.yaml` test-tools build now uses `load: true`.** Without it, `docker/build-push-action@v6` with `push: false` discards the built image, so subsequent `COPY --from=test-tools:local` in the downstream Dockerfile can't resolve the tag. buildx then falls back to registry pull → `docker.io/library/test-tools:local: pull access denied` → CI fail. Surfaced when `ros1_bridge` became the first downstream repo to adopt `test-tools:local` post-v0.9.11 (issue #106 migration PR). Added `test/unit/template_spec.bats` regression test asserting the `load: true` flag is present.
+
 ## [v0.9.11] - 2026-04-24
 
 ### Fixed

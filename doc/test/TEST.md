@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **654 tests** total (611 unit + 43 integration).
+Template self-tests: **655 tests** total (612 unit + 43 integration).
 
 ## Test Files
 
@@ -181,7 +181,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `empty extras => no extra mount lines` | empty list |
 | `with GUI+GPU+extras => all sections present` | fully loaded |
 
-### test/unit/template_spec.bats (105)
+### test/unit/template_spec.bats (106)
 
 | Test | Description |
 |------|-------------|
@@ -280,6 +280,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `upgrade.sh --gen-conf delegates to init.sh --gen-conf` | Delegation |
 | `upgrade.sh --help mentions --gen-conf` | Help text |
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
+| `build-worker.yaml test-tools step has load:true` | buildx image-store share |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |

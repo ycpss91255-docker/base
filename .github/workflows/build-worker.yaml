@@ -144,11 +144,20 @@ jobs:
           mkdir -p /tmp/workspace
 
       - name: Build test-tools image
-        # Must use buildx (not plain `docker build`) so `test-tools:local`
-        # lands in buildx's internal image store — subsequent build
-        # steps on the same builder resolve `COPY --from=test-tools:local`
-        # from there. docker-container's builder container doesn't see
-        # host daemon images.
+        # `load: true` is critical: without it, build-push-action@v6
+        # with push: false just discards the image after build, leaving
+        # the tag `test-tools:local` unresolvable by the next step.
+        # `COPY --from=test-tools:local` then falls back to registry
+        # lookup (docker.io/library/test-tools:local) → pull access
+        # denied → CI fails. `load: true` pushes it into the runner's
+        # host Docker daemon, which the subsequent buildx step reads
+        # from when resolving the COPY --from source.
+        #
+        # `load: true` is incompatible with multi-platform values for
+        # `platforms:` (Docker's image store can't hold a multi-arch
+        # manifest locally), but this workflow's compute-matrix already
+        # splits platforms across separate matrix shards so each shard
+        # only builds a single platform here.
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -156,6 +165,7 @@ jobs:
           tags: test-tools:local
           platforms: ${{ matrix.platform }}
           push: false
+          load: true
 
       - name: Build test stage (includes smoke tests)
         uses: docker/build-push-action@v6

@@ -703,6 +703,32 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# build-worker.yaml: test-tools step must load:true
+# ════════════════════════════════════════════════════════════════════
+
+@test "build-worker.yaml test-tools step has load:true" {
+  # Regression guard for the docker-container buildx driver:
+  # build-push-action@v6 with `push: false` and no `load: true` discards
+  # the built image. Subsequent `COPY --from=test-tools:local` then
+  # can't resolve the tag, buildx falls back to pulling from Docker
+  # Hub, and the run fails with `pull access denied`. Seen in practice
+  # when ros1_bridge became the first downstream repo to consume the
+  # test-tools:local pattern post-v0.9.11.
+  local _yaml="/source/.github/workflows/build-worker.yaml"
+  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+
+  # Grab the block starting at "Build test-tools image" up to the next
+  # "- name:" step and assert load: true is inside.
+  run awk '
+    /- name: Build test-tools image/ { inside = 1; next }
+    inside && /^[[:space:]]*- name:/ { inside = 0 }
+    inside { print }
+  ' "${_yaml}"
+  assert_success
+  assert_output --partial 'load: true'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
 
