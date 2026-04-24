@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.13] - 2026-04-24
+
 ### Added
 - **`.github/workflows/release-test-tools.yaml`** — on every tag push (and manual `workflow_dispatch`), builds multi-arch (amd64 + arm64) `Dockerfile.test-tools` and publishes to `ghcr.io/ycpss91255-docker/test-tools:<tag>` + `:latest`. First release triggered by this tag; package visibility should be set to public on first push so downstream Dockerfiles can pull anonymously.
 - **`TEST_TOOLS_IMAGE` build-arg** in `Dockerfile.example` — defaults to `test-tools:local` (preserves the local `./build.sh` flow that builds `Dockerfile.test-tools` into the host daemon). Override in CI to `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z` so buildx pulls the arch-correct pre-built image over the wire.
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **CI `COPY --from=test-tools:local` no longer fails with `pull access denied` on downstream repos** (follow-up to v0.9.12 `load: true` attempt, which turned out not to share images between buildx steps — [docker/build-push-action#581](https://github.com/docker/build-push-action/issues/581)). GHCR-backed approach sidesteps the cross-step image-store isolation entirely.
+- **`release-test-tools.yaml` Dockerfile path** — was wrongly written as `template/dockerfile/Dockerfile.test-tools` (the downstream subtree path); in the template repo itself the file is at `dockerfile/Dockerfile.test-tools`. Regression test added to assert no subtree-prefixed path leaks back in.
 
 ## [v0.9.12] - 2026-04-24
 
