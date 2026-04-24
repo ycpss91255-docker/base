@@ -5,22 +5,22 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly FILE_PATH
+# _lib.sh lives at template/script/docker/_lib.sh in normal consumer
+# repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
+# scripts + helpers into /lint/. Issue #104 deduplicated the previously
+# inlined fallback `_detect_lang`; we now always have i18n.sh via
+# _lib.sh's sibling load.
 if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/template/script/docker/_lib.sh"
+elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${FILE_PATH}/_lib.sh"
 else
-  # Fallback for /lint stage which COPYs only *.sh from repo root and has
-  # no template/ tree. Only _LANG is needed for `usage()`; other helpers
-  # are unused in this stage.
-  _detect_lang() {
-    case "${LANG:-}" in
-      zh_TW*) echo "zh-TW" ;;
-      zh_CN*|zh_SG*) echo "zh-CN" ;;
-      ja*) echo "ja" ;;
-      *) echo "en" ;;
-    esac
-  }
-  _LANG="${SETUP_LANG:-$(_detect_lang)}"
+  printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
+  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+  exit 1
 fi
 
 _msg() {

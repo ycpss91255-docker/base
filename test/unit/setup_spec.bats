@@ -536,6 +536,52 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _resolve_build_network (Jetson build-net auto-detect, issue #102)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_resolve_build_network auto on Jetson => host" {
+  local _out
+  SETUP_DETECT_JETSON=true _resolve_build_network "auto" _out
+  assert_equal "${_out}" "host"
+}
+
+@test "_resolve_build_network auto off Jetson => empty" {
+  local _out
+  SETUP_DETECT_JETSON=false _resolve_build_network "auto" _out
+  assert_equal "${_out}" ""
+}
+
+@test "_resolve_build_network host => always host (explicit override wins)" {
+  local _out
+  SETUP_DETECT_JETSON=false _resolve_build_network "host" _out
+  assert_equal "${_out}" "host"
+}
+
+@test "_resolve_build_network bridge / none / default pass through" {
+  local _out
+  _resolve_build_network "bridge" _out
+  assert_equal "${_out}" "bridge"
+  _resolve_build_network "none" _out
+  assert_equal "${_out}" "none"
+  _resolve_build_network "default" _out
+  assert_equal "${_out}" "default"
+}
+
+@test "_resolve_build_network off / empty => empty (explicitly suppressed)" {
+  local _out
+  SETUP_DETECT_JETSON=true _resolve_build_network "off" _out
+  assert_equal "${_out}" ""
+  SETUP_DETECT_JETSON=true _resolve_build_network "" _out
+  assert_equal "${_out}" ""
+}
+
+@test "_resolve_build_network unknown mode falls through to empty" {
+  local _out
+  SETUP_DETECT_JETSON=true _resolve_build_network "garbage" _out
+  assert_equal "${_out}" ""
+}
+
+# ════════════════════════════════════════════════════════════════════
 # detect_image_name (now reads [image] rules from setup.conf)
 # ════════════════════════════════════════════════════════════════════
 

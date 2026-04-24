@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **645 tests** total (602 unit + 43 integration).
+Template self-tests: **654 tests** total (611 unit + 43 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (39)
+### test/unit/lib_spec.bats (38)
 
 | Test | Description |
 |------|-------------|
@@ -34,7 +34,7 @@ Template self-tests: **645 tests** total (602 unit + 43 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 
-### test/unit/setup_spec.bats (105)
+### test/unit/setup_spec.bats (111)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -61,7 +61,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
 
-### test/unit/tui_spec.bats (81)
+### test/unit/tui_spec.bats (82)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -181,7 +181,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `empty extras => no extra mount lines` | empty list |
 | `with GUI+GPU+extras => all sections present` | fully loaded |
 
-### test/unit/template_spec.bats (102)
+### test/unit/template_spec.bats (105)
 
 | Test | Description |
 |------|-------------|

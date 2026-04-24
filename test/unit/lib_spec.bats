@@ -50,27 +50,6 @@ setup() {
   assert_output "ja"
 }
 
-@test "_lib.sh fallback _detect_lang (no i18n.sh) agrees with primary for every locale (#103)" {
-  # _lib.sh's fallback `_detect_lang` only fires when i18n.sh is
-  # absent (Dockerfile /lint stage). v0.9.10 had a copy-paste typo
-  # returning "zh" for zh_TW where i18n.sh returns "zh-TW" — zh-TW
-  # users in /lint would fall through to English messages because
-  # the i18n tables are keyed on "zh-TW:", not "zh:". Guard against
-  # the four fallbacks drifting again: copy _lib.sh to a temp dir
-  # without i18n.sh so the `else` branch fires, then compare.
-  local _tmp="${BATS_TEST_TMPDIR}/lib_no_i18n"
-  mkdir -p "${_tmp}"
-  cp "${LIB}" "${_tmp}/_lib.sh"
-  # Deliberately NOT copying i18n.sh → fallback _detect_lang runs.
-
-  local _locale _got _want
-  for _locale in en_US.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8 zh_SG.UTF-8 ja_JP.UTF-8; do
-    _got="$(env LANG="${_locale}" bash -c "source '${_tmp}/_lib.sh'; echo \"\${_LANG}\"")"
-    _want="$(env LANG="${_locale}" bash -c "source '${LIB%/*}/i18n.sh'; echo \"\${_LANG}\"")"
-    assert_equal "${_got}" "${_want}"
-  done
-}
-
 # ── double-source guard ─────────────────────────────────────────────────────
 
 @test "_lib.sh is idempotent when sourced twice" {

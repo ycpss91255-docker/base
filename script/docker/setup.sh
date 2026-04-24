@@ -576,6 +576,27 @@ _resolve_runtime() {
   esac
 }
 
+# _resolve_build_network <mode> <outvar>
+#   mode=host / bridge / none / default → pass through
+#   mode=auto → "host" iff _detect_jetson, else "" (issue #102)
+#   mode=off | "" → "" (no network key emitted; Docker defaults to bridge)
+#
+# Jetson L4T kernels commonly lack the iptables modules docker's bridge
+# NAT needs, so first-time `docker build` on Jetson dies with DNS
+# resolution failures before the apt step. Auto-promoting to host-net
+# on Jetson removes the trap door; desktop hosts keep default bridge.
+_resolve_build_network() {
+  local _mode="${1:-}"
+  local -n _rbn_out="${2:?}"
+  case "${_mode}" in
+    host|bridge|none|default) _rbn_out="${_mode}" ;;
+    auto)
+      if _detect_jetson; then _rbn_out="host"; else _rbn_out=""; fi
+      ;;
+    off|""|*) _rbn_out="" ;;
+  esac
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _compute_conf_hash <base_path> <outvar>
 #
@@ -1199,8 +1220,10 @@ main() {
   # compose.yaml and `--network <value>` to the auxiliary test-tools
   # docker build. Typical value: `host`, for hosts whose docker bridge
   # NAT is unusable (stripped embedded kernels, iptables:false).
+  local build_network_mode=""
+  _get_conf_value _build_k _build_v "network" "auto" build_network_mode
   local build_network=""
-  _get_conf_value _build_k _build_v "network" "" build_network
+  _resolve_build_network "${build_network_mode}" build_network
 
   local gpu_mode="" gpu_count="" gpu_caps="" runtime_mode=""
   local gui_mode=""

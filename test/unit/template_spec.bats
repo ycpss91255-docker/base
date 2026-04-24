@@ -521,44 +521,99 @@ EOF
   assert_success
 }
 
-@test "build.sh -h works when i18n.sh is missing (consumer Dockerfile /lint scenario)" {
-  # Regression: consumer Dockerfile copies *.sh into /lint without template/
-  # tree, so sourcing template/script/docker/i18n.sh fails. build.sh must
-  # gracefully fall back to inline _detect_lang so smoke tests pass.
+_stage_lint_layout() {
+  # Simulate Dockerfile.example's /lint/ stage: script + helpers in one
+  # flat directory. Callers pass the script file under test.
+  local _dest="${1:?}" _script="${2:?}"
+  cp "/source/script/docker/${_script}" "${_dest}/${_script}"
+  cp /source/script/docker/_lib.sh   "${_dest}/_lib.sh"
+  cp /source/script/docker/i18n.sh   "${_dest}/i18n.sh"
+}
+
+@test "build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)" {
+  # After #104 we no longer carry inline _detect_lang fallbacks; the
+  # /lint/ stage COPY must include _lib.sh and i18n.sh alongside.
   local _tmp
   _tmp="$(mktemp -d)"
-  cp /source/script/docker/build.sh "${_tmp}/build.sh"
+  _stage_lint_layout "${_tmp}" build.sh
   run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "Usage"
   rm -rf "${_tmp}"
 }
 
-@test "run.sh -h works when i18n.sh is missing" {
+@test "run.sh -h works in /lint/ layout" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cp /source/script/docker/run.sh "${_tmp}/run.sh"
+  _stage_lint_layout "${_tmp}" run.sh
   run bash "${_tmp}/run.sh" -h
   assert_success
   rm -rf "${_tmp}"
 }
 
-@test "exec.sh -h works when i18n.sh is missing" {
+@test "exec.sh -h works in /lint/ layout" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  _stage_lint_layout "${_tmp}" exec.sh
   run bash "${_tmp}/exec.sh" -h
   assert_success
   rm -rf "${_tmp}"
 }
 
-@test "stop.sh -h works when i18n.sh is missing" {
+@test "stop.sh -h works in /lint/ layout" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cp /source/script/docker/stop.sh "${_tmp}/stop.sh"
+  _stage_lint_layout "${_tmp}" stop.sh
   run bash "${_tmp}/stop.sh" -h
   assert_success
   rm -rf "${_tmp}"
+}
+
+@test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
+  # No template/script/docker/_lib.sh nor sibling _lib.sh → explicit
+  # non-zero exit + error message pointing the user at the two
+  # expected paths. Better UX than the old silent inline fallback
+  # that hid the absence.
+  local _tmp
+  _tmp="$(mktemp -d)"
+  cp /source/script/docker/build.sh "${_tmp}/build.sh"
+  run bash "${_tmp}/build.sh" -h
+  assert_failure
+  assert_output --partial "cannot find _lib.sh"
+  rm -rf "${_tmp}"
+}
+
+@test "Dockerfile.example copies _lib.sh + i18n.sh + _tui_conf.sh into /lint/ (issue #104)" {
+  # Structural guard: if the Dockerfile COPY is dropped, the /lint/
+  # smoke test (script_help.bats) would break silently for new
+  # downstream repos. Pin it here.
+  run grep -F 'template/script/docker/_lib.sh' /source/dockerfile/Dockerfile.example
+  assert_success
+  run grep -F 'template/script/docker/i18n.sh' /source/dockerfile/Dockerfile.example
+  assert_success
+  run grep -F 'template/script/docker/_tui_conf.sh' /source/dockerfile/Dockerfile.example
+  assert_success
+}
+
+@test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {
+  # Lock in: only i18n.sh defines _detect_lang. build.sh / run.sh /
+  # exec.sh / stop.sh / _lib.sh previously shipped their own copies,
+  # which drifted (see #103's zh→zh-TW typo) — a single-source
+  # definition prevents further drift.
+  local _count
+  _count="$(grep -cE '^_detect_lang\(\)' \
+    /source/script/docker/build.sh \
+    /source/script/docker/run.sh \
+    /source/script/docker/exec.sh \
+    /source/script/docker/stop.sh \
+    /source/script/docker/_lib.sh \
+    /source/script/docker/setup.sh \
+    | awk -F: '{sum += $2} END {print sum}')"
+  [ "${_count}" = "0" ]
+
+  # i18n.sh must still have exactly one definition.
+  run grep -cE '^_detect_lang\(\)' /source/script/docker/i18n.sh
+  assert_output "1"
 }
 
 @test "setup.sh does not redefine _detect_lang" {
