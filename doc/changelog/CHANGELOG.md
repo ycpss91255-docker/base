@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.9] - 2026-04-24
+
 ### Added
 - **`[deploy] runtime` setup.conf key** — Docker runtime override at
   service level in compose.yaml. Required on Jetson (JetPack) because
