@@ -950,53 +950,53 @@ EOF
 # i18n
 # ════════════════════════════════════════════════════════════════════
 
-@test "_msg returns English messages by default" {
+@test "_setup_msg returns English messages by default" {
   _LANG="en"
-  [[ "$(_msg env_done)" =~ updated ]]
+  [[ "$(_setup_msg env_done)" =~ updated ]]
 }
 
-@test "_msg returns Traditional Chinese messages when _LANG=zh-TW" {
+@test "_setup_msg returns Traditional Chinese messages when _LANG=zh-TW" {
   _LANG="zh-TW"
-  [[ "$(_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
 }
 
-@test "_msg returns Simplified Chinese messages when _LANG=zh-CN" {
+@test "_setup_msg returns Simplified Chinese messages when _LANG=zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
 }
 
-@test "_msg returns Japanese messages when _LANG=ja" {
+@test "_setup_msg returns Japanese messages when _LANG=ja" {
   _LANG="ja"
-  [[ "$(_msg env_done)" =~ 更新完了 ]]
+  [[ "$(_setup_msg env_done)" =~ 更新完了 ]]
 }
 
 # Exercise every (key, language) branch so kcov sees the zh-CN / ja / default
 # `unknown_arg` and `env_comment` case-arms. The env_done-only tests above
 # only land on the first case of each language block.
 
-@test "_msg env_comment and unknown_arg are defined in zh" {
+@test "_setup_msg env_comment and unknown_arg are defined in zh" {
   _LANG="zh-TW"
-  [[ "$(_msg env_comment)" =~ 自動偵測 ]]
-  [[ "$(_msg unknown_arg)" =~ 未知參數 ]]
+  [[ "$(_setup_msg env_comment)" =~ 自動偵測 ]]
+  [[ "$(_setup_msg unknown_arg)" =~ 未知參數 ]]
 }
 
-@test "_msg env_comment and unknown_arg are defined in zh-CN" {
+@test "_setup_msg env_comment and unknown_arg are defined in zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_msg env_comment)" =~ 自动检测 ]]
-  [[ "$(_msg unknown_arg)" =~ 未知参数 ]]
+  [[ "$(_setup_msg env_comment)" =~ 自动检测 ]]
+  [[ "$(_setup_msg unknown_arg)" =~ 未知参数 ]]
 }
 
-@test "_msg env_comment and unknown_arg are defined in ja" {
+@test "_setup_msg env_comment and unknown_arg are defined in ja" {
   _LANG="ja"
-  [[ "$(_msg env_comment)" =~ 自動検出 ]]
-  [[ "$(_msg unknown_arg)" =~ 不明な引数 ]]
+  [[ "$(_setup_msg env_comment)" =~ 自動検出 ]]
+  [[ "$(_setup_msg unknown_arg)" =~ 不明な引数 ]]
 }
 
 @test "_msg falls back to English when _LANG is unknown" {
   _LANG="xx"
-  [[ "$(_msg env_done)" =~ updated ]]
-  [[ "$(_msg env_comment)" =~ Auto-detected ]]
-  [[ "$(_msg unknown_arg)" =~ "Unknown argument" ]]
+  [[ "$(_setup_msg env_done)" =~ updated ]]
+  [[ "$(_setup_msg env_comment)" =~ Auto-detected ]]
+  [[ "$(_setup_msg unknown_arg)" =~ "Unknown argument" ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
