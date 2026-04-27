@@ -77,6 +77,24 @@ teardown() {
   assert_success
 }
 
+@test "new repo: main.yaml grants permissions: contents: write" {
+  # Regression for #62: softprops/action-gh-release@v2 (used by
+  # release-worker.yaml) needs `contents: write` to create a Release.
+  # Reusable workflow permissions intersect with the caller's, and
+  # GitHub's default GITHUB_TOKEN is read-only, so this grant must
+  # live in the caller's (i.e. new repo's) main.yaml. Without it,
+  # the first downstream tag push fails with HTTP 403 from the
+  # action-gh-release step (ros1_bridge v1.5.0 release surfaced this).
+  bash template/init.sh
+  local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
+  assert [ -f "${_yaml}" ]
+  # Must have a top-level `permissions:` block declaring contents: write.
+  run grep -E '^permissions:$' "${_yaml}"
+  assert_success
+  run grep -E '^[[:space:]]+contents: write$' "${_yaml}"
+  assert_success
+}
+
 @test "new repo: .gitignore exists" {
   bash template/init.sh
   assert [ -f "${REPO_DIR}/.gitignore" ]

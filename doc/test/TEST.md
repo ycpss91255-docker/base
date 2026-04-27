@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **688 tests** total (645 unit + 43 integration).
+Template self-tests: **689 tests** total (645 unit + 44 integration).
 
 ## Test Files
 
@@ -500,7 +500,7 @@ for rollback).
 | `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
 
-### test/integration/init_new_repo_spec.bats (35)
+### test/integration/init_new_repo_spec.bats (36)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
