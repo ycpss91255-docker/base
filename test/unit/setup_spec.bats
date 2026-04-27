@@ -998,6 +998,233 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Subcommand: set / show / list (#49 Phase B-2)
+#
+# `setup.sh set <section>.<key> <value>` writes to setup.conf via
+# `_upsert_conf_value` (no .env regen — `apply` is the explicit gate).
+# `show` and `list` read setup.conf via `_load_setup_conf_full` so
+# they share the TUI's view of the file.
+# ════════════════════════════════════════════════════════════════════
+
+@test "set writes a value into an existing section, round-trip via show" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set deploy.gpu_count all --base-path "${TEMP_DIR}"
+  assert_success
+  run main show deploy.gpu_count --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "all"
+}
+
+@test "set creates a new key when section exists but key is absent" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+EOF
+  run main set network.privileged true --base-path "${TEMP_DIR}"
+  assert_success
+  run main show network.privileged --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "true"
+}
+
+@test "set creates section + key when section is absent" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = @basename
+EOF
+  run main set resources.shm_size 512m --base-path "${TEMP_DIR}"
+  assert_success
+  run main show resources.shm_size --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "512m"
+}
+
+@test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set bogus.key value --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Unknown section"
+}
+
+@test "set rejects an invalid gpu_count value" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid mount string" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid cgroup_rule" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid env_kv" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid port mapping" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects a malformed dotted key (no dot)" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set with no arguments fails clean (no shell error)" {
+  run main set
+  assert_failure
+  refute_output --partial "unbound variable"
+  refute_output --partial "syntax error"
+}
+
+@test "set does NOT regenerate .env (mtime unchanged after set)" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  # Seed .env via apply so it exists.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  local _before
+  _before="$(stat -c %Y "${TEMP_DIR}/.env")"
+  # Wait one second so mtime resolution can register a difference if regen happened.
+  sleep 1
+  run main set network.mode host --base-path "${TEMP_DIR}"
+  assert_success
+  local _after
+  _after="$(stat -c %Y "${TEMP_DIR}/.env")"
+  assert_equal "${_before}" "${_after}"
+}
+
+@test "show prints the value of a single key" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  run main show network.mode --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "host"
+}
+
+@test "show prints all entries of a whole section in on-disk order" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+privileged = true
+EOF
+  run main show network --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line --index 0 "mode = host"
+  assert_line --index 1 "ipc = host"
+  assert_line --index 2 "privileged = true"
+}
+
+@test "show returns non-zero on a missing key" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+EOF
+  run main show network.nope --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "not found"
+}
+
+@test "show returns non-zero on a missing section" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+EOF
+  run main show resources --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "not found"
+}
+
+@test "show rejects an unknown section name" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main show bogus.key --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Unknown section"
+}
+
+@test "show with no arguments fails clean" {
+  run main show
+  assert_failure
+}
+
+@test "list with no arg prints every section header + key" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = @basename
+
+[network]
+mode = host
+ipc = host
+EOF
+  run main list --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "[image]"
+  assert_output --partial "rule_1 = @basename"
+  assert_output --partial "[network]"
+  assert_output --partial "mode = host"
+}
+
+@test "list <section> mirrors show <section>" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  run main list network --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line --index 0 "mode = host"
+  assert_line --index 1 "ipc = host"
+}
+
+@test "list <section> rejects an unknown section" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run main list bogus --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Unknown section"
+}
+
+@test "set / show / list run end-to-end via subprocess" {
+  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
+  cp /source/setup.conf "${TEMP_DIR}/sandbox/setup.conf"
+
+  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+    set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
+  assert_success
+
+  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+    show network.mode --base-path "${TEMP_DIR}/sandbox"
+  assert_success
+  assert_output "bridge"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _rule_basename
 # ════════════════════════════════════════════════════════════════════
 
