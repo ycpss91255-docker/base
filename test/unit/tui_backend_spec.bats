@@ -334,3 +334,117 @@ EOF
   run cat "${TUI_LOG}"
   assert_output --partial "--yesno"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# whiptail flag-spelling compatibility (#136)
+#
+# whiptail rejects dialog's --ok-label / --cancel-label spellings (its
+# equivalents are --ok-button / --cancel-button) and has no
+# --extra-button / --extra-label at all. _tui_run / _tui_menu must
+# translate these per ${TUI_BACKEND} so whiptail-only hosts (Ubuntu
+# 22.04 minimal, Jetson arm64) don't abort with `unknown option` on
+# the very first menu.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_tui_run forwards --ok-button / --cancel-button spelling on whiptail" {
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export TUI_STUB_RESPONSE=""
+  run _tui_run --msgbox "hi" 10 40
+  run cat "${TUI_LOG}"
+  assert_output --partial "--ok-button"
+  assert_output --partial "Enter"
+  assert_output --partial "--cancel-button"
+  assert_output --partial "Cancel"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+}
+
+@test "_tui_run keeps --ok-label / --cancel-label spelling on dialog" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export TUI_STUB_RESPONSE=""
+  run _tui_run --msgbox "hi" 10 40
+  run cat "${TUI_LOG}"
+  assert_output --partial "--ok-label"
+  assert_output --partial "--cancel-label"
+  refute_output --partial "--ok-button"
+  refute_output --partial "--cancel-button"
+  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+}
+
+@test "_tui_msgbox does not leak --ok-label / --cancel-label onto whiptail" {
+  # _tui_msgbox bypasses _tui_run (it has no Cancel button), so it never
+  # emits OK/Cancel label flags regardless of backend. The regression
+  # guard here is purely that no dialog-spelled flag ever leaks through
+  # to whiptail (which would crash with `unknown option`). #136.
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  export TUI_OK_LABEL="Enter"
+  run _tui_msgbox "Hi" "Hello there"
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  unset TUI_OK_LABEL
+}
+
+@test "_tui_inputbox uses --ok-button / --cancel-button on whiptail" {
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export TUI_STUB_RESPONSE="x"
+  run _tui_inputbox "T" "P" "init"
+  assert_success
+  run cat "${TUI_LOG}"
+  assert_output --partial "--ok-button"
+  assert_output --partial "--cancel-button"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+}
+
+@test "_tui_menu uses --ok-button / --cancel-button on whiptail" {
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
+  assert_success
+  run cat "${TUI_LOG}"
+  assert_output --partial "--ok-button"
+  assert_output --partial "--cancel-button"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+}
+
+@test "_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set" {
+  _install_stub whiptail
+  TUI_BACKEND="whiptail"
+  export TUI_EXTRA_LABEL="Save"
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--extra-button"
+  refute_output --partial "--extra-label"
+  unset TUI_EXTRA_LABEL
+}
+
+@test "_tui_menu still emits --extra-button / --extra-label on dialog when TUI_EXTRA_LABEL is set" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_EXTRA_LABEL="Save"
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA
+  assert_success
+  run cat "${TUI_LOG}"
+  assert_output --partial "--extra-button"
+  assert_output --partial "--extra-label"
+  assert_output --partial "Save"
+  unset TUI_EXTRA_LABEL
+}

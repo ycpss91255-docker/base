@@ -76,9 +76,21 @@ _tui_run() {
   # Session-level OK / Cancel button i18n (env var hooks). Applied to
   # every dialog/whiptail invocation so sub-menus inherit the label the
   # main menu set up.
+  #
+  # dialog and whiptail spell these flags differently:
+  #   dialog   uses --ok-label / --cancel-label
+  #   whiptail uses --ok-button / --cancel-button (rejects --*-label)
+  # Translate the spelling here so callers stay backend-agnostic and
+  # whiptail-only hosts (Ubuntu 22.04 minimal, Jetson arm64) don't abort
+  # with `--ok-label: unknown option` on the very first menu (#136).
+  local _ok_flag="--ok-label" _cancel_flag="--cancel-label"
+  if [[ "${TUI_BACKEND}" == "whiptail" ]]; then
+    _ok_flag="--ok-button"
+    _cancel_flag="--cancel-button"
+  fi
   local -a _labels=()
-  [[ -n "${TUI_OK_LABEL:-}" ]]     && _labels+=(--ok-label "${TUI_OK_LABEL}")
-  [[ -n "${TUI_CANCEL_LABEL:-}" ]] && _labels+=(--cancel-label "${TUI_CANCEL_LABEL}")
+  [[ -n "${TUI_OK_LABEL:-}" ]]     && _labels+=("${_ok_flag}"     "${TUI_OK_LABEL}")
+  [[ -n "${TUI_CANCEL_LABEL:-}" ]] && _labels+=("${_cancel_flag}" "${TUI_CANCEL_LABEL}")
   # Reattach to /dev/tty only when the caller is actually running inside
   # an interactive terminal (stdin is a TTY). In bats / non-interactive
   # containers /dev/tty may exist but opening it fails; -t 0 is the
@@ -116,7 +128,12 @@ _tui_menu() {
   local _title="${1}" _prompt="${2}"; shift 2
   local _n_items=$(( $# / 2 ))
   local -a _extra_args=()
-  if [[ -n "${TUI_EXTRA_LABEL:-}" ]]; then
+  # whiptail has no --extra-button / --extra-label equivalent at all
+  # (it only renders OK + Cancel). Emitting these flags makes whiptail
+  # error out with `unknown option`, so on whiptail we silently skip
+  # this block and leave the Save & Exit affordance to the caller
+  # (setup_tui.sh injects a synthetic menu entry as fallback). #136.
+  if [[ "${TUI_BACKEND}" != "whiptail" && -n "${TUI_EXTRA_LABEL:-}" ]]; then
     _extra_args+=(--extra-button --extra-label "${TUI_EXTRA_LABEL}")
   fi
   if [[ -n "${TUI_NO_TAGS:-}" ]]; then

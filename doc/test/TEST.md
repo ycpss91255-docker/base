@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **703 tests** total (659 unit + 44 integration).
+Template self-tests: **710 tests** total (666 unit + 44 integration).
 
 ## Test Files
 
@@ -77,7 +77,7 @@ parsers, and setup.conf round-trip.
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 
-### test/unit/tui_backend_spec.bats (23)
+### test/unit/tui_backend_spec.bats (30)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub
 `dialog` / `whiptail` binary installed on PATH that logs argv and echoes
@@ -92,6 +92,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_radiolist` (forwards tag/label/state triples) | 1 |
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
+| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`; dialog spelling preserved) | 7 |
 
 ### test/unit/build_sh_spec.bats (35)
 

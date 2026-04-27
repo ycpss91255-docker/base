@@ -48,6 +48,7 @@ declare -gA _TUI_MSG_EN=(
   [main.environment]="runtime env vars"
   [main.tmpfs]="RAM-backed mounts"
   [main.advanced]="Advanced"
+  [main.save]="Save & Exit"
   [main.security]="privileged / cap_add / security_opt"
   [advanced.title]="Advanced"
   [advanced.menu]="Select an advanced section"
@@ -201,6 +202,7 @@ declare -gA _TUI_MSG_ZH_TW=(
   [main.environment]="執行時期環境變數"
   [main.tmpfs]="RAM 掛載點"
   [main.advanced]="進階"
+  [main.save]="儲存並結束"
   [main.security]="privileged／cap_add／security_opt"
   [advanced.title]="Advanced"
   [advanced.menu]="選擇進階區段"
@@ -352,6 +354,7 @@ declare -gA _TUI_MSG_ZH_CN=(
   [main.environment]="运行时环境变量"
   [main.tmpfs]="RAM 挂载点"
   [main.advanced]="进阶"
+  [main.save]="保存并退出"
   [main.security]="privileged／cap_add／security_opt"
   [advanced.title]="Advanced"
   [advanced.menu]="选择进阶区段"
@@ -498,6 +501,7 @@ declare -gA _TUI_MSG_JA=(
   [main.environment]="実行時環境変数"
   [main.tmpfs]="RAM マウント"
   [main.advanced]="詳細"
+  [main.save]="保存して終了"
   [main.security]="privileged／cap_add／security_opt"
   [advanced.title]="Advanced"
   [advanced.menu]="Advanced セクションを選択"
@@ -1457,6 +1461,14 @@ _render_main_menu() {
   TUI_EXTRA_LABEL="Save"
   TUI_OK_LABEL="Enter"
   TUI_CANCEL_LABEL="Cancel"
+  # whiptail has no --extra-button equivalent, so the Save & Exit
+  # footer button never renders there. On whiptail we inject a
+  # synthetic `__save` menu entry instead so the user still has a
+  # one-click way to commit + exit (#136).
+  local -a _save_entry=()
+  if [[ "${TUI_BACKEND}" == "whiptail" ]]; then
+    _save_entry=(__save "$(_tui_msg main.save)")
+  fi
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
@@ -1465,13 +1477,15 @@ _render_main_menu() {
       gui         "$(_tui_msg main.gui)" \
       volumes     "$(_tui_msg main.volumes)" \
       environment "$(_tui_msg main.environment)" \
-      advanced    "$(_tui_msg main.advanced)")"
+      advanced    "$(_tui_msg main.advanced)" \
+      "${_save_entry[@]}")"
     _rc=$?
     case "${_rc}" in
       0)
         case "${_choice}" in
           network|deploy|gui|volumes|environment) "_edit_section_${_choice}" ;;
           advanced) _render_advanced_menu ;;
+          __save)   TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
           "")       TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
         esac
         ;;
