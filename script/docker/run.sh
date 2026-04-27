@@ -226,7 +226,7 @@ main() {
     if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
       "${_tui}" --lang "${_LANG}"
     else
-      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   }
 
@@ -245,13 +245,13 @@ main() {
       || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     printf "%s\n" "$(_msg bootstrap_info)"
-    "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+    "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift → auto-regen via subprocess (see build.sh for the full
     # rationale; subprocess avoids the #101 _msg shadow class).
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
       printf "%s\n" "$(_msg drift_regen)"
-      "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
+      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
 

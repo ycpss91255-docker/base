@@ -52,6 +52,10 @@ _setup_msg() {
         usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
         usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        reset_confirm)    echo "將以模板預設值覆寫 setup.conf（舊檔備份為 setup.conf.bak / .env.bak）。繼續嗎？" ;;
+        reset_aborted)    echo "已取消，未變更任何檔案" ;;
+        reset_done)       echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
+        reset_needs_yes)  echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -68,6 +72,10 @@ _setup_msg() {
         usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
         usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        reset_confirm)    echo "将以模板默认值覆写 setup.conf（旧文件备份为 setup.conf.bak / .env.bak）。继续吗？" ;;
+        reset_aborted)    echo "已取消，未更改任何文件" ;;
+        reset_done)       echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
+        reset_needs_yes)  echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -84,6 +92,10 @@ _setup_msg() {
         usage_list)       echo "使い方: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
         usage_add)        echo "使い方: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_remove)     echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        reset_confirm)    echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
+        reset_aborted)    echo "中断されました。ファイルは変更されていません" ;;
+        reset_done)       echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
+        reset_needs_yes)  echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -100,6 +112,10 @@ _setup_msg() {
         usage_list)       echo "Usage: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
         usage_add)        echo "Usage: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        reset_confirm)    echo "Overwrite setup.conf with template default? (prior setup.conf → .bak, prior .env → .env.bak)" ;;
+        reset_aborted)    echo "Aborted; no files changed" ;;
+        reset_done)       echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
+        reset_needs_yes)  echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
       esac ;;
   esac
 }
@@ -154,6 +170,11 @@ Subcommands:
   remove <section>.<key>            Delete the exact key.
   remove <section>.<list> <value>   Delete the first key under the
                 section matching `<list>_*` whose value equals <value>.
+  reset [-y|--yes]
+                Overwrite setup.conf with the template default. Prior
+                setup.conf / .env are saved to setup.conf.bak / .env.bak.
+                Without --yes, prompts for confirmation; non-tty
+                without --yes refuses to proceed.
 
 Options:
   -h, --help            Show this help and exit.
@@ -1942,11 +1963,101 @@ _setup_remove() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_reset
+#
+# Subcommand handler for `setup.sh reset [--yes]`. Overwrites the
+# repo's setup.conf with the template default, archiving the prior
+# setup.conf to setup.conf.bak and the prior .env to .env.bak so the
+# user has a one-shot rollback path. Mirrors what `build.sh
+# --reset-conf` does today, but exposes it as a setup.sh subcommand
+# for scripted use.
+#
+# Does NOT regenerate .env. The user invokes `apply` afterwards (or
+# build/run will trigger auto-regen via drift detection on the next
+# invocation, since the conf hash will have changed).
+#
+# Without --yes, refuses to proceed when stdin is not a TTY (safety
+# guard so accidental pipeline invocations don't destroy state).
+# With --yes, skips the confirmation regardless of TTY.
+#
+# Usage: _setup_reset [--yes] [--base-path PATH] [--lang LANG]
+# ════════════════════════════════════════════════════════════════════
+_setup_reset() {
+  local _base_path=""
+  local _yes=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      -y|--yes)
+        _yes=1
+        shift
+        ;;
+      --base-path)
+        _base_path="${2:?"--base-path requires a value"}"
+        shift 2
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "setup"
+        shift 2
+        ;;
+      *)
+        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+  fi
+
+  local _conf="${_base_path}/setup.conf"
+  local _env="${_base_path}/.env"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  if [[ ! -f "${_tpl_conf}" ]]; then
+    printf "[setup] template setup.conf not found at %s\n" "${_tpl_conf}" >&2
+    return 1
+  fi
+
+  if (( ! _yes )); then
+    if [[ ! -t 0 ]]; then
+      printf "[setup] %s\n" "$(_setup_msg reset_needs_yes)" >&2
+      return 1
+    fi
+    printf "[setup] %s [y/N]: " "$(_setup_msg reset_confirm)"
+    local _ans=""
+    read -r _ans
+    case "${_ans}" in
+      y|Y|yes|YES) ;;
+      *)
+        printf "[setup] %s\n" "$(_setup_msg reset_aborted)" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  if [[ -f "${_conf}" ]]; then
+    cp -f "${_conf}" "${_conf}.bak"
+  fi
+  if [[ -f "${_env}" ]]; then
+    cp -f "${_env}" "${_env}.bak"
+  fi
+  cp -f "${_tpl_conf}" "${_conf}"
+
+  printf "[setup] %s\n" "$(_setup_msg reset_done)"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_apply
 #
-# Subcommand handler for `setup.sh apply` (and the legacy no-subcommand
-# default). Regenerates .env + compose.yaml from setup.conf + system
-# detection.
+# Subcommand handler for `setup.sh apply`. Regenerates .env +
+# compose.yaml from setup.conf + system detection. Other subcommands
+# (set/add/remove/reset) intentionally do NOT regen — apply is the
+# explicit gate.
 #
 # Usage: _setup_apply [-h|--help] [--base-path <path>] [--lang <code>]
 # ════════════════════════════════════════════════════════════════════
@@ -2302,34 +2413,39 @@ _setup_apply() {
 #
 # Top-level entry. Routes to subcommand handlers; preserves the legacy
 # flag-only invocation (`setup.sh --base-path X --lang Y`) by falling
-# through to apply when no explicit subcommand is given.
+# top-level subcommand dispatch.
 #
-# Usage: main [<subcommand>] [-h|--help] [--base-path <path>] [--lang <code>]
-#   subcommands: apply | check-drift | set | show | list
+# B-4 BREAKING: no-arg / flag-only invocations no longer alias to
+# `apply`. Either pass `-h`/`--help` (or no args, which now prints
+# the same help) or use an explicit subcommand.
+#
+# Usage: main <subcommand> [args...]
+#   subcommands: apply | check-drift | set | show | list | add | remove | reset
 # ════════════════════════════════════════════════════════════════════
 main() {
   local _subcmd=""
-  if [[ $# -gt 0 ]]; then
-    case "$1" in
-      -h|--help)
-        usage
-        ;;
-      apply|check-drift|set|show|list|add|remove)
-        _subcmd="$1"
-        shift
-        ;;
-      -*)
-        # Legacy: setup.sh --base-path X --lang Y → apply
-        _subcmd="apply"
-        ;;
-      *)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_subcmd)" "$1" >&2
-        return 1
-        ;;
-    esac
-  else
-    _subcmd="apply"
+  # B-4 BREAKING: no-arg → help (was: silently aliased to apply).
+  # Bare flag invocations (`setup.sh --base-path X --lang Y`, no
+  # subcommand) also error now — the legacy fall-through is gone, so
+  # accidental invocations don't clobber .env / compose.yaml without
+  # an explicit subcommand. Downstream callers (build.sh / run.sh) all
+  # pass `apply` explicitly as of this commit.
+  if [[ $# -eq 0 ]]; then
+    usage
   fi
+  case "$1" in
+    -h|--help)
+      usage
+      ;;
+    apply|check-drift|set|show|list|add|remove|reset)
+      _subcmd="$1"
+      shift
+      ;;
+    *)
+      printf "[setup] %s: %s\n" "$(_setup_msg unknown_subcmd)" "$1" >&2
+      return 1
+      ;;
+  esac
 
   case "${_subcmd}" in
     apply)        _setup_apply       "$@" ;;
@@ -2339,6 +2455,7 @@ main() {
     list)         _setup_list        "$@" ;;
     add)          _setup_add         "$@" ;;
     remove)       _setup_remove      "$@" ;;
+    reset)        _setup_reset       "$@" ;;
   esac
 }
 
