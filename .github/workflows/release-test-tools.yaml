@@ -64,7 +64,7 @@ jobs:
         # `template/dockerfile/...` (the latter is only the subtree path
         # downstream repos see and is what build-worker.yaml uses since
         # that workflow executes in the downstream's checkout).
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools

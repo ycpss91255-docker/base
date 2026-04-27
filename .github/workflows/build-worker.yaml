@@ -166,7 +166,7 @@ jobs:
         # cutting their own release should pin explicitly for
         # reproducibility (the earlier GITHUB_WORKFLOW_REF auto-parse
         # was wrong: that ref is the caller's own tag, not template's).
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: test
@@ -182,7 +182,7 @@ jobs:
             ${{ inputs.build_args }}
 
       - name: Build devel stage
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: devel
@@ -198,7 +198,7 @@ jobs:
 
       - name: Build runtime stage
         if: ${{ inputs.build_runtime }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: runtime
