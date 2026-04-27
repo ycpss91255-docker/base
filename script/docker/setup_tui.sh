@@ -1526,7 +1526,7 @@ _render_advanced_menu() {
 _do_reset() {
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
   rm -f "${FILE_PATH}/setup.conf"
-  "${_TUI_SCRIPT_DIR}/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}" \
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1580,7 +1580,7 @@ _commit_and_setup() {
   _saved_fmt="$(_tui_msg saved)"
   # shellcheck disable=SC2059
   printf "[tui] ${_saved_fmt}\n" "${_repo_conf}"
-  "${_TUI_SCRIPT_DIR}/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
 }
 
 # ── main ─────────────────────────────────────────────────────────────────
@@ -1650,7 +1650,7 @@ main() {
   # on template defaults (mount_1 empty, env/ports/... empty) and the
   # new "skip empty rows" menu logic would hide every default entry.
   if [[ ! -f "${_repo_conf}" ]]; then
-    "${_TUI_SCRIPT_DIR}/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}" \
+    "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
       >/dev/null 2>&1 || true
   fi
   _load_current "${_repo_conf}" "${_tpl_conf}"

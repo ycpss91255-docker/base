@@ -325,7 +325,7 @@ _call_setup() {
     return 0
   fi
   _log "Running setup.sh to generate .env + compose.yaml"
-  if ! bash "${_setup}" --base-path "${REPO_ROOT}" >/dev/null; then
+  if ! bash "${_setup}" apply --base-path "${REPO_ROOT}" >/dev/null; then
     _log "WARNING: setup.sh exited non-zero; inspect manually and rerun ./build.sh --setup"
   fi
 }

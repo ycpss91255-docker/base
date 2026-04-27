@@ -179,7 +179,7 @@ EOF
   unset SETUP_CONF
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
   run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
@@ -198,7 +198,7 @@ EOF
   unset SETUP_CONF
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
   run grep -F -- '- seccomp:unconfined' "${TEMP_DIR}/compose.yaml"
@@ -216,7 +216,7 @@ EOF
   unset SETUP_CONF
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
   run grep -F -- '- ALL' "${TEMP_DIR}/compose.yaml"
@@ -842,34 +842,36 @@ EOF
 # main --lang + error paths (unchanged behaviour)
 # ════════════════════════════════════════════════════════════════════
 
-@test "main returns error on unknown argument" {
+@test "main rejects bare flag without subcommand (#49 Phase B-4 BREAKING)" {
+  # Pre-B-4 the legacy fall-through aliased flag-only invocation to
+  # `apply`. B-4 removes that — the user must now type the subcommand
+  # explicitly. Hits the unknown-subcommand path of the dispatcher.
   run main --bogus
   assert_failure
-  assert_output --partial "Unknown argument"
+  assert_output --partial "Unknown subcommand"
 }
 
-@test "main returns error when --base-path value is missing" {
-  run -127 bash -c "source /source/script/docker/setup.sh; main --base-path"
+@test "apply subcommand returns error when --base-path value is missing" {
+  run -127 bash -c "source /source/script/docker/setup.sh; main apply --base-path"
 }
 
-@test "main returns error when --lang value is missing" {
-  run -127 bash -c "source /source/script/docker/setup.sh; main --lang"
+@test "apply subcommand returns error when --lang value is missing" {
+  run -127 bash -c "source /source/script/docker/setup.sh; main apply --lang"
 }
 
-@test "main --lang zh-TW sets Chinese messages for full run" {
+@test "apply --lang zh-TW sets Chinese messages for full run" {
   cp /source/setup.conf "${TEMP_DIR}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
+    main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
   assert_output --partial "更新完成"
 }
 
-@test "main resolves default _base_path via BASH_SOURCE when --base-path omitted" {
-  # When invoked without --base-path, setup.sh walks 3 levels up from its own
-  # location (script/docker/../../.. = repo root).  We verify the fallback by
-  # copying setup.sh + its i18n.sh sidecar into a sandbox tree.
+@test "apply resolves default _base_path via BASH_SOURCE when --base-path omitted" {
+  # apply without --base-path walks 3 levels up from its own location
+  # (script/docker/../../.. = repo root).
   mkdir -p "${TEMP_DIR}/sandbox_repo/template/script/docker"
   cp /source/script/docker/setup.sh \
     "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
@@ -879,7 +881,7 @@ EOF
     "${TEMP_DIR}/sandbox_repo/template/script/docker/_tui_conf.sh"
   cp /source/setup.conf "${TEMP_DIR}/sandbox_repo/template/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
+  run bash "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh" apply
   assert_success
   assert [ -f "${TEMP_DIR}/sandbox_repo/.env" ]
 }
@@ -894,15 +896,22 @@ EOF
 # to apply for backward compat.
 # ════════════════════════════════════════════════════════════════════
 
-@test "main dispatches no-arg invocation to apply (legacy default)" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  run bash -c "
-    source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
-  "
+@test "main no-arg prints help and exits 0 (#49 Phase B-4 BREAKING)" {
+  # Pre-B-4 the no-arg path silently aliased to `apply`. Now it prints
+  # the same help screen as -h, so accidental invocations don't
+  # clobber .env / compose.yaml without an explicit subcommand.
+  run main
   assert_success
-  assert [ -f "${TEMP_DIR}/.env" ]
-  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+  assert_output --partial "Usage:"
+  assert_output --partial "Subcommands:"
+}
+
+@test "main legacy flag-only invocation now errors (#49 Phase B-4 BREAKING)" {
+  # `setup.sh --base-path X --lang Y` (no subcommand) used to alias to
+  # apply. B-4 removes that; the user must type `apply` explicitly.
+  run main --base-path "${TEMP_DIR}" --lang en
+  assert_failure
+  assert_output --partial "Unknown subcommand"
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
@@ -983,7 +992,7 @@ EOF
   cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
   cp /source/setup.conf "${TEMP_DIR}/sandbox/template/setup.conf"
 
-  bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
   cat > "${TEMP_DIR}/sandbox/setup.conf" <<'EOF'
@@ -1441,6 +1450,102 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Subcommand: reset (#49 Phase B-4)
+#
+# `setup.sh reset [--yes]` overwrites <base-path>/setup.conf with the
+# template default. Existing setup.conf → setup.conf.bak; existing
+# .env → .env.bak (one-shot rollback path). Does NOT regenerate .env
+# — the user invokes apply afterwards, or build/run will trigger
+# auto-regen via drift detection on next run. --yes skips the
+# interactive confirmation prompt; non-tty without --yes refuses to
+# proceed (safety guard against accidental invocation in pipelines).
+# ════════════════════════════════════════════════════════════════════
+
+@test "main reset --yes overwrites setup.conf with template default" {
+  mkdir -p "${TEMP_DIR}/template"
+  cp /source/setup.conf "${TEMP_DIR}/template/setup.conf"
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+# user-customized
+[network]
+mode = bridge
+EOF
+  run bash -c "
+    _SETUP_SCRIPT_DIR='${TEMP_DIR}/template/script/docker'
+    mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
+    source /source/script/docker/setup.sh
+    main reset --yes --base-path '${TEMP_DIR}'
+  "
+  assert_success
+  # New setup.conf matches template (has [image] section the user's didn't)
+  run grep -E '^\[image\]' "${TEMP_DIR}/setup.conf"
+  assert_success
+}
+
+@test "main reset --yes backs up prior setup.conf to .bak" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+# CUSTOM_MARKER
+[network]
+mode = bridge
+EOF
+  run main reset --yes --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.conf.bak" ]
+  run grep CUSTOM_MARKER "${TEMP_DIR}/setup.conf.bak"
+  assert_success
+}
+
+@test "main reset --yes backs up prior .env to .env.bak" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env"
+  run main reset --yes --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env.bak" ]
+  run grep "IMAGE_NAME=customimg" "${TEMP_DIR}/.env.bak"
+  assert_success
+}
+
+@test "main reset --yes does NOT regenerate .env" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  : > "${TEMP_DIR}/.env"
+  local _before
+  _before="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  sleep 1
+  run main reset --yes --base-path "${TEMP_DIR}"
+  assert_success
+  # Either .env still has its prior mtime (file untouched), or it was
+  # moved to .env.bak — but a fresh derived .env should NOT exist yet.
+  if [[ -f "${TEMP_DIR}/.env" ]]; then
+    local _after
+    _after="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+    assert_equal "${_before}" "${_after}"
+  fi
+}
+
+@test "main reset without --yes refuses non-tty (no confirmation possible)" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  # Bats runs without a controlling TTY — without --yes the handler
+  # must refuse rather than silently destroy state.
+  run main reset --base-path "${TEMP_DIR}"
+  assert_failure
+  refute [ -f "${TEMP_DIR}/setup.conf.bak" ]
+}
+
+@test "main reset rejects unknown flag" {
+  run main reset --bogus --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Unknown argument"
+}
+
+@test "main reset --yes works on first-time bootstrap (no prior setup.conf)" {
+  rm -f "${TEMP_DIR}/setup.conf"
+  run main reset --yes --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.conf" ]
+  # No prior file → no .bak written
+  refute [ -f "${TEMP_DIR}/setup.conf.bak" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _rule_basename
 # ════════════════════════════════════════════════════════════════════
 
@@ -1563,7 +1668,7 @@ EOF
   cp /source/setup.conf "${TEMP_DIR}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
     grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
     grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env'
   "
@@ -1580,7 +1685,7 @@ EOF
     "APT_MIRROR_DEBIAN=deb.debian.org"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
     grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
     grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env'
   "
@@ -1599,7 +1704,7 @@ tz = Asia/Tokyo
 EOF
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
     grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
     grep '^TZ=' '${TEMP_DIR}/.env'
   "
@@ -1617,7 +1722,7 @@ EOF
     "PYTHON_VERSION=3.12"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
     grep '^PYTHON_VERSION=' '${TEMP_DIR}/.env'
   "
   assert_success
@@ -1629,7 +1734,7 @@ EOF
   _upsert_conf_value "${TEMP_DIR}/setup.conf" build target_arch arm64
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^TARGET_ARCH=' '${TEMP_DIR}/.env'
   "
   assert_success
@@ -1642,7 +1747,7 @@ EOF
   _upsert_conf_value "${TEMP_DIR}/setup.conf" build target_arch ""
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '^TARGET_ARCH=' '${TEMP_DIR}/.env'
   "
   # grep -c prints "0" and exits 1 when pattern missing; we want exactly that.
@@ -1655,7 +1760,7 @@ EOF
   _upsert_conf_value "${TEMP_DIR}/setup.conf" build network host
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
   "
   assert_success
@@ -1667,7 +1772,7 @@ EOF
   _upsert_conf_value "${TEMP_DIR}/setup.conf" build network ""
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
   "
   assert_failure
@@ -1699,7 +1804,7 @@ EOF
   mkdir -p "${_repo}"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${_repo}' 2>&1
+    main apply --base-path '${_repo}' 2>&1
   "
   assert_success
   assert [ -f "${_repo}/setup.conf" ]
@@ -1714,11 +1819,11 @@ EOF
   # committed the file).
   local _repo="${TEMP_DIR}/repo"
   mkdir -p "${_repo}"
-  bash -c "source /source/script/docker/setup.sh; main --base-path '${_repo}'" \
+  bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${_repo}' 2>&1
+    main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env'
     grep '^mount_1' '${_repo}/setup.conf'
   "
@@ -1735,14 +1840,14 @@ EOF
   local _repo="${TEMP_DIR}/repo"
   local _pin="${TEMP_DIR}/custom_ws"
   mkdir -p "${_repo}" "${_pin}"
-  bash -c "source /source/script/docker/setup.sh; main --base-path '${_repo}'" \
+  bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # User pins mount_1 to an existing local path.
   sed -i "s|^mount_1.*|mount_1 = ${_pin}:/home/\${USER_NAME}/work|" \
     "${_repo}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${_repo}' 2>&1
+    main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env'
     grep '^mount_1' '${_repo}/setup.conf'
   "
@@ -1759,14 +1864,14 @@ EOF
   # mount_1 to the portable \${WS_PATH} form.
   local _repo="${TEMP_DIR}/repo"
   mkdir -p "${_repo}"
-  bash -c "source /source/script/docker/setup.sh; main --base-path '${_repo}'" \
+  bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # Plant a stale absolute path that does not exist on this machine.
   sed -i 's|^mount_1.*|mount_1 = /nonexistent/stale/ws:/home/${USER_NAME}/work|' \
     "${_repo}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
-    main --base-path '${_repo}' 2>&1
+    main apply --base-path '${_repo}' 2>&1
     grep '^mount_1' '${_repo}/setup.conf'
     grep '^WS_PATH=' '${_repo}/.env'
   "
@@ -1782,11 +1887,11 @@ EOF
 @test "workspace opt-out: cleared mount_1 means no workspace mount in compose" {
   local _repo="${TEMP_DIR}/repo"
   mkdir -p "${_repo}"
-  bash -c "source /source/script/docker/setup.sh; main --base-path '${_repo}'" \
+  bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # User clears mount_1 (opt-out)
   sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/setup.conf"
-  bash -c "source /source/script/docker/setup.sh; main --base-path '${_repo}'" \
+  bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # mount_1 stays empty (not re-populated)
   run grep '^mount_1' "${_repo}/setup.conf"
