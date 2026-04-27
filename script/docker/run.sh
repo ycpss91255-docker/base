@@ -247,10 +247,9 @@ main() {
     printf "%s\n" "$(_msg bootstrap_info)"
     "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
-    # shellcheck disable=SC1090
-    source "${_setup}"
-    # Drift → auto-regen (see build.sh for the full rationale).
-    if ! _check_setup_drift "${FILE_PATH}"; then
+    # Drift → auto-regen via subprocess (see build.sh for the full
+    # rationale; subprocess avoids the #101 _msg shadow class).
+    if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
       printf "%s\n" "$(_msg drift_regen)"
       "${_setup}" --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi

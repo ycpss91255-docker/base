@@ -885,6 +885,119 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Subcommand dispatch (#49 Phase B-1)
+#
+# setup.sh grew a git-style subcommand dispatcher so build.sh / run.sh
+# stop sourcing it (which historically caused #101's _msg shadow bug).
+# Subcommands wired in B-1: `apply` (default) + `check-drift`. Legacy
+# flag-only invocation (`setup.sh --base-path X --lang Y`) still maps
+# to apply for backward compat.
+# ════════════════════════════════════════════════════════════════════
+
+@test "main dispatches no-arg invocation to apply (legacy default)" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+}
+
+@test "main apply subcommand regenerates .env + compose.yaml" {
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+}
+
+@test "main rejects unknown subcommand" {
+  run main bogus-subcommand
+  assert_failure
+  assert_output --partial "Unknown subcommand"
+}
+
+@test "main check-drift returns 0 when .env missing (no-op)" {
+  run main check-drift --base-path "${TEMP_DIR}"
+  assert_success
+}
+
+@test "main check-drift returns 0 when nothing changed" {
+  local _h=""
+  _compute_conf_hash "${TEMP_DIR}" _h
+  write_env "${TEMP_DIR}/.env" \
+    "user" "group" "$(id -u)" "$(id -g)" \
+    "x86_64" "hub" "false" \
+    "img" "${TEMP_DIR}" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
+    "host" "host" "true" "all" "gpu" \
+    "false" "${_h}"
+  detect_gui() { local -n _o=$1; _o="false"; }
+  detect_gpu() { local -n _o=$1; _o="false"; }
+
+  run main check-drift --base-path "${TEMP_DIR}"
+  assert_success
+}
+
+@test "main check-drift returns non-zero when conf hash drifts" {
+  local _h_old=""
+  _compute_conf_hash "${TEMP_DIR}" _h_old
+  write_env "${TEMP_DIR}/.env" \
+    "user" "group" "$(id -u)" "$(id -g)" \
+    "x86_64" "hub" "false" \
+    "img" "${TEMP_DIR}" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
+    "host" "host" "true" "all" "gpu" \
+    "false" "${_h_old}"
+  detect_gui() { local -n _o=$1; _o="false"; }
+  detect_gpu() { local -n _o=$1; _o="false"; }
+
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gpu]
+mode = off
+EOF
+
+  run main check-drift --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "drift detected"
+}
+
+@test "main check-drift rejects unknown flag" {
+  run main check-drift --bogus
+  assert_failure
+  assert_output --partial "Unknown argument"
+}
+
+@test "setup.sh check-drift via subprocess emits stderr + non-zero exit on drift" {
+  # End-to-end: invoke the script as a subprocess (the way build.sh / run.sh
+  # do after B-1) instead of `source` + function call. Validates the
+  # subcommand dispatch path actually works when the script is executed.
+  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
+  cp /source/setup.conf "${TEMP_DIR}/sandbox/template/setup.conf"
+
+  bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+    --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
+
+  cat > "${TEMP_DIR}/sandbox/setup.conf" <<'EOF'
+[gpu]
+mode = off
+EOF
+
+  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+    check-drift --base-path "${TEMP_DIR}/sandbox"
+  assert_failure
+  assert_output --partial "drift detected"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _rule_basename
 # ════════════════════════════════════════════════════════════════════
 

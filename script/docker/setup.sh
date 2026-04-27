@@ -39,27 +39,31 @@ _setup_msg() {
   case "${_LANG}" in
     zh-TW)
       case "${_key}" in
-        env_done)      echo ".env 與 compose.yaml 更新完成" ;;
-        env_comment)   echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
-        unknown_arg)   echo "未知參數" ;;
+        env_done)        echo ".env 與 compose.yaml 更新完成" ;;
+        env_comment)     echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
+        unknown_arg)     echo "未知參數" ;;
+        unknown_subcmd)  echo "未知子指令" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
-        env_done)      echo ".env 与 compose.yaml 更新完成" ;;
-        env_comment)   echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
-        unknown_arg)   echo "未知参数" ;;
+        env_done)        echo ".env 与 compose.yaml 更新完成" ;;
+        env_comment)     echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
+        unknown_arg)     echo "未知参数" ;;
+        unknown_subcmd)  echo "未知子命令" ;;
       esac ;;
     ja)
       case "${_key}" in
-        env_done)      echo ".env と compose.yaml 更新完了" ;;
-        env_comment)   echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
-        unknown_arg)   echo "不明な引数" ;;
+        env_done)        echo ".env と compose.yaml 更新完了" ;;
+        env_comment)     echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
+        unknown_arg)     echo "不明な引数" ;;
+        unknown_subcmd)  echo "不明なサブコマンド" ;;
       esac ;;
     *)
       case "${_key}" in
-        env_done)      echo ".env + compose.yaml updated" ;;
-        env_comment)   echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
-        unknown_arg)   echo "Unknown argument" ;;
+        env_done)        echo ".env + compose.yaml updated" ;;
+        env_comment)     echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
+        unknown_arg)     echo "Unknown argument" ;;
+        unknown_subcmd)  echo "Unknown subcommand" ;;
       esac ;;
   esac
 }
@@ -79,11 +83,19 @@ usage() {
   case "${_LANG}" in
     *)
       cat >&2 <<'EOF'
-Usage: ./setup.sh [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
+Usage: ./setup.sh [<subcommand>] [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 
 Regenerate .env + compose.yaml from setup.conf + system detection.
 Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
 Save; run directly for non-interactive / scripted / CI use.
+
+Subcommands:
+  apply         (default) Regenerate .env + compose.yaml. No-arg
+                invocation falls back to apply for backward compat.
+  check-drift   Compare current system / setup.conf against .env's
+                SETUP_* metadata. Exit 0 when in sync, exit 1 (with
+                drift descriptions on stderr) when regen is needed.
+                Used by build.sh / run.sh to decide auto-regen.
 
 Options:
   -h, --help            Show this help and exit.
@@ -93,7 +105,7 @@ Options:
                         Defaults to $SETUP_LANG or auto-detected from
                         $LANG.
 
-Outputs (both derived artifacts, gitignored):
+Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
   <base-path>/compose.yaml  Full compose with baseline + conditional
                             blocks (GPU / GUI / extra volumes / etc.)
@@ -1145,11 +1157,60 @@ _check_setup_drift() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# main
+# _setup_check_drift
 #
-# Usage: main [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
+# Subcommand handler for `setup.sh check-drift`. Parses --base-path /
+# --lang flags then delegates to _check_setup_drift, which prints drift
+# descriptions to stderr and returns 1 when the .env metadata no longer
+# matches current system / setup.conf state.
+#
+# Build.sh / run.sh invoke this as a subprocess (instead of sourcing
+# setup.sh) so internal helpers like _setup_msg can never shadow
+# caller-side _msg keys (closes #101's class of bug).
+#
+# Usage: _setup_check_drift [--base-path <path>] [--lang <code>]
 # ════════════════════════════════════════════════════════════════════
-main() {
+_setup_check_drift() {
+  local _base_path=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --base-path)
+        _base_path="${2:?"--base-path requires a value"}"
+        shift 2
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "setup"
+        shift 2
+        ;;
+      *)
+        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+  fi
+
+  _check_setup_drift "${_base_path}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_apply
+#
+# Subcommand handler for `setup.sh apply` (and the legacy no-subcommand
+# default). Regenerates .env + compose.yaml from setup.conf + system
+# detection.
+#
+# Usage: _setup_apply [-h|--help] [--base-path <path>] [--lang <code>]
+# ════════════════════════════════════════════════════════════════════
+_setup_apply() {
   local _base_path=""
 
   while [[ $# -gt 0 ]]; do
@@ -1494,6 +1555,46 @@ main() {
     "${gpu_enabled_eff}" "${gpu_mode}" \
     "${gui_enabled_eff}" "${gui_mode}" \
     "${image_name}" "${ws_path}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# main
+#
+# Top-level entry. Routes to subcommand handlers; preserves the legacy
+# flag-only invocation (`setup.sh --base-path X --lang Y`) by falling
+# through to apply when no explicit subcommand is given.
+#
+# Usage: main [<subcommand>] [-h|--help] [--base-path <path>] [--lang <code>]
+#   subcommands: apply | check-drift
+# ════════════════════════════════════════════════════════════════════
+main() {
+  local _subcmd=""
+  if [[ $# -gt 0 ]]; then
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      apply|check-drift)
+        _subcmd="$1"
+        shift
+        ;;
+      -*)
+        # Legacy: setup.sh --base-path X --lang Y → apply
+        _subcmd="apply"
+        ;;
+      *)
+        printf "[setup] %s: %s\n" "$(_setup_msg unknown_subcmd)" "$1" >&2
+        return 1
+        ;;
+    esac
+  else
+    _subcmd="apply"
+  fi
+
+  case "${_subcmd}" in
+    apply)        _setup_apply       "$@" ;;
+    check-drift)  _setup_check_drift "$@" ;;
+  esac
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

@@ -35,28 +35,35 @@ setup() {
 
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-# Mock setup.sh: executable mode writes .env + compose.yaml and logs args;
-# sourced mode exports _check_setup_drift as a no-op.
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  set -euo pipefail
-  _base=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --base-path) _base="$2"; shift 2 ;;
-      --lang)      shift 2 ;;
-      *)           shift ;;
-    esac
-  done
-  printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
-  {
-    echo "USER_NAME=tester"
-    echo "IMAGE_NAME=mockimg"
-    echo "DOCKER_HUB_USER=mockuser"
-  } > "${_base}/.env"
-  echo "# mock compose" > "${_base}/compose.yaml"
-else
-  _check_setup_drift() { :; }
-fi
+# Mock setup.sh (subprocess-only after #49 Phase B-1):
+#   - `check-drift` subcommand → exit 0 (no drift in this baseline)
+#   - apply (default / explicit / legacy flag-only) → write .env + compose
+set -euo pipefail
+_subcmd="apply"
+case "${1:-}" in
+  check-drift) _subcmd="check-drift"; shift ;;
+  apply)       shift ;;
+esac
+_base=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base-path) _base="$2"; shift 2 ;;
+    --lang)      shift 2 ;;
+    *)           shift ;;
+  esac
+done
+case "${_subcmd}" in
+  check-drift) exit 0 ;;
+  apply)
+    printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
+    {
+      echo "USER_NAME=tester"
+      echo "IMAGE_NAME=mockimg"
+      echo "DOCKER_HUB_USER=mockuser"
+    } > "${_base}/.env"
+    echo "# mock compose" > "${_base}/compose.yaml"
+    ;;
+esac
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
 
@@ -121,29 +128,38 @@ teardown() {
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/setup.conf"
   : > "${SANDBOX}/compose.yaml"
-  # Patch the mock so that its sourced form reports drift.
+  # Patch the mock so check-drift subcommand reports drift (exit 1).
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  set -euo pipefail
-  _base=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --base-path) _base="$2"; shift 2 ;;
-      --lang)      shift 2 ;;
-      *)           shift ;;
-    esac
-  done
-  printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
-  {
-    echo "USER_NAME=tester"
-    echo "IMAGE_NAME=mockimg"
-    echo "DOCKER_HUB_USER=mockuser"
-  } > "${_base}/.env"
-  echo "# mock compose" > "${_base}/compose.yaml"
-else
-  _check_setup_drift() { return 1; }
-fi
+set -euo pipefail
+_subcmd="apply"
+case "${1:-}" in
+  check-drift) _subcmd="check-drift"; shift ;;
+  apply)       shift ;;
+esac
+_base=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base-path) _base="$2"; shift 2 ;;
+    --lang)      shift 2 ;;
+    *)           shift ;;
+  esac
+done
+case "${_subcmd}" in
+  check-drift)
+    printf '[setup] drift detected: stub\n' >&2
+    exit 1
+    ;;
+  apply)
+    printf 'setup.sh invoked --base-path %s\n' "${_base}" >> "${MOCK_SETUP_LOG}"
+    {
+      echo "USER_NAME=tester"
+      echo "IMAGE_NAME=mockimg"
+      echo "DOCKER_HUB_USER=mockuser"
+    } > "${_base}/.env"
+    echo "# mock compose" > "${_base}/compose.yaml"
+    ;;
+esac
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -234,11 +250,7 @@ EOS
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock that exits cleanly but produces nothing.
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  exit 0
-else
-  _check_setup_drift() { :; }
-fi
+exit 0
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -446,25 +458,31 @@ EOS
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  set -euo pipefail
-  _base=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --base-path) _base="$2"; shift 2 ;;
-      --lang)      shift 2 ;;
-      *)           shift ;;
-    esac
-  done
-  {
-    echo "USER_NAME=tester"
-    echo "IMAGE_NAME=mockimg"
-    echo "DOCKER_HUB_USER=mockuser"
-  } > "${_base}/.env"
-  echo "# mock compose" > "${_base}/compose.yaml"
-else
-  _check_setup_drift() { return 1; }
-fi
+set -euo pipefail
+_subcmd="apply"
+case "${1:-}" in
+  check-drift) _subcmd="check-drift"; shift ;;
+  apply)       shift ;;
+esac
+_base=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base-path) _base="$2"; shift 2 ;;
+    --lang)      shift 2 ;;
+    *)           shift ;;
+  esac
+done
+case "${_subcmd}" in
+  check-drift) exit 1 ;;
+  apply)
+    {
+      echo "USER_NAME=tester"
+      echo "IMAGE_NAME=mockimg"
+      echo "DOCKER_HUB_USER=mockuser"
+    } > "${_base}/.env"
+    echo "# mock compose" > "${_base}/compose.yaml"
+    ;;
+esac
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
@@ -475,11 +493,7 @@ EOS
 @test "build.sh --lang zh-TW prints Chinese err_no_env on failed bootstrap" {
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  exit 0
-else
-  _check_setup_drift() { :; }
-fi
+exit 0
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
@@ -490,11 +504,7 @@ EOS
 @test "build.sh --lang ja prints Japanese err_no_env on failed bootstrap" {
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  exit 0
-else
-  _check_setup_drift() { :; }
-fi
+exit 0
 EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang ja --dry-run

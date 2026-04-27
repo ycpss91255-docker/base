@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **691 tests** total (647 unit + 44 integration).
+Template self-tests: **703 tests** total (659 unit + 44 integration).
 
 ## Test Files
 
@@ -34,7 +34,7 @@ Template self-tests: **691 tests** total (647 unit + 44 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 
-### test/unit/setup_spec.bats (111)
+### test/unit/setup_spec.bats (119)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -57,6 +57,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `write_env` (all fields + SETUP_* metadata) | 1 |
 | `_check_setup_drift` (no-op, silent, conf drift, GPU drift) | 4 |
 | `main` (unknown arg, --base-path / --lang missing value) | 3 |
+| Subcommand dispatch (#49 Phase B-1: apply default / explicit, unknown subcmd, check-drift no-op / clean / drift / bad flag, end-to-end subprocess) | 9 |
 | `_msg` / `_detect_lang` i18n | 6 |
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
@@ -188,7 +189,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (123)
+### test/unit/template_spec.bats (127)
 
 | Test | Description |
 |------|-------------|
@@ -303,6 +304,10 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
 | `release-worker.yaml does not cp compose.yaml into the release archive` | v0.10.1 cp-list regression |
 | `release-worker.yaml cp-list still includes Dockerfile + scripts` | positive cp-list guard |
+| `build.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `run.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `build.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
+| `run.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |

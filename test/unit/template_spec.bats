@@ -653,10 +653,12 @@ _stage_lint_layout() {
 
 @test "build.sh _msg keys survive sourcing setup.sh (#101 behavioral)" {
   # Behavioral guard: source setup.sh in a subshell that already has a
-  # top-level _msg() with rich keys (mirrors what build.sh / run.sh do
-  # in the drift-check branch) and assert the rich keys still resolve
-  # afterward. Prior to #101 fix, setup.sh's _msg shadowed the caller's
-  # _msg and `_msg drift_regen` returned empty.
+  # top-level _msg() with rich keys (mirrors what build.sh / run.sh used
+  # to do in the drift-check branch pre-B-1) and assert the rich keys
+  # still resolve afterward. Prior to #101 fix, setup.sh's _msg shadowed
+  # the caller's _msg and `_msg drift_regen` returned empty. Even though
+  # B-1 dropped the `source` callsite, this guard stays so future helpers
+  # added to setup.sh can't reintroduce the bug class.
   run bash -c '
     _msg() {
       case "$1" in
@@ -670,6 +672,36 @@ _stage_lint_layout() {
   '
   assert_success
   assert_output "regenerating"
+}
+
+@test "build.sh does not source setup.sh (#49 Phase B-1)" {
+  # Structural guard for the #101 fix: B-1 replaced build.sh's
+  # `source "${_setup}"` + `_check_setup_drift "${FILE_PATH}"` with a
+  # subprocess call (`bash setup.sh check-drift --base-path ... --lang ...`).
+  # No future change should put `source` back — that would reopen the
+  # entire shadow-bug class even if _msg vs _setup_msg stays clean.
+  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/build.sh
+  assert_output "0"
+}
+
+@test "run.sh does not source setup.sh (#49 Phase B-1)" {
+  # Mirror of build.sh structural guard above.
+  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/run.sh
+  assert_output "0"
+}
+
+@test "build.sh uses subprocess check-drift (#49 Phase B-1)" {
+  # Positive guard: build.sh must invoke setup.sh via subprocess with
+  # the new check-drift subcommand instead of sourcing it.
+  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/build.sh
+  assert_success
+  refute_output "0"
+}
+
+@test "run.sh uses subprocess check-drift (#49 Phase B-1)" {
+  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/run.sh
+  assert_success
+  refute_output "0"
 }
 
 # ════════════════════════════════════════════════════════════════════
