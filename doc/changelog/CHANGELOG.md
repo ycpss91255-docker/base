@@ -7,17 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.11.0] - 2026-04-27
+
+Stable promotion of [v0.11.0-rc1](https://github.com/ycpss91255-docker/template/releases/tag/v0.11.0-rc1). Closes Phase B of #49 — `setup.sh` is now a git-style CLI backend (`apply` / `check-drift` / `set` / `show` / `list` / `add` / `remove` / `reset`). **BREAKING** for any caller invoking `setup.sh` without a subcommand.
+
+Post-rc1 additions: a batch of GitHub Actions Node 24 upgrades (every action we use is now on Node 24) plus README / TEST.md alignment fixes found in a full audit sweep.
+
+### Added
+- All rc1 work (subcommand dispatcher #138, set/show/list #142, add/remove #143, reset #144). See [v0.11.0-rc1] block below for full details.
+
 ### Changed
-- **GitHub Actions runtime bumped to Node 24** via dependabot batch (#111 / #112 / #113 / #114 / #115). Affects every reusable workflow downstream repos call:
+- **GitHub Actions runtime bumped to Node 24** across every reusable workflow downstream repos call (#111–#115 dependabot batch + #147 manual qemu/login bump):
   - `actions/checkout` v4 → v6 (#111)
   - `codecov/codecov-action` v5 → v6 (#112)
   - `softprops/action-gh-release` v2 → v3 (#113)
   - `docker/setup-buildx-action` v3 → v4 (#114) — also drops deprecated `install` input (we never used it)
   - `docker/build-push-action` v6 → v7 (#115) — also drops `DOCKER_BUILD_NO_SUMMARY` / `DOCKER_BUILD_EXPORT_RETENTION_DAYS` envs (we never set them)
-  - `docker/setup-qemu-action` v3 → v4 — manual bump (dependabot's batch hit `open-pull-requests-limit: 5`; picked up here so v0.11.0's Node 24 coverage is complete)
-  - `docker/login-action` v3 → v4 — same reason as above
+  - `docker/setup-qemu-action` v3 → v4 (#147) — manual bump (dependabot's batch hit `open-pull-requests-limit: 5`; picked up so v0.11.0's Node 24 coverage is complete)
+  - `docker/login-action` v3 → v4 (#147) — same reason
 
-  Requires Actions Runner ≥ v2.327.1, which GitHub-hosted runners have shipped since 2025-09. Self-hosted fleets must update before pinning to `@v0.11.0`+.
+  Requires Actions Runner ≥ v2.327.1, which GitHub-hosted runners have shipped since 2025-09. Self-hosted fleets must update before pinning to `@v0.11.0`.
+
+### Fixed
+- **Doc alignment caught in audit sweep** (#146 / #148):
+  - `[Unreleased]` had not been updated by the dependabot batch (CLAUDE.md `變更完成 checklist` now explicitly covers bot PRs)
+  - 4-language README missing `setup.sh subcommands` section + BREAKING migration table
+  - `build-worker.yaml inputs` table missing `platforms` + `test_tools_version` inputs (added in v0.10.0 / v0.10.1)
+  - English README missing the `### Interactive TUI` section that 3 translations carried (4-lang structural parity restored)
+  - `TEST.md` per-spec counts for `bashrc_spec.bats` (14 → 18) and `upgrade_spec.bats` (20 → 18) had drifted
+
+### Migration
+
+Downstream repos upgrading from v0.10.x:
+
+1. Bump `main.yaml`'s `@<version>` to `@v0.11.0`.
+2. Bump `test_tools_version: v0.11.0`.
+3. If any custom script invokes `setup.sh` directly without a subcommand, prepend `apply`. Bundled `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` are already updated.
+4. Run `./template/upgrade.sh v0.11.0` (handles subtree pull + `init.sh` resync + `main.yaml` `@tag` sed automatically).
 
 ## [v0.11.0-rc1] - 2026-04-27
 
