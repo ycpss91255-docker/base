@@ -1225,6 +1225,222 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Subcommand: add / remove (#49 Phase B-3)
+#
+# `setup.sh add <section>.<list> <value>` finds the next `<list>_N`
+# (max+1) and writes via `_upsert_conf_value`.
+# `setup.sh remove <section>.<key>` deletes a single keyed entry.
+# `setup.sh remove <section>.<list> <value>` deletes the first key
+# under <section> matching `<list>_*` whose value equals <value>.
+# Validators wired through the same `_setup_validate_kv` table B-2
+# uses for `set`. No .env regen — `apply` is still the explicit gate.
+# ════════════════════════════════════════════════════════════════════
+
+@test "main add appends mount to next available slot" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+EOF
+  run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/b:/b"
+}
+
+@test "main add to empty section creates _1" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[environment]
+EOF
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main show environment.env_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "FOO=bar"
+}
+
+@test "main add bootstraps setup.conf from template default when missing" {
+  rm -f "${TEMP_DIR}/setup.conf"
+  run main add volumes.mount /foo:/bar --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.conf" ]
+  run main show volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "/foo:/bar"
+}
+
+@test "main add picks max+1 even with gap from prior remove" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+mount_3 = /c:/c
+EOF
+  run main add volumes.mount /d:/d --base-path "${TEMP_DIR}"
+  assert_success
+  run main show volumes.mount_4 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/d:/d"
+}
+
+@test "main add rejects unknown section" {
+  : > "${TEMP_DIR}/setup.conf"
+  run main add bogus.list /a:/a --base-path "${TEMP_DIR}"
+  assert_failure
+  [[ "${status}" -eq 2 ]]
+  assert_output --partial "Unknown section"
+}
+
+@test "main add rejects invalid mount value" {
+  : > "${TEMP_DIR}/setup.conf"
+  run main add volumes.mount not-a-mount --base-path "${TEMP_DIR}"
+  assert_failure
+  [[ "${status}" -eq 2 ]]
+}
+
+@test "main add rejects missing list / value" {
+  run main add --base-path "${TEMP_DIR}"
+  assert_failure
+  run main add volumes.mount --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "main add does not regen .env" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+EOF
+  : > "${TEMP_DIR}/.env"
+  local _before
+  _before="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  sleep 1
+  run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  local _after
+  _after="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  assert_equal "${_before}" "${_after}"
+}
+
+@test "main remove drops keyed entry" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+mount_2 = /b:/b
+EOF
+  run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  run main show volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/b:/b"
+}
+
+@test "main remove by value finds matching key in list" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+mount_2 = /b:/b
+mount_3 = /c:/c
+EOF
+  run main remove volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main show volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/a:/a"
+}
+
+@test "main remove fails when key missing" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+EOF
+  run main remove volumes.mount_99 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "not found"
+}
+
+@test "main remove by value fails when no value matches" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 = /a:/a
+EOF
+  run main remove volumes.mount /nonexistent:/x --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "not found"
+}
+
+@test "main remove rejects unknown section" {
+  : > "${TEMP_DIR}/setup.conf"
+  run main remove bogus.key --base-path "${TEMP_DIR}"
+  assert_failure
+  [[ "${status}" -eq 2 ]]
+  assert_output --partial "Unknown section"
+}
+
+@test "main remove preserves comments + remaining keys" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+# Top-of-file comment
+[volumes]
+# inline comment
+mount_1 = /a:/a
+mount_2 = /b:/b
+
+[network]
+mode = host
+EOF
+  run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  run cat "${TEMP_DIR}/setup.conf"
+  assert_output --partial "Top-of-file comment"
+  assert_output --partial "inline comment"
+  assert_output --partial "mount_2 = /b:/b"
+  assert_output --partial "mode = host"
+  refute_output --partial "mount_1"
+}
+
+@test "main add then remove round-trips" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[environment]
+EOF
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main add environment.env BAZ=qux --base-path "${TEMP_DIR}"
+  assert_success
+  run main show environment --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "env_1 = FOO=bar"
+  assert_output --partial "env_2 = BAZ=qux"
+  run main remove environment.env_1 --base-path "${TEMP_DIR}"
+  assert_success
+  run main add environment.env NEW=val --base-path "${TEMP_DIR}"
+  assert_success
+  run main show environment.env_3 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "NEW=val"
+}
+
+@test "main add validates env_kv format" {
+  : > "${TEMP_DIR}/setup.conf"
+  run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
+  assert_failure
+  [[ "${status}" -eq 2 ]]
+}
+
+@test "main add free-form image rule accepts arbitrary string" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[image]
+rule_1 = @basename
+EOF
+  run main add image.rule "prefix:my_" --base-path "${TEMP_DIR}"
+  assert_success
+  run main show image.rule_2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "prefix:my_"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _rule_basename
 # ════════════════════════════════════════════════════════════════════
 

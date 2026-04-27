@@ -50,6 +50,8 @@ _setup_msg() {
         usage_set)        echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_show)       echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
         usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+        usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -64,6 +66,8 @@ _setup_msg() {
         usage_set)        echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_show)       echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
         usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+        usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -78,6 +82,8 @@ _setup_msg() {
         usage_set)        echo "使い方: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_show)       echo "使い方: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
         usage_list)       echo "使い方: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+        usage_add)        echo "使い方: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        usage_remove)     echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -92,6 +98,8 @@ _setup_msg() {
         usage_set)        echo "Usage: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
         usage_show)       echo "Usage: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
         usage_list)       echo "Usage: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+        usage_add)        echo "Usage: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+        usage_remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
       esac ;;
   esac
 }
@@ -138,6 +146,14 @@ Subcommands:
   list [<section>]
                 Without an arg: print every section header + key in
                 setup.conf. With an arg: equivalent to `show <section>`.
+  add <section>.<list> <value>
+                Append a value to a list-style section. Picks the next
+                free numeric suffix (max+1) and writes `<list>_N = <value>`.
+                e.g. `add volumes.mount /foo:/bar` lands in `mount_<next>`.
+                Same validators as `set`.
+  remove <section>.<key>            Delete the exact key.
+  remove <section>.<list> <value>   Delete the first key under the
+                section matching `<list>_*` whose value equals <value>.
 
 Options:
   -h, --help            Show this help and exit.
@@ -1631,6 +1647,301 @@ _setup_list() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_add
+#
+# Subcommand handler for `setup.sh add <section>.<list> <value>`.
+# Finds the next available numeric suffix N (max-existing + 1, or 1
+# when the section has no entries with that prefix) and writes
+# `<list>_N = <value>` via `_upsert_conf_value`. Bootstraps setup.conf
+# from the template default if absent so first-time users can `add`
+# before they ever ran `apply`. Validators fire through
+# `_setup_validate_kv` against the synthesized key, so e.g.
+# `add volumes.mount` enforces the same `_validate_mount` that
+# `set volumes.mount_3` does. Does NOT regenerate .env.
+#
+# Numbering uses max+1 (never fills gaps left by remove). Predictable
+# for tooling; matches the TUI's `_edit_list_section` "next slot"
+# behaviour.
+#
+# Usage: _setup_add <section>.<list> <value>
+#                   [--base-path PATH] [--lang LANG]
+# ════════════════════════════════════════════════════════════════════
+_setup_add() {
+  local _base_path=""
+  local _spec="" _value="" _have_value=0
+
+  while [[ $# -gt 0 ]]; do
+    # Once <spec> is captured, the next bare arg is the value, even if
+    # it begins with '-' (e.g. negative numbers shouldn't be parsed as
+    # flags). Same shape as _setup_set.
+    if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
+      case "$1" in
+        --base-path|--lang|-h|--help)
+          ;;
+        *)
+          _value="$1"; _have_value=1; shift
+          continue
+          ;;
+      esac
+    fi
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --base-path)
+        _base_path="${2:?"--base-path requires a value"}"
+        shift 2
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "setup"
+        shift 2
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 && -z "${_spec}" ]]; then
+          _spec="$1"; shift
+        fi
+        if [[ $# -gt 0 && "${_have_value}" -eq 0 ]]; then
+          _value="$1"; _have_value=1; shift
+        fi
+        ;;
+      -*)
+        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "${_spec}" ]]; then
+          _spec="$1"
+        elif [[ "${_have_value}" -eq 0 ]]; then
+          _value="$1"; _have_value=1
+        else
+          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          return 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -z "${_spec}" || "${_have_value}" -eq 0 ]]; then
+    _setup_msg usage_add >&2
+    return 1
+  fi
+
+  if [[ "${_spec}" != *.* ]]; then
+    _setup_msg usage_add >&2
+    return 1
+  fi
+  local _section="${_spec%%.*}"
+  local _list="${_spec#*.}"
+  if [[ -z "${_section}" || -z "${_list}" ]]; then
+    _setup_msg usage_add >&2
+    return 1
+  fi
+
+  if ! _setup_known_section "${_section}"; then
+    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    return 2
+  fi
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+  fi
+  local _conf="${_base_path}/setup.conf"
+  if [[ ! -f "${_conf}" ]]; then
+    local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+    if [[ -f "${_tpl_conf}" ]]; then
+      cp "${_tpl_conf}" "${_conf}"
+    else
+      : > "${_conf}"
+    fi
+  fi
+
+  # Scan keys[] for "<section>.<list>_<digits>". Pick the first slot
+  # whose value is empty (reuses placeholder slots from the template
+  # default, matches the TUI's `_edit_list_section` behaviour); fall
+  # back to max+1 when every populated slot has content.
+  local -a _sects=() _keys=() _vals=()
+  _load_setup_conf_full "${_conf}" _sects _keys _vals
+  local _max=0 _empty_idx="" _i _k _suffix
+  for (( _i=0; _i<${#_keys[@]}; _i++ )); do
+    _k="${_keys[_i]}"
+    if [[ "${_k}" == "${_section}.${_list}_"* ]]; then
+      _suffix="${_k##*_}"
+      if [[ "${_suffix}" =~ ^[0-9]+$ ]]; then
+        if (( _suffix > _max )); then
+          _max="${_suffix}"
+        fi
+        if [[ -z "${_empty_idx}" && -z "${_vals[_i]}" ]]; then
+          _empty_idx="${_suffix}"
+        fi
+      fi
+    fi
+  done
+  local _new_idx
+  if [[ -n "${_empty_idx}" ]]; then
+    _new_idx="${_empty_idx}"
+  else
+    _new_idx=$(( _max + 1 ))
+  fi
+  local _new_key="${_list}_${_new_idx}"
+
+  if ! _setup_validate_kv "${_section}" "${_new_key}" "${_value}"; then
+    printf "[setup] %s: %s.%s = %s\n" \
+      "$(_setup_msg invalid_value)" "${_section}" "${_new_key}" "${_value}" >&2
+    return 2
+  fi
+
+  _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_remove
+#
+# Two argument forms:
+#   1) remove <section>.<key>           — delete that exact key
+#   2) remove <section>.<list> <value>  — delete the FIRST key under
+#      <section> matching `<list>_*` whose value equals <value>
+#
+# Form is selected by argc: a second positional arg switches to
+# remove-by-value mode. Removes one entry per invocation; multiple
+# matches keep the rest (call again to peel further). Preserves
+# comments + ordering via `_write_setup_conf`. Does NOT regenerate
+# .env. Does NOT renumber remaining keys (`_load_setup_conf_full`
+# tolerates gaps, and downstream callers treat the prefix list as
+# unordered).
+#
+# Usage: _setup_remove <section>.<key>            [--base-path] [--lang]
+#        _setup_remove <section>.<list> <value>   [--base-path] [--lang]
+# ════════════════════════════════════════════════════════════════════
+_setup_remove() {
+  local _base_path=""
+  local _spec="" _value="" _have_value=0
+
+  while [[ $# -gt 0 ]]; do
+    if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
+      case "$1" in
+        --base-path|--lang|-h|--help)
+          ;;
+        *)
+          _value="$1"; _have_value=1; shift
+          continue
+          ;;
+      esac
+    fi
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --base-path)
+        _base_path="${2:?"--base-path requires a value"}"
+        shift 2
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "setup"
+        shift 2
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 && -z "${_spec}" ]]; then
+          _spec="$1"; shift
+        fi
+        if [[ $# -gt 0 && "${_have_value}" -eq 0 ]]; then
+          _value="$1"; _have_value=1; shift
+        fi
+        ;;
+      -*)
+        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "${_spec}" ]]; then
+          _spec="$1"
+        elif [[ "${_have_value}" -eq 0 ]]; then
+          _value="$1"; _have_value=1
+        else
+          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          return 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -z "${_spec}" || "${_spec}" != *.* ]]; then
+    _setup_msg usage_remove >&2
+    return 1
+  fi
+  local _section="${_spec%%.*}"
+  local _rest="${_spec#*.}"
+  if [[ -z "${_section}" || -z "${_rest}" ]]; then
+    _setup_msg usage_remove >&2
+    return 1
+  fi
+
+  if ! _setup_known_section "${_section}"; then
+    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    return 2
+  fi
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+  fi
+  local _conf="${_base_path}/setup.conf"
+  if [[ ! -f "${_conf}" ]]; then
+    printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_spec}" >&2
+    return 1
+  fi
+
+  local -a _sects=() _keys=() _vals=()
+  _load_setup_conf_full "${_conf}" _sects _keys _vals
+
+  local _target_key="" _i
+  if (( _have_value )); then
+    # Remove-by-value: scan for first <section>.<rest>_* with matching value.
+    for (( _i=0; _i<${#_keys[@]}; _i++ )); do
+      if [[ "${_keys[_i]}" == "${_section}.${_rest}_"* ]] \
+         && [[ "${_vals[_i]}" == "${_value}" ]]; then
+        _target_key="${_keys[_i]#"${_section}".}"
+        break
+      fi
+    done
+    if [[ -z "${_target_key}" ]]; then
+      printf "[setup] %s: %s.%s = %s\n" \
+        "$(_setup_msg key_not_found)" "${_section}" "${_rest}" "${_value}" >&2
+      return 1
+    fi
+  else
+    # Remove-by-key: assert <section>.<rest> exists.
+    local _found=0
+    for (( _i=0; _i<${#_keys[@]}; _i++ )); do
+      if [[ "${_keys[_i]}" == "${_section}.${_rest}" ]]; then
+        _found=1
+        break
+      fi
+    done
+    if (( ! _found )); then
+      printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_spec}" >&2
+      return 1
+    fi
+    _target_key="${_rest}"
+  fi
+
+  # _write_setup_conf truncates dst before reading tpl, so when dst==src
+  # we'd lose data. Stage current contents into a sibling temp file and
+  # use that as the read source.
+  local _tmp
+  _tmp="$(mktemp "${_conf}.XXXXXX")"
+  cp "${_conf}" "${_tmp}"
+  local -a _empty_s=() _empty_k=() _empty_v=()
+  _write_setup_conf "${_conf}" "${_tmp}" \
+    _empty_s _empty_k _empty_v "${_section}.${_target_key}"
+  rm -f "${_tmp}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_apply
 #
 # Subcommand handler for `setup.sh apply` (and the legacy no-subcommand
@@ -2003,7 +2314,7 @@ main() {
       -h|--help)
         usage
         ;;
-      apply|check-drift|set|show|list)
+      apply|check-drift|set|show|list|add|remove)
         _subcmd="$1"
         shift
         ;;
@@ -2026,6 +2337,8 @@ main() {
     set)          _setup_set         "$@" ;;
     show)         _setup_show        "$@" ;;
     list)         _setup_list        "$@" ;;
+    add)          _setup_add         "$@" ;;
+    remove)       _setup_remove      "$@" ;;
   esac
 }
 

@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **732 tests** total (688 unit + 44 integration).
+Template self-tests: **749 tests** total (705 unit + 44 integration).
 
 ## Test Files
 
@@ -34,7 +34,7 @@ Template self-tests: **732 tests** total (688 unit + 44 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 
-### test/unit/setup_spec.bats (141)
+### test/unit/setup_spec.bats (158)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -59,6 +59,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `main` (unknown arg, --base-path / --lang missing value) | 3 |
 | Subcommand dispatch (#49 Phase B-1: apply default / explicit, unknown subcmd, check-drift no-op / clean / drift / bad flag, end-to-end subprocess) | 9 |
 | Subcommand `set` / `show` / `list` (#49 Phase B-2: round-trip, validators reject gpu_count / mount / cgroup / env_kv / port, no .env regen, missing key/section, unknown section, list dump, end-to-end subprocess) | 22 |
+| Subcommand `add` / `remove` (#49 Phase B-3: empty-slot reuse, max+1 after gap, bootstrap on missing setup.conf, validator rejection, remove by key, remove by value, missing key, comment preservation, round-trip) | 17 |
 | `_msg` / `_detect_lang` i18n | 6 |
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
