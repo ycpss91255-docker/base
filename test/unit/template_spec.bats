@@ -636,6 +636,42 @@ _stage_lint_layout() {
   assert_output "0"
 }
 
+@test "setup.sh defines _setup_msg, not _msg (closes #101)" {
+  # Regression for #101: build.sh / run.sh source setup.sh to obtain
+  # `_check_setup_drift`. setup.sh used to define a top-level `_msg()`
+  # with a smaller key set than the caller's, silently shadowing it
+  # post-source. Subsequent `_msg drift_regen` returned empty and
+  # `printf "%s\n" ""` ate the drift-regen status line on every fresh-
+  # host / setup.conf-changed run. Defensive namespacing fix: rename
+  # to `_setup_msg`. Future helpers in setup.sh should follow the
+  # `_setup_*` prefix convention to keep this immune.
+  run grep -cE '^_msg\(\) \{' /source/script/docker/setup.sh
+  assert_output "0"
+  run grep -cE '^_setup_msg\(\) \{' /source/script/docker/setup.sh
+  assert_output "1"
+}
+
+@test "build.sh _msg keys survive sourcing setup.sh (#101 behavioral)" {
+  # Behavioral guard: source setup.sh in a subshell that already has a
+  # top-level _msg() with rich keys (mirrors what build.sh / run.sh do
+  # in the drift-check branch) and assert the rich keys still resolve
+  # afterward. Prior to #101 fix, setup.sh's _msg shadowed the caller's
+  # _msg and `_msg drift_regen` returned empty.
+  run bash -c '
+    _msg() {
+      case "$1" in
+        drift_regen) echo "regenerating" ;;
+        env_done)    echo "REAL CALLER env_done — should NOT be returned" ;;
+      esac
+    }
+    # shellcheck source=/dev/null
+    source /source/script/docker/setup.sh </dev/null >/dev/null 2>&1 || true
+    _msg drift_regen
+  '
+  assert_success
+  assert_output "regenerating"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # upgrade.sh
 # ════════════════════════════════════════════════════════════════════

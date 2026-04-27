@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **689 tests** total (645 unit + 44 integration).
+Template self-tests: **691 tests** total (647 unit + 44 integration).
 
 ## Test Files
 
@@ -188,7 +188,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (121)
+### test/unit/template_spec.bats (123)
 
 | Test | Description |
 |------|-------------|
