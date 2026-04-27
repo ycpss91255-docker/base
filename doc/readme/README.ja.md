@@ -373,6 +373,8 @@ jobs:
 | `image_name` | string | はい | - | コンテナイメージ名 |
 | `build_args` | string | いいえ | `""` | 複数行 KEY=VALUE ビルド引数 |
 | `build_runtime` | boolean | いいえ | `true` | runtime stage をビルドするか |
+| `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+| `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
 ### release-worker.yaml パラメータ
 

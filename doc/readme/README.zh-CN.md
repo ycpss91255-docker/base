@@ -363,6 +363,8 @@ jobs:
 | `image_name` | string | 是 | - | 容器镜像名称 |
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 构建参数 |
 | `build_runtime` | boolean | 否 | `true` | 是否构建 runtime stage |
+| `platforms` | string | 否 | `"linux/amd64"` | 逗号分隔的目标平台；每个在原生 runner 上并行运行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+| `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可固定到所升级的 template release 以保证可复现 |
 
 ### release-worker.yaml 参数
 

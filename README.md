@@ -230,6 +230,10 @@ is copied to the repo and the detected workspace is written to
 ./template/init.sh --gen-conf # plain copy of template/setup.conf to repo root
 ```
 
+### Interactive TUI
+
+`./setup_tui.sh` opens the main menu and lets you edit values across all sections; the backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
+
 ### When setup.sh runs
 
 `setup.sh` runs only when explicitly triggered — it is not re-run on
@@ -381,6 +385,8 @@ jobs:
 | `image_name` | string | yes | - | Container image name |
 | `build_args` | string | no | `""` | Multi-line KEY=VALUE build args |
 | `build_runtime` | boolean | no | `true` | Whether to build runtime stage |
+| `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; each runs as a parallel native-runner shard (`linux/amd64` → ubuntu-latest, `linux/arm64` → ubuntu-24.04-arm) |
+| `test_tools_version` | string | no | `"latest"` | Tag for `ghcr.io/ycpss91255-docker/test-tools:<tag>` build-arg; pin to the template release you upgraded from for reproducibility |
 
 ### release-worker.yaml inputs
 

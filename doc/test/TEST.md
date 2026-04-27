@@ -318,7 +318,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/unit/bashrc_spec.bats (14)
+### test/unit/bashrc_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -472,7 +472,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (20)
+### test/unit/upgrade_spec.bats (18)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
