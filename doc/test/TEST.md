@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **784 tests** total (740 unit + 44 integration).
+Template self-tests: **787 tests** total (743 unit + 44 integration).
 
 ## Test Files
 
@@ -351,7 +351,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
 | `pip setup.sh fails when pip is not available` | Missing pip error |
 
-### test/unit/ci_spec.bats (8)
+### test/unit/ci_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -360,6 +360,9 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `_install_deps: dies with clear error when apt-get install fails` | Explicit `apt-get install` error |
 | `_install_deps: dies with clear error when git clone bats-mock fails` | Explicit `git clone` error |
 | `_install_deps: happy path succeeds when bats absent and all deps install cleanly` | Full install path |
+| `_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default` | TW-mirror sed substitution path |
+| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default` | Default value short-circuit |
+| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset` | Unset env var short-circuit |
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |

@@ -41,9 +41,16 @@ RUN apk add --no-cache curl xz && \
         "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 
+# Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert,mock}.
+# bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
+# and alpine:latest only ships busybox ash. The /usr/local/bin/bats symlink
+# exposes bats on PATH (the upstream bats/bats:latest puts it there but the
+# symlink is not under /opt/bats so it is not picked up by the COPY above).
 FROM alpine:latest
+RUN apk add --no-cache bash
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats
 COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
+RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats

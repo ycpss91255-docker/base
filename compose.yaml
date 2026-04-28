@@ -9,6 +9,7 @@ services:
     environment:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
+      - APT_MIRROR_DEBIAN=${APT_MIRROR_DEBIAN:-deb.debian.org}
     entrypoint: /bin/bash
     command:
       - -c

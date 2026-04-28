@@ -97,6 +97,56 @@ teardown() {
   assert_success
 }
 
+@test "_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default" {
+  local _log="${BATS_TEST_TMPDIR}/sed.log"
+  mock_cmd "sed" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export APT_MIRROR_DEBIAN="mirror.twds.com.tw"
+    _install_deps
+  '
+  assert_success
+  assert [ -f "${_log}" ]
+  run cat "${_log}"
+  assert_output --partial "s|deb.debian.org|mirror.twds.com.tw|g"
+}
+
+@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default" {
+  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export APT_MIRROR_DEBIAN="deb.debian.org"
+    _install_deps
+  '
+  assert_success
+  refute_output --partial "sed-should-not-be-called"
+}
+
+@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset" {
+  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset APT_MIRROR_DEBIAN
+    _install_deps
+  '
+  assert_success
+  refute_output --partial "sed-should-not-be-called"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_shellcheck
 #
