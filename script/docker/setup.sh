@@ -1285,7 +1285,28 @@ _setup_check_drift() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
   fi
 
+  _announce_template_default_fallback "${_base_path}"
   _check_setup_drift "${_base_path}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _announce_template_default_fallback <base_path>
+#
+# Surface a one-shot INFO when the per-repo setup.conf provides no
+# overrides — either missing entirely or present but containing no
+# [section] headers. Called from both `_setup_apply` and
+# `_setup_check_drift` so build.sh / run.sh's drift-check rebuild path
+# also surfaces the heads-up (closes #157, follow-up to #150 / #153).
+# Emitted to stderr to keep stdout machine-parseable.
+# ════════════════════════════════════════════════════════════════════
+_announce_template_default_fallback() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _repo_conf="${_base}/setup.conf"
+  if [[ ! -f "${_repo_conf}" ]]; then
+    printf "[setup] INFO: %s\n" "$(_setup_msg info_no_repo_conf)" >&2
+  elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
+    printf "[setup] INFO: %s\n" "$(_setup_msg info_empty_repo_conf)" >&2
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2097,18 +2118,7 @@ _setup_apply() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
   fi
 
-  # Surface a one-shot INFO when the per-repo setup.conf is missing or
-  # contains no section overrides. _load_setup_conf falls back to the
-  # template default silently per call (11 sections per apply run), so
-  # without this announcement first-time users see no signal that they
-  # are running a pure-template configuration. Emitted to stderr to keep
-  # stdout machine-parseable for callers that capture it.
-  local _repo_conf="${_base_path}/setup.conf"
-  if [[ ! -f "${_repo_conf}" ]]; then
-    printf "[setup] INFO: %s\n" "$(_setup_msg info_no_repo_conf)" >&2
-  elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
-    printf "[setup] INFO: %s\n" "$(_setup_msg info_empty_repo_conf)" >&2
-  fi
+  _announce_template_default_fallback "${_base_path}"
 
   local _env_file="${_base_path}/.env"
 

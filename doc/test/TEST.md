@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **764 tests** total (720 unit + 44 integration).
+Template self-tests: **769 tests** total (725 unit + 44 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (38)
+### test/unit/lib_spec.bats (39)
 
 | Test | Description |
 |------|-------------|
@@ -33,8 +33,9 @@ Template self-tests: **764 tests** total (720 unit + 44 integration).
 | `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
+| `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (170)
+### test/unit/setup_spec.bats (174)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -65,6 +66,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
 | Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
+| Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
 ### test/unit/tui_spec.bats (82)
 

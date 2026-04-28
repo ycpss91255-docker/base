@@ -170,6 +170,10 @@ _lib_msg() {
     zh-CN:conf_missing)      echo "(找不到 setup.conf — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
     ja:conf_missing)         echo "(setup.conf が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
     *:conf_missing)          echo "(setup.conf not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
+    zh-TW:conf_empty)        echo "(setup.conf 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.conf)" ;;
+    zh-CN:conf_empty)        echo "(setup.conf 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.conf)" ;;
+    ja:conf_empty)           echo "(setup.conf にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.conf)" ;;
+    *:conf_empty)            echo "(setup.conf has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.conf)" ;;
     zh-TW:customize)         echo "自訂" ;;
     zh-CN:customize)         echo "自定义" ;;
     ja:customize)            echo "カスタマイズ" ;;
@@ -222,16 +226,26 @@ _print_config_summary() {
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
     printf "[%s] setup.conf\n" "${_tag}"
-    local _sec _content _l
-    for _sec in image build deploy gui network security resources \
-                environment tmpfs devices volumes; do
-      _content="$(_dump_conf_section "${_conf}" "${_sec}")"
-      [[ -z "${_content}" ]] && continue
-      printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
-      while IFS= read -r _l; do
-        printf "[%s]     %s\n" "${_tag}" "${_l}"
-      done <<< "${_content}"
-    done
+    # When the file exists but contains no [section] headers (empty file
+    # / comments-only / whitespace-only), every section silently falls
+    # back to template defaults. Surface a parallel hint to the
+    # missing-conf branch so users on build.sh's drift-check rebuild
+    # path see the heads-up too (closes #157).
+    if ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_conf}"; then
+      # shellcheck disable=SC2059  # format string is intentional (i18n table owns no %s)
+      printf "[%s]   $(_lib_msg conf_empty)\n" "${_tag}"
+    else
+      local _sec _content _l
+      for _sec in image build deploy gui network security resources \
+                  environment tmpfs devices volumes; do
+        _content="$(_dump_conf_section "${_conf}" "${_sec}")"
+        [[ -z "${_content}" ]] && continue
+        printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
+        while IFS= read -r _l; do
+          printf "[%s]     %s\n" "${_tag}" "${_l}"
+        done <<< "${_content}"
+      done
+    fi
   else
     # shellcheck disable=SC2059  # format string is intentional (i18n table owns %s)
     printf "[%s]   $(_lib_msg conf_missing)\n" "${_tag}" "${_tag}"

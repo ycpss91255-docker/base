@@ -359,6 +359,22 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
+@test "_print_config_summary warns when setup.conf exists but has no [section] headers" {
+  # Empty / comments-only setup.conf is the same situation as missing
+  # from a behavior standpoint (every section falls back to template
+  # defaults), but the existing missing-conf branch never fires because
+  # the file does exist. Surface a parallel hint inside the file-exists
+  # branch so downstream `build.sh` users see the warning.
+  local _fp="${BATS_TEST_TMPDIR}/empty_conf"
+  mkdir -p "${_fp}"
+  cat > "${_fp}/setup.conf" <<'EOF'
+# only comments, no [section] headers
+EOF
+  run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
+  assert_success
+  assert_output --partial "no section overrides"
+}
+
 # ── _lib_msg / _print_config_summary i18n ──────────────────────────────────
 
 @test "_lib_msg returns English by default" {

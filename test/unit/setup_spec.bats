@@ -1033,6 +1033,49 @@ EOF
   assert_output --partial "drift detected"
 }
 
+@test "check-drift prints INFO when per-repo setup.conf is missing" {
+  # No TEMP_DIR/setup.conf created — check-drift should announce the
+  # template-default fallback the same way `apply` does, so users
+  # running the build.sh drift-check path see the heads-up too.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main check-drift --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_output --partial "no per-repo setup.conf"
+}
+
+@test "check-drift prints INFO when per-repo setup.conf has no section headers" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+# only comments, no [section] headers
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main check-drift --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_output --partial "per-repo setup.conf has no section"
+}
+
+@test "check-drift stays silent when per-repo setup.conf has at least one section" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gpu]
+mode = auto
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main check-drift --base-path '${TEMP_DIR}' 2>&1
+  "
+  refute_output --partial "no per-repo setup.conf"
+  refute_output --partial "per-repo setup.conf has no section"
+}
+
+@test "check-drift --lang zh-TW prints INFO in Traditional Chinese when setup.conf missing" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
+  "
+  assert_output --partial "未找到"
+}
+
 @test "main check-drift rejects unknown flag" {
   run main check-drift --bogus
   assert_failure
