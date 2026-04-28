@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **757 tests** total (713 unit + 44 integration).
+Template self-tests: **758 tests** total (714 unit + 44 integration).
 
 ## Test Files
 
@@ -193,7 +193,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (127)
+### test/unit/template_spec.bats (128)
 
 | Test | Description |
 |------|-------------|
@@ -209,6 +209,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `Makefile.ci exists (template CI)` | File check |
 | `Makefile.ci has test target` | Makefile target |
 | `Makefile.ci has lint target` | Makefile target |
+| `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |

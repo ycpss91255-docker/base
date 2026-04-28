@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`make upgrade` / `make upgrade-check` no longer fails with `No such file or directory`** in fresh consumer repos. The downstream-facing `template/script/docker/Makefile` (symlinked into every repo's root) was calling `./template/script/upgrade.sh`, but `upgrade.sh` lives at template root (`./template/upgrade.sh`). The wrong path slipped in around v0.10.x and went undetected because no test asserted the target's recipe. Path corrected and a regression test added.
+
 ## [v0.11.0] - 2026-04-27
 
 Stable promotion of [v0.11.0-rc1](https://github.com/ycpss91255-docker/template/releases/tag/v0.11.0-rc1). Closes Phase B of #49 — `setup.sh` is now a git-style CLI backend (`apply` / `check-drift` / `set` / `show` / `list` / `add` / `remove` / `reset`). **BREAKING** for any caller invoking `setup.sh` without a subcommand.
