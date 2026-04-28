@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.0-rc2] - 2026-04-28
+
+Second RC for v0.12.0. Promotes rc1 forward with one fix that completes the empty-setup.conf INFO scope first introduced in rc1. No new features beyond rc1.
+
 ### Fixed
-- **Empty setup.conf no longer silent on `build.sh` / `run.sh` rebuild path** (#157). When the per-repo `setup.conf` is missing or contains no `[section]` headers, the INFO line added in v0.12.0-rc1 (#150 / #153) only fired on the `setup.sh apply` path. Rebuilds where `.env` / `setup.conf` / `compose.yaml` already exist took the `setup.sh check-drift` path instead, which had no INFO. Two-part fix: (1) extracted `_announce_template_default_fallback` helper in `setup.sh` and now call it from both `_setup_apply` and `_setup_check_drift` entries; (2) `_print_config_summary` (in `_lib.sh`) now emits `(setup.conf has no section overrides — using template defaults; …)` inside the file-exists branch, mirroring the existing `conf_missing` hint. New `_lib_msg conf_empty` translated in 4 languages.
+- **Empty setup.conf no longer silent on `build.sh` / `run.sh` rebuild path** (#157, #158). The INFO line added in v0.12.0-rc1 (#150 / #153) only fired on the `setup.sh apply` path. Rebuilds where `.env` / `setup.conf` / `compose.yaml` already exist took the `setup.sh check-drift` path instead, which had no INFO. Two-part fix: (1) extracted `_announce_template_default_fallback` helper in `setup.sh` and now call it from both `_setup_apply` and `_setup_check_drift` entries; (2) `_print_config_summary` (in `_lib.sh`) now emits `(setup.conf has no section overrides — using template defaults; …)` inside the file-exists branch, mirroring the existing `conf_missing` hint. New `_lib_msg conf_empty` translated in 4 languages.
+
+### Migration
+
+Same as rc1. Downstream repos validating v0.12.0:
+
+```bash
+./template/upgrade.sh v0.12.0-rc2   # one-shot, bypasses upgrade.sh's "latest stable" filter
+```
+
+(Direct `make -f Makefile.ci upgrade VERSION=v0.12.0-rc2` will work AFTER you reach v0.12.0-rc1+; for the very first hop from v0.11.0 use the fallback above. Tracking in #156: `upgrade.sh --check` doesn't yet do semver-aware comparison.)
 
 ## [v0.12.0-rc1] - 2026-04-28
 
