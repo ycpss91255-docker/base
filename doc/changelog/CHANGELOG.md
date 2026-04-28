@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.0] - 2026-04-28
+
+Stable promotion of [v0.12.0-rc2](https://github.com/ycpss91255-docker/template/releases/tag/v0.12.0-rc2). Two small developer-experience features and one consumer-facing bug fix; no breaking changes from v0.11.0.
+
+### Added
+- **`make -f Makefile.ci upgrade VERSION=vX.Y.Z`** pins the subtree pull to a specific tag (#152). The recipe forwards `$(VERSION)` to `./upgrade.sh`, so the no-arg form still resolves to the latest stable tag. `make` is the documented entry point for both flows; `./template/upgrade.sh` remains as a fallback when `make` is unavailable.
+- **`setup.sh apply` / `setup.sh check-drift`** announce when the per-repo `setup.conf` provides no overrides (#150 / #153 / #157). On entry, if the per-repo `setup.conf` is missing or contains no `[section]` headers, both subcommands print `[setup] INFO: …` to stderr. Partial overrides (some sections present) stay silent — that is normal usage. Translated in 4 languages via `_setup_msg`. `_print_config_summary` (in `_lib.sh`) emits a parallel `(setup.conf has no section overrides — using template defaults; …)` hint inside the file-exists branch via the new `_lib_msg conf_empty` key.
+
+### Fixed
+- **`make upgrade` / `make upgrade-check` no longer fails with `No such file or directory`** in fresh consumer repos (#154). The downstream-facing `template/script/docker/Makefile` (symlinked into every repo's root) was calling `./template/script/upgrade.sh`, but `upgrade.sh` lives at template root: `./template/upgrade.sh`. The wrong path slipped in around v0.10.x and went undetected because no test asserted the target's recipe. Path corrected and a regression test added.
+
+### Migration
+
+Downstream repos upgrading from v0.11.0:
+
+1. Bump `main.yaml`'s `@<version>` to `@v0.12.0`.
+2. Bump `test_tools_version: v0.12.0`.
+3. Run `make -f Makefile.ci upgrade VERSION=v0.12.0` (handles subtree pull + `init.sh` resync + `main.yaml` `@tag` sed automatically).
+
+For repos still on v0.10.x or earlier (no `template/.version` file, see #151), the first hop must use the fallback path because the older `Makefile.ci` doesn't forward `VERSION`:
+
+```bash
+./template/upgrade.sh v0.12.0
+```
+
+Subsequent upgrades from v0.12.0+ can use `make` directly.
+
+### Known issues
+
+- **#156**: `upgrade.sh --check` uses string equality, not semver-aware comparison. Repos sitting on a prerelease (e.g. `v0.12.0-rc2`) and running `make upgrade-check` get a misleading "Update available: <prerelease> → <older stable>" pointing at a downgrade. Workaround: `./template/upgrade.sh <target>` accepts an explicit version. Will be fixed in a future patch release.
+- **#151**: 15 downstream repos (`agent/*`, `app/*` minus `ros1_bridge`, most of `env/*`) are still on the pre-v0.10.x template subtree and need a one-time `./template/upgrade.sh v0.12.0` bootstrap. Tracked separately.
+
 ## [v0.12.0-rc2] - 2026-04-28
 
 Second RC for v0.12.0. Promotes rc1 forward with one fix that completes the empty-setup.conf INFO scope first introduced in rc1. No new features beyond rc1.
