@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.1] - 2026-04-28
+
+Patch release containing a single bug fix to `upgrade.sh`'s version comparator. No new features, no breaking changes from v0.12.0.
+
 ### Fixed
 - **`upgrade.sh --check` (and `make upgrade-check`) no longer reports a downgrade when the local pin is a prerelease ahead of the latest stable tag** (#156). Previously the comparator used plain string equality (`==`) — so a downstream pinned to `v0.12.0-rc1` while the org's latest stable was still `v0.11.0` would print `Update available: v0.12.0-rc1 → v0.11.0` and exit 1, telling the user to roll back. The new `_semver_cmp` helper applies SemVer §11 (pre-release < associated final), so `_check` now correctly classifies the three real-world cases: equal (exit 0, "Already up to date"), behind (exit 1, "Update available"), and ahead (exit 0, "Local is ahead of latest stable"). `_upgrade <older>` from a newer local version is also now refused with an explicit "Refusing implicit downgrade" error before any subtree pull, so a typo'd `make upgrade VERSION=v0.11.0` on a v0.12.0-rc1 working tree no longer silently rolls back the prerelease pin.
 
