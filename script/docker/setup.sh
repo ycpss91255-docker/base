@@ -56,6 +56,8 @@ _setup_msg() {
         reset_aborted)    echo "已取消，未變更任何檔案" ;;
         reset_done)       echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
         reset_needs_yes)  echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
+        info_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
+        info_empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -76,6 +78,8 @@ _setup_msg() {
         reset_aborted)    echo "已取消，未更改任何文件" ;;
         reset_done)       echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
         reset_needs_yes)  echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
+        info_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
+        info_empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -96,6 +100,8 @@ _setup_msg() {
         reset_aborted)    echo "中断されました。ファイルは変更されていません" ;;
         reset_done)       echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
         reset_needs_yes)  echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
+        info_no_repo_conf) echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+        info_empty_repo_conf) echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -116,6 +122,8 @@ _setup_msg() {
         reset_aborted)    echo "Aborted; no files changed" ;;
         reset_done)       echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
         reset_needs_yes)  echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
+        info_no_repo_conf) echo "no per-repo setup.conf — using template defaults for all sections" ;;
+        info_empty_repo_conf) echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
       esac ;;
   esac
 }
@@ -2087,6 +2095,19 @@ _setup_apply() {
 
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+  fi
+
+  # Surface a one-shot INFO when the per-repo setup.conf is missing or
+  # contains no section overrides. _load_setup_conf falls back to the
+  # template default silently per call (11 sections per apply run), so
+  # without this announcement first-time users see no signal that they
+  # are running a pure-template configuration. Emitted to stderr to keep
+  # stdout machine-parseable for callers that capture it.
+  local _repo_conf="${_base_path}/setup.conf"
+  if [[ ! -f "${_repo_conf}" ]]; then
+    printf "[setup] INFO: %s\n" "$(_setup_msg info_no_repo_conf)" >&2
+  elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
+    printf "[setup] INFO: %s\n" "$(_setup_msg info_empty_repo_conf)" >&2
   fi
 
   local _env_file="${_base_path}/.env"

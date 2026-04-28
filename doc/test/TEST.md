@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **760 tests** total (716 unit + 44 integration).
+Template self-tests: **764 tests** total (720 unit + 44 integration).
 
 ## Test Files
 
@@ -34,7 +34,7 @@ Template self-tests: **760 tests** total (716 unit + 44 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 
-### test/unit/setup_spec.bats (166)
+### test/unit/setup_spec.bats (170)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -64,6 +64,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `_msg` / `_detect_lang` i18n | 6 |
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
+| Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
 ### test/unit/tui_spec.bats (82)
 

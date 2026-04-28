@@ -869,6 +869,63 @@ EOF
   assert_output --partial "更新完成"
 }
 
+# ── Per-repo setup.conf missing / empty INFO (issue #150) ────────────────
+# When the per-repo setup.conf is absent, or present but has no section
+# headers, every _load_setup_conf call falls back to the template default.
+# That fallback used to be silent — surfacing one INFO line at apply()
+# entry tells the user the entire run is template-default driven, without
+# spamming an INFO per section (11 sections would be noisy).
+
+@test "apply prints INFO when per-repo setup.conf is missing" {
+  # No TEMP_DIR/setup.conf created — apply should fall back to template
+  # default and announce it once on stderr.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "no per-repo setup.conf"
+}
+
+@test "apply prints INFO when per-repo setup.conf has no section headers" {
+  # Comments-only file counts as effectively empty: nothing to override.
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+# only comments, no [section] headers
+# template defaults apply for every section
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "per-repo setup.conf has no section"
+}
+
+@test "apply stays silent when per-repo setup.conf has at least one section" {
+  # Partial override is normal usage — don't INFO-spam users who edited
+  # only one section.
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gpu]
+mode = auto
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "no per-repo setup.conf"
+  refute_output --partial "per-repo setup.conf has no section"
+}
+
+@test "apply --lang zh-TW prints INFO in Traditional Chinese when setup.conf missing" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
+  "
+  assert_success
+  assert_output --partial "未找到"
+}
+
 @test "apply resolves default _base_path via BASH_SOURCE when --base-path omitted" {
   # apply without --base-path walks 3 levels up from its own location
   # (script/docker/../../.. = repo root).
