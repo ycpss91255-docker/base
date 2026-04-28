@@ -88,3 +88,4 @@ jobs:
           docker run --rm "${image}" hadolint --version
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
+          docker run --rm "${image}" git subtree --help >/dev/null  # presence check (no --version flag)

@@ -50,11 +50,13 @@ RUN apk add --no-cache curl xz && \
 # parallel (#168): bats --jobs N delegates to GNU parallel; without it bats
 # falls back to serial. ci.sh tolerates missing parallel for older images,
 # but baking it in keeps the fast CI loop fast.
-# git + ca-certificates (#168): the test suite (upgrade_spec.bats,
-# init_new_repo_spec.bats, fresh_clone_portability_spec.bats) builds fake
-# subtree repos with `git -C <dir> init/commit` and a few specs do
-# `git clone` over HTTPS — both need git on PATH and ca-certificates
-# for TLS verification.
+# git + git-subtree + ca-certificates (#168): the test suite
+# (upgrade_spec.bats, init_new_repo_spec.bats,
+# fresh_clone_portability_spec.bats) builds fake subtree repos with
+# `git -C <dir> init/commit` and exercises `git subtree pull/add` paths
+# end-to-end. On debian `git-subtree` is bundled in the `git` package;
+# alpine ships it as a separate `git-subtree` package. ca-certificates
+# is needed by the few specs that hit GitHub over HTTPS.
 # grep + coreutils (#168): downstream scripts and several specs rely
 # on GNU-only flags (`grep -P` for PCRE, GNU-format `sha256sum` output)
 # that busybox's defaults do not provide. Installing the GNU packages
@@ -62,7 +64,7 @@ RUN apk add --no-cache curl xz && \
 # helpers behave the same on alpine as on the previous kcov/kcov
 # (debian) runner.
 FROM alpine:latest
-RUN apk add --no-cache bash parallel git ca-certificates grep coreutils
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats
