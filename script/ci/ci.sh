@@ -111,12 +111,24 @@ _run_tests() {
   # across files and within files by default. All specs use per-test
   # mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so there's no shared
   # filesystem state between tests — safe to run concurrently.
-  local _jobs
-  _jobs="$(nproc 2>/dev/null || echo 4)"
-  echo "--- Running Bats Unit Tests (jobs=${_jobs}) ---"
-  bats --jobs "${_jobs}" "${REPO_ROOT}/test/unit/"
-  echo "--- Running Bats Integration Tests (jobs=${_jobs}) ---"
-  bats --jobs "${_jobs}" "${REPO_ROOT}/test/integration/"
+  #
+  # When parallel is missing (e.g. earlier alpine test-tools images
+  # before #168's parallel addition), fall back to serial bats so the
+  # suite still runs — slower but correct.
+  local -a _bats_args=()
+  local _label
+  if command -v parallel >/dev/null 2>&1; then
+    local _jobs
+    _jobs="$(nproc 2>/dev/null || echo 4)"
+    _bats_args=(--jobs "${_jobs}")
+    _label="jobs=${_jobs}"
+  else
+    _label="serial; parallel not in PATH"
+  fi
+  echo "--- Running Bats Unit Tests (${_label}) ---"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/unit/"
+  echo "--- Running Bats Integration Tests (${_label}) ---"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/integration/"
 }
 
 # ── Kcov coverage ────────────────────────────────────────────────────────────
@@ -156,12 +168,18 @@ _fix_permissions() {
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
-  local _coverage="${1:-0}"
+  # Service is the first arg so the caller picks the runner image:
+  #   `ci`       — alpine test-tools (bats/shellcheck/hadolint baked in,
+  #                no apt-install on each run; fast dev loop)
+  #   `coverage` — kcov/kcov (debian; needs apt-install via _install_deps,
+  #                opt-in APT_MIRROR_DEBIAN rewrite for unreachable mirrors)
+  local _service="${1:-ci}"
+  local _coverage="${2:-0}"
   docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
-    ci
+    "${_service}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -199,12 +217,13 @@ main() {
       _run_shellcheck
       ;;
     coverage)
-      # Full CI + kcov via docker compose
-      _run_via_compose 1
+      # Full CI + kcov via the kcov/kcov-based `coverage` service.
+      _run_via_compose coverage 1
       ;;
     compose)
-      # Default: fast CI (shellcheck + bats, no kcov) via docker compose
-      _run_via_compose 0
+      # Default: fast CI (shellcheck + bats, no kcov) via the alpine
+      # test-tools-based `ci` service.
+      _run_via_compose ci 0
       ;;
   esac
 }

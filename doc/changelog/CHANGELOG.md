@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`compose.yaml` splits the `ci` runner into `ci` (fast) + `coverage` (kcov) services** (#168). The fast `ci` service now uses the prebuilt `ghcr.io/ycpss91255-docker/test-tools:latest` (alpine, with bats / shellcheck / hadolint / bats-{support,assert,mock} / parallel baked in), so `_install_deps` short-circuits via its `command -v bats` guard and no apt-install runs on each `make -f Makefile.ci test`. The `coverage` service stays on `kcov/kcov` and keeps the `APT_MIRROR_DEBIAN` plumbing introduced in v0.12.2 (kcov/kcov is debian-based and still apt-installs bats for the `--coverage` path). `_run_via_compose` takes a service-name first arg so `main()` routes default mode → `ci`, `--coverage` → `coverage`. Override the image with `TEST_TOOLS_IMAGE=...` for local rebuild flows.
+
+### Added
+- **`Dockerfile.test-tools` ships `parallel`** (#168). `bats --jobs N` delegates to GNU parallel; without it bats fails with `parallel: command not found`. `apk add parallel` makes the prebuilt image self-sufficient for the parallel fast-CI path. `release-test-tools.yaml` smoke step extended with `parallel --version` so a missing-parallel regression can't ship silently.
+- **`_run_tests` graceful fallback to serial bats when parallel is missing** (#168). Older test-tools images (v0.12.2 and earlier) ship without parallel; the fallback lets downstream consumers running an older `test-tools:<tag>` still execute the test suite (slower) instead of hard-failing. New images carry parallel, so this fallback is dormant on `:latest`.
+
 ## [v0.12.2] - 2026-04-28
 
 Patch release with two related test-tools fixes. No new features, no breaking changes from v0.12.1.

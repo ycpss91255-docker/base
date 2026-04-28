@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **787 tests** total (743 unit + 44 integration).
+Template self-tests: **793 tests** total (749 unit + 44 integration).
 
 ## Test Files
 
@@ -351,7 +351,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
 | `pip setup.sh fails when pip is not available` | Missing pip error |
 
-### test/unit/ci_spec.bats (11)
+### test/unit/ci_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -366,6 +366,12 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
+| `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
+| `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
+| `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch |
+| `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
+| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
+| `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 
 ### test/unit/init_spec.bats (18)
 
