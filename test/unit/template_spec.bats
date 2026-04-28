@@ -56,6 +56,17 @@ setup() {
   assert_success
 }
 
+@test "Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)" {
+  # Regression: the Makefile symlinked into every downstream repo has
+  # called `./template/script/upgrade.sh` since v0.10.x, but upgrade.sh
+  # actually lives at template root (`./template/upgrade.sh`). The
+  # broken target produced "No such file or directory" on `make upgrade`
+  # / `make upgrade-check` for fresh consumer repos.
+  run grep -E '^[[:space:]]+\./template/upgrade\.sh' /source/script/docker/Makefile
+  assert_success
+  refute_output --partial "./template/script/upgrade.sh"
+}
+
 @test "Makefile.ci exists (template CI)" {
   assert [ -f /source/Makefile.ci ]
 }
