@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **769 tests** total (725 unit + 44 integration).
+Template self-tests: **784 tests** total (740 unit + 44 integration).
 
 ## Test Files
 
@@ -478,7 +478,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (18)
+### test/unit/upgrade_spec.bats (33)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -489,10 +489,12 @@ source the full `upgrade.sh` (which would trigger its top-level
 Covers: `_warn_config_drift` (silent / fires on drift / diff hint),
 the three safety guards added after the v0.9.7 Jetson incident
 (`_require_git_identity`, `_require_clean_merge_state`,
-`_verify_subtree_intact` with rollback), and structural invariants that
+`_verify_subtree_intact` with rollback), structural invariants that
 pin call-ordering in `_upgrade` (identity check runs before subtree
 pull, integrity verification runs after, pre-pull HEAD is snapshotted
-for rollback).
+for rollback), and the SemVer §11-aware `_semver_cmp` + `_check`
+behavior added for issue #156 (prerelease ahead of latest stable
+must not be reported as "needing downgrade").
 
 | Test | Description |
 |------|-------------|
@@ -514,6 +516,21 @@ for rollback).
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
 | `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
+| `_semver_cmp: equal versions return 0` | Equality |
+| `_semver_cmp: lower core returns 1` | Behind core |
+| `_semver_cmp: higher core returns 2` | Ahead core |
+| `_semver_cmp: pre-release < final at same core (rc1 < 0.12.0)` | SemVer §11 a |
+| `_semver_cmp: final > pre-release at same core (0.12.0 > rc1)` | SemVer §11 b |
+| `_semver_cmp: rc1 < rc2 (lex pre-release ordering)` | Pre-release order |
+| `_semver_cmp: rc2 > rc1` | Pre-release order |
+| `_semver_cmp: pre-release of newer beats older final (0.12.0-rc1 > 0.11.0)` | Cross-core |
+| `_semver_cmp: older final < pre-release of newer (0.11.0 < 0.12.0-rc1)` | Cross-core |
+| `_check: equal versions report up-to-date and exit 0` | Happy equal |
+| `_check: behind latest reports update available and exits 1` | Behind |
+| `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
+| `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
+| `_check: prerelease behind latest stable proposes upgrade (rc1 → 0.12.0)` | Leave prerelease |
+| `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
 ### test/integration/init_new_repo_spec.bats (36)
 
