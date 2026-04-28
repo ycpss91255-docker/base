@@ -58,6 +58,23 @@ _die() { printf "[ci] ERROR: %s\n" "$*" >&2; exit 1; }
 _install_deps() {
   command -v bats >/dev/null 2>&1 && return 0
 
+  # Rewrite sources.list to use APT_MIRROR_DEBIAN before apt-get update.
+  # Default deb.debian.org is unreachable on some networks (regional outage,
+  # ISP routing, captive portals) while the configured mirror responds. The
+  # env var is plumbed through by compose.yaml; only rewrite when it actually
+  # differs from the default so unaffected networks keep using the upstream.
+  local _mirror="${APT_MIRROR_DEBIAN:-deb.debian.org}"
+  if [[ "${_mirror}" != "deb.debian.org" ]]; then
+    [[ -f /etc/apt/sources.list ]] \
+      && sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list
+    if compgen -G '/etc/apt/sources.list.d/*.list' >/dev/null; then
+      sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list.d/*.list
+    fi
+    if compgen -G '/etc/apt/sources.list.d/*.sources' >/dev/null; then
+      sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list.d/*.sources
+    fi
+  fi
+
   apt-get update -qq \
     || _die "apt-get update failed. Check network / apt mirror reachability."
 

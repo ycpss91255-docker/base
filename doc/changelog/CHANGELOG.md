@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Dockerfile.test-tools`: bats now runnable in the published image** (#165). The alpine-based final stage was missing `bash` (required by bats's `#!/usr/bin/env bash` entry point) and the `/usr/local/bin/bats` symlink (the upstream `bats/bats:latest` ships it but it lives outside `/opt/bats`, so the existing `COPY --from=bats-src /opt/bats /opt/bats` did not pick it up). `apk add bash` and `ln -s /opt/bats/bin/bats /usr/local/bin/bats` restore both. `release-test-tools.yaml` now runs `bats --version`, `shellcheck --version`, `hadolint --version` against the just-pushed image as a regression guard so a similar break can't ship silently again.
+- **`compose.yaml` / `ci.sh::_install_deps`: `make -f Makefile.ci test` no longer hard-fails on networks where `deb.debian.org` is unreachable** (#164). The kcov/kcov-based `ci` service had no apt-mirror plumbing, so `apt-get update` always pointed at the upstream Debian archive even when the host's TW mirror responded normally. `compose.yaml` now propagates `APT_MIRROR_DEBIAN` (default `deb.debian.org`, no-op when unset) into the container, and `_install_deps` rewrites `/etc/apt/sources.list` (and `sources.list.d/*.list` / `*.sources`) with `sed` before running `apt-get update` whenever the env var differs from the default. Set `APT_MIRROR_DEBIAN=mirror.twds.com.tw` (or any reachable Debian mirror) on the host before invoking `make test` / `make coverage` to opt into the rewrite. The cleaner long-term fix — switching the `ci` service to the published `test-tools` image so the apt-install path is bypassed entirely — is tracked separately and depends on this PR's image rebuild landing first.
+
 ## [v0.12.1] - 2026-04-28
 
 Patch release containing a single bug fix to `upgrade.sh`'s version comparator. No new features, no breaking changes from v0.12.0.
