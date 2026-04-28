@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.3] - 2026-04-28
+
+Patch release that completes the test-tools migration started in v0.12.2 (#165 + #164) and fixes a bash 5.3 silent-exit bug in `upgrade.sh --check` exposed by the alpine runner. No breaking changes from v0.12.2.
+
+### Fixed
+- **`upgrade.sh --check` no longer silently dies on alpine** (#168 follow-up). `_get_latest_version`'s pipe (`git ls-remote | grep -oP | head -1 | sed`) ends with `head -1` closing stdin, which SIGPIPE's the upstream `grep -oP`; with `pipefail` set, the pipe inherits that non-zero exit. Bash 5.3 (alpine 3.23 — the test-tools image runner) propagates the failed command-substitution exit through the caller's `set -e` and kills the script before any `_log` line runs; bash 5.2 (debian bookworm — the previous kcov/kcov runner) does not. Symptom was integration test #41 (`upgrade.sh --check reports update available from v0.9.5 → v0.9.7`) failing ~80% of runs on alpine with completely empty output but passing 100% on debian, with identical Dockerfile / upgrade.sh / bats version. Wrapped the pipe in `|| true` so the function unconditionally returns 0; the existing `[[ -z latest_ver ]]` → `_error "Could not fetch ..."` guard in `_check` still surfaces real network failures with a clear message.
+
 ### Changed
 - **`compose.yaml` splits the `ci` runner into `ci` (fast) + `coverage` (kcov) services** (#168). The fast `ci` service now uses the prebuilt `ghcr.io/ycpss91255-docker/test-tools:latest` (alpine, with bats / shellcheck / hadolint / bats-{support,assert,mock} / parallel baked in), so `_install_deps` short-circuits via its `command -v bats` guard and no apt-install runs on each `make -f Makefile.ci test`. The `coverage` service stays on `kcov/kcov` and keeps the `APT_MIRROR_DEBIAN` plumbing introduced in v0.12.2 (kcov/kcov is debian-based and still apt-installs bats for the `--coverage` path). `_run_via_compose` takes a service-name first arg so `main()` routes default mode → `ci`, `--coverage` → `coverage`. Override the image with `TEST_TOOLS_IMAGE=...` for local rebuild flows.
 
