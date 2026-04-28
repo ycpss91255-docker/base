@@ -25,6 +25,8 @@ EOS
   sed -n '/^_require_git_identity() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_clean_merge_state() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_verify_subtree_intact() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
 }
 
 teardown() {
@@ -270,4 +272,174 @@ _mk_subtree_repo() {
 @test "upgrade.sh snapshots pre-pull HEAD for rollback" {
   run grep -F 'git rev-parse HEAD' "${UPGRADE}"
   assert_success
+}
+
+# ── _semver_cmp (SemVer §11 ordering) ───────────────────────────────────────
+#
+# SemVer §11 says a pre-release version has LOWER precedence than the
+# associated normal version (rc1 < final). GNU `sort -V` sorts the
+# other way (final < rc1, treating `-` as "less than empty"), which is
+# why upgrade.sh needs its own comparator: the wrong ordering causes
+# `make upgrade-check` to mis-classify v0.12.0-rc1 vs released v0.12.0
+# once the stable tag exists.
+#
+# Returns: 0 = equal, 1 = a < b, 2 = a > b.
+
+@test "_semver_cmp: equal versions return 0" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.11.0; echo \$?"
+  assert_success
+  assert_output "0"
+}
+
+@test "_semver_cmp: lower core returns 1" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.12.0; echo \$?"
+  assert_success
+  assert_output "1"
+}
+
+@test "_semver_cmp: higher core returns 2" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0 v0.11.0; echo \$?"
+  assert_success
+  assert_output "2"
+}
+
+@test "_semver_cmp: pre-release < final at same core (rc1 < 0.12.0)" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.12.0; echo \$?"
+  assert_success
+  assert_output "1"
+}
+
+@test "_semver_cmp: final > pre-release at same core (0.12.0 > rc1)" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0 v0.12.0-rc1; echo \$?"
+  assert_success
+  assert_output "2"
+}
+
+@test "_semver_cmp: rc1 < rc2 (lex pre-release ordering)" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.12.0-rc2; echo \$?"
+  assert_success
+  assert_output "1"
+}
+
+@test "_semver_cmp: rc2 > rc1" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc2 v0.12.0-rc1; echo \$?"
+  assert_success
+  assert_output "2"
+}
+
+@test "_semver_cmp: pre-release of newer beats older final (0.12.0-rc1 > 0.11.0)" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.11.0; echo \$?"
+  assert_success
+  assert_output "2"
+}
+
+@test "_semver_cmp: older final < pre-release of newer (0.11.0 < 0.12.0-rc1)" {
+  run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.12.0-rc1; echo \$?"
+  assert_success
+  assert_output "1"
+}
+
+# ── _check (semver-aware) ────────────────────────────────────────────────────
+#
+# _check exits 0 when there's nothing to do (already current, or local
+# is ahead of latest stable — typical for prerelease testers) and 1
+# only when a real upgrade is available. This is the regression at the
+# heart of issue #156: previously _check used `==` and reported any
+# mismatch (including "running rc1, latest stable is older v0.11.0")
+# as "needing downgrade" with exit 1.
+
+@test "_check: equal versions report up-to-date and exit 0" {
+  run bash -c "
+    source '${HARNESS}'
+    _get_local_version()  { echo v0.12.0; }
+    _get_latest_version() { echo v0.12.0; }
+    _check
+  "
+  assert_success
+  assert_output --partial "Local:  v0.12.0"
+  assert_output --partial "Latest: v0.12.0"
+  assert_output --partial "Already up to date"
+}
+
+@test "_check: behind latest reports update available and exits 1" {
+  run bash -c "
+    source '${HARNESS}'
+    _get_local_version()  { echo v0.11.0; }
+    _get_latest_version() { echo v0.12.0; }
+    _check
+  "
+  assert_failure
+  assert_output --partial "Update available: v0.11.0 →v0.12.0"
+}
+
+@test "_check: prerelease ahead of latest stable exits 0 (issue #156 case)" {
+  # Scenario from issue #156: user's downstream pinned to v0.12.0-rc1
+  # while the org's latest stable tag is still v0.11.0. _check should
+  # NOT advise a downgrade — it should say the local is ahead.
+  run bash -c "
+    source '${HARNESS}'
+    _get_local_version()  { echo v0.12.0-rc1; }
+    _get_latest_version() { echo v0.11.0; }
+    _check
+  "
+  assert_success
+  assert_output --partial "Local:  v0.12.0-rc1"
+  assert_output --partial "Latest: v0.11.0"
+  assert_output --partial "ahead"
+  refute_output --partial "Update available"
+}
+
+@test "_check: stable later than latest stable exits 0 (defensive)" {
+  # If local was hand-tagged to a future version not yet on the remote
+  # (e.g. local-only release, or stale ls-remote), don't propose a
+  # downgrade.
+  run bash -c "
+    source '${HARNESS}'
+    _get_local_version()  { echo v0.13.0; }
+    _get_latest_version() { echo v0.12.0; }
+    _check
+  "
+  assert_success
+  assert_output --partial "ahead"
+}
+
+@test "_check: prerelease behind latest stable proposes upgrade (rc1 →0.12.0)" {
+  # Once v0.12.0 is published, a downstream still on v0.12.0-rc1
+  # should be told to leave the prerelease and move to stable.
+  run bash -c "
+    source '${HARNESS}'
+    _get_local_version()  { echo v0.12.0-rc1; }
+    _get_latest_version() { echo v0.12.0; }
+    _check
+  "
+  assert_failure
+  assert_output --partial "Update available: v0.12.0-rc1 →v0.12.0"
+}
+
+# ── _upgrade refuses implicit downgrade ─────────────────────────────────────
+#
+# Calling `./template/upgrade.sh v0.11.0` from a v0.12.0-rc1 working
+# tree should refuse and exit non-zero before touching the working
+# tree. The user can still recover deliberately (e.g., set the version
+# file by hand or rerun with a clear --force flag if we ever add one).
+
+@test "_upgrade refuses to downgrade from a newer local version" {
+  # Extract a minimal _upgrade by hand (the full body sources too many
+  # external deps); we only need the entry-point downgrade guard. The
+  # guard MUST fire before any subtree pull.
+  run bash -c "
+    source '${HARNESS}'
+    sed -n '/^_upgrade() {\$/,/^}\$/p' '${UPGRADE}' > '${TEMP_DIR}/upgrade_fn.sh'
+    source '${TEMP_DIR}/upgrade_fn.sh'
+
+    _get_local_version()      { echo v0.12.0-rc1; }
+    _require_git_identity()   { :; }
+    _require_clean_merge_state(){ :; }
+    git()                     { echo 'FATAL: git should not be called' >&2; exit 99; }
+
+    _upgrade v0.11.0
+  "
+  assert_failure
+  assert_output --partial "downgrade"
+  refute_output --partial "FATAL"
 }

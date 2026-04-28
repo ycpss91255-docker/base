@@ -109,6 +109,47 @@ _get_latest_version() {
     | sed 's|refs/tags/||'
 }
 
+# ── Semver comparison ────────────────────────────────────────────────────────
+#
+# SemVer §11 says a pre-release version has LOWER precedence than the
+# associated normal version (rc1 < final). GNU `sort -V` orders them
+# the OTHER way (final < rc1, treats `-` as "less than empty"), so we
+# can't just delegate. The wrong ordering caused issue #156: once
+# v0.12.0 was published, downstreams still pinned to v0.12.0-rc1
+# would have been told they were "ahead" of stable, hiding the upgrade.
+#
+# This comparator handles the only semver shape we ship —
+# v<MAJOR>.<MINOR>.<PATCH>[-<PRERELEASE>] — and applies §11 explicitly:
+#   - core compared via `sort -V` (purely numeric, no `-` involved)
+#   - same-core final beats same-core pre-release
+#   - same-core pre-releases compared lexicographically (rc1 < rc2 etc.)
+#
+# Returns: 0 = equal, 1 = a < b, 2 = a > b.
+_semver_cmp() {
+  local _a="${1#v}"
+  local _b="${2#v}"
+  local _a_core="${_a%%-*}"
+  local _b_core="${_b%%-*}"
+  local _a_pre=""
+  local _b_pre=""
+  [[ "${_a}" == *"-"* ]] && _a_pre="${_a#*-}"
+  [[ "${_b}" == *"-"* ]] && _b_pre="${_b#*-}"
+
+  if [[ "${_a_core}" != "${_b_core}" ]]; then
+    local _newer
+    _newer="$(printf '%s\n%s\n' "${_a_core}" "${_b_core}" | sort -V | tail -1)"
+    [[ "${_newer}" == "${_a_core}" ]] && return 2 || return 1
+  fi
+
+  if [[ -z "${_a_pre}" && -z "${_b_pre}" ]]; then return 0; fi
+  [[ -z "${_a_pre}" ]] && return 2
+  [[ -z "${_b_pre}" ]] && return 1
+
+  if [[ "${_a_pre}" < "${_b_pre}" ]]; then return 1; fi
+  if [[ "${_a_pre}" > "${_b_pre}" ]]; then return 2; fi
+  return 0
+}
+
 # ── Check mode ───────────────────────────────────────────────────────────────
 
 _check() {
@@ -123,13 +164,18 @@ _check() {
   _log "Local:  ${local_ver}"
   _log "Latest: ${latest_ver}"
 
-  if [[ "${local_ver}" == "${latest_ver}" ]]; then
-    _log "Already up to date."
-    return 0
-  else
-    _log "Update available: ${local_ver} → ${latest_ver}"
+  if [[ "${local_ver}" == "unknown" ]]; then
+    _log "Update available: ${local_ver} →${latest_ver}"
     return 1
   fi
+
+  local _cmp=0
+  _semver_cmp "${local_ver}" "${latest_ver}" || _cmp=$?
+  case "${_cmp}" in
+    0) _log "Already up to date."; return 0 ;;
+    1) _log "Update available: ${local_ver} →${latest_ver}"; return 1 ;;
+    2) _log "Local is ahead of latest stable (prerelease or local-only tag)."; return 0 ;;
+  esac
 }
 
 # ── Upgrade ──────────────────────────────────────────────────────────────────
@@ -142,6 +188,20 @@ _upgrade() {
   if [[ "${local_ver}" == "${target_ver}" ]]; then
     _log "Already at ${target_ver}. Nothing to do."
     return 0
+  fi
+
+  # Refuse implicit downgrade. Without this guard the user can ratchet
+  # back from v0.12.0-rc1 to an older v0.11.0 without realising it,
+  # which silently undoes prerelease testing and re-introduces fixed
+  # bugs. _semver_cmp returns 2 when local > target per SemVer §11.
+  if [[ "${local_ver}" != "unknown" ]]; then
+    local _cmp=0
+    _semver_cmp "${local_ver}" "${target_ver}" || _cmp=$?
+    if (( _cmp == 2 )); then
+      _error "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
+  If this is intentional (rolling back a bad release), edit
+  template/.version manually and re-run the upgrade."
+    fi
   fi
 
   # Pre-flight safety checks. Any failure exits non-zero without
