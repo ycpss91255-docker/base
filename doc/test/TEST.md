@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **793 tests** total (749 unit + 44 integration).
+Template self-tests: **795 tests** total (751 unit + 44 integration).
 
 ## Test Files
 
@@ -487,7 +487,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (33)
+### test/unit/upgrade_spec.bats (35)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -539,6 +539,8 @@ must not be reported as "needing downgrade").
 | `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
 | `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
 | `_check: prerelease behind latest stable proposes upgrade (rc1 → 0.12.0)` | Leave prerelease |
+| `_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)` | Alpine bash 5.3 errexit-from-cmdsub workaround (lock the `\|\| true` guard) |
+| `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
 ### test/integration/init_new_repo_spec.bats (36)
