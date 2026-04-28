@@ -86,3 +86,5 @@ jobs:
           docker run --rm "${image}" bats --version
           docker run --rm "${image}" shellcheck --version
           docker run --rm "${image}" hadolint --version
+          docker run --rm "${image}" parallel --version
+          docker run --rm "${image}" git --version
