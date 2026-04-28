@@ -7,12 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.0-rc1] - 2026-04-28
+
+Release candidate for v0.12.0. Two small developer-experience features (`make -f Makefile.ci upgrade VERSION=...`, `setup.sh apply` template-default INFO) plus a bug fix to the downstream `make upgrade` recipe. No breaking changes; downstream repos can `make -f Makefile.ci upgrade VERSION=v0.12.0-rc1` and verify before promoting to stable.
+
 ### Added
-- **`make -f Makefile.ci upgrade` now accepts an optional `VERSION` variable**. `make -f Makefile.ci upgrade VERSION=vX.Y.Z` pins the subtree pull to a specific tag; `make -f Makefile.ci upgrade` (no `VERSION`) keeps resolving the latest tag. The recipe forwards `$(VERSION)` to `./upgrade.sh`, so empty expands to the no-arg form. This makes `make` the documented entry point for both latest and pinned upgrades; `./template/upgrade.sh` remains as a fallback when `make` is unavailable.
-- **`setup.sh apply` now announces when it falls back to template defaults** (#150). On apply entry, if the per-repo `setup.conf` is missing, `setup.sh` prints `[setup] INFO: no per-repo setup.conf — using template defaults for all sections` to stderr; if the file exists but contains no `[section]` headers (comments / whitespace only), it prints `[setup] INFO: per-repo setup.conf has no section overrides — …`. Partial overrides (some sections present) stay silent — that is normal usage. Both messages are i18n'd in the four supported languages via `_setup_msg`. Previously the per-section fallback inside `_load_setup_conf` was silent for all 11 sections, leaving fresh-clone users with no signal that their entire run was template-default driven.
+- **`make -f Makefile.ci upgrade` now accepts an optional `VERSION` variable** (#152). `make -f Makefile.ci upgrade VERSION=vX.Y.Z` pins the subtree pull to a specific tag; `make -f Makefile.ci upgrade` (no `VERSION`) keeps resolving the latest tag. The recipe forwards `$(VERSION)` to `./upgrade.sh`, so empty expands to the no-arg form. This makes `make` the documented entry point for both latest and pinned upgrades; `./template/upgrade.sh` remains as a fallback when `make` is unavailable.
+- **`setup.sh apply` now announces when it falls back to template defaults** (#150 / #153). On apply entry, if the per-repo `setup.conf` is missing, `setup.sh` prints `[setup] INFO: no per-repo setup.conf — using template defaults for all sections` to stderr; if the file exists but contains no `[section]` headers (comments / whitespace only), it prints `[setup] INFO: per-repo setup.conf has no section overrides — …`. Partial overrides (some sections present) stay silent — that is normal usage. Both messages are i18n'd in the four supported languages via `_setup_msg`. Previously the per-section fallback inside `_load_setup_conf` was silent for all 11 sections, leaving fresh-clone users with no signal that their entire run was template-default driven.
 
 ### Fixed
-- **`make upgrade` / `make upgrade-check` no longer fails with `No such file or directory`** in fresh consumer repos. The downstream-facing `template/script/docker/Makefile` (symlinked into every repo's root) was calling `./template/script/upgrade.sh`, but `upgrade.sh` lives at template root (`./template/upgrade.sh`). The wrong path slipped in around v0.10.x and went undetected because no test asserted the target's recipe. Path corrected and a regression test added.
+- **`make upgrade` / `make upgrade-check` no longer fails with `No such file or directory`** in fresh consumer repos (#154). The downstream-facing `template/script/docker/Makefile` (symlinked into every repo's root) was calling `./template/script/upgrade.sh`, but `upgrade.sh` lives at template root (`./template/upgrade.sh`). The wrong path slipped in around v0.10.x and went undetected because no test asserted the target's recipe. Path corrected and a regression test added.
+
+### Migration
+
+Downstream repos upgrading from v0.11.0:
+
+1. Bump `main.yaml`'s `@<version>` to `@v0.12.0-rc1`.
+2. Bump `test_tools_version: v0.12.0-rc1`.
+3. Run `make -f Makefile.ci upgrade VERSION=v0.12.0-rc1` (handles subtree pull + `init.sh` resync + `main.yaml` `@tag` sed automatically).
 
 ## [v0.11.0] - 2026-04-27
 
