@@ -81,6 +81,19 @@ setup() {
   assert_success
 }
 
+@test "Makefile.ci has upgrade target" {
+  run grep -E '^upgrade:' /source/Makefile.ci
+  assert_success
+}
+
+@test "Makefile.ci upgrade target forwards optional VERSION variable" {
+  # `make -f Makefile.ci upgrade [VERSION=vX.Y.Z]` is the documented entry
+  # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
+  # VERSION resolves to "latest" and a set VERSION pins a specific tag.
+  run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Structure: test directory layout
 # ════════════════════════════════════════════════════════════════════

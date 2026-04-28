@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`make -f Makefile.ci upgrade` now accepts an optional `VERSION` variable**. `make -f Makefile.ci upgrade VERSION=vX.Y.Z` pins the subtree pull to a specific tag; `make -f Makefile.ci upgrade` (no `VERSION`) keeps resolving the latest tag. The recipe forwards `$(VERSION)` to `./upgrade.sh`, so empty expands to the no-arg form. This makes `make` the documented entry point for both latest and pinned upgrades; `./template/upgrade.sh` remains as a fallback when `make` is unavailable.
+
 ### Fixed
 - **`make upgrade` / `make upgrade-check` no longer fails with `No such file or directory`** in fresh consumer repos. The downstream-facing `template/script/docker/Makefile` (symlinked into every repo's root) was calling `./template/script/upgrade.sh`, but `upgrade.sh` lives at template root (`./template/upgrade.sh`). The wrong path slipped in around v0.10.x and went undetected because no test asserted the target's recipe. Path corrected and a regression test added.
 

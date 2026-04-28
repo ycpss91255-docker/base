@@ -312,6 +312,9 @@ make upgrade-check
 make upgrade
 
 # 或指定版本
+make upgrade VERSION=v0.3.0
+
+# 没有 make 时的 fallback
 ./template/upgrade.sh v0.3.0
 ```
 
@@ -330,7 +333,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot 会读 `main.yaml` 里的 `uses: ycpss91255-docker/template/...@vX.Y.Z` ref，比对 template 最新 tag 后开 PR。subtree 本身仍需在本地跑 `./template/upgrade.sh vX.Y.Z` — Dependabot 只负责 workflow ref。
+Dependabot 会读 `main.yaml` 里的 `uses: ycpss91255-docker/template/...@vX.Y.Z` ref，比对 template 最新 tag 后开 PR。subtree 本身仍需在本地跑 `make upgrade VERSION=vX.Y.Z` — Dependabot 只负责 workflow ref。
 
 ## CI Reusable Workflows
 

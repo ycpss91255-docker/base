@@ -325,7 +325,10 @@ make upgrade-check
 # Upgrade to latest (subtree pull + version file + workflow tag)
 make upgrade
 
-# Or specify a version
+# Or pin a specific version
+make upgrade VERSION=v0.3.0
+
+# Fallback if make is unavailable
 ./template/upgrade.sh v0.3.0
 ```
 
@@ -351,7 +354,7 @@ updates:
 
 Dependabot notices the `uses: ycpss91255-docker/template/...@vX.Y.Z` refs in
 `main.yaml`, compares against the template's latest tag, and files a PR. You
-still run `./template/upgrade.sh vX.Y.Z` locally to sync the subtree itself —
+still run `make upgrade VERSION=vX.Y.Z` locally to sync the subtree itself —
 Dependabot only bumps the workflow refs.
 
 ## CI Reusable Workflows
