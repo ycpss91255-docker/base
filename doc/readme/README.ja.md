@@ -322,6 +322,9 @@ make upgrade-check
 make upgrade
 
 # バージョン指定
+make upgrade VERSION=v0.3.0
+
+# make が使えない場合のフォールバック
 ./template/upgrade.sh v0.3.0
 ```
 
@@ -340,7 +343,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `./template/upgrade.sh vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `make upgrade VERSION=vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
 ## CI Reusable Workflows
 
