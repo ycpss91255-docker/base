@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **818 tests** total (767 unit + 51 integration).
+Template self-tests: **816 tests** total (765 unit + 51 integration).
 
 ## Test Files
 
@@ -83,7 +83,7 @@ parsers, and setup.conf round-trip.
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 
-### test/unit/tui_backend_spec.bats (30)
+### test/unit/tui_backend_spec.bats (28)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub
 `dialog` / `whiptail` binary installed on PATH that logs argv and echoes
@@ -94,11 +94,11 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_backend_detect` (prefers dialog, falls back to whiptail, prints install hint when neither) | 3 |
 | `_tui_guard` (rejects empty backend) | 1 |
 | `_tui_inputbox` (forwards title/prompt/initial, returns canned response, propagates non-zero on cancel) | 2 |
-| `_tui_menu` (computes item count, forwards tag/label pairs) | 1 |
+| `_tui_menu` (computes item count, forwards tag/label pairs; `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`) | 1 |
 | `_tui_radiolist` (forwards tag/label/state triples) | 1 |
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
-| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`; dialog spelling preserved) | 7 |
+| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
 ### test/unit/build_sh_spec.bats (35)
 
