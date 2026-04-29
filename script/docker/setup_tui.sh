@@ -1454,21 +1454,19 @@ _edit_section_devices() {
 
 _render_main_menu() {
   # Footer button labels are NOT i18n'd — keep a stable English
-  # "Save / Enter / Cancel" row across all locales so users never see
-  # a mix of English widget chrome and translated buttons, and so
+  # "Enter / Cancel" row across all locales so users never see a mix
+  # of English widget chrome and translated buttons, and so
   # screenshots / docs stay consistent.
-  export TUI_EXTRA_LABEL TUI_OK_LABEL TUI_CANCEL_LABEL
-  TUI_EXTRA_LABEL="Save"
+  export TUI_OK_LABEL TUI_CANCEL_LABEL
   TUI_OK_LABEL="Enter"
   TUI_CANCEL_LABEL="Cancel"
-  # whiptail has no --extra-button equivalent, so the Save & Exit
-  # footer button never renders there. On whiptail we inject a
-  # synthetic `__save` menu entry instead so the user still has a
-  # one-click way to commit + exit (#136).
-  local -a _save_entry=()
-  if [[ "${TUI_BACKEND}" == "whiptail" ]]; then
-    _save_entry=(__save "$(_tui_msg main.save)")
-  fi
+  # Save & Exit lives in the menu body for both backends (#178).
+  # whiptail has no `--extra-button` equivalent at all (newt limit),
+  # and using dialog's `--extra-button` made the same repo render with
+  # different button rows on dialog vs whiptail hosts — breaking shared
+  # screenshots / docs. Standardizing on a synthetic `__save` entry
+  # gives identical layout regardless of backend; the small extra
+  # navigation step on dialog is acceptable for the consistency win.
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
@@ -1478,26 +1476,23 @@ _render_main_menu() {
       volumes     "$(_tui_msg main.volumes)" \
       environment "$(_tui_msg main.environment)" \
       advanced    "$(_tui_msg main.advanced)" \
-      "${_save_entry[@]}")"
+      __save      "$(_tui_msg main.save)")"
     _rc=$?
     case "${_rc}" in
       0)
         case "${_choice}" in
           network|deploy|gui|volumes|environment) "_edit_section_${_choice}" ;;
           advanced) _render_advanced_menu ;;
-          __save)   TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
-          "")       TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
+          __save)   TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
+          "")       TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
         esac
         ;;
-      3)  TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;   # Save & Exit
-      *)  TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
+      *)  TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
     esac
   done
 }
 
 _render_advanced_menu() {
-  local _save_label="${TUI_EXTRA_LABEL:-}"
-  TUI_EXTRA_LABEL=""
   while :; do
     local _choice
     _choice="$(_tui_menu "$(_tui_msg advanced.title)" "$(_tui_msg advanced.menu)" \
@@ -1514,7 +1509,6 @@ _render_advanced_menu() {
       __back|"") break ;;
     esac
   done
-  TUI_EXTRA_LABEL="${_save_label}"
 }
 
 # _do_reset
