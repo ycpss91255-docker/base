@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Dockerfile.example`: drop dead `COPY compose.yaml /lint/compose.yaml`**. The /lint stage shellcheck'd `.sh` and hadolint'd `Dockerfile` but never read `/lint/compose.yaml` — the COPY was leftover scaffolding from earlier iterations. After v0.12.4 (#172) made `compose.yaml` a derived artifact (gitignored + `git rm --cached`), fresh CI checkouts no longer have the file and `docker/build-push-action`'s COPY step started failing on the build context for new repos generated from this template. The same dead-code line was patched out of the 10 affected v0.12.4 batch-upgrade PRs to unblock the rollout.
+
 ## [v0.12.4] - 2026-04-29
 
 Patch release bundling two Makefile / setup-tui fixes plus the
