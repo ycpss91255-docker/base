@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Template-default fallback notice promoted from INFO to WARN** (#186). `_announce_template_default_fallback` in `script/docker/setup.sh` now emits `[setup] WARN:` instead of `[setup] INFO:` when the per-repo `setup.conf.local` is missing or has no `[section]` headers. INFO scrolled past in normal `build.sh` / `run.sh` output and users missed the heads-up that template defaults were silently in effect; WARN matches the semantics (this is an unusual configuration state worth flagging, not a routine status line). The two i18n keys also rename `info_no_repo_conf` → `warn_no_repo_conf` and `info_empty_repo_conf` → `warn_empty_repo_conf` across all four languages so the message table stays self-describing.
+
 ## [v0.13.0] - 2026-04-29
 
 Minor release introducing the `setup.conf.local` user-override file.
