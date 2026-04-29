@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **824 tests** total (771 unit + 53 integration).
+Template self-tests: **825 tests** total (772 unit + 53 integration).
 
 ## Test Files
 
@@ -68,7 +68,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
-### test/unit/tui_spec.bats (86)
+### test/unit/tui_spec.bats (87)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -80,7 +80,7 @@ parsers, and setup.conf round-trip.
 | `_validate_gpu_count` ('all', positive int, reject 0/negative/non-numeric/empty) | 6 |
 | `_validate_enum` (match, non-match, empty) | 3 |
 | `_mount_host_path` (plain, with mode, with env-var host) | 3 |
-| `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
+| `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip, dst==tpl regression #187) | 6 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 | `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
 
