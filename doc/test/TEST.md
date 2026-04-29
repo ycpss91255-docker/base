@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **816 tests** total (765 unit + 51 integration).
+Template self-tests: **820 tests** total (769 unit + 51 integration).
 
 ## Test Files
 
@@ -68,7 +68,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
-### test/unit/tui_spec.bats (82)
+### test/unit/tui_spec.bats (86)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -82,6 +82,7 @@ parsers, and setup.conf round-trip.
 | `_mount_host_path` (plain, with mode, with env-var host) | 3 |
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
+| `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
 
 ### test/unit/tui_backend_spec.bats (28)
 
