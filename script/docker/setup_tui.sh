@@ -923,7 +923,7 @@ _edit_image_rule() {
   local _final=""
   case "${_type}" in
     __remove)
-      _mark_removed "image.rule_${_n}"
+      _compact_image_rules_after_remove "${_n}"
       return 0
       ;;
     __move_up)
@@ -968,6 +968,49 @@ _edit_image_rule() {
   done
 
   _override_set "image.rule_${_n}" "${_final}"
+}
+
+# _compact_image_rules_after_remove <n>
+#
+# Drop image.rule_${_n} and shift the values of higher-numbered rules
+# down by one slot, so the user always sees consecutive indices
+# (rule_1 .. rule_M) after a delete and the next "add" allocates
+# max+1 without leaving a gap (#177). Also collapses any pre-existing
+# sparse slots above _n as a side effect, since the loop only walks
+# occupied slots in ascending order.
+_compact_image_rules_after_remove() {
+  local _removed_n="${1:?}"
+  local -a _nums=()
+  local _k _n _x _found _i
+  for _k in "${!_TUI_CURRENT[@]}"; do
+    if [[ "${_k}" == image.rule_* ]]; then
+      _n="${_k#image.rule_}"
+      [[ "${_n}" =~ ^[0-9]+$ ]] && _nums+=("${_n}")
+    fi
+  done
+  for (( _i=0; _i<${#_TUI_OVR_KEYS[@]}; _i++ )); do
+    if [[ "${_TUI_OVR_KEYS[_i]}" == image.rule_* ]]; then
+      _n="${_TUI_OVR_KEYS[_i]#image.rule_}"
+      if [[ "${_n}" =~ ^[0-9]+$ ]]; then
+        _found=0
+        for _x in "${_nums[@]}"; do [[ "${_x}" == "${_n}" ]] && _found=1 && break; done
+        (( _found )) || _nums+=("${_n}")
+      fi
+    fi
+  done
+  # shellcheck disable=SC2207
+  mapfile -t _nums < <(printf '%s\n' "${_nums[@]}" | sort -n | uniq)
+
+  local _slot="${_removed_n}"
+  local _val
+  for _n in "${_nums[@]}"; do
+    (( _n <= _removed_n )) && continue
+    _val="$(_override_get "image.rule_${_n}" "")"
+    [[ -z "${_val}" ]] && continue
+    _override_set "image.rule_${_slot}" "${_val}"
+    _slot="${_n}"
+  done
+  _mark_removed "image.rule_${_slot}"
 }
 
 # _swap_image_rule <n> <m>
