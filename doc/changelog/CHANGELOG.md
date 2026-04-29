@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.14.0] - 2026-04-29
+
+Minor release. Two test / quality follow-ups on top of v0.13.0, no
+behavior changes for downstream consumers (the new WARN level on the
+template-default fallback notice is the only user-visible surface
+shift, and matches what the existing log-text already implied).
+
 ### Added
 - **`test/unit/tui_flow.bats` lifts `setup_tui.sh` coverage from 18% to 83%** (#189). 44 new interactive-flow tests covering the 5 high-value areas the issue body called out: `_edit_image_rule` + `_compact_image_rules_after_remove` (#177 regression site), `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit unification), `_edit_list_section` mount/env/port CRUD, Save & Exit / Cancel / Esc abort handling, plus `_swap_image_rule` and several `_edit_section_*` dispatches. Same mock-driven pattern as `tui_backend_spec.bats` — file-backed queue stubs the dialog wrappers (queue line popped via `head -n 1` + `sed -i 1d` so state survives `$(...)` subshell calls), each test scripts the user's click path and asserts on `_TUI_OVR_*` / `_TUI_REMOVED` / `_TUI_CURRENT` outcomes. No real `dialog` / `whiptail` ever launches.
 
