@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **README upgrade section now spells out `make upgrade` preserve-vs-regenerate semantics** (4 languages). Three existing sub-sections expanded inline (no new headings): `When setup.sh runs` adds a bullet for the upgrade path and notes that `setup.sh apply` preserves `WS_PATH` / `APT_MIRROR_*` from any existing `.env`; `Derived artifacts (gitignored)` calls out that `.env` / `compose.yaml` are regenerated on every upgrade; `Updating` replaces the dense one-liner with a numbered 4-step list and adds a prerequisites paragraph (git identity / clean merge state), an implicit-downgrade-refusal comment in the `make upgrade VERSION=` snippet, and a closing paragraph documenting that `<repo>/setup.conf` and `<repo>/config/` stay user-owned with a `diff -ruN template/config config` hint when upstream `template/config/` moved. Surfaced gaps that previously required reading `upgrade.sh` source: pre-flight guards (`_require_git_identity` / `_require_clean_merge_state`), `_warn_config_drift`, `Refusing implicit downgrade`, and the fact that `init.sh` (called by `upgrade.sh` step 3) also syncs `.gitignore` and runs `setup.sh apply`.
+
 ### Fixed
 - **`Dockerfile.example`: drop dead `COPY compose.yaml /lint/compose.yaml`**. The /lint stage shellcheck'd `.sh` and hadolint'd `Dockerfile` but never read `/lint/compose.yaml` — the COPY was leftover scaffolding from earlier iterations. After v0.12.4 (#172) made `compose.yaml` a derived artifact (gitignored + `git rm --cached`), fresh CI checkouts no longer have the file and `docker/build-push-action`'s COPY step started failing on the build context for new repos generated from this template. The same dead-code line was patched out of the 10 affected v0.12.4 batch-upgrade PRs to unblock the rollout.
 
