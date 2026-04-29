@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **825 tests** total (772 unit + 53 integration).
+Template self-tests: **828 tests** total (773 unit + 55 integration).
 
 ## Test Files
 
@@ -35,7 +35,7 @@ Template self-tests: **825 tests** total (772 unit + 53 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (174)
+### test/unit/setup_spec.bats (175)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -553,7 +553,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 6 canonical lines` | Single source of truth |
+| `_canonical_gitignore_entries: emits exactly the 7 canonical lines` | Single source of truth |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
 | `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
@@ -644,7 +644,7 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (7)
+### test/integration/gitignore_sync_spec.bats (9)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
@@ -654,10 +654,12 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 
 | Test | Description |
 |------|-------------|
-| `init.sh new-repo: .gitignore contains all 6 canonical entries` | New-repo path uses lib |
+| `init.sh new-repo: .gitignore contains all 7 canonical entries` | New-repo path uses lib |
 | `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
 | `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
 | `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
+| `init.sh existing-repo: migrates tracked setup.conf into setup.conf.local (#174)` | One-shot setup.conf → .local |
+| `init.sh existing-repo: migration is idempotent — does not clobber existing setup.conf.local` | Re-run safety |
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
