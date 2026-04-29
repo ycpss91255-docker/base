@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **795 tests** total (751 unit + 44 integration).
+Template self-tests: **818 tests** total (767 unit + 51 integration).
 
 ## Test Files
 
@@ -543,6 +543,30 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
+### test/unit/gitignore_spec.bats (16)
+
+Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
+`.gitignore` set + sync/untrack helpers introduced for issue #172.
+
+| Test | Description |
+|------|-------------|
+| `_canonical_gitignore_entries: emits exactly the 6 canonical lines` | Single source of truth |
+| `_canonical_gitignore_entries: list is stable order` | Deterministic output |
+| `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
+| `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
+| `_sync_gitignore: file with all entries already present is a no-op` | Already-synced |
+| `_sync_gitignore: appends only missing entries when subset already present` | Drift fill-in |
+| `_sync_gitignore: preserves user-defined lines (bridge.yaml, .env.gpg, .claude/)` | User-line preservation |
+| `_sync_gitignore: idempotent — second invocation produces no further changes` | Idempotency |
+| `_sync_gitignore: no duplicate canonical lines after re-run` | No-dup invariant |
+| `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
+| `_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml` | 15-repo drift fix |
+| `_untrack_canonical_in_repo: leaves untracked files alone` | Scope guard |
+| `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |
+| `_untrack_canonical_in_repo: handles tracked coverage/ directory` | Directory entry |
+| `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
+| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
+
 ### test/integration/init_new_repo_spec.bats (36)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
@@ -614,3 +638,21 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
+
+### test/integration/gitignore_sync_spec.bats (7)
+
+End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
+new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
+fixture (independent of `upgrade_spec.bats`'s stub-init fixture) because
+gitignore sync requires the **real** `init.sh` to run during Step 3 of
+`upgrade.sh`. Issue #172.
+
+| Test | Description |
+|------|-------------|
+| `init.sh new-repo: .gitignore contains all 6 canonical entries` | New-repo path uses lib |
+| `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
+| `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
+| `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
+| `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
+| `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
+| `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |

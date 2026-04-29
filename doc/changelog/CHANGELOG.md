@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`.gitignore` is now template-managed** (#172). Two new helpers in `template/script/docker/lib/gitignore.sh` — `_sync_gitignore <path>` (append-missing strategy: idempotent, preserves user-defined lines, leaves a `# managed by template (do not remove)` marker on first sync) and `_untrack_canonical_in_repo <repo>` (`git rm --cached` for any canonical entry that's still git-tracked) — wire into both `init.sh` paths and propagate through `upgrade.sh`. Canonical set: `.env`, `.env.bak`, `compose.yaml`, `setup.conf.bak`, `coverage/`, `.Dockerfile.generated`. Future derived artifacts get appended to the lib in a later release and downstream repos pick them up automatically on the next `make upgrade`. The wiring also heals the v0.9.0+ drift where 15/17 downstream repos still git-tracked `compose.yaml` despite it being a derived artifact: the next batch-upgrade emits the `git rm --cached` in the same commit as the workflow `@tag` rewrite, with no separate sweep PR.
+
 ## [v0.12.3] - 2026-04-28
 
 Patch release that completes the test-tools migration started in v0.12.2 (#165 + #164) and fixes a bash 5.3 silent-exit bug in `upgrade.sh --check` exposed by the alpine runner. No breaking changes from v0.12.2.
