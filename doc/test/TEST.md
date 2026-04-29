@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **820 tests** total (769 unit + 51 integration).
+Template self-tests: **824 tests** total (771 unit + 53 integration).
 
 ## Test Files
 
@@ -197,7 +197,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (130)
+### test/unit/template_spec.bats (132)
 
 | Test | Description |
 |------|-------------|
@@ -216,6 +216,8 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `Makefile.ci has upgrade target` | Makefile target |
 | `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
 | `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
+| `Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap exit 1 = success |
+| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: same wrap on Makefile.ci |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -621,7 +623,7 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/integration/upgrade_spec.bats (6)
+### test/integration/upgrade_spec.bats (8)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -636,6 +638,8 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
+| `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
+| `make upgrade-check (downstream Makefile): exit 0 when up-to-date` | Up-to-date path stays green |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
