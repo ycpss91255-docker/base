@@ -205,6 +205,121 @@ EOF
   assert_success
 }
 
+@test "[additional_contexts] omitted by default (back-compat: no block in compose.yaml)" {
+  # Default template setup.conf has [additional_contexts] section but no
+  # entries. Generated compose.yaml must NOT contain `additional_contexts:`
+  # so existing repos see zero diff.
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- 'additional_contexts:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[additional_contexts] context_1 = NAME=PATH emits block under devel/test build" {
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
+[additional_contexts]
+context_1 = repo=..
+context_2 = vendor=../third_party
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # Block appears at least once (devel + test, runtime is conditional on
+  # Dockerfile having `AS runtime` which TEMP_DIR doesn't ship).
+  run grep -c -F -- '      additional_contexts:' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  [ "${output}" -ge 2 ]
+  run grep -F -- '        repo: ..' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '        vendor: ../third_party' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[additional_contexts] runtime service inherits the block when Dockerfile declares AS runtime" {
+  # Stub a Dockerfile with `AS runtime` so generate_compose_yaml emits
+  # the runtime service. Then assert additional_contexts: appears 3 times
+  # (once under each of devel / runtime / test).
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS runtime
+EOF
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
+[additional_contexts]
+context_1 = repo=..
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c -F -- '      additional_contexts:' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  assert_output "3"
+}
+
+@test "[additional_contexts] entries sort by numeric suffix (context_2 / context_10)" {
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
+[additional_contexts]
+context_10 = ten=../ten
+context_2 = two=../two
+context_1 = one=../one
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # Extract first occurrence of the additional_contexts block (devel
+  # service) and check the order of name lines within it.
+  local _block
+  _block="$(awk '
+    /^      additional_contexts:$/ { in_block=1; next }
+    in_block && /^[^ ]/             { exit }
+    in_block && /^      [^ ]/       { exit }
+    in_block                         { print }
+  ' "${TEMP_DIR}/compose.yaml")"
+  local _first _second _third
+  _first="$(printf '%s\n'  "${_block}" | sed -n '1p')"
+  _second="$(printf '%s\n' "${_block}" | sed -n '2p')"
+  _third="$(printf '%s\n'  "${_block}" | sed -n '3p')"
+  assert_equal "${_first}"  "        one: ../one"
+  assert_equal "${_second}" "        two: ../two"
+  assert_equal "${_third}"  "        ten: ../ten"
+}
+
+@test "[additional_contexts] empty value (cleared slot) is skipped" {
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
+[additional_contexts]
+context_1 = repo=..
+context_2 =
+context_3 = vendor=../third_party
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- 'repo: ..' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- 'vendor: ../third_party' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "_setup_known_section recognises additional_contexts" {
+  _setup_known_section "additional_contexts"
+}
+
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.

@@ -858,6 +858,24 @@ generate_compose_yaml() {
   local _target_arch="${21:-}"
   local _build_network="${22:-}"
   local _runtime="${23:-}"
+  local _additional_contexts_str="${24:-}"
+
+  # additional_contexts emitter: forwards `[additional_contexts]
+  # context_N = NAME=PATH` entries to compose.yaml's
+  # `build.additional_contexts:` block under every service that has its
+  # own `build:` (devel / runtime / test). Empty = omit the block so
+  # repos that don't need named build contexts see no diff.
+  _emit_additional_contexts_block() {
+    [[ -z "${_additional_contexts_str}" ]] && return 0
+    echo "      additional_contexts:"
+    local _ac _name _path
+    while IFS= read -r _ac; do
+      [[ -z "${_ac}" ]] && continue
+      _name="${_ac%%=*}"
+      _path="${_ac#*=}"
+      printf '        %s: %s\n' "${_name}" "${_path}"
+    done <<< "${_additional_contexts_str}"
+  }
 
   # TARGETARCH line emitter: only when target_arch is set. Empty =
   # omit the line entirely so BuildKit auto-fills TARGETARCH from the
@@ -930,6 +948,7 @@ services:
       dockerfile: Dockerfile
       target: devel
 YAML
+    _emit_additional_contexts_block
     _emit_build_network_line
     cat <<YAML
       args:
@@ -1105,6 +1124,9 @@ YAML
       context: .
       dockerfile: Dockerfile
       target: runtime
+YAML
+      _emit_additional_contexts_block
+      cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:runtime
     container_name: ${_name}-runtime\${INSTANCE_SUFFIX:-}
     stdin_open: false
@@ -1122,6 +1144,7 @@ YAML
       dockerfile: Dockerfile
       target: test
 YAML
+    _emit_additional_contexts_block
     _emit_build_network_line
     cat <<YAML
       args:
@@ -1409,7 +1432,7 @@ _announce_template_default_fallback() {
 _setup_known_section() {
   local _s="${1-}"
   case "${_s}" in
-    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes)
+    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts)
       return 0 ;;
     *)
       return 1 ;;
@@ -1474,6 +1497,14 @@ _setup_validate_kv() {
           if [[ "${_key}" == port_* ]]; then
             [[ -z "${_value}" ]] && return 0
             _validate_port_mapping "${_value}"
+          else
+            return 0
+          fi
+          ;;
+        additional_contexts)
+          if [[ "${_key}" == context_* ]]; then
+            [[ -z "${_value}" ]] && return 0
+            _validate_additional_context "${_value}"
           else
             return 0
           fi
@@ -2276,16 +2307,18 @@ _setup_apply() {
   local -a _env_k=() _env_v=()
   local -a _tmp_k=() _tmp_v=()
   local -a _sec_k=() _sec_v=()
-  _load_setup_conf "${_base_path}" "build"       _build_k _build_v
-  _load_setup_conf "${_base_path}" "deploy"      _dep_k _dep_v
-  _load_setup_conf "${_base_path}" "gui"         _gui_k _gui_v
-  _load_setup_conf "${_base_path}" "network"     _net_k _net_v
-  _load_setup_conf "${_base_path}" "volumes"     _vol_k _vol_v
-  _load_setup_conf "${_base_path}" "devices"     _dev_k _dev_v
-  _load_setup_conf "${_base_path}" "resources"   _res_k _res_v
-  _load_setup_conf "${_base_path}" "environment" _env_k _env_v
-  _load_setup_conf "${_base_path}" "tmpfs"       _tmp_k _tmp_v
-  _load_setup_conf "${_base_path}" "security"    _sec_k _sec_v
+  local -a _ac_k=() _ac_v=()
+  _load_setup_conf "${_base_path}" "build"               _build_k _build_v
+  _load_setup_conf "${_base_path}" "deploy"              _dep_k _dep_v
+  _load_setup_conf "${_base_path}" "gui"                 _gui_k _gui_v
+  _load_setup_conf "${_base_path}" "network"             _net_k _net_v
+  _load_setup_conf "${_base_path}" "volumes"             _vol_k _vol_v
+  _load_setup_conf "${_base_path}" "devices"             _dev_k _dev_v
+  _load_setup_conf "${_base_path}" "resources"           _res_k _res_v
+  _load_setup_conf "${_base_path}" "environment"         _env_k _env_v
+  _load_setup_conf "${_base_path}" "tmpfs"               _tmp_k _tmp_v
+  _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
+  _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
 
   # Build args: each `[build] arg_N = KEY=VALUE` entry becomes a
   # compose build.arg. Empty VALUE means "do not override" — let
@@ -2508,6 +2541,16 @@ _setup_apply() {
   (( ${#_cap_drop_arr[@]} > 0 )) && _cap_drop_str="$(printf '%s\n' "${_cap_drop_arr[@]}")"
   (( ${#_sec_opt_arr[@]}  > 0 )) && _sec_opt_str="$(printf '%s\n'  "${_sec_opt_arr[@]}")"
 
+  # ── Collect [additional_contexts] context_* ──
+  # Each entry is `NAME=PATH`. Validation (NAME shape, PATH non-empty)
+  # lives in `_validate_additional_context`; setup.sh trusts the parsed
+  # values here and emits them verbatim into compose.yaml. Empty list
+  # means no `additional_contexts:` block is emitted.
+  local -a _ac_arr=()
+  _get_conf_list_sorted _ac_k _ac_v "context_" _ac_arr
+  local _additional_contexts_str=""
+  (( ${#_ac_arr[@]} > 0 )) && _additional_contexts_str="$(printf '%s\n' "${_ac_arr[@]}")"
+
   # ── [resources] shm_size (only meaningful when ipc != host) ──
   local _shm_size=""
   _get_conf_value _res_k _res_v "shm_size" "" _shm_size
@@ -2556,7 +2599,8 @@ _setup_apply() {
     "${_user_build_args_str}" \
     "${target_arch}" \
     "${build_network}" \
-    "${runtime_resolved}"
+    "${runtime_resolved}" \
+    "${_additional_contexts_str}"
 
   printf "[setup] %s\n" "$(_setup_msg env_done)"
   printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \

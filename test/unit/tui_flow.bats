@@ -401,6 +401,81 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _edit_section_additional_contexts — issue #199
+#
+# Exercises the same _edit_list_section path as environment / volumes
+# but with the context_ prefix and the _validate_additional_context
+# validator. Confirms add / edit / remove / cancel / invalid-retry all
+# wire through correctly so seggpt-style repos can drive the workflow
+# from the TUI without hand-editing setup.conf.local.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_edit_section_additional_contexts: add then back writes context_1" {
+  queue "0|add" "0|repo=.." "0|back"
+  _edit_section_additional_contexts
+  [[ "$(ovr_get additional_contexts.context_1)" == "repo=.." ]]
+}
+
+@test "_edit_section_additional_contexts: invalid name shows msgbox + retries" {
+  # First inputbox = invalid (missing =) → msgbox; loop continues.
+  # Second inputbox = valid. Then back.
+  queue "0|add" "0|noequals" "0|repo=.." "0|back"
+  _edit_section_additional_contexts
+  [[ "$(ovr_get additional_contexts.context_1)" == "repo=.." ]]
+}
+
+@test "_edit_section_additional_contexts: add → next free index is max+1" {
+  _override_set additional_contexts.context_1 "repo=.."
+  _TUI_CURRENT[additional_contexts.context_1]="repo=.."
+  queue "0|add" "0|vendor=../third_party" "0|back"
+  _edit_section_additional_contexts
+  [[ "$(ovr_get additional_contexts.context_2)" == "vendor=../third_party" ]]
+}
+
+@test "_edit_section_additional_contexts: empty input on existing entry marks removed" {
+  _override_set additional_contexts.context_1 "repo=.."
+  _TUI_CURRENT[additional_contexts.context_1]="repo=.."
+  queue "0|context_1" "0|" "0|back"
+  _edit_section_additional_contexts
+  is_removed additional_contexts.context_1
+}
+
+@test "_edit_section_additional_contexts: edits existing entry replacing value" {
+  _override_set additional_contexts.context_1 "repo=.."
+  _TUI_CURRENT[additional_contexts.context_1]="repo=.."
+  queue "0|context_1" "0|repo=../upstream" "0|back"
+  _edit_section_additional_contexts
+  [[ "$(ovr_get additional_contexts.context_1)" == "repo=../upstream" ]]
+}
+
+@test "_edit_section_additional_contexts: empty choice (Cancel) returns 0 immediately" {
+  queue "0|"
+  run _edit_section_additional_contexts
+  assert_success
+  [[ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]]
+}
+
+@test "_edit_section_additional_contexts: rc!=0 (Esc) returns 0 immediately" {
+  queue "1|"
+  run _edit_section_additional_contexts
+  assert_success
+}
+
+@test "_edit_section_additional_contexts: docker-image:// schemes accepted" {
+  queue "0|add" "0|base=docker-image://debian:bookworm-slim" "0|back"
+  _edit_section_additional_contexts
+  [[ "$(ovr_get additional_contexts.context_1)" == "base=docker-image://debian:bookworm-slim" ]]
+}
+
+@test "_render_advanced_menu: additional_contexts choice dispatches to its editor" {
+  # Click additional_contexts → its editor immediately Cancels (empty
+  # menu pick) → user lands back on advanced menu → __back exits.
+  queue "0|additional_contexts" "0|" "0|__back"
+  run _render_advanced_menu
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _edit_section_image — top-level menu dispatch into _edit_image_rule
 # ════════════════════════════════════════════════════════════════════
 
