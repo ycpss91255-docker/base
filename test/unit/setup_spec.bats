@@ -2190,3 +2190,400 @@ EOF
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/tmp/whatever"
   assert_equal "${_result}" "my-app-name"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Per-section setup.conf parameter end-to-end coverage (#202)
+#
+# Each test sets a single key in <repo>/setup.conf and asserts the
+# expected line appears in compose.yaml or .env. Companion negative
+# tests confirm the corresponding compose / env block is omitted when
+# the key is empty / cleared. Ensures every key documented in
+# template/setup.conf has a setting → output assertion.
+# ════════════════════════════════════════════════════════════════════
+
+# ── [deploy] ─────────────────────────────────────────────────────────
+
+@test "[deploy] gpu_mode = off omits deploy.resources block from compose.yaml" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = off
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'deploy:' '${TEMP_DIR}/compose.yaml' | head -1
+  "
+  assert_output ""
+}
+
+@test "[deploy] gpu_mode = force emits deploy.resources GPU block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = force
+gpu_count = all
+gpu_capabilities = gpu compute
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E 'driver: nvidia' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[deploy] gpu_count = 2 emits count: 2 in compose deploy block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = force
+gpu_count = 2
+gpu_capabilities = gpu
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E 'count: 2$' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[deploy] gpu_capabilities multi-value emits as YAML array" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = force
+gpu_count = all
+gpu_capabilities = gpu compute utility
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'capabilities: [gpu, compute, utility]' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = off
+runtime = nvidia
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E '^    runtime: nvidia$' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[deploy] runtime = off omits runtime line entirely" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[deploy]
+gpu_mode = off
+runtime = off
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^    runtime:' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+# ── [gui] ────────────────────────────────────────────────────────────
+
+@test "[gui] mode = off omits X11 / DISPLAY env from compose" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c 'DISPLAY' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+@test "[gui] mode = force emits X11 environment + /tmp/.X11-unix mount" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F '/tmp/.X11-unix:/tmp/.X11-unix:ro' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+# ── [network] ────────────────────────────────────────────────────────
+
+@test "[network] mode = host writes NETWORK_MODE=host to .env" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^NETWORK_MODE=' '${TEMP_DIR}/.env'
+  "
+  assert_output "NETWORK_MODE=host"
+}
+
+@test "[network] ipc = private writes IPC_MODE=private to .env" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = private
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^IPC_MODE=' '${TEMP_DIR}/.env'
+  "
+  assert_output "IPC_MODE=private"
+}
+
+@test "[network] network_name = my_bridge under mode=bridge emits external network ref" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = bridge
+ipc = private
+network_name = my_bridge
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E '^networks:' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[network] port_1 = 8080:80 emits ports: block under bridge mode" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = bridge
+ipc = private
+port_1 = 8080:80
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E '8080:80' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[network] port_* under mode=host is silently dropped" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+port_1 = 8080:80
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '8080:80' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+# ── [resources] ──────────────────────────────────────────────────────
+
+@test "[resources] shm_size = 2gb under ipc=private emits shm_size: 2gb" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+ipc = private
+[resources]
+shm_size = 2gb
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E 'shm_size: 2gb' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[resources] shm_size empty omits shm_size line" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[resources]
+shm_size =
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c 'shm_size:' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+# ── [environment] ────────────────────────────────────────────────────
+
+@test "[environment] env_1 = ROS_DOMAIN_ID=7 emits environment: block in compose" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[environment]
+env_1 = ROS_DOMAIN_ID=7
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'ROS_DOMAIN_ID=7' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[environment] empty section omits environment: block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[environment]
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^    environment:' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+# ── [tmpfs] ──────────────────────────────────────────────────────────
+
+@test "[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[tmpfs]
+tmpfs_1 = /tmp
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E '^      - /tmp$' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[tmpfs] tmpfs_1 with size= suffix preserved verbatim" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[tmpfs]
+tmpfs_1 = /tmp/cache:size=1g
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F '/tmp/cache:size=1g' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[tmpfs] empty section omits tmpfs: block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[tmpfs]
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^    tmpfs:' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+# ── [devices] ────────────────────────────────────────────────────────
+
+@test "[devices] device_1 = /dev/video0:/dev/video0 emits devices: block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[devices]
+device_1 = /dev/video0:/dev/video0
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E -- '- /dev/video0:/dev/video0' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[devices] cgroup_rule_1 emits device_cgroup_rules: block" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[devices]
+device_1 = /dev:/dev
+cgroup_rule_1 = c 189:* rwm
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'c 189:* rwm' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+# ── [volumes] mount_2..N ─────────────────────────────────────────────
+
+@test "[volumes] mount_2 = /data:/data emits as additional volume entry" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 =
+mount_2 = /data:/data
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E -- '- /data:/data' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+@test "[volumes] mount_N supports :ro suffix" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 =
+mount_2 = /etc/machine-id:/etc/machine-id:ro
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F '/etc/machine-id:/etc/machine-id:ro' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
+# ── [security] privileged toggle ─────────────────────────────────────
+
+@test "[security] privileged = false writes PRIVILEGED=false to .env" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[security]
+privileged = false
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^PRIVILEGED=' '${TEMP_DIR}/.env'
+  "
+  assert_output "PRIVILEGED=false"
+}
