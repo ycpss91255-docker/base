@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`[additional_contexts]` section in `setup.conf` for compose's `build.additional_contexts`** (#199). Lets repos that keep source / `pyproject.toml` at the repo root (while docker assets live under a `docker/` subfolder) pull files into the build context without flipping the main `context:` root. Each `context_N = <name>=<source>` entry forwards to compose under every service that has its own `build:` (devel / runtime / test); empty list emits no `additional_contexts:` block, so the 17 existing downstream repos see zero diff. Inside the Dockerfile, reference the named context with `COPY --from=<name>` or `FROM <name> AS <stage>`. `<source>` accepts anything BuildKit takes — relative paths (`..`, `../third_party`), `docker-image://`, `https://`, `oci-layout://`. Use case: `ycpss91255-docker/seggpt` wants to `pip install -e .` at build time, baking the Python package into the image instead of relying on a runtime entrypoint install. Also adds: a `setup_tui.sh` flow under the Advanced menu for managing entries (mirrors the existing volumes / env list editor with the same add / edit / remove / cancel paths), `_validate_additional_context` validator (`<name>` matches BuildKit's named-context naming, `<source>` must be non-empty), 4-language i18n entries (en / zh-TW / zh-CN / ja). Coverage: 6 new unit tests for the parser + compose emission (`setup_spec.bats`), 5 for the validator (`tui_spec.bats`), 9 for the TUI flow (`tui_flow.bats`).
+
 ## [v0.15.0] - 2026-04-30
 
 Minor release. Single feature: nested Dockerfile support in the
