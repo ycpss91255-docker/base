@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **898 tests** total (844 unit + 54 integration).
+Template self-tests: **923 tests** total (869 unit + 54 integration).
 
 ## Test Files
 
@@ -35,7 +35,7 @@ Template self-tests: **898 tests** total (844 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (181)
+### test/unit/setup_spec.bats (206)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -68,6 +68,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty WARN (#150 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
+| Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 25 |
 
 ### test/unit/tui_spec.bats (92)
 
