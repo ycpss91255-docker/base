@@ -203,10 +203,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
             TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
             ${{ inputs.build_args }}
@@ -220,10 +220,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
 
@@ -237,10 +237,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             ${{ inputs.build_args }}
 
   # ────────────────────────────────────────────────────────────────

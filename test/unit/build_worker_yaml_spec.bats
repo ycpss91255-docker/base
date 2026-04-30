@@ -88,3 +88,43 @@ setup() {
   [[ "${_ctx}" == *'"."'* ]]
   [[ "${_df}" == *'""'* ]]
 }
+
+# ── User build-args alignment with Dockerfile.example (#198) ──────────
+
+@test "build-worker.yaml: 3 build steps pass USER_NAME=ci (long form, matching Dockerfile.example sys stage)" {
+  # Pre-#198 the workflow passed `USER=ci` (short form) which the
+  # Dockerfile only sees in the devel stage; the sys-stage useradd
+  # reads USER_NAME and stuck on the default "user". The container
+  # then USER-switched to "ci" with no /etc/passwd entry, exploding
+  # any RUN that resolved the username.
+  run grep -c '^            USER_NAME=ci$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_GROUP=ci (long form)" {
+  run grep -c '^            USER_GROUP=ci$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_UID=1000 (long form)" {
+  run grep -c '^            USER_UID=1000$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_GID=1000 (long form)" {
+  run grep -c '^            USER_GID=1000$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: no short-form USER=/GROUP=/UID=/GID= build-args (regression #198)" {
+  # The Generate-.env step at the top of the workflow uses long-form
+  # writes via `printf 'USER_NAME=...'`; only build-args lines (8-space
+  # indent inside the build steps) are at risk. Anchor on that
+  # indentation to avoid false positives from the env-file write.
+  run grep -E '^            (USER|GROUP|UID|GID)=' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}

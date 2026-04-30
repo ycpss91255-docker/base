@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.16.0] - 2026-04-30
+### Fixed
+- **`build-worker.yaml` user build-args now match `Dockerfile.example` sys-stage names** (#198). Pre-fix the workflow passed `USER=ci` / `GROUP=ci` / `UID=1000` / `GID=1000` (short form) to all 3 `docker/build-push-action` calls, while `Dockerfile.example`'s sys stage `useradd` reads `USER_NAME` / `USER_GROUP` / `USER_UID` / `USER_GID` (long form, also what the same workflow's "Generate .env" step writes). Result: `useradd` created `user` (the Dockerfile default), but the devel stage's `ARG USER="${USER_NAME}"` got overridden by the build-arg `USER=ci` so `USER "${USER}"` switched the image to UID-with-no-passwd-entry, exploding any subsequent `RUN` that resolved the username — `seggpt`'s CI hit `unable to find user ci: no matching entries in passwd file`. Fix: rename the 12 build-args lines (3 steps × 4 args) to long form so they hit the Dockerfile's sys-stage ARGs directly. No downstream Dockerfile change required (every existing `Dockerfile.example`-derived Dockerfile already declares the long-form ARGs). Coverage: 5 new `build_worker_yaml_spec.bats` tests lock the long-form invariant + assert no short-form regression.
 
 Minor release bundling three setup.conf-area changes. Includes a
 **BREAKING** restructure: `setup.conf.local` (introduced in #174) is
