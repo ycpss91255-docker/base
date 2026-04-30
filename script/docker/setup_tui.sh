@@ -1599,10 +1599,8 @@ _render_advanced_menu() {
 # so the reloaded values are what the user sees on the next menu.
 _do_reset() {
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
-  # #174: reset clears the override file (.local) and the materialized
-  # snapshot (setup.conf). The next apply regenerates setup.conf purely
-  # from the template baseline.
-  rm -f "${FILE_PATH}/setup.conf.local"
+  # Reset deletes the per-repo override (setup.conf). The next apply
+  # re-bootstraps it from the template baseline + detected workspace.
   rm -f "${FILE_PATH}/setup.conf"
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
@@ -1610,7 +1608,7 @@ _do_reset() {
   _TUI_OVR_VALUES=()
   _TUI_REMOVED=()
   _TUI_CURRENT=()
-  _load_current "${FILE_PATH}/setup.conf.local" "${_TUI_TPL_DIR}/setup.conf"
+  _load_current "${FILE_PATH}/setup.conf" "${_TUI_TPL_DIR}/setup.conf"
   _tui_msgbox "$(_tui_msg reset.title)" "$(_tui_msg reset.done)"
 }
 
@@ -1720,16 +1718,14 @@ main() {
   # Surface the --lang rejection before the main menu opens.
   _warn_if_lang_rejected "${_bad_lang_input}"
 
-  # #174: TUI's "save" target is setup.conf.local (the user override
-  # file) — never the derived setup.conf. Loading reads .local on top
-  # of template baseline so existing overrides surface as the menu's
-  # initial values; new edits land in .local.
-  local _repo_conf="${FILE_PATH}/setup.conf.local"
+  # TUI's save target is the per-repo override (setup.conf). Loading
+  # reads it on top of the template baseline so existing overrides
+  # surface as the menu's initial values; new edits land in setup.conf.
+  local _repo_conf="${FILE_PATH}/setup.conf"
   local _tpl_conf="${_TUI_TPL_DIR}/setup.conf"
-  # First-run bootstrap: when no .local exists yet, the menu opens on
-  # pure template defaults (no override). setup.sh apply still runs so
-  # mount_1 detection writes the materialized snapshot, but the TUI
-  # itself never reads from setup.conf — only from .local + template.
+  # First-run bootstrap: when no per-repo setup.conf exists yet, run
+  # setup.sh apply so mount_1 detection seeds the file before the TUI
+  # opens its menus.
   if [[ ! -f "${_repo_conf}" ]]; then
     "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
       >/dev/null 2>&1 || true

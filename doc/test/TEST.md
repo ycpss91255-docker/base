@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **899 tests** total (844 unit + 55 integration).
+Template self-tests: **898 tests** total (844 unit + 54 integration).
 
 ## Test Files
 
@@ -691,7 +691,7 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (9)
+### test/integration/gitignore_sync_spec.bats (8)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
@@ -705,8 +705,7 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
 | `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
 | `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
-| `init.sh existing-repo: migrates tracked setup.conf into setup.conf.local (#174)` | One-shot setup.conf → .local |
-| `init.sh existing-repo: migration is idempotent — does not clobber existing setup.conf.local` | Re-run safety |
+| `init.sh existing-repo: setup.conf stays committed across init runs (#201)` | 2-file model: setup.conf is user override |
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
