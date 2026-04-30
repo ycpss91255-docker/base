@@ -110,7 +110,7 @@ is_removed() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_current: pulls keys from repo conf when present" {
-  local _repo="${BATS_TEST_TMPDIR}/setup.conf.local"
+  local _repo="${BATS_TEST_TMPDIR}/setup.conf"
   cat > "${_repo}" <<'EOF'
 [network]
 mode = bridge
@@ -407,7 +407,7 @@ EOF
 # but with the context_ prefix and the _validate_additional_context
 # validator. Confirms add / edit / remove / cancel / invalid-retry all
 # wire through correctly so seggpt-style repos can drive the workflow
-# from the TUI without hand-editing setup.conf.local.
+# from the TUI without hand-editing setup.conf.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_edit_section_additional_contexts: add then back writes context_1" {
