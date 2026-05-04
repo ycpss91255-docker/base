@@ -128,3 +128,36 @@ setup() {
   run grep -E '^            (USER|GROUP|UID|GID)=' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
+
+# ── build_contexts input forwards to docker/build-push-action (#207) ──
+
+@test "build-worker.yaml: declares build_contexts input with empty default" {
+  # #199 added compose's `additional_contexts:` for local builds, but
+  # CI invokes `docker/build-push-action` directly (bypassing compose),
+  # so the named contexts never reached BuildKit. #207 adds the input
+  # the workflow needs to forward them to the action's `build-contexts:`
+  # field. Default is empty so existing callers see zero diff.
+  run grep -A 3 '^      build_contexts:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: ""'
+}
+
+@test "build-worker.yaml: 3 build steps forward inputs.build_contexts to docker/build-push-action build-contexts:" {
+  # Three docker/build-push-action calls (test/devel/runtime). Each
+  # must forward the input so named contexts work end-to-end in CI.
+  run grep -c '^          build-contexts: \${{ inputs.build_contexts }}$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)" {
+  # The combined safety net: with empty default + per-step plumbing,
+  # callers that don't pass build_contexts get an empty action input,
+  # which docker/build-push-action treats as "no extra contexts" — the
+  # exact pre-#207 behaviour.
+  local _bc
+  _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_bc}" == *'""'* ]]
+}
