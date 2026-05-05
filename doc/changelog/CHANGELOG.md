@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **`doc/test/TEST.md` cleanup**: removed 7 stale rows referencing tests that no longer exist (all referencing the obsolete `template/VERSION` / `.template_version` migration completed in v0.16) and renamed 5 rows whose underlying test was renamed (e.g. `_create_symlinks: produces all five docker-script symlinks` → `…all seven docker-script symlinks`, `_detect_template_version: reads VERSION file when present` → `…reads .version file when present`). Added a 27-test `## Smoke Tests` section documenting `test/smoke/script_help.bats` (16) and `test/smoke/display_env.bats` (11), which run at Dockerfile `test`-stage build time and are intentionally excluded from the headline 935-test self-test count. Headline now carries an explicit note clarifying scope. No code change.
+
 ### Added
 - **`build.sh` / `run.sh` config summary now prints a `Variables` block** mapping `setup.conf` `[volumes]` placeholders (`${USER_NAME}` / `${USER_UID}` / `${USER_GROUP}` / `${USER_GID}` / `${WS_PATH}`) to their detected runtime values. Pre-fix the Identity block showed resolved values under translated labels (`使用者 : alice` / `工作區 : /home/alice/work`), while the `setup.conf` dump printed the raw `${USER_NAME}` / `${WS_PATH}` placeholders, leaving the user to derive the substitution table. The new block sits between Identity and `setup.conf` in `_print_config_summary` and gives an explicit one-line-per-variable map. setup.conf stays the source of truth (placeholder form unchanged); the block adds 5 more lines to the printout. Coverage: 2 new unit tests in `lib_spec.bats` (populated case + unset-fallback case) and a new `variables` i18n key (en / zh-TW / zh-CN / ja).
 
