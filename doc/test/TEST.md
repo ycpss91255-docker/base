@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **933 tests** total (879 unit + 54 integration).
+Template self-tests: **935 tests** total (881 unit + 54 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (39)
+### test/unit/lib_spec.bats (41)
 
 | Test | Description |
 |------|-------------|
@@ -31,6 +31,8 @@ Template self-tests: **933 tests** total (879 unit + 54 integration).
 | `_dump_conf_section returns silent empty for missing file` | Missing file |
 | `_dump_conf_section returns silent empty for unknown section` | Missing section |
 | `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
+| `_print_config_summary prints Variables block mapping setup.conf placeholders to detected values` | Variables block populated |
+| `_print_config_summary Variables block falls back to '-' for unset values` | Variables fallback |
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
