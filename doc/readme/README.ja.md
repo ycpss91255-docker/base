@@ -158,6 +158,53 @@ flowchart LR
   `docker run ... <repo>:devel` で目にするものと一致します。
 - `Dockerfile.test-tools` は lint/test ツールセット（bats + shellcheck + hadolint）をビルドします。ダウンストリームの `test` ステージは `ARG TEST_TOOLS_IMAGE` build arg で参照します — デフォルト `test-tools:local`（ローカル `./build.sh` フロー、`Dockerfile.test-tools` を host Docker daemon に load）。CI では `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（`.github/workflows/release-test-tools.yaml` がタグ push ごとに publish するマルチアーキ image）で override し、buildx が registry からアーキ対応の bats / shellcheck / hadolint binary を直接 pull します。`docker-container` buildx driver の step 間 image store 分離問題を回避。
 
+#### 追加ステージの追加（#215）
+
+baseline blocklist `{sys, base, devel, test}` 以外の
+`FROM <base> AS <stage>` は、自動的に compose サービスとして
+emit されます — `extends: devel`（volumes / network / GPU / GUI /
+cap_add / additional_contexts を継承）し、`build.target` /
+`image` / `container_name` / `stdin_open` / `tty` / `profiles`
+のみを override します。典型的な用途は entrypoint バリアント、
+例えば NVIDIA Isaac Sim の `devel` 上に乗せる `headless` + `gui`
+の 2 種類の起動モード。
+
+ユーザー操作フロー：
+
+```dockerfile
+# Dockerfile に新 stage を追加（setup.conf は変更不要）
+FROM devel AS headless
+ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+CMD ["-v"]
+
+FROM devel AS gui
+ENTRYPOINT ["/isaac-sim/runapp.sh"]
+```
+
+```bash
+./build.sh                    # compose.yaml を再生成、全 stage を build
+./run.sh -t headless          # headless バリアントを起動
+./run.sh -t gui               # gui バリアントを起動
+./exec.sh -t headless bash    # running の headless container に exec
+```
+
+制約：
+
+- Stage 名は `^[a-z][a-z0-9_-]*$` に一致する必要があり、大文字
+  / 数字始まり / ピリオドなどは拒否されます（WARN + skip、
+  他の stage は解析を続行）。
+- baseline（`sys` / `base` / `devel` / `test`）と衝突する場合は
+  `setup.sh apply` が hard error で exit 1。template が管理する
+  image tag namespace（`latest`、`v[0-9]*`）との衝突も hard error。
+- Per-stage の差分（volumes / GPU / network が `devel` と異なる）
+  は現状 out-of-scope — Dockerfile `ARG` + 条件付き `RUN` で
+  表現してください。emit される全 stage は同一の `devel` baseline
+  を共有します。
+- Stage の追加 / 削除は `setup.sh check-drift` をトリガーします
+  （`.env` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
+  時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
+  などの他の編集は drift をトリガー**しません**。
+
 ### Smoke test ヘルパー（ダウンストリーム repo 用）
 
 `test/smoke/test_helper.bash`（各 smoke spec が

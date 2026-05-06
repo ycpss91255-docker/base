@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **935 tests** total (881 unit + 54 integration).
+Template self-tests: **961 tests** total (907 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 27 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 935 figure because they are
+> below. They are **not** included in the 961 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -45,7 +45,7 @@ Template self-tests: **935 tests** total (881 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (206)
+### test/unit/setup_spec.bats (232)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -79,6 +79,10 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
 | Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 25 |
+| `_validate_stage_name` (#215: format / baseline / reserved exit codes) | 4 |
+| `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection) | 6 |
+| `_compute_dockerfile_hash` (#215: stable / add / remove / non-FROM-AS edits / missing) | 5 |
+| `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 
 ### test/unit/tui_spec.bats (92)
 
