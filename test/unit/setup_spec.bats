@@ -3491,11 +3491,15 @@ EOF
   refute_output --partial "/data:/data"
 }
 
-@test "stage-override: standalone emit re-emits cap_add / runtime / privileged inherited from devel" {
+@test "stage-override: standalone emit re-emits cap_add + privileged inherited from devel" {
   # When stage drops `extends: devel`, top-level fields that aren't
   # per-stage overridable (cap_add / cap_drop / security_opt /
   # devices / tmpfs / privileged via env-var ref) must be re-emitted
   # in the standalone block so the stage doesn't silently lose them.
+  # This test covers the cap_add + privileged inheritance path
+  # specifically; runtime / cgroup_rules / tmpfs / devices follow
+  # the same pattern and rely on the same code path so are not
+  # separately tested here.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS base
