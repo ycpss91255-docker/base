@@ -167,6 +167,51 @@ Notes:
   them per run, and sidesteps the cross-step image-store isolation that
   `docker-container` buildx drivers enforce.
 
+#### Adding extra stages (#215)
+
+Any `FROM <base> AS <stage>` outside the baseline blocklist
+`{sys, base, devel, test}` is auto-emitted as a compose service that
+`extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
+additional_contexts) and overrides only `build.target` / `image` /
+`container_name` / `stdin_open` / `tty` / `profiles`. Use case:
+entrypoint variants like NVIDIA Isaac Sim's `headless` + `gui` on top
+of `devel`.
+
+User flow:
+
+```dockerfile
+# Add to Dockerfile (no setup.conf change needed)
+FROM devel AS headless
+ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+CMD ["-v"]
+
+FROM devel AS gui
+ENTRYPOINT ["/isaac-sim/runapp.sh"]
+```
+
+```bash
+./build.sh                    # regenerates compose.yaml, builds all stages
+./run.sh -t headless          # runs the headless variant
+./run.sh -t gui               # runs the gui variant
+./exec.sh -t headless bash    # exec into running headless container
+```
+
+Constraints:
+
+- Stage names must match `^[a-z][a-z0-9_-]*$` — uppercase / leading
+  digit / dot etc. are rejected (WARN + skip; the rest of the parse
+  continues).
+- Names colliding with the baseline (`sys` / `base` / `devel` / `test`)
+  are a hard error from `setup.sh apply`. So are names colliding with
+  the template-controlled image-tag namespace (`latest`, `v[0-9]*`).
+- Per-stage diff (different volumes / GPU / network than `devel`) is
+  out of scope — declare via Dockerfile `ARG` + conditional `RUN`
+  instead. The `extends` baseline is the same for every emitted stage.
+- Adding / removing a stage triggers `setup.sh check-drift` (via
+  `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
+  `compose.yaml` on the next invocation. Unrelated `RUN apt-get
+  install` edits do **not** trigger drift.
+
 ### Smoke test helpers (for downstream repos)
 
 `test/smoke/test_helper.bash` (loaded by every smoke spec via

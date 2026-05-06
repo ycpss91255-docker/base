@@ -157,6 +157,49 @@ flowchart LR
   <repo>:devel` 后会看到的内容。
 - `Dockerfile.test-tools` 构建 lint/test 工具集（bats + shellcheck + hadolint）。下游 `test` 阶段通过 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 默认 `test-tools:local`（对应本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 构建到 host Docker daemon）。CI 则覆盖成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的预构建 multi-arch image）,buildx 直接从 registry 拉对应架构的 bats / shellcheck / hadolint binary,避开 `docker-container` buildx driver 跨 step 不共享 image store 的问题。
 
+#### 添加额外 stage（#215）
+
+任何在 baseline blocklist `{sys, base, devel, test}` 之外的
+`FROM <base> AS <stage>`，会被自动 emit 成一个 compose 服务 —
+`extends: devel`（继承 volumes / network / GPU / GUI / cap_add /
+additional_contexts），仅 override `build.target` / `image` /
+`container_name` / `stdin_open` / `tty` / `profiles`。典型用例是
+entrypoint 变体，如 NVIDIA Isaac Sim 在 `devel` 之上的
+`headless` + `gui` 两种启动模式。
+
+User 操作流程：
+
+```dockerfile
+# Dockerfile 加新 stage（不用动 setup.conf）
+FROM devel AS headless
+ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+CMD ["-v"]
+
+FROM devel AS gui
+ENTRYPOINT ["/isaac-sim/runapp.sh"]
+```
+
+```bash
+./build.sh                    # 重新生成 compose.yaml，build 所有 stages
+./run.sh -t headless          # 跑 headless 变体
+./run.sh -t gui               # 跑 gui 变体
+./exec.sh -t headless bash    # 进入 running 的 headless container
+```
+
+约束：
+
+- Stage 名必须符合 `^[a-z][a-z0-9_-]*$` — 大写 / 数字开头 / 点号
+  等会被拒（WARN + 跳过，其他 stage 继续解析）。
+- 撞到 baseline（`sys` / `base` / `devel` / `test`）`setup.sh apply`
+  hard error 退出 1。撞到 template 控制的 image tag namespace
+  （`latest`、`v[0-9]*`）也是 hard error。
+- Per-stage 差异（volumes / GPU / network 跟 `devel` 不同）目前
+  out-of-scope — 改用 Dockerfile `ARG` + 条件 `RUN` 表达。每个
+  emit 出来的 stage 共享一份 `devel` baseline。
+- 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env` 内
+  的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
+  `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
+
 ### Smoke test helpers（供下游 repo 使用）
 
 `test/smoke/test_helper.bash`（每个 smoke spec 通过
