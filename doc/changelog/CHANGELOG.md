@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`build.sh` / `run.sh` / `exec.sh` / `stop.sh` `--help` now respects `--lang` regardless of argument order** (#222). Previously `<script> --help --lang zh-TW` printed English usage because `usage()` exited via `-h|--help` before the main parse loop reached `--lang`. The reverse order (`--lang` first) worked. Fix: a one-pass scan in each `main()` resolves `--lang` (and via the existing `_sanitize_lang` machinery, `SETUP_LANG`) before the canonical parse loop runs, so both orderings produce the localised usage. Flag surface unchanged. 9 new smoke-test rows in `test/smoke/script_help.bats` (zh-TW / zh-CN / ja across the four scripts).
+
 ### Added
 - **Per-stage `setup.conf` overrides for runtime knobs** (#220). `[stage:<name>]` sections in `<repo>/setup.conf` override top-level settings on a per-stage basis when a corresponding `FROM ... AS <name>` stage exists in the Dockerfile (auto-emitted via #215). Driving use case: NVIDIA Isaac Sim's three-stage shape (`devel` for interactive dev with X11, `headless` for WebRTC livestream that needs `mode=bridge` + ports + GPU `video` capability + `gui=off`, `gui` for local-display that needs `gui=auto`) — previously all three stages shared one set of runtime knobs from top-level. Allowlist (v1):
   - `[deploy]` whole section: `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime`
