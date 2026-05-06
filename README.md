@@ -111,7 +111,7 @@ flowchart LR
 | File | Description |
 |------|-------------|
 | `build.sh` | Build containers (TTY-aware `--setup` launches `setup_tui.sh`, else runs `setup.sh`) |
-| `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`) |
+| `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`; `--build` opt-in pre-flight ./build.sh test for fresh-clone CI parity) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
@@ -292,6 +292,20 @@ every build or launch:
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
   the very first time (when `.env` is missing, e.g. after a fresh CI
   clone) — no manual `--setup` needed
+
+> **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
+> image cached locally triggers Compose's auto-build, which only walks
+> `target: devel` (or whatever `-t` says) and **skips** the `target:
+> test` stage that runs ShellCheck / Hadolint / Bats smoke. `run.sh`
+> prints an informational `[run] INFO:` block when this is about to
+> happen (TTY only). Pass `--build` to pre-flight `./build.sh test`
+> first if you want full local-CI parity in one command:
+>
+> ```bash
+> ./build.sh test           # explicit lint + smoke pass
+> ./run.sh --build          # same, then compose up
+> ./run.sh                  # default — fast path, lint/smoke skipped
+> ```
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
 preserves `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` from any
