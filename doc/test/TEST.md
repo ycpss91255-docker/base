@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1011 tests** total (957 unit + 54 integration).
+Template self-tests: **1012 tests** total (958 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -45,7 +45,7 @@ Template self-tests: **1011 tests** total (957 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (259)
+### test/unit/setup_spec.bats (260)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
