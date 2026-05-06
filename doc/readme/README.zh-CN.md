@@ -279,6 +279,19 @@ template；没写的 section 则吃 template 默认。
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env` 尚未存在，
   例如 CI 新 clone）会自动走相同的 TTY-aware 流程，不用带 `--setup`
 
+> **Fresh-clone lint 覆盖率（#216）**：`./run.sh` 在本机没 image
+> cached 时会走 Compose auto-build — 但 auto-build **只 build
+> `target: devel`**（或 `-t` 指定的 target），会跳过 `target: test`
+> 那层的 ShellCheck / Hadolint / Bats smoke。`run.sh` 检测到这个情况
+> 会在 `compose up` 前打印一段 `[run] INFO:` 提示（只在 TTY 环境）。
+> 想要一次取得跟 CI 同样的完整验证，加 `--build` flag：
+>
+> ```bash
+> ./build.sh test           # 显式跑 lint + smoke
+> ./run.sh --build          # 跑完 lint + smoke 再 compose up
+> ./run.sh                  # 默认 — 快速路径，跳过 lint/smoke
+> ```
+
 `setup.sh apply` 每次都会从头重新生成 `compose.yaml`，但会保留既有 `.env`
 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手动调过
 的 workspace 路径或 apt mirror 升级时不会被覆盖。

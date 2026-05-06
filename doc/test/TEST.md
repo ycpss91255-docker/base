@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **961 tests** total (907 unit + 54 integration).
+Template self-tests: **969 tests** total (915 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 27 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 961 figure because they are
+> below. They are **not** included in the 969 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -184,7 +184,7 @@ build invocation, and **runtime log-line i18n** (bootstrap /
 drift-regen / err_no_env messages translate in all four languages via
 the local `_msg()` table; English remains the default).
 
-### test/unit/run_sh_spec.bats (33)
+### test/unit/run_sh_spec.bats (41)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -196,8 +196,12 @@ bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
 when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
 routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
-branches, and **runtime log-line i18n** (bootstrap + already-running
-error translate in all four languages via the local `_msg()` table).
+branches, **runtime log-line i18n** (bootstrap + already-running
+error translate in all four languages via the local `_msg()` table),
+and **#216 auto-build soft guard / `--build` opt-in** (image
+present → silent, image absent + TTY → INFO, image absent + no TTY →
+silent, per-target image inspect, `--build` invokes `./build.sh test`
+before compose up, `--build` after check-drift).
 
 ### test/unit/exec_sh_spec.bats (18)
 
