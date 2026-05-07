@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.19.0-rc1] - 2026-05-07
+## [v0.19.0] - 2026-05-07
+
+Promoted from `v0.19.0-rc1` (#228) — RC tag CI was green; no fixups needed.
 
 ### Changed
 - **`setup_tui.sh` main menu restructured into 5 grouped entries + `Features` discoverability surface** (#221). Top-level main now shows `image`, `build`, `runtime`, `mounts`, `advanced`, `features`, `Save & Exit` — replacing the previous flat list of 5 runtime/mount sections + `advanced` mixed at the same level. `runtime` (network / GPU / display / env vars) and `mounts` (volumes / devices / tmpfs) are sub-menu groupers; `image` and `build` get promoted from Advanced because they are commonly tweaked when wiring a new repo. Advanced is slimmed to truly-advanced knobs (security, named build contexts, conditional per-stage overrides, Reset). The new `features` entry is permanently visible and lists conditional / power-user features with a status row (today: `Per-stage overrides — enabled (N stages)` when a non-baseline `FROM ... AS <name>` exists, otherwise `— hidden (no non-baseline stages)`); clicking the disabled row pops a msgbox explaining how to enable, clicking the enabled row drills into the same editor as the conditional Advanced entry. No semantic change to any underlying section editor — every existing `_edit_section_*` is reachable via the new layout.
