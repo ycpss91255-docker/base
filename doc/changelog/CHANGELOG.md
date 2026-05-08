@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.0-rc2] - 2026-05-08
+
+Second Release Candidate for v0.21.0. Adds the runtime-test stage
+smoke framework on top of v0.21.0-rc1's ROS removal. v0.21.0 stable
+follows once both RCs validate cleanly.
+
 ### Added
 - **`runtime-test` stage in `Dockerfile.example`** (#243). New
   ephemeral stage `FROM runtime AS runtime-test` mirrors the
