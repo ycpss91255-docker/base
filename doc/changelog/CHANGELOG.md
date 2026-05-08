@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.20.1] - 2026-05-08
+
 ### Fixed
 - **`setup.conf [environment] env_N` cross-reference now expands**
   (#236). When a later `env_N` value references an earlier sibling KEY
