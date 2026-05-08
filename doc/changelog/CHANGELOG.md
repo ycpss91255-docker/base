@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.20.0-rc1] - 2026-05-08
+## [v0.20.0] - 2026-05-08
+
+Promoted from `v0.20.0-rc1` (#234) — RC tag CI was green; no fixups needed.
 
 ### Added
 - **`publish-worker.yaml` reusable workflow** (#232). Opt-in
