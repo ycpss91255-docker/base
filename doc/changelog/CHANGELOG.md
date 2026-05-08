@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.0-rc1] - 2026-05-08
+
+Release Candidate for v0.21.0. Single change: ROS-specific content
+removal from template (#240) to honour template's positioning as
+generic Docker scaffolding. The runtime smoke framework (the
+follow-up issue in the v0.21.0 plan) ships in v0.21.0-rc2 once
+this RC validates clean against the 13 active downstream repos.
+
 ### Removed
 - **ROS-specific shell helpers from `config/shell/bashrc`** (#240).
   Removed `swc` (catkin `devel/setup.bash` searcher), `ros1_source`,
