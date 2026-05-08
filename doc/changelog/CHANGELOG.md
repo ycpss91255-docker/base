@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`setup.conf [environment] env_N` cross-reference now expands**
+  (#236). When a later `env_N` value references an earlier sibling KEY
+  via `${KEY}`, `setup.sh` now substitutes the earlier sibling's value
+  before emitting to `compose.yaml`. Previously the literal `${KEY}`
+  shipped to compose, and compose's own `${VAR}` substitution does NOT
+  consult sibling environment entries -- the container saw the
+  unexpanded form (e.g. `LD_LIBRARY_PATH=/foo//lib` after declaring
+  `ROS_DISTRO=humble` and `LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib`).
+  Order-sensitive: forward references and unknown names stay literal
+  so compose's substitution layer (`.env` / shell env) gets a chance
+  at file-load time. Transitive references resolve through the chain
+  (env_3 sees the fully-expanded env_2). Implementation: new
+  `_expand_env_cross_refs` helper called from `generate_compose_yaml`
+  before the env block emits. 5 new unit tests in
+  `test/unit/compose_gen_spec.bats` cover basic / forward / unknown /
+  multi-ref / transitive cases.
+
 ## [v0.20.0] - 2026-05-08
 
 Promoted from `v0.20.0-rc1` (#234) — RC tag CI was green; no fixups needed.
