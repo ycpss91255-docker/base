@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- License migrated from GPL-3.0 to Apache 2.0 (#246). Aligns with
+  upstream `osrf/docker_images` and the rest of the
+  `ycpss91255-docker` org; explicit patent grant and patent-retaliation
+  clause; avoids the GPL viral concern when this repo is bundled as
+  a subtree under `template/` in downstream repos. README License
+  badge updated across all 4 language variants. The non-English
+  badges' link path was also corrected from `./LICENSE` (a stale
+  relative pointer to `doc/readme/LICENSE`) to `../../LICENSE`.
+
 ## [v0.21.1] - 2026-05-08
 
 Patch release fixing a bug in v0.21.0's runtime-test stage example.
