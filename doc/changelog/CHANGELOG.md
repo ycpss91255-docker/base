@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Dockerfile.example` runtime-test stage RUN line was buggy in
+  v0.21.0** (#243). Two issues:
+  - `RUN ${RUNTIME_SMOKE_CMD}` did Docker ARG substitution then
+    word-split the value: shell operators (`&&`, `||`, `;`) and
+    nested quotes were treated as literal arguments to the first
+    word. Concrete failure: with default
+    `bash -lc "whoami && bash --version && exit 0"`, `whoami`
+    received `--version` as an arg and printed its own version
+    info instead of running the chained commands. Fixed by
+    wrapping the ARG with `sh -c "${RUNTIME_SMOKE_CMD}"` so the
+    value reaches sh as a single string for normal parsing.
+  - `USER root` was the last `USER` in the Dockerfile (runtime-test
+    is ephemeral but hadolint can't know that), triggering hadolint
+    DL3002. Fixed by inheriting non-root USER from runtime;
+    downstream overrides that need root should prefix the smoke
+    command with `sudo`.
+  - Default ARG also simplified from
+    `bash -lc "whoami && bash --version && exit 0"` to
+    `whoami && bash --version` -- the `bash -lc` wrapper added a
+    login shell rc check but the nested quotes were the
+    word-split trigger. The simpler form keeps the USER + bash
+    + PATH coverage.
+
+  Discovered during sick_humble's manual v0.21.0 rollout. Three
+  new unit tests in `test/unit/template_spec.bats` (134 -> 137)
+  lock the fix: positive assertion for the `sh -c` wrapper, plus
+  regression guards for the bare `RUN ${ARG}` and `USER root`
+  forms. Total self-tests 1042 -> 1045.
+
 ## [v0.21.0] - 2026-05-08
 
 Promoted from `v0.21.0-rc2` (#245). Both RC tags' CI was green; no

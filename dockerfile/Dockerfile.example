@@ -218,14 +218,20 @@ RUN bats /smoke_test/
 # failure visibly in the GHA log.
 #
 # Default smoke command is generic install-check (USER set + bash on
-# PATH + login shell rc files don't error). Override per repo via
-# `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain binaries.
+# PATH). Override per repo via `build_args: RUNTIME_SMOKE_CMD=<command>`
+# to test domain binaries.
 #
 # Constraint: command must be CLI-only -- no GUI tools that init
 # QApplication / OGRE on `--version` / `--help` (rqt, rviz2,
 # gazebo-classic). Prefer `<binary> --help`, `command -v <binary>`,
 # package manager queries (`ros2 pkg list | grep ...`, `rospack
 # find ...`) over invoking the GUI binary itself.
+#
+# `sh -c` wrapper required: `RUN ${ARG}` does word-splitting on the
+# substituted value and treats shell operators (&&, ||, etc.) as
+# literal arguments to the first word. Wrapping with
+# `sh -c "${RUNTIME_SMOKE_CMD}"` passes the value as a single string
+# for sh to parse, preserving operators and nested quotes.
 #
 # Only enable when the runtime stage above is also enabled. The
 # `if: build_runtime` gate in build-worker.yaml mirrors this -- if
@@ -235,6 +241,7 @@ RUN bats /smoke_test/
 #
 # FROM runtime AS runtime-test
 #
-# ARG RUNTIME_SMOKE_CMD='bash -lc "whoami && bash --version && exit 0"'
-# USER root
-# RUN ${RUNTIME_SMOKE_CMD}
+# ARG RUNTIME_SMOKE_CMD='whoami && bash --version'
+# # Inherit USER from runtime (non-root). install-check doesn't need
+# # privilege; if downstream override needs root, prefix with sudo.
+# RUN sh -c "${RUNTIME_SMOKE_CMD}"
