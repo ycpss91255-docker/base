@@ -940,12 +940,15 @@ EOF
   assert_output "0"
 }
 
-@test "build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs" {
+@test "build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs" {
   local _yaml="/source/.github/workflows/build-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  # Pre-#243 the step was named "Build test stage"; renamed to
+  # "Build devel-test stage" for symmetry with the new runtime-test
+  # stage. The TEST_TOOLS_IMAGE plumbing didn't move.
   run awk '
-    /- name: Build test stage/ { inside = 1 }
-    inside && /^[[:space:]]*- name:/ && !/Build test stage/ { inside = 0 }
+    /- name: Build devel-test stage/ { inside = 1 }
+    inside && /^[[:space:]]*- name:/ && !/Build devel-test stage/ { inside = 0 }
     inside { print }
   ' "${_yaml}"
   assert_success

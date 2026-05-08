@@ -160,7 +160,8 @@ flowchart LR
 
 #### 追加ステージの追加（#215）
 
-baseline blocklist `{sys, base, devel, test}` 以外の
+baseline blocklist `{sys, devel-base, devel, devel-test,
+runtime-test}` 以外の（v0.21.x 移行期間中は旧名 `{base, test}` も受付）
 `FROM <base> AS <stage>` は、自動的に compose サービスとして
 emit されます — `extends: devel`（volumes / network / GPU / GUI /
 cap_add / additional_contexts を継承）し、`build.target` /
@@ -193,9 +194,11 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 - Stage 名は `^[a-z][a-z0-9_-]*$` に一致する必要があり、大文字
   / 数字始まり / ピリオドなどは拒否されます（WARN + skip、
   他の stage は解析を続行）。
-- baseline（`sys` / `base` / `devel` / `test`）と衝突する場合は
-  `setup.sh apply` が hard error で exit 1。template が管理する
-  image tag namespace（`latest`、`v[0-9]*`）との衝突も hard error。
+- baseline（`sys` / `devel-base` / `devel` / `devel-test` /
+  `runtime-test`、v0.21.x 移行期間中は旧名 `base` / `test` も衝突
+  対象）と衝突する場合は `setup.sh apply` が hard error で exit 1。
+  template が管理する image tag namespace（`latest`、`v[0-9]*`）と
+  の衝突も hard error。
 - Stage の追加 / 削除は `setup.sh check-drift` をトリガーします
   （`.env` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
@@ -369,8 +372,9 @@ Main
 > **Fresh-clone の lint カバレッジ（#216）**：image がローカルに
 > キャッシュされていない `./run.sh` は Compose auto-build を起動
 > しますが、auto-build は **`target: devel`**（または `-t` で指定
-> された target）のみをビルドし、`target: test` レイヤの
-> ShellCheck / Hadolint / Bats smoke はスキップされます。`run.sh`
+> された target）のみをビルドし、`target: devel-test`（pre-#243 は
+> `test`）レイヤの ShellCheck / Hadolint / Bats smoke はスキップ
+> されます。`run.sh`
 > はこの状況を検知し、`compose up` の前に `[run] INFO:` ブロック
 > を表示します（TTY 環境のみ）。CI と同じ完全な検証を 1 コマンド
 > で実行したい場合は `--build` フラグを付けてください：
@@ -606,7 +610,7 @@ template/
 │       └── ci.sh                     # CI パイプライン（ローカル + リモート）
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # プリビルド lint/test ツール image
-│   └── Dockerfile.example            # 新 repo の Dockerfile テンプレート（sys → base → devel → test → [runtime]）
+│   └── Dockerfile.example            # 新 repo の Dockerfile テンプレート（sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test]）
 ├── setup.conf                        # 単一ランタイム設定（repo 上書き: <repo>/setup.conf）
 ├── config/                           # コンテナ内部のシェル / ツール設定
 │   ├── image_name.conf               # デフォルト IMAGE_NAME 検出ルール
