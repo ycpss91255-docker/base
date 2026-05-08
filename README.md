@@ -170,7 +170,9 @@ Notes:
 #### Adding extra stages (#215)
 
 Any `FROM <base> AS <stage>` outside the baseline blocklist
-`{sys, base, devel, test}` is auto-emitted as a compose service that
+`{sys, devel-base, devel, devel-test, runtime-test}` (legacy
+`{base, test}` also accepted during the v0.21.x transition) is
+auto-emitted as a compose service that
 `extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
 additional_contexts) and overrides only `build.target` / `image` /
 `container_name` / `stdin_open` / `tty` / `profiles`. Use case:
@@ -201,9 +203,11 @@ Constraints:
 - Stage names must match `^[a-z][a-z0-9_-]*$` — uppercase / leading
   digit / dot etc. are rejected (WARN + skip; the rest of the parse
   continues).
-- Names colliding with the baseline (`sys` / `base` / `devel` / `test`)
-  are a hard error from `setup.sh apply`. So are names colliding with
-  the template-controlled image-tag namespace (`latest`, `v[0-9]*`).
+- Names colliding with the baseline (`sys` / `devel-base` / `devel`
+  / `devel-test` / `runtime-test`, plus legacy aliases `base` / `test`
+  during the v0.21.x transition) are a hard error from `setup.sh
+  apply`. So are names colliding with the template-controlled
+  image-tag namespace (`latest`, `v[0-9]*`).
 - Adding / removing a stage triggers `setup.sh check-drift` (via
   `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
@@ -368,8 +372,9 @@ every build or launch:
 
 > **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
 > image cached locally triggers Compose's auto-build, which only walks
-> `target: devel` (or whatever `-t` says) and **skips** the `target:
-> test` stage that runs ShellCheck / Hadolint / Bats smoke. `run.sh`
+> `target: devel` (or whatever `-t` says) and **skips** the
+> `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
+> smoke (pre-#243 this stage was named `test`). `run.sh`
 > prints an informational `[run] INFO:` block when this is about to
 > happen (TTY only). Pass `--build` to pre-flight `./build.sh test`
 > first if you want full local-CI parity in one command:
@@ -663,7 +668,7 @@ template/
 │       └── ci.sh                     # CI pipeline (local + remote)
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
-│   └── Dockerfile.example            # Dockerfile template for new repos (sys → base → devel → test → [runtime])
+│   └── Dockerfile.example            # Dockerfile template for new repos (sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test])
 ├── setup.conf                        # Single runtime config (per-repo override mirror: <repo>/setup.conf)
 ├── config/                           # Container-internal shell/tool configs
 │   ├── image_name.conf               # Default IMAGE_NAME detection rules

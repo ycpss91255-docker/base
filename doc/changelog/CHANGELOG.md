@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`runtime-test` stage in `Dockerfile.example`** (#243). New
+  ephemeral stage `FROM runtime AS runtime-test` mirrors the
+  existing devel-test pattern. Body is `ARG RUNTIME_SMOKE_CMD='bash
+  -lc "whoami && bash --version && exit 0"'` + `USER root` + `RUN
+  ${RUNTIME_SMOKE_CMD}`. Closes the runtime stage's behavioural
+  validation gap surfaced during the v0.21.0 stage-coverage audit.
+  Default smoke is install-check style (USER set + bash on PATH +
+  login shell rc files don't error); downstream override per repo
+  via `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain
+  binaries. Constraint: smoke command must be CLI-only — no GUI
+  binaries that initialize Qt / OGRE on `--version` or `--help`.
+- **`build-worker.yaml` runtime-test build step**. New step `Build
+  runtime-test stage (install check)` after the devel build, gated
+  on `inputs.build_runtime` so agent/* repos (no runtime) skip
+  cleanly. Builds `target: runtime-test`; failure of the inline
+  `RUN ${RUNTIME_SMOKE_CMD}` in the Dockerfile surfaces as a build
+  error in the GHA log.
+- 4 new tests in `test/unit/build_worker_yaml_spec.bats` locking
+  the new step's shape (target name, build_runtime gate). 1 new
+  test in `test/unit/setup_spec.bats` confirming
+  `_parse_dockerfile_stages` correctly filters the new baseline
+  names.
+
+### Changed
+- **BREAKING for downstream Dockerfiles**: stage rename for
+  symmetry with the new runtime-test stage (#243):
+  - `FROM sys AS base` -> `FROM sys AS devel-base`
+  - `FROM devel AS test` -> `FROM devel AS devel-test`
+  Downstream repos must rename these in their own root `Dockerfile`
+  the same PR they upgrade their `template/` subtree to v0.21.0+,
+  otherwise CI's new `target: devel-test` / `target: runtime-test`
+  build steps will fail because the stages don't exist in their
+  Dockerfile yet. The `runtime-base` stage keeps its name (it's
+  load-bearing for the lean runtime image; pairs symmetrically
+  with the renamed `devel-base`).
+- **`build-worker.yaml`** CI target: `target: test` ->
+  `target: devel-test` (mirrors the Dockerfile rename above).
+  Workflow callers don't need to change anything in their
+  `main.yaml`; the change is in the workflow itself. Downstream
+  repos just need to keep their `main.yaml` `@tag` reference up
+  to date and rename their own Dockerfile stages (see above).
+- **`setup.sh` baseline blocklist** widened to recognise both the
+  new and legacy stage names during the v0.21.x transition: `{sys,
+  devel-base, devel, devel-test, runtime-test}` are the
+  forward-looking baseline; `{base, test}` remain accepted so
+  un-renamed downstream Dockerfiles don't accidentally emit `base`
+  / `test` as compose services. Legacy aliases will be removed in
+  a future major release once all downstream repos have renamed.
+- **TUI per-stage messages** updated in 4 languages (en / zh-TW /
+  zh-CN / ja) to surface the new baseline names.
+- **Test count**: total 1037 -> 1042 (+1 setup_spec, +4
+  build_worker_yaml_spec). Unit 983 -> 988; integration unchanged
+  at 54.
+
 ## [v0.21.0-rc1] - 2026-05-08
 
 Release Candidate for v0.21.0. Single change: ROS-specific content
