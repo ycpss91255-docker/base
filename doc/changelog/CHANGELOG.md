@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.23.0] - 2026-05-08
+
+Promoted from `v0.23.0-rc1` (#258). RC tag CI green (Self Test +
+release-test-tools); no fixups needed between rc1 and stable.
+
+Adds the layered `config/` override mechanism + `bashrc.d/` drop-in
+directory (#254). Purely additive at the framework level: no
+downstream Dockerfile changes required to consume the new tag —
+`make -f Makefile.ci upgrade VERSION=v0.23.0` is enough.
+
 ## [v0.23.0-rc1] - 2026-05-08
 
 First Release Candidate for v0.23.0. Adds the layered `config/`
