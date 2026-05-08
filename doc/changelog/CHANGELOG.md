@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.22.0] - 2026-05-08
+
+Minor release adding `-C` / `--chdir` to the four wrappers for worktree-path
+invocation parity with `git -C` / `make -C`. RC skipped: wrapper-only change,
+no Dockerfile / release-pipeline impact, full unit coverage on the feature
+PR (#255).
+
 ### Added
 - **`-C <dir>` / `--chdir <dir>` flag on all four wrappers**
   (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) — operate on the repo
