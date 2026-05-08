@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.0] - 2026-05-08
+
+Promoted from `v0.21.0-rc2` (#245). Both RC tags' CI was green; no
+fixups needed between rc2 and stable.
+
+Roll-up of changes since v0.20.1:
+- ROS-specific content removed from template (#240, via #241).
+  Template positioned as generic Docker scaffolding; ROS helpers
+  belong in downstream repos.
+- `runtime-test` stage smoke framework + `devel-base` / `devel-test`
+  stage rename (#243, via #244). Closes the runtime stage's
+  behavioural validation gap with a Dockerfile-stage approach
+  symmetric with the existing `FROM devel AS test` pattern.
+
+BREAKING for downstream Dockerfiles: stage rename `base` ->
+`devel-base` and `test` -> `devel-test` is required to keep CI green
+after upgrading the `template/` subtree to v0.21.0+. Each downstream
+upgrade PR must combine subtree pull with the local Dockerfile
+rename atomically. See the v0.21.0-rc2 entry below for the full
+migration notes.
+
 ## [v0.21.0-rc2] - 2026-05-08
 
 Second Release Candidate for v0.21.0. Adds the runtime-test stage
