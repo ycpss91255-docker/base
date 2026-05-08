@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`publish-worker.yaml` reusable workflow** (#232). Opt-in
+  workflow_call entry point that pushes a Dockerfile target stage
+  (default `devel`) to a container registry (default `ghcr.io`) on
+  tag push. Inputs mirror `build-worker.yaml` (`image_name`,
+  `build_args`, `context_path`, `dockerfile_path`, `build_contexts`,
+  `platforms`, `test_tools_version`) plus publish-specific knobs
+  (`tag_suffix`, `is_latest`, `registry`, `target`). Default behavior
+  for existing repos is unchanged: only repos that explicitly add a
+  `call-publish` job in their `main.yaml` publish images. Designed
+  for foundational image repos (`ros_distro`, `ros2_distro`) so app
+  repos can `FROM ghcr.io/<org>/ros_distro:vX.Y.Z-<variant>` instead
+  of duplicating sys / base / devel layers per repo. Auth uses
+  `GITHUB_TOKEN` for GHCR; multi-arch via `platforms: linux/amd64,linux/arm64`
+  publishes a single multi-arch manifest list under each tag.
+  Documented under "CI Reusable Workflows" in template README with
+  full input table and caller example.
+
 ## [v0.19.0] - 2026-05-07
 
 Promoted from `v0.19.0-rc1` (#228) — RC tag CI was green; no fixups needed.
