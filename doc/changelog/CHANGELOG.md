@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.1] - 2026-05-08
+
+Patch release fixing a bug in v0.21.0's runtime-test stage example.
+
 ### Fixed
 - **`Dockerfile.example` runtime-test stage RUN line was buggy in
   v0.21.0** (#243). Two issues:
