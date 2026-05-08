@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.20.0-rc1] - 2026-05-08
+
 ### Added
 - **`publish-worker.yaml` reusable workflow** (#232). Opt-in
   workflow_call entry point that pushes a Dockerfile target stage
