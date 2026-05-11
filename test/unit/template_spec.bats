@@ -1067,6 +1067,62 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: builder + runtime split pattern (#239)
+#
+# Lifts the three lessons proven empirically in
+# ycpss91255-docker/ros1_bridge#60 (saved ~1.1 GB/arch on runtime):
+#   1. runtime MUST NOT be FROM devel -- forces devel to delete its
+#      own source to avoid runtime bloat, breaking the dev workflow.
+#   2. Runtime apt: install only the ldd-identified missing libs.
+#      Bulk-installing builder deps defeats the runtime/devel split.
+#   3. `source FILE` in entrypoints needs trailing `--` (ROS 1 catkin
+#      / _setup_util.py argparse pitfall when CMD has --flag args).
+#
+# Tests below grep for marker text proving each lesson is documented
+# inline so the commented-out reference pattern can't silently lose
+# them.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example top stage-list documents builder stage (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The top-of-file "Stages:" comment is the first thing a user
+  # reading the template sees. builder must appear there or the
+  # downstream pattern is invisible.
+  run grep -E '^#   builder ' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example documents 3 builder/runtime split lessons (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Three explicit lesson markers (text must persist verbatim in
+  # the commented-out reference block so the lift from ros1_bridge#60
+  # stays load-bearing).
+  run grep -F 'runtime` MUST NOT be `FROM devel`' "${_df}"
+  assert_success
+  run grep -F 'install only the libs `ldd` proves are missing' "${_df}"
+  assert_success
+  run grep -F 'source FILE` in entrypoints needs a trailing `--`' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The concrete commented-out skeleton downstream can uncomment.
+  # All three lines must be commented (#-prefixed) so the example
+  # doesn't try to build by default; downstream uncomments when
+  # opting in via main.yaml build_runtime: true.
+  run grep -E '^# FROM devel-base AS builder$' "${_df}"
+  assert_success
+  run grep -E '^# FROM \$\{BASE_IMAGE\} AS runtime-base$' "${_df}"
+  assert_success
+  run grep -E '^# COPY --from=builder ' "${_df}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Dockerfile.example: ENV alignment with downstream fleet (#210)
 #
 # All 17 hand-written downstream Dockerfiles declare ENV TZ +
