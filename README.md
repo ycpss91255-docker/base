@@ -318,21 +318,24 @@ two derived artifacts.
            mount_2..mount_N (extra host mounts; devices via /dev path)
 ```
 
-Template default lives at `template/setup.conf`; per-repo overrides go
-at `<repo>/setup.conf`. Section-level **replace** strategy: a section
-present in the per-repo file fully replaces the template's section;
-omitted sections fall back to template.
+Template default lives at `template/config/docker/setup.conf`
+(post-v0.25.0); per-repo overrides go at `<repo>/config/docker/setup.conf`.
+Section-level **replace** strategy: a section present in the per-repo
+file fully replaces the template's section; omitted sections fall back
+to template.
 
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
-is copied to the repo and the detected workspace is written to
-`[volumes] mount_1`. Subsequent runs read `mount_1` as source of truth
-— clear it to opt out of mounting a workspace. Edit via:
+is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
+automatically) and the detected workspace is written to `[volumes]
+mount_1`. Subsequent runs read `mount_1` as source of truth — clear it
+to opt out of mounting a workspace. Edit via:
 
 ```bash
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./template/init.sh --gen-conf # plain copy of template/setup.conf to repo root
+./template/init.sh --gen-conf # plain copy of template/config/docker/setup.conf
+                              # to <repo>/config/docker/setup.conf
 ```
 
 ### Interactive TUI
@@ -501,7 +504,7 @@ make upgrade VERSION=v0.3.0
 4. `sed` rewrites `.github/workflows/main.yaml`'s
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
 
-Your per-repo files are never overwritten: `<repo>/setup.conf` stays
+Your per-repo files are never overwritten: `<repo>/config/docker/setup.conf` stays
 as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
 alone — if upstream `template/config/` moved since the last pull,
 upgrade.sh prints a `diff -ruN template/config config` hint so you can
@@ -668,15 +671,17 @@ template/
 │       └── ci.sh                     # CI pipeline (local + remote)
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
-│   └── Dockerfile.example            # Dockerfile template for new repos (sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test])
-├── setup.conf                        # Single runtime config (per-repo override mirror: <repo>/setup.conf)
-├── config/                           # Container-internal shell/tool configs
-│   ├── image_name.conf               # Default IMAGE_NAME detection rules
-│   ├── pip/
-│   │   ├── setup.sh
-│   │   └── requirements.txt
+│   ├── Dockerfile.example            # Dockerfile template for new repos (sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test])
+│   └── setup/                        # Build-time install scaffolding (COPY'd into ${SETUP_DIR}, wiped before image ships)
+│       └── pip/
+│           ├── setup.sh
+│           └── requirements.txt
+├── config/                           # Container-internal shell/tool configs (layered into ${CONFIG_DIR} at build time, template#254)
+│   ├── docker/
+│   │   └── setup.conf                # Runtime config (per-repo override mirror: <repo>/config/docker/setup.conf)
 │   └── shell/
 │       ├── bashrc
+│       ├── bashrc.d/
 │       ├── terminator/
 │       │   ├── setup.sh
 │       │   └── config

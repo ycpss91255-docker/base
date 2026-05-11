@@ -102,26 +102,27 @@ EOF
 }
 
 @test "init.sh existing-repo: setup.conf stays committed across init runs (#201)" {
-  # Post-#201: <repo>/setup.conf is the user's committed override.
+  # Post-#201: <repo>/config/docker/setup.conf is the user's committed override.
   # init.sh must NOT untrack it on existing-repo init; .gitignore sync
   # must NOT add it.
   _seed_existing_repo
-  cat > "${REPO_DIR}/setup.conf" <<'EOF'
+  mkdir -p "${REPO_DIR}/config/docker"
+  cat > "${REPO_DIR}/config/docker/setup.conf" <<'EOF'
 [network]
 mode = bridge
 [volumes]
 mount_1 = ${WS_PATH}:/home/${USER_NAME}/work
 EOF
-  git -C "${REPO_DIR}" add setup.conf
+  git -C "${REPO_DIR}" add config/docker/setup.conf
   git -C "${REPO_DIR}" commit -q -m "track setup.conf"
 
   bash template/init.sh
 
   # setup.conf still tracked by git
-  run git -C "${REPO_DIR}" ls-files setup.conf
-  assert_output "setup.conf"
+  run git -C "${REPO_DIR}" ls-files config/docker/setup.conf
+  assert_output "config/docker/setup.conf"
   # Content unchanged
-  run grep -F 'mode = bridge' "${REPO_DIR}/setup.conf"
+  run grep -F 'mode = bridge' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
   # Not in .gitignore
   run grep -E '^setup\.conf$' "${REPO_DIR}/.gitignore"

@@ -15,7 +15,8 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker"
+  mkdir -p "${SANDBOX}/template/script/docker" \
+           "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/template/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/template/script/docker/i18n.sh"
@@ -149,7 +150,7 @@ teardown() {
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -196,7 +197,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
@@ -210,7 +211,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  rm -f "${SANDBOX}/setup.conf"
+  rm -f "${SANDBOX}/config/docker/setup.conf"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "First run"
@@ -226,7 +227,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
@@ -465,7 +466,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
@@ -480,7 +481,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
   # Force TTY check to true via env var so the test does not need a
   # real PTY (run.sh respects RUN_FORCE_TTY=1 for testing).
@@ -499,7 +500,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
   unset RUN_FORCE_TTY
   # Without RUN_FORCE_TTY and with bats's piped stderr, the TTY check
@@ -516,7 +517,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   # docker stub logs every invocation to a temp file so we can assert
   # the inspect arg.
   cat > "${BIN_DIR}/docker" <<'EOS'
@@ -550,7 +551,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
@@ -568,7 +569,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
@@ -585,7 +586,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
   export RUN_FORCE_TTY=1
   run bash "${SANDBOX}/run.sh" --detach
@@ -606,7 +607,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/setup.conf"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
 
   # Replace mock setup.sh with one that logs to a shared timeline.
   EVENT_LOG="${TEMP_DIR}/timeline.log"

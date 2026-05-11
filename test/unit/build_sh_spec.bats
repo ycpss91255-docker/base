@@ -22,7 +22,8 @@ setup() {
 
   SANDBOX="${TEMP_DIR}/repo"
   mkdir -p "${SANDBOX}/template/script/docker" \
-           "${SANDBOX}/template/dockerfile"
+           "${SANDBOX}/template/dockerfile" \
+           "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh     "${SANDBOX}/template/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh     "${SANDBOX}/template/script/docker/i18n.sh"
@@ -126,7 +127,7 @@ teardown() {
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   # Patch the mock so check-drift subcommand reports drift (exit 1).
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
@@ -178,7 +179,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -196,7 +197,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  rm -f "${SANDBOX}/setup.conf"
+  rm -f "${SANDBOX}/config/docker/setup.conf"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   assert_output --partial "First run"
@@ -215,7 +216,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -286,7 +287,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "TARGET_ARCH=arm64"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -301,7 +302,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -319,7 +320,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "BUILD_NETWORK=host"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -334,7 +335,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -454,7 +455,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  : > "${SANDBOX}/setup.conf"
+  : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -520,7 +521,7 @@ EOS
   # -y skips the interactive prompt; --dry-run makes the init.sh call
   # a printf instead of an exec so we can assert it without sandbox
   # side effects.
-  echo "old" > "${SANDBOX}/setup.conf"
+  echo "old" > "${SANDBOX}/config/docker/setup.conf"
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
@@ -537,7 +538,7 @@ EOS
 @test "build.sh --reset-conf with no existing setup.conf / .env skips prompt" {
   # Nothing to overwrite → no confirmation needed, --dry-run just prints
   # the init.sh call and exits cleanly.
-  rm -f "${SANDBOX}/setup.conf" "${SANDBOX}/.env"
+  rm -f "${SANDBOX}/config/docker/setup.conf" "${SANDBOX}/.env"
   run bash "${SANDBOX}/build.sh" --reset-conf --dry-run
   assert_success
   refute_output --partial "proceed?"

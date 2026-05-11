@@ -38,6 +38,8 @@ setup() {
   # mutate state visibly to the parent. Each line: "<exit>|<response>".
   _QFILE="${BATS_TEST_TMPDIR}/tui_queue"
   : > "${_QFILE}"
+  # Post-#262 path: setup.conf lives at config/docker/setup.conf
+  mkdir -p "${BATS_TEST_TMPDIR}/config/docker"
 
   # Override the dialog primitives from _tui_backend.sh AFTER sourcing
   # setup_tui.sh, so our definitions win. (Top-level definitions in the
@@ -110,7 +112,7 @@ is_removed() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_current: pulls keys from repo conf when present" {
-  local _repo="${BATS_TEST_TMPDIR}/setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/config/docker/setup.conf"
   cat > "${_repo}" <<'EOF'
 [network]
 mode = bridge
@@ -120,7 +122,7 @@ EOF
 }
 
 @test "_load_current: falls back to template conf when repo conf missing" {
-  local _tpl="${BATS_TEST_TMPDIR}/setup.conf"
+  local _tpl="${BATS_TEST_TMPDIR}/config/docker/setup.conf"
   cat > "${_tpl}" <<'EOF'
 [deploy]
 gpu_mode = auto

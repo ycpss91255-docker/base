@@ -229,8 +229,10 @@ REMOTE
 # ════════════════════════════════════════════════════════════════════
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
-  echo "existing user config" > "${TMP_REPO}/setup.conf"
+  mkdir -p "${TMP_REPO}/template/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "existing user config" > "${TMP_REPO}/config/docker/setup.conf"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
@@ -238,23 +240,27 @@ REMOTE
 }
 
 @test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
-  echo "old user conf" > "${TMP_REPO}/setup.conf"
+  mkdir -p "${TMP_REPO}/template/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "old user conf" > "${TMP_REPO}/config/docker/setup.conf"
   _source_init
   run _gen_setup_conf "true"
   assert_success
   # new setup.conf must come from template
-  run cat "${TMP_REPO}/setup.conf"
+  run cat "${TMP_REPO}/config/docker/setup.conf"
   assert_output --partial "rules = @basename"
   # backup must contain the pre-overwrite user content
-  assert [ -f "${TMP_REPO}/setup.conf.bak" ]
-  run cat "${TMP_REPO}/setup.conf.bak"
+  assert [ -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
+  run cat "${TMP_REPO}/config/docker/setup.conf.bak"
   assert_output "old user conf"
 }
 
 @test "_gen_setup_conf --force also backs up .env to .env.bak" {
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
-  echo "user conf" > "${TMP_REPO}/setup.conf"
+  mkdir -p "${TMP_REPO}/template/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "user conf" > "${TMP_REPO}/config/docker/setup.conf"
   echo "USER_NAME=existing" > "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
@@ -266,13 +272,54 @@ REMOTE
 
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
-  rm -f "${TMP_REPO}/setup.conf" "${TMP_REPO}/.env"
+  mkdir -p "${TMP_REPO}/template/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/config/docker/setup.conf"
+  rm -f "${TMP_REPO}/config/docker/setup.conf" "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
   assert_success
-  assert [ ! -f "${TMP_REPO}/setup.conf.bak" ]
+  assert [ ! -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
   assert [ ! -f "${TMP_REPO}/.env.bak" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# TEMPLATE_REL subtree-prefix auto-detection (#262 / #263 prep)
+# ════════════════════════════════════════════════════════════════════
+#
+# init.sh derives TEMPLATE_REL from `basename ${TEMPLATE_DIR}` (which is
+# itself `dirname BASH_SOURCE[0]`). The conventional prefix is `template/`
+# but a downstream rename (e.g. `.base/`, planned for #263 fanout) is
+# picked up without code changes: the symlink targets and gen-conf paths
+# follow whatever directory init.sh lives in.
+
+@test "TEMPLATE_REL: auto-detects to 'template' when init.sh lives in template/" {
+  _source_init
+  assert_equal "${TEMPLATE_REL}" "template"
+}
+
+@test "TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/" {
+  # Mirror the post-#263 layout: subtree renamed `template/` -> `.base/`,
+  # init.sh now at `${TMP_REPO}/.base/init.sh`. Re-sourcing must derive
+  # TEMPLATE_REL = ".base" so all downstream symlinks point through the
+  # new prefix.
+  mv "${TMP_REPO}/template" "${TMP_REPO}/.base"
+  source "${TMP_REPO}/.base/init.sh"
+  assert_equal "${TEMPLATE_REL}" ".base"
+}
+
+@test "_create_symlinks: targets follow TEMPLATE_REL when subtree renamed to .base/" {
+  # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
+  # `_create_symlinks` must wire build.sh / run.sh / etc. through
+  # `.base/script/docker/...`, not the literal `template/`.
+  mv "${TMP_REPO}/template" "${TMP_REPO}/.base"
+  source "${TMP_REPO}/.base/init.sh"
+  _create_symlinks
+  run readlink "${TMP_REPO}/build.sh"
+  assert_output ".base/script/docker/build.sh"
+  run readlink "${TMP_REPO}/Makefile"
+  assert_output ".base/script/docker/Makefile"
+  run readlink "${TMP_REPO}/.hadolint.yaml"
+  assert_output ".base/.hadolint.yaml"
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -86,7 +86,7 @@ _TUI_MSG_EN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_EN[per_stage.inherit]="(inherit top-level — clear override)"
 _TUI_MSG_EN[per_stage.inherit_flag]="Inherit top-level entries"
 _TUI_MSG_EN[reset.title]="Reset to defaults"
-_TUI_MSG_EN[reset.confirm]=$'Reset ALL settings to template defaults?\n\n  - <repo>/setup.conf will be removed\n  - setup.sh re-runs to regenerate from template\n  - Your current customizations will be LOST\n\nThis cannot be undone.'
+_TUI_MSG_EN[reset.confirm]=$'Reset ALL settings to template defaults?\n\n  - <repo>/config/docker/setup.conf will be removed\n  - setup.sh re-runs to regenerate from template\n  - Your current customizations will be LOST\n\nThis cannot be undone.'
 _TUI_MSG_EN[reset.done]="All settings reset to template defaults."
 _TUI_MSG_EN[security.title]="Security"
 _TUI_MSG_EN[security.menu]="Select: privileged / cap_add / cap_drop / security_opt"
@@ -277,7 +277,7 @@ _TUI_MSG_ZH_TW[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_TW[per_stage.inherit]="(繼承 top-level — 清除 override)"
 _TUI_MSG_ZH_TW[per_stage.inherit_flag]="繼承 top-level 項目"
 _TUI_MSG_ZH_TW[reset.title]="重置為預設值"
-_TUI_MSG_ZH_TW[reset.confirm]=$'重置所有設定為 template 預設值？\n\n  - 移除 <repo>/setup.conf\n  - 重跑 setup.sh 從 template 重建\n  - 你目前的客製化會遺失\n\n無法復原。'
+_TUI_MSG_ZH_TW[reset.confirm]=$'重置所有設定為 template 預設值？\n\n  - 移除 <repo>/config/docker/setup.conf\n  - 重跑 setup.sh 從 template 重建\n  - 你目前的客製化會遺失\n\n無法復原。'
 _TUI_MSG_ZH_TW[reset.done]="所有設定已重置為預設值。"
 _TUI_MSG_ZH_TW[security.title]="Security"
 _TUI_MSG_ZH_TW[security.menu]="選擇：privileged／cap_add／cap_drop／security_opt"
@@ -466,7 +466,7 @@ _TUI_MSG_ZH_CN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_CN[per_stage.inherit]="(继承 top-level — 清除 override)"
 _TUI_MSG_ZH_CN[per_stage.inherit_flag]="继承 top-level 项目"
 _TUI_MSG_ZH_CN[reset.title]="重置为默认值"
-_TUI_MSG_ZH_CN[reset.confirm]=$'重置所有设定为 template 默认值？\n\n  - 移除 <repo>/setup.conf\n  - 重跑 setup.sh 从 template 重建\n  - 你当前的定制会丢失\n\n无法撤销。'
+_TUI_MSG_ZH_CN[reset.confirm]=$'重置所有设定为 template 默认值？\n\n  - 移除 <repo>/config/docker/setup.conf\n  - 重跑 setup.sh 从 template 重建\n  - 你当前的定制会丢失\n\n无法撤销。'
 _TUI_MSG_ZH_CN[reset.done]="所有设定已重置为默认值。"
 _TUI_MSG_ZH_CN[security.title]="Security"
 _TUI_MSG_ZH_CN[security.menu]="选择：privileged／cap_add／cap_drop／security_opt"
@@ -650,7 +650,7 @@ _TUI_MSG_JA[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_JA[per_stage.inherit]="(top-level を継承 — override をクリア)"
 _TUI_MSG_JA[per_stage.inherit_flag]="top-level 項目を継承"
 _TUI_MSG_JA[reset.title]="デフォルトにリセット"
-_TUI_MSG_JA[reset.confirm]=$'全ての設定を template のデフォルトにリセット？\n\n  - <repo>/setup.conf を削除\n  - setup.sh を再実行して template から再生成\n  - 現在のカスタマイズは失われます\n\n元に戻せません。'
+_TUI_MSG_JA[reset.confirm]=$'全ての設定を template のデフォルトにリセット？\n\n  - <repo>/config/docker/setup.conf を削除\n  - setup.sh を再実行して template から再生成\n  - 現在のカスタマイズは失われます\n\n元に戻せません。'
 _TUI_MSG_JA[reset.done]="全ての設定がデフォルトにリセットされました。"
 _TUI_MSG_JA[security.title]="Security"
 _TUI_MSG_JA[security.menu]="選択：privileged／cap_add／cap_drop／security_opt"
@@ -2156,14 +2156,14 @@ _do_reset() {
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
   # Reset deletes the per-repo override (setup.conf). The next apply
   # re-bootstraps it from the template baseline + detected workspace.
-  rm -f "${FILE_PATH}/setup.conf"
+  rm -f "${FILE_PATH}/config/docker/setup.conf"
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
   _TUI_REMOVED=()
   _TUI_CURRENT=()
-  _load_current "${FILE_PATH}/setup.conf" "${_TUI_TPL_DIR}/setup.conf"
+  _load_current "${FILE_PATH}/config/docker/setup.conf" "${_TUI_TPL_DIR}/config/docker/setup.conf"
   _tui_msgbox "$(_tui_msg reset.title)" "$(_tui_msg reset.done)"
 }
 
@@ -2276,8 +2276,8 @@ main() {
   # TUI's save target is the per-repo override (setup.conf). Loading
   # reads it on top of the template baseline so existing overrides
   # surface as the menu's initial values; new edits land in setup.conf.
-  local _repo_conf="${FILE_PATH}/setup.conf"
-  local _tpl_conf="${_TUI_TPL_DIR}/setup.conf"
+  local _repo_conf="${FILE_PATH}/config/docker/setup.conf"
+  local _tpl_conf="${_TUI_TPL_DIR}/config/docker/setup.conf"
   # First-run bootstrap: when no per-repo setup.conf exists yet, run
   # setup.sh apply so mount_1 detection seeds the file before the TUI
   # opens its menus.

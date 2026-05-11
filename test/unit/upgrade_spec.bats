@@ -18,6 +18,12 @@ setup() {
   TEMP_DIR="$(mktemp -d)"
   HARNESS="${TEMP_DIR}/harness.sh"
   cat > "${HARNESS}" <<'EOS'
+# Pin TEMPLATE_REL for tests. Production upgrade.sh derives it via
+# `basename ${SCRIPT_DIR}` at the top of the file, but the test
+# harness sources only function bodies (sed-extracted), so the
+# top-level derivation never runs — the tests pin the conventional
+# subtree prefix to make the assertions deterministic.
+TEMPLATE_REL="template"
 _log() { printf '[upgrade] %s\n' "$*"; }
 _error() { printf '[upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
 EOS
@@ -103,10 +109,12 @@ teardown() {
   (( _n >= 2 ))
 }
 
-@test "upgrade.sh captures pre-pull template/config tree hash" {
+@test "upgrade.sh captures pre-pull <subtree-prefix>/config tree hash" {
   # The WARNING only fires when we have both pre and post hashes —
-  # guard against dropping the snapshot line.
-  run grep -F 'HEAD:template/config' "${UPGRADE}"
+  # guard against dropping the snapshot line. Path is parameterised
+  # via TEMPLATE_REL post-v0.25.0 so the `template/` -> `.base/`
+  # rename keeps the snapshot working.
+  run grep -F 'HEAD:${TEMPLATE_REL}/config' "${UPGRADE}"
   assert_success
 }
 
