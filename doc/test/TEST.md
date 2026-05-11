@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1071 tests** total (1015 unit + 56 integration).
+Template self-tests: **1074 tests** total (1018 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1071 figure because they are
+> below. They are **not** included in the 1074 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -289,7 +289,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/template_spec.bats (138)
+### test/unit/template_spec.bats (141)
 
 | Test | Description |
 |------|-------------|

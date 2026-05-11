@@ -12,10 +12,11 @@
 # Stages:
 #   sys           - User/group, locale, timezone
 #   devel-base    - Development tools and packages
+#   builder       - Compile/build stage (optional; opt-in for runtime split, keeps source)
 #   devel         - Application-specific tools + entrypoint
 #   devel-test    - Lint + bats smoke test (ephemeral, discarded after build)
-#   runtime-base  - Minimal runtime base (sudo + tini), optional
-#   runtime       - Minimal runtime image (optional)
+#   runtime-base  - Minimal runtime base (sudo + tini + ldd-driven libs), optional
+#   runtime       - Minimal runtime image (COPY --from=builder install trees), optional
 #   runtime-test  - Runtime install-check smoke (ephemeral, optional)
 #
 # Adding extra stages (#215): any `FROM <base> AS <stage>` outside the
@@ -210,13 +211,102 @@ USER "${USER}"
 
 RUN bats /smoke_test/
 
-############################## runtime (optional) ##############################
-# FROM sys AS runtime-base
+############################## builder + runtime split (optional) ##############################
+# Three concrete stages for repos that need a separate runtime image
+# (compiled binaries / generated artifacts to ship without dev deps).
+# Lessons lifted from ycpss91255-docker/ros1_bridge#60 PR -- empirically
+# saved ~1.1 GB/arch on that repo's runtime image.
 #
+# Three rules, all of which the previous commented-out hint was silent on:
+#
+# 1. `runtime` MUST NOT be `FROM devel`. Pre-#60 ros1_bridge had
+#    `FROM devel AS runtime` which forced devel to delete its source
+#    trees in the same RUN that built them (otherwise runtime carried
+#    the bloat). Result: devel was unusable for the standard
+#    "edit source, rebuild, retest" workflow. The fix is the
+#    conventional split: builder keeps source, devel inherits builder,
+#    runtime starts from a fresh base and only `COPY --from=builder`
+#    the install trees.
+#
+# 2. Runtime apt: install only the libs `ldd` proves are missing.
+#    Don't bulk-install builder deps "to be safe" -- that defeats the
+#    point. Identify the gap empirically:
+#      docker run --rm -it <builder-image> bash
+#      ldd /opt/<framework>/lib/*.so | grep "not found"
+#      dpkg -S <missing.so>     # map back to apt package name
+#    For ros1_bridge the gap was a small set:
+#    libboost-{chrono,filesystem,program_options,thread}, libpoco-foundation,
+#    libgpgme. Note the cross-distro suffix split: noble adds `t64`
+#    (time_t-64bit) on some packages, jammy does not -- handle with a
+#    `case "${BASE_IMAGE}"` or `case "${UBUNTU_CODENAME}"` branch.
+#
+# 3. `source FILE` in entrypoints needs a trailing `--`. Bash's
+#    `source FILE` (without explicit args) propagates the calling
+#    script's positional parameters to the sourced file. Frameworks
+#    that re-forward them (ROS 1's catkin/_setup_util.py is the
+#    canonical case) then see CMD's `--flag` as their own argparse
+#    input, print usage to stdout, and the wrapper sources that usage
+#    as shell -- container dies with `setup.sh.<rand>: line 1:
+#    usage:: command not found`, exit 127. Pass `--` explicitly:
+#      source /opt/<framework>/setup.bash --
+#    Document this in script/entrypoint.sh; add a smoke test that runs
+#    the runtime image with `--help` as CMD and asserts a sensible
+#    exit, not 127.
+#
+# To enable: uncomment the three blocks below, change `devel` above
+# from `FROM devel-base AS devel` to `FROM builder AS devel` so devel
+# inherits builder's build artifacts (without re-installing build
+# deps), and set `build_runtime: true` in main.yaml's
+# call-docker-build job (default is true; only agent/* repos that
+# ship no runtime override it to false).
+
+############################## builder (optional) ##############################
+# FROM devel-base AS builder
+#
+# ARG DEBIAN_FRONTEND=noninteractive
+#
+# # Build-time deps. KEEP source / build intermediates -- devel
+# # inherits this stage for the dev workflow, and runtime
+# # COPY --from=builder only the install trees (not the source).
+# RUN apt-get update && \
+#     apt-get install -y --no-install-recommends \
+#         build-essential \
+#         cmake \
+#         pkg-config \
+#         python3-dev \
+#         && \
+#     apt-get clean && \
+#     rm -rf /var/lib/apt/lists/*
+#
+# # Fetch + build (example: a colcon workspace).
+# WORKDIR /build_ws
+# COPY src/ /build_ws/src/
+# RUN apt-get update && \
+#     rosdep install --from-paths ./src --ignore-src -y && \
+#     apt-get clean && \
+#     rm -rf /var/lib/apt/lists/*
+# RUN colcon build --install-base /build_ws/install
+# # IMPORTANT: do NOT rm -rf source/build trees here. devel needs them
+# # for the rebuild workflow; runtime only pulls /build_ws/install via
+# # COPY --from=builder, so the source weight never lands in runtime.
+
+############################## runtime-base + runtime (optional) ##############################
+# FROM ${BASE_IMAGE} AS runtime-base
+#
+# ARG DEBIAN_FRONTEND=noninteractive
+#
+# # Minimal runtime apt: sudo (entrypoint usually needs it), tini
+# # (PID 1 signal-handler), plus the ldd-identified shared libs that
+# # the install trees need. Keep this list short -- bloat here
+# # defeats the purpose of the builder/runtime split.
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
 #         sudo \
 #         tini \
+#         # libboost-chrono1.74.0 \
+#         # libboost-filesystem1.74.0 \
+#         # libpoco-foundation70 \
+#         # libgpgme11 \
 #         && \
 #     apt-get clean && \
 #     rm -rf /var/lib/apt/lists/*
@@ -224,6 +314,13 @@ RUN bats /smoke_test/
 # FROM runtime-base AS runtime
 #
 # ARG USER="${USER_NAME}"
+# ARG GROUP="${USER_GROUP}"
+#
+# # Pull only the install artifacts out of builder. Source / build
+# # intermediates stay in builder (and devel, transitively); runtime
+# # carries only what the binary needs to execute.
+# COPY --from=builder /build_ws/install /opt/app/install
+#
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
 # USER "${USER}"
 # WORKDIR "${HOME}/work"
