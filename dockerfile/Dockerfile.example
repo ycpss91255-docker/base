@@ -246,11 +246,19 @@ RUN bats /smoke_test/
 # package manager queries (`ros2 pkg list | grep ...`, `rospack
 # find ...`) over invoking the GUI binary itself.
 #
-# `sh -c` wrapper required: `RUN ${ARG}` does word-splitting on the
+# `bash -c` wrapper required: `RUN ${ARG}` does word-splitting on the
 # substituted value and treats shell operators (&&, ||, etc.) as
 # literal arguments to the first word. Wrapping with
-# `sh -c "${RUNTIME_SMOKE_CMD}"` passes the value as a single string
-# for sh to parse, preserving operators and nested quotes.
+# `bash -c "${RUNTIME_SMOKE_CMD}"` passes the value as a single string
+# for bash to parse, preserving operators, nested quotes, AND bash-only
+# constructs commonly used in install-checks: `source <bash-script>`
+# (and `. <bash-script>` against bash-syntax files like
+# `/opt/ros/$DISTRO/setup.bash`), `${var:-default}` style parameter
+# expansion, etc. An earlier `sh -c` wrapper (v0.21.1 through v0.23.0)
+# broke any override that sourced bash-syntax files because /bin/sh on
+# Debian/Ubuntu is dash, which has neither `source` nor bash parameter
+# expansion. bash is present in every Ubuntu/Debian-based runtime image
+# the template targets, so the bash dependency is safe.
 #
 # Only enable when the runtime stage above is also enabled. The
 # `if: build_runtime` gate in build-worker.yaml mirrors this -- if
@@ -263,4 +271,4 @@ RUN bats /smoke_test/
 # ARG RUNTIME_SMOKE_CMD='whoami && bash --version'
 # # Inherit USER from runtime (non-root). install-check doesn't need
 # # privilege; if downstream override needs root, prefix with sudo.
-# RUN sh -c "${RUNTIME_SMOKE_CMD}"
+# RUN bash -c "${RUNTIME_SMOKE_CMD}"

@@ -988,7 +988,8 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Dockerfile.example: runtime-test stage syntax (#243 / v0.21.1 fix)
+# Dockerfile.example: runtime-test stage syntax (#243 / v0.21.1 fix /
+# v0.23.1 follow-up)
 #
 # v0.21.0 shipped the runtime-test block with `RUN ${RUNTIME_SMOKE_CMD}`
 # and `USER root`. Both were buggy:
@@ -1006,24 +1007,49 @@ EOF
 #
 # v0.21.1 fix: drop USER root (inherit non-root from runtime), and
 # wrap the ARG in `sh -c "..."` so the value is passed as a single
-# string for sh to parse. The grep tests below lock both invariants
-# so the bug can't regress.
+# string for the shell to parse.
+#
+# v0.23.1 follow-up: `sh -c` (dash) doesn't support `source` or
+# bash parameter expansion, blocking any override that sourced
+# bash-syntax files (e.g. `. /opt/ros/$DISTRO/setup.bash`). Switched
+# to `bash -c` -- bash is present in every Ubuntu/Debian runtime
+# image the template targets, the dependency is safe, and downstream
+# overrides can now use natural shell semantics. Discovered during
+# the v0.21.1 runtime-test framework's downstream rollout
+# (ycpss91255-docker/docker_harness#57); see also
+# ycpss91255-docker/template#249.
+#
+# The grep tests below lock all three invariants (positive: bash -c
+# wrapper present; negative: no bare ARG substitution; negative:
+# no stale sh -c wrapper) so the bug can't regress.
 # ════════════════════════════════════════════════════════════════════
 
-@test "Dockerfile.example runtime-test uses sh -c wrapper (regression: v0.21.0 ARG word-split bug)" {
+@test "Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The runtime-test block is commented out (opt-in for repos with a
-  # runtime stage). The RUN line in the comment must use sh -c.
-  run grep -E '^# RUN sh -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
+  # runtime stage). The RUN line in the comment must use bash -c so
+  # downstream RUNTIME_SMOKE_CMD overrides can use bash semantics
+  # (source / . of bash-syntax files, parameter expansion, etc.).
+  run grep -E '^# RUN bash -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
   assert_success
 }
 
-@test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 bug regression guard)" {
+@test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Regression guard: bare form word-splits operators / nested quotes.
   run grep -E '^# RUN \$\{RUNTIME_SMOKE_CMD\}$' "${_df}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Regression guard: sh -c (dash) cannot parse bash-syntax files in
+  # `source` / `.` overrides. Blocks all ROS-style smoke commands.
+  # See ycpss91255-docker/docker_harness#57 + #249 for context.
+  run grep -E '^# RUN sh -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
 
