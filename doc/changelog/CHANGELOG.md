@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Dockerfile.example` runtime-test stage `RUN sh -c` blocks bash-source overrides** (template#249 follow-up, surfaced during ycpss91255-docker/docker_harness#57 rollout). `sh` on Debian/Ubuntu is `dash`, which has neither `source` nor bash parameter expansion. Any `RUNTIME_SMOKE_CMD` override that did `source /opt/<framework>/setup.bash && <cmd>` failed with `sh: source: not found`; replacing `source` with POSIX `.` then failed with `Bad substitution` because `setup.bash` itself uses bash-only syntax. The only workable shape was a nested `bash -c '...'` wrapper inside the build-arg value, which is an ugly downstream UX.
+
+  Fix: change `RUN sh -c "${RUNTIME_SMOKE_CMD}"` to `RUN bash -c "${RUNTIME_SMOKE_CMD}"`. Bash is present in every Ubuntu/Debian-based runtime image the template targets (osrf/ros, ros, plain ubuntu/debian), so the dependency is safe. Downstream `RUNTIME_SMOKE_CMD` overrides can now use natural shell semantics including `source <bash-script>`, parameter expansion, and `${var:-default}` without nested wrapping.
+
+  Three unit-test invariants in `test/unit/template_spec.bats` (137 -> 138):
+  - Positive: runtime-test RUN line uses `bash -c` (regression guard for both #243 word-split bug and #57 dash-source bug).
+  - Negative: no bare `RUN ${RUNTIME_SMOKE_CMD}` (regression guard for #243).
+  - Negative (NEW): no stale `sh -c` wrapper (regression guard for this fix).
+
+  Total self-tests 1070 -> 1071 (+1 template_spec). Unit 1014 -> 1015.
+
 ## [v0.23.0] - 2026-05-08
 
 Promoted from `v0.23.0-rc1` (#258). RC tag CI green (Self Test +
