@@ -271,7 +271,7 @@ main() {
   # subsequent setup.sh invocation regenerates .env + compose.yaml from
   # the fresh conf.
   if [[ "${RESET_CONF}" == true ]]; then
-    local _conf="${FILE_PATH}/setup.conf"
+    local _conf="${FILE_PATH}/config/docker/setup.conf"
     local _env="${FILE_PATH}/.env"
     if [[ -f "${_conf}" || -f "${_env}" ]]; then
       if [[ "${ASSUME_YES}" != true && "${DRY_RUN}" != true ]]; then
@@ -324,7 +324,7 @@ main() {
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
-      || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
+      || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     printf "%s\n" "$(_msg bootstrap_info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"

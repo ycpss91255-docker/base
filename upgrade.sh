@@ -12,13 +12,19 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
+# Subtree prefix is the directory upgrade.sh lives in, so a downstream
+# rename (e.g. template/ -> .base/) is picked up automatically: every
+# filesystem reference, the subtree-pull --prefix= flag, and integrity
+# marker uses the same prefix the script was invoked through.
+TEMPLATE_REL="$(basename "${SCRIPT_DIR}")"
+readonly TEMPLATE_REL
 # Default to HTTPS so users without an SSH key (fresh clone, CI runner,
-# first-time contributor) can `./template/upgrade.sh` out of the box.
-# Export TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed for
-# private forks, or when the user prefers agent-based auth).
+# first-time contributor) can `./${TEMPLATE_REL}/upgrade.sh` out of the
+# box. Export TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed
+# for private forks, or when the user prefers agent-based auth).
 TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
 readonly TEMPLATE_REMOTE
-VERSION_FILE="${REPO_ROOT}/template/.version"
+VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
 cd "${REPO_ROOT}"
@@ -67,18 +73,18 @@ _require_clean_merge_state() {
 }
 
 # _verify_subtree_intact <pre_head_sha>
-#   Post-pull sanity check: `template/` must still contain the subtree
-#   markers. A known failure mode (older git-subtree) is to fast-forward
-#   the synthetic squash commit, replacing <repo> root with template's
-#   tree (moves `template/*` to `<repo>/*` and deletes repo-specific
-#   files). Detect that by checking subtree markers, and hard-reset back
-#   to <pre_head_sha> if integrity is lost.
+#   Post-pull sanity check: `${TEMPLATE_REL}/` must still contain the
+#   subtree markers. A known failure mode (older git-subtree) is to
+#   fast-forward the synthetic squash commit, replacing <repo> root with
+#   the upstream tree (moves `${TEMPLATE_REL}/*` to `<repo>/*` and
+#   deletes repo-specific files). Detect that by checking subtree
+#   markers, and hard-reset back to <pre_head_sha> if integrity is lost.
 _verify_subtree_intact() {
   local _pre_head="$1"
   local _markers=(
-    "template/.version"
-    "template/init.sh"
-    "template/script/docker/setup.sh"
+    "${TEMPLATE_REL}/.version"
+    "${TEMPLATE_REL}/init.sh"
+    "${TEMPLATE_REL}/script/docker/setup.sh"
   )
   local _marker
   for _marker in "${_markers[@]}"; do
@@ -212,7 +218,7 @@ _upgrade() {
     if (( _cmp == 2 )); then
       _error "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
   If this is intentional (rolling back a bad release), edit
-  template/.version manually and re-run the upgrade."
+  ${TEMPLATE_REL}/.version manually and re-run the upgrade."
     fi
   fi
 
@@ -228,38 +234,39 @@ _upgrade() {
 
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
-  # Snapshot the pre-pull tree hash of template/config so we can tell
-  # the user if their seeded <repo>/config is now out of sync with the
-  # upstream baseline. Git tree hashes are stable and cheap (no blob
-  # compare); if HEAD has no template/config yet (initial setup),
+  # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/config so we can
+  # tell the user if their seeded <repo>/config is now out of sync with
+  # the upstream baseline. Git tree hashes are stable and cheap (no blob
+  # compare); if HEAD has no ${TEMPLATE_REL}/config yet (initial setup),
   # leave _pre_config_hash empty.
   local _pre_config_hash=""
   # --verify: print the resolved hash on success, print nothing on
   # failure. Without it, git's default mode echoes the unresolved ref
   # back to stdout for unknown paths, which would be mistaken for a
   # hash later by _warn_config_drift.
-  _pre_config_hash="$(git rev-parse --verify "HEAD:template/config" 2>/dev/null || true)"
+  _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config" 2>/dev/null || true)"
 
-  # Snapshot pre-pull template/setup.conf hash too. If the upstream
-  # baseline changed, the user may want to copy new sections / keys
-  # into their <repo>/setup.conf override (issue #201's 2-file model
-  # makes this a manual merge — we never overwrite the user's file).
+  # Snapshot pre-pull setup.conf hash too. Path is the post-#262 location
+  # ${TEMPLATE_REL}/config/docker/setup.conf. If the upstream baseline
+  # changed, the user may want to copy new sections / keys into their
+  # per-repo setup.conf override (issue #201's 2-file model makes this a
+  # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
-  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:template/setup.conf" 2>/dev/null || true)"
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
   _log "Step 1/4: git subtree pull"
-  git subtree pull --prefix=template \
+  git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
-    -m "chore: upgrade template subtree to ${target_ver}"
+    -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}"
 
   # Step 2: post-pull integrity check (rolls back on corruption)
-  _log "Step 2/4: verify template/ subtree integrity"
+  _log "Step 2/4: verify ${TEMPLATE_REL}/ subtree integrity"
   _verify_subtree_intact "${_pre_head}"
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
   _log "Step 3/4: re-run init.sh to sync symlinks"
-  ./template/init.sh
+  "./${TEMPLATE_REL}/init.sh"
 
   # Step 4: update main.yaml @tag references
   _log "Step 4/4: update workflow @tag references"
@@ -316,75 +323,77 @@ COMMIT
 
 # _warn_config_drift <pre_pull_tree_hash>
 #
-# When the upstream template/config/ tree changed during this pull,
-# print a WARNING pointing the user at the diff so they can merge into
-# their <repo>/config/ manually. Never fails the upgrade (config is
+# When the upstream ${TEMPLATE_REL}/config/ tree changed during this
+# pull, print a WARNING pointing the user at the diff so they can merge
+# into their <repo>/config/ manually. Never fails the upgrade (config is
 # user-owned — we only report, not force).
 _warn_config_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:template/config" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0         # no config in new subtree
   [[ "${_pre}" == "${_post}" ]] && return 0   # unchanged
   _log ""
-  _log "WARNING: template/config/ changed upstream since the last pull."
+  _log "WARNING: ${TEMPLATE_REL}/config/ changed upstream since the last pull."
   _log "         Your <repo>/config/ is user-owned and was NOT updated."
   _log "         Review the diff and port any upstream changes you want:"
   _log ""
-  _log "           diff -ruN template/config config"
+  _log "           diff -ruN ${TEMPLATE_REL}/config config"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in template/config/):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- template/config"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/config/):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/config"
   fi
 }
 
 # _warn_setup_conf_drift <pre_pull_blob_hash>
 #
-# Post-#201 sibling of _warn_config_drift. <repo>/setup.conf is the
-# user-owned override file; this script never rewrites it. When the
-# upstream template/setup.conf changes (new sections, new keys, default
-# tweaks), surface a pointer to the diff so the user can hand-merge any
-# upstream additions they want into their override. Silent on no change.
+# Post-#201 sibling of _warn_config_drift. <repo>/config/docker/setup.conf
+# (post-#262 path) is the user-owned override file; this script never
+# rewrites it. When the upstream template-side setup.conf changes (new
+# sections, new keys, default tweaks), surface a pointer to the diff so
+# the user can hand-merge any upstream additions they want into their
+# override. Silent on no change.
 _warn_setup_conf_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:template/setup.conf" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
   _log ""
-  _log "WARNING: template/setup.conf changed upstream since the last pull."
-  _log "         Your <repo>/setup.conf is the user override and was NOT updated."
+  _log "WARNING: ${TEMPLATE_REL}/config/docker/setup.conf changed upstream since the last pull."
+  _log "         Your config/docker/setup.conf is the user override and was NOT updated."
   _log "         Review the diff and copy any new sections / keys you want:"
   _log ""
-  _log "           diff -u template/setup.conf setup.conf"
+  _log "           diff -u ${TEMPLATE_REL}/config/docker/setup.conf config/docker/setup.conf"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in template/setup.conf):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- template/setup.conf"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/config/docker/setup.conf):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/config/docker/setup.conf"
   fi
 }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 _usage() {
-  cat >&2 <<'EOF'
-Usage: ./template/upgrade.sh [VERSION|--check|--gen-conf]
+  cat >&2 <<EOF
+Usage: ./${TEMPLATE_REL}/upgrade.sh [VERSION|--check|--gen-conf]
 
-Upgrade template subtree to the latest (or specified) version.
+Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 
 Arguments:
   VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
-  --gen-conf    Copy template/setup.conf to repo root for per-repo
-                configuration overrides (delegates to init.sh --gen-conf)
+  --gen-conf    Copy ${TEMPLATE_REL}/config/docker/setup.conf to
+                <repo>/config/docker/setup.conf for per-repo overrides
+                (delegates to init.sh --gen-conf)
   -h, --help    Show this help
 
 Examples:
-  ./template/upgrade.sh               # upgrade to latest
-  ./template/upgrade.sh v0.5.0        # upgrade to specific version
-  ./template/upgrade.sh --check       # check only
-  ./template/upgrade.sh --gen-conf    # copy setup.conf to repo root
+  ./${TEMPLATE_REL}/upgrade.sh               # upgrade to latest
+  ./${TEMPLATE_REL}/upgrade.sh v0.5.0        # upgrade to specific version
+  ./${TEMPLATE_REL}/upgrade.sh --check       # check only
+  ./${TEMPLATE_REL}/upgrade.sh --gen-conf    # copy setup.conf override
 EOF
   exit 0
 }
@@ -396,11 +405,12 @@ main() {
     -h|--help) _usage ;;
   esac
 
-  [[ ! -d template ]] && _error "template/ not found. Run from repo root."
+  [[ ! -d "${TEMPLATE_REL}" ]] && \
+    _error "${TEMPLATE_REL}/ not found. Run from repo root."
 
   case "${1:-}" in
     --check) _check ;;
-    --gen-conf) ./template/init.sh --gen-conf ;;
+    --gen-conf) "./${TEMPLATE_REL}/init.sh" --gen-conf ;;
     v*)
       _upgrade "$1"
       ;;

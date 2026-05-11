@@ -158,7 +158,14 @@ teardown() {
   # Confirm no full-tree seed: shell/, pip/, etc. should NOT be
   # auto-populated. (Existing repos with a pre-#254 full copy still
   # work via the next test's preserve-existing path.)
-  run find "${REPO_DIR}/config" -mindepth 1 -maxdepth 1 -not -name '.gitkeep'
+  # Post-#262: config/docker/ is allowed because setup.sh's first-time
+  # bootstrap seeds config/docker/setup.conf from the template; nothing
+  # else under config/ is auto-populated.
+  run find "${REPO_DIR}/config" -mindepth 1 -maxdepth 1 \
+    -not -name '.gitkeep' -not -name 'docker'
+  assert_output ""
+  # Confirm docker/ contains only the bootstrapped setup.conf.
+  run find "${REPO_DIR}/config/docker" -mindepth 1 -maxdepth 1 -not -name 'setup.conf'
   assert_output ""
 }
 
@@ -313,16 +320,16 @@ teardown() {
   # init.sh auto-creates setup.conf via workspace writeback; remove it first
   # to exercise the --gen-conf copy path directly.
   bash template/init.sh
-  rm -f "${REPO_DIR}/setup.conf"
+  rm -f "${REPO_DIR}/config/docker/setup.conf"
   bash template/init.sh --gen-conf
-  assert [ -f "${REPO_DIR}/setup.conf" ]
+  assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
   # Sanity: copied file contains the full section schema
-  run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/setup.conf"
+  run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
 }
 
 @test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
-  # init.sh auto-creates <repo>/setup.conf via setup.sh workspace writeback,
+  # init.sh auto-creates <repo>/config/docker/setup.conf via setup.sh workspace writeback,
   # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
   bash template/init.sh
   run bash template/init.sh --gen-conf
@@ -367,19 +374,19 @@ teardown() {
   # which made the TUI volumes menu appear blank on first open. First-init
   # must write the detected workspace path into mount_1.
   bash template/init.sh
-  run grep -E '^mount_1 = .+$' "${REPO_DIR}/setup.conf"
+  run grep -E '^mount_1 = .+$' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
   # Must NOT be exactly `mount_1 =` (empty value)
-  run grep -x 'mount_1 =' "${REPO_DIR}/setup.conf"
+  run grep -x 'mount_1 =' "${REPO_DIR}/config/docker/setup.conf"
   assert_failure
 }
 
 @test "new repo: per-repo setup.conf auto-created on first init (workspace writeback)" {
-  # setup.sh on first run (no <repo>/setup.conf) copies template + fills
+  # setup.sh on first run (no <repo>/config/docker/setup.conf) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
   # setup.conf became the source of truth for WS_PATH.
   bash template/init.sh
-  assert [ -f "${REPO_DIR}/setup.conf" ]
-  run grep '^mount_1' "${REPO_DIR}/setup.conf"
+  assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
+  run grep '^mount_1' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
 }

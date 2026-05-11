@@ -25,7 +25,11 @@ TEMPLATE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly TEMPLATE_DIR
 REPO_ROOT="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
-TEMPLATE_REL="template"
+# Subtree prefix is whatever directory init.sh lives in, so a downstream
+# rename (e.g. template/ -> .base/) works without code changes: re-run
+# ./<new-prefix>/init.sh and all generated symlinks point through the
+# new prefix.
+TEMPLATE_REL="$(basename "${TEMPLATE_DIR}")"
 readonly TEMPLATE_REL
 
 # shellcheck disable=SC1091
@@ -319,14 +323,16 @@ _sync_existing_gitignore() {
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
 #
-# Copies template/setup.conf to repo root so the user can override any section.
-# Replace strategy: a section present in the per-repo file fully replaces the
-# template's corresponding section; omitted sections fall back to template.
+# Copies <subtree-prefix>/config/docker/setup.conf to <repo>/config/docker/setup.conf
+# so the user can override any section. Replace strategy: a section present
+# in the per-repo file fully replaces the template's corresponding section;
+# omitted sections fall back to template.
 
 _gen_setup_conf() {
-  local _src="${TEMPLATE_DIR}/setup.conf"
-  local _dst="${REPO_ROOT}/setup.conf"
+  local _src="${TEMPLATE_DIR}/config/docker/setup.conf"
+  local _dst="${REPO_ROOT}/config/docker/setup.conf"
   local _force="${1:-false}"
+  mkdir -p "${REPO_ROOT}/config/docker"
   if [[ ! -f "${_src}" ]]; then
     _error "Template setup.conf not found at ${_src}"
   fi
@@ -373,26 +379,33 @@ _error() { printf "[init] ERROR: %s\n" "$*" >&2; exit 1; }
 main() {
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
-Usage: ./template/init.sh [--gen-conf [--force]]
+Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]]
 
-Initialize a repo with template. Auto-detects:
+Initialize a repo with the template subtree. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
   - No Dockerfile  → generate full project structure, then run setup.sh
 
-Version is tracked in template/.version (auto-synced by subtree pull).
+The subtree prefix is taken from init.sh's own directory, so the same
+script handles repos using `template/`, `.base/`, or any other prefix
+without code changes.
+
+Version is tracked in <subtree-prefix>/.version (auto-synced by subtree
+pull).
 
 Options:
-  --gen-conf         Copy template/setup.conf to <repo>/setup.conf so the
-                     user can override any section (image / build / deploy /
-                     gui / network / volumes). Refuses to overwrite an
-                     existing per-repo setup.conf unless --force is given.
+  --gen-conf         Copy <subtree-prefix>/config/docker/setup.conf to
+                     <repo>/config/docker/setup.conf so the user can
+                     override any section (image_name / gpu / gui /
+                     network / volumes / security / stage:*). Refuses
+                     to overwrite an existing per-repo setup.conf unless
+                     --force is given.
   --force            With --gen-conf: overwrite existing setup.conf,
                      backing up the previous setup.conf to setup.conf.bak
                      and .env to .env.bak first.
 
 Run from the repo root after:
-  git subtree add --prefix=template \
-      https://github.com/ycpss91255-docker/template.git <version> --squash
+  git subtree add --prefix=<subtree-prefix> \
+      <template-remote-url> <version> --squash
 EOF
     return 0
   fi

@@ -341,7 +341,7 @@ main() {
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
-      || [[ ! -f "${FILE_PATH}/setup.conf" ]] \
+      || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     printf "%s\n" "$(_msg bootstrap_info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"

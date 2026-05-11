@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1080 tests** total (1024 unit + 56 integration).
+Template self-tests: **1083 tests** total (1027 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -462,7 +462,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 
-### test/unit/init_spec.bats (18)
+### test/unit/init_spec.bats (21)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements

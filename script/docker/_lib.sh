@@ -206,7 +206,7 @@ _lib_msg() {
 _print_config_summary() {
   local _tag="${1:?_print_config_summary requires a log tag}"
   local _fp="${FILE_PATH:-.}"
-  local _conf="${_fp}/setup.conf"
+  local _conf="${_fp}/config/docker/setup.conf"
   local _line="────────────────────────────────────────────────────────────"
   local _img="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-unknown}"
   local _proj="${PROJECT_NAME:-${DOCKER_HUB_USER:-local}-${IMAGE_NAME:-unknown}}"

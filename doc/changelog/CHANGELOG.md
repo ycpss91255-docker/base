@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- **`setup.conf` relocated from repo root to `config/docker/setup.conf`** (closes #262). Both the template-side default and the per-repo override move:
+  - `template/setup.conf` -> `template/config/docker/setup.conf`
+  - `<repo>/setup.conf` -> `<repo>/config/docker/setup.conf`
+  Aligns `setup.conf` with the other `config/` subgroups (`shell/`, future `apt/`, etc.). `setup.sh` / `setup_tui.sh` / `init.sh` / `upgrade.sh` / `build.sh` / `run.sh` / `_lib.sh` updated to read/write the new path. First-time bootstrap auto-creates `config/docker/` and seeds `setup.conf` there. `setup.conf.bak` and `setup.conf.local.bak` move alongside (`config/docker/setup.conf.bak`).
+  **Downstream migration**: any committed `<repo>/setup.conf` override at repo root must move to `<repo>/config/docker/setup.conf` during the next upgrade. After the rename + `config/docker/` move the file resumes overriding the template defaults; left at the root it is silently ignored. The follow-up Phase 6 rename PR (`/batch-template-upgrade` style fanout for #263) bundles this migration into the same downstream PR that swaps the subtree prefix to `.base/`.
+- **Subtree prefix is now auto-detected** (init.sh / upgrade.sh prep for #263). `TEMPLATE_REL` is derived via `basename "$(dirname "${BASH_SOURCE[0]}")"`, so the same scripts work under both the conventional `template/` prefix and a `.base/` (or other) rename without any code change. All filesystem references, `--prefix=` flags, integrity markers, and symlink targets follow `${TEMPLATE_REL}`. Tests pin `TEMPLATE_REL="template"` in the upgrade.sh harness so unit assertions stay deterministic; new `init_spec.bats` cases assert the auto-detect works under both `template/` and `.base/` prefixes (3 tests, total 1080 -> 1083; unit 1024 -> 1027).
+- **`upgrade.sh` commit message + warning paths parameterised**. The subtree-pull commit message changes from "chore: upgrade template subtree to vX.Y.Z" to "chore: upgrade ${TEMPLATE_REL} subtree to vX.Y.Z"; the post-pull drift warnings now report paths relative to whichever prefix the repo uses.
+
 ## [v0.24.0] - 2026-05-11
 
 Promoted from accumulated PRs #266 (#231), #267 (#239), #268 (#249 section 1), #269 (#261). Final tag on the existing `template` repo before the `template -> base` rename (closes #263 prep step 1) and the `setup.conf -> config/docker/setup.conf` relocation (#262). Both #262 and #263 ship in `v0.25.0`.

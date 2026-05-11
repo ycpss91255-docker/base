@@ -177,7 +177,7 @@ Subcommands:
                 drift descriptions on stderr) when regen is needed.
                 Used by build.sh / run.sh to decide auto-regen.
   set <section>.<key> <value>
-                Write a single value into <base-path>/setup.conf
+                Write a single value into <base-path>/config/docker/setup.conf
                 (creates the section / key if missing). Validates
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
@@ -401,8 +401,8 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../setup.conf"
-  local _repo_conf="${_base}/setup.conf"
+  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
   if [[ -f "${_repo_conf}" ]]; then
@@ -819,8 +819,8 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../setup.conf"
-  local _repo_conf="${_base}/setup.conf"
+  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
   # assignment happens in the function's scope, not a subshell.
@@ -1010,7 +1010,7 @@ _load_stage_overrides() {
   if [[ -n "${SETUP_CONF:-}" ]]; then
     _conf="${SETUP_CONF}"
   else
-    _conf="${_base}/setup.conf"
+    _conf="${_base}/config/docker/setup.conf"
   fi
   [[ -f "${_conf}" ]] || return 0
   _parse_ini_section "${_conf}" "stage:${_stage}" _lso_keys _lso_values
@@ -1319,7 +1319,7 @@ generate_compose_yaml() {
   # already filters them; that's an acceptable v1 silent-drop since
   # the TUI is the primary write path and validates names upfront.
   local -a _conf_stages=()
-  _parse_stage_sections "${_setup_base}/setup.conf" _conf_stages
+  _parse_stage_sections "${_setup_base}/config/docker/setup.conf" _conf_stages
   local _cs
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
@@ -2147,7 +2147,7 @@ _announce_template_default_fallback() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   # Existence check tracks the per-repo override file (setup.conf), the
   # source of truth post-#201.
-  local _repo_conf="${_base}/setup.conf"
+  local _repo_conf="${_base}/config/docker/setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
     printf "[setup] WARN: %s\n" "$(_setup_msg warn_no_repo_conf)" >&2
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
@@ -2355,7 +2355,7 @@ _setup_set() {
   # Writes target the per-repo override file (setup.conf). Bootstrap
   # as empty when missing — `set` records only the user's intent, never
   # copies template defaults wholesale.
-  local _conf="${_base_path}/setup.conf"
+  local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     : > "${_conf}"
   fi
@@ -2438,8 +2438,8 @@ _setup_show() {
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
-  local _repo_conf="${_base_path}/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  local _repo_conf="${_base_path}/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -2533,8 +2533,8 @@ _setup_list() {
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
-  local _repo_conf="${_base_path}/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  local _repo_conf="${_base_path}/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -2659,7 +2659,7 @@ _setup_add() {
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
-  local _conf="${_base_path}/setup.conf"
+  local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     : > "${_conf}"
   fi
@@ -2672,7 +2672,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -2821,7 +2821,7 @@ _setup_remove() {
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
   # a removable input).
-  local _conf="${_base_path}/setup.conf"
+  local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_spec}" >&2
     return 1
@@ -2930,9 +2930,9 @@ _setup_reset() {
   # rebuilds .env + compose.yaml purely from the template baseline. The
   # workspace mount_1 is re-detected and re-written via the bootstrap
   # path on the next apply.
-  local _conf="${_base_path}/setup.conf"
+  local _conf="${_base_path}/config/docker/setup.conf"
   local _env="${_base_path}/.env"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
     printf "[setup] template setup.conf not found at %s\n" "${_tpl_conf}" >&2
     return 1
@@ -3137,7 +3137,7 @@ _setup_apply() {
   #
   # First-time bootstrap (no <repo>/setup.conf) copies the template and
   # writes mount_1 in the portable form.
-  local _repo_conf="${_base_path}/setup.conf"
+  local _repo_conf="${_base_path}/config/docker/setup.conf"
   local _mount_1=""
   _get_conf_value _vol_k _vol_v "mount_1" "" _mount_1
 
@@ -3157,8 +3157,11 @@ _setup_apply() {
     fi
     [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
+      # Ensure config/docker/ parent dir exists before cp (post-#262
+      # path; first-time bootstrap on a fresh repo will not have it).
+      mkdir -p "$(dirname "${_repo_conf}")"
       cp "${_tpl_conf}" "${_repo_conf}"
       _upsert_conf_value "${_repo_conf}" "volumes" "mount_1" \
         "${_ws_portable_form}"
@@ -3254,7 +3257,7 @@ _setup_apply() {
   # down default — avoids surprising the user with "my container lost
   # SYS_ADMIN / unconfined seccomp after I cleared the list".
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v

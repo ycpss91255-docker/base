@@ -15,6 +15,8 @@ setup() {
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
+  # Post-#262 path: setup.conf lives at config/docker/setup.conf
+  mkdir -p "${TEMP_DIR}/config/docker"
 }
 
 teardown() {
@@ -469,7 +471,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_setup_conf_full reads all sections preserving order" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [image]
 rules = @default:foo
 
@@ -482,7 +484,7 @@ mount_1 = /a:/a
 mount_2 = /b:/b
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/config/docker/setup.conf" _sections _keys _values
 
   assert_equal "${_sections[0]}" "image"
   assert_equal "${_sections[1]}" "build"
@@ -490,13 +492,13 @@ EOF
 }
 
 @test "_load_setup_conf_full reads key/value pairs" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [deploy]
 gpu_mode = auto
 gpu_count = 2
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/config/docker/setup.conf" _sections _keys _values
 
   # Entries are section-scoped key=value; format is
   #   _keys[i]="<section>.<key>", _values[i]="<value>"
@@ -626,15 +628,15 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "_upsert_conf_value updates existing key value" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [volumes]
 mount_1 =
 mount_2 = /dev:/dev
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_1" \
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" "volumes" "mount_1" \
     '/host:/home/${USER_NAME}/work'
 
-  run grep '^mount_1' "${TEMP_DIR}/setup.conf"
+  run grep '^mount_1' "${TEMP_DIR}/config/docker/setup.conf"
   [[ "${output}" == "mount_1 = /host:/home/\${USER_NAME}/work" ]]
 }
 
@@ -677,29 +679,29 @@ EOF
 }
 
 @test "_upsert_conf_value leaves other sections untouched" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [image]
 rules = @default:foo
 
 [volumes]
 mount_1 =
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_1" "/a:/b"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" "volumes" "mount_1" "/a:/b"
 
-  run grep '^rules' "${TEMP_DIR}/setup.conf"
+  run grep '^rules' "${TEMP_DIR}/config/docker/setup.conf"
   [[ "${output}" == "rules = @default:foo" ]]
 }
 
 @test "_upsert_conf_value creates section + key when section absent" {
   # Coverage gap: `Section not found at all → append new section + key`
   # branch at the tail of _upsert_conf_value was never exercised.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [image]
 rule_1 = @default:foo
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_1" "/a:/b"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" "volumes" "mount_1" "/a:/b"
 
-  run cat "${TEMP_DIR}/setup.conf"
+  run cat "${TEMP_DIR}/config/docker/setup.conf"
   assert_output --partial "[volumes]"
   assert_output --partial "mount_1 = /a:/b"
   # Pre-existing section untouched
@@ -709,16 +711,16 @@ EOF
 @test "_upsert_conf_value appends key at EOF when section is the last one without target key" {
   # Coverage gap: "Still in target section at EOF and key not matched →
   # append" branch of _upsert_conf_value.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [image]
 rule_1 = @default:foo
 
 [volumes]
 mount_1 = /a:/a
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" "volumes" "mount_2" "/b:/b"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" "volumes" "mount_2" "/b:/b"
 
-  run cat "${TEMP_DIR}/setup.conf"
+  run cat "${TEMP_DIR}/config/docker/setup.conf"
   assert_output --partial "mount_1 = /a:/a"
   assert_output --partial "mount_2 = /b:/b"
 }
@@ -1309,7 +1311,7 @@ _b_remove_setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_setup_conf_full reads [stage:NAME] sections with namespaced keys" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [gui]
 mode = auto
 
@@ -1322,7 +1324,7 @@ network.port_1 = 8080:80
 gui.mode = auto
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/config/docker/setup.conf" _sections _keys _values
 
   # Sections: gui, stage:headless, stage:gui in file order
   [[ "${_sections[0]}" == "gui" ]] || { echo "expected gui, got ${_sections[0]}"; return 1; }

@@ -762,8 +762,11 @@ _stage_lint_layout() {
   assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 }
 
-@test "upgrade.sh reads version from template/.version" {
-  run grep -E 'template/\.version' /source/upgrade.sh
+@test "upgrade.sh reads version from <subtree-prefix>/.version" {
+  # Post-v0.25.0 the subtree prefix is parameterised (TEMPLATE_REL) so
+  # the rename `template/` -> `.base/` works without code change. Assert
+  # the parameterised form rather than the literal `template/` prefix.
+  run grep -F '${TEMPLATE_REL}/.version' /source/upgrade.sh
   assert_success
 }
 
