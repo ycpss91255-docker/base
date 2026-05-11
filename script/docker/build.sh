@@ -56,26 +56,46 @@ else
   exit 1
 fi
 
-_msg() {
-  local _key="${1:?}"
-  case "${_LANG}:${_key}" in
-    zh-TW:bootstrap_info)  echo "[build] 資訊：首次執行 — 初始化中..." ;;
-    zh-CN:bootstrap_info)  echo "[build] 信息：首次运行 — 初始化中..." ;;
-    ja:bootstrap_info)     echo "[build] 情報: 初回実行 — ブートストラップ中..." ;;
-    *:bootstrap_info)      echo "[build] INFO: First run — bootstrapping..." ;;
-    zh-TW:drift_regen)     echo "[build] 重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:drift_regen)     echo "[build] 重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
-    ja:drift_regen)        echo "[build] .env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:drift_regen)         echo "[build] regenerating .env / compose.yaml (setup.conf drifted)" ;;
-    zh-TW:err_no_env)      echo "[build] 錯誤：setup 未產生 .env。" ;;
-    zh-CN:err_no_env)      echo "[build] 错误：setup 未生成 .env。" ;;
-    ja:err_no_env)         echo "[build] エラー: setup が .env を生成しませんでした。" ;;
-    *:err_no_env)          echo "[build] ERROR: setup did not produce .env." ;;
-    zh-TW:err_rerun_setup) echo "[build] 請改以 './build.sh --setup' 重新執行以開啟編輯器。" ;;
-    zh-CN:err_rerun_setup) echo "[build] 请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
-    ja:err_rerun_setup)    echo "[build] './build.sh --setup' で再実行してエディタを開いてください。" ;;
-    *:err_rerun_setup)     echo "[build] Re-run with './build.sh --setup' to open the editor." ;;
+# i18n message tables — split by semantic category (#278 PR-2).
+# Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
+# are added by the _log_* caller (English-only; level keyword no longer
+# translated — see #283).
+_msg_bootstrap() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:info)  echo "首次執行 — 初始化中..." ;;
+    zh-CN:info)  echo "首次运行 — 初始化中..." ;;
+    ja:info)     echo "初回実行 — ブートストラップ中..." ;;
+    *:info)      echo "First run — bootstrapping..." ;;
   esac
+}
+
+_msg_drift() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:regen)  echo "重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
+    ja:regen)     echo ".env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:regen)      echo "regenerating .env / compose.yaml (setup.conf drifted)" ;;
+  esac
+}
+
+_msg_errors() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:no_env)       echo "setup 未產生 .env。" ;;
+    zh-CN:no_env)       echo "setup 未生成 .env。" ;;
+    ja:no_env)          echo "setup が .env を生成しませんでした。" ;;
+    *:no_env)           echo "setup did not produce .env." ;;
+    zh-TW:rerun_setup)  echo "請改以 './build.sh --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:rerun_setup)  echo "请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
+    ja:rerun_setup)     echo "'./build.sh --setup' で再実行してエディタを開いてください。" ;;
+    *:rerun_setup)      echo "Re-run with './build.sh --setup' to open the editor." ;;
+  esac
+}
+
+# Dispatcher — keeps a single _msg call site shape across the script.
+_msg() {
+  local _category="${1:?_msg requires category}"
+  local _key="${2:?_msg requires key}"
+  "_msg_${_category}" "${_key}"
 }
 
 usage() {
@@ -326,7 +346,7 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    printf "%s\n" "$(_msg bootstrap_info)"
+    _log_info build "$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift-check path. When setup.conf / GPU / GUI / USER_UID changed
@@ -342,7 +362,7 @@ main() {
     # build.sh's _msg() and silently blank out drift_regen / err_no_env
     # status lines.
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      printf "%s\n" "$(_msg drift_regen)"
+      _log_info build "$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
@@ -351,8 +371,8 @@ main() {
   # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
   # a useful error instead of letting _load_env fail on a missing file.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "%s\n" "$(_msg err_no_env)" >&2
-    printf "%s\n" "$(_msg err_rerun_setup)" >&2
+    _log_err  build "$(_msg errors no_env)"
+    _log_info build "$(_msg errors rerun_setup)"
     exit 1
   fi
 
