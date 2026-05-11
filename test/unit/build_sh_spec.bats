@@ -499,7 +499,9 @@ EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
   assert_failure
-  assert_output --partial "錯誤"
+  # Level keyword is now English-only (#283); zh-TW body still localised.
+  assert_output --partial "[build] ERROR:"
+  assert_output --partial "setup 未產生 .env"
 }
 
 @test "build.sh --lang ja prints Japanese err_no_env on failed bootstrap" {
@@ -510,7 +512,9 @@ EOS
   chmod +x "${SANDBOX}/template/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang ja --dry-run
   assert_failure
-  assert_output --partial "エラー"
+  # Level keyword is now English-only (#283); ja body still localised.
+  assert_output --partial "[build] ERROR:"
+  assert_output --partial "setup が .env を生成"
 }
 
 # ════════════════════════════════════════════════════════════════════
