@@ -27,10 +27,13 @@ readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/script/docker/_lib.sh"
+
 cd "${REPO_ROOT}"
 
-_log() { printf "[upgrade] %s\n" "$*"; }
-_error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
+_log() { _log_info upgrade "$*"; }
+_error() { _log_err upgrade "$*"; exit 1; }
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -89,9 +92,9 @@ _verify_subtree_intact() {
   local _marker
   for _marker in "${_markers[@]}"; do
     if [[ ! -f "${_marker}" ]]; then
-      printf "[upgrade] ERROR: post-pull integrity check failed — '%s' missing.\n" "${_marker}" >&2
-      printf "[upgrade] Likely cause: git-subtree fast-forwarded destructively.\n" >&2
-      printf "[upgrade] Rolling back to %s ...\n" "${_pre_head:0:12}" >&2
+      _log_err upgrade "post-pull integrity check failed — '${_marker}' missing."
+      _log_err upgrade "Likely cause: git-subtree fast-forwarded destructively."
+      _log_info upgrade "Rolling back to ${_pre_head:0:12} ..."
       git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
       _error "upgrade aborted; repo restored to pre-upgrade state"
     fi

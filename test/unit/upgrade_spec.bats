@@ -24,8 +24,15 @@ setup() {
 # top-level derivation never runs — the tests pin the conventional
 # subtree prefix to make the assertions deterministic.
 TEMPLATE_REL="template"
-_log() { printf '[upgrade] %s\n' "$*"; }
-_error() { printf '[upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
+# Stub the _log_* helpers (#278). Real upgrade.sh sources _lib.sh and
+# routes _log / _error through _log_info / _log_err; this harness
+# extracts function bodies via sed so we re-stub the surface those
+# bodies call.
+_log_info() { printf '[%s] INFO: %s\n' "$1" "${*:2}"; }
+_log_warn() { printf '[%s] WARNING: %s\n' "$1" "${*:2}" >&2; }
+_log_err()  { printf '[%s] ERROR: %s\n' "$1" "${*:2}" >&2; }
+_log()    { _log_info upgrade "$*"; }
+_error()  { _log_err upgrade "$*"; exit 1; }
 EOS
   sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_git_identity() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
