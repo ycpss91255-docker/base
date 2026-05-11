@@ -31,17 +31,17 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/template/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[stop] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi

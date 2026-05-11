@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1100 tests** total (1044 unit + 56 integration).
+Template self-tests: **1105 tests** total (1049 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -273,6 +273,20 @@ no-instances message, `--all` multi-project teardown loop, fallback
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention).
+
+### test/unit/wrapper_lib_lookup_spec.bats (5)
+
+Regression guard for **issue #282** — the four user-facing wrappers
+(`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
+through the post-#263 `.base/` subtree prefix on a fresh clone of any
+downstream repo. Pre-fix the wrappers hard-coded `template/` and a
+freshly cloned downstream repo (where the subtree now lives under
+`.base/`) failed at the `_lib.sh` source step with "cannot find _lib.sh".
+
+Covers: `--help` succeeds for each wrapper when `.base/script/docker/_lib.sh`
+exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
+error path still fires (with the new `.base/...` path in the diagnostic)
+when neither `.base/` nor the sibling fallback is present.
 
 ### test/unit/compose_gen_spec.bats (50)
 

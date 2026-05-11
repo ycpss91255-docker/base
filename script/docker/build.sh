@@ -38,20 +38,20 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lives at template/script/docker/_lib.sh in normal consumer
+# _lib.sh lives at .base/script/docker/_lib.sh in normal consumer
 # repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
 # scripts + helpers into /lint/. Issue #104 deduplicated the previously
 # inlined fallback `_detect_lang`; we now always have i18n.sh via
 # _lib.sh's sibling load.
-if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/template/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi
@@ -308,15 +308,15 @@ main() {
       fi
     fi
     if [[ "${DRY_RUN}" == true ]]; then
-      printf "[dry-run] %s/template/init.sh --gen-conf --force\n" "${FILE_PATH}"
+      printf "[dry-run] %s/.base/init.sh --gen-conf --force\n" "${FILE_PATH}"
     else
-      bash "${FILE_PATH}/template/init.sh" --gen-conf --force
+      bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
     fi
     # Force a fresh setup.sh run so .env + compose.yaml follow the new conf.
     RUN_SETUP=true
   fi
 
-  local _setup="${FILE_PATH}/template/script/docker/setup.sh"
+  local _setup="${FILE_PATH}/.base/script/docker/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
@@ -387,7 +387,7 @@ main() {
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary build
 
   # Build test-tools image if Dockerfile exists
-  local _tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
+  local _tools_dockerfile="${FILE_PATH}/.base/dockerfile/Dockerfile.test-tools"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
   # Forward user's TARGETARCH override when set. Empty = leave unset so

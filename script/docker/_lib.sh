@@ -17,7 +17,7 @@ fi
 _DOCKER_LIB_SOURCED=1
 
 # i18n.sh lives next to _lib.sh in every deployment surface (consumer
-# repo's template/script/docker/, and the /lint/ stage where the
+# repo's .base/script/docker/, and the /lint/ stage where the
 # Dockerfile COPYs both). Issue #104 removed the duplicate fallback
 # `_detect_lang` definitions that had already drifted (#103) — the
 # one canonical _detect_lang + _LANG assignment lives in i18n.sh.

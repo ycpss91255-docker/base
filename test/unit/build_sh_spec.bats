@@ -4,7 +4,7 @@
 #
 # Strategy:
 #   * A sandbox tree mirrors the layout build.sh expects (script alongside a
-#     template/ subtree). We copy the real _lib.sh into the sandbox so
+#     .base/ subtree). We copy the real _lib.sh into the sandbox so
 #     _load_env / _compose_project are exercised, while setup.sh is replaced
 #     with a mock that records invocations and touches .env + compose.yaml.
 #   * docker is stubbed via PATH prepend — the stub logs its argv to
@@ -21,20 +21,20 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker" \
-           "${SANDBOX}/template/dockerfile" \
+  mkdir -p "${SANDBOX}/.base/script/docker" \
+           "${SANDBOX}/.base/dockerfile" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/_lib.sh     "${SANDBOX}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh     "${SANDBOX}/template/script/docker/i18n.sh"
+  cp /source/script/docker/_lib.sh     "${SANDBOX}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh     "${SANDBOX}/.base/script/docker/i18n.sh"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/build.sh.
   ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
-  touch "${SANDBOX}/template/dockerfile/Dockerfile.test-tools"
+  touch "${SANDBOX}/.base/dockerfile/Dockerfile.test-tools"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock setup.sh (subprocess-only after #49 Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift in this baseline)
@@ -66,7 +66,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -130,7 +130,7 @@ teardown() {
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   # Patch the mock so check-drift subcommand reports drift (exit 1).
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -162,7 +162,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   assert_output --partial "regenerating"
@@ -248,12 +248,12 @@ EOS
   # writing .env (user cancelled a TUI, setup.sh crashed, etc.), the
   # next step would fail deep in _load_env with a cryptic path error.
   # Surface a helpful message instead.
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock that exits cleanly but produces nothing.
 exit 0
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_failure
   assert_output --partial ".env"
@@ -457,7 +457,7 @@ EOS
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -485,18 +485,18 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
   assert_success
   assert_output --partial "重新產生"
 }
 
 @test "build.sh --lang zh-TW prints Chinese err_no_env on failed bootstrap" {
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
   assert_failure
   # Level keyword is now English-only (#283); zh-TW body still localised.
@@ -505,11 +505,11 @@ EOS
 }
 
 @test "build.sh --lang ja prints Japanese err_no_env on failed bootstrap" {
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang ja --dry-run
   assert_failure
   # Level keyword is now English-only (#283); ja body still localised.
@@ -529,7 +529,7 @@ EOS
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
-  assert_output --partial "template/init.sh --gen-conf --force"
+  assert_output --partial ".base/init.sh --gen-conf --force"
 }
 
 @test "build.sh --reset-conf is mentioned in usage help" {
@@ -563,12 +563,12 @@ EOS
   # setup.sh stamps MOCK_SETUP_LOG with whatever --base-path it received,
   # so the log proves which tree FILE_PATH resolved to.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/template/script/docker" "${ALT}/template/dockerfile"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
-  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
-  chmod +x "${ALT}/template/script/docker/setup.sh"
-  touch "${ALT}/template/dockerfile/Dockerfile.test-tools"
+  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/setup.sh"
+  touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
 
   run bash "${SANDBOX}/build.sh" -C "${ALT}" --dry-run
   assert_success
@@ -580,12 +580,12 @@ EOS
 
 @test "build.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/template/script/docker" "${ALT}/template/dockerfile"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
-  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
-  chmod +x "${ALT}/template/script/docker/setup.sh"
-  touch "${ALT}/template/dockerfile/Dockerfile.test-tools"
+  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/setup.sh"
+  touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
 
   run bash "${SANDBOX}/build.sh" --chdir "${ALT}" --dry-run
   assert_success
