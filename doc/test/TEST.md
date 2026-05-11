@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1083 tests** total (1027 unit + 56 integration).
+Template self-tests: **1100 tests** total (1044 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -44,6 +44,28 @@ Template self-tests: **1083 tests** total (1027 unit + 56 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
+
+### test/unit/log_spec.bats (17)
+
+| Test | Description |
+|------|-------------|
+| `_log_err writes '[<tag>] ERROR: <msg>' to stderr (no TTY -> no color)` | Default routing + no-color path |
+| `_log_warn writes '[<tag>] WARNING: <msg>' to stderr (no TTY -> no color)` | Warning routing + no-color path |
+| `_log_info writes '[<tag>] INFO: <msg>' to stdout (no TTY -> no color)` | Info routing + no-color path |
+| `_log_err joins multi-token message with single spaces` | Multi-token message join |
+| `_log_err with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_warn with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_info with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_err with FORCE_COLOR=1 emits red bold ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
+| `_log_warn with FORCE_COLOR=1 emits yellow ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
+| `_log_info with FORCE_COLOR=1 emits dim ANSI on non-TTY stdout` | FORCE_COLOR overrides TTY detection |
+| `_log_err with NO_COLOR=1 + FORCE_COLOR=1 omits ANSI (NO_COLOR wins)` | NO_COLOR precedence |
+| `_log_warn with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
+| `_log_info with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
+| `_log_color_enabled returns non-zero on non-TTY fd 1 without overrides` | Auto-detect default off |
+| `_log_color_enabled returns 0 with FORCE_COLOR=1 on non-TTY` | FORCE_COLOR opt-in |
+| `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
+| `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
 
 ### test/unit/setup_spec.bats (261)
 
