@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`setup.conf` header rewritten + per-section inline docs trimmed** (#231). New top header explains the derived-file relationship (`.env` / `compose.yaml` are regenerated; never hand-edit them), the recommended edit flow (`./setup_tui.sh` interactive; manual edit supported), and the section-replace override semantics. The deep per-key documentation that previously sat inline (one paragraph per rule type, per GPU mode, per IPC value, etc.) is removed — the TUI shows it interactively, README has the full reference, and the per-repo `<repo>/setup.conf` copy is now leaner (376 -> 121 lines, ~68% reduction). Existing per-section structure / keys / defaults are unchanged; this is doc-only. No user action needed on upgrade.
+
 ## [v0.23.1] - 2026-05-11
 
 Patch release fixing `Dockerfile.example`'s runtime-test stage shell wrapper. No RC: bug-fix-class change per `MAJOR.MINOR.PATCH` policy.
