@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.23.1] - 2026-05-11
+
+Patch release fixing `Dockerfile.example`'s runtime-test stage shell wrapper. No RC: bug-fix-class change per `MAJOR.MINOR.PATCH` policy.
+
 ### Fixed
 - **`Dockerfile.example` runtime-test stage `RUN sh -c` blocks bash-source overrides** (template#249 follow-up, surfaced during ycpss91255-docker/docker_harness#57 rollout). `sh` on Debian/Ubuntu is `dash`, which has neither `source` nor bash parameter expansion. Any `RUNTIME_SMOKE_CMD` override that did `source /opt/<framework>/setup.bash && <cmd>` failed with `sh: source: not found`; replacing `source` with POSIX `.` then failed with `Bad substitution` because `setup.bash` itself uses bash-only syntax. The only workable shape was a nested `bash -c '...'` wrapper inside the build-arg value, which is an ugly downstream UX.
 
