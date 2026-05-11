@@ -34,8 +34,10 @@ readonly TEMPLATE_REL
 
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/script/docker/lib/gitignore.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/script/docker/_lib.sh"
 
-_log() { printf "[init] %s\n" "$*"; }
+_log() { _log_info init "$*"; }
 
 # ── Symlink helper ──────────────────────────────────────────────────────────
 
@@ -372,7 +374,7 @@ _call_setup() {
   fi
 }
 
-_error() { printf "[init] ERROR: %s\n" "$*" >&2; exit 1; }
+_error() { _log_err init "$*"; exit 1; }
 
 # ── Main ────────────────────────────────────────────────────────────────────
 

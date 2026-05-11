@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`_log_err` / `_log_warn` / `_log_info` helpers in `script/docker/_lib.sh`** (#278 PR A). Tagged, level-prefixed output with optional ANSI color and consistent stream routing (ERROR/WARNING -> stderr; INFO -> stdout). Honor `NO_COLOR` (https://no-color.org/) and auto-disable color on non-TTY destinations; `FORCE_COLOR=1` overrides auto-detect. Color scheme: ERROR red bold (`\033[1;31m`), WARNING yellow (`\033[33m`), INFO dim (`\033[2m`). No callsites migrated in this PR — foundational; PR B (#278) migrates `build/run/exec/stop`, PR C migrates remaining top-level scripts. New `test/unit/log_spec.bats` (17 tests; total 1083 -> 1100; unit 1027 -> 1044).
 
+### Changed
+- **`init.sh` / `upgrade.sh` / `script/ci/ci.sh` route inline `_log` / `_error` / `_die` helpers through the `_log_*` family from #278 PR A** (#278 PR-1). Each script now sources `script/docker/_lib.sh` and the in-file helper definitions become thin wrappers (`_log() { _log_info init "$*"; }` etc), so all three top-level entry points gain colored ERROR / INFO output on TTY destinations with `NO_COLOR` honored, without touching any call site. `upgrade.sh`'s `_verify_subtree_intact` integrity error block also migrates 3 raw `printf '[upgrade] ...' >&2` lines onto `_log_err` / `_log_info`. Test fixtures (`test/unit/init_spec.bats`, `test/unit/upgrade_spec.bats` HARNESS, `test/integration/upgrade_spec.bats`, `test/integration/gitignore_sync_spec.bats`) updated to symlink / copy `_lib.sh` + `i18n.sh` alongside the scripts they exercise.
+
 ## [v0.25.0] - 2026-05-11
 
 Promoted from `v0.25.0-rc1` (#274). RC tag CI green (Self Test + release-test-tools); no fixups needed between rc1 and stable.
