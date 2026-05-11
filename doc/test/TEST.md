@@ -747,6 +747,33 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
 
+## Behavioural Tests (opt-in)
+
+Specs that drive `docker buildx build --target runtime-test` against
+synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
+is genuinely exercised end-to-end — not just static-grep asserted
+in `template_spec.bats`. Issue #249.
+
+Excluded from the `1074` self-test total because they require host
+docker access (mounted via the `ci-behavioural` compose service)
+which the default `ci` service does NOT provide. Run with `make
+-f Makefile.ci test-behavioural` locally, or via the dedicated
+`Behavioural Test` job in `self-test.yaml` on CI. Each test
+invokes one `docker buildx build` (~5-15s amd64, ~30-60s arm64
+QEMU); the dedicated `template-behavioural` buildx builder
+(created/pruned per ci.sh run) isolates the cache from the host's
+default context.
+
+### test/behavioural/runtime_test_smoke_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `runtime-test build succeeds with default smoke command` | Baseline `whoami && bash --version` ARG default works |
+| `runtime-test build succeeds with && chain override (#243 word-split regression)` | Wrapper preserves shell operators |
+| `runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)` | `${var:offset:length}` works (would fail under `sh -c`) |
+| `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
+| `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
+
 ## Smoke Tests
 
 Shared specs that ship with `template/test/smoke/` and run at Dockerfile
