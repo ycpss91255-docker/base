@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.25.0] - 2026-05-11
+
+Promoted from `v0.25.0-rc1` (#274). RC tag CI green (Self Test + release-test-tools); no fixups needed between rc1 and stable.
+
+Bundles #262 (`setup.conf` relocation to `config/docker/`) with the prep work for #263 (subtree-prefix auto-detect in `init.sh` / `upgrade.sh`). BREAKING: any committed per-repo `setup.conf` at the repo root must move to `<repo>/config/docker/setup.conf` during the next upgrade — the Phase 6 rename fanout PR bundles this migration into the same downstream PR that swaps the subtree prefix to `.base/`.
+
+This release is intentionally NOT fanned out via `/batch-template-upgrade` — downstream picks it up later, as part of the Phase 6 rename PR that does `git rm -r template/` + `git subtree add --prefix=.base ycpss91255-docker/base.git v0.25.0 --squash` in a single per-repo PR (after the GitHub repo rename `template` -> `base` in Phase 4).
+
 ## [v0.25.0-rc1] - 2026-05-11
 
 First Release Candidate for v0.25.0. Bundles #262 (`setup.conf` relocation to `config/docker/`) with the prep work for #263 (subtree-prefix auto-detect in `init.sh` / `upgrade.sh`). BREAKING: any committed per-repo `setup.conf` at the repo root must move to `<repo>/config/docker/setup.conf` during the next upgrade — the Phase 6 rename fanout PR bundles this migration into the same downstream PR that swaps the subtree prefix to `.base/`.
