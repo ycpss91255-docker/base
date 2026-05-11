@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1074 tests** total (1018 unit + 56 integration).
+Template self-tests: **1080 tests** total (1024 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1074 figure because they are
+> below. They are **not** included in the 1080 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -289,7 +289,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/template_spec.bats (141)
+### test/unit/template_spec.bats (147)
 
 | Test | Description |
 |------|-------------|
@@ -754,7 +754,7 @@ synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
 is genuinely exercised end-to-end — not just static-grep asserted
 in `template_spec.bats`. Issue #249.
 
-Excluded from the `1074` self-test total because they require host
+Excluded from the `1080` self-test total because they require host
 docker access (mounted via the `ci-behavioural` compose service)
 which the default `ci` service does NOT provide. Run with `make
 -f Makefile.ci test-behavioural` locally, or via the dedicated
