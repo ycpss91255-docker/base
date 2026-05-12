@@ -294,7 +294,10 @@ diagnostics pointing at the missing artifact.
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
+  - `script/entrypoint.sh` (canonical)
+  - any ros / app launch helpers etc.
+- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `dockerfile/Dockerfile.example`, #275)
 - `doc/` and `README.md`
 - Repo-specific smoke tests
 

@@ -276,7 +276,10 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
+  - `script/entrypoint.sh`（canonical）
+  - 任何 ros / app 启动 helper 等
+- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `dockerfile/Dockerfile.example`，#275）
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
