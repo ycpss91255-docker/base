@@ -193,3 +193,56 @@ setup() {
   _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_bc}" == *'""'* ]]
 }
+
+# ── #272: GHA buildx cache (per-(repo, variant, arch)) ────────────────
+
+@test "build-worker.yaml: declares cache_variant input with empty default (#272)" {
+  # New optional input for repos that call build-worker.yaml multiple
+  # times with the same image_name but different build_args (the
+  # env/ros{,2}_distro pattern). Default empty so existing single-call
+  # callers see no scope-key shape change.
+  run grep -A 3 '^      cache_variant:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: ""'
+}
+
+@test "build-worker.yaml: Compute cache scope step emits id: cache with scope key in GITHUB_OUTPUT (#272)" {
+  # The step computes `${image_name}[-${cache_variant}]-${hardware}-cache`
+  # once at the top of the build job; all 4 build steps reference the
+  # output. Asserts presence + id so downstream `steps.cache.outputs.key`
+  # references resolve.
+  run grep -E '^        id: cache$' "${WF}"
+  assert_success
+  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}-cache" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-from=type=gha (#272)" {
+  # Every docker/build-push-action call must read from the same GHA
+  # scope so feature-branch builds reuse the base branch's cache and
+  # subsequent steps within the same shard share intermediate layers.
+  run grep -c '^          cache-from: type=gha,scope=\${{ steps\.cache\.outputs\.key }}$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-to=type=gha,...,mode=max (#272)" {
+  # mode=max exports all intermediate stage layers (including the heavy
+  # builder / source-build stages). The 10 GB GHA quota tradeoff is
+  # accepted; LRU eviction is expected to keep hot paths cached.
+  run grep -c '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }},mode=max$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
+  # Single-distro repos (agent/* + ros1_bridge-${distro} pattern) leave
+  # cache_variant unset; the scope key reduces to
+  # ${image_name}-${hardware}-cache, which is already per-(repo, arch)
+  # and matches the existing matrix shape.
+  local _cv
+  _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_cv}" == *'""'* ]]
+}
