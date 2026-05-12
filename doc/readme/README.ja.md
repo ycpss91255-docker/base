@@ -287,7 +287,10 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
+  - `script/entrypoint.sh`（canonical）
+  - ros / アプリ起動 helper 等
+- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dockerfile/Dockerfile.example` 参照、#275）
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
