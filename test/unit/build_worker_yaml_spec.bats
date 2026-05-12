@@ -246,3 +246,70 @@ setup() {
   _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_cv}" == *'""'* ]]
 }
+
+# ── #273 Phase 1: doc-only PR fast-pass ────────────────────────────────
+
+@test "build-worker.yaml: declares path-filter job (#273)" {
+  # New job runs the doc-only classifier; outputs code_changed
+  # consumed by compute-matrix / build / docker-build downstream.
+  run grep -E '^  path-filter:$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: path-filter uses dorny/paths-filter@v3 (#273 Phase 1)" {
+  # Phase 1 PoC uses the dorny action. Phase 2 rewrites this as pure
+  # shell so the classifier stays portable across CI hosts (internal
+  # GitLab mirrors etc) without binding to a GitHub-only action.
+  run grep -E '^        uses: dorny/paths-filter@v3$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: path-filter only classifies on pull_request events" {
+  # Push / tag / workflow_dispatch always run full matrix.
+  run grep -E "if: github\\.event_name == 'pull_request'" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: doc-only allowlist covers all 6 documented paths (#273)" {
+  # **/*.md, doc/**, LICENSE, .gitignore, .github/CODEOWNERS,
+  # .github/dependabot.yml — match the issue body / design comment.
+  run grep -F "'!**/*.md'" "${WF}"
+  assert_success
+  run grep -F "'!doc/**'" "${WF}"
+  assert_success
+  run grep -F "'!LICENSE'" "${WF}"
+  assert_success
+  run grep -F "'!.gitignore'" "${WF}"
+  assert_success
+  run grep -F "'!.github/CODEOWNERS'" "${WF}"
+  assert_success
+  run grep -F "'!.github/dependabot.yml'" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: compute-matrix and build are gated on code_changed (#273)" {
+  # Both heavy jobs need needs.path-filter.outputs.code_changed == 'true'.
+  # Count = 2 means both jobs have the gate.
+  run grep -c "if: needs\\.path-filter\\.outputs\\.code_changed == 'true'" "${WF}"
+  assert_success
+  assert_output "2"
+}
+
+@test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
+  # The aggregator must report success when code_changed == 'false'
+  # so branch protection's required check still resolves green even
+  # though the matrix was skipped.
+  run grep -F 'needs.path-filter.outputs.code_changed }}" = "false"' "${WF}"
+  assert_success
+  # And it still needs both path-filter + build so the conditional
+  # has both data sources.
+  run grep -E '^    needs: \[path-filter, build\]$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: non-pull_request event resolves code_changed=true (#273)" {
+  # Push to main / tag / workflow_dispatch must always run the full
+  # matrix — the doc-only fast-pass is PR-only.
+  run grep -F 'echo "code_changed=true"' "${WF}"
+  assert_success
+}

@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1110 tests** total (1054 unit + 56 integration).
+Template self-tests: **1117 tests** total (1061 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -171,17 +171,20 @@ target areas the issue body called out.
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
 | Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 
-### test/unit/build_worker_yaml_spec.bats (24)
+### test/unit/build_worker_yaml_spec.bats (31)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
-+ #243 + #272). Reusable workflows are not exec'd by these tests; instead
++ #243 + #272 + #273). Reusable workflows are not exec'd by these tests; instead
 grep patterns lock the YAML invariants — `context_path` /
 `dockerfile_path` inputs declared with the right defaults, all 4
 `docker/build-push-action` steps (devel-test / devel / runtime-test /
 runtime after #243) forwarding those inputs, no leftover
-`context: .` / `file: ./Dockerfile` literals, and the GHA-cache
+`context: .` / `file: ./Dockerfile` literals, the GHA-cache
 plumbing (#272: `cache_variant` input, `Compute cache scope` step,
-`cache-from` / `cache-to` on all 4 build steps).
+`cache-from` / `cache-to` on all 4 build steps), and the #273 Phase 1
+doc-only PR fast-pass (`path-filter` job using `dorny/paths-filter@v3`,
+6-path allowlist, compute-matrix + build gated on `code_changed`,
+docker-build aggregator short-circuits on doc-only PRs).
 
 | Category | Tests |
 |----------|-------|
@@ -196,6 +199,7 @@ plumbing (#272: `cache_variant` input, `Compute cache scope` step,
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
+| #273 Phase 1 doc-only PR fast-pass: `path-filter` job declared, `dorny/paths-filter@v3` action, `pull_request`-only gate, 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`), `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 7 |
 
 ### test/unit/build_sh_spec.bats (40)
 

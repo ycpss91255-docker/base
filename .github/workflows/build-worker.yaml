@@ -142,12 +142,67 @@ on:
 
 jobs:
   # ────────────────────────────────────────────────────────────────
+  # #273 Phase 1 — doc-only PR fast-pass.
+  #
+  # Classifies the PR diff against an allowlist of doc-only paths
+  # (markdown, doc/, LICENSE, gitignore, CODEOWNERS, dependabot). If
+  # NO file outside that allowlist changed, downstream build /
+  # compute-matrix jobs skip and the aggregator job (`docker-build`)
+  # short-circuits to success so branch protection's required
+  # status check still passes.
+  #
+  # Non-PR triggers (push to main / tag / workflow_dispatch) always
+  # report code_changed=true so release / post-merge runs are
+  # unaffected.
+  #
+  # Phase 2 (separate PR) rewrites this classifier in pure shell so
+  # the workflow stays portable across CI hosts (e.g. internal
+  # GitLab CI mirrors) without binding to a GitHub-only action.
+  # ────────────────────────────────────────────────────────────────
+  path-filter:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.set.outputs.code_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # paths-filter compares PR head against base; needs full history.
+          fetch-depth: 0
+      - name: Classify changed paths (PR only)
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          # `code` matches any changed path EXCEPT the doc-only allowlist.
+          # If only allowlisted paths changed, the filter yields false.
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!doc/**'
+              - '!LICENSE'
+              - '!.gitignore'
+              - '!.github/CODEOWNERS'
+              - '!.github/dependabot.yml'
+      - name: Resolve code_changed (non-PR -> always true)
+        id: set
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "code_changed=${{ steps.filter.outputs.code }}" >> "${GITHUB_OUTPUT}"
+          fi
+
+  # ────────────────────────────────────────────────────────────────
   # Parse the comma-separated `platforms` input into a matrix
   # definition. Each supported platform gets the right runner label
   # (native arm64 runners are available for public repos under the
   # ycpss91255-docker org) and a canonical HARDWARE build-arg value.
   # ────────────────────────────────────────────────────────────────
   compute-matrix:
+    needs: path-filter
+    if: needs.path-filter.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
@@ -189,7 +244,8 @@ jobs:
   # runtime pipeline runs per platform.
   # ────────────────────────────────────────────────────────────────
   build:
-    needs: compute-matrix
+    needs: [path-filter, compute-matrix]
+    if: needs.path-filter.outputs.code_changed == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
@@ -370,12 +426,19 @@ jobs:
   # actual build runs; this one just gates on them.
   # ────────────────────────────────────────────────────────────────
   docker-build:
-    needs: build
+    needs: [path-filter, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate matrix result
+        # #273 — short-circuit to success when the PR diff was doc-only,
+        # so branch protection's required `call-docker-build / docker-build`
+        # check still resolves green without the matrix actually running.
         run: |
+          if [ "${{ needs.path-filter.outputs.code_changed }}" = "false" ]; then
+            echo "Doc-only PR; full build matrix skipped. Required check passes (#273)."
+            exit 0
+          fi
           result="${{ needs.build.result }}"
           echo "Matrix build result: ${result}"
           if [ "${result}" != "success" ]; then
