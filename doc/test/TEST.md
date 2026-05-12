@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1117 tests** total (1061 unit + 56 integration).
+Template self-tests: **1123 tests** total (1067 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -201,7 +201,7 @@ docker-build aggregator short-circuits on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 Phase 1 doc-only PR fast-pass: `path-filter` job declared, `dorny/paths-filter@v3` action, `pull_request`-only gate, 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`), `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 7 |
 
-### test/unit/build_sh_spec.bats (40)
+### test/unit/build_sh_spec.bats (46)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -214,12 +214,14 @@ missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when
 all three are present, bootstrap staying non-interactive (setup.sh
 direct, not `setup_tui.sh`), defensive guard when setup produces no
 `.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
-positional `TARGET`, `--lang` argument validation, fallback
-`_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run) docker
-build invocation, **runtime log-line i18n** (bootstrap /
-drift-regen / err_no_env messages translate in all four languages via
-the local `_msg()` table; English remains the default), and
-**`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
+positional `TARGET`, **`-t` / `--target TARGET` alias** (#280: short +
+long form, last-wins resolution against positional `[TARGET]` in both
+orderings, `-t` value-required guard, usage help mention), `--lang`
+argument validation, fallback `_detect_lang` branches (zh_TW/zh_CN/ja),
+real (non-dry-run) docker build invocation, **runtime log-line i18n**
+(bootstrap / drift-regen / err_no_env messages translate in all four
+languages via the local `_msg()` table; English remains the default),
+and **`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
 FILE_PATH to redirect the wrapper to a different repo, both short and
 long form, value-required and directory-existence guards, usage help
 mention).

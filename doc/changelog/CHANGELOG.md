@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`build.sh -t` / `--target TARGET` alias for the positional `[TARGET]`** (closes #280). Matches `run.sh -t`'s UX so users learning one wrapper get the other for free; the positional form keeps working (backward-compatible). When both forms are passed the rightmost argument wins. The `*)` fallthrough that previously caught `-t` and silently treated `runtime` as `TARGET` (issue body: "works by accident") now hits the explicit `-t|--target` arm with proper value-required validation. 4-language `-h` usage updated. New tests in `test/unit/build_sh_spec.bats` (6 tests; total 1117 -> 1123; unit 1061 -> 1067): short form, long form, last-wins with positional before / after, value-required guard, usage help mention.
+
 ## [v0.26.0-rc1] - 2026-05-12
 
 First Release Candidate for v0.26.0. Bundles the #278 log-helper series (PR A `_log_*` foundations in `_lib.sh` + PR-1 top-level entry-point rewires + PR-2 `_msg` per-category split closing #283), the #272 GHA buildx cache plumbing (per-(repo, variant, arch) scope keys + `mode=max`), and #273 Phase 1 (doc-only PR fast-pass on `build-worker.yaml` via `dorny/paths-filter@v3`). Also bundles the post-v0.25.0 `.base/` path fixup (#287, closes #282) that downstream wrappers / Makefile / Dockerfile.example / workflows / 4-language READMEs all needed after the Phase 6 rename.

@@ -102,7 +102,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 選項:
   -h, --help     顯示此說明
@@ -118,6 +118,9 @@ usage() {
   --clean-tools  build 結束後移除 test-tools:local image（預設保留以加速下次 build）
   --dry-run      只印出將執行的 docker 指令，不實際執行
   --lang LANG    設定訊息語言（預設: en）
+  -t, --target TARGET
+                 指定建置目標（等同於位置參數 [TARGET]，與 run.sh -t 對齊）。
+                 兩種寫法同時存在時最後一個生效。
 
 目標:
   devel    開發環境（預設）
@@ -127,7 +130,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 选项:
   -h, --help     显示此说明
@@ -143,6 +146,9 @@ EOF
   --clean-tools  build 结束后移除 test-tools:local image（默认保留以加速下次 build）
   --dry-run      只打印将执行的 docker 命令，不实际执行
   --lang LANG    设置消息语言（默认: en）
+  -t, --target TARGET
+                 指定构建目标（等同于位置参数 [TARGET]，与 run.sh -t 对齐）。
+                 两种写法同时存在时最后一个生效。
 
 目标:
   devel    开发环境（默认）
@@ -152,7 +158,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
@@ -169,6 +175,9 @@ EOF
   --clean-tools  build 終了後に test-tools:local image を削除（デフォルトは保持）
   --dry-run      実行される docker コマンドを表示するのみ（実行はしない）
   --lang LANG    メッセージ言語を設定（デフォルト: en）
+  -t, --target TARGET
+                 ビルドターゲットを指定（位置引数 [TARGET] と同義、run.sh -t と整合）。
+                 両方の形式が指定された場合は最後に指定したものが有効。
 
 ターゲット:
   devel    開発環境（デフォルト）
@@ -178,7 +187,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 Options:
   -h, --help     Show this help
@@ -198,6 +207,9 @@ Options:
   --clean-tools  Remove test-tools:local image after build (default: keep for faster next build)
   --dry-run      Print the docker commands that would run, but do not execute
   --lang LANG    Set message language (default: en)
+  -t, --target TARGET
+                 Build target (alias for the positional [TARGET], mirrors
+                 run.sh -t). When both forms are given, last wins.
 
 Targets:
   devel    Development environment (default)
@@ -274,6 +286,13 @@ main() {
       --lang)
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "build"
+        shift 2
+        ;;
+      -t|--target)
+        # Alias for the positional [TARGET], matching run.sh's -t.
+        # When both forms are passed, last wins — same semantics as
+        # repeating either form alone. Closes #280.
+        TARGET="${2:?"-t/--target requires a value (e.g. devel, test, runtime)"}"
         shift 2
         ;;
       *)
