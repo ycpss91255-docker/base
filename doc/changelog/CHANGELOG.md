@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.26.0-rc2] - 2026-05-12
+
+Second Release Candidate for v0.26.0. Hotfix on top of `v0.26.0-rc1` — the `cache_variant` input description in `build-worker.yaml` contained a literal `${{ matrix.target.name }}` expression token in the documentation block. GitHub's strict workflow validator parsed the description block as code, found `matrix` context at the workflow-input level (not allowed there), and rejected the whole workflow file at parse time — every downstream consumer that called `build-worker.yaml@v0.26.0-rc1` failed in 0s with "workflow file issue" before any job started. Base self-test passed because it doesn't invoke `build-worker.yaml`; the unit `build_worker_yaml_spec.bats` grep-based assertions passed because they don't run `actionlint`. This RC rewrites the offending description to use the bare expression token (`matrix.target.name` in backticks) plus a textual hint, dropping the `${{ ... }}` delimiters from the documentation string so the validator no longer treats it as an expression.
+
+Bundles the rc1 RC plus `v0.26.0-rc1..main` between #294 (rc1) and rc2: #295 (`docs(convention): <repo>/script/docker/`) and #296 (`feat(build.sh): -t / --target alias`).
+
+Follow-up issue queued: add an `actionlint` job to Self Test so this class of breakage gets caught in PR CI on `base` before it ships to a tag.
+
 ### Added
 - **`build.sh -t` / `--target TARGET` alias for the positional `[TARGET]`** (closes #280). Matches `run.sh -t`'s UX so users learning one wrapper get the other for free; the positional form keeps working (backward-compatible). When both forms are passed the rightmost argument wins. The `*)` fallthrough that previously caught `-t` and silently treated `runtime` as `TARGET` (issue body: "works by accident") now hits the explicit `-t|--target` arm with proper value-required validation. 4-language `-h` usage updated. New tests in `test/unit/build_sh_spec.bats` (6 tests; total 1117 -> 1123; unit 1061 -> 1067): short form, long form, last-wins with positional before / after, value-required guard, usage help mention.
+
+### Documentation
+- **`<repo>/script/docker/` convention for Dockerfile-internal build helpers** (closes #275). 4-language READMEs gain a one-line convention note; `dockerfile/Dockerfile.example` ships a commented-out COPY pattern for build-time helpers separate from the runtime `<repo>/script/` (entrypoint and friends).
+
+### Fixed
+- **`build-worker.yaml` `cache_variant` description no longer triggers workflow validator rejection.** The literal `${{ matrix.target.name }}` token in the description-block string was parsed by GitHub as an expression and failed `matrix` context resolution at input declaration scope, causing every downstream `uses:` call of `build-worker.yaml@v0.26.0-rc1` to fail with "workflow file issue" in 0s. Description rewritten to use the bare expression token in backticks plus a textual hint, dropping the `${{ ... }}` delimiters.
 
 ## [v0.26.0-rc1] - 2026-05-12
 

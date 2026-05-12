@@ -122,7 +122,8 @@ on:
           the same `image_name` but different `build_args` (the
           env/ros{,2}_distro pattern, where one `image_name: ros2_distro`
           is shared across 4 matrix variants distinguished by
-          `BASE_IMAGE`). Pass `${{ matrix.target.name }}` or any
+          `BASE_IMAGE`). Pass the per-call matrix expression — e.g.
+          `matrix.target.name` from the caller's strategy.matrix — or any
           per-call unique string to give each shard its own cache scope.
 
           Single-call repos (agent/*, single-distro app/* repos) can
