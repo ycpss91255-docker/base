@@ -277,6 +277,45 @@ EOS
   assert_output --partial "test"
 }
 
+@test "build.sh -t TARGET (short form) selects the build target (#280)" {
+  run bash "${SANDBOX}/build.sh" --dry-run -t test
+  assert_success
+  assert_output --partial "test"
+}
+
+@test "build.sh --target TARGET (long form) selects the build target (#280)" {
+  run bash "${SANDBOX}/build.sh" --dry-run --target test
+  assert_success
+  assert_output --partial "test"
+}
+
+@test "build.sh -t + positional: last positional wins (#280)" {
+  # Documented contract: when both forms are passed, the rightmost
+  # argument wins regardless of which style it was given in.
+  run bash "${SANDBOX}/build.sh" --dry-run -t test runtime
+  assert_success
+  # `runtime` was the last token, so it should be the active TARGET
+  assert_output --partial "runtime"
+}
+
+@test "build.sh positional + -t: last -t wins (#280)" {
+  run bash "${SANDBOX}/build.sh" --dry-run test -t runtime
+  assert_success
+  assert_output --partial "runtime"
+}
+
+@test "build.sh -t with no value errors clearly (#280)" {
+  run bash "${SANDBOX}/build.sh" --dry-run -t
+  assert_failure
+  assert_output --partial "-t/--target requires a value"
+}
+
+@test "build.sh --help mentions -t / --target (#280)" {
+  run bash "${SANDBOX}/build.sh" --help
+  assert_success
+  assert_output --partial "-t, --target"
+}
+
 @test "build.sh passes --build-arg TARGETARCH=<value> when TARGET_ARCH set in .env" {
   # Seed .env with TARGET_ARCH so the drift-check path loads it into
   # the build.sh environment; then the test-tools build should forward
