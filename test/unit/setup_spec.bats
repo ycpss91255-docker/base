@@ -1006,9 +1006,12 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "no per-repo setup.conf"
-  refute_output --partial "[setup] INFO:"
+  # #186 regression guard: the heads-up must NOT be demoted to INFO
+  # (where it would scroll past). The env_done line legitimately uses
+  # INFO level post-#290, so scope the refute to the warning's body.
+  refute_output --partial "[setup] INFO: no per-repo setup.conf"
 }
 
 @test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
@@ -1022,7 +1025,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1048,7 +1051,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "未找到"
 }
 
@@ -1063,6 +1066,9 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  cp /source/script/docker/_lib.sh \
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/_lib.sh"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh" apply
@@ -1168,7 +1174,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "no per-repo setup.conf"
 }
 
@@ -1180,7 +1186,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1202,7 +1208,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "未找到"
 }
 
@@ -1221,6 +1227,8 @@ EOF
   cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
 
   bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" apply \
@@ -1460,6 +1468,8 @@ EOF
   cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
@@ -1859,22 +1869,22 @@ EOF
 
 @test "_setup_msg returns English messages by default" {
   _LANG="en"
-  [[ "$(_setup_msg env_done)" =~ updated ]]
+  [[ "$(_setup_msg env "done")" =~ updated ]]
 }
 
 @test "_setup_msg returns Traditional Chinese messages when _LANG=zh-TW" {
   _LANG="zh-TW"
-  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
 }
 
 @test "_setup_msg returns Simplified Chinese messages when _LANG=zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
 }
 
 @test "_setup_msg returns Japanese messages when _LANG=ja" {
   _LANG="ja"
-  [[ "$(_setup_msg env_done)" =~ 更新完了 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完了 ]]
 }
 
 # Exercise every (key, language) branch so kcov sees the zh-CN / ja / default
@@ -1883,27 +1893,27 @@ EOF
 
 @test "_setup_msg env_comment and unknown_arg are defined in zh" {
   _LANG="zh-TW"
-  [[ "$(_setup_msg env_comment)" =~ 自動偵測 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 未知參數 ]]
+  [[ "$(_setup_msg env comment)" =~ 自動偵測 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知參數 ]]
 }
 
 @test "_setup_msg env_comment and unknown_arg are defined in zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_setup_msg env_comment)" =~ 自动检测 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 未知参数 ]]
+  [[ "$(_setup_msg env comment)" =~ 自动检测 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知参数 ]]
 }
 
 @test "_setup_msg env_comment and unknown_arg are defined in ja" {
   _LANG="ja"
-  [[ "$(_setup_msg env_comment)" =~ 自動検出 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 不明な引数 ]]
+  [[ "$(_setup_msg env comment)" =~ 自動検出 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 不明な引数 ]]
 }
 
 @test "_msg falls back to English when _LANG is unknown" {
   _LANG="xx"
-  [[ "$(_setup_msg env_done)" =~ updated ]]
-  [[ "$(_setup_msg env_comment)" =~ Auto-detected ]]
-  [[ "$(_setup_msg unknown_arg)" =~ "Unknown argument" ]]
+  [[ "$(_setup_msg env "done")" =~ updated ]]
+  [[ "$(_setup_msg env comment)" =~ Auto-detected ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ "Unknown argument" ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
