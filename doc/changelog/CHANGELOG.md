@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `test/unit/self_test_yaml_spec.bats` (new, 5 tests): structural assertions locking the actionlint gate — job exists + uses pinned `rhysd/actionlint:x.y.z` Docker image + 3 downstream jobs declare `needs: actionlint`. Aborts CI if a future refactor quietly drops the gate.
+- `lib/log.sh`: new `_log_plain <tag> <style> <msg...>` helper for tagged stdout lines that need TTY-aware visual weight (bold / dim) but no level keyword. Reuses the existing `_log_color_enabled` gate so behavior under `NO_COLOR` / `FORCE_COLOR` / piped stdout matches `_log_err` / `_log_warn` / `_log_info`.
+- `lib/config_summary.sh::_print_config_summary`: route the 2 dividers through `_log_plain ... dim` and the 5 section headers (`Files` / `Identity` / `Variables` / `setup.conf` / `Resolved`) through `_log_plain ... bold`. On a TTY the eye lands on structure; piped / `NO_COLOR=1` output is byte-identical to before (the `[<tag>] ` prefix and indented value lines stay unstyled, so grep-based filters on the tag are unaffected). Closes the long tail of #278 (closes #309).
 
 ### Fixed
 

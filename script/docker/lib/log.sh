@@ -64,3 +64,28 @@ _log_info() {
     printf '[%s] INFO: %s\n' "${tag}" "$*"
   fi
 }
+
+# _log_plain <tag> <style> <msg...>
+#
+# Tagged stdout line WITHOUT a level keyword. Wraps the message in ANSI
+# iff _log_color_enabled 1 is true AND <style> is non-empty.
+#
+# <style>: "bold" | "dim" | "" (no color)
+#
+# Use for structured stdout (config summaries, dividers, section headers)
+# where adding "INFO:" to every line would be noise but TTY-aware visual
+# weight is still useful. The "[<tag>]" prefix stays unstyled so grep-based
+# filtering against the tag is unaffected; only the message bytes change.
+_log_plain() {
+  local tag="${1:?_log_plain requires tag}"
+  local style="${2-}"
+  shift 2
+  local prefix="" suffix=""
+  if _log_color_enabled 1 && [[ -n "${style}" ]]; then
+    case "${style}" in
+      bold) prefix=$'\033[1m'; suffix=$'\033[0m' ;;
+      dim)  prefix=$'\033[2m'; suffix=$'\033[0m' ;;
+    esac
+  fi
+  printf '[%s] %s%s%s\n' "${tag}" "${prefix}" "$*" "${suffix}"
+}

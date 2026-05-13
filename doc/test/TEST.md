@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1145 tests** total (1089 unit + 56 integration).
+Template self-tests: **1155 tests** total (1099 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -12,7 +12,7 @@ Template self-tests: **1145 tests** total (1089 unit + 56 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (41)
+### test/unit/lib_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -44,8 +44,10 @@ Template self-tests: **1145 tests** total (1089 unit + 56 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
+| `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
+| `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (17)
+### test/unit/log_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -66,6 +68,14 @@ Template self-tests: **1145 tests** total (1089 unit + 56 integration).
 | `_log_color_enabled returns 0 with FORCE_COLOR=1 on non-TTY` | FORCE_COLOR opt-in |
 | `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
 | `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
+| `_log_plain writes '[<tag>] <msg>' to stdout with no style (no ANSI even with FORCE_COLOR)` | Empty style suppresses color |
+| `_log_plain with bold style + FORCE_COLOR=1 wraps message in ANSI bold` | Bold style ANSI wrap |
+| `_log_plain with dim style + FORCE_COLOR=1 wraps message in ANSI dim` | Dim style ANSI wrap |
+| `_log_plain with bold style + NO_COLOR=1 omits ANSI even with FORCE_COLOR=1` | NO_COLOR precedence on _log_plain |
+| `_log_plain on non-TTY without FORCE_COLOR omits ANSI` | Auto-detect default off |
+| `_log_plain joins multi-token message with single spaces` | Multi-token message join |
+| `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
 ### test/unit/setup_spec.bats (272)
 
