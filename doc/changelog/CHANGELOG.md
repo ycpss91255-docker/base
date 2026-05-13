@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.28.0] - 2026-05-13
+
+Promoted from `v0.28.0-rc1` (#315). rc1 tag CI green: `Self Test` ×2 (test + integration-e2e) + `Release test-tools image to GHCR` ×2 (amd64 + arm64), all completed/success. Downstream RC validation deferred — downstream repos will be upgraded via `/batch-template-upgrade v0.28.0` after this stable tag (skipped the parallel rc1 fanout to keep the cycle short).
+
+Bundles all rc1 content; no further changes between rc1 and stable.
+
 ## [v0.28.0-rc1] - 2026-05-13
 
 Release Candidate. Bundles 4 closed-issue PRs since v0.27.0 (#305 actionlint gate, #309 ANSI on config_summary, #310 [logging] section, #311 `-v` flag) plus the long-tail closure of #278.
