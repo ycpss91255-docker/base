@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1128 tests** total (1072 unit + 56 integration).
+Template self-tests: **1139 tests** total (1083 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -67,7 +67,7 @@ Template self-tests: **1128 tests** total (1072 unit + 56 integration).
 | `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
 | `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
 
-### test/unit/setup_spec.bats (261)
+### test/unit/setup_spec.bats (272)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -107,6 +107,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 | Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
 | Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
+| #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 
 ### test/unit/tui_spec.bats (97)
 

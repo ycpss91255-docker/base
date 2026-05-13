@@ -211,6 +211,11 @@ Options:
   --lang LANG           Set message language (en|zh-TW|zh-CN|ja).
                         Defaults to $SETUP_LANG or auto-detected from
                         $LANG.
+  -q, --quiet           Suppress the success-confirmation lines on
+                        set / add / remove / reset / apply. Errors
+                        still go to stderr. Used by setup_tui.sh to
+                        avoid double-printing after its `[tui] saved`
+                        line.
 
 Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
@@ -2259,11 +2264,12 @@ _setup_validate_kv() {
 # `apply` explicitly when they want the derived artifacts refreshed.
 #
 # Usage: _setup_set <section>.<key> <value> [--base-path PATH]
-#                                           [--lang LANG]
+#                                           [--lang LANG] [-q|--quiet]
 # ════════════════════════════════════════════════════════════════════
 _setup_set() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured the next bare arg is the value, even if
@@ -2271,7 +2277,7 @@ _setup_set() {
     # invalid value path that the validator must reject — not a flag).
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2291,6 +2297,10 @@ _setup_set() {
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "setup"
         shift 2
+        ;;
+      -q|--quiet)
+        _quiet=1
+        shift
         ;;
       --)
         shift
@@ -2361,6 +2371,12 @@ _setup_set() {
   fi
 
   _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2578,6 +2594,7 @@ _setup_list() {
 _setup_add() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured, the next bare arg is the value, even if
@@ -2585,7 +2602,7 @@ _setup_add() {
     # flags). Same shape as _setup_set.
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2605,6 +2622,10 @@ _setup_add() {
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "setup"
         shift 2
+        ;;
+      -q|--quiet)
+        _quiet=1
+        shift
         ;;
       --)
         shift
@@ -2723,6 +2744,12 @@ _setup_add() {
   fi
 
   _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2747,11 +2774,12 @@ _setup_add() {
 _setup_remove() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2771,6 +2799,10 @@ _setup_remove() {
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "setup"
         shift 2
+        ;;
+      -q|--quiet)
+        _quiet=1
+        shift
         ;;
       --)
         shift
@@ -2871,6 +2903,12 @@ _setup_remove() {
   _write_setup_conf "${_conf}" "${_tmp}" \
     _empty_s _empty_k _empty_v "${_section}.${_target_key}"
   rm -f "${_tmp}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2896,6 +2934,7 @@ _setup_remove() {
 _setup_reset() {
   local _base_path=""
   local _yes=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2904,6 +2943,10 @@ _setup_reset() {
         ;;
       -y|--yes)
         _yes=1
+        shift
+        ;;
+      -q|--quiet)
+        _quiet=1
         shift
         ;;
       --base-path)
@@ -2964,7 +3007,11 @@ _setup_reset() {
     cp -f "${_env}" "${_env}.bak"
   fi
 
-  printf "[setup] %s\n" "$(_setup_msg reset_done)"
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf "[setup] %s\n" "$(_setup_msg reset_done)"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2979,6 +3026,7 @@ _setup_reset() {
 # ════════════════════════════════════════════════════════════════════
 _setup_apply() {
   local _base_path=""
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2993,6 +3041,10 @@ _setup_apply() {
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "setup"
         shift 2
+        ;;
+      -q|--quiet)
+        _quiet=1
+        shift
         ;;
       *)
         printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
@@ -3344,12 +3396,14 @@ _setup_apply() {
     "${_additional_contexts_str}" \
     || return $?
 
-  printf "[setup] %s\n" "$(_setup_msg env_done)"
-  printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
-    "${user_name}" "${user_uid}" "${user_gid}" \
-    "${gpu_enabled_eff}" "${gpu_mode}" \
-    "${gui_enabled_eff}" "${gui_mode}" \
-    "${image_name}" "${ws_path}"
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf "[setup] %s\n" "$(_setup_msg env_done)"
+    printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
+      "${user_name}" "${user_uid}" "${user_gid}" \
+      "${gpu_enabled_eff}" "${gpu_mode}" \
+      "${gui_enabled_eff}" "${gui_mode}" \
+      "${image_name}" "${ws_path}"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
