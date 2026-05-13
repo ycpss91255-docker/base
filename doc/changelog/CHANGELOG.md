@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `self-test.yaml`: `actionlint` job (Docker invocation, `rhysd/actionlint:1.7.7` pinned) running before the existing `test` / `integration-e2e` / `behavioural` jobs, which now declare `needs: actionlint`. Catches GHA workflow-validator semantic regressions (e.g. `${{ matrix.X }}` referenced outside a step scope — the class behind the v0.26.0-rc1 wedge fixed by #297) at PR time before bats / docker matrix burns CI minutes. No new third-party GHA action dependency (Docker pull, in line with the #273 Phase 2 "no `dorny/paths-filter` dependency" preference). Closes #305.
+
+### Changed
+
+- `test/unit/self_test_yaml_spec.bats` (new, 5 tests): structural assertions locking the actionlint gate — job exists + uses pinned `rhysd/actionlint:x.y.z` Docker image + 3 downstream jobs declare `needs: actionlint`. Aborts CI if a future refactor quietly drops the gate.
+
+### Fixed
+
+- `build-worker.yaml`: surfaced + resolved a pre-existing `SC2002` ("useless cat") in the `Check template version` step's `LOCAL_VER=$(cat .base/.version | tr -d ...)` shell block. Replaced with `tr ... < .base/.version`. Drive-by fix: this was caught the moment the actionlint gate (this PR) ran for the first time — exactly the kind of latent issue actionlint exists to surface.
+- `publish-worker.yaml`: removed two orphan job outputs `digest_amd64` / `digest_arm64` that referenced a non-existent `steps.export.outputs.digest_<arch>` (the workflow has `steps.tags` and `steps.push`, never `steps.export`). No consumer reads these outputs anywhere in the org. Latent since the file was added. Drive-by fix surfaced by the actionlint gate added in this PR.
+
 ## [v0.27.0] - 2026-05-13
 
 Promoted from `v0.27.0-rc1` (#304). rc1 tag CI green (Self Test + release-test-tools). RC validation pass: all 8 active downstream repos (4 agent + ros1_bridge + urg_node_humble + 2 env multi-distro) merged `chore/template-v0.27.0-rc1` PRs (ai_agent#51, claude_code#50, codex_cli#49, gemini_cli#49, ros1_bridge#90, urg_node_humble#46, ros2_distro#17, ros_distro#17) with CI green on each. The 5 sensor-app repos (realsense_humble / realsense_noetic / sick_humble / sick_noetic / urg_node_noetic) remain on pre-`.base/` v0.24.0 awaiting #263 pip migration; they continue to be deferred from this fanout.

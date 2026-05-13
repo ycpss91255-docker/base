@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1140 tests** total (1084 unit + 56 integration).
+Template self-tests: **1145 tests** total (1089 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -203,6 +203,26 @@ on doc-only PRs).
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
+
+### test/unit/self_test_yaml_spec.bats (5)
+
+Structural assertions for `.github/workflows/self-test.yaml` (#305).
+Locks the actionlint gate so a future refactor cannot quietly drop
+the validator: the `actionlint` job exists and runs
+`rhysd/actionlint` via Docker pinned to an explicit version
+(`x.y.z`); the three downstream jobs (`test`, `integration-e2e`,
+`behavioural`) declare `needs: actionlint` so they cannot start
+until the workflow-validator class of regression that wedged
+v0.26.0-rc1 (`${{ matrix.X }}` outside step scope, refs #297) is
+caught early — before bats / docker matrix burns CI minutes.
+
+| Category | Tests |
+|----------|-------|
+| `actionlint` job declared | 1 |
+| `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
+| `test` job declares `needs: actionlint` | 1 |
+| `integration-e2e` job declares `needs: actionlint` | 1 |
+| `behavioural` job declares `needs: actionlint` | 1 |
 
 ### test/unit/build_sh_spec.bats (46)
 
