@@ -9,7 +9,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  actionlint:
+    # Catch GHA workflow-validator semantic regressions (the
+    # class behind the v0.26.0-rc1 wedge, #297) before the
+    # bats / docker matrix burns CI minutes. Runs first; the
+    # other jobs gate on it. Refs #305.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run actionlint via Docker
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo:ro" \
+            -w /repo \
+            rhysd/actionlint:1.7.7 \
+            -color
+
   test:
+    needs: actionlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,6 +60,7 @@ jobs:
 
   integration-e2e:
     name: Integration E2E (init.sh → build → run → exec → stop)
+    needs: actionlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,6 +123,7 @@ jobs:
 
   behavioural:
     name: Behavioural Test (runtime-test smoke gate, #249)
+    needs: actionlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
