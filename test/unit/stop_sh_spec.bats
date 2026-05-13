@@ -276,3 +276,41 @@ teardown() {
   assert_success
   [[ "${stderr}" == *"+ "* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# --prune flag (lightweight opt-in cleanup after down, #319)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh --prune is mentioned in usage help (#319)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "--prune"
+  assert_output --partial "until=10m"
+  assert_output --partial "until=24h"
+}
+
+@test "stop.sh --prune --dry-run prints down + network prune + image prune (#319)" {
+  run bash "${SANDBOX}/stop.sh" --prune --dry-run
+  assert_success
+  assert_output --partial "down"
+  assert_output --partial "docker network prune -f --filter until=10m"
+  assert_output --partial "docker image prune -f --filter until=24h"
+}
+
+@test "stop.sh without --prune does NOT emit prune commands (#319)" {
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "docker network prune"
+  refute_output --partial "docker image prune"
+}
+
+@test "stop.sh --all --prune --dry-run prunes even when no instances found (#319)" {
+  # docker_ps_a.out is empty → --all branch finds zero projects → prints
+  # "no instances" message; --prune should still run cleanup so a stale
+  # repo with leftover orphan networks gets reclaimed.
+  : > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --all --prune --dry-run
+  assert_success
+  assert_output --partial "No instances found"
+  assert_output --partial "docker network prune -f --filter until=10m"
+}
