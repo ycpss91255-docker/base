@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `self-test.yaml`: `actionlint` job (Docker invocation, `rhysd/actionlint:1.7.7` pinned) running before the existing `test` / `integration-e2e` / `behavioural` jobs, which now declare `needs: actionlint`. Catches GHA workflow-validator semantic regressions (e.g. `${{ matrix.X }}` referenced outside a step scope — the class behind the v0.26.0-rc1 wedge fixed by #297) at PR time before bats / docker matrix burns CI minutes. No new third-party GHA action dependency (Docker pull, in line with the #273 Phase 2 "no `dorny/paths-filter` dependency" preference). Closes #305.
+- `script/docker/{build,run,exec,stop}.sh`: `-v` / `--verbose` and `-vv` / `--very-verbose` flags. `-v` exports `BUILDKIT_PROGRESS=plain` so a hung `docker build` step's real-time stdout/stderr is visible instead of the collapsed single-line progress UI (the common diagnostic scenario when a build appears stuck and the user cannot tell whether it is doing work, waiting on network, or hung). `-vv` adds `set -x` on the wrapper itself for debugging the wrapper's own option parsing / branching. All four wrappers accept both spellings for muscle-memory consistency, even though `BUILDKIT_PROGRESS` is only meaningful when a build actually happens (build.sh always, run.sh via Compose auto-build; exec.sh / stop.sh accept the flag but it is a no-op there). Usage text in all four languages (en / zh-TW / zh-CN / ja) documents both forms. Closes #311.
 
 ### Changed
 

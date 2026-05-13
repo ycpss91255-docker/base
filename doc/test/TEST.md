@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1155 tests** total (1099 unit + 56 integration).
+Template self-tests: **1171 tests** total (1115 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -234,7 +234,7 @@ caught early — before bats / docker matrix burns CI minutes.
 | `integration-e2e` job declares `needs: actionlint` | 1 |
 | `behavioural` job declares `needs: actionlint` | 1 |
 
-### test/unit/build_sh_spec.bats (46)
+### test/unit/build_sh_spec.bats (50)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -257,9 +257,12 @@ languages via the local `_msg()` table; English remains the default),
 and **`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
 FILE_PATH to redirect the wrapper to a different repo, both short and
 long form, value-required and directory-existence guards, usage help
-mention).
+mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
+(#311: exports `BUILDKIT_PROGRESS=plain` so a hung `docker build`'s RUN
+step output is visible; `-vv` adds `set -x` on the wrapper itself;
+usage help mentions all four spellings).
 
-### test/unit/run_sh_spec.bats (46)
+### test/unit/run_sh_spec.bats (50)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -278,9 +281,11 @@ present → silent, image absent + TTY → INFO, image absent + no TTY →
 silent, per-target image inspect, `--build` invokes `./build.sh test`
 before compose up, `--build` after check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
-value-required and directory guards, usage help mention).
+value-required and directory guards, usage help mention), and **`-v`
+/ `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
+trace pattern as build.sh, parity across wrappers).
 
-### test/unit/exec_sh_spec.bats (28)
+### test/unit/exec_sh_spec.bats (32)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -301,9 +306,12 @@ for run.sh parity, no-`--` positional path stays backward-compatible,
 `template/` is absent, and **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
-guards, usage help mention).
+guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
+`--very-verbose` flag** (#311: symmetry-only for exec since
+`docker exec` itself does not build, but flag is accepted and `-vv`
+enables wrapper trace).
 
-### test/unit/stop_sh_spec.bats (21)
+### test/unit/stop_sh_spec.bats (25)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via
@@ -315,10 +323,12 @@ validation, default teardown via `docker compose down`, named-instance
 suffix in project name, `--all` no-instances English message,
 Chinese / Simplified Chinese / Japanese translations of the
 no-instances message, `--all` multi-project teardown loop, fallback
-`_detect_lang` branches, and **`-C` / `--chdir` flag**
+`_detect_lang` branches, **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
-guards, usage help mention).
+guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
+`--very-verbose` flag** (#311: parity across wrappers; flag is a no-op
+for `docker compose down` but `-vv` still enables wrapper trace).
 
 ### test/unit/wrapper_lib_lookup_spec.bats (5)
 

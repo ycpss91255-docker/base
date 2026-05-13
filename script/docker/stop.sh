@@ -71,7 +71,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 停止並移除容器。預設只停止 default instance。
 
@@ -82,11 +82,15 @@ usage() {
   -a, --all         停止所有 instance（預設 + 全部命名 instance)
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
+  -v, --verbose     設定 BUILDKIT_PROGRESS=plain（與其他 wrapper 對齊；stop 本身
+                    不會 build，但保持 flag 一致便於肌肉記憶）。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 停止并移除容器。默认只停止 default instance。
 
@@ -97,11 +101,15 @@ EOF
   -a, --all         停止所有 instance（默认 + 全部命名 instance)
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
+  -v, --verbose     设置 BUILDKIT_PROGRESS=plain（与其他 wrapper 对齐；stop 本身
+                    不会 build，但保持 flag 一致便于肌肉记忆）。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 コンテナを停止・削除します。デフォルトは default instance のみ。
 
@@ -112,11 +120,15 @@ EOF
   -a, --all         すべての instance を停止（デフォルト + 全名前付き instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
+  -v, --verbose     BUILDKIT_PROGRESS=plain を設定（他の wrapper と整合；
+                    stop 自体は build しないが、フラグの一貫性のため）。
+  -vv, --very-verbose
+                    -v に加え wrapper 自体の bash trace（set -x）。
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 Stop and remove containers. Default: stop only the default instance.
 
@@ -128,6 +140,12 @@ Options:
   -a, --all         Stop ALL instances (default + every named instance)
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
+  -v, --verbose     Export BUILDKIT_PROGRESS=plain for parity with build/run/exec.
+                    `docker compose down` itself does not build, but keeping the
+                    flag available across all four wrappers gives one
+                    muscle-memory knob to reach for.
+  -vv, --very-verbose
+                    -v plus bash trace (set -x) on the wrapper itself.
 EOF
       ;;
   esac
@@ -187,6 +205,19 @@ main() {
         ;;
       --dry-run)
         DRY_RUN=true
+        shift
+        ;;
+      -v|--verbose)
+        # BUILDKIT_PROGRESS=plain — symmetry with build/run/exec (#311).
+        # No-op for `docker compose down` itself but harmless; keeps the
+        # flag available across all four wrappers for muscle-memory
+        # consistency.
+        export BUILDKIT_PROGRESS=plain
+        shift
+        ;;
+      -vv|--very-verbose)
+        export BUILDKIT_PROGRESS=plain
+        set -x
         shift
         ;;
       --lang)
