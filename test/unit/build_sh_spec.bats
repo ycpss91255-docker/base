@@ -21,12 +21,14 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker" \
+  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
            "${SANDBOX}/.base/dockerfile" \
            "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh     "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh     "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh    "${SANDBOX}/.base/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/build.sh.
   ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
   touch "${SANDBOX}/.base/dockerfile/Dockerfile.test-tools"
@@ -415,6 +417,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -427,6 +431,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -439,6 +445,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -602,9 +610,10 @@ EOS
   # setup.sh stamps MOCK_SETUP_LOG with whatever --base-path it received,
   # so the log proves which tree FILE_PATH resolved to.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/dockerfile"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
@@ -619,9 +628,10 @@ EOS
 
 @test "build.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/dockerfile"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
