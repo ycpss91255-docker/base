@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.28.0-rc1] - 2026-05-13
+
+Release Candidate. Bundles 4 closed-issue PRs since v0.27.0 (#305 actionlint gate, #309 ANSI on config_summary, #310 [logging] section, #311 `-v` flag) plus the long-tail closure of #278.
+
 ### Added
 
 - `self-test.yaml`: `actionlint` job (Docker invocation, `rhysd/actionlint:1.7.7` pinned) running before the existing `test` / `integration-e2e` / `behavioural` jobs, which now declare `needs: actionlint`. Catches GHA workflow-validator semantic regressions (e.g. `${{ matrix.X }}` referenced outside a step scope — the class behind the v0.26.0-rc1 wedge fixed by #297) at PR time before bats / docker matrix burns CI minutes. No new third-party GHA action dependency (Docker pull, in line with the #273 Phase 2 "no `dorny/paths-filter` dependency" preference). Closes #305.
