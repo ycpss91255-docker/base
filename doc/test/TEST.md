@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1196 tests** total (1140 unit + 56 integration).
+Template self-tests: **1223 tests** total (1167 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -325,7 +325,7 @@ guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `docker exec` itself does not build, but flag is accepted and `-vv`
 enables wrapper trace).
 
-### test/unit/stop_sh_spec.bats (25)
+### test/unit/stop_sh_spec.bats (29)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via
@@ -342,9 +342,33 @@ no-instances message, `--all` multi-project teardown loop, fallback
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `--very-verbose` flag** (#311: parity across wrappers; flag is a no-op
-for `docker compose down` but `-vv` still enables wrapper trace).
+for `docker compose down` but `-vv` still enables wrapper trace), and
+**`--prune` flag** (#319: opt-in lightweight cleanup after compose
+down — `docker network prune --filter until=10m` + `docker image prune
+--filter until=24h`; works alongside `--all` even when no instances
+found; usage help mentions `--prune` with the two grace windows; the
+plain `stop.sh --dry-run` path emits no `docker prune` commands).
 
-### test/unit/wrapper_lib_lookup_spec.bats (5)
+### test/unit/prune_sh_spec.bats (23)
+
+Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
+docker garbage cleanup with conservative per-target `--filter until=`
+defaults (network=10m, image=24h, builder=24h, volume=no filter). Sandbox
++ PATH-shimmed `docker` stub mirrors the build/run/exec/stop spec
+strategy; `docker compose` is never invoked here so no `.env` seeding is
+required beyond the sandbox layout.
+
+Covers: `--help` (en/zh-TW/zh-CN/ja), no-target exit-2 hint (English +
+zh-TW), `--until` / `--lang` value-required guards, unknown-flag
+exit-2, individual `--networks` / `--images` / `--builder` /
+`--volumes` dry-run output (each with its own default grace; volume
+output omits `--filter`), **`--all` aggregator** (network + image +
+builder; volumes intentionally excluded), **`--until <dur>` override**
+across all selected targets, **volume confirmation prompt** (`n`
+aborts with exit-1 + i18n "aborted" message; `-y` skips the prompt;
+zh-TW prompt body asserts), `-C` / `--chdir` parity (accepted but
+no-op for daemon-wide prune; value-required + directory guards),
+usage help mentions every flag family.
 
 Regression guard for **issue #282** — the four user-facing wrappers
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
