@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`exec.sh --` flag/CMD separator** (closes #289). Mirrors `run.sh`'s existing `--` arm so the inner CMD can start with a dash (e.g. `./exec.sh -- my-tool --version`) without `exec.sh`'s own option parser capturing it. The separator is consumed by `exec.sh` before the remaining `"$@"` is handed to `docker compose exec`, so the literal `--` never leaks into the docker command line. Positional CMD (`./exec.sh ls /tmp`) keeps working — backward-compatible. 4-language `-h` usage updated with the new `[--]` synopsis token, an Options entry, and an example. New tests in `test/unit/exec_sh_spec.bats` (5 tests; total 1123 -> 1128; unit 1067 -> 1072): standalone `--` consumed before CMD passes through, dash-leading CMD passes through, `--` works after `-t TARGET`, no-`--` positional path stays backward-compatible, `--help` mentions the new separator.
+
 ## [v0.26.0] - 2026-05-13
 
 Promoted from `v0.26.0-rc2` (#297). rc2 tag CI green (Self Test + release-test-tools). RC validation pass on `app/ros1_bridge` (the primary #272 validation target): rc2's `chore/template-v0.26.0-rc2` PR (`ros1_bridge#88`) built end-to-end (rc1 had been wedged at workflow validation; rc2 hotfix unblocked it). Cold baseline measured at ~18m26s total wall-time for the 4-shard matrix (jazzy-amd64 17m43s, humble-amd64 14m16s, jazzy-arm64 13m47s, humble-arm64 12m21s) — sits inside the #272 issue body's stated 15-25 min cold range. Warm-cache wall-time drop (#272 acceptance: >=30%) will be observed organically across the 13-downstream `/batch-template-upgrade v0.26.0` fanout PRs that follow this tag — each repo's first PR is a cold/warm pair on the same SHA when the fanout PR opens.

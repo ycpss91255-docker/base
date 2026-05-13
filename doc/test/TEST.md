@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1123 tests** total (1067 unit + 56 integration).
+Template self-tests: **1128 tests** total (1072 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -247,7 +247,7 @@ before compose up, `--build` after check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
 value-required and directory guards, usage help mention).
 
-### test/unit/exec_sh_spec.bats (23)
+### test/unit/exec_sh_spec.bats (28)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -260,8 +260,12 @@ Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
 value validation, English-default not-running error, Chinese /
 Simplified Chinese / Japanese not-running error text, instance-specific
 vs default start hints, `--dry-run` bypassing the guard, compose exec
-routing when container is running, fallback `_detect_lang`
-branches when `template/` is absent, and **`-C` / `--chdir` flag**
+routing when container is running, **`--` flag/CMD separator** (#289:
+standalone `--` consumed before CMD flows through to `docker compose
+exec`, lets a dash-leading CMD pass through, works after `-t TARGET`
+for run.sh parity, no-`--` positional path stays backward-compatible,
+`-h` usage mentions `--`), fallback `_detect_lang` branches when
+`template/` is absent, and **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention).
