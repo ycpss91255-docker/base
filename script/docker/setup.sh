@@ -1182,6 +1182,93 @@ _resolve_stage_list() {
   fi
 }
 
+# _parse_logging_svc_sections <file> <out_array>
+#
+# Emit each service name that has a `[logging.<svc>]` section in <file>
+# (in the order they appear). Mirrors `_parse_stage_sections` but for
+# the per-service logging override namespace (#310).
+_parse_logging_svc_sections() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local -n _plss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  _plss_out=()
+  [[ -f "${_file}" ]] || return 0
+  local _line
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" =~ ^\[logging\.([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
+      _plss_out+=("${BASH_REMATCH[1]}")
+    fi
+  done < "${_file}"
+}
+
+# _collect_logging <base_path> <global_out> <per_svc_out>
+#
+# Resolve [logging] + [logging.<svc>] for the compose generator. Output
+# layout:
+#
+#   global_out   newline-separated KEY=VALUE for the effective global
+#                [logging] section. Resolution rule mirrors [security]
+#                (line 3328 area): if the per-repo setup.conf has a
+#                [logging] section, that section fully replaces the
+#                template default (per CLAUDE.md "section-level
+#                replace, no key-level merge inside a section"). If
+#                the per-repo file omits the section, template
+#                defaults apply.
+#
+#   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
+#                [logging.<svc>] sections in the per-repo setup.conf.
+#                Key-level merge against global_out happens in
+#                `_emit_logging_block` at compose-emit time — only
+#                keys present in [logging.<svc>] override the
+#                corresponding global key; absent keys fall through.
+#                Template setup.conf does not ship per-svc sections;
+#                if one ever appears there it is honored too (parsed
+#                only from the per-repo file in practice, since the
+#                template loader path uses _SETUP_SCRIPT_DIR).
+_collect_logging() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
+  local -n _cl_per_svc="${3:?"${FUNCNAME[0]}: missing per_svc outvar"}"
+  _cl_global=""
+  _cl_per_svc=""
+
+  local _conf
+  if [[ -n "${SETUP_CONF:-}" ]]; then
+    _conf="${SETUP_CONF}"
+  else
+    _conf="${_base}/config/docker/setup.conf"
+  fi
+
+  # Global [logging] — per-repo first, fall back to template if absent.
+  local -a _g_keys=() _g_vals=()
+  [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
+  if (( ${#_g_keys[@]} == 0 )); then
+    local _tpl="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
+  fi
+  local i
+  local -a _g_lines=()
+  for (( i = 0; i < ${#_g_keys[@]}; i++ )); do
+    _g_lines+=("${_g_keys[i]}=${_g_vals[i]}")
+  done
+  (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
+
+  # Per-service [logging.<svc>] sections (per-repo only).
+  [[ -f "${_conf}" ]] || return 0
+  local -a _svcs=()
+  _parse_logging_svc_sections "${_conf}" _svcs
+  local _svc
+  local -a _ps_lines=()
+  for _svc in "${_svcs[@]}"; do
+    local -a _sk=() _sv=()
+    _parse_ini_section "${_conf}" "logging.${_svc}" _sk _sv
+    for (( i = 0; i < ${#_sk[@]}; i++ )); do
+      _ps_lines+=("${_svc}:${_sk[i]}=${_sv[i]}")
+    done
+  done
+  (( ${#_ps_lines[@]} > 0 )) && _cl_per_svc="$(printf '%s\n' "${_ps_lines[@]}")"
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
 #                       <gpu_count> <gpu_caps> <extras_array_ref>
@@ -1264,6 +1351,69 @@ generate_compose_yaml() {
   local _build_network="${22:-}"
   local _runtime="${23:-}"
   local _additional_contexts_str="${24:-}"
+  local _logging_global_str="${25:-}"
+  local _logging_per_svc_str="${26:-}"
+
+  # _logging_svc_kv <svc> <out_assoc_name>
+  #
+  # Resolve effective logging KV map for compose service <svc>:
+  #   1. seed with global [logging] entries (`_logging_global_str`)
+  #   2. overlay per-service [logging.<svc>] entries — key-level merge
+  #
+  # If both inputs are empty the map stays empty and the emitter
+  # downstream skips the `logging:` block entirely (back-compat with
+  # downstream repos that haven't adopted [logging] yet).
+  _logging_svc_kv() {
+    local _svc="$1"
+    local -n _lkv="$2"
+    _lkv=()
+    local _line _k _v
+    if [[ -n "${_logging_global_str}" ]]; then
+      while IFS= read -r _line; do
+        [[ -z "${_line}" ]] && continue
+        _k="${_line%%=*}"
+        _v="${_line#*=}"
+        _lkv["${_k}"]="${_v}"
+      done <<< "${_logging_global_str}"
+    fi
+    if [[ -n "${_logging_per_svc_str}" ]]; then
+      while IFS= read -r _line; do
+        [[ -z "${_line}" ]] && continue
+        [[ "${_line%%:*}" == "${_svc}" ]] || continue
+        _line="${_line#*:}"
+        _k="${_line%%=*}"
+        _v="${_line#*=}"
+        _lkv["${_k}"]="${_v}"
+      done <<< "${_logging_per_svc_str}"
+    fi
+  }
+
+  # _emit_logging_block <svc>
+  #
+  # Emit compose `logging:` mapping for service <svc>. Maps the four
+  # setup.conf keys (driver / max_size / max_file / compress) to the
+  # corresponding Docker compose option names (driver as scalar;
+  # max-size / max-file / compress as `options:` sub-keys, dash-named
+  # per Docker docs). No-op when the effective KV map is empty.
+  _emit_logging_block() {
+    local _svc="$1"
+    local -A _kv=()
+    _logging_svc_kv "${_svc}" _kv
+    (( ${#_kv[@]} == 0 )) && return 0
+    echo "    logging:"
+    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
+    local _have_opts=0 _k
+    for _k in max_size max_file compress; do
+      [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
+    done
+    if (( _have_opts )); then
+      echo "      options:"
+      [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
+      [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
+      [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
+    fi
+    return 0
+  }
 
   # additional_contexts emitter: forwards `[additional_contexts]
   # context_N = NAME=PATH` entries to compose.yaml's
@@ -1573,6 +1723,7 @@ YAML
               capabilities: ${_caps_yaml}
 YAML
     fi
+    _emit_logging_block devel
 
     # Auto-emit a service per non-baseline stage parsed from the
     # Dockerfile (#215). Each service:
@@ -1646,6 +1797,15 @@ YAML
     profiles:
       - ${_emit_stage}
 YAML
+        # Per-stage [logging.<stage>] override (if any). Without an
+        # override compose `extends: devel` already covers logging:
+        # compose extends merges mapping sub-keys so devel's logging
+        # block carries over — emit only when the stage actually
+        # diverges from devel.
+        if [[ -n "${_logging_per_svc_str}" ]] && \
+           grep -qE "^${_emit_stage}:" <<< "${_logging_per_svc_str}"; then
+          _emit_logging_block "${_emit_stage}"
+        fi
         continue
       fi
 
@@ -1891,6 +2051,10 @@ YAML
               capabilities: ${_eff_caps_yaml}
 YAML
       fi
+      # Stage emits a standalone block (no `extends: devel`), so it
+      # carries no inherited logging — always emit the effective
+      # logging block when [logging] or [logging.<stage>] is set.
+      _emit_logging_block "${_emit_stage}"
     done
 
     cat <<YAML
@@ -1920,6 +2084,7 @@ YAML
     profiles:
       - test
 YAML
+    _emit_logging_block test
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
@@ -3361,6 +3526,10 @@ _setup_apply() {
   local _shm_size=""
   _get_conf_value _res_k _res_v "shm_size" "" _shm_size
 
+  # ── [logging] + [logging.<svc>] (#310) ──
+  local _logging_global_str="" _logging_per_svc_str=""
+  _collect_logging "${_base_path}" _logging_global_str _logging_per_svc_str
+
   # ── Resolve final enabled states ──
   local gpu_enabled_eff="" gui_enabled_eff=""
   _resolve_gpu "${gpu_mode}" "${gpu_detected}" gpu_enabled_eff
@@ -3416,6 +3585,8 @@ _setup_apply() {
     "${build_network}" \
     "${runtime_resolved}" \
     "${_additional_contexts_str}" \
+    "${_logging_global_str}" \
+    "${_logging_per_svc_str}" \
     || return $?
 
   if [[ "${_quiet}" -eq 0 ]]; then

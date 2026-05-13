@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1171 tests** total (1115 unit + 56 integration).
+Template self-tests: **1184 tests** total (1128 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -380,6 +380,31 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
+
+### test/unit/compose_logging_spec.bats (13)
+
+Covers `[logging]` + `[logging.<svc>]` support in
+`generate_compose_yaml` (#310). Tests the global emission on every
+service (devel / test / auto-emitted stage), back-compat for repos
+not yet declaring `[logging]`, per-service override key-level merge
+behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
++ `_collect_logging`.
+
+| Test | Description |
+|------|-------------|
+| `omits logging: block when both inputs empty (back-compat)` | Empty inputs no-op |
+| `emits logging: block on devel from global [logging]` | Global → devel |
+| `emits logging on test service` | Global → test |
+| `driver-only [logging] omits options: block` | No rotation keys |
+| `partial options emits only set keys` | Sparse override |
+| `per-svc [logging.<svc>] overrides global key on that svc` | Override semantics |
+| `per-svc [logging.<svc>] inherits keys absent in override` | Key-level merge |
+| `_parse_logging_svc_sections enumerates services in file order` | Parser order |
+| `_parse_logging_svc_sections ignores plain [logging] section` | Section discrimination |
+| `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file guard |
+| `_collect_logging reads global [logging] from per-repo setup.conf` | Per-repo source |
+| `_collect_logging reads per-service [logging.<svc>] sections` | Per-svc source |
+| `_collect_logging returns empty when no [logging] sections anywhere` | Total absence |
 
 ### test/unit/template_spec.bats (147)
 
