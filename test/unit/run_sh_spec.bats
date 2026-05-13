@@ -15,11 +15,13 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker" \
+  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
            "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/run.sh.
   ln -s /source/script/docker/run.sh "${SANDBOX}/run.sh"
 
@@ -373,6 +375,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -385,6 +389,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -397,6 +403,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -647,9 +655,10 @@ EOS
 
 @test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
 
@@ -662,9 +671,10 @@ EOS
 
 @test "run.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
 

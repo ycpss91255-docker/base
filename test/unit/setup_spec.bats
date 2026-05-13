@@ -1058,7 +1058,7 @@ EOF
 @test "apply resolves default _base_path via BASH_SOURCE when --base-path omitted" {
   # apply without --base-path walks 3 levels up from its own location
   # (script/docker/../../.. = repo root).
-  mkdir -p "${TEMP_DIR}/sandbox_repo/.base/script/docker" \
+  mkdir -p "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox_repo/.base/config/docker"
   cp /source/script/docker/setup.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh"
@@ -1066,9 +1066,12 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh \
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh" apply
@@ -1222,13 +1225,15 @@ EOF
   # End-to-end: invoke the script as a subprocess (the way build.sh / run.sh
   # do after B-1) instead of `source` + function call. Validates the
   # subcommand dispatch path actually works when the script is executed.
-  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker" \
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox/.base/config/docker"
   cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
 
   bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" apply \
@@ -1463,13 +1468,15 @@ EOF
 }
 
 @test "set / show / list run end-to-end via subprocess" {
-  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker" \
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox/config/docker"
   cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290).
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \

@@ -17,10 +17,12 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker"
+  mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/exec.sh "${SANDBOX}/exec.sh"
 
   # Seed .env so _load_env / _compute_project_name succeed without bootstrap.
@@ -199,6 +201,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -211,6 +215,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -223,6 +229,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -238,9 +246,10 @@ teardown() {
   # When -C points there, exec.sh's docker exec invocation must reference
   # the alt IMAGE_NAME, proving FILE_PATH was redirected.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -261,9 +270,10 @@ teardown() {
 
 @test "exec.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
