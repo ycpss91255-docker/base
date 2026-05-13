@@ -25,10 +25,12 @@ if [[ -n "${_DOCKER_LIB_CONFIG_SUMMARY_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_CONFIG_SUMMARY_SOURCED=1
 
-# Pull in _dump_conf_section. Idempotent — conf.sh has its own guard.
+# Pull in _dump_conf_section + _log_plain. Idempotent — each has its own guard.
 _config_summary_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "${_config_summary_dir}/conf.sh"
+# shellcheck disable=SC1091
+source "${_config_summary_dir}/log.sh"
 unset _config_summary_dir
 
 # _lib_msg <key>
@@ -156,12 +158,12 @@ _print_config_summary() {
   local _img="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-unknown}"
   local _proj="${PROJECT_NAME:-${DOCKER_HUB_USER:-local}-${IMAGE_NAME:-unknown}}"
 
-  printf "[%s] %s\n" "${_tag}" "${_line}"
-  printf "[%s] %s\n" "${_tag}" "$(_lib_msg files)"
+  _log_plain "${_tag}" dim  "${_line}"
+  _log_plain "${_tag}" bold "$(_lib_msg files)"
   printf "[%s]   setup.conf   : %s\n"   "${_tag}" "${_conf}"
   printf "[%s]   .env         : %s\n"   "${_tag}" "${_fp}/.env"
   printf "[%s]   compose.yaml : %s\n"   "${_tag}" "${_fp}/compose.yaml"
-  printf "[%s] %s\n" "${_tag}" "$(_lib_msg identity)"
+  _log_plain "${_tag}" bold "$(_lib_msg identity)"
   printf "[%s]   %-12s : %s (uid=%s)  %s=%s (gid=%s)\n" "${_tag}" \
     "$(_lib_msg user)" "${USER_NAME:--}" "${USER_UID:--}" \
     "$(_lib_msg group)" "${USER_GROUP:--}" "${USER_GID:--}"
@@ -176,7 +178,7 @@ _print_config_summary() {
   # `${USER_NAME}` / `${WS_PATH}` placeholders. This block bridges the
   # two so users can read mount_* lines without re-deriving the mapping
   # from translated labels.
-  printf "[%s] %s\n" "${_tag}" "$(_lib_msg variables)"
+  _log_plain "${_tag}" bold "$(_lib_msg variables)"
   printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
   printf "[%s]   \${USER_UID}  = %s\n"  "${_tag}" "${USER_UID:--}"
   printf "[%s]   \${USER_GROUP} = %s\n" "${_tag}" "${USER_GROUP:--}"
@@ -187,7 +189,7 @@ _print_config_summary() {
   # non-empty to stay readable. Order matches the TUI main menu so
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
-    printf "[%s] setup.conf\n" "${_tag}"
+    _log_plain "${_tag}" bold "setup.conf"
     # When the file exists but contains no [section] headers (empty file
     # / comments-only / whitespace-only), every section silently falls
     # back to template defaults. Surface a parallel hint to the
@@ -215,7 +217,7 @@ _print_config_summary() {
 
   # Resolved post-merge flags that the user can't infer from setup.conf
   # alone (GPU/GUI depend on host detection in addition to mode=auto).
-  printf "[%s] %s\n" "${_tag}" "$(_lib_msg resolved)"
+  _log_plain "${_tag}" bold "$(_lib_msg resolved)"
   printf "[%s]   %s : %s  count=%s  caps=%s\n" "${_tag}" \
     "$(_lib_msg gpu_enabled)" "${GPU_ENABLED:--}" "${GPU_COUNT:--}" "${GPU_CAPABILITIES:--}"
   printf "[%s]   %s : %s\n" "${_tag}" \
@@ -228,5 +230,5 @@ _print_config_summary() {
 
   printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.conf\n" \
     "${_tag}" "$(_lib_msg customize)" "${_tag}"
-  printf "[%s] %s\n" "${_tag}" "${_line}"
+  _log_plain "${_tag}" dim "${_line}"
 }
