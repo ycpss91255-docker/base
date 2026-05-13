@@ -304,3 +304,31 @@ teardown() {
   assert_output --partial "-C"
   assert_output --partial "--chdir"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "exec.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "exec.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/exec.sh" -v --dry-run
+  assert_success
+}
+
+@test "exec.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/exec.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "exec.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/exec.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
+}

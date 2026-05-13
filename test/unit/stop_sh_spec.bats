@@ -248,3 +248,31 @@ teardown() {
   assert_output --partial "-C"
   assert_output --partial "--chdir"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "stop.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+}
+
+@test "stop.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/stop.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "stop.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/stop.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
+}
