@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.26.0] - 2026-05-13
+
+Promoted from `v0.26.0-rc2` (#297). rc2 tag CI green (Self Test + release-test-tools). RC validation pass on `app/ros1_bridge` (the primary #272 validation target): rc2's `chore/template-v0.26.0-rc2` PR (`ros1_bridge#88`) built end-to-end (rc1 had been wedged at workflow validation; rc2 hotfix unblocked it). Cold baseline measured at ~18m26s total wall-time for the 4-shard matrix (jazzy-amd64 17m43s, humble-amd64 14m16s, jazzy-arm64 13m47s, humble-arm64 12m21s) — sits inside the #272 issue body's stated 15-25 min cold range. Warm-cache wall-time drop (#272 acceptance: >=30%) will be observed organically across the 13-downstream `/batch-template-upgrade v0.26.0` fanout PRs that follow this tag — each repo's first PR is a cold/warm pair on the same SHA when the fanout PR opens.
+
+Bundles all rc1 + rc2 content (#281 / #286 / #287 / #288 / #292 / #293 + the rc2 hotfix); no further changes between rc2 and stable.
+
 ## [v0.26.0-rc2] - 2026-05-12
 
 Second Release Candidate for v0.26.0. Hotfix on top of `v0.26.0-rc1` — the `cache_variant` input description in `build-worker.yaml` contained a literal `${{ matrix.target.name }}` expression token in the documentation block. GitHub's strict workflow validator parsed the description block as code, found `matrix` context at the workflow-input level (not allowed there), and rejected the whole workflow file at parse time — every downstream consumer that called `build-worker.yaml@v0.26.0-rc1` failed in 0s with "workflow file issue" before any job started. Base self-test passed because it doesn't invoke `build-worker.yaml`; the unit `build_worker_yaml_spec.bats` grep-based assertions passed because they don't run `actionlint`. This RC rewrites the offending description to use the bare expression token (`matrix.target.name` in backticks) plus a textual hint, dropping the `${{ ... }}` delimiters from the documentation string so the validator no longer treats it as an expression.
