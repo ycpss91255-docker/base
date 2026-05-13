@@ -198,9 +198,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest_amd64: ${{ steps.export.outputs.digest_amd64 }}
-      digest_arm64: ${{ steps.export.outputs.digest_arm64 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

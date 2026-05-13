@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `build-worker.yaml`: surfaced + resolved a pre-existing `SC2002` ("useless cat") in the `Check template version` step's `LOCAL_VER=$(cat .base/.version | tr -d ...)` shell block. Replaced with `tr ... < .base/.version`. Drive-by fix: this was caught the moment the actionlint gate (this PR) ran for the first time — exactly the kind of latent issue actionlint exists to surface.
+- `publish-worker.yaml`: removed two orphan job outputs `digest_amd64` / `digest_arm64` that referenced a non-existent `steps.export.outputs.digest_<arch>` (the workflow has `steps.tags` and `steps.push`, never `steps.export`). No consumer reads these outputs anywhere in the org. Latent since the file was added. Drive-by fix surfaced by the actionlint gate added in this PR.
 
 ## [v0.27.0] - 2026-05-13
 
