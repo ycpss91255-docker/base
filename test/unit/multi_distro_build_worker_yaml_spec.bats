@@ -97,10 +97,16 @@ setup() {
   assert_output --partial 'distro: ${{ fromJSON(needs.resolve-matrix.outputs.distros) }}'
 }
 
-@test "multi-distro-build-worker.yaml: call-build derives per-shard image_name as <image_name>_<distro> (#325 B-1)" {
+@test "multi-distro-build-worker.yaml: call-build derives per-shard image_name as <image_name>-<distro> (hyphen, v0.29.1 fix matches org convention)" {
+  # Hyphen separator chosen to match the existing org pattern (e.g.
+  # app/ros1_bridge's pre-dispatcher main.yaml shipped
+  # `ros1_bridge-${distro}`). Underscore was used in the v0.29.0
+  # initial implementation but never adopted by any consumer; v0.29.1
+  # corrects it before the first downstream migration lands.
   run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'image_name: ${{ inputs.image_name }}_${{ matrix.distro }}'
+  assert_output --partial 'image_name: ${{ inputs.image_name }}-${{ matrix.distro }}'
+  refute_output --partial 'image_name: ${{ inputs.image_name }}_${{ matrix.distro }}'
 }
 
 @test "multi-distro-build-worker.yaml: call-build passes <distro_input_name>=<distro> as build_args (#325 B-1)" {
