@@ -403,6 +403,22 @@ teardown() {
   [ "${status}" -ne 0 ]
 }
 
+@test "_validate_log_local_path accepts relative / absolute / tilde paths (#328)" {
+  _validate_log_local_path "./logs/"
+  _validate_log_local_path "/var/log/app/"
+  _validate_log_local_path "~/logs/"
+  _validate_log_local_path "logs"
+}
+
+@test "_validate_log_local_path rejects empty / whitespace / newline (#328)" {
+  run _validate_log_local_path ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path "   "
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path $'logs\nbad'
+  [ "${status}" -ne 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _warn_if_lang_rejected — TUI msgbox when --lang fell back to "en"
 # ════════════════════════════════════════════════════════════════════

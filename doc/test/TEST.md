@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1303 tests** total (1242 unit + 61 integration).
+Template self-tests: **1327 tests** total (1266 unit + 61 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1303 tests** total (1242 unit + 61 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (292)
+### test/unit/setup_spec.bats (296)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -121,7 +121,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 | #328 `[logging]` CLI orphan fix (`_setup_known_section` recognises `logging` + `logging.<svc>`; rightmost-dot spec parsing for `logging.<svc>.<key>`; `set/show/remove` round-trip on global + per-service keys; validators surface as `Invalid value` errors; whole-section `show logging` lists all 4 keys; per-service editing reaches devel / test / runtime through CLI subcommands) | 9 |
 
-### test/unit/tui_spec.bats (104)
+### test/unit/tui_spec.bats (106)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -548,7 +548,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/compose_logging_spec.bats (13)
+### test/unit/compose_logging_spec.bats (25)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -572,6 +572,37 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `_collect_logging reads global [logging] from per-repo setup.conf` | Per-repo source |
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-svc source |
 | `_collect_logging returns empty when no [logging] sections anywhere` | Total absence |
+| `local_path on global emits volumes mount + LOG_FILE_PATH env for devel (#328)` | Mount + env on devel |
+| `local_path empty omits mount + env (back-compat) (#328)` | Empty fallback |
+| `local_path on per-svc [logging.<svc>] emits LOG_FILE_PATH for that svc only (#328)` | Per-service emit |
+| `local_path absolute path is passed through verbatim (#328)` | Absolute path |
+| `local_path is NOT emitted as a logging.options key (driver-only options) (#328)` | local_path NOT a docker option |
+| `local_path on test service emits standalone volumes block + env (#328)` | test service |
+| `_sync_logging_local_paths_gitignore appends relative local_path to .gitignore (#328)` | gitignore append |
+| `_sync_logging_local_paths_gitignore skips absolute paths (#328)` | Absolute skip |
+| `_sync_logging_local_paths_gitignore skips ~ paths (#328)` | Tilde skip |
+| `_sync_logging_local_paths_gitignore is idempotent (#328)` | Re-run no-op |
+| `_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)` | Multi-source |
+| `_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)` | Empty no-op |
+
+### test/unit/entrypoint_logging_spec.bats (6)
+
+Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
+downstream repos source from their `script/entrypoint.sh` so
+container stdout/stderr is tee'd to the host bind-mounted log file
+when `[logging] local_path` is set (#328). Tests source the helper
+under controlled `LOG_FILE_PATH` env in subshells and assert both
+the host file content and the inherited stdout (preserving
+`docker logs` parity).
+
+| Test | Description |
+|------|-------------|
+| `entrypoint_logging is no-op when LOG_FILE_PATH unset (#328)` | Back-compat: do nothing |
+| `entrypoint_logging tees stdout to LOG_FILE_PATH when set (#328)` | Happy path |
+| `entrypoint_logging truncates LOG_FILE_PATH on each run (#328)` | Fresh container = fresh log |
+| `entrypoint_logging creates parent dir if missing (#328)` | mkdir -p safety net |
+| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
+| `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
 ### test/unit/template_spec.bats (147)
 

@@ -234,9 +234,12 @@ _TUI_MSG_EN[logging.max_file.label]="max_file"
 _TUI_MSG_EN[logging.max_file.prompt]="Max number of rotated log files (positive integer)"
 _TUI_MSG_EN[logging.compress.label]="compress"
 _TUI_MSG_EN[logging.compress.prompt]="Compress rotated log files?"
+_TUI_MSG_EN[logging.local_path.label]="local_path"
+_TUI_MSG_EN[logging.local_path.prompt]=$'Host directory for container log tee (empty = off)\n  - Relative path: resolved against repo root (./logs/)\n  - Absolute path: used verbatim (/var/log/app/)\n  - ~ expansion supported (~/dir/)\n  - Mounts at /var/log/<repo> inside the container'
 _TUI_MSG_EN[err.invalid_log_driver]=$'Invalid log driver name\n  - Expected: start with a letter, then letters/digits/[._-]\n  - Example: json-file, journald, syslog'
 _TUI_MSG_EN[err.invalid_log_max_size]=$'Invalid max_size\n  - Expected: <num><unit>\n  - Units: b, k, m, g (case-insensitive)\n  - Example: 10m, 1g, 512k'
 _TUI_MSG_EN[err.invalid_log_max_file]=$'Invalid max_file\n  - Expected: positive integer (1, 2, 3, ...)'
+_TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-empty and non-whitespace\n  - Cannot contain embedded newlines'
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
@@ -446,9 +449,12 @@ _TUI_MSG_ZH_TW[logging.max_file.label]="max_file"
 _TUI_MSG_ZH_TW[logging.max_file.prompt]="輪轉檔案數量（正整數）"
 _TUI_MSG_ZH_TW[logging.compress.label]="compress"
 _TUI_MSG_ZH_TW[logging.compress.prompt]="壓縮輪轉後的 log？"
+_TUI_MSG_ZH_TW[logging.local_path.label]="local_path"
+_TUI_MSG_ZH_TW[logging.local_path.prompt]=$'容器 log tee 到 host 端的目錄（留空＝關閉）\n  - 相對路徑：以 repo 根目錄為基準（./logs/）\n  - 絕對路徑：原樣使用（/var/log/app/）\n  - 支援 ~ 展開（~/dir/）\n  - 容器內掛載點為 /var/log/<repo>'
 _TUI_MSG_ZH_TW[err.invalid_log_driver]=$'log driver 名稱格式錯誤\n  - 預期：字母開頭，後接字母／數字／[._-]\n  - 範例：json-file、journald、syslog'
 _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<數字><單位>\n  - 單位：b、k、m、g（不分大小寫）\n  - 範例：10m、1g、512k'
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
+_TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env + compose.yaml..."
 _TUI_MSG_ZH_TW[action.prompt]="選擇動作"
@@ -648,9 +654,12 @@ _TUI_MSG_ZH_CN[logging.max_file.label]="max_file"
 _TUI_MSG_ZH_CN[logging.max_file.prompt]="轮转文件数量（正整数）"
 _TUI_MSG_ZH_CN[logging.compress.label]="compress"
 _TUI_MSG_ZH_CN[logging.compress.prompt]="压缩轮转后的 log？"
+_TUI_MSG_ZH_CN[logging.local_path.label]="local_path"
+_TUI_MSG_ZH_CN[logging.local_path.prompt]=$'容器 log tee 到 host 端的目录（留空＝关闭）\n  - 相对路径：以 repo 根目录为基准（./logs/）\n  - 绝对路径：原样使用（/var/log/app/）\n  - 支援 ~ 展开（~/dir/）\n  - 容器内挂载点为 /var/log/<repo>'
 _TUI_MSG_ZH_CN[err.invalid_log_driver]=$'log driver 名称格式错误\n  - 预期：字母开头，后接字母／数字／[._-]\n  - 示例：json-file、journald、syslog'
 _TUI_MSG_ZH_CN[err.invalid_log_max_size]=$'max_size 格式错误\n  - 预期：<数字><单位>\n  - 单位：b、k、m、g（不分大小写）\n  - 示例：10m、1g、512k'
 _TUI_MSG_ZH_CN[err.invalid_log_max_file]=$'max_file 格式错误\n  - 预期：正整数（1、2、3、...）'
+_TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可为空或纯空白\n  - 不可含换行符'
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
@@ -853,9 +862,12 @@ _TUI_MSG_JA[logging.max_file.label]="max_file"
 _TUI_MSG_JA[logging.max_file.prompt]="ローテーションファイル数（正の整数）"
 _TUI_MSG_JA[logging.compress.label]="compress"
 _TUI_MSG_JA[logging.compress.prompt]="ローテーション後の log を圧縮しますか？"
+_TUI_MSG_JA[logging.local_path.label]="local_path"
+_TUI_MSG_JA[logging.local_path.prompt]=$'コンテナ log を host 側にバインドマウントするディレクトリ（空＝無効）\n  - 相対パス: repo ルートから解決（./logs/）\n  - 絶対パス: そのまま使用（/var/log/app/）\n  - ~ 展開対応（~/dir/）\n  - コンテナ内のマウント先は /var/log/<repo>'
 _TUI_MSG_JA[err.invalid_log_driver]=$'log driver 名が不正\n  - 形式: 文字で始まり、その後は文字／数字／[._-]\n  - 例: json-file、journald、syslog'
 _TUI_MSG_JA[err.invalid_log_max_size]=$'max_size が不正\n  - 形式: <数値><単位>\n  - 単位: b、k、m、g（大小文字区別なし）\n  - 例: 10m、1g、512k'
 _TUI_MSG_JA[err.invalid_log_max_file]=$'max_file が不正\n  - 形式: 正の整数（1、2、3、...）'
+_TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または空白のみは不可\n  - 改行を含めることはできません'
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
@@ -1744,11 +1756,12 @@ _edit_section_additional_contexts() {
 _edit_logging_keys() {
   local _section="${1:?_edit_logging_keys: missing section}"
   while :; do
-    local _drv _ms _mf _cp
+    local _drv _ms _mf _cp _lp
     _drv="$(_override_get "${_section}.driver" "")"
     _ms="$(_override_get "${_section}.max_size" "")"
     _mf="$(_override_get "${_section}.max_file" "")"
     _cp="$(_override_get "${_section}.compress" "")"
+    _lp="$(_override_get "${_section}.local_path" "")"
 
     local _title
     if [[ "${_section}" == "logging" ]]; then
@@ -1762,11 +1775,12 @@ _edit_logging_keys() {
 
     local _choice
     _choice="$(_tui_menu "${_title}" "$(_tui_msg logging.menu)" \
-      driver   "$(_tui_msg logging.driver.label) = ${_drv:-(inherit)}" \
-      max_size "$(_tui_msg logging.max_size.label) = ${_ms:-(inherit)}" \
-      max_file "$(_tui_msg logging.max_file.label) = ${_mf:-(inherit)}" \
-      compress "$(_tui_msg logging.compress.label) = ${_cp:-(inherit)}" \
-      __back   "$(_tui_msg logging.back)")" || return 0
+      driver     "$(_tui_msg logging.driver.label) = ${_drv:-(inherit)}" \
+      max_size   "$(_tui_msg logging.max_size.label) = ${_ms:-(inherit)}" \
+      max_file   "$(_tui_msg logging.max_file.label) = ${_mf:-(inherit)}" \
+      compress   "$(_tui_msg logging.compress.label) = ${_cp:-(inherit)}" \
+      local_path "$(_tui_msg logging.local_path.label) = ${_lp:-(off)}" \
+      __back     "$(_tui_msg logging.back)")" || return 0
 
     case "${_choice}" in
       driver)
@@ -1806,6 +1820,16 @@ _edit_logging_keys() {
         else
           _override_set "${_section}.compress" "false"
         fi
+        ;;
+      local_path)
+        local _new
+        _new="$(_tui_inputbox "${_title}" \
+          "$(_tui_msg logging.local_path.prompt)" "${_lp}")" || continue
+        if [[ -n "${_new}" ]] && ! _validate_log_local_path "${_new}"; then
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_local_path)"
+          continue
+        fi
+        _override_set "${_section}.local_path" "${_new}"
         ;;
       __back|"") return 0 ;;
     esac
