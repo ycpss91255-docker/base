@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.29.0] - 2026-05-14
+
+Promoted from `v0.29.0-rc1` (#343). rc1 tag CI green: `Self Test` + `Release test-tools image to GHCR` both completed/success. The `:main` rolling tag bootstrapped on the rc1 multi-arch publish.
+
+Bundles all rc1 content; no further changes between rc1 and stable.
+
+Downstream propagation queued separately:
+
+- `app/ros1_bridge` — migrate `main.yaml` to use `multi-distro-build-worker.yaml@v0.29.0` (1D matrix; B-1 ready as-shipped).
+- `env/ros_distro` + `env/ros2_distro` — defer until base#344 ships the 2D dispatcher extension (distro × variant).
+- 13 single-target downstream repos — `/batch-template-upgrade v0.29.0` when ready; nothing in v0.29.0 is breaking for them.
+
 ## [v0.29.0-rc1] - 2026-05-14
 
 Release Candidate for v0.29.0 minor feature release. Bundles two themes since v0.28.2:
