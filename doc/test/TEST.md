@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1327 tests** total (1266 unit + 61 integration).
+Template self-tests: **1336 tests** total (1275 unit + 61 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1327 tests** total (1266 unit + 61 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (296)
+### test/unit/setup_spec.bats (305)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -120,6 +120,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
 | #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 | #328 `[logging]` CLI orphan fix (`_setup_known_section` recognises `logging` + `logging.<svc>`; rightmost-dot spec parsing for `logging.<svc>.<key>`; `set/show/remove` round-trip on global + per-service keys; validators surface as `Invalid value` errors; whole-section `show logging` lists all 4 keys; per-service editing reaches devel / test / runtime through CLI subcommands) | 9 |
+| #338 apply CLI flags (`--gui auto|force|off` per-invocation override via print-resolved diff vs setup.conf; `--gui=force` short-form; invalid `--gui bogus` rejected; `--print-resolved` dumps key=value without writing `.env` / `compose.yaml`; `--no-x11-cookie` sets `X11_COOKIE_SKIP=1` in the dump; default `X11_COOKIE_SKIP=0`; `SETUP_GUI` env var overrides setup.conf when no CLI flag; CLI `--gui` wins over `SETUP_GUI` env var) | 9 |
 
 ### test/unit/tui_spec.bats (106)
 

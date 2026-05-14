@@ -295,6 +295,7 @@ main() {
   local TARGET="devel"
   local INSTANCE=""
   local -a CMD_ARGS=()
+  local -a SETUP_FORWARD_ARGS=()
   DRY_RUN=false
 
   while [[ $# -gt 0 ]]; do
@@ -313,6 +314,23 @@ main() {
         shift
         ;;
       -s|--setup)
+        RUN_SETUP=true
+        shift
+        ;;
+      --gui)
+        # #338: per-invocation [gui] mode override forwarded to setup.sh.
+        SETUP_FORWARD_ARGS+=(--gui "${2:?--gui requires a value (auto|force|off)}")
+        RUN_SETUP=true
+        shift 2
+        ;;
+      --gui=*)
+        SETUP_FORWARD_ARGS+=(--gui "${1#--gui=}")
+        RUN_SETUP=true
+        shift
+        ;;
+      --no-x11-cookie)
+        # #338: skip the SSH X11 cookie rewrite for this invocation.
+        SETUP_FORWARD_ARGS+=(--no-x11-cookie)
         RUN_SETUP=true
         shift
         ;;
@@ -386,8 +404,16 @@ main() {
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
   # present and the symlink is executable; otherwise fall back to
   # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
+  #
+  # #338: per-invocation overrides (--gui / --no-x11-cookie) populate
+  # SETUP_FORWARD_ARGS and short-circuit through setup.sh instead of
+  # the TUI -- TUI Save writes the values to setup.conf permanently
+  # which is the wrong semantics for a debug knob.
   _run_interactive() {
-    if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+    if (( ${#SETUP_FORWARD_ARGS[@]} > 0 )); then
+      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
+        "${SETUP_FORWARD_ARGS[@]}"
+    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
       "${_tui}" --lang "${_LANG}"
     else
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
