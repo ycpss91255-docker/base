@@ -17,7 +17,17 @@
 set -euo pipefail
 
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
+# (post-#330), and direct invocation — see build.sh for the heuristic.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 readonly FILE_PATH
 
 _TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"

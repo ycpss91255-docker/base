@@ -273,14 +273,17 @@ jobs:
           cd "${REPO_DIR}"
           bash .base/init.sh
 
-          # Sanity: verify symlinks resolve and core files exist
-          test -L build.sh && test -L run.sh && test -L exec.sh && test -L stop.sh
-          test -L setup_tui.sh
+          # Sanity: verify symlinks resolve and core files exist.
+          # Post-#330: wrappers live under script/; Makefile stays at root.
+          test -L script/build.sh && test -L script/run.sh \
+            && test -L script/exec.sh && test -L script/stop.sh
+          test -L script/setup_tui.sh
+          test -L Makefile
           test -f Dockerfile && test -f compose.yaml && test -f config/docker/setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
 
-      - name: Build test stage (build.sh test)
+      - name: Build test stage (script/build.sh test)
         working-directory: ${{ env.REPO_DIR }}
         env:
           # build.sh skips its internal test-tools:local build when this
@@ -291,25 +294,25 @@ jobs:
           # the dockerfile/Dockerfile.test-tools build.
           TEST_TOOLS_IMAGE: test-tools:local
         run: |
-          ./build.sh test
+          ./script/build.sh test
 
       - name: Build devel stage
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./build.sh
+          ./script/build.sh
 
       - name: Run container in detach mode and exec into it
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./run.sh -d
+          ./script/run.sh -d
           # Verify the container is up and reachable via exec.sh
-          ./exec.sh echo "exec.sh OK from CI"
-          ./exec.sh whoami
+          ./script/exec.sh echo "exec.sh OK from CI"
+          ./script/exec.sh whoami
 
       - name: Stop and verify cleanup
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./stop.sh
+          ./script/stop.sh
           # No project containers should remain
           if docker ps --format '{{.Names}}' | grep -q '^e2e_test$'; then
             echo "ERROR: container still running after stop.sh"

@@ -118,26 +118,27 @@ teardown() {
   assert [ -f "${REPO_DIR}/doc/changelog/CHANGELOG.md" ]
 }
 
-@test "new repo: build.sh symlink → .base/script/docker/build.sh" {
+@test "new repo: build.sh symlink lives under script/, not root (#330)" {
   bash .base/init.sh
-  assert [ -L "${REPO_DIR}/build.sh" ]
-  run readlink "${REPO_DIR}/build.sh"
-  assert_output ".base/script/docker/build.sh"
+  assert [ -L "${REPO_DIR}/script/build.sh" ]
+  run readlink "${REPO_DIR}/script/build.sh"
+  assert_output "../.base/script/docker/build.sh"
+  # Root must NOT have build.sh after #330.
+  assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
-@test "new repo: run.sh / exec.sh / stop.sh / prune.sh / Makefile symlinks correct" {
+@test "new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
   bash .base/init.sh
-  for f in run.sh exec.sh stop.sh prune.sh Makefile; do
-    assert [ -L "${REPO_DIR}/${f}" ]
+  # 7 wrappers under script/, each pointing to ../.base/script/docker/<name>.sh
+  for f in run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ -L "${REPO_DIR}/script/${f}" ]
+    run readlink "${REPO_DIR}/script/${f}"
+    assert_output "../.base/script/docker/${f}"
+    # And NOT at root.
+    assert [ ! -e "${REPO_DIR}/${f}" ]
   done
-  run readlink "${REPO_DIR}/run.sh"
-  assert_output ".base/script/docker/run.sh"
-  run readlink "${REPO_DIR}/exec.sh"
-  assert_output ".base/script/docker/exec.sh"
-  run readlink "${REPO_DIR}/stop.sh"
-  assert_output ".base/script/docker/stop.sh"
-  run readlink "${REPO_DIR}/prune.sh"
-  assert_output ".base/script/docker/prune.sh"
+  # Makefile retains the root location (the elevated user entry).
+  assert [ -L "${REPO_DIR}/Makefile" ]
   run readlink "${REPO_DIR}/Makefile"
   assert_output ".base/script/docker/Makefile"
 }
@@ -273,59 +274,77 @@ teardown() {
   assert_success
 }
 
-@test "new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)" {
+@test "new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)" {
   bash .base/init.sh
-  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
-  run readlink "${REPO_DIR}/setup_tui.sh"
-  assert_output ".base/script/docker/setup_tui.sh"
+  assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
+  run readlink "${REPO_DIR}/script/setup_tui.sh"
+  assert_output "../.base/script/docker/setup_tui.sh"
+  # Neither old root-level setup_tui.sh nor pre-rename tui.sh.
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
+  assert [ ! -e "${REPO_DIR}/setup_tui.sh" ]
 }
 
-@test "new repo: init.sh removes stale tui.sh symlink from earlier versions" {
+@test "new repo: init.sh removes stale tui.sh symlink from earlier versions (#330 stale-removal loop)" {
   bash .base/init.sh
-  # Simulate an upgrade from the old name by planting the legacy symlink
+  # Simulate a very old upgrade path: legacy tui.sh symlink at root.
   ln -sf ".base/script/docker/setup_tui.sh" "${REPO_DIR}/tui.sh"
   run bash .base/init.sh
   assert_success
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
-  assert [ -L "${REPO_DIR}/setup_tui.sh" ]
+  assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
+}
+
+@test "new repo: init.sh removes stale root *.sh symlinks (#330 migration)" {
+  bash .base/init.sh
+  # Simulate a pre-#330 layout by planting the seven root-level symlinks
+  # an older init.sh would have produced. Re-running the post-#330
+  # init.sh must remove all of them and ensure script/ versions exist.
+  for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    ln -sf ".base/script/docker/${f}" "${REPO_DIR}/${f}"
+  done
+  run bash .base/init.sh
+  assert_success
+  for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ ! -e "${REPO_DIR}/${f}" ]
+    assert [ -L "${REPO_DIR}/script/${f}" ]
+  done
 }
 
 @test "new repo: build.sh -h works against the generated symlink" {
   bash .base/init.sh
-  run bash "${REPO_DIR}/build.sh" -h
+  run bash "${REPO_DIR}/script/build.sh" -h
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "new repo: run.sh -h works against the generated symlink" {
   bash .base/init.sh
-  run bash "${REPO_DIR}/run.sh" -h
+  run bash "${REPO_DIR}/script/run.sh" -h
   assert_success
 }
 
 @test "new repo: exec.sh -h works against the generated symlink" {
   bash .base/init.sh
-  run bash "${REPO_DIR}/exec.sh" -h
+  run bash "${REPO_DIR}/script/exec.sh" -h
   assert_success
 }
 
 @test "new repo: stop.sh -h works against the generated symlink" {
   bash .base/init.sh
-  run bash "${REPO_DIR}/stop.sh" -h
+  run bash "${REPO_DIR}/script/stop.sh" -h
   assert_success
 }
 
-@test "new repo: setup.sh symlink → .base/script/docker/setup.sh" {
+@test "new repo: setup.sh symlink under script/ → ../.base/script/docker/setup.sh" {
   bash .base/init.sh
-  assert [ -L "${REPO_DIR}/setup.sh" ]
-  run readlink "${REPO_DIR}/setup.sh"
-  assert_output ".base/script/docker/setup.sh"
+  assert [ -L "${REPO_DIR}/script/setup.sh" ]
+  run readlink "${REPO_DIR}/script/setup.sh"
+  assert_output "../.base/script/docker/setup.sh"
 }
 
 @test "new repo: setup.sh -h works against the generated symlink" {
   bash .base/init.sh
-  run bash "${REPO_DIR}/setup.sh" -h
+  run bash "${REPO_DIR}/script/setup.sh" -h
   assert_success
   assert_output --partial "Usage"
 }

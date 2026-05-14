@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
@@ -81,8 +81,8 @@ graph TB
 ```mermaid
 flowchart LR
     subgraph local["本地"]
-        build_test["./build.sh test"]
-        make_test["make test"]
+        build_test["./script/build.sh test"]
+        make_test["make build test"]
     end
 
     subgraph ci_container["CI 容器（kcov/kcov）"]
@@ -126,8 +126,8 @@ flowchart LR
 | `test/unit/` | Template 自身测试（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 集成测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
-| `Makefile` | Repo 命令入口（`make build`、`make run`、`make stop` 等） |
-| `Makefile.ci` | Template CI 命令入口（`make test`、`make lint` 等） |
+| `Makefile` | Repo 命令入口（`make build`、`make run`、`make stop` 等）。Sub-cmd 直接位置传递（`make build test`）；flag 需要 `--` 分隔符（`make build -- --no-cache test`）。`make` 无参打印 help（`.DEFAULT_GOAL := help`）。 |
+| `Makefile.ci` | Template CI 命令入口（`make -f Makefile.ci test`、`make -f Makefile.ci lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架生成 |
 | `upgrade.sh` | Subtree 版本升级 |
 | `script/ci/ci.sh` | CI pipeline（本地 + 远端） |
@@ -181,10 +181,15 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-./build.sh                    # 重新生成 compose.yaml，build 所有 stages
-./run.sh -t headless          # 跑 headless 变体
-./run.sh -t gui               # 跑 gui 变体
-./exec.sh -t headless bash    # 进入 running 的 headless container
+make build                            # 重新生成 compose.yaml，build 所有 stages
+make run -- -t headless               # 跑 headless 变体
+make run -- -t gui                    # 跑 gui 变体
+make exec -- -t headless bash         # 进入 running 的 headless container
+
+# 等效直接 .sh 写法：
+./script/build.sh
+./script/run.sh -t headless
+./script/exec.sh -t headless bash
 ```
 
 约束：
@@ -365,9 +370,9 @@ Main
 > 想要一次取得跟 CI 同样的完整验证，加 `--build` flag：
 >
 > ```bash
-> ./build.sh test           # 显式跑 lint + smoke
-> ./run.sh --build          # 跑完 lint + smoke 再 compose up
-> ./run.sh                  # 默认 — 快速路径，跳过 lint/smoke
+> make build test                   # 显式跑 lint + smoke
+> make run -- --build               # 跑完 lint + smoke 再 compose up
+> make run                          # 默认 — 快速路径，跳过 lint/smoke
 > ```
 
 `setup.sh apply` 每次都会从头重新生成 `compose.yaml`，但会保留既有 `.env`

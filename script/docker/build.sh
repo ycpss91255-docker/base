@@ -3,17 +3,36 @@
 
 set -euo pipefail
 
-# Default FILE_PATH = the directory the wrapper symlink lives in (i.e.
-# the repo root in normal usage). `-C <dir>` / `--chdir <dir>` overrides
-# it so the wrapper operates on a different repo without changing the
-# caller's cwd. Critical for Claude Code's sandbox `excludedCommands`
-# matching: top-level command stays `./build.sh ...` rather than
-# `(cd <dir> && ...)` or `bash -c "cd <dir> && ..."`, neither of which
-# the bash AST parser unwraps into the `./build.sh *` prefix
-# (refs docker_harness#53). The pre-pass runs before _lib.sh is sourced
-# so all path-dependent operations (including the _lib.sh lookup) honor
-# the override.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# Default FILE_PATH = the user's repo root. Invocation paths we need to
+# cover, all of which must resolve FILE_PATH to the repo root so that
+# ${FILE_PATH}/.base/, ${FILE_PATH}/config/, ${FILE_PATH}/.env, etc.
+# work:
+#   - <repo>/build.sh                       # pre-#330 root-symlink layout
+#   - <repo>/script/build.sh                # post-#330 script/-subfolder layout
+#   - <repo>/.base/script/docker/build.sh   # direct invocation
+#   - /lint/build.sh                        # Dockerfile test stage
+# Heuristic: if our invocation directory has a .base/ sibling, we are at
+# the repo root already; if the parent has .base/ we are one level deeper
+# (the post-#330 script/ subfolder) and step up; otherwise (direct or
+# test-stage call) fall back to the invocation directory and rely on the
+# sibling _lib.sh lookup below.
+# `-C <dir>` / `--chdir <dir>` overrides this so the wrapper operates on
+# a different repo without changing the caller's cwd. Critical for
+# Claude Code's sandbox `excludedCommands` matching: top-level command
+# stays `./build.sh ...` rather than `(cd <dir> && ...)` or
+# `bash -c "cd <dir> && ..."`, neither of which the bash AST parser
+# unwraps into the `./build.sh *` prefix (refs docker_harness#53). The
+# pre-pass runs before _lib.sh is sourced so all path-dependent
+# operations (including the _lib.sh lookup) honor the override.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 _chdir_i=1
 while (( _chdir_i <= $# )); do
   case "${!_chdir_i}" in

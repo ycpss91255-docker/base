@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING** (#330) — wrapper consolidation: the seven user-facing wrappers (`build.sh` / `run.sh` / `exec.sh` / `stop.sh` / `prune.sh` / `setup.sh` / `setup_tui.sh`) move from the downstream repo root into a `script/` subfolder. `Makefile` stays at the root as the elevated user-facing entry. `init.sh` produces the new layout on fresh repos and migrates existing repos automatically (the stale-root-removal loop in `_create_symlinks` drops the seven legacy root symlinks plus the pre-rename `tui.sh`). `upgrade.sh` calls `init.sh` after the subtree pull, so `make -f Makefile.ci upgrade VERSION=v0.31.0` (or `./.base/upgrade.sh v0.31.0`) is the one-shot migration trigger for downstream consumers. The Dockerfile-level `script/entrypoint.sh` already lived under `script/` and coexists with the new wrappers. External callers hardcoding `./build.sh` / `./run.sh` / etc. break — migration table below.
+
+- **BREAKING** (#330) — Makefile rewrite: the user-facing `.base/script/docker/Makefile` is rewritten to a 1:1 wrapper Makefile with positional-argument forwarding via `$(filter-out $@,$(MAKECMDGOALS))` and a `%:` catch-all rule. Net effect: `make build test` now forwards `test` to `./script/build.sh test` (positional sub-cmds align with `.sh` calling convention); flags require the `--` separator (`make build -- --no-cache test` -> `./script/build.sh --no-cache test`) because Make's argument parser consumes `-` / `--` tokens before `MAKECMDGOALS` is computed. The previously-existing sub-cmd targets `test` / `runtime` / `run-detach` are removed in favour of the positional forwarding pattern. Three new targets ship: `prune` / `setup` / `setup-tui`. `.DEFAULT_GOAL := help` flips the bare-`make` default from "build" to "print help" for better discoverability. `Makefile.ci` is unchanged — the user-facing vs CI-facing split is intentional and preserved (CI keeps using `make -f Makefile.ci test` / `lint` / `upgrade VERSION=vX.Y.Z`).
+
+  Migration table for external consumers:
+
+  | Old | New |
+  |---|---|
+  | `./build.sh` | `make build` (no args) or `./script/build.sh` |
+  | `./build.sh test` | `make build test` or `./script/build.sh test` |
+  | `./build.sh --no-cache test` | `make build -- --no-cache test` or `./script/build.sh --no-cache test` |
+  | `./run.sh -d` | `make run -- -d` or `./script/run.sh -d` |
+  | `./exec.sh -t bats-src bash` | `make exec -- -t bats-src bash` or `./script/exec.sh -t bats-src bash` |
+  | `make test` (removed) | `make build test` (positional forward to `./script/build.sh test`) |
+  | `make runtime` (removed) | `make build runtime` |
+  | `make run-detach` (removed) | `make run -- -d` |
+  | `make` (was: build) | `make` now prints help (`.DEFAULT_GOAL := help`); use `make build` to build |
+
+  New tests cover the 1:1 invocation, positional forwarding, `--` separator, `.DEFAULT_GOAL`, and catch-all behaviour (NEW `test/unit/makefile_user_spec.bats`, ~25 cases) plus the `script/` symlink layout + migration loop (`test/integration/init_new_repo_spec.bats` +3 cases, `test/unit/init_spec.bats` updates + 1 new migration case).
+
 ## [v0.30.0] - 2026-05-14
 
 Promoted from `v0.30.0-rc1` (#360). rc1 tag CI green: `Self Test` +
