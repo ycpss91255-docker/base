@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1282 tests** total (1221 unit + 61 integration).
+Template self-tests: **1298 tests** total (1237 unit + 61 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1282 tests** total (1221 unit + 61 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (283)
+### test/unit/setup_spec.bats (292)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -119,8 +119,9 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
 | Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
 | #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
+| #328 `[logging]` CLI orphan fix (`_setup_known_section` recognises `logging` + `logging.<svc>`; rightmost-dot spec parsing for `logging.<svc>.<key>`; `set/show/remove` round-trip on global + per-service keys; validators surface as `Invalid value` errors; whole-section `show logging` lists all 4 keys) | 9 |
 
-### test/unit/tui_spec.bats (97)
+### test/unit/tui_spec.bats (104)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -137,6 +138,7 @@ parsers, and setup.conf round-trip.
 | `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
 | `_validate_additional_context` (#199: relative paths, BuildKit schemes, name punctuation, reject empty / missing pieces, reject invalid name shapes) | 5 |
 | Per-stage `[stage:NAME]` round-trip (#220: namespaced load, append new section, multi-section append, round-trip, in-place update of existing section) | 5 |
+| `_validate_log_*` (#328: driver name shape, max_size num+unit, max_file positive int, compress boolean; covers happy paths + rejection of empty / whitespace / wrong unit / decimals / case mismatches) | 7 |
 
 ### test/unit/tui_backend_spec.bats (28)
 

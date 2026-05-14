@@ -325,6 +325,109 @@ EOF
   _setup_known_section "additional_contexts"
 }
 
+@test "_setup_known_section recognises logging + [logging.<svc>] sub-section (#328)" {
+  _setup_known_section "logging"
+  _setup_known_section "logging.runtime"
+  _setup_known_section "logging.devel"
+  run _setup_known_section "logging."
+  assert_failure
+  run _setup_known_section "loggings"
+  assert_failure
+}
+
+@test "set logging.driver round-trips via show (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.driver journald --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.driver --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "journald"
+}
+
+@test "set logging.compress accepts true/false; rejects others (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.compress true --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.compress maybe --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set logging.max_file rejects non-positive integers (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.max_file 5 --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_file 0 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_file -1 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_file abc --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.max_size accepts num+unit; rejects malformed (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.max_size 50m --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_size 1g --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_size 10X --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_size abc --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.driver rejects whitespace/empty-shape names (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.driver "bad name" --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.driver "1starts-with-digit" --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.<svc>.<key> writes to per-service section (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+EOF
+  run main set logging.runtime.driver journald --base-path "${TEMP_DIR}"
+  assert_success
+  # Per-service section now exists with the override.
+  run grep -F "[logging.runtime]" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  run main show logging.runtime.driver --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "journald"
+}
+
+@test "remove logging.<svc>.<key> deletes the per-service key (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.runtime]
+driver = journald
+max_file = 7
+EOF
+  run main remove logging.runtime.driver --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F "driver = journald" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_failure
+  # Sibling key untouched.
+  run grep -F "max_file = 7" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+}
+
+@test "show logging prints the whole resolved [logging] section (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main show logging --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "driver"
+  assert_output --partial "max_size"
+  assert_output --partial "max_file"
+  assert_output --partial "compress"
+}
+
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
