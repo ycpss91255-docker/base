@@ -2458,7 +2458,12 @@ _announce_template_default_fallback() {
 _setup_known_section() {
   local _s="${1-}"
   case "${_s}" in
-    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts)
+    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
+      return 0 ;;
+    logging.?*)
+      # Per-service override section [logging.<svc>] -- shape only;
+      # `<svc>` must be non-empty (rejects `logging.` trailing-dot).
+      # Caller decides whether <svc> matches a real Dockerfile stage.
       return 0 ;;
     *)
       return 1 ;;
@@ -2493,6 +2498,33 @@ _setup_validate_kv() {
       [[ -z "${_value}" ]] && return 0
       _validate_shm_size "${_value}" ;;
     *)
+      # [logging] + [logging.<svc>] share the same key validators —
+      # docker daemon's `logging.driver` + `logging.options.*` shape.
+      # Empty allowed = "clear key, fall through to template default".
+      case "${_section}" in
+        logging|logging.*)
+          case "${_key}" in
+            driver)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_driver "${_value}"
+              return $? ;;
+            max_size)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_max_size "${_value}"
+              return $? ;;
+            max_file)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_max_file "${_value}"
+              return $? ;;
+            compress)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_compress "${_value}"
+              return $? ;;
+            *)
+              return 0 ;;
+          esac
+          ;;
+      esac
       case "${_section}" in
         volumes)
           if [[ "${_key}" == mount_* ]]; then
@@ -2622,14 +2654,22 @@ _setup_set() {
     return 1
   fi
 
-  # Split <section>.<key>; the first '.' is the separator (keys
-  # themselves never contain dots in setup.conf).
+  # Split <section>.<key>; the first '.' is the separator. The only
+  # sub-section pattern is [logging.<svc>] (per-service override), so
+  # `logging.<svc>.<key>` is split as section=`logging.<svc>`,
+  # key=`<key>` (rightmost-dot). All other shapes use first-dot.
   if [[ "${_spec}" != *.* ]]; then
     _setup_msg usage set >&2
     return 1
   fi
-  local _section="${_spec%%.*}"
-  local _key="${_spec#*.}"
+  local _section _key
+  if [[ "${_spec}" == logging.*.* ]]; then
+    _section="${_spec%.*}"
+    _key="${_spec##*.}"
+  else
+    _section="${_spec%%.*}"
+    _key="${_spec#*.}"
+  fi
   if [[ -z "${_section}" || -z "${_key}" ]]; then
     _setup_msg usage set >&2
     return 1
@@ -2721,7 +2761,12 @@ _setup_show() {
   fi
 
   local _section _key
-  if [[ "${_spec}" == *.* ]]; then
+  if [[ "${_spec}" == logging.*.* ]]; then
+    # [logging.<svc>] sub-section: section is `logging.<svc>`, key is
+    # the rightmost dot-delimited segment.
+    _section="${_spec%.*}"
+    _key="${_spec##*.}"
+  elif [[ "${_spec}" == *.* ]]; then
     _section="${_spec%%.*}"
     _key="${_spec#*.}"
   else
@@ -3121,8 +3166,14 @@ _setup_remove() {
     _setup_msg usage remove >&2
     return 1
   fi
-  local _section="${_spec%%.*}"
-  local _rest="${_spec#*.}"
+  local _section _rest
+  if [[ "${_spec}" == logging.*.* ]]; then
+    _section="${_spec%.*}"
+    _rest="${_spec##*.}"
+  else
+    _section="${_spec%%.*}"
+    _rest="${_spec#*.}"
+  fi
   if [[ -z "${_section}" || -z "${_rest}" ]]; then
     _setup_msg usage remove >&2
     return 1

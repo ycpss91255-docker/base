@@ -332,7 +332,7 @@ template；沒寫的 section 則吃 template 預設。
 Main
 ├─ image            IMAGE_NAME 偵測規則
 ├─ build            APT mirrors + Dockerfile build args
-├─ Runtime  ──→     network / deploy（GPU）/ gui / environment
+├─ Runtime  ──→     network / deploy（GPU）/ gui / environment / logging
 ├─ Mounts   ──→     volumes / devices / tmpfs
 ├─ Advanced ──→     security / additional_contexts
 │                   / per_stage（條件式）/ Reset

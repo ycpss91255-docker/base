@@ -377,7 +377,7 @@ Main menu structure (#221):
 Main
 ├─ image            IMAGE_NAME detection rules
 ├─ build            APT mirrors + Dockerfile build args
-├─ Runtime  ──→     network / deploy (GPU) / gui / environment
+├─ Runtime  ──→     network / deploy (GPU) / gui / environment / logging
 ├─ Mounts   ──→     volumes / devices / tmpfs
 ├─ Advanced ──→     security / additional_contexts
 │                   / per_stage (conditional) / Reset
