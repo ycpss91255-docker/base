@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1273 tests** total (1216 unit + 57 integration).
+Template self-tests: **1278 tests** total (1221 unit + 57 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -451,7 +451,7 @@ guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `docker exec` itself does not build, but flag is accepted and `-vv`
 enables wrapper trace).
 
-### test/unit/stop_sh_spec.bats (29)
+### test/unit/stop_sh_spec.bats (34)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `script/docker/stop.sh`: `_down_one` now exports `COMPOSE_PROFILES='*'` (compose v2.32+ wildcard) and passes `--remove-orphans` when invoking `docker compose down`. Without these, profile-gated services (the auto-emitted `headless` / `gui` / `test` stages introduced via #215) were silently skipped because `docker compose down` only acts on services in currently-active profiles; running `./run.sh -t headless -d` started the container correctly, but `./stop.sh` left it running with no output and `exit 0`. `--remove-orphans` additionally reclaims containers from prior compose.yaml shapes the current file no longer declares. The same env + flag pair is threaded through every `_down_one` invocation (default, `--instance`, `--all`). 2 new unit cases in `stop_sh_spec.bats` lock the `--remove-orphans` propagation including across `--all`. Closes #341.
+
+- `script/docker/stop.sh`: `-v` / `--verbose` is no longer a no-op. Previously it only exported `BUILDKIT_PROGRESS=plain`, which has zero effect on `compose down` because compose down doesn't build anything; the flag accepted, produced no extra output, and users were left confused. The new behaviour lists the containers belonging to the compose project (name + state, via `docker ps -a --filter "label=com.docker.compose.project=<name>"`) before tearing them down, giving the stop flow a real visible signal in parity with `build.sh -v` / `run.sh -v` / `exec.sh -v`. When no containers match, an explicit "No containers found for project &lt;name&gt;" line is printed instead. `-vv` continues to add `set -x` wrapper trace on top. 3 new unit cases in `stop_sh_spec.bats` cover the populated / empty / default (no -v) output. Usage text updated in all 4 languages. Closes #345.
+
 ## [v0.29.1] - 2026-05-14
 
 Patch release (no RC) correcting the v0.29.0 dispatcher's per-shard `image_name` separator from `_` to `-` before any downstream adoption. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule (see v0.12.1 / v0.12.2 / v0.12.3 precedent), tagged directly on the merge commit.
