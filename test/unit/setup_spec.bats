@@ -384,6 +384,146 @@ fi'
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _is_ssh_x11 (SSH X11 forwarding detection, #321)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_is_ssh_x11 true when SSH_CONNECTION set + DISPLAY=localhost:N (#321)" {
+  SSH_CONNECTION="1.2.3.4 12345 5.6.7.8 22" DISPLAY="localhost:10.0" _is_ssh_x11
+}
+
+@test "_is_ssh_x11 true when DISPLAY=localhost:N without fractional part (#321)" {
+  SSH_CONNECTION="x y z w" DISPLAY="localhost:0" _is_ssh_x11
+}
+
+@test "_is_ssh_x11 false when SSH_CONNECTION unset (#321)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    unset SSH_CONNECTION
+    DISPLAY=localhost:10.0 _is_ssh_x11
+  "
+  assert_failure
+}
+
+@test "_is_ssh_x11 false when DISPLAY is local socket (:0) (#321)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SSH_CONNECTION='x y z w' DISPLAY=:0 _is_ssh_x11
+  "
+  assert_failure
+}
+
+@test "_is_ssh_x11 false when DISPLAY is unset (#321)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SSH_CONNECTION='x y z w' DISPLAY='' _is_ssh_x11
+  "
+  assert_failure
+}
+
+@test "_is_ssh_x11 false when DISPLAY points to a remote host (#321)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SSH_CONNECTION='x y z w' DISPLAY='other-host:0' _is_ssh_x11
+  "
+  assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_ssh_x11_cookie (cookie rewrite via xauth, #321)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)" {
+  # Stub xauth via PATH shim so the test does not depend on a real
+  # X server. Stub captures argv to /tmp/xauth.log so we can assert
+  # the family-rewrite pipeline ran.
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+echo "xauth $*" >> "${XAUTH_LOG}"
+# Always succeed; nmerge reads stdin, consume it so the pipe closes cleanly.
+cat >/dev/null 2>&1 || true
+exit 0
+EOS
+  chmod +x "${_bin}/xauth"
+
+  XAUTH_LOG="${TEMP_DIR}/xauth.log"
+  export XAUTH_LOG
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/script/docker/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_success
+  assert_output "${TEMP_DIR}/.docker.xauth"
+  # File was created
+  assert [ -f "${TEMP_DIR}/.docker.xauth" ]
+  # xauth was invoked twice: nlist + nmerge
+  run cat "${XAUTH_LOG}"
+  assert_output --partial "xauth nlist localhost:10.0"
+  assert_output --partial "xauth -f ${TEMP_DIR}/.docker.xauth nmerge -"
+}
+
+@test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
+  # Shadow the `command` builtin with a function that returns 1 for
+  # `command -v xauth` and passes everything else through to the real
+  # builtin. Lets the function exercise its xauth-missing branch
+  # without touching PATH (which would also break setup.sh's own
+  # dirname / sed / etc. lookups during source).
+  run bash -c "
+    source /source/script/docker/setup.sh
+    command() {
+      if [[ \"\${1:-}\" == '-v' && \"\${2:-}\" == 'xauth' ]]; then
+        return 1
+      fi
+      builtin command \"\$@\"
+    }
+    DISPLAY=localhost:10.0 _setup_ssh_x11_cookie '${TEMP_DIR}'
+  "
+  assert_failure
+  assert_output --partial "xauth"
+  assert_output --partial "not in PATH"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# write_env: SSH X11 XAUTHORITY override (#321)
+# ════════════════════════════════════════════════════════════════════
+
+@test "write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)" {
+  local _env="${TEMP_DIR}/.env"
+  # Pass all positional args incl. the new trailing _ssh_x11_xauth.
+  write_env "${_env}" \
+    alice alice 1000 1000 \
+    x86_64 alice false myrepo /tmp/ws \
+    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
+    bridge host false all "gpu compute" \
+    true confhash dockerhash \
+    "" "" "" "" \
+    "/path/to/.docker.xauth"
+  assert [ -f "${_env}" ]
+  run grep -F 'XAUTHORITY=/path/to/.docker.xauth' "${_env}"
+  assert_success
+  run grep -F 'SSH X11 forwarding cookie override' "${_env}"
+  assert_success
+}
+
+@test "write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)" {
+  local _env="${TEMP_DIR}/.env"
+  write_env "${_env}" \
+    alice alice 1000 1000 \
+    x86_64 alice false myrepo /tmp/ws \
+    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
+    bridge host false all "gpu compute" \
+    true confhash dockerhash \
+    "" "" "" "" \
+    ""
+  assert [ -f "${_env}" ]
+  run cat "${_env}"
+  refute_output --partial "SSH X11 forwarding cookie override"
+  refute_output --partial $'\nXAUTHORITY='
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _parse_ini_section
 # ════════════════════════════════════════════════════════════════════
 
