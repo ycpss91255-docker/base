@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- `README.md` + `doc/readme/README.{zh-TW,zh-CN,ja}.md`: new "Naming scheme: three namespaces, two user identities" subsection under "Per-repo runtime configuration". Clarifies why `image:` uses `${DOCKER_HUB_USER}` (registry-side namespace, breaks cache reuse if per-OS-user) while `container_name:` uses `${USER_NAME}` (host daemon namespace, the actual collision class #322 fixes), and why compose project name kept `${DOCKER_HUB_USER}` historically — together with a worked example contrasting single-user-machine alignment vs. multi-user-host divergence. Also documents `INSTANCE_SUFFIX` as the fourth orthogonal dimension for same-user same-repo parallel containers. No behaviour change; the #322 CHANGELOG entry's "aligns container-level naming with project-level naming" phrasing is now self-explanatory for sysadmins where OS user and Docker Hub user diverge.
+
 ### Changed
 
 - `.github/workflows/self-test.yaml`: harden `classify` job against latent fail-closed and fork-PR breakage (#317 P1 follow-up). The job's required-check chain (`test` needs `classify`) means any non-zero exit here wedges every PR merge (Q4 fail-closed design). Two robustness changes: (1) `set -uo pipefail` instead of `set -euo pipefail` so transient diff/fetch errors fall through the `if git diff --quiet` form to the existing "differences exist" branch (emits `code_changed=true` / `behavioural_relevant=true` rather than aborting the job); (2) explicit `git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=200 || true` before the diff so fork PRs (where `actions/checkout@v6` `fetch-depth: 0` only fetches the head branch, not the base) don't trip on `origin/<base>` being absent locally. Worst case after this change: a misclassified doc-only PR burns one full-suite run instead of blocking the merge queue.
