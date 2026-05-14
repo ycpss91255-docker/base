@@ -129,8 +129,45 @@ jobs:
         if: needs.classify.outputs.code_changed == 'true'
         uses: docker/setup-buildx-action@v4
 
-      - name: Build test-tools:local (with GHA cache)
+      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+        id: obtain
         if: needs.classify.outputs.code_changed == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        # Layer 1: PR touched Dockerfile.test-tools -> must rebuild from
+        # source (the :main rolling tag still reflects the pre-PR state).
+        # Layer 2: try pulling the rolling :main tag and re-tag locally;
+        # avoids a buildx run on the hot path (every non-Dockerfile-test-
+        # tools PR).
+        # Layer 3: pull failed (first bootstrap of :main, network, GHCR
+        # auth gap) -> emit build_local=true and let the buildx step
+        # below take over with GHA cache.
+        run: |
+          set -uo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git fetch origin \
+              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              --depth=200 >/dev/null 2>&1 || true
+            if ! git diff --quiet \
+                 "origin/${BASE_REF}"...HEAD \
+                 -- dockerfile/Dockerfile.test-tools; then
+              echo "build_local=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            docker tag \
+              ghcr.io/ycpss91255-docker/test-tools:main \
+              test-tools:local
+            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build test-tools:local (with GHA cache)
+        if: ${{ needs.classify.outputs.code_changed == 'true' && steps.obtain.outputs.build_local == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -164,9 +201,53 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
+        # docker-container driver (default) is required for type=gha cache
+        # support. `load: true` on the build step below pushes the result
+        # into the host's docker daemon image store so the subsequent
+        # `./build.sh test` (which uses regular `docker build`) can see
+        # test-tools:local. Replaces the previous `driver: docker` setup
+        # which lacked GHA cache; #317 P2 brings integration-e2e in line
+        # with the test + behavioural jobs.
         uses: docker/setup-buildx-action@v4
+
+      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git fetch origin \
+              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              --depth=200 >/dev/null 2>&1 || true
+            if ! git diff --quiet \
+                 "origin/${BASE_REF}"...HEAD \
+                 -- dockerfile/Dockerfile.test-tools; then
+              echo "build_local=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            docker tag \
+              ghcr.io/ycpss91255-docker/test-tools:main \
+              test-tools:local
+            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build test-tools:local (with GHA cache)
+        if: ${{ steps.obtain.outputs.build_local == 'true' }}
+        uses: docker/build-push-action@v6
         with:
-          driver: docker  # use host docker daemon's image store so test-tools:local is visible
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: test-tools:local
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
 
       - name: Create temp repo and run init.sh
         run: |
@@ -191,6 +272,14 @@ jobs:
 
       - name: Build test stage (build.sh test)
         working-directory: ${{ env.REPO_DIR }}
+        env:
+          # build.sh skips its internal test-tools:local build when this
+          # env is set (#317 P2). The pre-built image from the Obtain
+          # step above is already loaded into the host's docker daemon,
+          # so `docker compose build`'s Dockerfile.example `FROM
+          # ${TEST_TOOLS_IMAGE}` resolves locally without re-running
+          # the dockerfile/Dockerfile.test-tools build.
+          TEST_TOOLS_IMAGE: test-tools:local
         run: |
           ./build.sh test
 
@@ -231,7 +320,36 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git fetch origin \
+              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              --depth=200 >/dev/null 2>&1 || true
+            if ! git diff --quiet \
+                 "origin/${BASE_REF}"...HEAD \
+                 -- dockerfile/Dockerfile.test-tools; then
+              echo "build_local=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            docker tag \
+              ghcr.io/ycpss91255-docker/test-tools:main \
+              test-tools:local
+            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
       - name: Build test-tools:local (with GHA cache)
+        if: ${{ steps.obtain.outputs.build_local == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .

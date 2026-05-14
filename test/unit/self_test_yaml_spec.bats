@@ -180,3 +180,63 @@ setup() {
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
+
+# ── #317 P2: Obtain step + rolling tag fallback ──────────────────────
+
+@test "self-test.yaml: test job has Obtain step pulling :main with 3-layer fallback (#317 P2)" {
+  run awk '/^  test:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'docker pull --platform linux/amd64'
+  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
+  assert_output --partial 'docker tag'
+  assert_output --partial 'build_local=true'
+  assert_output --partial 'build_local=false'
+}
+
+@test "self-test.yaml: test job Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2)" {
+  run awk '/^  test:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "steps.obtain.outputs.build_local == 'true'"
+}
+
+@test "self-test.yaml: integration-e2e job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
+  assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
+}
+
+@test "self-test.yaml: integration-e2e job no longer pins buildx to driver: docker (#317 P2)" {
+  # P1's buildx GHA cache requires the docker-container driver; P2
+  # extends that to integration-e2e by dropping the previous
+  # `driver: docker` setup-buildx-action override. `load: true` on
+  # the build step pushes the result into the host daemon's image
+  # store so the subsequent `docker compose build` still sees
+  # test-tools:local. Strip comments before asserting absence so that
+  # a comment referencing the removed override (for the reader) does
+  # not register as a false positive.
+  run bash -c "awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' \"${WF}\" | grep -vE '^\\s*#' || true"
+  assert_success
+  refute_output --partial 'driver: docker'
+}
+
+@test "self-test.yaml: behavioural job has Obtain step with 3-layer fallback (#317 P2)" {
+  run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
+  assert_output --partial 'build_local=true'
+  assert_output --partial 'build_local=false'
+}
+
+@test "self-test.yaml: Obtain step pre-fetches base ref before diff (#317 P2 + P1 gotcha-2 reuse)" {
+  # Same gotcha-2 mitigation as the classify job: fork PRs need an
+  # explicit fetch of origin/<base_ref> before `git diff` can resolve
+  # the merge base for `dockerfile/Dockerfile.test-tools`. 4 expected
+  # occurrences: classify job (1) + Obtain step in 3 jobs (3).
+  run grep -c 'git fetch origin' "${WF}"
+  assert_success
+  assert_output '4'
+}

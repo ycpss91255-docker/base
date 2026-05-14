@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1235 tests** total (1179 unit + 56 integration).
+Template self-tests: **1252 tests** total (1196 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -215,10 +215,10 @@ on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/self_test_yaml_spec.bats (19)
+### test/unit/self_test_yaml_spec.bats (25)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-three cumulative invariants:
+four cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -246,6 +246,21 @@ three cumulative invariants:
    `actions/checkout@v6 fetch-depth: 0` only fetches the head
    branch) don't trip on missing `origin/<base>`.
 
+4. **#317 P2 Obtain step + rolling tag fallback** — each of the 3
+   downstream jobs (`test`, `integration-e2e`, `behavioural`)
+   precedes its test-tools build step with an `Obtain` step that
+   implements the 3-layer fallback: PR touched Dockerfile.test-tools
+   -> rebuild local; else `docker pull
+   ghcr.io/ycpss91255-docker/test-tools:main` and re-tag; else fall
+   back to a buildx-cached rebuild. The buildx Build step is gated
+   on `steps.obtain.outputs.build_local == 'true'` so the hot path
+   (pulled :main) skips it entirely. `integration-e2e` additionally
+   passes `TEST_TOOLS_IMAGE: test-tools:local` to `./build.sh test`
+   so the wrapper script skips its own internal test-tools build,
+   and drops the previous `driver: docker` setup-buildx-action
+   override (docker-container driver + `load: true` is required for
+   GHA cache while still loading the image into the host daemon).
+
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
@@ -257,8 +272,42 @@ three cumulative invariants:
 | `integration-e2e` + `behavioural` job-level `if: code_changed == 'true'` | 2 |
 | `test` + `behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 2 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
+| `test` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2) | 2 |
+| `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
+| `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
+| Obtain steps pre-fetch base ref (4 occurrences: classify + 3 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 
-### test/unit/build_sh_spec.bats (50)
+### test/unit/release_test_tools_yaml_spec.bats (10)
+
+Structural assertions for `.github/workflows/release-test-tools.yaml`.
+Locks the publish surface that downstream Dockerfile.example's `FROM
+${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has
+three publish modes:
+
+1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
+   release downstream consumers pin via `inputs.test_tools_version`.
+2. **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
+   self-test.yaml's Obtain step to skip from-source rebuilds. Paths
+   filter (gotcha 3) restricts to commits that touched
+   `dockerfile/Dockerfile.test-tools` or this workflow.
+3. **workflow_dispatch** — manual `:latest` republish, kept unfiltered
+   for bootstrap.
+
+Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag
+the current trigger produced (rather than statically pulling `:latest`,
+which would leave a freshly-pushed `:main` unverified).
+
+| Category | Tests |
+|----------|-------|
+| Triggers on `v*` tag push (existing) | 1 |
+| Triggers on main push (#317 P2) | 1 |
+| Main push trigger has `paths:` filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3) | 1 |
+| Triggers on `workflow_dispatch` (existing) | 1 |
+| Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
+| Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
+| Build step pushes multi-arch (amd64 + arm64) + declares `packages: write` permission | 2 |
+
+### test/unit/build_sh_spec.bats (51)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
