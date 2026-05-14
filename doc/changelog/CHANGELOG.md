@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `.github/workflows/self-test.yaml`: harden `classify` job against latent fail-closed and fork-PR breakage (#317 P1 follow-up). The job's required-check chain (`test` needs `classify`) means any non-zero exit here wedges every PR merge (Q4 fail-closed design). Two robustness changes: (1) `set -uo pipefail` instead of `set -euo pipefail` so transient diff/fetch errors fall through the `if git diff --quiet` form to the existing "differences exist" branch (emits `code_changed=true` / `behavioural_relevant=true` rather than aborting the job); (2) explicit `git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=200 || true` before the diff so fork PRs (where `actions/checkout@v6` `fetch-depth: 0` only fetches the head branch, not the base) don't trip on `origin/<base>` being absent locally. Worst case after this change: a misclassified doc-only PR burns one full-suite run instead of blocking the merge queue.
+
 ## [v0.28.1] - 2026-05-14
 
 Patch release bundling 4 closed-issue PRs since v0.28.0: 2 fixes (#322 multi-user container_name collision, #321 SSH X11 forwarding) + 1 feature (#319 prune.sh + stop.sh --prune for docker garbage cleanup) + 1 internal CI improvement (#317 P1 buildx GHA cache + doc-only classifier short-circuit). No new MINOR features; the prune.sh wrapper is opt-in utility tooling consistent with the existing build/run/exec/stop pattern. No breaking changes from v0.28.0 — but #322 has a one-shot orphan-container cleanup caveat (see entry below); existing running instances need a manual `docker stop <name> && docker rm <name>` or `./prune.sh --all` once.

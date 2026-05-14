@@ -91,6 +91,30 @@ setup() {
   assert_output --partial 'behavioural_relevant=true'
 }
 
+@test "self-test.yaml: classify omits set -e to fail-open on diff errors (#317 gotcha-1)" {
+  # The classifier must not abort the job on diff/fetch failure — the
+  # `test` job needs classify as a gate, and aborting here would block all
+  # PR merges (Q4 fail-closed chain). Verify `set -e` is not in effect by
+  # asserting `set -uo pipefail` (not `set -euo pipefail`) is used.
+  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'set -uo pipefail'
+  refute_output --partial 'set -euo pipefail'
+}
+
+@test "self-test.yaml: classify pre-fetches base ref before diff (#317 gotcha-2)" {
+  # actions/checkout `fetch-depth: 0` fetches the head branch's full
+  # history but NOT the base ref. Fork PRs (and some squash-merged
+  # histories) start without `origin/<base>` present locally; the
+  # classifier must pre-fetch it explicitly, with failure being non-fatal
+  # so the diff fall-through can still take over.
+  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'git fetch origin'
+  assert_output --partial '"${BASE_REF}:refs/remotes/origin/${BASE_REF}"'
+  assert_output --partial '|| true'
+}
+
 # ── Downstream jobs gate on actionlint + classify (#305 / #317) ───────
 
 @test "self-test.yaml: test job declares needs on actionlint AND classify (#317)" {
