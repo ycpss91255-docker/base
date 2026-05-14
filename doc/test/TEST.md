@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1278 tests** total (1221 unit + 57 integration).
+Template self-tests: **1282 tests** total (1221 unit + 61 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -988,19 +988,25 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/integration/upgrade_spec.bats (8)
+### test/integration/upgrade_spec.bats (12)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
 on a minimal subtree layout) attached to a sandbox downstream repo.
 **Level 1** (no Docker). Exercises the happy path, the pre-flight
-guards, and — most importantly — the destructive-FF rollback path added
-after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
-`GIT_EXEC_PATH` to simulate the bug and asserts the repo is restored).
+guards, the destructive-FF rollback path added after the Jetson v0.9.7
+incident (stubs `git-subtree pull` via `GIT_EXEC_PATH` to simulate the
+bug and asserts the repo is restored), and the post-#284 Dockerfile
+lint-stage auto-patch that heals downstream Dockerfiles missing the
+`COPY .base/script/docker/lib /lint/lib` line (#348).
 
 | Test | Description |
 |------|-------------|
 | `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
+| `upgrade.sh patches Dockerfile lint stage when missing COPY .base/script/docker/lib /lint/lib (#348)` | Auto-heal post-#284 lib drift on first upgrade |
+| `upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)` | Already-patched Dockerfile is unchanged on re-run |
+| `upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)` | Custom Dockerfile shape opts out of auto-heal |
+| `upgrade.sh continues cleanly when no Dockerfile at repo root (#348)` | Subtree-only repos (no consumer Dockerfile) skip silently |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |

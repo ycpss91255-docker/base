@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `upgrade.sh`: auto-patch downstream Dockerfile lint stage to add `COPY .base/script/docker/lib /lint/lib` + extend `RUN shellcheck` to cover `/lint/lib/*.sh` on first upgrade after #284 (closes #348). Every fanout cycle since v0.27.0 has tripped on 12 of 13 downstream Dockerfiles failing CI with `/lint/lib/log.sh: No such file or directory` because the umbrella loader (`_lib.sh`) source-chains into `lib/{log,env,conf,compose,config_summary,gitignore}.sh` but the stock `COPY .base/script/docker/*.sh /lint/` doesn't recurse into the `lib/` subdirectory. The auto-patch detects the missing COPY line and the stock `RUN shellcheck -S warning /lint/*.sh` anchor, then sed-inserts the COPY line and extends the shellcheck invocation. Idempotent (no-op when the COPY line is already present); skips with a warning when the Dockerfile uses a custom shape (no stock anchor); skips cleanly when no Dockerfile is at the repo root (subtree-only consumer repos). Patched changes ride on the existing `chore: update template references to vX.Y.Z` commit. Eliminates the recurring `fix-dockerfile-lint-lib.sh` post-fanout cleanup workflow used through v0.28.2.
+
 ## [v0.29.2] - 2026-05-14
 
 Patch release bundling 4 small-bug closures since v0.29.1: #334 (Dockerfile.example WORKDIR collapse), #335 (exec.sh -t non-devel precheck), #341 (stop.sh skips profile-gated services), #345 (stop.sh -v no-op). No breaking changes from v0.29.1. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule, tagged directly on the merge commit.
