@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.30.0-rc1] - 2026-05-14
+
+Release Candidate for v0.30.0 minor feature release. Bundles the
+`[logging]` UX completion + setup.sh per-invocation CLI flags since
+v0.29.2 (four PRs total):
+
+- **#328 `[logging]` UX completion** — two-part fix closing the orphan
+  documented in the issue body. Part 1 (#355) made the section
+  reachable from the `setup.sh` CLI subcommands and the TUI Runtime
+  menu, with first-class per-service editing for `devel` / `test` /
+  `runtime`. Part 2 (#356) added the `local_path` key + a new
+  `script/docker/_entrypoint_logging.sh` helper, so a single
+  `local_path = ./logs/` opt-in now produces a host-side log file
+  that `tail -f` / `grep` reaches while `docker logs <container>`
+  keeps working unchanged.
+
+- **#338 setup.sh CLI flags** (#357) — three per-invocation overrides
+  on `setup.sh apply` (forwarded by `build.sh` / `run.sh`):
+  `--gui auto|force|off` overrides `[gui] mode` for one invocation
+  (resolution order CLI > `SETUP_GUI` env > setup.conf > default);
+  `--no-x11-cookie` skips the SSH X11 cookie rewrite (debug knob
+  for the #321 / #333 SSH X11 work); `--print-resolved` dumps the
+  resolved state to stdout as `KEY=VALUE` lines without writing
+  `.env` / `compose.yaml` / `.gitignore` (subsumes the dry-run
+  piece of the #230 base-mcp `setup_resolve` plan).
+
+- **Log INFO visual fix** (#358) — `_log_info` no longer wraps the
+  `[<tag>] INFO:` prefix in `\033[2m` dim ANSI. User-feedback
+  driven: WARNING (yellow) and ERROR (red bold) keep their bright
+  styles, but INFO is informational and should share the default
+  terminal colour with the unstyled summary lines that callers
+  print alongside it (e.g. setup.sh's `USER=...` summary).
+
+No breaking changes from v0.29.2. `[logging] local_path` defaults to
+empty so existing repos see zero compose diff on `make upgrade`; the
+new `_entrypoint_logging.sh` helper is opt-in via a one-line source
+in each repo's `script/entrypoint.sh` — repos that don't add it see
+no behaviour change. The three new `setup.sh apply` flags are
+additive; default behaviour is unchanged.
+
+Downstream propagation: `/batch-template-upgrade v0.30.0` fanout
+deferred to after the v0.30.0 stable tag lands. The 9 repos with a
+`runtime` stage need separate per-repo PRs to add the entrypoint
+source-line to unlock `local_path` tee'ing — tracked separately
+as repo-level opt-ins.
+
 ### Changed
 
 - `script/docker/lib/log.sh`: `_log_info` no longer dims the `[<tag>] INFO:` prefix with `\033[2m`. Users running `./build.sh` / `./run.sh` saw three different visual weights for back-to-back log lines — `[setup] WARNING:` in yellow, `[setup] INFO: .env + compose.yaml updated` dimmed, and the trailing `[setup] USER=... GPU=... GUI=...` summary at full default colour — even though all three belong to the same scope and the summary line shares no `INFO` keyword to justify dimming. After this change INFO matches the summary line's visual weight (default terminal colour), while WARNING (yellow) and ERROR (red bold) keep their bright styles because those levels exist precisely to draw the eye. Test in `log_spec.bats` updated: `_log_info with FORCE_COLOR=1 still emits plain` replaces the prior `emits dim ANSI on non-TTY stdout` test.
