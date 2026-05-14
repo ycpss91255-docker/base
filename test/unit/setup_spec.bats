@@ -2917,8 +2917,9 @@ EOF
   # template's [image] rules — exact value irrelevant; pattern matters)
   run grep -E '^    image: \$\{DOCKER_HUB_USER:-local\}/[a-z0-9_-]+:headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
-  # container_name suffixed with -headless${INSTANCE_SUFFIX:-}
-  run grep -E '^    container_name: [a-z0-9_-]+-headless\$\{INSTANCE_SUFFIX:-\}$' "${TEMP_DIR}/compose.yaml"
+  # container_name: ${USER_NAME} prefix (#322 multi-user disambiguation)
+  # + ${IMAGE_NAME}-headless + INSTANCE_SUFFIX
+  run grep -E '^    container_name: \$\{USER_NAME\}-[a-z0-9_-]+-headless\$\{INSTANCE_SUFFIX:-\}$' "${TEMP_DIR}/compose.yaml"
   assert_success
   # profiles list contains the stage name
   run grep -F '      - headless' "${TEMP_DIR}/compose.yaml"
