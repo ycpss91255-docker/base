@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.28.2] - 2026-05-14
+
+Patch release for SSH X11 forwarding follow-up (#321 hotfix #333) bundled with CI infrastructure improvements (#317 P2 rolling `:main` tag + 3-layer Obtain fallback, #336 integration-e2e driver fix, #317 P1 follow-up classify-job hardening) and documentation clarifying the v0.28.1 naming-scheme change (#322 follow-up). No breaking changes from v0.28.1; users on v0.28.1 should upgrade to pick up the SSH X11 fix (the v0.28.1 cookie-rewrite path silently produced empty cookies under common `~/.Xauthority` lock contention).
+
 ### Fixed
 
 - `setup.sh::_setup_ssh_x11_cookie`: SSH X11 cookie rewrite silently produced a 0-byte `.docker.xauth` when `~/.Xauthority` was held by another process (tmux session, ssh-agent, DE startup hook holding flock). `xauth nlist` printed `error in locking authority file` to stderr (swallowed by `2>/dev/null` in the pipe) and exited 0 with empty stdout; the downstream `sed` + `xauth nmerge` chain inherited the empty input, nmerge wrote 0 bytes, the whole pipe returned 0, and the function happily echoed the cookie path back to `write_env`. The .env then carried `XAUTHORITY=<repo>/.docker.xauth` pointing at an empty file → container mounted a 0-byte cookie → libX11 had no token to present → `Can't open display: localhost:N` inside the container, even though every layer reported success. Two-part hotfix:
