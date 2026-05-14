@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.30.0] - 2026-05-14
+
+Promoted from `v0.30.0-rc1` (#360). rc1 tag CI green: `Self Test` +
+`Release test-tools image to GHCR` both completed/success. Bundles
+all rc1 content; no further changes between rc1 and stable.
+
+Downstream propagation queued separately:
+
+- `/batch-template-upgrade v0.30.0` against the 2 active consumers
+  (`env/ros_distro` + `env/ros2_distro`) when ready. Nothing in
+  v0.30.0 is breaking for them — `local_path` defaults to empty,
+  `_entrypoint_logging.sh` is opt-in via a one-line source, the
+  three new `setup.sh apply` CLI flags are net-additive.
+- 9 downstream repos with a `runtime` stage (`app/*` + `env/*`)
+  may optionally add the `_entrypoint_logging.sh` source line to
+  `script/entrypoint.sh` to unlock host-side `local_path` tee'ing.
+  Tracked as separate per-repo PRs rather than batched, since
+  some repos have non-standard entrypoints.
+
 ## [v0.30.0-rc1] - 2026-05-14
 
 Release Candidate for v0.30.0 minor feature release. Bundles the
