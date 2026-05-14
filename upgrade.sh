@@ -269,6 +269,9 @@ _upgrade() {
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
   _log "Step 3/5: re-run init.sh to sync symlinks"
+  # #330: when upgrading from <v0.30.0, init.sh's stale-removal loop
+  # migrates the seven root *.sh symlinks into the script/ subfolder.
+  _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
   "./${TEMPLATE_REL}/init.sh"
 
   # Step 4: update main.yaml @tag references

@@ -22,8 +22,18 @@ set -euo pipefail
 # `-C <dir>` / `--chdir <dir>` pre-pass — mirrors build.sh / run.sh /
 # exec.sh / stop.sh. prune.sh itself is daemon-wide so cwd does not
 # affect what gets pruned, but the flag is accepted for muscle-memory
-# consistency across all 5 wrappers.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# consistency across all wrappers.
+# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
+# (post-#330), and direct invocation — see build.sh for the heuristic.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 _chdir_i=1
 while (( _chdir_i <= $# )); do
   case "${!_chdir_i}" in

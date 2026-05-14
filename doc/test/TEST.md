@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1336 tests** total (1275 unit + 61 integration).
+Template self-tests: **1361 tests** total (1299 unit + 62 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -512,6 +512,29 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
+### test/unit/makefile_user_spec.bats (23)
+
+Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
+Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
+with positional sub-cmd args carried via `$(filter-out $@,$(MAKECMDGOALS))`
+and flags requiring the `--` separator. A `%:` catch-all rule no-ops the
+forwarded positional tokens so Make does not error on `make build test`.
+`.DEFAULT_GOAL := help` flips the bare-`make` invocation from build to
+help. Sandbox copies the Makefile into a fake repo, planting stub
+`script/*.sh` recorders that log their argv into stdout so each test
+can assert exactly which underlying script ran and with what args.
+
+Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
+`make help` lists 10 user-facing targets; removed sub-cmd targets
+(`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
+across all 10 targets (build / run / exec / stop / prune / setup /
+setup-tui / upgrade / upgrade-check / help); positional forwarding
+(`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
+setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
+test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
+no-op (`make foo` succeeds silently, `make build foo bar` forwards
+multiple positional args).
+
 ### test/unit/compose_gen_spec.bats (50)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
@@ -778,7 +801,7 @@ the host file content and the inherited stdout (preserving
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 
-### test/unit/init_spec.bats (21)
+### test/unit/init_spec.bats (22)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -799,8 +822,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
 | `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
-| `_create_symlinks: produces all seven docker-script symlinks` | Symlink set |
-| `_create_symlinks: replaces a stale file at the symlink path` | Re-init over existing files |
+| `_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)` | 7 wrappers under script/ with ../ targets; Makefile at root |
+| `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
+| `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
 
 ### test/unit/smoke_helper_spec.bats (19)
@@ -970,7 +994,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (39)
+### test/integration/init_new_repo_spec.bats (40)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -987,25 +1011,38 @@ which has access to a Docker daemon on the host runner.
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
+| `new repo: main.yaml grants permissions: contents: write` | #62 release perms |
 | `new repo: .gitignore exists` | gitignore |
 | `new repo: doc/ tree exists with README translations` | i18n docs |
 | `new repo: doc/test/TEST.md exists` | TEST.md gen |
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
-| `new repo: build.sh symlink → template/script/docker/build.sh` | symlink target |
-| `new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct` | symlink set |
-| `new repo: template/.version exists (no legacy VERSION / .template_version)` | version file |
+| `new repo: build.sh symlink lives under script/, not root (#330)` | symlink target moved to script/build.sh |
+| `new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)` | symlink set: 7 wrappers + Makefile root |
+| `new repo: config/ is an empty placeholder (template#254 layered override)` | config placeholder |
+| `new repo: init.sh preserves pre-existing config/ directory (no clobber)` | config preservation |
+| `new repo: init.sh drops stale config symlink before creating placeholder` | config-symlink drop |
+| `Dockerfile.example references CONFIG_SRC="config" (not .base/config)` | CONFIG_SRC default |
+| `Dockerfile.example has layered config COPY chain (template#254)` | layered COPY order |
+| `Dockerfile.example declares ENV HOME before WORKDIR ${HOME}/work (#334)` | HOME env directive |
+| `Dockerfile.example sets up bashrc.d drop-in directory (template#254)` | bashrc.d setup |
+| `new repo: .base/.version exists (no legacy VERSION / .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
-| `new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)` | post-rename symlink |
-| `new repo: init.sh removes stale tui.sh symlink from earlier versions` | upgrade cleanup |
-| `new repo: build.sh -h works against the generated symlink` | smoke build.sh |
-| `new repo: run.sh -h works against the generated symlink` | smoke run.sh |
-| `new repo: exec.sh -h works against the generated symlink` | smoke exec.sh |
-| `new repo: stop.sh -h works against the generated symlink` | smoke stop.sh |
+| `new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)` | setup_tui under script/ |
+| `new repo: init.sh removes stale tui.sh symlink from earlier versions (#330 stale-removal loop)` | upgrade cleanup |
+| `new repo: init.sh removes stale root *.sh symlinks (#330 migration)` | migrate 7 root symlinks to script/ |
+| `new repo: build.sh -h works against the generated symlink` | smoke script/build.sh |
+| `new repo: run.sh -h works against the generated symlink` | smoke script/run.sh |
+| `new repo: exec.sh -h works against the generated symlink` | smoke script/exec.sh |
+| `new repo: stop.sh -h works against the generated symlink` | smoke script/stop.sh |
+| `new repo: setup.sh symlink under script/ → ../.base/script/docker/setup.sh` | setup.sh under script/ |
+| `new repo: setup.sh -h works against the generated symlink` | smoke script/setup.sh |
 | `init.sh --gen-conf copies setup.conf to repo root` | setup.conf gen |
 | `init.sh --gen-conf refuses to overwrite existing setup.conf` | overwrite safety |
 | `new repo: .gitignore contains compose.yaml (derived artifact)` | gitignore compose.yaml |
 | `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
+| `new repo: compose.yaml ships devices: /dev:/dev by default` | default device mount |
+| `new repo: setup.conf mount_1 is NOT empty after first init` | workspace writeback non-empty |
 | `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)

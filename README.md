@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -81,8 +81,8 @@ graph TB
 ```mermaid
 flowchart LR
     subgraph local["Local"]
-        build_test["./build.sh test"]
-        make_test["make test"]
+        build_test["./script/build.sh test"]
+        make_test["make build test"]
     end
 
     subgraph ci_container["CI Container (kcov/kcov)"]
@@ -126,8 +126,8 @@ flowchart LR
 | `test/unit/` | Template self-tests (bats + kcov) |
 | `test/integration/` | Level-1 `init.sh` end-to-end tests |
 | `.hadolint.yaml` | Shared Hadolint rules |
-| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
-| `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
+| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.). Sub-cmds forward positionally (`make build test`); flags need `--` separator (`make build -- --no-cache test`). `make` no-arg prints help (`.DEFAULT_GOAL := help`). |
+| `Makefile.ci` | Template CI entry (`make -f Makefile.ci test`, `make -f Makefile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
 | `script/ci/ci.sh` | CI pipeline (local + remote) |
@@ -219,10 +219,15 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-./build.sh                    # regenerates compose.yaml, builds all stages
-./run.sh -t headless          # runs the headless variant
-./run.sh -t gui               # runs the gui variant
-./exec.sh -t headless bash    # exec into running headless container
+make build                            # regenerates compose.yaml, builds all stages
+make run -- -t headless               # runs the headless variant
+make run -- -t gui                    # runs the gui variant
+make exec -- -t headless bash         # exec into running headless container
+
+# Equivalent direct .sh invocation:
+./script/build.sh
+./script/run.sh -t headless
+./script/exec.sh -t headless bash
 ```
 
 Constraints:
@@ -412,13 +417,13 @@ every build or launch:
 > `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
 > smoke (pre-#243 this stage was named `test`). `run.sh`
 > prints an informational `[run] INFO:` block when this is about to
-> happen (TTY only). Pass `--build` to pre-flight `./build.sh test`
+> happen (TTY only). Pass `--build` to pre-flight `./script/build.sh test`
 > first if you want full local-CI parity in one command:
 >
 > ```bash
-> ./build.sh test           # explicit lint + smoke pass
-> ./run.sh --build          # same, then compose up
-> ./run.sh                  # default — fast path, lint/smoke skipped
+> make build test                   # explicit lint + smoke pass
+> make run -- --build               # same, then compose up
+> make run                          # default — fast path, lint/smoke skipped
 > ```
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
