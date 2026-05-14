@@ -150,6 +150,9 @@ Downstream READMEs link here instead of duplicating the table.
 | `-t` / `--target TARGET` | yes (#280, alias to positional) | yes | yes | — (Q2: stays project-wide) | — |
 | `--instance NAME` | — (build-time concept) | yes | yes | yes | — |
 | `-q` / `--quiet` | — | — | — | — | yes (#285, on mutating subcommands) |
+| `--gui auto\|force\|off` | yes (#338) | yes (#338) | — | — | yes (apply, #338) |
+| `--no-x11-cookie` | yes (#338) | yes (#338) | — | — | yes (apply, #338) |
+| `--print-resolved` | — | — | — | — | yes (apply, #338) |
 | `--` separator | — | yes | yes (#289) | — | yes (per subcommand) |
 | Positional meaning | TARGET | CMD | CMD | `docker compose down` pass-through | subcommand name |
 

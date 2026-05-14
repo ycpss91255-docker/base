@@ -267,6 +267,7 @@ main() {
   local RESET_CONF=false
   local ASSUME_YES=false
   local NO_CACHE=false
+  local -a SETUP_FORWARD_ARGS=()
   local CLEAN_TOOLS=false
   local TARGET="devel"
   DRY_RUN=false
@@ -289,6 +290,26 @@ main() {
         ;;
       --reset-conf)
         RESET_CONF=true
+        shift
+        ;;
+      --gui)
+        # #338: per-invocation [gui] mode override. Forwarded into
+        # setup.sh apply so the resolution short-circuits before
+        # _resolve_gui consumes setup.conf.
+        SETUP_FORWARD_ARGS+=(--gui "${2:?--gui requires a value (auto|force|off)}")
+        RUN_SETUP=true
+        shift 2
+        ;;
+      --gui=*)
+        SETUP_FORWARD_ARGS+=(--gui "${1#--gui=}")
+        RUN_SETUP=true
+        shift
+        ;;
+      --no-x11-cookie)
+        # #338: debug knob — skip SSH X11 cookie rewrite. Forces a
+        # setup rerun so the resolved .env reflects the override.
+        SETUP_FORWARD_ARGS+=(--no-x11-cookie)
+        RUN_SETUP=true
         shift
         ;;
       -y|--yes)
@@ -382,8 +403,17 @@ main() {
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
   # present and the symlink is executable; otherwise fall back to
   # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
+  #
+  # #338: when the user passes --gui / --no-x11-cookie on build.sh,
+  # those flags are accumulated in SETUP_FORWARD_ARGS and threaded
+  # into the setup.sh apply invocation here. The TTY/TUI branch is
+  # skipped under SETUP_FORWARD_ARGS (per-invocation overrides
+  # short-circuit through CLI, not through TUI Save).
   _run_interactive() {
-    if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+    if (( ${#SETUP_FORWARD_ARGS[@]} > 0 )); then
+      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
+        "${SETUP_FORWARD_ARGS[@]}"
+    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
       "${_tui}" --lang "${_LANG}"
     else
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"

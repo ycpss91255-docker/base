@@ -4089,3 +4089,174 @@ EOC
   assert_success
   refute_output --partial "[setup] USER="
 }
+
+# ════════════════════════════════════════════════════════════════════
+# #338: setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  # Baseline: mode=force resolves GUI_ENABLED=true regardless of host
+  # GUI detection.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+  # CLI override flips GUI to off, ignoring setup.conf.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui off --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui=force enables GUI even when setup.conf says off (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui=force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --gui rejects values outside auto|force|off (#338)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui bogus 2>&1
+  "
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "apply --print-resolved prints KEY=VALUE state without writing .env (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+[deploy]
+gpu_mode = off
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  # Expected resolved lines
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+  assert_output --partial "GPU_MODE=off"
+  assert_output --partial "GPU_ENABLED=false"
+  # And NO file was written.
+  [[ ! -f "${TEMP_DIR}/.env" ]]
+  [[ ! -f "${TEMP_DIR}/compose.yaml" ]]
+}
+
+@test "apply --print-resolved respects --gui override in the dump (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_DETECT_JETSON=false main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --no-x11-cookie --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=1"
+}
+
+@test "apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=0"
+}
+
+@test "apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  # CLI --gui force wins
+  assert_output --partial "GUI_MODE=force"
+}

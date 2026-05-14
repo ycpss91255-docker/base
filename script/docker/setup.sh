@@ -247,6 +247,23 @@ Options:
                         avoid double-printing after its `[tui] saved`
                         line.
 
+Apply-only options (#338):
+  --gui auto|force|off  Per-invocation override for [gui] mode. Wins
+                        over $SETUP_GUI env var and setup.conf. Useful
+                        for debugging X11 or one-off headless runs on
+                        a GUI repo. Equivalent forms: `--gui=auto`.
+  --no-x11-cookie       Skip the SSH X11 cookie rewrite even when
+                        SSH X11 forwarding is detected. GUI itself
+                        stays enabled per [gui] mode resolution;
+                        $XAUTHORITY stays at the host value the user's
+                        SSH session populated. Debug knob for #321.
+  --print-resolved      Run all detection + resolution logic and
+                        print the effective state to stdout as
+                        `KEY=VALUE` lines (one per line), then exit
+                        without writing .env / compose.yaml /
+                        .gitignore. Subsumes the dry-run piece of
+                        the #230 base-mcp setup_resolve plan.
+
 Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
   <base-path>/compose.yaml  Full compose with baseline + conditional
@@ -3559,6 +3576,12 @@ _setup_reset() {
 _setup_apply() {
   local _base_path=""
   local _quiet=0
+  # #338: per-invocation overrides. Empty means "use setup.conf /
+  # SETUP_GUI env / built-in default" per the documented resolution
+  # order CLI > env > conf > default.
+  local _gui_override=""        # --gui=auto|force|off
+  local _no_x11_cookie=0        # --no-x11-cookie
+  local _print_resolved=0       # --print-resolved
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -3578,12 +3601,40 @@ _setup_apply() {
         _quiet=1
         shift
         ;;
+      --gui)
+        _gui_override="${2:?"--gui requires a value (auto|force|off)"}"
+        shift 2
+        ;;
+      --gui=*)
+        _gui_override="${1#--gui=}"
+        shift
+        ;;
+      --no-x11-cookie)
+        _no_x11_cookie=1
+        shift
+        ;;
+      --print-resolved)
+        _print_resolved=1
+        shift
+        ;;
       *)
         _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
     esac
   done
+
+  # Validate --gui value early so the user sees the error before we
+  # spend cycles on detections.
+  if [[ -n "${_gui_override}" ]]; then
+    case "${_gui_override}" in
+      auto|force|off) ;;
+      *)
+        _log_err setup "$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)"
+        return 2
+        ;;
+    esac
+  fi
 
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
@@ -3700,6 +3751,17 @@ _setup_apply() {
   _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
   _get_conf_value _dep_k _dep_v "runtime"          "auto" runtime_mode
   _get_conf_value _gui_k _gui_v "mode"             "auto" gui_mode
+  # #338: resolution order CLI > env > conf > default.
+  # If --gui was passed, override; otherwise honor SETUP_GUI env var
+  # if set (already a documented mechanism elsewhere); fall back to
+  # the value read from setup.conf.
+  if [[ -n "${_gui_override}" ]]; then
+    gui_mode="${_gui_override}"
+  elif [[ -n "${SETUP_GUI:-}" ]]; then
+    case "${SETUP_GUI}" in
+      auto|force|off) gui_mode="${SETUP_GUI}" ;;
+    esac
+  fi
   _get_conf_value _net_k _net_v "mode"             "host" net_mode
   _get_conf_value _net_k _net_v "ipc"              "host" ipc_mode
   _get_conf_value _net_k _net_v "network_name"     ""     network_name
@@ -3895,14 +3957,56 @@ _setup_apply() {
     _user_build_args_str="$(printf '%s\n' "${_user_build_args[@]}")"
   fi
 
+  # ── #338 `--print-resolved`: dump effective state, do not touch
+  # .env / compose.yaml / .gitignore. Output is machine-readable
+  # `key=value` lines (one pair per line). Subsumes the dry-run
+  # piece of base#230's `setup_resolve` MCP plan.
+  if (( _print_resolved )); then
+    printf 'USER_NAME=%s\n' "${user_name}"
+    printf 'USER_GROUP=%s\n' "${user_group}"
+    printf 'USER_UID=%s\n' "${user_uid}"
+    printf 'USER_GID=%s\n' "${user_gid}"
+    printf 'HARDWARE=%s\n' "${hardware}"
+    printf 'DOCKER_HUB_USER=%s\n' "${docker_hub_user}"
+    printf 'IMAGE_NAME=%s\n' "${image_name}"
+    printf 'WS_PATH=%s\n' "${ws_path}"
+    printf 'APT_MIRROR_UBUNTU=%s\n' "${apt_mirror_ubuntu}"
+    printf 'APT_MIRROR_DEBIAN=%s\n' "${apt_mirror_debian}"
+    printf 'TZ=%s\n' "${tz}"
+    printf 'GPU_DETECTED=%s\n' "${gpu_detected}"
+    printf 'GPU_MODE=%s\n' "${gpu_mode}"
+    printf 'GPU_ENABLED=%s\n' "${gpu_enabled_eff}"
+    printf 'GPU_COUNT=%s\n' "${gpu_count}"
+    printf 'GPU_CAPABILITIES=%s\n' "${gpu_caps}"
+    printf 'RUNTIME=%s\n' "${runtime_mode}"
+    printf 'GUI_DETECTED=%s\n' "${gui_detected}"
+    printf 'GUI_MODE=%s\n' "${gui_mode}"
+    printf 'GUI_ENABLED=%s\n' "${gui_enabled_eff}"
+    printf 'NETWORK_MODE=%s\n' "${net_mode}"
+    printf 'IPC_MODE=%s\n' "${ipc_mode}"
+    printf 'PRIVILEGED=%s\n' "${privileged}"
+    printf 'NETWORK_NAME=%s\n' "${network_name}"
+    printf 'TARGET_ARCH=%s\n' "${target_arch}"
+    printf 'BUILD_NETWORK=%s\n' "${build_network}"
+    printf 'SSH_X11=%s\n' "$(_is_ssh_x11 && echo true || echo false)"
+    printf 'X11_COOKIE_SKIP=%s\n' "$(( _no_x11_cookie ))"
+    return 0
+  fi
+
   # ── SSH X11 forwarding cookie rewrite (#321) ──
   # When the user is on an SSH X11 forward (`ssh -X` / `ssh -Y`),
   # rewrite their per-session cookie so libX11 inside the container
   # accepts it regardless of hostname. Also warn when [network] mode
   # is non-host because `localhost:N` (which SSH writes into DISPLAY)
   # only reaches the host's SSH X11 listener via host networking.
+  #
+  # #338: `--no-x11-cookie` skips the rewrite for one invocation
+  # (debug knob — `XAUTHORITY` stays at the host value the user's
+  # SSH session already populated). GUI itself stays enabled per
+  # `gui_enabled_eff`.
   local _ssh_x11_xauth=""
-  if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11; then
+  if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11 \
+      && (( _no_x11_cookie == 0 )); then
     _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
       _log_warn setup "SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321."
