@@ -1590,7 +1590,7 @@ YAML
     _emit_user_build_args
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
-    container_name: ${_name}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
     stdin_open: true
@@ -1791,7 +1791,7 @@ YAML
         _emit_additional_contexts_block
         cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
@@ -1890,7 +1890,7 @@ YAML
       _emit_user_build_args
       cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:

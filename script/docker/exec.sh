@@ -294,7 +294,9 @@ main() {
 
   # Precheck: refuse with a friendly hint if the target container is not
   # running. Skipped under --dry-run since the user is asking what *would* run.
-  local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  # Container name mirrors compose.yaml's `container_name:`, including the
+  # ${USER_NAME} prefix added in #322 for multi-user host disambiguation.
+  local _container_name="${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
     # Compose the error + matching hint into a single multi-line _log_err

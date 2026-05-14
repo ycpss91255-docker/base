@@ -142,7 +142,8 @@ teardown() {
 }
 
 @test "exec.sh runs docker compose exec when container is running" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run
   assert_success
   assert_output --partial "exec"
@@ -151,7 +152,8 @@ teardown() {
 # ── -- flag/CMD separator (issue #289) ──────────────────────────────────────
 
 @test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
   assert_success
   assert_output --partial " ls /tmp"
@@ -163,7 +165,8 @@ teardown() {
 @test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
   # The whole point of -- is to send a CMD starting with a dash to the
   # container without exec.sh's own option parser capturing it.
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
   assert_success
   assert_output --partial "my-tool"
@@ -172,7 +175,8 @@ teardown() {
 }
 
 @test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
   assert_success
   assert_output --partial "echo hi"
@@ -180,7 +184,8 @@ teardown() {
 }
 
 @test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
   assert_success
   assert_output --partial "ls"
