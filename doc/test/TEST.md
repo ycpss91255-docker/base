@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1253 tests** total (1197 unit + 56 integration).
+Template self-tests: **1267 tests** total (1211 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -312,6 +312,52 @@ which would leave a freshly-pushed `:main` unverified).
 | Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
 | Build step pushes multi-arch (amd64 + arm64) + declares `packages: write` permission | 2 |
+
+### test/unit/multi_distro_build_worker_yaml_spec.bats (14)
+
+Structural assertions for `.github/workflows/multi-distro-build-worker.yaml`
+(#325 B-1 dispatcher). The dispatcher fans a per-event distro
+subset across `build-worker.yaml` matrix shards so multi-distro
+caller `main.yaml`s (`env/ros_distro`, `env/ros2_distro`,
+`app/ros1_bridge`) stop copy-pasting a
+`${{ github.event_name == 'pull_request' && ... || ... }}`
+expression. Three jobs:
+
+1. **`resolve-matrix`** — pure-shell selector emitting a `distros`
+   JSON-array output. `pull_request` -> `pr_distros` (subset);
+   anything else (tag push, main push, `workflow_dispatch`) ->
+   `tag_distros` (release validation matrix).
+
+2. **`call-build`** — strategy.matrix job invoking the local
+   `build-worker.yaml` per distro shard. Derives per-shard
+   `image_name` as `<image_name>_<distro>`, passes
+   `<distro_input_name>=<distro>` as the first `build_args` line,
+   and shards buildx GHA cache by distro via
+   `cache_variant: ${{ matrix.distro }}` (reuses #272's per-variant
+   scope contract). `fail-fast: false` so one shard's failure
+   doesn't cancel siblings.
+
+3. **`ci-passed`** — rollup gate for branch protection. Matches the
+   existing `ci-passed` rollup naming used by env/ros_distro /
+   env/ros2_distro per CLAUDE.md's status-check table, so
+   downstream branch-protection contexts don't change on adoption.
+
+| Category | Tests |
+|----------|-------|
+| Declares `workflow_call` | 1 |
+| Required inputs: `pr_distros`, `tag_distros`, `distro_input_name`, `image_name` | 1 |
+| Passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) | 1 |
+| Defines `extra_build_args` passthrough | 1 |
+| `resolve-matrix` emits `distros` output | 1 |
+| `resolve-matrix` branches on `github.event_name == 'pull_request'` | 1 |
+| `call-build` `uses: ./.github/workflows/build-worker.yaml` | 1 |
+| `call-build` matrix `fromJSON(needs.resolve-matrix.outputs.distros)` | 1 |
+| `call-build` per-shard `image_name: <image_name>_<distro>` | 1 |
+| `call-build` `build_args` line `<distro_input_name>=<distro>` | 1 |
+| `call-build` `cache_variant: ${{ matrix.distro }}` (per-distro cache scope) | 1 |
+| `call-build` `fail-fast: false` | 1 |
+| `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
+| `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
 
 ### test/unit/build_sh_spec.bats (51)
 

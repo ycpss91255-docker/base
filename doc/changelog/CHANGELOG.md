@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `.github/workflows/multi-distro-build-worker.yaml`: new dispatcher reusable workflow (#325 B-1). Multi-distro callers (`env/ros_distro`, `env/ros2_distro`, `app/ros1_bridge`) pass `pr_distros` / `tag_distros` JSON-array inputs plus a `distro_input_name`; the dispatcher resolves the per-event distro subset (`pull_request` -> `pr_distros`; everything else -> `tag_distros`) and fans the subset across `build-worker.yaml` matrix shards. Each shard derives `image_name` as `<image_name>_<distro>`, passes `<distro_input_name>=<distro>` as the first build_args line, and shards buildx GHA cache via `cache_variant: ${{ matrix.distro }}` (#272 contract reuse). A `ci-passed` rollup job satisfies branch protection — same name used by env/ros_distro / env/ros2_distro per CLAUDE.md's status-check table, so downstream protection contexts don't change on adoption. Solves the maintenance drift caused by the previous "copy-paste the `github.event_name == 'pull_request' && fromJSON('[...]') || fromJSON('[...]')` expression into every multi-distro `main.yaml`" pattern (#325 Path A, explicitly rejected in favour of B-1 dispatcher per the locked decision).
+
 ## [v0.28.2] - 2026-05-14
 
 Patch release for SSH X11 forwarding follow-up (#321 hotfix #333) bundled with CI infrastructure improvements (#317 P2 rolling `:main` tag + 3-layer Obtain fallback, #336 integration-e2e driver fix, #317 P1 follow-up classify-job hardening) and documentation clarifying the v0.28.1 naming-scheme change (#322 follow-up). No breaking changes from v0.28.1; users on v0.28.1 should upgrade to pick up the SSH X11 fix (the v0.28.1 cookie-rewrite path silently produced empty cookies under common `~/.Xauthority` lock contention).
