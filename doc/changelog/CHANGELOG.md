@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.29.1] - 2026-05-14
+
+Patch release (no RC) correcting the v0.29.0 dispatcher's per-shard `image_name` separator from `_` to `-` before any downstream adoption. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule (see v0.12.1 / v0.12.2 / v0.12.3 precedent), tagged directly on the merge commit.
+
 ### Fixed
 
 - `.github/workflows/multi-distro-build-worker.yaml`: per-shard `image_name` separator changed from `_` (v0.29.0) to `-` to match the existing org convention. `app/ros1_bridge`'s pre-dispatcher `main.yaml` shipped `ros1_bridge-${distro}` (hyphen); v0.29.0's initial dispatcher used `_${distro}` (underscore) which would have forced a registry tag rename on adoption. No consumer had adopted v0.29.0's dispatcher yet — this fix corrects the separator before the first downstream migration (planned for `app/ros1_bridge`). `env/ros{,2}_distro` use a single-image-multi-variant shape (no distro suffix on image_name) that this 1D dispatcher doesn't fit; their migration is tracked at #344 (2D dispatcher extension).
