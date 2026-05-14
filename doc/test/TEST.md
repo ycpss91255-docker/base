@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1267 tests** total (1211 unit + 56 integration).
+Template self-tests: **1268 tests** total (1212 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -215,10 +215,10 @@ on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/self_test_yaml_spec.bats (25)
+### test/unit/self_test_yaml_spec.bats (26)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-four cumulative invariants:
+five cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -267,6 +267,20 @@ four cumulative invariants:
    test` so the wrapper script skips its own internal test-tools
    build, reusing the image populated by the Obtain step.
 
+5. **#317 P3 behavioural conditional + block-list expansion** —
+   `behavioural` job's job-level `if:` tightens from
+   `code_changed == 'true'` (P1) to `behavioural_relevant ==
+   'true'` (the narrower output P1 already emitted but didn't
+   consume). PRs that change pure lint / unit-test paths
+   covered by `test` now skip the docker.sock-mounted compose
+   run, saving ~3-5 min per such PR. The behavioural block-list
+   in `classify` is extended with `script/docker/setup.sh` +
+   `script/docker/i18n.sh` + `script/docker/lib/**` +
+   `script/docker/prune.sh` (gotcha-5): each affects `.env` /
+   `compose.yaml` generation or wrapper behaviour that the
+   compose service exercises end-to-end, so they must invalidate
+   the behavioural-skip optimization.
+
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
@@ -275,13 +289,14 @@ four cumulative invariants:
 | `classify` doc-only allow-list + behavioural block-list + non-PR default | 3 |
 | `test`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 3 |
 | `test` doc-only short-circuit + real-step `code_changed == 'true'` gate | 2 |
-| `integration-e2e` + `behavioural` job-level `if: code_changed == 'true'` | 2 |
+| `integration-e2e` job-level `if: code_changed == 'true'` + `behavioural` job-level `if: behavioural_relevant == 'true'` (#317 P3 tightens) | 2 |
 | `test` + `behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 2 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
 | `test` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2) | 2 |
 | `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (4 occurrences: classify + 3 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
+| `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
 
 ### test/unit/release_test_tools_yaml_spec.bats (10)
 
