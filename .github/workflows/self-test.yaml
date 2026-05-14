@@ -201,20 +201,30 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        # docker-container driver (default) is required for type=gha cache
-        # support. `load: true` on the build step below pushes the result
-        # into the host's docker daemon image store so the subsequent
-        # `./build.sh test` (which uses regular `docker build`) can see
-        # test-tools:local. Replaces the previous `driver: docker` setup
-        # which lacked GHA cache; #317 P2 brings integration-e2e in line
-        # with the test + behavioural jobs.
+        # Use the docker driver (not docker-container) so test-tools:local
+        # lives in the host docker daemon's image store. The subsequent
+        # `./build.sh test` invokes `docker compose build`, whose
+        # `FROM ${TEST_TOOLS_IMAGE}` lookup hits the host daemon — with
+        # docker-container, buildx would have its own isolated store and
+        # the FROM would try to pull from docker.io and fail
+        # (`pull access denied, repository does not exist`). Trade-off:
+        # the layer-3 fallback rebuild here is uncached (GHA cache
+        # requires docker-container); since the hot path is `docker pull
+        # :main` (no buildx involved), the cache loss only matters in
+        # the bootstrap window or when Dockerfile.test-tools changes.
         uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker
 
       - name: Obtain test-tools:local (#317 P2 3-layer fallback)
-        id: obtain
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+        # Inline rebuild on layers 1 + 3 because the docker driver above
+        # cannot use docker/build-push-action's GHA cache. Plain
+        # `docker build` matches the pre-P2 behaviour in this job; the
+        # net effect of P2 here is the hot path (layer 2) skipping the
+        # rebuild entirely.
         run: |
           set -uo pipefail
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
@@ -224,7 +234,9 @@ jobs:
             if ! git diff --quiet \
                  "origin/${BASE_REF}"...HEAD \
                  -- dockerfile/Dockerfile.test-tools; then
-              echo "build_local=true" >> "${GITHUB_OUTPUT}"
+              docker build \
+                -t test-tools:local \
+                -f dockerfile/Dockerfile.test-tools .
               exit 0
             fi
           fi
@@ -233,21 +245,11 @@ jobs:
             docker tag \
               ghcr.io/ycpss91255-docker/test-tools:main \
               test-tools:local
-            echo "build_local=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
-
-      - name: Build test-tools:local (with GHA cache)
-        if: ${{ steps.obtain.outputs.build_local == 'true' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: dockerfile/Dockerfile.test-tools
-          tags: test-tools:local
-          load: true
-          cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          docker build \
+            -t test-tools:local \
+            -f dockerfile/Dockerfile.test-tools .
 
       - name: Create temp repo and run init.sh
         run: |

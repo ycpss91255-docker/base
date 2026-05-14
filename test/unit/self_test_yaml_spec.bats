@@ -208,18 +208,18 @@ setup() {
   assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
 }
 
-@test "self-test.yaml: integration-e2e job no longer pins buildx to driver: docker (#317 P2)" {
-  # P1's buildx GHA cache requires the docker-container driver; P2
-  # extends that to integration-e2e by dropping the previous
-  # `driver: docker` setup-buildx-action override. `load: true` on
-  # the build step pushes the result into the host daemon's image
-  # store so the subsequent `docker compose build` still sees
-  # test-tools:local. Strip comments before asserting absence so that
-  # a comment referencing the removed override (for the reader) does
-  # not register as a false positive.
-  run bash -c "awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' \"${WF}\" | grep -vE '^\\s*#' || true"
+@test "self-test.yaml: integration-e2e job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
+  # `./build.sh test` -> `docker compose build` whose `FROM
+  # ${TEST_TOOLS_IMAGE}` resolves against the host docker daemon, not
+  # against buildx's docker-container store. Keep the docker driver
+  # so `docker pull :main` + `docker tag` land where the subsequent
+  # build can see them. Trade-off: layer-3 fallback rebuild here is
+  # uncached (GHA cache requires docker-container), accepted because
+  # the hot path is `docker pull :main` and the cold path matches
+  # pre-P2 cost.
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  refute_output --partial 'driver: docker'
+  assert_output --partial 'driver: docker'
 }
 
 @test "self-test.yaml: behavioural job has Obtain step with 3-layer fallback (#317 P2)" {
