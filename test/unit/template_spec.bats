@@ -828,7 +828,11 @@ EOF
   # production sed commands here, mirroring what upgrade.sh does.
   # We do this by extracting and running the sed commands from upgrade.sh.
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
@@ -862,7 +866,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.10.0-rc1
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
@@ -895,7 +903,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.9
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"
