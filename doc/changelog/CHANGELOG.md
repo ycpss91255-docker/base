@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.29.0-rc1] - 2026-05-14
+
+Release Candidate for v0.29.0 minor feature release. Bundles two themes since v0.28.2:
+
+- **#317 self-test CI optimization plan completed** — all four P-phases shipped: P1 (#318, buildx GHA cache + doc-only classifier; pre-session) + P1 follow-up (#329, classifier fail-open + base ref fetch for fork PRs) + P2 (#332 + #336 hotfix, `:main` rolling tag with 3-layer Obtain fallback + integration-e2e env passthrough + paths-filtered main-push trigger on release-test-tools.yaml) + P3 (#342, `behavioural` job tightened to `behavioural_relevant` gate + block-list extended with `setup.sh` / `i18n.sh` / `lib/**` / `prune.sh`). Net effect: typical PR shaves ~3-5 min wall-time; doc-only PRs land in seconds with `test` short-circuited and `integration-e2e` / `behavioural` skipped; bootstrap-window of fresh `:main` tag absorbed by the 3-layer fallback.
+
+- **#325 B-1 dispatcher reusable workflow** (#339) — new `.github/workflows/multi-distro-build-worker.yaml` lets multi-distro callers (`app/ros1_bridge`, eventually `env/ros_distro` and `env/ros2_distro` after 2D extension lands) pass `pr_distros` / `tag_distros` JSON-array inputs plus a `distro_input_name`. The dispatcher resolves the per-event distro subset and fans it across `build-worker.yaml` matrix shards with a `ci-passed` rollup matching CLAUDE.md's status-check table contract. Replaces the previous "copy-paste the `github.event_name == 'pull_request' && fromJSON(...) || fromJSON(...)` expression into every multi-distro main.yaml" pattern (Path A, rejected per locked decision).
+
+Plus a documentation clarification (#331) on the v0.28.1 `${USER_NAME}-` container_name prefix's relationship to `${DOCKER_HUB_USER}` / `INSTANCE_SUFFIX` namespacing.
+
+No breaking changes from v0.28.2. All changes are internal CI plumbing or net-additive reusable workflow surfaces; downstream Dockerfile contracts and `build-worker.yaml` / `release-worker.yaml` input signatures unchanged.
+
+Downstream propagation is partial in this release: the B-1 dispatcher consumer migrations (`app/ros1_bridge`) follow as separate PRs after v0.29.0 stable lands. `env/*_distro` migrations defer to the 2D-matrix dispatcher extension tracked separately.
+
 ### Changed
 
 - `.github/workflows/self-test.yaml`: `behavioural` job's job-level `if:` tightens from `needs.classify.outputs.code_changed == 'true'` to `needs.classify.outputs.behavioural_relevant == 'true'` (#317 P3). P1 already emitted the narrower `behavioural_relevant` output but routed only `code_changed` to the `behavioural` gate; P3 wires the existing output to its intended consumer so PRs that change pure lint / unit-test / Codecov-relevant paths (covered by `test`) no longer burn the docker.sock-mounted compose run. The `classify` job's behavioural block-list is extended with `script/docker/setup.sh` + `script/docker/i18n.sh` + `script/docker/lib/**` + `script/docker/prune.sh` (#317 gotcha-5): each affects `.env` / `compose.yaml` generation or wrapper behaviour that the behavioural compose service exercises end-to-end, so changes there must invalidate the behavioural-skip optimization. Closes the last P-phase of #317.
