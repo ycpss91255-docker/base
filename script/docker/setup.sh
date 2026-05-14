@@ -410,14 +410,32 @@ _setup_ssh_x11_cookie() {
   fi
   local _out="${_file_path}/.docker.xauth"
   : > "${_out}"
+  # `-i` (ignore locks) bypasses ~/.Xauthority lockfile contention from
+  # parallel xauth invocations (e.g. another tmux session, ssh-agent,
+  # or DE startup hook holding flock). Without -i, `xauth nlist`
+  # silently returns empty output (the lock error goes to stderr,
+  # exit 0) on a contended file, the sed pipeline gets nothing, and
+  # nmerge writes a 0-byte cookie file — defeating the rewrite. Read
+  # is a non-mutating op so ignoring the lock is safe.
   # Family-byte rewrite: 'ffff' means "any host" so libX11 inside the
   # container does not fail the hostname check.
-  xauth nlist "${DISPLAY}" 2>/dev/null \
+  xauth -i nlist "${DISPLAY}" 2>/dev/null \
     | sed -e 's/^..../ffff/' \
-    | xauth -f "${_out}" nmerge - >/dev/null 2>&1 || {
+    | xauth -i -f "${_out}" nmerge - >/dev/null 2>&1 || {
         _log_warn setup "xauth cookie rewrite failed; XAUTHORITY left at host value."
         return 1
       }
+  # Defensive: verify the rewrite actually produced content. The pipe
+  # above can succeed (all three commands exit 0) yet write 0 bytes if
+  # nlist hit a soft failure (e.g. wrong DISPLAY key under SSH X11
+  # forwarding). Treat empty output as failure so the caller falls back
+  # to leaving XAUTHORITY untouched rather than emitting an empty
+  # cookie path into .env (which then makes the container mount a
+  # 0-byte cookie and fail X11 auth silently).
+  if [[ ! -s "${_out}" ]]; then
+    _log_warn setup "xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
+    return 1
+  fi
   printf '%s\n' "${_out}"
 }
 

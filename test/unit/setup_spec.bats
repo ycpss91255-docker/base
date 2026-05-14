@@ -434,14 +434,29 @@ fi'
 
 @test "_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)" {
   # Stub xauth via PATH shim so the test does not depend on a real
-  # X server. Stub captures argv to /tmp/xauth.log so we can assert
-  # the family-rewrite pipeline ran.
+  # X server. Stub captures argv to /tmp/xauth.log AND writes a
+  # non-empty payload to the `-f <out>` target when nmerge runs, so
+  # the function's post-pipe `[[ ! -s "${_out}" ]]` defensive check
+  # passes.
   local _bin="${TEMP_DIR}/bin"
   mkdir -p "${_bin}"
   cat > "${_bin}/xauth" <<'EOS'
 #!/usr/bin/env bash
 echo "xauth $*" >> "${XAUTH_LOG}"
-# Always succeed; nmerge reads stdin, consume it so the pipe closes cleanly.
+# Detect `-f <path> nmerge -` so the stub mimics real xauth's
+# behavior of writing the merged cookie bytes to <path>. Without
+# this, the function's empty-file check fires and returns 1.
+_out=""
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == "-f" ]]; then
+    j=$((i + 1))
+    _out="${!j}"
+  fi
+done
+if [[ "${*}" == *nmerge* && -n "${_out}" ]]; then
+  printf 'stub-cookie-bytes\n' > "${_out}"
+fi
+# nmerge reads stdin; consume so the pipe closes cleanly.
 cat >/dev/null 2>&1 || true
 exit 0
 EOS
@@ -456,12 +471,39 @@ EOS
     "
   assert_success
   assert_output "${TEMP_DIR}/.docker.xauth"
-  # File was created
-  assert [ -f "${TEMP_DIR}/.docker.xauth" ]
-  # xauth was invoked twice: nlist + nmerge
+  # File was created AND has content (post-#321 hotfix: defensive
+  # check on empty cookie file).
+  assert [ -s "${TEMP_DIR}/.docker.xauth" ]
+  # xauth was invoked twice with `-i` (ignore-locks) since the hotfix.
   run cat "${XAUTH_LOG}"
-  assert_output --partial "xauth nlist localhost:10.0"
-  assert_output --partial "xauth -f ${TEMP_DIR}/.docker.xauth nmerge -"
+  assert_output --partial "xauth -i nlist localhost:10.0"
+  assert_output --partial "xauth -i -f ${TEMP_DIR}/.docker.xauth nmerge -"
+}
+
+@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge writes 0-byte cookie (#321 hotfix)" {
+  # Defensive case: xauth pipeline exits 0 but produces an empty
+  # cookie file (e.g. nlist hit a contended ~/.Xauthority lock and
+  # silently returned nothing). The function must NOT echo the cookie
+  # path back — that would emit XAUTHORITY=<empty-file> into .env and
+  # break X11 auth silently inside the container.
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+# Mimic the contended-lock failure mode: succeed but write nothing.
+cat >/dev/null 2>&1 || true
+exit 0
+EOS
+  chmod +x "${_bin}/xauth"
+
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/script/docker/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_failure
+  assert_output --partial "empty cookie file"
+  assert_output --partial "XAUTHORITY left at host value"
 }
 
 @test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
