@@ -332,7 +332,7 @@ Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env` +
 Main
 ├─ image            IMAGE_NAME 检测规则
 ├─ build            APT mirrors + Dockerfile build args
-├─ Runtime  ──→     network / deploy（GPU）/ gui / environment
+├─ Runtime  ──→     network / deploy（GPU）/ gui / environment / logging
 ├─ Mounts   ──→     volumes / devices / tmpfs
 ├─ Advanced ──→     security / additional_contexts
 │                   / per_stage（条件式）/ Reset

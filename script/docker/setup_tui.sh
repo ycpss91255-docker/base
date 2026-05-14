@@ -218,6 +218,12 @@ _TUI_MSG_EN[err.invalid_network_name]=$'Invalid network name\n  - Expected: star
 _TUI_MSG_EN[err.invalid_capability]=$'Invalid capability name\n  - Expected: ALL_UPPERCASE with optional underscores\n  - Example: SYS_ADMIN, NET_ADMIN, ALL'
 _TUI_MSG_EN[err.invalid_additional_context]=$'Invalid named build context\n  - Expected: <name>=<source>\n  - <name>: starts with [A-Za-z0-9], then letters/digits/[_.-]\n  - <source>: must be non-empty\n  - Example: repo=..'
 _TUI_MSG_EN[logging.title]="Logging"
+_TUI_MSG_EN[logging.svc.title]="Logging [%s]"
+_TUI_MSG_EN[logging.top.menu]="Pick scope: global or per-service override"
+_TUI_MSG_EN[logging.top.global]="Global [logging] (applies to every service)"
+_TUI_MSG_EN[logging.top.devel]="Per-service: devel"
+_TUI_MSG_EN[logging.top.test]="Per-service: test"
+_TUI_MSG_EN[logging.top.runtime]="Per-service: runtime"
 _TUI_MSG_EN[logging.menu]="Select: driver / max_size / max_file / compress"
 _TUI_MSG_EN[logging.back]="Back to runtime menu"
 _TUI_MSG_EN[logging.driver.label]="driver"
@@ -424,6 +430,12 @@ _TUI_MSG_ZH_TW[err.invalid_network_name]=$'網路名稱格式錯誤\n  - 預期�
 _TUI_MSG_ZH_TW[err.invalid_capability]=$'Capability 名稱錯誤\n  - 預期：全大寫 ASCII + 底線\n  - 範例：SYS_ADMIN、NET_ADMIN、ALL'
 _TUI_MSG_ZH_TW[err.invalid_additional_context]=$'具名 build context 格式錯誤\n  - 預期：<name>=<source>\n  - <name>：以 [A-Za-z0-9] 開頭，僅含字母／數字／[_.-]\n  - <source>：不可為空\n  - 範例：repo=..'
 _TUI_MSG_ZH_TW[logging.title]="Logging"
+_TUI_MSG_ZH_TW[logging.svc.title]="Logging [%s]"
+_TUI_MSG_ZH_TW[logging.top.menu]="選擇範圍：global 或 per-service override"
+_TUI_MSG_ZH_TW[logging.top.global]="Global [logging]（套用到所有 service）"
+_TUI_MSG_ZH_TW[logging.top.devel]="Per-service：devel"
+_TUI_MSG_ZH_TW[logging.top.test]="Per-service：test"
+_TUI_MSG_ZH_TW[logging.top.runtime]="Per-service：runtime"
 _TUI_MSG_ZH_TW[logging.menu]="選擇：driver／max_size／max_file／compress"
 _TUI_MSG_ZH_TW[logging.back]="回 Runtime 選單"
 _TUI_MSG_ZH_TW[logging.driver.label]="driver"
@@ -620,6 +632,12 @@ _TUI_MSG_ZH_CN[additional_contexts.entry.prompt]=$'具名 build context\n  - 格
 _TUI_MSG_ZH_CN[err.invalid_mount]="挂载格式错误（预期 <host>:<container>[:ro|rw]）"
 _TUI_MSG_ZH_CN[err.invalid_additional_context]=$'具名 build context 格式错误\n  - 预期：<name>=<source>\n  - <name>：以 [A-Za-z0-9] 开头，仅含字母／数字／[_.-]\n  - <source>：不可为空\n  - 示例：repo=..'
 _TUI_MSG_ZH_CN[logging.title]="Logging"
+_TUI_MSG_ZH_CN[logging.svc.title]="Logging [%s]"
+_TUI_MSG_ZH_CN[logging.top.menu]="选择范围：global 或 per-service override"
+_TUI_MSG_ZH_CN[logging.top.global]="Global [logging]（套用到所有 service）"
+_TUI_MSG_ZH_CN[logging.top.devel]="Per-service：devel"
+_TUI_MSG_ZH_CN[logging.top.test]="Per-service：test"
+_TUI_MSG_ZH_CN[logging.top.runtime]="Per-service：runtime"
 _TUI_MSG_ZH_CN[logging.menu]="选择：driver／max_size／max_file／compress"
 _TUI_MSG_ZH_CN[logging.back]="回 Runtime 菜单"
 _TUI_MSG_ZH_CN[logging.driver.label]="driver"
@@ -819,6 +837,12 @@ _TUI_MSG_JA[additional_contexts.entry.prompt]=$'名前付き build context\n  - 
 _TUI_MSG_JA[err.invalid_mount]="マウント形式が不正（<host>:<container>[:ro|rw] を期待）"
 _TUI_MSG_JA[err.invalid_additional_context]=$'名前付き build context が不正\n  - 形式: <name>=<source>\n  - <name>: [A-Za-z0-9] で始まり、文字／数字／[_.-]\n  - <source>: 空にできません\n  - 例: repo=..'
 _TUI_MSG_JA[logging.title]="Logging"
+_TUI_MSG_JA[logging.svc.title]="Logging [%s]"
+_TUI_MSG_JA[logging.top.menu]="範囲を選択: global または per-service override"
+_TUI_MSG_JA[logging.top.global]="Global [logging]（全 service に適用）"
+_TUI_MSG_JA[logging.top.devel]="Per-service: devel"
+_TUI_MSG_JA[logging.top.test]="Per-service: test"
+_TUI_MSG_JA[logging.top.runtime]="Per-service: runtime"
 _TUI_MSG_JA[logging.menu]="選択: driver／max_size／max_file／compress"
 _TUI_MSG_JA[logging.back]="Runtime メニューに戻る"
 _TUI_MSG_JA[logging.driver.label]="driver"
@@ -1709,61 +1733,103 @@ _edit_section_additional_contexts() {
     _validate_additional_context err.invalid_additional_context
 }
 
-_edit_section_logging() {
+# _edit_logging_keys <section>
+#
+# Generic editor for the four [logging] / [logging.<svc>] scalar keys.
+# Operates on whichever section name is passed (`logging`, `logging.devel`,
+# `logging.test`, `logging.runtime`, or a custom `logging.<svc>` typed
+# via the CLI). The same input shape, the same validators, the same
+# fall-through-on-empty semantics for every service — the only thing
+# that changes is the namespaced override key the value lands on.
+_edit_logging_keys() {
+  local _section="${1:?_edit_logging_keys: missing section}"
   while :; do
     local _drv _ms _mf _cp
-    _drv="$(_override_get "logging.driver" "json-file")"
-    _ms="$(_override_get "logging.max_size" "10m")"
-    _mf="$(_override_get "logging.max_file" "3")"
-    _cp="$(_override_get "logging.compress" "true")"
+    _drv="$(_override_get "${_section}.driver" "")"
+    _ms="$(_override_get "${_section}.max_size" "")"
+    _mf="$(_override_get "${_section}.max_file" "")"
+    _cp="$(_override_get "${_section}.compress" "")"
+
+    local _title
+    if [[ "${_section}" == "logging" ]]; then
+      _title="$(_tui_msg logging.title)"
+    else
+      local _fmt _svc="${_section#logging.}"
+      _fmt="$(_tui_msg logging.svc.title)"
+      # shellcheck disable=SC2059  # i18n format string from our table
+      printf -v _title "${_fmt}" "${_svc}"
+    fi
 
     local _choice
-    _choice="$(_tui_menu "$(_tui_msg logging.title)" "$(_tui_msg logging.menu)" \
-      driver   "$(_tui_msg logging.driver.label) = ${_drv}" \
-      max_size "$(_tui_msg logging.max_size.label) = ${_ms}" \
-      max_file "$(_tui_msg logging.max_file.label) = ${_mf}" \
-      compress "$(_tui_msg logging.compress.label) = ${_cp}" \
+    _choice="$(_tui_menu "${_title}" "$(_tui_msg logging.menu)" \
+      driver   "$(_tui_msg logging.driver.label) = ${_drv:-(inherit)}" \
+      max_size "$(_tui_msg logging.max_size.label) = ${_ms:-(inherit)}" \
+      max_file "$(_tui_msg logging.max_file.label) = ${_mf:-(inherit)}" \
+      compress "$(_tui_msg logging.compress.label) = ${_cp:-(inherit)}" \
       __back   "$(_tui_msg logging.back)")" || return 0
 
     case "${_choice}" in
       driver)
         local _new
-        _new="$(_tui_inputbox "$(_tui_msg logging.title)" \
+        _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.driver.prompt)" "${_drv}")" || continue
         if [[ -n "${_new}" ]] && ! _validate_log_driver "${_new}"; then
-          _tui_msgbox "$(_tui_msg logging.title)" "$(_tui_msg err.invalid_log_driver)"
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_driver)"
           continue
         fi
-        _override_set "logging.driver" "${_new}"
+        _override_set "${_section}.driver" "${_new}"
         ;;
       max_size)
         local _new
-        _new="$(_tui_inputbox "$(_tui_msg logging.title)" \
+        _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.max_size.prompt)" "${_ms}")" || continue
         if [[ -n "${_new}" ]] && ! _validate_log_max_size "${_new}"; then
-          _tui_msgbox "$(_tui_msg logging.title)" "$(_tui_msg err.invalid_log_max_size)"
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_size)"
           continue
         fi
-        _override_set "logging.max_size" "${_new}"
+        _override_set "${_section}.max_size" "${_new}"
         ;;
       max_file)
         local _new
-        _new="$(_tui_inputbox "$(_tui_msg logging.title)" \
+        _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.max_file.prompt)" "${_mf}")" || continue
         if [[ -n "${_new}" ]] && ! _validate_log_max_file "${_new}"; then
-          _tui_msgbox "$(_tui_msg logging.title)" "$(_tui_msg err.invalid_log_max_file)"
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_file)"
           continue
         fi
-        _override_set "logging.max_file" "${_new}"
+        _override_set "${_section}.max_file" "${_new}"
         ;;
       compress)
-        if _tui_yesno "$(_tui_msg logging.title)" \
+        if _tui_yesno "${_title}" \
             "$(_tui_msg logging.compress.prompt)"; then
-          _override_set "logging.compress" "true"
+          _override_set "${_section}.compress" "true"
         else
-          _override_set "logging.compress" "false"
+          _override_set "${_section}.compress" "false"
         fi
         ;;
+      __back|"") return 0 ;;
+    esac
+  done
+}
+
+_edit_section_logging() {
+  while :; do
+    local _choice
+    # Per-service entries cover the three baseline services emitted by
+    # _emit_logging_block (devel at line 1804 / test at 2165 in setup.sh;
+    # `runtime` shows up when auto-emit picks up `FROM ... AS runtime` per
+    # #215). Editing a per-service section without populating it leaves
+    # the global block as-is (compose key-level merge).
+    _choice="$(_tui_menu "$(_tui_msg logging.title)" "$(_tui_msg logging.top.menu)" \
+      global   "$(_tui_msg logging.top.global)" \
+      devel    "$(_tui_msg logging.top.devel)" \
+      test     "$(_tui_msg logging.top.test)" \
+      runtime  "$(_tui_msg logging.top.runtime)" \
+      __back   "$(_tui_msg logging.back)")" || return 0
+
+    case "${_choice}" in
+      global)            _edit_logging_keys "logging" ;;
+      devel|test|runtime) _edit_logging_keys "logging.${_choice}" ;;
       __back|"") return 0 ;;
     esac
   done
