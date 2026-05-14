@@ -56,14 +56,32 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+        # `-e` is intentionally omitted. The `test` job is the only branch-
+        # protection-required check, and the chain `test needs classify`
+        # means any non-zero exit here blocks every PR merge (Q4 fail-closed
+        # chain — see issue #317). Failing open by treating diff errors as
+        # "differences exist" (handled naturally by the `if git diff` form,
+        # which routes any non-zero exit to the else branch) costs at most
+        # one needless full-suite run on a misclassified doc-only PR — far
+        # cheaper than wedging the merge queue.
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
             # push to main / tag push / workflow_dispatch — full suite.
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
             echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
+          # Fork PRs (and some squash-merged histories) reach this step
+          # without the base ref present in the local repo: actions/checkout
+          # with `fetch-depth: 0` fetches the head branch's full history but
+          # does NOT fetch the base. Pre-fetch defensively; `|| true` lets
+          # us continue even if the fetch fails, because the diff below
+          # will then return non-zero and the `if` falls through to the
+          # fail-open path.
+          git fetch origin \
+            "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+            --depth=200 >/dev/null 2>&1 || true
           BASE="origin/${BASE_REF}"
           # code_changed: anything outside the doc-only allow-list.
           if git diff --quiet "${BASE}"...HEAD \
