@@ -257,6 +257,22 @@ _validate_log_compress() {
   esac
 }
 
+# _validate_log_local_path <value>
+#
+# Host-side log directory for the [logging] local_path feature
+# (#328). Lenient: accepts any non-empty string; the resolver does
+# `~`-expansion and relative-to-repo-root normalisation at apply
+# time, and the dir is created with `mkdir -p` if missing then.
+# Reject whitespace-only and embedded-newline values up front --
+# both would produce broken compose YAML.
+_validate_log_local_path() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ -z "${_v// /}" ]] && return 1
+  [[ "${_v}" == *$'\n'* ]] && return 1
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Mount-string parsers
 # ════════════════════════════════════════════════════════════════════

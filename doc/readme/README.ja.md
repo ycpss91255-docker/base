@@ -313,6 +313,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
            mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
 [logging]  driver（デフォルト json-file）、max_size、max_file、compress
+           local_path（host 側 log ディレクトリ；/var/log/<repo> にバインドマウント）
            [logging.<svc>] で個別 service に key-level override 可能
 ```
 

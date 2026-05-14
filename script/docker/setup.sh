@@ -1302,6 +1302,89 @@ _parse_logging_svc_sections() {
 #                if one ever appears there it is honored too (parsed
 #                only from the per-repo file in practice, since the
 #                template loader path uses _SETUP_SCRIPT_DIR).
+# _sync_logging_local_paths_gitignore <base_path> <global_str> <per_svc_str>
+#
+# After `apply` resolves [logging] / [logging.<svc>] for compose
+# emit, ensure the per-repo .gitignore covers each relative
+# local_path so users don't accidentally commit container logs.
+# Absolute paths and `~/...` are skipped — gitignore patterns apply
+# only inside the repo. Entries are added under a stable marker
+# comment so re-syncs don't churn the file.
+_sync_logging_local_paths_gitignore() {
+  local _base="${1:?}"
+  local _global="${2:-}"
+  local _per_svc="${3:-}"
+  local _gitignore="${_base%/}/.gitignore"
+
+  local -a _candidates=()
+  local _line _k _v
+  if [[ -n "${_global}" ]]; then
+    while IFS= read -r _line; do
+      [[ -z "${_line}" ]] && continue
+      _k="${_line%%=*}"
+      _v="${_line#*=}"
+      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
+    done <<< "${_global}"
+  fi
+  if [[ -n "${_per_svc}" ]]; then
+    while IFS= read -r _line; do
+      [[ -z "${_line}" ]] && continue
+      # per_svc entry shape: "<svc>:KEY=VALUE"
+      local _kv="${_line#*:}"
+      _k="${_kv%%=*}"
+      _v="${_kv#*=}"
+      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
+    done <<< "${_per_svc}"
+  fi
+  (( ${#_candidates[@]} == 0 )) && return 0
+
+  # Filter: keep only relative paths; strip leading `./`, trailing `/`.
+  local -a _entries=()
+  local _p
+  for _p in "${_candidates[@]}"; do
+    # Skip absolute + ~ -- those live outside the repo.
+    [[ "${_p}" == /* ]] && continue
+    [[ "${_p}" == "~"* ]] && continue
+    # Normalise: drop leading `./` and trailing `/`.
+    _p="${_p#./}"
+    while [[ "${_p}" == */ ]]; do
+      _p="${_p%/}"
+    done
+    [[ -z "${_p}" ]] && continue
+    # gitignore: leading `/` anchors to repo root (matches our path
+    # semantics: relative paths are repo-root-relative). Trailing `/`
+    # marks it as a directory so it matches the dir + its contents.
+    _entries+=("/${_p}/")
+  done
+  (( ${#_entries[@]} == 0 )) && return 0
+
+  # Dedup + missing-only append.
+  local -A _seen=()
+  local -a _missing=()
+  for _p in "${_entries[@]}"; do
+    [[ -n "${_seen[${_p}]:-}" ]] && continue
+    _seen[${_p}]=1
+    if [[ ! -f "${_gitignore}" ]] || ! grep -qxF "${_p}" "${_gitignore}"; then
+      _missing+=("${_p}")
+    fi
+  done
+  (( ${#_missing[@]} == 0 )) && return 0
+
+  if [[ ! -f "${_gitignore}" ]]; then
+    : > "${_gitignore}"
+  fi
+  # Ensure trailing newline before append.
+  if [[ -s "${_gitignore}" ]]; then
+    local _last
+    _last="$(tail -c 1 -- "${_gitignore}")"
+    [[ "${_last}" != $'\n' ]] && printf '\n' >> "${_gitignore}"
+  fi
+  if ! grep -q '^# managed by template: \[logging\] local_path' "${_gitignore}"; then
+    printf '# managed by template: [logging] local_path (do not remove)\n' >> "${_gitignore}"
+  fi
+  printf '%s\n' "${_missing[@]}" >> "${_gitignore}"
+}
+
 _collect_logging() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
@@ -1468,29 +1551,102 @@ generate_compose_yaml() {
 
   # _emit_logging_block <svc>
   #
-  # Emit compose `logging:` mapping for service <svc>. Maps the four
+  # Emit compose `logging:` mapping for service <svc>. Maps four
   # setup.conf keys (driver / max_size / max_file / compress) to the
   # corresponding Docker compose option names (driver as scalar;
   # max-size / max-file / compress as `options:` sub-keys, dash-named
-  # per Docker docs). No-op when the effective KV map is empty.
+  # per Docker docs). The 5th key, `local_path`, is **not** a Docker
+  # logging option -- it triggers a per-service volume bind via
+  # `_logging_svc_local_path_mount` (emitted from each service's
+  # `volumes:` block), so this function deliberately ignores it.
+  # No-op when no docker-option key is set on this service.
   _emit_logging_block() {
     local _svc="$1"
     local -A _kv=()
     _logging_svc_kv "${_svc}" _kv
-    (( ${#_kv[@]} == 0 )) && return 0
-    echo "    logging:"
-    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
     local _have_opts=0 _k
-    for _k in max_size max_file compress; do
+    for _k in driver max_size max_file compress; do
       [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
     done
-    if (( _have_opts )); then
+    (( _have_opts == 0 )) && return 0
+    echo "    logging:"
+    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
+    local _opts=0
+    for _k in max_size max_file compress; do
+      [[ -n "${_kv[${_k}]:-}" ]] && _opts=1 && break
+    done
+    if (( _opts )); then
       echo "      options:"
       [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
       [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
       [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
     fi
     return 0
+  }
+
+  # _logging_svc_local_path_mount <svc> <out_var>
+  #
+  # Resolves the effective `local_path` for service <svc> against the
+  # repo base directory and emits a compose volume mount string
+  # `<host>:/var/log/<repo>` (no leading indentation; caller decides
+  # placement). Empty out when local_path is unset or empty.
+  #
+  # Path semantics (from #328):
+  #   ./logs/     relative to repo root (dirname of generated compose.yaml)
+  #   /abs/path/  used verbatim
+  #   ~/dir/      ~ expanded against $HOME
+  #   (empty)     feature disabled, no mount
+  #
+  # The function also creates the host directory eagerly with
+  # `mkdir -p` so the bind mount works on first `./run.sh` without
+  # Docker silently creating a root-owned dir.
+  _logging_svc_local_path_mount() {
+    local _svc="$1"
+    local -n _llp_out="$2"
+    _llp_out=""
+    local -A _kv=()
+    _logging_svc_kv "${_svc}" _kv
+    local _raw="${_kv[local_path]:-}"
+    [[ -z "${_raw}" ]] && return 0
+    # ~ expansion at front only (not embedded — same restriction as
+    # POSIX sh). The pattern uses single-char literal match (\~) and
+    # case so shellcheck SC2088 doesn't flag it; we're matching the
+    # user's *literal* `~/foo` setup.conf value and rewriting it to
+    # ${HOME}/foo.
+    case "${_raw}" in
+      \~/*)
+        _raw="${HOME}/${_raw#\~/}" ;;
+      \~)
+        _raw="${HOME}" ;;
+    esac
+    # Strip trailing slashes for predictable mount string.
+    while [[ "${_raw}" == */ && "${_raw}" != "/" ]]; do
+      _raw="${_raw%/}"
+    done
+    # Relative -> resolve against repo root (the compose.yaml's
+    # directory, captured earlier in generate_compose_yaml as
+    # _setup_base).
+    if [[ "${_raw}" != /* ]]; then
+      _raw="${_setup_base%/}/${_raw}"
+    fi
+    # Create the dir eagerly so `docker run` doesn't auto-create it
+    # root-owned. Failure is non-fatal -- if the user's running setup
+    # without write perms to that dir, the eventual docker run will
+    # raise a clear error.
+    mkdir -p "${_raw}" 2>/dev/null || true
+    _llp_out="${_raw}:/var/log/${_name}"
+  }
+
+  # _emit_logging_local_path_volume <svc>
+  #
+  # Prints a single compose volume line if service <svc> resolves a
+  # non-empty `local_path`. Indentation matches the surrounding
+  # `volumes:` block (6 spaces, list-item dash, then the resolved
+  # mount string).
+  _emit_logging_local_path_volume() {
+    local _mount=""
+    _logging_svc_local_path_mount "$1" _mount
+    [[ -z "${_mount}" ]] || echo "      - ${_mount}"
   }
 
   # additional_contexts emitter: forwards `[additional_contexts]
@@ -1709,7 +1865,17 @@ YAML
       echo "    network_mode: \${NETWORK_MODE}"
     fi
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
-    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]]; then
+    # + #328 LOG_FILE_PATH when [logging] local_path is set for this svc
+    # (consumed by .base/script/docker/_entrypoint_logging.sh helper to
+    # tee container stdout/stderr to the bind-mounted host file).
+    # _devel_llp resolved here -- the volumes block emit below reuses
+    # this variable, but the env block needs to know about the mount
+    # too, so we compute once and share.
+    local _devel_llp=""
+    _logging_svc_local_path_mount devel _devel_llp
+    local _devel_log_file=""
+    [[ -n "${_devel_llp}" ]] && _devel_log_file="/var/log/${_name}/devel.log"
+    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]]; then
       echo "    environment:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1732,6 +1898,7 @@ YAML
           echo "      - ${_ev}"
         done
       fi
+      [[ -n "${_devel_log_file}" ]] && echo "      - LOG_FILE_PATH=${_devel_log_file}"
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
@@ -1744,8 +1911,11 @@ YAML
     fi
     # volumes block (GUI baseline conditional; workspace + extras from
     # [volumes] mount_* — mount_1 is the workspace, auto-populated by
-    # setup.sh on first run and user-editable thereafter).
-    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )); then
+    # setup.sh on first run and user-editable thereafter). #328 adds
+    # the [logging] local_path bind mount when the per-service
+    # resolution yields a non-empty host path -- _devel_llp was resolved
+    # earlier (above the env block) so it could share with LOG_FILE_PATH.
+    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]]; then
       echo "    volumes:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1758,6 +1928,7 @@ YAML
       for _m in "${_gcy_extras[@]}"; do
         echo "      - ${_m}"
       done
+      [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
     fi
     # devices: + device_cgroup_rules: from [devices] section
     if [[ -n "${_devices_str}" ]]; then
@@ -2031,8 +2202,13 @@ YAML
       else
         echo "    network_mode: \${NETWORK_MODE}"
       fi
-      # environment: GUI baseline (effective gui) + effective env list.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]]; then
+      # environment: GUI baseline (effective gui) + effective env list
+      # + #328 LOG_FILE_PATH for the per-stage tee target.
+      local _stage_llp=""
+      _logging_svc_local_path_mount "${_emit_stage}" _stage_llp
+      local _stage_log_file=""
+      [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_emit_stage}.log"
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
         echo "    environment:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2049,6 +2225,7 @@ YAML
             echo "      - ${_ev}"
           done <<< "${_eff_environment}"
         fi
+        [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
       fi
       # ports: only under bridge mode (compose ignores it under host).
       if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
@@ -2059,8 +2236,10 @@ YAML
           echo "      - \"${_sp}\""
         done <<< "${_eff_ports}"
       fi
-      # volumes: GUI baseline (effective gui) + effective volume list.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]]; then
+      # volumes: GUI baseline (effective gui) + effective volume list
+      # + #328 [logging] local_path per-stage bind mount. _stage_llp
+      # was resolved above the env block; reuse it here.
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]]; then
         echo "    volumes:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2076,6 +2255,7 @@ YAML
             echo "      - ${_m}"
           done <<< "${_eff_volumes}"
         fi
+        [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
       fi
       # devices: + cgroup_rules: from top-level (not yet per-stage).
       if [[ -n "${_devices_str}" ]]; then
@@ -2162,6 +2342,18 @@ YAML
     profiles:
       - test
 YAML
+    # #328: [logging.test] local_path emits a host bind mount onto
+    # the test service. test has no other volumes / environment block
+    # by default, so both blocks are gated on local_path being set on
+    # this service.
+    local _test_llp=""
+    _logging_svc_local_path_mount test _test_llp
+    if [[ -n "${_test_llp}" ]]; then
+      echo "    environment:"
+      echo "      - LOG_FILE_PATH=/var/log/${_name}/test.log"
+      echo "    volumes:"
+      echo "      - ${_test_llp}"
+    fi
     _emit_logging_block test
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
@@ -2519,6 +2711,10 @@ _setup_validate_kv() {
             compress)
               [[ -z "${_value}" ]] && return 0
               _validate_log_compress "${_value}"
+              return $? ;;
+            local_path)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_local_path "${_value}"
               return $? ;;
             *)
               return 0 ;;
@@ -3752,6 +3948,13 @@ _setup_apply() {
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
     || return $?
+
+  # #328: ensure repo .gitignore covers every relative [logging]
+  # local_path so the user doesn't accidentally commit container logs
+  # on the next `git add -A`. Absolute paths and `~/...` are skipped
+  # (gitignore patterns only apply inside the repo). Idempotent.
+  _sync_logging_local_paths_gitignore "${_base_path}" \
+    "${_logging_global_str}" "${_logging_per_svc_str}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup "$(_setup_msg env "done")"

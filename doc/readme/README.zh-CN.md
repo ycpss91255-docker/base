@@ -301,6 +301,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 [volumes]  mount_1（workspace，首次 setup.sh 执行时自动填入）
            mount_2..mount_N（用户自定义额外 host mount；/dev 设备走 path）
 [logging]  driver（默认 json-file）、max_size、max_file、compress
+           local_path（host 端 log 目录；bind-mount 到 /var/log/<repo>）
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 

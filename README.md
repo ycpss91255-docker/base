@@ -344,6 +344,7 @@ two derived artifacts.
 [volumes]  mount_1 (workspace, auto-populated on first run)
            mount_2..mount_N (extra host mounts; devices via /dev path)
 [logging]  driver (json-file default), max_size, max_file, compress
+           local_path (host-side log dir; bind-mounted to /var/log/<repo>)
            [logging.<svc>] for per-service key-level override
 ```
 

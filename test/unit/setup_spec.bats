@@ -428,6 +428,45 @@ EOF
   assert_output --partial "compress"
 }
 
+@test "set logging.local_path accepts relative path (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path ./logs/ --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "./logs/"
+}
+
+@test "set logging.local_path accepts absolute path (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path /srv/app-logs --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/srv/app-logs"
+}
+
+@test "set logging.local_path rejects whitespace-only value (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path "   " --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set logging.<svc>.local_path writes to per-service section (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+EOF
+  run main set logging.devel.local_path ./devel-logs/ --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F "[logging.devel]" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  run main show logging.devel.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "./devel-logs/"
+}
+
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
