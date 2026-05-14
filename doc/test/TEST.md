@@ -248,18 +248,24 @@ four cumulative invariants:
 
 4. **#317 P2 Obtain step + rolling tag fallback** — each of the 3
    downstream jobs (`test`, `integration-e2e`, `behavioural`)
-   precedes its test-tools build step with an `Obtain` step that
-   implements the 3-layer fallback: PR touched Dockerfile.test-tools
-   -> rebuild local; else `docker pull
-   ghcr.io/ycpss91255-docker/test-tools:main` and re-tag; else fall
-   back to a buildx-cached rebuild. The buildx Build step is gated
-   on `steps.obtain.outputs.build_local == 'true'` so the hot path
-   (pulled :main) skips it entirely. `integration-e2e` additionally
-   passes `TEST_TOOLS_IMAGE: test-tools:local` to `./build.sh test`
-   so the wrapper script skips its own internal test-tools build,
-   and drops the previous `driver: docker` setup-buildx-action
-   override (docker-container driver + `load: true` is required for
-   GHA cache while still loading the image into the host daemon).
+   precedes its test-tools provisioning with an `Obtain` step
+   implementing the 3-layer fallback: PR touched
+   `dockerfile/Dockerfile.test-tools` -> rebuild local; else
+   `docker pull ghcr.io/ycpss91255-docker/test-tools:main` and
+   re-tag; else fall back to a from-source rebuild. For `test` +
+   `behavioural` (which `docker compose run` test-tools), the
+   buildx Build step gates on `steps.obtain.outputs.build_local
+   == 'true'` so the hot path skips it and the cold path reuses
+   P1's GHA cache. For `integration-e2e` (which `docker compose
+   build`, whose `FROM ${TEST_TOOLS_IMAGE}` resolves against the
+   host docker daemon), the buildx `driver: docker` override is
+   preserved and the rebuild fallback is inlined as plain
+   `docker build` — GHA cache is not available on this driver,
+   accepted because the hot path is `docker pull :main` and cold
+   path matches pre-P2 cost. `integration-e2e` additionally
+   passes `TEST_TOOLS_IMAGE: test-tools:local` to `./build.sh
+   test` so the wrapper script skips its own internal test-tools
+   build, reusing the image populated by the Obtain step.
 
 | Category | Tests |
 |----------|-------|
