@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1269 tests** total (1212 unit + 57 integration).
+Template self-tests: **1273 tests** total (1216 unit + 57 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -425,7 +425,7 @@ value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
 trace pattern as build.sh, parity across wrappers).
 
-### test/unit/exec_sh_spec.bats (32)
+### test/unit/exec_sh_spec.bats (36)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
