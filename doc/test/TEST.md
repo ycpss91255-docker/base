@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1252 tests** total (1196 unit + 56 integration).
+Template self-tests: **1253 tests** total (1197 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1252 tests** total (1196 unit + 56 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (282)
+### test/unit/setup_spec.bats (283)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`

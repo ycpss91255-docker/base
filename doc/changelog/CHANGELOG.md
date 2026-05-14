@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `setup.sh::_setup_ssh_x11_cookie`: SSH X11 cookie rewrite silently produced a 0-byte `.docker.xauth` when `~/.Xauthority` was held by another process (tmux session, ssh-agent, DE startup hook holding flock). `xauth nlist` printed `error in locking authority file` to stderr (swallowed by `2>/dev/null` in the pipe) and exited 0 with empty stdout; the downstream `sed` + `xauth nmerge` chain inherited the empty input, nmerge wrote 0 bytes, the whole pipe returned 0, and the function happily echoed the cookie path back to `write_env`. The .env then carried `XAUTHORITY=<repo>/.docker.xauth` pointing at an empty file → container mounted a 0-byte cookie → libX11 had no token to present → `Can't open display: localhost:N` inside the container, even though every layer reported success. Two-part hotfix:
+  - Pass `-i` (ignore-locks) to both `xauth nlist` (read) and `xauth -f ... nmerge` (write). The lockfile contention is on `~/.Xauthority` itself; `-i` bypasses the lock guard, which is safe for read and acceptable for the dedicated `.docker.xauth` target file (single writer).
+  - Defensive empty-file check (`[[ ! -s "${_out}" ]]`) after the pipe — if the rewrite produced no bytes despite the pipe returning 0, log a warning and return non-zero so the caller falls back to leaving `XAUTHORITY` unset in .env rather than emitting an empty-cookie path. Existing host XAUTHORITY then flows through unchanged (still won't fix the hostname-keyed cookie problem for SSH X11, but no more silent breakage on top).
+  - Follow-up to #321 (#324). Tests: existing positive-path test updated to assert `-i` flag in the captured argv; new negative-path test asserts the empty-cookie defensive branch returns 1 with the expected warning.
+
 ### Documentation
 
 - `README.md` + `doc/readme/README.{zh-TW,zh-CN,ja}.md`: new "Naming scheme: three namespaces, two user identities" subsection under "Per-repo runtime configuration". Clarifies why `image:` uses `${DOCKER_HUB_USER}` (registry-side namespace, breaks cache reuse if per-OS-user) while `container_name:` uses `${USER_NAME}` (host daemon namespace, the actual collision class #322 fixes), and why compose project name kept `${DOCKER_HUB_USER}` historically — together with a worked example contrasting single-user-machine alignment vs. multi-user-host divergence. Also documents `INSTANCE_SUFFIX` as the fourth orthogonal dimension for same-user same-repo parallel containers. No behaviour change; the #322 CHANGELOG entry's "aligns container-level naming with project-level naming" phrasing is now self-explanatory for sysadmins where OS user and Docker Hub user diverge.
