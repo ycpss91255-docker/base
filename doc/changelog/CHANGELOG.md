@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.28.1] - 2026-05-14
+
+Patch release bundling 4 closed-issue PRs since v0.28.0: 2 fixes (#322 multi-user container_name collision, #321 SSH X11 forwarding) + 1 feature (#319 prune.sh + stop.sh --prune for docker garbage cleanup) + 1 internal CI improvement (#317 P1 buildx GHA cache + doc-only classifier short-circuit). No new MINOR features; the prune.sh wrapper is opt-in utility tooling consistent with the existing build/run/exec/stop pattern. No breaking changes from v0.28.0 — but #322 has a one-shot orphan-container cleanup caveat (see entry below); existing running instances need a manual `docker stop <name> && docker rm <name>` or `./prune.sh --all` once.
+
 ### Added
 
 - `script/docker/prune.sh` (new wrapper): atomic local docker garbage cleanup. Provides `--networks` / `--images` / `--volumes` / `--builder` / `--all` (= networks + images + builder, intentionally excluding volumes), each with conservative per-target `--filter until=<dur>` defaults (`networks=10m`, `images=24h`, `builder=24h`; `volumes` ignores `--filter` because most docker engines do not honor it). `--until <dur>` overrides all selected targets. `--volumes` prompts for confirmation unless `-y/--yes` is passed because volume prune permanently deletes data. Standard wrapper conventions inherited from build/run/exec/stop: `-h/--help` + `--lang` in 4 languages (en/zh-TW/zh-CN/ja), `-C/--chdir` accepted for parity (no-op since prune is daemon-wide), `--dry-run` prints commands without executing. `init.sh` adds `prune.sh` to the symlink list so downstream repos automatically get the wrapper after the next `git subtree pull`. Closes #319 (the issue body documents the "all predefined address pools have been fully subnetted" symptom that motivated this addition).
