@@ -154,8 +154,9 @@ usage() {
                     若 CMD 中需要字面 -C，可用 -- 分隔。類似 git -C / make -C。
   -t, --target T    Compose service 名稱（預設: devel；例: runtime）
   -d, --detach      背景執行（docker compose up -d，不接受 CMD）
-  -s, --setup       強制重跑 setup.sh 重新生成 .env + compose.yaml
-                    （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
+  -s, --setup       強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
+                    預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
+                    GUI / USER_UID 漂移時，.env + compose.yaml 自動重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本機 / CI 一致驗證；預設行為依賴 compose auto-build
                     時會跳過 lint+smoke gate (#216)
@@ -185,8 +186,9 @@ EOF
                     若 CMD 中需要字面 -C，可用 -- 分隔。类似 git -C / make -C。
   -t, --target T    Compose service 名称（默认: devel；例: runtime）
   -d, --detach      后台运行（docker compose up -d，不接受 CMD）
-  -s, --setup       强制重跑 setup.sh 重新生成 .env + compose.yaml
-                    （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
+  -s, --setup       强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
+                    默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
+                    GUI / USER_UID 漂移时，.env + compose.yaml 自动重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本机 / CI 一致验证；默认行为依赖 compose auto-build
                     时会跳过 lint+smoke gate (#216)
@@ -217,8 +219,10 @@ EOF
                     git -C / make -C と同様。
   -t, --target T    Compose サービス名（デフォルト: devel；例: runtime）
   -d, --detach      バックグラウンド実行（docker compose up -d、CMD は受け付けない）
-  -s, --setup       setup.sh を強制実行して .env + compose.yaml を再生成
-                    （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
+  -s, --setup       setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外
+                    は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
+                    / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
+                    .env + compose.yaml が自動再生成されます (#88)。
   --build           compose up の前に ./build.sh test（lint + smoke）を実行し、
                     ローカル / CI の検証を一致させます。デフォルト動作は
                     compose auto-build に依存しており、lint + smoke gate を
@@ -251,8 +255,10 @@ Options:
                     need a literal -C inside CMD. Mirrors git -C / make -C.
   -t, --target T    Compose service name (default: devel; e.g. runtime)
   -d, --detach      Run in background (docker compose up -d; no CMD accepted)
-  -s, --setup       Force rerun setup.sh to regenerate .env + compose.yaml
-                    (default: auto-bootstrap if .env missing; warn on drift if present)
+  -s, --setup       Force rerun setup.sh (opens the TUI on an interactive TTY,
+                    otherwise non-interactive apply). Default (no flag):
+                    auto-regenerate .env + compose.yaml when setup.conf /
+                    Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --build           Run ./build.sh test (lint + smoke) before compose up
                     so local matches CI; default path relies on Compose
                     auto-build which skips the lint + smoke gate (#216)

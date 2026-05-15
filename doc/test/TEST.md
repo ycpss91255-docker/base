@@ -1155,7 +1155,7 @@ so the shared specs and any per-repo `test/smoke/` overlay execute
 together. `display_env.bats` self-skips on headless repos by detecting
 the absence of GUI lines in the generated `compose.yaml`.
 
-### test/smoke/script_help.bats (25)
+### test/smoke/script_help.bats (27)
 
 Locks the `-h` / `--help` invariants on the four wrapper scripts
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
@@ -1170,9 +1170,11 @@ usage, not English).
 | `build.sh -h exits 0` | Wrapper smoke |
 | `build.sh --help exits 0` | Long flag |
 | `build.sh -h prints usage` | Output sanity |
+| `build.sh -h describes auto-apply default (no stale 'warn on drift', #365)` | Help text describes auto-apply, not stale warn-on-drift |
 | `run.sh -h exits 0` | Wrapper smoke |
 | `run.sh --help exits 0` | Long flag |
 | `run.sh -h prints usage` | Output sanity |
+| `run.sh -h describes auto-apply default (no stale 'warn on drift', #365)` | Help text describes auto-apply, not stale warn-on-drift |
 | `exec.sh -h exits 0` | Wrapper smoke |
 | `exec.sh --help exits 0` | Long flag |
 | `exec.sh -h prints usage` | Output sanity |
