@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1363 tests** total (1301 unit + 62 integration).
+Template self-tests: **1368 tests** total (1305 unit + 63 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -581,7 +581,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/compose_logging_spec.bats (25)
+### test/unit/compose_logging_spec.bats (26)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -617,6 +617,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `_sync_logging_local_paths_gitignore is idempotent (#328)` | Re-run no-op |
 | `_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)` | Multi-source |
 | `_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)` | Empty no-op |
+| `setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
 
 ### test/unit/entrypoint_logging_spec.bats (6)
 
@@ -637,7 +638,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (147)
+### test/unit/template_spec.bats (150)
 
 | Test | Description |
 |------|-------------|
@@ -767,6 +768,9 @@ the host file content and the inherited stdout (preserving
 | `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
+| `Dockerfile.example copies _entrypoint_logging.sh to /usr/local/lib/base/ in devel stage (#368)` | In-image helper COPY + devel-stage placement |
+| `Dockerfile.example commented runtime stage shows _entrypoint_logging.sh COPY example (#368)` | Runtime opt-in scaffold |
+| `_entrypoint_logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | Helper Usage docstring positive + negative regression guards |
 
 ### test/unit/bashrc_spec.bats (10)
 
@@ -1003,7 +1007,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (40)
+### test/integration/init_new_repo_spec.bats (41)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1034,6 +1038,7 @@ which has access to a Docker daemon on the host runner.
 | `Dockerfile.example has layered config COPY chain (template#254)` | layered COPY order |
 | `Dockerfile.example declares ENV HOME before WORKDIR ${HOME}/work (#334)` | HOME env directive |
 | `Dockerfile.example sets up bashrc.d drop-in directory (template#254)` | bashrc.d setup |
+| `new repo: Dockerfile contains _entrypoint_logging.sh in-image COPY (#368)` | End-to-end check on init.sh-generated repo |
 | `new repo: .base/.version exists (no legacy VERSION / .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
 | `new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)` | setup_tui under script/ |

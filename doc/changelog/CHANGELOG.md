@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `dockerfile/Dockerfile.example`, `script/docker/_entrypoint_logging.sh`,
+  `config/docker/setup.conf`: ship `_entrypoint_logging.sh` into every
+  downstream image at the stable in-image path
+  `/usr/local/lib/base/_entrypoint_logging.sh` so the documented
+  source-line works at build-time AND runtime in every workspace
+  layout (#368). The v0.30.0 example
+  `. /home/${USER}/work/.base/script/docker/_entrypoint_logging.sh`
+  had two failure modes that hit every adopter: (a) `$USER` is unset
+  in the Dockerfile test stage, so `set -u` entrypoints crashed
+  during build-time bats smoke (`USER: unbound variable`); (b) on
+  multi-repo workspace layouts (the org-wide norm), `WS_PATH` resolves
+  to the workspace parent rather than the repo root, so the bind mount
+  `<WS_PATH>:/home/<user>/work` places the repo's `.base/` at
+  `/home/<user>/work/<repo>/.base/`, not the documented
+  `/home/<user>/work/.base/` -- the helper silently never ran and
+  no host-side log file was ever produced. Path A fix: Dockerfile.example's
+  devel stage now COPYs `.base/script/docker/_entrypoint_logging.sh`
+  into `/usr/local/lib/base/_entrypoint_logging.sh`, the commented-out
+  runtime stage block carries a matching COPY example, and the helper
+  header + setup.conf `[logging]` comment block both document the
+  in-image source-line. Downstream entrypoints can adopt the helper
+  with a single un-guarded line:
+  ```
+  . /usr/local/lib/base/_entrypoint_logging.sh
+  ```
+  The line is safe to add unconditionally because the helper is a
+  no-op when `LOG_FILE_PATH` is unset; repos that haven't opted into
+  `[logging] local_path` stay unaffected. Existing downstream guards
+  (e.g. ros1_bridge#107's `if [[ -f ... ]]` + `${USER:-root}`) become
+  unnecessary and can be simplified in a follow-up PR. 5 new tests:
+  3 in `template_spec.bats` (Dockerfile.example devel COPY directive +
+  stage placement, commented runtime stage COPY example, helper header
+  positive + negative regression guards), 1 in `compose_logging_spec.bats`
+  (setup.conf `[logging]` comment block path reference + negative guard),
+  1 in `init_new_repo_spec.bats` (init.sh-generated Dockerfile contains
+  the helper COPY).
+
 ## [v0.32.0-rc1] - 2026-05-15
 
 Release Candidate for v0.32.0 minor feature release. Bundles a

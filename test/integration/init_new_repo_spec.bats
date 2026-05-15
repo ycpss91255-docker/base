@@ -257,6 +257,21 @@ teardown() {
   assert_success
 }
 
+@test "new repo: Dockerfile contains _entrypoint_logging.sh in-image COPY (#368)" {
+  # End-to-end check that a fresh init.sh-generated repo includes the
+  # Dockerfile COPY for the helper. The helper must land at the
+  # stable in-image path so downstream entrypoints can source it
+  # with a clean `. /usr/local/lib/base/_entrypoint_logging.sh`
+  # one-liner -- no $USER deref, no WS_PATH dependence, works at
+  # build-time smoke AND runtime on multi-repo workspaces. Pin the
+  # COPY here so init.sh seeding regressions are caught.
+  bash .base/init.sh
+  local _df="${REPO_DIR}/Dockerfile"
+  assert [ -f "${_df}" ]
+  run grep -F 'COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh' "${_df}"
+  assert_success
+}
+
 @test "new repo: .base/.version exists (no legacy VERSION / .template_version)" {
   bash .base/init.sh
   assert [ -f "${REPO_DIR}/.base/.version" ]
