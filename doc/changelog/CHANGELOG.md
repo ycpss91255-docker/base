@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.31.0] - 2026-05-15
+
+Promoted from `v0.31.0-rc1` (#363). RC tag CI green: `Self Test`
+(with `release` job) + `Release test-tools image to GHCR` both
+completed/success. RC validation on `env/ros_distro` (PR
+ycpss91255-docker/ros_distro#23, closed without merge per RC
+convention) confirmed the wrapper consolidation migration works
+across all 4 ROS 1 distro shards (kinetic-ros-base /
+kinetic-desktop-full / noetic-ros-base / noetic-desktop-full). One
+unrelated `-h` usage-string alignment fix (#366) landed between rc1
+and stable and is carried into v0.31.0; details in `### Fixed`
+below.
+
+Migration note for downstream consumers: Dockerfiles using
+`COPY *.sh /lint/` to lint the wrapper scripts must be updated to
+`COPY script/*.sh /lint/` after the v0.31.0 upgrade, because the
+wrapper layout no longer keeps `*.sh` at the repo root. The
+`/batch-template-upgrade v0.31.0` flow patches active downstream
+repos automatically via `.claude/scripts/fix-dockerfile-copy-script.sh`;
+external consumers must patch their Dockerfiles manually. Surfaced
+during RC validation on `env/ros_distro` (commit `32624a3` on the
+closed RC PR).
+
 ### Fixed
 
 - `build.sh -h` / `run.sh -h` usage strings (all 4 languages — en /
