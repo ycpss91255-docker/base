@@ -63,6 +63,34 @@ teardown() {
   assert [ -f "${REPO_DIR}/script/entrypoint.sh" ]
 }
 
+@test "new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)" {
+  # The helper is no-op safe when LOG_FILE_PATH is unset (early-return
+  # in _entrypoint_logging.sh), so default-sourcing has zero side
+  # effect when [logging] local_path is empty. Wiring it here closes
+  # the v0.30.0 `local_path` UX gap: setting the conf alone is now
+  # enough for the host file to materialise -- no manual entrypoint.sh
+  # edit required.
+  #
+  # The source path is the stable in-image path shipped by #368 / PR
+  # #372 (COPY into /usr/local/lib/base/). It deliberately avoids
+  # ${USER} expansion + the workspace bind mount path, both of which
+  # the v0.30.0 example mis-used.
+  bash .base/init.sh
+  local _entry="${REPO_DIR}/script/entrypoint.sh"
+  assert [ -f "${_entry}" ]
+  # Source line — must be the in-image path.
+  run grep -F '. /usr/local/lib/base/_entrypoint_logging.sh' "${_entry}"
+  assert_success
+  # Explanatory comment so casual readers know what the source does.
+  run grep -F '[logging] local_path' "${_entry}"
+  assert_success
+  # Regression guards against the broken v0.30.0 example.
+  run grep -F '${USER}' "${_entry}"
+  assert_failure
+  run grep -F '/home/' "${_entry}"
+  assert_failure
+}
+
 @test "new repo: smoke test skeleton exists for the repo" {
   bash .base/init.sh
   assert [ -f "${REPO_DIR}/test/smoke/${REPO_NAME}_env.bats" ]

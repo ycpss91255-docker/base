@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `init.sh` now default-sources `_entrypoint_logging.sh` from the
+  stable in-image path `/usr/local/lib/base/_entrypoint_logging.sh`
+  in the generated `script/entrypoint.sh`, closing the v0.30.0
+  `[logging] local_path` UX gap (#364). Before this change, the
+  user-facing model was 2-knob: edit `setup.conf` AND hand-add a
+  source line to `entrypoint.sh`; out-of-the-box, setting `local_path`
+  emitted `LOG_FILE_PATH` env + the host volume mount in
+  `compose.yaml` but no file ever materialised because the helper
+  was never sourced. Default-sourcing is no-op safe
+  (`_entrypoint_logging.sh:51` early-returns when `LOG_FILE_PATH`
+  is unset), so stock repos see zero behavioural change. **New
+  repos** generated via `init.sh` from this version on get the
+  helper pre-wired — setting `[logging] local_path` is now the
+  only step. **Existing repos** need a one-time manual addition of
+  the source line before `exec` in `script/entrypoint.sh`;
+  `init.sh` / `upgrade.sh` deliberately do NOT modify existing
+  entrypoints to preserve downstream customisations (ROS sourcing,
+  conda activation, etc). The emitted source line uses the in-image
+  path shipped by #368 / PR #372 (no `$USER` deref, no workspace
+  bind-mount dependence), so it works at build-time AND runtime
+  across every workspace layout. README (en + 3 translations)
+  gains a "Logging output to host" section covering the 1-step
+  setup, the existing-repo migration line, and a `grep`
+  troubleshooting hint. `test/integration/init_new_repo_spec.bats`
+  gains one assertion verifying the freshly-generated entrypoint
+  contains the source line + explanatory comment, plus regression
+  guards against the broken v0.30.0 example (`${USER}` / `/home/`
+  must be absent). Closes #364.
+
 - `dockerfile/Dockerfile.example`, `script/docker/_entrypoint_logging.sh`,
   `config/docker/setup.conf`: ship `_entrypoint_logging.sh` into every
   downstream image at the stable in-image path

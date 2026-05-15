@@ -376,6 +376,41 @@ to opt out of mounting a workspace. Edit via:
                               # to <repo>/config/docker/setup.conf
 ```
 
+### Logging output to host
+
+Set `[logging] local_path` to tee container stdout/stderr to a host-side
+file, in addition to the docker daemon's json-file log:
+
+```ini
+[logging]
+local_path = ./logs/   # repo-relative; or /abs/, or ~/dir/
+```
+
+Re-run any wrapper to regenerate `compose.yaml`. Host file lands at
+`<local_path>/<svc>.log` per service. `docker logs <ct>` is unaffected
+(json-file keeps rolling history; the host file mirrors the current
+run).
+
+For **new repos** generated with `init.sh` from this version on, the
+helper is pre-wired in `script/entrypoint.sh` — setting
+`[logging] local_path` is the only step. For **existing repos**, add
+this single un-guarded line to `script/entrypoint.sh` before the
+final `exec` as a one-time migration:
+
+```bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+```
+
+The helper is COPY'd into the image at the stable in-image path
+`/usr/local/lib/base/_entrypoint_logging.sh` by `Dockerfile.example`'s
+devel stage (refs #368), so the source line works at build-time AND
+runtime in every workspace layout — no `$USER` deref, no workspace
+bind-mount dependence.
+
+Troubleshooting: `local_path` set but the host file stays empty →
+check `script/entrypoint.sh` actually contains the source line
+(`grep _entrypoint_logging script/entrypoint.sh`).
+
 ### Interactive TUI
 
 `./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.

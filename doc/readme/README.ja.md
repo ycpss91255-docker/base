@@ -339,6 +339,43 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./.base/init.sh --gen-conf # .base/setup.conf を repo ルートに単純コピー
 ```
 
+### ホスト側へのログ出力
+
+`[logging] local_path` を設定するとコンテナの stdout/stderr が
+ホスト側のファイルに tee 出力されます。docker daemon の json-file
+ログは並行して保持されます：
+
+```ini
+[logging]
+local_path = ./logs/   # repo 相対、または /abs/、~/dir/ も可
+```
+
+任意の wrapper を再実行すると `compose.yaml` が再生成されます。
+ホスト側のファイルは `<local_path>/<svc>.log`（サービスごと）に
+出力されます。`docker logs <ct>` の動作は変わりません（json-file
+はローリング履歴を維持、ホストファイルは今回の実行分を映します）。
+
+**新規 repo**：本バージョン以降の `init.sh` で生成された
+`script/entrypoint.sh` には helper の source 行が事前に組み込まれて
+います。`[logging] local_path` を設定するだけで動作します。
+**既存 repo**：`script/entrypoint.sh` の最後の `exec` の手前に
+次の 1 行を追加して一度だけ移行してください：
+
+```bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+```
+
+Helper は `Dockerfile.example` の devel stage によりイメージ内の
+安定パス `/usr/local/lib/base/_entrypoint_logging.sh` にコピーされて
+います（refs #368）。そのため、この source 行は build-time / runtime
+どちらでも、どんな workspace 構成でも動作します — `$USER` 参照や
+workspace bind mount への依存はありません。
+
+トラブルシューティング：`local_path` を設定したのにホスト側
+ファイルが空のまま → `script/entrypoint.sh` に source 行が
+含まれているか確認してください
+（`grep _entrypoint_logging script/entrypoint.sh`）。
+
 ### インタラクティブ TUI
 
 `./setup_tui.sh` はメインメニューを開きます。バックエンドは
