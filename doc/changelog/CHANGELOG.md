@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `script/docker/setup.sh`: emit per-stage `LOG_FILE_PATH` env var
+  and `[logging] local_path` volume mount on extends-based compose
+  services (the zero-diff `extends: service: devel` branch from
+  #215, used by auto-emitted Dockerfile stages like `builder` /
+  `runtime` / `test-tools-stage`). Closes #367. The v0.30.0 emit
+  was three-point (devel inline / standalone auto-emitted stages
+  with overrides / test); the zero-diff extends path was missing,
+  so compose's `extends` merge inherited devel's
+  `LOG_FILE_PATH=/var/log/<repo>/devel.log` into every extending
+  service. `./run.sh -d runtime` ended up tee'ing the runtime
+  container's stdout to `logs/devel.log` instead of
+  `logs/runtime.log`. Result: per-service file naming
+  (`runtime.log`, `builder.log`, ...) silently never materialised;
+  users running multiple services concurrently got interleaved
+  content in `logs/devel.log`. Fix is Option A from #367: every
+  service block now emits its own `LOG_FILE_PATH` +
+  `<resolved>:/var/log/<repo>` volume mount uniformly when
+  `local_path` is set, regardless of whether the service uses
+  `extends`. compose's `environment:` list merge concatenates entries
+  and last-wins resolution at runtime picks the override; the
+  duplicate volume mount string against the inherited one is
+  harmless because compose dedups identical bind strings.
+  Back-compat: when `local_path` is unset the zero-diff emit stays
+  byte-for-byte identical to pre-#367, so repos that haven't opted
+  into `[logging] local_path` see zero change. 3 new tests in
+  `compose_logging_spec.bats` (extending stage LOG_FILE_PATH emit,
+  volume mount emit, and back-compat no-emit when local_path
+  unset).
+
 - `init.sh` now default-sources `_entrypoint_logging.sh` from the
   stable in-image path `/usr/local/lib/base/_entrypoint_logging.sh`
   in the generated `script/entrypoint.sh`, closing the v0.30.0

@@ -403,3 +403,99 @@ CONF
   run grep -F '.base/script/docker/_entrypoint_logging.sh' "${_conf}"
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# generate_compose_yaml: per-stage LOG_FILE_PATH on extends:devel
+# stages (#367)
+# ════════════════════════════════════════════════════════════════════
+
+@test "generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)" {
+  # Without this fix, the zero-diff `extends: service: devel` branch
+  # (the minimal-shape emit for stages with no [stage:<name>] override,
+  # #215) only emits build / image / container_name / profiles. The
+  # extends merge then inherits devel's LOG_FILE_PATH=devel.log into
+  # every extending service, so `./run.sh -d runtime` ends up tee'ing
+  # the runtime container's stdout to logs/devel.log -- breaking the
+  # "one file per service" guarantee the original PR #356 framing
+  # promised. Fix is Option A: emit per-service LOG_FILE_PATH +
+  # volume mount uniformly on every service block; compose's extends
+  # merge concatenates environment arrays and last-wins resolution at
+  # runtime picks the override.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+FROM devel AS runtime
+EOF
+  local _extras=()
+  local _global
+  printf -v _global '%s\n%s' "driver=json-file" "local_path=./logs/"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "" "" "" "${_global}" ""
+  # The runtime block must carry its OWN LOG_FILE_PATH override line
+  # alongside the inherited devel.log; runtime.log filename is unique
+  # to the runtime service so a single grep proves the override emit.
+  run grep -F 'LOG_FILE_PATH=/var/log/myrepo/runtime.log' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)" {
+  # The host bind mount `<resolved>:/var/log/<repo>` must appear in
+  # the runtime block too so the per-service LOG_FILE_PATH path is
+  # writable from inside the extending container. compose's extends
+  # merge already inherits devel's mount string, but emitting it on
+  # the child block as well is harmless (compose dedups identical
+  # mount strings) and keeps the emit logic uniform across all
+  # services.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+FROM devel AS runtime
+EOF
+  local _extras=()
+  local _global
+  printf -v _global '%s\n%s' "driver=json-file" "local_path=./logs/"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "" "" "" "${_global}" ""
+  # The bind mount string ends with `:/var/log/myrepo`. Expect at
+  # least 3 emits in compose.yaml: devel + test + runtime (the
+  # runtime emit is the regression guard -- pre-#367 only devel +
+  # test had it). The exact host-path prefix depends on _setup_base
+  # resolution of `./logs/` so anchor on the in-container target.
+  local _occurrences
+  _occurrences="$(grep -cF ':/var/log/myrepo' "${COMPOSE_OUT}" || true)"
+  (( _occurrences >= 3 )) || {
+    echo "expected >=3 :/var/log/myrepo mount strings, found ${_occurrences}"
+    echo "--- compose.yaml emitted ---"
+    cat "${COMPOSE_OUT}"
+    echo "--- /dump ---"
+    return 1
+  }
+}
+
+@test "generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)" {
+  # Back-compat: stages with no overrides AND no local_path stay on
+  # the byte-for-byte pre-#220 minimal-shape emit. Specifically the
+  # runtime block must NOT acquire an environment / volumes line --
+  # the original v0.30.0 zero-diff promise must hold.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+FROM devel AS runtime
+EOF
+  local _extras=()
+  # No [logging] global_str at all; local_path unset entirely.
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "" "" "" "" ""
+  # Slice the runtime block: from `^  runtime:$` to the next top-level
+  # service header (`^  [a-z][a-z0-9_-]*:$`) and assert neither
+  # environment: nor volumes: appears inside it.
+  run awk '/^  runtime:$/{flag=1; next} /^  [a-z]/{flag=0} flag' \
+    "${COMPOSE_OUT}"
+  assert_success
+  refute_output --partial 'LOG_FILE_PATH'
+  refute_output --regexp '^    volumes:$'
+  refute_output --regexp '^    environment:$'
+}

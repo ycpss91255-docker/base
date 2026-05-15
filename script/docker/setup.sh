@@ -2063,11 +2063,28 @@ YAML
     profiles:
       - ${_emit_stage}
 YAML
-        # Per-stage [logging.<stage>] override (if any). Without an
-        # override compose `extends: devel` already covers logging:
-        # compose extends merges mapping sub-keys so devel's logging
-        # block carries over — emit only when the stage actually
-        # diverges from devel.
+        # #328 / #367: per-stage LOG_FILE_PATH + volume mount when
+        # [logging] / [logging.<stage>] local_path is set. compose's
+        # `extends` merge inherits devel's `environment:` and
+        # `volumes:` lists, then concatenates the child's entries on
+        # top -- last-wins resolution at runtime means the per-stage
+        # override here takes effect. Volume mount is duplicated
+        # against devel's inherited mount but compose dedups
+        # identical bind strings (#367 Option A: emit uniformly on
+        # every service block, no extends-relationship detection).
+        local _stage_llp=""
+        _logging_svc_local_path_mount "${_emit_stage}" _stage_llp
+        if [[ -n "${_stage_llp}" ]]; then
+          echo "    environment:"
+          echo "      - LOG_FILE_PATH=/var/log/${_name}/${_emit_stage}.log"
+          echo "    volumes:"
+          echo "      - ${_stage_llp}"
+        fi
+        # Per-stage [logging.<stage>] driver / rotation override
+        # (if any). Without an override compose `extends: devel`
+        # already covers logging:: compose extends merges mapping
+        # sub-keys so devel's logging block carries over -- emit
+        # only when the stage actually diverges from devel.
         if [[ -n "${_logging_per_svc_str}" ]] && \
            grep -qE "^${_emit_stage}:" <<< "${_logging_per_svc_str}"; then
           _emit_logging_block "${_emit_stage}"
