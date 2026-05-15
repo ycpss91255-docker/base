@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING** (#344) — `multi-distro-build-worker.yaml` dispatcher
+  rewritten from 1D scalar-axis to N-D `include`-shape matrix-mode.
+  Legacy inputs `pr_distros` / `tag_distros` / `distro_input_name` /
+  `extra_build_args` are removed; callers must use `pr_matrix` /
+  `tag_matrix` (full JSON arrays of `{name, build_args, ...}` entries).
+  Each cell's `name` field is REQUIRED and drives both the per-shard
+  `image_name` suffix (`<inputs.image_name>-<matrix.name>`, hyphen
+  per #339 v0.29.1 convention) and the buildx cache scope
+  (`cache_variant: ${{ matrix.name }}`, #272 contract). `build_args`
+  is forwarded verbatim — caller fully owns per-cell args. Motivation:
+  the 1D dispatcher cannot represent `env/ros_distro` /
+  `env/ros2_distro`'s 4-cell shape (strong cross-axis correlations
+  between distro/variant/registry/ubuntu suffix); switching to
+  GitHub matrix's native `include` form unlocks both env repos as
+  callers and any future N-axis case without dispatcher changes.
+
+  Migration table for the only existing 1D caller (`app/ros1_bridge`):
+
+  | Old (v0.29.x — v0.31.x) | New (v0.32.0+) |
+  |---|---|
+  | `pr_distros: '["humble"]'` | `pr_matrix: '[{"name":"humble","build_args":"ROS2_DISTRO=humble"}]'` |
+  | `tag_distros: '["humble", "jazzy"]'` | `tag_matrix: '[{"name":"humble","build_args":"ROS2_DISTRO=humble"},{"name":"jazzy","build_args":"ROS2_DISTRO=jazzy"}]'` |
+  | `distro_input_name: ROS2_DISTRO` | (removed — encoded per-cell in `build_args`) |
+  | `extra_build_args: ...` | (removed — append directly in each cell's `build_args` via multi-line) |
+
+  Per-shard GHCR tag shape unchanged (`<image_name>-<cell-name>`),
+  so registry artifacts produced by existing callers stay compatible
+  after migration. `ci-passed` rollup job unchanged — branch
+  protection contexts don't move. Existing inline-matrix callers
+  (`env/ros_distro` / `env/ros2_distro`) can now adopt the dispatcher
+  for the first time. Test spec
+  `multi_distro_build_worker_yaml_spec.bats` rewritten (14 → 16
+  tests; new negative assertion verifies the 1D inputs are gone).
+  Closes #344.
+
 ## [v0.31.0] - 2026-05-15
 
 Promoted from `v0.31.0-rc1` (#363). RC tag CI green: `Self Test`
