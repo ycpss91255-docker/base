@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.31.0-rc1] - 2026-05-15
+
+Release Candidate for v0.31.0 minor feature release. Bundles a single
+breaking change: **#330 wrapper consolidation + Makefile UX overhaul**
+(merged via #359). The seven user-facing wrappers move from the
+downstream repo root into a `script/` subfolder; `Makefile` stays at
+the root as the elevated user-facing entry, rewritten as a 1:1
+forwarder with `--` separator for flags. Migration is automatic via
+`make -f Makefile.ci upgrade VERSION=v0.31.0-rc1` (or
+`./.base/upgrade.sh v0.31.0-rc1`) — `init.sh`'s `_create_symlinks`
+loop drops the seven legacy root symlinks and creates `script/<name>.sh`
+equivalents.
+
+External callers hardcoding `./build.sh` / `./run.sh` / etc. break —
+the `### Changed` section below carries the full migration table.
+
+RC validation strategy: `/batch-template-upgrade v0.31.0-rc1 --only
+env/ros_distro` opens a single downstream PR; manual verification on
+`env/ros_distro` confirms (a) old root symlinks gone, (b) `script/*.sh`
+present, (c) `./script/build.sh test` / `make build test` green, (d)
+`make build -- --no-cache test` flag forwarding works, (e) `make help`
+lists 10 targets without `test` / `runtime` / `run-detach`. RC promotion
+to formal v0.31.0 happens after ros_distro validation passes.
+
 ### Changed
 
 - **BREAKING** (#330) — wrapper consolidation: the seven user-facing wrappers (`build.sh` / `run.sh` / `exec.sh` / `stop.sh` / `prune.sh` / `setup.sh` / `setup_tui.sh`) move from the downstream repo root into a `script/` subfolder. `Makefile` stays at the root as the elevated user-facing entry. `init.sh` produces the new layout on fresh repos and migrates existing repos automatically (the stale-root-removal loop in `_create_symlinks` drops the seven legacy root symlinks plus the pre-rename `tui.sh`). `upgrade.sh` calls `init.sh` after the subtree pull, so `make -f Makefile.ci upgrade VERSION=v0.31.0` (or `./.base/upgrade.sh v0.31.0`) is the one-shot migration trigger for downstream consumers. The Dockerfile-level `script/entrypoint.sh` already lived under `script/` and coexists with the new wrappers. External callers hardcoding `./build.sh` / `./run.sh` / etc. break — migration table below.
