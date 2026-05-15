@@ -379,3 +379,27 @@ CONF
   # File should be unchanged (still empty).
   [[ ! -s "${_gitignore}" ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# setup.conf [logging] section: in-image helper path reference (#368)
+# ════════════════════════════════════════════════════════════════════
+
+@test "setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)" {
+  # The [logging] section in the template default setup.conf is the
+  # primary surface where downstream maintainers learn about the
+  # local_path feature + the entrypoint helper. PR #356 originally
+  # pointed at `.base/script/docker/_entrypoint_logging.sh` (the
+  # subtree path inside the workspace bind mount), which crashes on
+  # build-time smoke ($USER unset) and is wrong on multi-repo
+  # workspaces (WS_PATH = workspace parent, not repo root). Path A
+  # ships the helper into the image at /usr/local/lib/base/; the
+  # comment must point there so the documented adoption path matches
+  # the COPY in Dockerfile.example.
+  local _conf="/source/config/docker/setup.conf"
+  [[ -f "${_conf}" ]] || skip "config/docker/setup.conf not present"
+  run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
+  assert_success
+  # Negative guard: the broken pre-#368 path must not reappear.
+  run grep -F '.base/script/docker/_entrypoint_logging.sh' "${_conf}"
+  assert_failure
+}

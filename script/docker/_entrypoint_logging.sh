@@ -36,12 +36,28 @@
 #   - tee binary missing -> warn, no-op (BusyBox-based minimal images
 #     should still have it; warn covers the edge case)
 #
-# Usage:
+# Usage (downstream `script/entrypoint.sh`):
 #   #!/usr/bin/env bash
-#   # script/entrypoint.sh
 #   set -euo pipefail
-#   . /home/${USER}/work/.base/script/docker/_entrypoint_logging.sh
+#   # shellcheck source=/dev/null
+#   . /usr/local/lib/base/_entrypoint_logging.sh
 #   exec "$@"
+#
+# Why the in-image path (#368, supersedes the PR #356 example that
+# tried to source the helper through the workspace bind mount via
+# the entrypoint user's `$HOME` and the `.base/` subtree):
+#   - `USER` is unset in the Dockerfile test stage (no login env),
+#     so the old source-line crashed `set -u` entrypoints during
+#     build-time bats smoke with `USER: unbound variable`.
+#   - On multi-repo workspace layouts (the org-wide norm), the
+#     workspace bind mount maps the workspace parent dir into the
+#     container, so the repo's `.base/` subtree lives one extra
+#     directory deeper than the original example assumed and the
+#     runtime tee silently never wrote the host-side log file.
+#   - The helper is COPY'd into /usr/local/lib/base/ by
+#     Dockerfile.example's devel stage, so the source-line works the
+#     same at build-time, runtime, and across every workspace layout
+#     with no `$USER` deref or path arithmetic.
 
 # Allow safe sourcing under any shell mode. We don't propagate strict
 # mode locally because the caller may set its own and we shouldn't

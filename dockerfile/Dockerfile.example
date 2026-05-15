@@ -146,6 +146,16 @@ ARG CONFIG_SRC="config"
 #     rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+# Host-side log tee helper (#328 / #368). Source from
+# script/entrypoint.sh with a single un-guarded line:
+#   . /usr/local/lib/base/_entrypoint_logging.sh
+# The helper is a no-op when LOG_FILE_PATH is unset, so the source
+# line is safe to add unconditionally -- repos that haven't opted
+# into [logging] local_path stay unaffected. In-image path (vs the
+# bind-mounted .base/) avoids two failure modes: build-time smoke
+# crashes when $USER is unset, and multi-repo workspaces where
+# WS_PATH is the workspace parent rather than the repo root.
+COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh
 # Layer 1: .base/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
@@ -373,6 +383,13 @@ RUN bats /smoke_test/
 # COPY --from=builder /build_ws/install /opt/app/install
 #
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
+# # Host-side log tee helper (#328 / #368). Runtime starts from a
+# # fresh BASE_IMAGE so the devel stage's helper COPY is NOT
+# # inherited -- repos that ship a runtime image and want to opt
+# # into [logging] local_path tee must repeat the COPY here so
+# # `. /usr/local/lib/base/_entrypoint_logging.sh` works in the
+# # runtime image too.
+# COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh
 # USER "${USER}"
 # # WORKDIR interpolates only build-time ARG / ENV (not shell $HOME);
 # # see #334 for why the explicit ENV is required.
