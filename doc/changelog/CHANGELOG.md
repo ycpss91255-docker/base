@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.32.0] - 2026-05-15
+
+Stable v0.32.0 minor feature release, promoting v0.32.0-rc1 (#371)
+plus three logging-feature follow-up fixes:
+
+- **#368 / PR #372** — ship `_entrypoint_logging.sh` into every
+  downstream image at `/usr/local/lib/base/_entrypoint_logging.sh`
+  so the source-line works at build-time AND runtime in every
+  workspace layout.
+- **#364 / PR #373** — `init.sh` default-sources the helper from
+  the generated `script/entrypoint.sh`, closing the v0.30.0 2-knob
+  UX gap (set `local_path` is now the only step for new repos).
+- **#367 / PR #374** — `setup.sh` emits per-stage `LOG_FILE_PATH` +
+  volume mount on extends-based compose services so per-service
+  file naming (`runtime.log`, `builder.log`) materialises instead
+  of inheriting devel's `LOG_FILE_PATH=devel.log` through compose
+  `extends` merge.
+
+Bundled BREAKING from v0.32.0-rc1 (carried below): `#344` rewrite
+of `multi-distro-build-worker.yaml` from 1D scalar-axis to N-D
+`include`-shape matrix-mode. Callers using the dispatcher must
+migrate from `pr_distros` / `tag_distros` / `distro_input_name` /
+`extra_build_args` to `pr_matrix` / `tag_matrix` (full JSON
+`include`-shape arrays of `{name, build_args, ...}` entries). The
+3 caller migration tracking issues remain open (ros1_bridge#108,
+ros_distro#24, ros2_distro#23); ros1_bridge migration follows in
+this session as Phase 3 of the original #344 plan.
+
+External callers reusing `multi-distro-build-worker.yaml@vX.Y.Z`
+break — the `### Changed` entry under [v0.32.0-rc1] carries the
+full input migration table.
+
 ### Fixed
 
 - `script/docker/setup.sh`: emit per-stage `LOG_FILE_PATH` env var
