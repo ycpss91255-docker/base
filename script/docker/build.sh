@@ -128,8 +128,9 @@ usage() {
   -C, --chdir DIR
                  對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
                  須在其他選項與 TARGET 之前指定。
-  -s, --setup    強制重跑 setup.sh 重新生成 .env + compose.yaml
-                 （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
+  -s, --setup    強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
+                 預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
+                 GUI / USER_UID 漂移時，.env + compose.yaml 自動重新生成 (#88)。
   --reset-conf   用 template 預設值覆蓋 setup.conf（先備份到 setup.conf.bak
                  + .env.bak；需確認，可用 -y 跳過）。之後會自動重跑 setup。
   -y, --yes      略過 --reset-conf 的互動確認
@@ -161,8 +162,9 @@ EOF
   -C, --chdir DIR
                  对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
                  须在其他选项与 TARGET 之前指定。
-  -s, --setup    强制重跑 setup.sh 重新生成 .env + compose.yaml
-                 （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
+  -s, --setup    强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
+                 默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
+                 GUI / USER_UID 漂移时，.env + compose.yaml 自动重新生成 (#88)。
   --reset-conf   用 template 默认值覆盖 setup.conf（先备份到 setup.conf.bak
                  + .env.bak；需确认，可用 -y 跳过）。之后会自动重跑 setup。
   -y, --yes      跳过 --reset-conf 的交互确认
@@ -194,8 +196,10 @@ EOF
   -C, --chdir DIR
                  DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
                  git -C / make -C と同様。他のオプションや TARGET より前に指定。
-  -s, --setup    setup.sh を強制実行して .env + compose.yaml を再生成
-                 （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
+  -s, --setup    setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外は
+                 非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
+                 / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
+                 .env + compose.yaml が自動再生成されます (#88)。
   --reset-conf   setup.conf をテンプレのデフォルトで上書き（setup.conf.bak
                  + .env.bak にバックアップ；確認プロンプト、-y でスキップ）。
                  その後 setup を再実行。
@@ -230,8 +234,10 @@ Options:
                  Operate on the repo at DIR without changing the caller's cwd.
                  Mirrors git -C / make -C. Must come before other options and
                  the TARGET.
-  -s, --setup    Force rerun setup.sh to regenerate .env + compose.yaml
-                 (default: auto-bootstrap if .env missing; warn on drift if present)
+  -s, --setup    Force rerun setup.sh (opens the TUI on an interactive TTY,
+                 otherwise non-interactive apply). Default (no flag):
+                 auto-regenerate .env + compose.yaml when setup.conf /
+                 Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --reset-conf   Overwrite setup.conf with template defaults (backs up the
                  existing setup.conf → setup.conf.bak and .env → .env.bak
                  first). Prompts for confirmation; pass -y to skip. Triggers

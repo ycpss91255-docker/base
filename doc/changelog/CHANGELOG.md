@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `build.sh -h` / `run.sh -h` usage strings (all 4 languages — en /
+  zh-TW / zh-CN / ja) claimed pre-#88 "warn on drift" semantics that
+  were superseded by #88's auto-apply behavior (`build.sh:453-477` /
+  `run.sh:442-456` already call `setup.sh apply` automatically when
+  `setup.sh check-drift` reports drift). Help text now describes the
+  default as auto-regeneration of `.env` + `compose.yaml` when
+  `setup.conf` / Dockerfile stages / GPU / GUI / USER_UID change, and
+  clarifies that `-s` is for forcing a rerun (opens the TUI on an
+  interactive TTY, otherwise non-interactive apply). Two new smoke
+  tests in `test/smoke/script_help.bats` lock the new phrasing
+  (`auto-regenerate` present, `warn on drift` absent) for both
+  scripts. Closes #365.
+
 ## [v0.31.0-rc1] - 2026-05-15
 
 Release Candidate for v0.31.0 minor feature release. Bundles a single
