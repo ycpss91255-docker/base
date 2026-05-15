@@ -325,6 +325,38 @@ template；沒寫的 section 則吃 template 預設。
 ./.base/init.sh --gen-conf # 單純複製 .base/setup.conf 到 repo 根目錄
 ```
 
+### 輸出 log 到 host
+
+設 `[logging] local_path`，容器 stdout/stderr 會 tee 一份到 host 上的
+檔案，docker daemon 原本的 json-file log 同時保留：
+
+```ini
+[logging]
+local_path = ./logs/   # 相對 repo 根；或 /abs/、~/dir/ 也可
+```
+
+跑任何 wrapper 重新產 `compose.yaml`。host 檔案會落在
+`<local_path>/<svc>.log`（每個 service 一份）。`docker logs <ct>`
+行為不變（json-file 維持 rolling 歷史；host 檔案對應當前這次執行）。
+
+**新 repo**：用本版本之後的 `init.sh` 產生時，`script/entrypoint.sh`
+已內建 helper source，設 `[logging] local_path` 是唯一一步。
+**既有 repo**：在 `script/entrypoint.sh` 的最終 `exec` 之前加一行做
+一次性遷移：
+
+```bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+```
+
+Helper 由 `Dockerfile.example` 的 devel stage COPY 到 image 內穩定路徑
+`/usr/local/lib/base/_entrypoint_logging.sh`（refs #368），所以這條
+source line 在 build-time 與 runtime、各種 workspace 結構下都能 work
+— 不需要 `$USER`，也不依賴 workspace bind mount。
+
+疑難排解：`local_path` 設了但 host 檔案沒東西 → 確認
+`script/entrypoint.sh` 真的有那行 source
+（`grep _entrypoint_logging script/entrypoint.sh`）。
+
 ### 互動式 TUI
 
 `./setup_tui.sh` 開啟主選單。底層是 `dialog` 或 `whiptail`（兩者都

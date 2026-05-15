@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1368 tests** total (1305 unit + 63 integration).
+Template self-tests: **1369 tests** total (1305 unit + 64 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1007,7 +1007,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (41)
+### test/integration/init_new_repo_spec.bats (42)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1022,6 +1022,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: compose.yaml exists and references the repo name` | compose gen |
 | `new repo: .env.example is NOT generated (image name via setup.conf rules)` | setup.conf rules drive IMAGE_NAME |
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
+| `new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)` | default in-image helper source line + comment present; ${USER} / /home/ absent (regression guards) |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
 | `new repo: main.yaml grants permissions: contents: write` | #62 release perms |
