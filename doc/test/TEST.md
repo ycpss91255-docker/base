@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1369 tests** total (1305 unit + 64 integration).
+Template self-tests: **1372 tests** total (1308 unit + 64 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -581,7 +581,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/compose_logging_spec.bats (26)
+### test/unit/compose_logging_spec.bats (29)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -618,6 +618,9 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)` | Multi-source |
 | `_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)` | Empty no-op |
 | `setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
+| `generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)` | Per-svc LOG_FILE_PATH on auto-emitted extends-only stage |
+| `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
+| `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
 
 ### test/unit/entrypoint_logging_spec.bats (6)
 
