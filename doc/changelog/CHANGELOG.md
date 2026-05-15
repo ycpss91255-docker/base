@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.32.0-rc1] - 2026-05-15
+
+Release Candidate for v0.32.0 minor feature release. Bundles a
+single BREAKING change: **#344 multi-distro-build-worker N-D
+matrix-mode** (merged via #370). The dispatcher's 1D inputs
+(`pr_distros` / `tag_distros` / `distro_input_name` /
+`extra_build_args`) are removed; callers must use `pr_matrix` /
+`tag_matrix` (full JSON `include`-shape arrays of
+`{name, build_args, ...}` entries). Migration unlocks first-time
+adoption of the dispatcher by `env/ros_distro` / `env/ros2_distro`
+(which previously couldn't use it due to their 4-cell matrix's
+cross-axis correlations).
+
+External callers reusing `multi-distro-build-worker.yaml@vX.Y.Z`
+break — the `### Changed` entry below carries the full input
+migration table. Per-shard GHCR tag shape (`<image_name>-<cell-name>`)
+preserved, so registry artifacts produced by existing callers stay
+compatible after migration.
+
+RC validation strategy: three caller migration tracking issues
+filed against the affected repos (ros1_bridge#108, ros_distro#24,
+ros2_distro#23). Each tracking issue carries the exact diff for
+that repo's `main.yaml`. RC promotion to formal v0.32.0 happens
+after all three caller migration PRs land green against
+`@v0.32.0-rc1`.
+
 ### Changed
 
 - **BREAKING** (#344) — `multi-distro-build-worker.yaml` dispatcher
