@@ -9,18 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dedicated `shellcheck` + `hadolint` parallel jobs in
+  `self-test.yaml`** (#376). ShellCheck runs on plain ubuntu-latest
+  (pre-installed binary, no buildx, no test-tools image) via
+  `script/ci/ci.sh --shellcheck-only` — a 30s regression now surfaces
+  in ~45s wall time instead of waiting for the full bats suite inside
+  the `test` job. Hadolint uses
+  `hadolint/hadolint-action@v3.1.0` to lint
+  `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools`
+  (template-owned; downstream consumers inherit). Both jobs gate on
+  `needs.classify.outputs.code_changed == 'true'` so doc-only PRs SKIP
+  them. `ci-rollup`'s `needs:` and the `release` job's `needs:` both
+  extend to include these two jobs.
 - **`ci-rollup` aggregator job in `self-test.yaml`** (#337). A single
-  always-running job sits downstream of `[actionlint, classify, test,
-  integration-e2e, behavioural]` and collapses their results into one
-  pass/fail signal. `actionlint` / `classify` / `test` must succeed;
-  `integration-e2e` / `behavioural` are allowed to be SKIPPED (their
+  always-running job sits downstream of every PR check and collapses
+  results into one pass/fail signal. Hard-mandatory jobs (actionlint /
+  classify / test) must succeed; conditionally-gated jobs (shellcheck
+  / hadolint / integration-e2e / behavioural) may be SKIPPED (their
   job-level `if:` gates fire on doc-only / non-behavioural PRs per
-  #317 P1/P3). Enables follow-up sub-jobs (#376 shellcheck / hadolint,
-  #377 bats-unit / bats-integration / coverage) to join the rollup's
-  `needs:` list without further branch-protection churn. **Branch
-  protection switch from `test` → `ci-rollup` happens in a separate
-  step after this PR merges**; the workflow change here is forwards-
-  compatible with both states (both checks pass on a green PR).
+  #317 P1/P3, #376). Enables follow-up sub-jobs (#377 bats-unit /
+  bats-integration / coverage) to join the rollup's `needs:` list
+  without further branch-protection churn. **Branch protection
+  switched from `test` → `ci-rollup` post-merge** (admin step,
+  separate from the workflow change).
+
+### Changed
+
+- **`script/ci/ci.sh` gained `--shellcheck-only` and `--bats-only`
+  flags** (#376). `--shellcheck-only` short-circuits before any mode
+  dispatch and runs the lint phase directly on the host (no compose,
+  no apt-install) — caller must have `shellcheck` in PATH. `--bats-only`
+  plumbs `BATS_ONLY=1` through `_run_via_compose` to the inner `--ci`
+  dispatch, which then skips the `_run_shellcheck` step. Local
+  `make test` keeps the full pipeline (shellcheck + bats) unchanged
+  because neither flag is set by default.
+- **`self-test.yaml`'s `test` job now invokes `ci.sh --bats-only`**
+  (#376) so the shellcheck phase doesn't run twice (once in the
+  dedicated `shellcheck` job + once inside the `test` job's compose
+  container). Removes ~30s from the `test` job's wall time.
 
 ## [v0.32.0] - 2026-05-15
 
