@@ -2,11 +2,18 @@
 # ci.sh - Run CI pipeline (ShellCheck + Bats [+ Kcov])
 #
 # Usage:
-#   ./ci.sh              # Run ShellCheck + Bats (fast dev loop)
-#   ./ci.sh --ci         # Run inside CI container (called by compose)
-#   ./ci.sh --lint-only  # Run ShellCheck only (via docker compose)
-#   ./ci.sh --coverage   # Run ShellCheck + Bats + Kcov coverage
-#   ./ci.sh -h, --help   # Show this help
+#   ./ci.sh                   # Run ShellCheck + Bats (fast dev loop)
+#   ./ci.sh --ci              # Run inside CI container (called by compose)
+#   ./ci.sh --lint-only       # Run ShellCheck only (via docker compose)
+#   ./ci.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
+#                             # (used by self-test.yaml's dedicated shellcheck
+#                             # job, #376; plain ubuntu-latest runner with
+#                             # pre-installed shellcheck)
+#   ./ci.sh --bats-only       # Run Bats only inside compose (skip ShellCheck)
+#                             # (used by self-test.yaml's `test` job once the
+#                             # dedicated shellcheck job exists, #376)
+#   ./ci.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
+#   ./ci.sh -h, --help        # Show this help
 #
 # Kcov instrumentation wraps every bats command and slows the suite
 # 2-5x, so the default no longer runs it. Run `--coverage` (or
@@ -34,22 +41,32 @@ Usage: ./ci.sh [OPTIONS]
 Run CI pipeline: ShellCheck + Bats [+ Kcov coverage].
 
 Options:
-  --ci          Run directly inside CI container (called by compose);
-                honors $COVERAGE=1 to include kcov (else bats only)
-  --lint-only   Run ShellCheck only
-  --coverage    Run tests with Kcov coverage (slow; CI / release check)
-  -h, --help    Show this help
+  --ci              Run directly inside CI container (called by compose);
+                    honors $COVERAGE=1 to include kcov (else bats only),
+                    and $BATS_ONLY=1 to skip the ShellCheck phase
+  --lint-only       Run ShellCheck only (via docker compose)
+  --shellcheck-only Run ShellCheck only, directly, no compose; relies on
+                    shellcheck already being in PATH (e.g. plain
+                    ubuntu-latest GHA runner). Used by self-test.yaml's
+                    dedicated shellcheck job (#376)
+  --bats-only       Run Bats only inside compose (skip the ShellCheck
+                    phase). Used by self-test.yaml's `test` job once the
+                    dedicated shellcheck job exists (#376)
+  --coverage        Run tests with Kcov coverage (slow; CI / release check)
+  -h, --help        Show this help
 
 Default (no flag): ShellCheck + bats via docker compose, no kcov.
 Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
 Examples:
-  ./ci.sh                # Fast: ShellCheck + Bats (no kcov)
-  make test              # Same as above
-  ./ci.sh --coverage     # Full: ShellCheck + Bats + Kcov
-  make coverage          # Same as above
-  make lint              # ShellCheck only
+  ./ci.sh                  # Fast: ShellCheck + Bats (no kcov)
+  make test                # Same as above
+  ./ci.sh --coverage       # Full: ShellCheck + Bats + Kcov
+  make coverage            # Same as above
+  make lint                # ShellCheck only
+  ./ci.sh --shellcheck-only # Direct shellcheck, no compose (GHA shellcheck job)
+  ./ci.sh --bats-only      # Compose-bats only, skip ShellCheck (GHA test job)
 EOF
   exit 0
 }
@@ -186,12 +203,18 @@ _run_via_compose() {
   #                no apt-install on each run; fast dev loop)
   #   `coverage` — kcov/kcov (debian; needs apt-install via _install_deps,
   #                opt-in APT_MIRROR_DEBIAN rewrite for unreachable mirrors)
+  #
+  # BATS_ONLY is forwarded so the inner `--ci` dispatch can skip
+  # _run_shellcheck when the dedicated GHA shellcheck job (#376) is
+  # covering it in parallel. Default 0 keeps the local `make test`
+  # path unchanged (full shellcheck + bats).
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
   docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
+    -e BATS_ONLY="${BATS_ONLY:-0}" \
     "${_service}"
 }
 
@@ -247,17 +270,31 @@ _run_behavioural() {
 main() {
   local mode="compose"
   local behavioural=0
+  local bats_only=0
+  local shellcheck_only=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
       --lint-only) mode="lint"; shift ;;
+      --shellcheck-only) shellcheck_only=1; shift ;;
+      --bats-only) bats_only=1; shift ;;
       --coverage) mode="coverage"; shift ;;
       --behavioural) behavioural=1; shift ;;
       *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
   done
+
+  # --shellcheck-only short-circuits before any mode dispatch. It runs
+  # the lint phase directly on the host (no compose, no apt-install).
+  # Caller is responsible for having the linter binary in PATH — the
+  # dedicated self-test.yaml shellcheck job (#376) uses plain
+  # ubuntu-latest, which ships it pre-installed.
+  if [[ "${shellcheck_only}" == "1" ]]; then
+    _run_shellcheck
+    return 0
+  fi
 
   case "${mode}" in
     ci)
@@ -266,6 +303,9 @@ main() {
       # Pass COVERAGE=1 via the outer `--coverage` flag to include it.
       # `--behavioural` swaps the bats invocation to drive
       # `docker buildx build` against runtime-test fixtures (#249).
+      # BATS_ONLY=1 (set by `--bats-only` outer flag, plumbed via
+      # `_run_via_compose`) skips the ShellCheck phase — the dedicated
+      # self-test.yaml shellcheck job covers it in parallel (#376).
       if [[ "${behavioural}" == "1" ]]; then
         _install_deps
         _run_behavioural
@@ -273,7 +313,9 @@ main() {
         return 0
       fi
       _install_deps
-      _run_shellcheck
+      if [[ "${BATS_ONLY:-0}" != "1" ]]; then
+        _run_shellcheck
+      fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         _run_coverage
         _fix_permissions
@@ -292,8 +334,15 @@ main() {
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine
-      # test-tools-based `ci` service.
-      _run_via_compose ci 0
+      # test-tools-based `ci` service. `--bats-only` plumbs BATS_ONLY=1
+      # to the container so the inner `--ci` dispatch skips
+      # _run_shellcheck (the dedicated GHA shellcheck job covers it,
+      # #376). Local `make test` keeps the full pipeline.
+      if [[ "${bats_only}" == "1" ]]; then
+        BATS_ONLY=1 _run_via_compose ci 0
+      else
+        _run_via_compose ci 0
+      fi
       ;;
   esac
 }

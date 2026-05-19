@@ -116,18 +116,62 @@ jobs:
             echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
           fi
 
+  shellcheck:
+    # Dedicated ShellCheck job (#376). Runs on plain ubuntu-latest where
+    # shellcheck is pre-installed, no buildx / test-tools image needed.
+    # A 30s shellcheck regression now surfaces in ~45s wall time instead
+    # of waiting for the full bats suite inside the `test` job. The
+    # `test` job passes --bats-only so the shellcheck phase doesn't run
+    # twice; local `make test` keeps the full pipeline.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        run: ./script/ci/ci.sh --shellcheck-only
+
+  hadolint:
+    # Dedicated Hadolint job (#376). Statically lints the two
+    # template-owned Dockerfiles. Hadolint historically only ran in
+    # downstream repos' Dockerfile `test` stages during their own
+    # builds; this job adds a lint pass for template's own
+    # Dockerfile.example + Dockerfile.test-tools so a regression to
+    # either surfaces here before downstream CI fans out.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Hadolint — Dockerfile.example
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfile/Dockerfile.example
+          config: .hadolint.yaml
+
+      - name: Hadolint — Dockerfile.test-tools
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfile/Dockerfile.test-tools
+          config: .hadolint.yaml
+
   test:
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
     steps:
-      # Doc-only short-circuit: `test` is the only branch-protection-required
-      # status check on `main`, so we must always REPORT a SUCCESS result.
-      # `skipped` is NOT `success` for required checks. The pattern is: keep
-      # the job in the graph, branch internally, exit 0 on doc-only PRs.
+      # Doc-only short-circuit: kept so the `test` job always REPORTS a
+      # SUCCESS result on doc-only PRs (the rollup expects `test ==
+      # success`; SKIPPED would be treated as a workflow bug). Post-#376
+      # ShellCheck moved to its own job; this job now runs Bats only via
+      # `ci.sh --bats-only`.
       - name: Doc-only short-circuit
         if: needs.classify.outputs.code_changed == 'false'
         run: |
-          echo "Doc-only PR — bats / shellcheck / kcov skipped; reporting SUCCESS for branch protection."
+          echo "Doc-only PR — bats / kcov skipped; reporting SUCCESS for branch protection."
 
       - name: Checkout
         if: needs.classify.outputs.code_changed == 'true'
@@ -185,11 +229,11 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run CI (ShellCheck + Bats + Kcov)
+      - name: Run CI (Bats; ShellCheck moved to dedicated parallel job, #376)
         if: needs.classify.outputs.code_changed == 'true'
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh
+        run: ./script/ci/ci.sh --bats-only
 
       - name: Upload coverage to Codecov
         if: ${{ needs.classify.outputs.code_changed == 'true' && always() }}
@@ -383,18 +427,18 @@ jobs:
 
   ci-rollup:
     # Single aggregator required by branch protection. Sub-jobs (#376
-    # shellcheck/hadolint, #377 bats-unit/bats-integration, …) can join
+    # shellcheck/hadolint, #377 bats-unit/bats-integration, …) join
     # this `needs:` list without further branch-protection churn —
     # the only required check stays `ci-rollup`. Pattern mirrors
     # ros1_bridge's `ci-summary` and env/* `ci-passed`.
     #
     # Hard-mandatory jobs (actionlint / classify / test) must succeed:
     # SKIPPED there indicates a workflow bug, not an intentional gate.
-    # Conditionally-gated jobs (integration-e2e / behavioural) carry
-    # job-level `if:` so they SKIP on doc-only / non-behavioural PRs
-    # (#317 P1/P3); the rollup must collapse SKIPPED into pass for those
-    # two, otherwise doc-only PRs cannot merge.
-    needs: [actionlint, classify, test, integration-e2e, behavioural]
+    # Conditionally-gated jobs (shellcheck / hadolint / integration-e2e
+    # / behavioural) carry job-level `if:` so they SKIP on doc-only /
+    # non-behavioural PRs (#317 P1/P3, #376); the rollup must collapse
+    # SKIPPED into pass for those, otherwise doc-only PRs cannot merge.
+    needs: [actionlint, classify, shellcheck, hadolint, test, integration-e2e, behavioural]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -402,6 +446,8 @@ jobs:
         env:
           ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
+          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          HADOLINT_RESULT: ${{ needs.hadolint.result }}
           TEST_RESULT: ${{ needs.test.result }}
           INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
           BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
@@ -409,6 +455,8 @@ jobs:
           set -euo pipefail
           echo "actionlint:      ${ACTIONLINT_RESULT}"
           echo "classify:        ${CLASSIFY_RESULT}"
+          echo "shellcheck:      ${SHELLCHECK_RESULT}"
+          echo "hadolint:        ${HADOLINT_RESULT}"
           echo "test:            ${TEST_RESULT}"
           echo "integration-e2e: ${INTEGRATION_RESULT}"
           echo "behavioural:     ${BEHAVIOURAL_RESULT}"
@@ -416,13 +464,13 @@ jobs:
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" "${TEST_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
-          for r in "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
+          for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
 
   release:
-    needs: [test, integration-e2e, behavioural]
+    needs: [shellcheck, hadolint, test, integration-e2e, behavioural]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

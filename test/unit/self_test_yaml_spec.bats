@@ -275,14 +275,14 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: ci-rollup needs all sibling jobs that branch protection used to require (#337)" {
-  # The aggregator must wait on actionlint + classify + test +
-  # integration-e2e + behavioural so its result reflects every PR
-  # check. New sub-jobs (#376 shellcheck/hadolint, #377 bats-*) join
-  # this list later.
+@test "self-test.yaml: ci-rollup needs all sibling jobs that branch protection used to require (#337 + #376)" {
+  # The aggregator must wait on actionlint + classify + shellcheck +
+  # hadolint + test + integration-e2e + behavioural so its result
+  # reflects every PR check. New sub-jobs (#377 bats-*) join this
+  # list later.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, test, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, test, integration-e2e, behavioural]'
 }
 
 @test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
@@ -294,13 +294,15 @@ setup() {
   assert_output --partial 'if: always()'
 }
 
-@test "self-test.yaml: ci-rollup verify step consumes every needs result (#337)" {
+@test "self-test.yaml: ci-rollup verify step consumes every needs result (#337 + #376)" {
   # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
   # to translate the parallel job graph into a single pass/fail signal.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs.actionlint.result'
   assert_output --partial 'needs.classify.result'
+  assert_output --partial 'needs.shellcheck.result'
+  assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.test.result'
   assert_output --partial 'needs.integration-e2e.result'
   assert_output --partial 'needs.behavioural.result'
@@ -326,4 +328,82 @@ setup() {
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'success'
+}
+
+# ── shellcheck + hadolint dedicated jobs (#376) ───────────────────────
+
+@test "self-test.yaml: declares shellcheck job (#376)" {
+  run grep -E '^  shellcheck:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)" {
+  # Same upstream pattern as the test/integration-e2e jobs so the
+  # actionlint workflow-validator gate still fires first, and the
+  # doc-only short-circuit still skips lint runs.
+  run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+}
+
+@test "self-test.yaml: shellcheck job runs ci.sh --shellcheck-only on plain ubuntu-latest (#376)" {
+  # Goal: ~30s feedback on a shellcheck regression. Plain ubuntu-latest
+  # ships shellcheck pre-installed so no apt-install / no buildx /
+  # no test-tools image is needed — keeps the job cold-startup cost
+  # near zero.
+  run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'runs-on: ubuntu-latest'
+  assert_output --partial './script/ci/ci.sh --shellcheck-only'
+  # No buildx setup / no docker pull / no compose run in this job.
+  refute_output --partial 'docker/setup-buildx-action'
+  refute_output --partial 'docker pull'
+}
+
+@test "self-test.yaml: declares hadolint job (#376)" {
+  run grep -E '^  hadolint:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)" {
+  run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+}
+
+@test "self-test.yaml: hadolint lints both template-owned Dockerfiles (#376)" {
+  # template owns Dockerfile.example (the new-repo scaffold copied by
+  # init.sh) + Dockerfile.test-tools (the alpine test image consumed by
+  # downstream Dockerfile.example `FROM ${TEST_TOOLS_IMAGE}`). A
+  # regression to either should surface here before downstream CI
+  # fans out.
+  run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'hadolint/hadolint-action'
+  assert_output --partial 'dockerfile: dockerfile/Dockerfile.example'
+  assert_output --partial 'dockerfile: dockerfile/Dockerfile.test-tools'
+  assert_output --partial 'config: .hadolint.yaml'
+}
+
+@test "self-test.yaml: test job's CI step passes --bats-only after #376 split" {
+  # Once the dedicated shellcheck job exists, the `test` job no longer
+  # needs to run shellcheck inside its compose container — it would
+  # just duplicate work. The wrapper flag plumbs BATS_ONLY=1 through
+  # _run_via_compose to the inner --ci dispatch, which skips
+  # _run_shellcheck.
+  run awk '/^  test:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial './script/ci/ci.sh --bats-only'
+  refute_output --partial './script/ci/ci.sh\n'  # not the no-flag form alone
+}
+
+@test "self-test.yaml: release job gates on shellcheck + hadolint pass before publishing a tag (#376)" {
+  # release fires on tag push only, but if shellcheck / hadolint fail
+  # the tag should NOT produce a Release. Pre-#376 the release job
+  # didn't list either; post-#376 both join the chain.
+  run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [shellcheck, hadolint, test, integration-e2e, behavioural]'
 }
