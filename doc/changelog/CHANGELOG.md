@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bats matrix shards + dedicated coverage job in `self-test.yaml`**
+  (#377). Three new sibling jobs replace the pre-#377 monolithic
+  `test` job:
+  - `bats-unit` (matrix `shard: ['1/2', '2/2']`, `fail-fast: false`) —
+    each shard runs a round-robin partition of `test/unit/*_spec.bats`
+    via `ci.sh --bats-unit-shard ${{ matrix.shard }}`. Drops PR
+    wall-time from ~5min serial to ~2min parallel.
+  - `bats-integration` — runs `test/integration/` via
+    `ci.sh --bats-integration`. Pulled out of the unit serial path.
+  - `coverage` — gated on `push && ref == refs/heads/main`. Runs the
+    full Kcov pipeline (`ci.sh --coverage`) and uploads to Codecov.
+    Intentionally NOT in `ci-rollup`'s `needs:` so a coverage hiccup
+    never blocks PR merge. The Codecov upload step migrated here from
+    the old `test` job.
+
+  `ci-rollup needs:` reshaped to
+  `[actionlint, classify, shellcheck, hadolint, bats-unit,
+  bats-integration, integration-e2e, behavioural]`. `release needs:`
+  swaps `test` → `bats-unit + bats-integration`. The old `test` job
+  is fully removed.
 - **Dedicated `shellcheck` + `hadolint` parallel jobs in
   `self-test.yaml`** (#376). ShellCheck runs on plain ubuntu-latest
   (pre-installed binary, no buildx, no test-tools image) via
@@ -35,18 +55,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`script/ci/ci.sh` gained `--shellcheck-only` and `--bats-only`
-  flags** (#376). `--shellcheck-only` short-circuits before any mode
-  dispatch and runs the lint phase directly on the host (no compose,
-  no apt-install) — caller must have `shellcheck` in PATH. `--bats-only`
-  plumbs `BATS_ONLY=1` through `_run_via_compose` to the inner `--ci`
-  dispatch, which then skips the `_run_shellcheck` step. Local
-  `make test` keeps the full pipeline (shellcheck + bats) unchanged
-  because neither flag is set by default.
-- **`self-test.yaml`'s `test` job now invokes `ci.sh --bats-only`**
-  (#376) so the shellcheck phase doesn't run twice (once in the
-  dedicated `shellcheck` job + once inside the `test` job's compose
-  container). Removes ~30s from the `test` job's wall time.
+- **`script/ci/ci.sh` gained `--shellcheck-only`, `--bats-only`,
+  `--bats-unit-shard N/T`, and `--bats-integration` flags** (#376,
+  #377). `--shellcheck-only` short-circuits before any mode dispatch
+  and runs the lint phase directly on the host (no compose, no
+  apt-install) — caller must have `shellcheck` in PATH.
+  `--bats-only`, `--bats-unit-shard N/T`, and `--bats-integration`
+  plumb `BATS_ONLY=1` plus the appropriate `BATS_UNIT_SHARD` /
+  `BATS_INTEGRATION` env var through `_run_via_compose` to the inner
+  `--ci` dispatch, which then routes to the right subset of the bats
+  suite (and skips `_run_shellcheck` in all three). Local `make test`
+  keeps the full pipeline (shellcheck + bats unit + bats integration)
+  unchanged because none of these flags is set by default.
+- **`script/ci/ci.sh` factored `_run_tests` into `_run_unit_tests` +
+  `_run_integration_tests` + new `_run_unit_shard <N>/<T>`** (#377).
+  Shared parallelism / label-formatting logic extracted into
+  `_bats_args_with_label`. Round-robin partition over
+  `find test/unit -name '*_spec.bats' | sort` keeps each shard's file
+  count balanced at the current ~30 spec scale; weight-by-test-count
+  is a deferred follow-up.
 
 ## [v0.32.0] - 2026-05-15
 

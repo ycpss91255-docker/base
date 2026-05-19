@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1386 tests** total (1322 unit + 64 integration).
+Template self-tests: **1398 tests** total (1334 unit + 64 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -219,10 +219,10 @@ on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/self_test_yaml_spec.bats (40)
+### test/unit/self_test_yaml_spec.bats (52)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-seven cumulative invariants:
+eight cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -307,11 +307,36 @@ seven cumulative invariants:
    (both template-owned; downstream Dockerfile.example consumers
    inherit the lint pass). Both gate on
    `needs.classify.outputs.code_changed == 'true'` so doc-only PRs
-   SKIP them. The existing `test` job's "Run CI" step now invokes
-   `ci.sh --bats-only` to skip its own ShellCheck phase (no
-   duplication). Both new jobs join `ci-rollup`'s `needs:` list, and
-   `release` also gates on them so a tag with a lint regression
-   doesn't publish a Release.
+   SKIP them. Both join `ci-rollup`'s `needs:` list, and `release`
+   also gates on them so a tag with a lint regression doesn't publish
+   a Release.
+
+8. **#377 Bats unit/integration split + Kcov coverage move** — the
+   pre-#377 monolithic `test` job is fully removed and replaced by
+   three sibling jobs:
+   - `bats-unit` (matrix `shard: ['1/2', '2/2']`, `fail-fast: false`):
+     each shard runs a round-robin partition of `test/unit/*_spec.bats`
+     via `ci.sh --bats-unit-shard ${{ matrix.shard }}`. Parallel
+     execution drops PR wall-time from ~5min to ~2min.
+   - `bats-integration`: runs `test/integration/` via
+     `ci.sh --bats-integration`. Pulled out of the unit serial path
+     so each unit shard sees only its share.
+   - `coverage`: `if: github.event_name == 'push' && github.ref ==
+     'refs/heads/main'` — gated to main pushes only. Runs
+     `ci.sh --coverage` (full kcov pipeline) and uploads to Codecov.
+     **NOT in `ci-rollup`'s `needs:`** — coverage failure must not
+     block PR merge. PR-side coverage delta still works because
+     Codecov compares the PR head against the latest main coverage
+     blob.
+
+   `ci-rollup needs:` now `[actionlint, classify, shellcheck,
+   hadolint, bats-unit, bats-integration, integration-e2e,
+   behavioural]` (8 jobs) — every PR-check job. `release needs:`
+   updates from `[shellcheck, hadolint, test, integration-e2e,
+   behavioural]` → `[shellcheck, hadolint, bats-unit, bats-integration,
+   integration-e2e, behavioural]`. Post-#377 only `actionlint` +
+   `classify` are hard-mandatory in `ci-rollup`'s verifier (the
+   always-running `test` job no longer exists).
 
 | Category | Tests |
 |----------|-------|
@@ -319,22 +344,26 @@ seven cumulative invariants:
 | `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
 | `classify` job declared with `code_changed` + `behavioural_relevant` outputs | 3 |
 | `classify` doc-only allow-list + behavioural block-list + non-PR default | 3 |
-| `test`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 3 |
-| `test` doc-only short-circuit + real-step `code_changed == 'true'` gate | 2 |
+| `bats-unit`/`bats-integration`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 4 |
+| `bats-unit`/`bats-integration` job-level `if: code_changed == 'true'` + no remaining monolithic `test:` job (#377) | 3 |
 | `integration-e2e` job-level `if: code_changed == 'true'` + `behavioural` job-level `if: behavioural_relevant == 'true'` (#317 P3 tightens) | 2 |
-| `test` + `behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 2 |
+| `bats-unit`/`bats-integration`/`behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
-| `test` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2) | 2 |
+| `bats-unit` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #377) | 2 |
+| `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377) | 1 |
 | `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
-| Obtain steps pre-fetch base ref (4 occurrences: classify + 3 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
+| Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, test, integration-e2e, behavioural]` + `if: always()` (#337 + #376) | 3 |
-| `ci-rollup` verify step consumes every `needs.<job>.result` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376) | 3 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377) | 3 |
+| `ci-rollup` does NOT need `coverage` (#377) | 1 |
+| `ci-rollup` verify step consumes every `needs.<job>.result` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `ci.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
-| `test` job's CI step passes `--bats-only` after #376 split | 1 |
-| `release` job gates on `shellcheck` + `hadolint` pass before publishing a tag (#376) | 1 |
+| `bats-unit` declared + `strategy.matrix.shard: ['1/2', '2/2']` + `fail-fast: false` + invokes `ci.sh --bats-unit-shard ${{ matrix.shard }}` (#377) | 3 |
+| `bats-integration` declared + invokes `ci.sh --bats-integration` (#377) | 2 |
+| `coverage` declared + `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` + runs `ci.sh --coverage` + uploads Codecov (#377) | 3 |
+| `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
 
 ### test/unit/release_test_tools_yaml_spec.bats (10)
 
