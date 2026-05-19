@@ -381,6 +381,46 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: docker compose run --rm ci-behavioural
 
+  ci-rollup:
+    # Single aggregator required by branch protection. Sub-jobs (#376
+    # shellcheck/hadolint, #377 bats-unit/bats-integration, …) can join
+    # this `needs:` list without further branch-protection churn —
+    # the only required check stays `ci-rollup`. Pattern mirrors
+    # ros1_bridge's `ci-summary` and env/* `ci-passed`.
+    #
+    # Hard-mandatory jobs (actionlint / classify / test) must succeed:
+    # SKIPPED there indicates a workflow bug, not an intentional gate.
+    # Conditionally-gated jobs (integration-e2e / behavioural) carry
+    # job-level `if:` so they SKIP on doc-only / non-behavioural PRs
+    # (#317 P1/P3); the rollup must collapse SKIPPED into pass for those
+    # two, otherwise doc-only PRs cannot merge.
+    needs: [actionlint, classify, test, integration-e2e, behavioural]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify upstream jobs
+        env:
+          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
+          BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
+        run: |
+          set -euo pipefail
+          echo "actionlint:      ${ACTIONLINT_RESULT}"
+          echo "classify:        ${CLASSIFY_RESULT}"
+          echo "test:            ${TEST_RESULT}"
+          echo "integration-e2e: ${INTEGRATION_RESULT}"
+          echo "behavioural:     ${BEHAVIOURAL_RESULT}"
+          fail=0
+          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" "${TEST_RESULT}"; do
+            [[ "${r}" == "success" ]] || fail=1
+          done
+          for r in "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
+            [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
+          done
+          exit "${fail}"
+
   release:
     needs: [test, integration-e2e, behavioural]
     if: startsWith(github.ref, 'refs/tags/')

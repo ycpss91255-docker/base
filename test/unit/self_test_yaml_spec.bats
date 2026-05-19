@@ -3,7 +3,7 @@
 # self_test_yaml_spec.bats — structural assertions for the
 # `.github/workflows/self-test.yaml` workflow.
 #
-# Locks two cumulative invariants:
+# Locks three cumulative invariants:
 #
 # 1. #305 actionlint gate (original): an `actionlint` job runs
 #    rhysd/actionlint via Docker against the workflows tree, and the
@@ -18,6 +18,14 @@
 #    SUCCESS on doc-only PRs; `integration-e2e` + `behavioural` gate
 #    via job-level `if:`. All three test-tools image builds use
 #    docker/build-push-action with shared `scope=test-tools` GHA cache.
+#
+# 3. #337 ci-rollup aggregator: a single `ci-rollup` job aggregates
+#    [actionlint, classify, test, integration-e2e, behavioural] under
+#    `if: always()`, treating SKIPPED as pass-equivalent for the two
+#    conditionally-gated jobs (integration-e2e + behavioural). Branch
+#    protection requires only `ci-rollup`, so sub-jobs (#376
+#    shellcheck/hadolint, #377 bats-unit/bats-integration) can join
+#    its `needs:` without further branch-protection churn.
 
 bats_require_minimum_version 1.5.0
 
@@ -258,4 +266,64 @@ setup() {
   run grep -c 'git fetch origin' "${WF}"
   assert_success
   assert_output '4'
+}
+
+# ── ci-rollup aggregator (#337) ───────────────────────────────────────
+
+@test "self-test.yaml: declares ci-rollup job (#337)" {
+  run grep -E '^  ci-rollup:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: ci-rollup needs all sibling jobs that branch protection used to require (#337)" {
+  # The aggregator must wait on actionlint + classify + test +
+  # integration-e2e + behavioural so its result reflects every PR
+  # check. New sub-jobs (#376 shellcheck/hadolint, #377 bats-*) join
+  # this list later.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify, test, integration-e2e, behavioural]'
+}
+
+@test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
+  # Without `if: always()` the rollup would skip when any upstream
+  # need failed, masking the failure as SKIPPED — branch protection
+  # treats SKIPPED as missing, so the merge gate would lift falsely.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'if: always()'
+}
+
+@test "self-test.yaml: ci-rollup verify step consumes every needs result (#337)" {
+  # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
+  # to translate the parallel job graph into a single pass/fail signal.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs.actionlint.result'
+  assert_output --partial 'needs.classify.result'
+  assert_output --partial 'needs.test.result'
+  assert_output --partial 'needs.integration-e2e.result'
+  assert_output --partial 'needs.behavioural.result'
+}
+
+@test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337)" {
+  # integration-e2e + behavioural carry job-level `if:` gates that skip
+  # on doc-only / non-behavioural PRs (#317 P1/P3). The rollup must not
+  # fail those skips, otherwise doc-only PRs cannot merge — SKIPPED is
+  # only treated as missing by branch protection at the JOB level, but
+  # ci-rollup is itself a single SUCCESS step so it must collapse
+  # SKIPPED upstream into pass.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'skipped'
+}
+
+@test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337)" {
+  # actionlint / classify / test always run — SKIPPED there indicates
+  # a workflow bug, not an intentional gate. Hard-fail those.
+  # Verified indirectly by asserting the success comparison appears in
+  # the rollup's shell step.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'success'
 }

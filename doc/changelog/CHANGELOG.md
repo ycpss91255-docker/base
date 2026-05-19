@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ci-rollup` aggregator job in `self-test.yaml`** (#337). A single
+  always-running job sits downstream of `[actionlint, classify, test,
+  integration-e2e, behavioural]` and collapses their results into one
+  pass/fail signal. `actionlint` / `classify` / `test` must succeed;
+  `integration-e2e` / `behavioural` are allowed to be SKIPPED (their
+  job-level `if:` gates fire on doc-only / non-behavioural PRs per
+  #317 P1/P3). Enables follow-up sub-jobs (#376 shellcheck / hadolint,
+  #377 bats-unit / bats-integration / coverage) to join the rollup's
+  `needs:` list without further branch-protection churn. **Branch
+  protection switch from `test` → `ci-rollup` happens in a separate
+  step after this PR merges**; the workflow change here is forwards-
+  compatible with both states (both checks pass on a green PR).
+
 ## [v0.32.0] - 2026-05-15
 
 Stable v0.32.0 minor feature release, promoting v0.32.0-rc1 (#371)

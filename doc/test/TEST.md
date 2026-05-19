@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1372 tests** total (1308 unit + 64 integration).
+Template self-tests: **1378 tests** total (1314 unit + 64 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -219,10 +219,10 @@ on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/self_test_yaml_spec.bats (26)
+### test/unit/self_test_yaml_spec.bats (32)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-five cumulative invariants:
+six cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -285,6 +285,19 @@ five cumulative invariants:
    compose service exercises end-to-end, so they must invalidate
    the behavioural-skip optimization.
 
+6. **#337 `ci-rollup` aggregator** — a single always-running
+   (`if: always()`) `ci-rollup` job sits downstream of
+   `[actionlint, classify, test, integration-e2e, behavioural]`
+   and collapses their results into one pass/fail signal that
+   branch protection can require. The verifier shell step consumes
+   every `${{ needs.<job>.result }}` and applies a 2-tier rule:
+   `actionlint` / `classify` / `test` must be `success`;
+   `integration-e2e` / `behavioural` may be `success` or `skipped`
+   (their job-level `if:` legitimately skips on doc-only / non-
+   behavioural PRs per #317 P1/P3). Adding sub-jobs (#376, #377)
+   to the rollup's `needs:` list becomes a workflow-internal
+   change with no branch-protection update required.
+
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
@@ -301,6 +314,8 @@ five cumulative invariants:
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (4 occurrences: classify + 3 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
+| `ci-rollup` declared + `needs: [actionlint, classify, test, integration-e2e, behavioural]` + `if: always()` (#337) | 3 |
+| `ci-rollup` verify step consumes every `needs.<job>.result` + SKIPPED treated as pass for `integration-e2e`/`behavioural` + `success` required for hard-mandatory jobs (#337) | 3 |
 
 ### test/unit/release_test_tools_yaml_spec.bats (10)
 
