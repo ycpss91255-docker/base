@@ -381,6 +381,61 @@ CONF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _sync_logging_local_paths_gitignore prune behavior (#390)
+# ════════════════════════════════════════════════════════════════════
+#
+# When local_path values change (e.g. a rename), stale entries inside
+# the managed block must be removed so downstream .gitignore stays
+# consistent without manual intervention. Entries outside the managed
+# block are user-owned and must never be touched.
+
+@test "_sync_logging_local_paths_gitignore prunes stale managed entries on value change (#390)" {
+  local _gitignore="${TEMP_DIR}/.gitignore"
+  : > "${_gitignore}"
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_success
+  # Second apply with renamed value: /logs/ pruned, /log/ added.
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./log/" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_failure
+  run grep -xF "/log/" "${_gitignore}"
+  assert_success
+}
+
+@test "_sync_logging_local_paths_gitignore drops marker + entries when candidates become empty (#390)" {
+  local _gitignore="${TEMP_DIR}/.gitignore"
+  : > "${_gitignore}"
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_success
+  # Feature turned off: marker + entries removed.
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_failure
+  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${_gitignore}"
+  assert_failure
+}
+
+@test "_sync_logging_local_paths_gitignore preserves user entries outside managed block (#390)" {
+  local _gitignore="${TEMP_DIR}/.gitignore"
+  # User-owned /logs/ above the managed block (e.g. legacy entry kept
+  # for the host directory after the rename migration).
+  printf '%s\n' "# user ignores" "/logs/" "" > "${_gitignore}"
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./log/" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_success
+  run grep -xF "/log/" "${_gitignore}"
+  assert_success
+  # Turning the feature off prunes managed /log/ but leaves user /logs/.
+  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "" ""
+  run grep -xF "/logs/" "${_gitignore}"
+  assert_success
+  run grep -xF "/log/" "${_gitignore}"
+  assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
 # setup.conf [logging] section: in-image helper path reference (#368)
 # ════════════════════════════════════════════════════════════════════
 
