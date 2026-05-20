@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING
+
+- **`./run.sh` foreground exit now auto-tears-down the compose
+  project by default** (#386). Pre-#386: leaving an interactive
+  `./run.sh` session (or any one-shot `-t test` / `-t runtime`
+  invocation) left the container and the compose project's default
+  network on the daemon; users had to run `./stop.sh` separately, and
+  worktree workflows accumulated orphan `<projname>_default` networks
+  when `git worktree remove` deleted the cwd before `./stop.sh` could
+  resolve. Post-#386: a `trap _compose_cleanup EXIT` is installed for
+  every foreground invocation (devel + non-devel) and runs
+  `COMPOSE_PROFILES='*' docker compose ... down --remove-orphans -t 0`
+  — same teardown stop.sh performs — on normal exit, Ctrl-C, and
+  signal. Pass **`--no-rm`** to restore the pre-#386 keep-alive
+  behavior (re-attach later via `./exec.sh`, inspect post-mortem
+  logs). `-d` / `--detach` is unchanged (background lifecycle is
+  already user-managed; the trap is suppressed automatically).
+
 ### Changed
 
 - **`build-worker.yaml` buildx GHA cache split into 4 per-target

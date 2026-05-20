@@ -298,21 +298,23 @@ setup() {
   assert_success
 }
 
-@test "run.sh devel branch installs trap to auto-down on exit" {
-  # Refactored: trap calls _devel_cleanup which runs compose down.
-  run grep -E 'trap _devel_cleanup EXIT' /source/script/docker/run.sh
+@test "run.sh foreground installs trap to auto-down on exit" {
+  # #386: trap calls _compose_cleanup which runs compose down. Trap is
+  # installed centrally before the dispatch block so both devel and
+  # non-devel foreground paths get the cleanup; -d / --no-rm opt out.
+  run grep -E 'trap _compose_cleanup EXIT' /source/script/docker/run.sh
   assert_success
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
+  run grep -E '_compose_cleanup\(\)' /source/script/docker/run.sh
   assert_success
 }
 
-@test "run.sh _devel_cleanup uses short timeout to avoid 10s grace period" {
-  # Regression: compose down's default 10s SIGTERM grace makes ./run.sh
-  # appear to hang for ~10s after the user exits the bash shell. Interactive
-  # devel doesn't need graceful shutdown — the user already exited.
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
+@test "run.sh _compose_cleanup uses --remove-orphans + short timeout" {
+  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
+  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
+  # period (user already exited the foreground shell — nothing to drain).
+  run grep -E '_compose_cleanup\(\)' /source/script/docker/run.sh
   assert_success
-  run grep -E 'down -t 0|down --timeout 0' /source/script/docker/run.sh
+  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/run.sh
   assert_success
 }
 

@@ -479,7 +479,7 @@ mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
 step output is visible; `-vv` adds `set -x` on the wrapper itself;
 usage help mentions all four spellings).
 
-### test/unit/run_sh_spec.bats (50)
+### test/unit/run_sh_spec.bats (54)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -500,7 +500,11 @@ before compose up, `--build` after check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
 value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
-trace pattern as build.sh, parity across wrappers).
+trace pattern as build.sh, parity across wrappers), and **#386
+foreground exit auto compose-down** (default-on for devel + one-shot
+non-devel targets, `--no-rm` opts out, `-d` suppresses the trap; the
+trap fires `down --remove-orphans` to mirror stop.sh and close the
+worktree-removed-before-stop network leak).
 
 ### test/unit/exec_sh_spec.bats (53)
 

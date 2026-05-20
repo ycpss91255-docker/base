@@ -143,8 +143,8 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
-              [-v|--verbose] [-vv|--very-verbose]
+用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
+              [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
@@ -154,6 +154,11 @@ usage() {
                     若 CMD 中需要字面 -C，可用 -- 分隔。類似 git -C / make -C。
   -t, --target T    Compose service 名稱（預設: devel；例: runtime）
   -d, --detach      背景執行（docker compose up -d，不接受 CMD）
+  --no-rm           關閉 foreground 結束時的自動 compose down (#386)。預設前景
+                    執行結束（含 Ctrl-C / signal）會自動清掉 container + project
+                    default network；--no-rm 保留現有 container/network 供之後
+                    ./exec.sh 重連或檢查 log。-d 本來就由使用者管理 lifecycle，
+                    本旗標對 -d 無作用。
   -s, --setup       強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
                     預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
                     GUI / USER_UID 漂移時，.env + compose.yaml 自動重新生成 (#88)。
@@ -175,8 +180,8 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
-              [-v|--verbose] [-vv|--very-verbose]
+用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
+              [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
@@ -186,6 +191,11 @@ EOF
                     若 CMD 中需要字面 -C，可用 -- 分隔。类似 git -C / make -C。
   -t, --target T    Compose service 名称（默认: devel；例: runtime）
   -d, --detach      后台运行（docker compose up -d，不接受 CMD）
+  --no-rm           关闭 foreground 结束时的自动 compose down (#386)。默认前台
+                    执行结束（含 Ctrl-C / signal）会自动清掉 container + project
+                    default network；--no-rm 保留现有 container/network 供之后
+                    ./exec.sh 重连或检查 log。-d 本来就由使用者管理 lifecycle，
+                    本旗标对 -d 无作用。
   -s, --setup       强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
                     默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
                     GUI / USER_UID 漂移时，.env + compose.yaml 自动重新生成 (#88)。
@@ -207,8 +217,8 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
-               [-v|--verbose] [-vv|--very-verbose]
+使用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
+               [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
@@ -219,6 +229,13 @@ EOF
                     git -C / make -C と同様。
   -t, --target T    Compose サービス名（デフォルト: devel；例: runtime）
   -d, --detach      バックグラウンド実行（docker compose up -d、CMD は受け付けない）
+  --no-rm           foreground 終了時の自動 compose down を無効化 (#386)。
+                    デフォルトでは foreground 実行終了時（Ctrl-C / signal 含む）
+                    に container + project default network を自動で削除します。
+                    --no-rm は現状の container/network を残し、後で ./exec.sh
+                    で再接続したりログを確認できるようにします。-d は本来
+                    ユーザがライフサイクル管理する想定なので、この旗標は -d に
+                    は影響しません。
   -s, --setup       setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外
                     は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
                     / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
@@ -243,8 +260,8 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
-               [-v|--verbose] [-vv|--very-verbose]
+Usage: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
+               [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
@@ -255,6 +272,13 @@ Options:
                     need a literal -C inside CMD. Mirrors git -C / make -C.
   -t, --target T    Compose service name (default: devel; e.g. runtime)
   -d, --detach      Run in background (docker compose up -d; no CMD accepted)
+  --no-rm           Disable auto compose-down on foreground exit (#386).
+                    By default, exiting a foreground run (including Ctrl-C
+                    or signal) tears down the container + project default
+                    network. Pass --no-rm to keep them around for later
+                    ./exec.sh reattach or log inspection. -d already
+                    leaves lifecycle to the user, so this flag is a no-op
+                    in detached mode.
   -s, --setup       Force rerun setup.sh (opens the TUI on an interactive TTY,
                     otherwise non-interactive apply). Default (no flag):
                     auto-regenerate .env + compose.yaml when setup.conf /
@@ -281,14 +305,35 @@ EOF
   exit 0
 }
 
-# _devel_cleanup tears down the project on shell exit so the container does
-# not outlive the foreground `./run.sh` session.
+# _compose_cleanup tears down the project on shell exit so the container
+# and its compose-project default network do not outlive the foreground
+# `./run.sh` session. Installed via `trap ... EXIT` in foreground mode by
+# default (#386); covers normal exit, Ctrl-C, and signal termination.
 #
-# `down -t 0` skips the default 10s SIGTERM grace period: the user already
-# exited the interactive bash, so there is nothing to drain gracefully —
+# Mirrors stop.sh's _down_one teardown: `COMPOSE_PROFILES='*'` activates
+# every profile-gated service (#341) and `--remove-orphans` catches the
+# default network plus containers from prior compose.yaml shapes. The
+# leak this prevents: worktree workflows where `git worktree remove`
+# wipes the cwd before `./stop.sh` ever runs, leaving the
+# `<projname>_default` network on the daemon forever (#386).
+#
+# `down -t 0` skips the default 10s SIGTERM grace: the user already
+# exited the interactive shell, so there is nothing to drain gracefully —
 # without -t 0 the script appears to hang for ~10s after `exit`.
-_devel_cleanup() {
-  _compose_project down -t 0 >/dev/null 2>&1 || true
+#
+# stdout/stderr are silenced in real mode so the trap stays invisible
+# after a clean foreground exit (compose down's "[+] Removing ..." chatter
+# is noise once the user has already left the shell). Under DRY_RUN the
+# redirect is dropped so the planned `[dry-run] docker compose ... down
+# --remove-orphans` line is actually visible — same convention as the
+# rest of `_compose` callers.
+_compose_cleanup() {
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 || true
+  else
+    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 \
+      >/dev/null 2>&1 || true
+  fi
 }
 
 main() {
@@ -307,6 +352,7 @@ main() {
 
   local RUN_SETUP=false
   local DETACH=false
+  local NO_RM=false
   local PRE_BUILD=false
   local TARGET="devel"
   local INSTANCE=""
@@ -356,6 +402,15 @@ main() {
         # skips the test stage entirely). Use this flag to get full
         # local CI parity on a fresh clone.
         PRE_BUILD=true
+        shift
+        ;;
+      --no-rm)
+        # #386: opt out of the auto compose-down on foreground exit.
+        # Default ON; this flag restores the pre-#386 "container/network
+        # stays alive after exit" behavior — useful for re-attaching
+        # via ./exec.sh later or inspecting logs post-mortem. -d already
+        # implies no auto-down (background lifecycle is user-managed).
+        NO_RM=true
         shift
         ;;
       --dry-run)
@@ -555,16 +610,28 @@ ${_parallel}"
     fi
   fi
 
+  # #386: foreground exit auto-down. Default ON for every foreground
+  # target (devel + one-shot stages); opt out via --no-rm. The trap
+  # tears the project down on shell exit, Ctrl-C, or signal — covers
+  # the worktree-removed-before-stop leak case where the cwd that
+  # `./stop.sh` would resolve from no longer exists. -d skips the trap
+  # because background lifecycle is the user's responsibility. The
+  # trap fires under --dry-run too so the "[dry-run] docker compose
+  # ... down --remove-orphans" line is visible in the planned-action
+  # output (no real teardown happens — _compose honors DRY_RUN).
+  if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
+    trap _compose_cleanup EXIT
+  fi
+
   if [[ "${DETACH}" == true ]]; then
     _compose_project down 2>/dev/null || true
     _compose_project up -d "${TARGET}"
   elif [[ "${TARGET}" == "devel" ]]; then
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
-    # `./exec.sh`. Trap auto-`down` on exit to preserve the
-    # "exit shell = container gone" semantic of the previous `compose run`.
-    # CMD_ARGS passthrough: empty → `bash` (matches Dockerfile CMD for devel);
-    # non-empty → override (e.g. `./run.sh ls /tmp`).
-    trap _devel_cleanup EXIT
+    # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
+    # Dockerfile CMD for devel); non-empty → override
+    # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
+    # centrally-installed `trap _compose_cleanup EXIT` above (#386).
     _compose_project up -d "${TARGET}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
       _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
