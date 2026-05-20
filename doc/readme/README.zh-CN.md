@@ -332,7 +332,7 @@ template；没写的 section 则吃 template 默认。
 
 ```ini
 [logging]
-local_path = ./logs/   # 相对 repo 根；或 /abs/、~/dir/ 也可
+local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
 ```
 
 跑任何 wrapper 重新生成 `compose.yaml`。host 文件会落在
