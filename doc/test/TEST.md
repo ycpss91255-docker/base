@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1398 tests** total (1334 unit + 64 integration).
+Template self-tests: **1415 tests** total (1351 unit + 64 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -501,7 +501,7 @@ value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
 trace pattern as build.sh, parity across wrappers).
 
-### test/unit/exec_sh_spec.bats (36)
+### test/unit/exec_sh_spec.bats (53)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -519,13 +519,21 @@ standalone `--` consumed before CMD flows through to `docker compose
 exec`, lets a dash-leading CMD pass through, works after `-t TARGET`
 for run.sh parity, no-`--` positional path stays backward-compatible,
 `-h` usage mentions `--`), fallback `_detect_lang` branches when
-`template/` is absent, and **`-C` / `--chdir` flag**
+`template/` is absent, **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
-guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
+guards, usage help mention), **`-v` / `--verbose` / `-vv` /
 `--very-verbose` flag** (#311: symmetry-only for exec since
 `docker exec` itself does not build, but flag is accepted and `-vv`
-enables wrapper trace).
+enables wrapper trace), and **`-T` / `--no-tty` + `-i` / `--tty`
+TTY-mode flags + auto-detect of `bash|sh|dash|zsh|ash|ksh -c '...'`**
+(#382 Option 1+2: 17 assertions covering the no-CMD default (TTY),
+interactive binary default (TTY), 4 shell flavours with `-c` auto-add
+`-T`, `bash hello.sh` (no `-c`) keeps TTY, explicit `-T`/`--no-tty`
+forces no-TTY, explicit `-i`/`--tty` overrides heuristic, last-wins
+precedence between `-T` and `-i` in both orders, `-T` + `-t TARGET`
+attaches to the right service, `-T` + `--` separator round-trip,
+`--help` mentions both flag pairs).
 
 ### test/unit/stop_sh_spec.bats (34)
 

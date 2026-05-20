@@ -7,8 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`exec.sh` one-shot commands no longer leak terminal escape
+  sequences** (#382). Pre-fix, `docker compose exec` defaulted to
+  `-it` so a one-shot like `./exec.sh bash -c 'ls /foo'` inherited
+  the host terminal's focus-in / bracketed-paste sequences (e.g.
+  `^[[I^[[I`) into stdout, polluting downstream pipelines.
+
 ### Added
 
+- **`exec.sh` gained `-T` / `--no-tty`, `-i` / `--tty`, plus auto-
+  detect for `bash|sh|dash|zsh|ash|ksh -c '...'`** (#382, Option 1+2).
+  Three-tier resolution with last-wins between the explicit flags:
+  - Explicit `-T` / `--no-tty` → no TTY (`docker compose exec -T`).
+    Use for one-shots the auto-detect heuristic misses (`whoami`,
+    `ls /foo`, `env BAR=1 bash -c '...'`).
+  - Explicit `-i` / `--tty` → TTY. Use to override the auto-detect
+    when a `bash -c '...'` invocation genuinely wants a TTY (e.g.
+    `-i bash -c 'tput cols'`).
+  - Auto-detect: first positional `bash|sh|dash|zsh|ash|ksh` plus
+    a following `-c` → no TTY (covers the 90% one-shot wrapping
+    pattern).
+  - Otherwise: keep `-it` (preserves `./exec.sh` and
+    `./exec.sh htop` muscle memory).
+
+  Usage text + examples updated in all 4 languages (en / zh-TW /
+  zh-CN / ja).
 - **Bats matrix shards + dedicated coverage job in `self-test.yaml`**
   (#377). Three new sibling jobs replace the pre-#377 monolithic
   `test` job:
