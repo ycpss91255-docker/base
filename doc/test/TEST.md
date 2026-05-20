@@ -588,7 +588,7 @@ down — `docker network prune --filter until=10m` + `docker image prune
 found; usage help mentions `--prune` with the two grace windows; the
 plain `stop.sh --dry-run` path emits no `docker prune` commands).
 
-### test/unit/prune_sh_spec.bats (23)
+### test/unit/prune_sh_spec.bats (36)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`
@@ -607,7 +607,19 @@ across all selected targets, **volume confirmation prompt** (`n`
 aborts with exit-1 + i18n "aborted" message; `-y` skips the prompt;
 zh-TW prompt body asserts), `-C` / `--chdir` parity (accepted but
 no-op for daemon-wide prune; value-required + directory guards),
-usage help mentions every flag family.
+usage help mentions every flag family, and **#388 `--worktree-orphans`
+mode** (13 cases): per-test smart docker stub keyed on
+`DOCKER_IMAGES_OUTPUT` / `DOCKER_RMI_LOG` mocks `docker images` + `rmi`;
+fixtures construct real `<workspace>/worktree/<name>/` dirs so the
+existence check has something to consult. Cases cover empty-list
+no-op, owner-match + missing worktree → rmi, owner-match + worktree
+alive → keep, main-checkout pattern (no hyphen) → keep, **two safety
+gates**: bare-name image → skip ("Skipping N bare-name image" log),
+other-owner image → skip ("Skipping N image(s) owned by another user"
+log). Plus `--repo` filter, `--dry-run` plan-only output, `-y` skip
+prompt, missing `--workspace` + empty `.env` → exit 2, `--workspace`
+flag wins over `.env` `WS_PATH`, `--owner` flag wins over `.env`
+`DOCKER_HUB_USER`, and `--help` mentions all four new flags.
 
 Regression guard for **issue #282** — the four user-facing wrappers
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`

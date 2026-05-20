@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`./prune.sh --worktree-orphans`** (#388). New opt-in mode that
+  removes tagged images left behind by removed worktrees. Algorithm:
+  for each tagged image matching `<owner>/<name>-<suffix>:<tag>` where
+  `<owner>` equals the current `DOCKER_HUB_USER` (loaded from `.env`
+  or detected via the same chain `setup.sh` uses), check if
+  `<workspace>/worktree/<name>-<suffix>/` exists — if not, the
+  worktree is gone and the tagged image is an orphan. `docker image
+  prune` cannot reach these (not dangling), and `docker system prune
+  -a` is too aggressive (kills every idle tagged image on the
+  daemon). Closes the leak case for the multi-worktree workflow where
+  `git worktree remove` wipes the cwd before the image is cleaned.
+
+  Safety gates: bare-name images (no `<owner>/` prefix) and images
+  owned by a different `<other>/` prefix are **always skipped** —
+  ownership cannot be confirmed, so we refuse to delete. Cleaning
+  those is left to manual `docker rmi`.
+
+  Companion flags:
+  - `--workspace <dir>` to point at the workspace root (defaults to
+    `WS_PATH` from `.env` when run from a repo with one).
+  - `--owner <name>` to override the detected owner (rare; useful
+    when migrating images between machines).
+  - `--repo <name>` (repeatable) to scope the scan to a specific repo
+    basename — only `<owner>/<name>-*` candidates considered.
+  - `-y` / `--dry-run` honored same as the existing prune flags.
+
+  Not included in `--all` (requires workspace + filesystem context
+  that the bulk prune doesn't have). Chain explicitly:
+  `./prune.sh --all --worktree-orphans`.
+
 ### BREAKING
 
 - **`./build.sh` now auto-prunes the displaced predecessor image after
