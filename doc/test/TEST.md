@@ -479,6 +479,30 @@ mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
 step output is visible; `-vv` adds `set -x` on the wrapper itself;
 usage help mentions all four spellings).
 
+### test/unit/build_sh_prune_spec.bats (7)
+
+Unit tests for `build.sh`'s #387 post-build prune-predecessor logic.
+Separate spec so the docker stub can be tailored to image-inspect /
+images-filter / rmi semantics without bloating the default
+build_sh_spec stub (which only logs argv). Smart docker stub branches
+on `image inspect` (returns `DOCKER_INSPECT_PRE_ID` on the first call,
+`DOCKER_INSPECT_POST_ID` on the second — defaults to PRE_ID for the
+cache-hit case), `images --filter reference=<id>` (emits the
+`<none>:<none>` self-entry plus `DOCKER_IMAGES_OUTPUT` lines so the
+multi-tag-still-references case can be simulated), and `rmi` (appends
+the id to `DOCKER_RMI_LOG` so tests assert presence/absence).
+
+Covers: first-build path (`docker image inspect` exits 1 → no
+`_pre_build_id` → prune skipped, no rmi), cache-hit rebuild
+(`pre == post` → cache-hit guard returns early), successful displaced
+rebuild (`pre != post`, old id has no other tag → `docker rmi
+<old-id>` fires), multi-tag guard (old id still referenced elsewhere
+→ "skip prune: predecessor still tagged" log + no rmi), `--no-prune`
+opt-out (no inspect calls + no rmi even when ids would have moved),
+`--dry-run` (planned-action line `[dry-run] docker rmi <old-id-of ...
+if displaced>` visible + zero real rmi), and `--help` mentions the
+`--no-prune` flag.
+
 ### test/unit/run_sh_spec.bats (54)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;

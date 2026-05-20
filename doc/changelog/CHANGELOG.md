@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### BREAKING
 
+- **`./build.sh` now auto-prunes the displaced predecessor image after
+  a successful build** (#387). Pre-#387: every rebuild that moved the
+  same tag (e.g. `mockuser/mockimg:devel`) left the old image ID
+  dangling as `<none>:<none>` on the daemon; one dev box accumulated
+  281 images / 357 GB / 200+ dangling before anyone noticed. Post-#387:
+  build.sh snapshots the tag's image ID before invoking
+  `_compose_project build`, and on success runs `docker rmi <old-id>`
+  iff (a) the ID actually moved AND (b) no other tag still references
+  the old ID. Surgical scope — only the image we just displaced; never
+  touches the buildx cache (use `prune.sh --builder` for that), other
+  repos' tagged images, or volumes. Pass **`--no-prune`** to opt out
+  (keep the previous version around for rollback / debug-diff).
+  First-build, cache-hit no-op, multi-tag, and build-failure paths are
+  all guarded — no rmi attempted in those cases. Under `--dry-run` a
+  `[dry-run] docker rmi <old-id-of <tag> if displaced>` line surfaces
+  for visibility without touching the daemon.
+
 - **`./run.sh` foreground exit now auto-tears-down the compose
   project by default** (#386). Pre-#386: leaving an interactive
   `./run.sh` session (or any one-shot `-t test` / `-t runtime`
