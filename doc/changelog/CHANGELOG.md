@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`build-worker.yaml` buildx GHA cache split into 4 per-target
+  scopes** (#378 b1 mitigation). Pre-#378 all 4 build steps
+  (`devel-test` / `devel` / `runtime-test` / `runtime`) shared one
+  `<image_name>[-<variant>]-<hardware>-cache` scope under `mode=max`,
+  so a late-stage `COPY .base/...` change in `devel` cascaded the
+  shared scope's manifest pointer and invalidated `runtime` /
+  `runtime-test` caches on the next PR. Each target now writes to its
+  own scope: `<base>-devel-test-cache`, `<base>-devel-cache`,
+  `<base>-runtime-test-cache`, `<base>-runtime-cache`. **Migration
+  cost**: every existing GHA cache entry is orphaned by the shape
+  change; first PR per active downstream pays a 4-way cold restart
+  (sequentially within the same build job — the 4 build steps share
+  layers via the buildx local store, so the wall-time hit is
+  meaningfully less than 4×). After that, every PR enjoys
+  per-target-isolated caches. Caller contract (workflow `inputs:`)
+  unchanged. Refs the b1 mitigation direction in the #378 audit
+  comment.
+
 ### Fixed
 
 - **`exec.sh` one-shot commands no longer leak terminal escape
