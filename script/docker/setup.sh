@@ -1325,13 +1325,24 @@ _parse_logging_svc_sections() {
 # emit, ensure the per-repo .gitignore covers each relative
 # local_path so users don't accidentally commit container logs.
 # Absolute paths and `~/...` are skipped — gitignore patterns apply
-# only inside the repo. Entries are added under a stable marker
-# comment so re-syncs don't churn the file.
+# only inside the repo.
+#
+# Entries live inside a managed block introduced by a stable marker
+# comment. The block scope is the marker line plus any immediately-
+# following lines that look like a gitignore dir entry (`/<path>/`);
+# the first non-matching line (blank line, comment, non-anchored
+# entry, etc.) ends the block. On each apply we rewrite the block to
+# exactly the current desired entries, which prunes stale entries
+# left over from prior `local_path` values (#390). The marker
+# comment itself is dropped when the block ends up empty so an
+# `apply` with no logging local_path leaves no trace. Lines outside
+# the managed block are user-owned and never touched.
 _sync_logging_local_paths_gitignore() {
   local _base="${1:?}"
   local _global="${2:-}"
   local _per_svc="${3:-}"
   local _gitignore="${_base%/}/.gitignore"
+  local _marker='# managed by template: [logging] local_path (do not remove)'
 
   local -a _candidates=()
   local _line _k _v
@@ -1353,7 +1364,6 @@ _sync_logging_local_paths_gitignore() {
       [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
     done <<< "${_per_svc}"
   fi
-  (( ${#_candidates[@]} == 0 )) && return 0
 
   # Filter: keep only relative paths; strip leading `./`, trailing `/`.
   local -a _entries=()
@@ -1373,33 +1383,71 @@ _sync_logging_local_paths_gitignore() {
     # marks it as a directory so it matches the dir + its contents.
     _entries+=("/${_p}/")
   done
-  (( ${#_entries[@]} == 0 )) && return 0
 
-  # Dedup + missing-only append.
+  # Dedup.
   local -A _seen=()
-  local -a _missing=()
+  local -a _desired=()
   for _p in "${_entries[@]}"; do
     [[ -n "${_seen[${_p}]:-}" ]] && continue
     _seen[${_p}]=1
-    if [[ ! -f "${_gitignore}" ]] || ! grep -qxF "${_p}" "${_gitignore}"; then
-      _missing+=("${_p}")
-    fi
+    _desired+=("${_p}")
   done
-  (( ${#_missing[@]} == 0 )) && return 0
 
+  # If file doesn't exist and nothing desired, leave it absent.
   if [[ ! -f "${_gitignore}" ]]; then
+    (( ${#_desired[@]} == 0 )) && return 0
     : > "${_gitignore}"
   fi
-  # Ensure trailing newline before append.
-  if [[ -s "${_gitignore}" ]]; then
-    local _last
-    _last="$(tail -c 1 -- "${_gitignore}")"
-    [[ "${_last}" != $'\n' ]] && printf '\n' >> "${_gitignore}"
+
+  # Split existing content into pre-marker / post-marker, dropping
+  # the marker block itself (re-emitted below from _desired). When
+  # no marker exists, every line lands in _pre and the block is
+  # appended at the end if anything is desired.
+  local -a _pre=() _post=()
+  local _in_block=0 _seen_marker=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_seen_marker}" -eq 0 && "${_line}" == "${_marker}" ]]; then
+      _seen_marker=1
+      _in_block=1
+      continue
+    fi
+    if [[ "${_in_block}" -eq 1 ]]; then
+      # Consume only gitignore dir-entry shape; anything else ends
+      # the managed block and is preserved as post-block content.
+      if [[ "${_line}" =~ ^/.+/$ ]]; then
+        continue
+      fi
+      _in_block=0
+      _post+=("${_line}")
+      continue
+    fi
+    if [[ "${_seen_marker}" -eq 1 ]]; then
+      _post+=("${_line}")
+    else
+      _pre+=("${_line}")
+    fi
+  done < "${_gitignore}"
+
+  # Compose output: pre / marker+desired (if any) / post. When there
+  # is nothing desired and no prior marker existed, return early to
+  # keep the file byte-identical to the input (preserves idempotency
+  # and avoids touching unrelated files).
+  if (( ${#_desired[@]} == 0 && _seen_marker == 0 )); then
+    return 0
   fi
-  if ! grep -q '^# managed by template: \[logging\] local_path' "${_gitignore}"; then
-    printf '# managed by template: [logging] local_path (do not remove)\n' >> "${_gitignore}"
-  fi
-  printf '%s\n' "${_missing[@]}" >> "${_gitignore}"
+
+  {
+    if (( ${#_pre[@]} > 0 )); then
+      printf '%s\n' "${_pre[@]}"
+    fi
+    if (( ${#_desired[@]} > 0 )); then
+      printf '%s\n' "${_marker}"
+      printf '%s\n' "${_desired[@]}"
+    fi
+    if (( ${#_post[@]} > 0 )); then
+      printf '%s\n' "${_post[@]}"
+    fi
+  } > "${_gitignore}"
 }
 
 _collect_logging() {
