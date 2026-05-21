@@ -693,7 +693,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/compose_logging_spec.bats (29)
+### test/unit/compose_logging_spec.bats (32)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -729,6 +729,9 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `_sync_logging_local_paths_gitignore is idempotent (#328)` | Re-run no-op |
 | `_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)` | Multi-source |
 | `_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)` | Empty no-op |
+| `_sync_logging_local_paths_gitignore prunes stale managed entries on value change (#390)` | Rename prune |
+| `_sync_logging_local_paths_gitignore drops marker + entries when candidates become empty (#390)` | Feature-off cleanup |
+| `_sync_logging_local_paths_gitignore preserves user entries outside managed block (#390)` | User-owned untouched |
 | `setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
 | `generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)` | Per-svc LOG_FILE_PATH on auto-emitted extends-only stage |
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |

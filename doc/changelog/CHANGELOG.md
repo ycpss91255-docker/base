@@ -126,6 +126,17 @@ Closes the multi-worktree-workflow lifecycle leaks (orphan `<projname>_default` 
 
 ### Added
 
+- **`setup.sh apply` prunes stale `[logging] local_path` entries
+  from the managed `.gitignore` block** (#390). Pre-#390 the helper
+  `_sync_logging_local_paths_gitignore` only appended; when a
+  downstream rewrote its `local_path` value (e.g. `./logs/` →
+  `./log/` to match the project's singular directory convention),
+  the prior `/logs/` entry persisted forever inside the managed
+  marker block. Post-#390 each apply rewrites the block to exactly
+  the current candidate set: stale entries drop out, new ones
+  appear, and when the resulting block is empty the marker comment
+  itself is removed so a feature-off repo carries no trace. Lines
+  outside the managed block stay user-owned and untouched.
 - **`exec.sh` gained `-T` / `--no-tty`, `-i` / `--tty`, plus auto-
   detect for `bash|sh|dash|zsh|ash|ksh -c '...'`** (#382, Option 1+2).
   Three-tier resolution with last-wins between the explicit flags:

@@ -383,7 +383,7 @@ file, in addition to the docker daemon's json-file log:
 
 ```ini
 [logging]
-local_path = ./logs/   # repo-relative; or /abs/, or ~/dir/
+local_path = ./log/   # repo-relative; or /abs/, or ~/dir/
 ```
 
 Re-run any wrapper to regenerate `compose.yaml`. Host file lands at

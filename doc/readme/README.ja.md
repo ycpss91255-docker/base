@@ -347,7 +347,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 
 ```ini
 [logging]
-local_path = ./logs/   # repo 相対、または /abs/、~/dir/ も可
+local_path = ./log/   # repo 相対、または /abs/、~/dir/ も可
 ```
 
 任意の wrapper を再実行すると `compose.yaml` が再生成されます。
