@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.34.0] - 2026-05-21
+
+Stable v0.34.0 minor feature release, promoting v0.34.0-rc1 (#396) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green.
+
+Single feature carried over from #390 / PR #395 (full detail under [v0.34.0-rc1] below):
+
+- **#390 / PR #395** — `setup.sh apply` prunes stale `[logging] local_path` entries from the managed `.gitignore` block, plus docs example flipped `./logs/` → `./log/` (singular-directory convention).
+
+Downstream consumers receive the change on next `make -f Makefile.ci upgrade VERSION=v0.34.0`. The 12 of 13 downstream repos that inherit base's empty default `local_path` see no change. `ros1_bridge` (the one that overrides to `./logs/`) needs a small follow-up PR to flip its override to `./log/`; the new prune logic will then clean the stale `/logs/` line from its `.gitignore` on next `setup.sh apply`. Fan out across the 2 active downstream repos via `/batch-template-upgrade v0.34.0` after this tag's CI is green.
+
 ## [v0.34.0-rc1] - 2026-05-21
 
 Release Candidate for v0.34.0 — single feature PR carried over from #390 that landed too late for the v0.33.0 window. Also doubles as the CHANGELOG-history fix that relocates the #390 entry out of `[v0.33.0-rc1]` (where the rebase replay misplaced it; the actual v0.33.0 GitHub release notes never included #390 since the entry was added in [Unreleased] AFTER v0.33.0 was tagged).
