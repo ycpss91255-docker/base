@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.34.0-rc1] - 2026-05-21
+
+Release Candidate for v0.34.0 — single feature PR carried over from #390 that landed too late for the v0.33.0 window. Also doubles as the CHANGELOG-history fix that relocates the #390 entry out of `[v0.33.0-rc1]` (where the rebase replay misplaced it; the actual v0.33.0 GitHub release notes never included #390 since the entry was added in [Unreleased] AFTER v0.33.0 was tagged).
+
+### Added
+
+- **`setup.sh apply` prunes stale `[logging] local_path` entries
+  from the managed `.gitignore` block** (#390). Pre-#390 the helper
+  `_sync_logging_local_paths_gitignore` only appended; when a
+  downstream rewrote its `local_path` value (e.g. `./logs/` →
+  `./log/` to match the project's singular directory convention),
+  the prior `/logs/` entry persisted forever inside the managed
+  marker block. Post-#390 each apply rewrites the block to exactly
+  the current candidate set: stale entries drop out, new ones
+  appear, and when the resulting block is empty the marker comment
+  itself is removed so a feature-off repo carries no trace. Lines
+  outside the managed block stay user-owned and untouched.
+
+  Also relocates the docs example from `./logs/` → `./log/` to align
+  with the project's singular-directory convention (`script/` /
+  `test/` / `doc/` / `config/` / `dockerfile/`). The default
+  `local_path` stays empty (opt-in semantics preserved) so consumers
+  inheriting the default see no change; only repos that override to
+  the new singular form will materialise a `log/` directory.
+
 ## [v0.33.0] - 2026-05-21
 
 Stable v0.33.0 minor feature release, promoting v0.33.0-rc1 (#393) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green and the three feature PRs already shipped with full integration coverage (1356 → 1440 tests, +84 across the three lifecycle changes).
@@ -126,17 +151,6 @@ Closes the multi-worktree-workflow lifecycle leaks (orphan `<projname>_default` 
 
 ### Added
 
-- **`setup.sh apply` prunes stale `[logging] local_path` entries
-  from the managed `.gitignore` block** (#390). Pre-#390 the helper
-  `_sync_logging_local_paths_gitignore` only appended; when a
-  downstream rewrote its `local_path` value (e.g. `./logs/` →
-  `./log/` to match the project's singular directory convention),
-  the prior `/logs/` entry persisted forever inside the managed
-  marker block. Post-#390 each apply rewrites the block to exactly
-  the current candidate set: stale entries drop out, new ones
-  appear, and when the resulting block is empty the marker comment
-  itself is removed so a feature-off repo carries no trace. Lines
-  outside the managed block stay user-owned and untouched.
 - **`exec.sh` gained `-T` / `--no-tty`, `-i` / `--tty`, plus auto-
   detect for `bash|sh|dash|zsh|ash|ksh -c '...'`** (#382, Option 1+2).
   Three-tier resolution with last-wins between the explicit flags:
