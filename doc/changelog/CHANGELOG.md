@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.33.0-rc1] - 2026-05-21
+
+Release Candidate for v0.33.0 — bundled lifecycle-cleanup wave:
+
+- **#386 / PR #389** `run.sh` auto compose-down on foreground exit (BREAKING; `--no-rm` opts out).
+- **#387 / PR #391** `build.sh` auto-prune displaced predecessor image (BREAKING; `--no-prune` opts out).
+- **#388 / PR #392** `prune.sh --worktree-orphans` opt-in mode (Added; owner-strict safety gates).
+
+Closes the multi-worktree-workflow lifecycle leaks (orphan `<projname>_default` networks; dangling `<none>:<none>` images from rebuilt tags; tagged orphans from removed worktrees). The two BREAKING entries are default-flip with explicit escape hatches — downstream pulls should not need code changes, only awareness when `./run.sh` / `./build.sh` behave differently on exit / completion. See per-entry detail below.
+
 ### Added
 
 - **`./prune.sh --worktree-orphans`** (#388). New opt-in mode that
