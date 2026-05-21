@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.33.0] - 2026-05-21
+
+Stable v0.33.0 minor feature release, promoting v0.33.0-rc1 (#393) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green and the three feature PRs already shipped with full integration coverage (1356 → 1440 tests, +84 across the three lifecycle changes).
+
+Two BREAKING default-flips + one Added opt-in mode (full detail under [v0.33.0-rc1] below):
+
+- **#386 / PR #389** — `run.sh` foreground exit now auto compose-down (`--no-rm` opts out).
+- **#387 / PR #391** — `build.sh` after success auto rmi displaced predecessor (`--no-prune` opts out).
+- **#388 / PR #392** — new `prune.sh --worktree-orphans` opt-in mode, owner-strict safety gates.
+
+Downstream consumers receive the changes on next `make -f Makefile.ci upgrade VERSION=v0.33.0`. The two BREAKING items are behavior changes only — no API or invocation shape changes — so the upgrade is a documentation-only event for callers that don't rely on the pre-#386 keep-alive or pre-#387 keep-old-image defaults. Fan out across the 2 active downstream repos via `/batch-template-upgrade v0.33.0` after this tag's CI is green.
+
 ## [v0.33.0-rc1] - 2026-05-21
 
 Release Candidate for v0.33.0 — bundled lifecycle-cleanup wave:
