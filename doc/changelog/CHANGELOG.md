@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `upgrade.sh` #399 idempotency regex false-positive: `COPY script/*.sh /lint/script/` was matching the already-patched check because `/lint/` is a prefix of `/lint/script/`. Anchored the regex with `$` so only the exact `/lint/` destination triggers the skip. Closes #403.
+
 ## [v0.34.1] - 2026-05-25
 
 Patch release: single feature from #399 / PR #400.
