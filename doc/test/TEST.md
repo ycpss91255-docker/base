@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1416 tests** total (1352 unit + 64 integration).
+Template self-tests: **1447 tests** total (1379 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1193,7 +1193,7 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/integration/upgrade_spec.bats (15)
+### test/integration/upgrade_spec.bats (16)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -1212,6 +1212,10 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)` | Already-patched Dockerfile is unchanged on re-run |
 | `upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)` | Custom Dockerfile shape opts out of auto-heal |
 | `upgrade.sh continues cleanly when no Dockerfile at repo root (#348)` | Subtree-only repos (no consumer Dockerfile) skip silently |
+| `upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)` | Auto-patch stale root COPY post-#330 |
+| `upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)` | Already-patched COPY skipped |
+| `upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line` | No stale line to patch |
+| `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
