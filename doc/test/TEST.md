@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1447 tests** total (1379 unit + 68 integration).
+Template self-tests: **1452 tests** total (1384 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -633,7 +633,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (23)
+### test/unit/makefile_user_spec.bats (28)
 
 Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
 Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
@@ -654,7 +654,9 @@ setup-tui / upgrade / upgrade-check / help); positional forwarding
 setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
 test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
 no-op (`make foo` succeeds silently, `make build foo bar` forwards
-multiple positional args).
+multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
+multiple, after `--` separator — all abort with error); absolute
+container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
 ### test/unit/compose_gen_spec.bats (50)
 
