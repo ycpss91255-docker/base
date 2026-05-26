@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`[network] pid` setting** for PID namespace mode (`host` / `private`). Default `private` (Docker default). Set `pid = host` when running multiple GPU-rendering containers on the same GPU to avoid NVIDIA driver pthread robust mutex failures (`ESRCH`). Follows the `[network] ipc` precedent: setup.conf -> `.env` `PID_MODE` -> compose.yaml `pid:`. Per-stage override and TUI selection (4 languages) included. Closes #412.
+
 ### Fixed
 - **Makefile forwarding: absolute container paths** — `make exec -- /root/demo/test.sh` failed with `No rule to make target` because GNU Make's built-in implicit rules stat every goal on the host filesystem. Added `--no-builtin-rules` + `.SUFFIXES:` so the `%:` catch-all fires correctly for arbitrary absolute paths. Closes #414 (case 2).
 - **Makefile forwarding: VAR=VALUE args silently lost** — `make setup set build.arg_4 ROS2_DISTRO=jazzy` dropped the `ROS2_DISTRO=jazzy` token because Make treats any `KEY=VALUE` CLI token as a variable override, not a goal. Added a `MAKEOVERRIDES` guard that detects swallowed args and aborts with a clear error message pointing users to the underlying script. Closes #414 (case 1).

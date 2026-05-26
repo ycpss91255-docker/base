@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1452 tests** total (1384 unit + 68 integration).
+Template self-tests: **1458 tests** total (1390 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1452 tests** total (1384 unit + 68 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (305)
+### test/unit/setup_spec.bats (309)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -111,7 +111,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty WARN (#150 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
-| Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 25 |
+| Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/pid/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 28 |
 | `_validate_stage_name` (#215: format / baseline / reserved exit codes) | 4 |
 | `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection) | 6 |
 | `_compute_dockerfile_hash` (#215: stable / add / remove / non-FROM-AS edits / missing) | 5 |
@@ -180,7 +180,7 @@ target areas the issue body called out.
 | `_swap_image_rule` (both occupied / target empty / source empty / both empty / m<1) | 5 |
 | `_edit_list_section` via `_edit_section_environment` (env_ add/edit/remove, invalid → msgbox+retry, max+1 indexing, Cancel/Esc) | 7 |
 | `_edit_section_image` top-level dispatch (add max+1, click rule_N, Back) | 3 |
-| `_edit_section_network` (host+host no shm prompt, bridge prompts name+ports, ipc=private prompts shm, empty network_name allowed) | 4 |
+| `_edit_section_network` (host+host+pid no shm prompt, bridge prompts name+ports, ipc=private prompts shm, empty network_name allowed) | 4 |
 | `_edit_section_deploy` (off short-circuits — only writes gpu_mode) | 1 |
 | Multi-section dispatch from main menu (network → host → save) | 1 |
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
@@ -658,19 +658,22 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (50)
+### test/unit/compose_gen_spec.bats (52)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
-references, `test` service presence, image name threading, and
-conditional GPU deploy block + GUI env/volumes + extra volumes from
-`[volumes]` section.
+references, conditional pid emission (only for `host`; omitted for
+`private` since Docker rejects the literal), `test` service presence,
+image name threading, and conditional GPU deploy block + GUI
+env/volumes + extra volumes from `[volumes]` section.
 
 | Test | Description |
 |------|-------------|
 | `outputs AUTO-GENERATED header` | Header check |
 | `always emits workspace volume` | Baseline |
 | `emits network_mode/ipc/privileged via env var` | env-var baked |
+| `omits pid when default private` | pid omit |
+| `emits pid env-var ref when host` | pid host |
 | `emits test service with profiles: [test]` | test service |
 | `image field contains repo name` | Image name |
 | `does NOT emit /dev:/dev by default (not in baseline)` | Baseline scope |
