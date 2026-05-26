@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Makefile forwarding: absolute container paths** — `make exec -- /root/demo/test.sh` failed with `No rule to make target` because GNU Make's built-in implicit rules stat every goal on the host filesystem. Added `--no-builtin-rules` + `.SUFFIXES:` so the `%:` catch-all fires correctly for arbitrary absolute paths. Closes #414 (case 2).
+- **Makefile forwarding: VAR=VALUE args silently lost** — `make setup set build.arg_4 ROS2_DISTRO=jazzy` dropped the `ROS2_DISTRO=jazzy` token because Make treats any `KEY=VALUE` CLI token as a variable override, not a goal. Added a `MAKEOVERRIDES` guard that detects swallowed args and aborts with a clear error message pointing users to the underlying script. Closes #414 (case 1).
 - `upgrade.sh` #399 idempotency regex false-positive: `COPY script/*.sh /lint/script/` was matching the already-patched check because `/lint/` is a prefix of `/lint/script/`. Anchored the regex with `$` so only the exact `/lint/` destination triggers the skip. Closes #403.
 
 ## [v0.34.1] - 2026-05-25
