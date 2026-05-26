@@ -305,7 +305,7 @@ teardown() {
   assert_failure
 }
 
-@test "generate_compose_yaml emits network_mode/ipc/pid/privileged via env var" {
+@test "generate_compose_yaml emits network_mode/ipc/privileged via env var" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras
@@ -313,9 +313,23 @@ teardown() {
   assert_success
   run grep -F 'ipc: ${IPC_MODE}' "${COMPOSE_OUT}"
   assert_success
-  run grep -F 'pid: ${PID_MODE}' "${COMPOSE_OUT}"
-  assert_success
   run grep -F 'privileged: ${PRIVILEGED}' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml omits pid when default private" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'pid:' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml emits pid env-var ref when host" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "host"
+  run grep -F 'pid: ${PID_MODE}' "${COMPOSE_OUT}"
   assert_success
 }
 

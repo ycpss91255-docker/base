@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1452 tests** total (1384 unit + 68 integration).
+Template self-tests: **1458 tests** total (1390 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1452 tests** total (1384 unit + 68 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (308)
+### test/unit/setup_spec.bats (309)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -658,19 +658,22 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (50)
+### test/unit/compose_gen_spec.bats (52)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
-references, `test` service presence, image name threading, and
-conditional GPU deploy block + GUI env/volumes + extra volumes from
-`[volumes]` section.
+references, conditional pid emission (only for `host`; omitted for
+`private` since Docker rejects the literal), `test` service presence,
+image name threading, and conditional GPU deploy block + GUI
+env/volumes + extra volumes from `[volumes]` section.
 
 | Test | Description |
 |------|-------------|
 | `outputs AUTO-GENERATED header` | Header check |
 | `always emits workspace volume` | Baseline |
-| `emits network_mode/ipc/pid/privileged via env var` | env-var baked |
+| `emits network_mode/ipc/privileged via env var` | env-var baked |
+| `omits pid when default private` | pid omit |
+| `emits pid env-var ref when host` | pid host |
 | `emits test service with profiles: [test]` | test service |
 | `image field contains repo name` | Image name |
 | `does NOT emit /dev:/dev by default (not in baseline)` | Baseline scope |

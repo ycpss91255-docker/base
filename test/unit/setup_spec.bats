@@ -2739,6 +2739,21 @@ EOF
   assert_output "PID_MODE=private"
 }
 
+@test "[network] pid default (private) omits pid: line from compose.yaml" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep 'pid:' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_failure
+}
+
 @test "[network] pid = host emits pid: host in compose.yaml" {
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [network]

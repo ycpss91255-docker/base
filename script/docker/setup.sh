@@ -1893,7 +1893,13 @@ YAML
     container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
-    pid: \${PID_MODE}
+YAML
+    # pid: only emitted for "host" — Docker rejects "private" as a
+    # literal; omitting the key gives the same private-namespace default.
+    if [[ "${_pid_mode}" == "host" ]]; then
+      echo "    pid: \${PID_MODE}"
+    fi
+    cat <<YAML
     stdin_open: true
     tty: true
 YAML
@@ -2243,11 +2249,13 @@ YAML
       else
         echo "    ipc: \${IPC_MODE}"
       fi
-      # pid: literal when stage overrides; else env-var ref.
-      if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
-        echo "    pid: ${_eff_pid_mode}"
-      else
-        echo "    pid: \${PID_MODE}"
+      # pid: only emitted for "host" — Docker rejects "private" as literal.
+      if [[ "${_eff_pid_mode}" == "host" ]]; then
+        if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+          echo "    pid: ${_eff_pid_mode}"
+        else
+          echo "    pid: \${PID_MODE}"
+        fi
       fi
       # runtime: only when explicitly set non-empty / non-auto / non-off.
       if [[ -n "${_eff_runtime}" ]] && \
