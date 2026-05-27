@@ -110,7 +110,7 @@ _msg_hints() {
   esac
 }
 
-# #216 --build flow + auto-build soft-guard messages.
+# #216 --build flow + #429 first-run auto-delegate messages.
 _msg_build() {
   case "${_LANG}:${1:?}" in
     zh-TW:invoking)      echo "正在執行 ./build.sh test（lint + smoke）..." ;;
@@ -121,14 +121,10 @@ _msg_build() {
     zh-CN:image_missing) echo "本机尚无此 image" ;;
     ja:image_missing)    echo "ローカルに image なし" ;;
     *:image_missing)     echo "Image not found locally" ;;
-    zh-TW:skips_lint)    echo "Compose 即將 auto-build 此 image — 但**不會**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    zh-CN:skips_lint)    echo "Compose 即将 auto-build 此 image — 但**不会**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    ja:skips_lint)       echo "Compose が auto-build しますが、ShellCheck / Hadolint / Bats smoke は**実行されません**。" ;;
-    *:skips_lint)        echo "Compose will auto-build this image — but it will skip ShellCheck / Hadolint / Bats smoke." ;;
-    zh-TW:full_hint)     echo "完整驗證請執行: ./build.sh test   (或 ./run.sh --build 由本指令呼叫)" ;;
-    zh-CN:full_hint)     echo "完整验证请执行: ./build.sh test   (或 ./run.sh --build 由本指令调用)" ;;
-    ja:full_hint)        echo "完全な検証は: ./build.sh test を実行してください（または ./run.sh --build で本コマンド経由）" ;;
-    *:full_hint)         echo "For full verification: ./build.sh test  (or ./run.sh --build to do it now)" ;;
+    zh-TW:delegating)    echo "委派給 ./build.sh 建置..." ;;
+    zh-CN:delegating)    echo "委派给 ./build.sh 构建..." ;;
+    ja:delegating)       echo "./build.sh にビルドを委譲中..." ;;
+    *:delegating)        echo "Delegating to ./build.sh..." ;;
   esac
 }
 
@@ -530,22 +526,18 @@ main() {
   # Mute with QUIET=1 for piped / CI logs.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
-  # ── #216: soft guard for the auto-build path ──
-  # Compose's auto-build (when image is missing locally) only walks
-  # `target: devel` (or whatever -t says) and silently skips the
-  # `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
-  # smoke. (Pre-#243 this stage was named `test`.)
-  # On a fresh clone this means new contributors who reach for
-  # ./run.sh first land in a working dev container without ever
-  # hitting the lint/smoke gates that ./build.sh test enforces.
+  # ── #216 / #429: auto-build gate ──
+  # When the target image is missing locally, delegate to build.sh
+  # instead of letting compose auto-build (which silently skips the
+  # test stage). This makes the first `make run` equivalent to
+  # `make build && make run` without requiring two commands.
   #
   # Behavior:
   #   - --build → invoke ./build.sh test BEFORE compose up (full
   #     local-CI parity). Always runs, even if image is cached.
-  #   - default + image absent + interactive TTY → print INFO before
-  #     compose up so user knows the auto-build will skip lint/smoke.
-  #   - default + image absent + non-TTY → silent (CI / cron context).
-  #   - default + image present → silent (no auto-build will fire).
+  #   - default + image absent → auto-delegate to ./build.sh TARGET
+  #     so the image is built via the proper build pipeline (#429).
+  #   - default + image present → silent (no build needed).
   #
   # Image inspect is per-target so ./run.sh -t headless checks
   # ${IMAGE_NAME}:headless (per #215 auto-emit naming), not :devel.
@@ -559,13 +551,11 @@ main() {
     local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${TARGET}"
     if ! docker image inspect "${_full_tag}" --format '{{.Id}}' \
          >/dev/null 2>&1; then
-      # `[[ -t 2 ]]` checks if stderr is connected to a terminal
-      # (interactive). RUN_FORCE_TTY=1 is a test-only override so unit
-      # tests can exercise the TTY branch without a real PTY.
-      if [[ "${RUN_FORCE_TTY:-0}" == "1" ]] || [[ -t 2 ]]; then
-        _log_warn run "$(_msg build image_missing): ${_full_tag}"
-        _log_warn run "$(_msg build skips_lint)"
-        _log_warn run "$(_msg build full_hint)"
+      local _build_sh="${FILE_PATH}/build.sh"
+      if [[ -x "${_build_sh}" ]]; then
+        _log_info run "$(_msg build image_missing): ${_full_tag}"
+        _log_info run "$(_msg build delegating)"
+        "${_build_sh}" "${TARGET}"
       fi
     fi
   fi

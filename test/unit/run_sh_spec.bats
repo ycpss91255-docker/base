@@ -508,10 +508,10 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #216 — soft guard for the auto-build path that bypasses lint+smoke
+# #216 / #429 — auto-build gate (first-run auto-delegate to build.sh)
 # ════════════════════════════════════════════════════════════════════
 
-@test "run.sh: image present → no auto-build INFO printed" {
+@test "run.sh: image present → no build.sh invoked, no INFO printed" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -522,11 +522,12 @@ EOS
   export DOCKER_IMAGE_PRESENT=true
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
-  refute_output --partial "Compose will auto-build"
-  refute_output --partial "skips ShellCheck"
+  refute_output --partial "not found locally"
+  run cat "${BUILD_SH_LOG}"
+  assert_output ""
 }
 
-@test "run.sh: image absent + TTY → INFO message printed before compose up" {
+@test "run.sh: image absent → auto-delegates to build.sh (#429)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -535,17 +536,15 @@ EOS
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
-  # Force TTY check to true via env var so the test does not need a
-  # real PTY (run.sh respects RUN_FORCE_TTY=1 for testing).
-  export RUN_FORCE_TTY=1
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
   assert_output --partial "not found locally"
-  assert_output --partial "auto-build"
-  assert_output --partial "ShellCheck"
+  assert_output --partial "Delegating to ./build.sh"
+  run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
+  assert_output --partial "devel"
 }
 
-@test "run.sh: image absent + no TTY → silent (no INFO message)" {
+@test "run.sh: image absent + non-devel target → build.sh receives target (#429)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -554,12 +553,29 @@ EOS
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
-  unset RUN_FORCE_TTY
-  # Without RUN_FORCE_TTY and with bats's piped stderr, the TTY check
-  # naturally returns false → no INFO.
-  run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
+  run bash "${SANDBOX}/run.sh" --detach -t runtime
   assert_success
-  refute_output --partial "Compose will auto-build"
+  run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
+  assert_output --partial "runtime"
+}
+
+@test "run.sh: image absent + build.sh fails → run.sh aborts (#429)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
+  export DOCKER_IMAGE_PRESENT=false
+  cat > "${SANDBOX}/build.sh" <<'EOS'
+#!/usr/bin/env bash
+printf 'build.sh invoked: %s\n' "$*" >> "${BUILD_SH_LOG}"
+exit 1
+EOS
+  chmod +x "${SANDBOX}/build.sh"
+  run bash "${SANDBOX}/run.sh" --detach
+  assert_failure
 }
 
 @test "run.sh: image-inspect uses per-target tag (-t headless inspects :headless)" {
@@ -570,8 +586,6 @@ EOS
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
-  # docker stub logs every invocation to a temp file so we can assert
-  # the inspect arg.
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
 {
@@ -589,9 +603,7 @@ fi
 exit 0
 EOS
   chmod +x "${BIN_DIR}/docker"
-  export RUN_FORCE_TTY=1
   run bash "${SANDBOX}/run.sh" --detach -t headless
-  # Image inspect must target ${IMAGE_NAME}:headless, not :devel.
   run grep -F "image inspect" "${TEMP_DIR}/docker.log"
   assert_output --partial ":headless"
 }
@@ -607,14 +619,11 @@ EOS
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
-  # build.sh was called with `test` so lint + smoke runs.
   run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
   assert_output --partial "test"
 }
 
-@test "run.sh --build: skips when image present too (explicit opt-in always builds)" {
-  # User who passes --build wants a fresh lint+smoke pass even if the
-  # image is cached. Defensive: cached image may be stale wrt source.
+@test "run.sh --build: always builds even if image cached (explicit opt-in)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -626,26 +635,7 @@ EOS
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
   run wc -l < "${BUILD_SH_LOG}"
-  # exactly one build.sh invocation
   [[ "${output}" -eq 1 ]] || { echo "expected 1 build.sh call, got ${output}"; return 1; }
-}
-
-@test "run.sh: no --build, image absent → does NOT invoke build.sh (Option 4 rejected)" {
-  # Default behavior is INFO-only; build.sh is opt-in only.
-  {
-    echo "USER_NAME=tester"
-    echo "IMAGE_NAME=mockimg"
-    echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
-  echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
-  export DOCKER_IMAGE_PRESENT=false
-  export RUN_FORCE_TTY=1
-  run bash "${SANDBOX}/run.sh" --detach
-  assert_success
-  # build.sh log should be empty.
-  run cat "${BUILD_SH_LOG}"
-  assert_output ""
 }
 
 @test "run.sh --build: runs after check-drift (build sees regenerated state)" {

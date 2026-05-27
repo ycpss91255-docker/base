@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`make start` combined build+run target** — runs `./script/build.sh` then `./script/run.sh` in one step, reducing friction for new repo onboarding. Args after `--` are forwarded to build.sh only; run.sh runs with defaults. Closes #428.
 
+### Changed
+- **`run.sh` first-run auto-build gate** — when the target image is missing locally, `run.sh` now delegates to `./build.sh <target>` instead of letting Compose auto-build (which silently skips the test stage). Makes `make run` on a fresh clone equivalent to `make build && make run`. Build failure aborts the run. The `--build` flag (explicit `./build.sh test` with lint+smoke) is unchanged. Closes #429.
+
 ## [v0.36.0] - 2026-05-27
 
 ### Changed
