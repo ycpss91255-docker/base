@@ -23,6 +23,7 @@
 # Level-1 (file generation only) — docker is not invoked.
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   REPO_NAME="myapp_test"

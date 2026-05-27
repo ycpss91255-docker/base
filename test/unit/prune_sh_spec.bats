@@ -11,6 +11,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -22,7 +23,7 @@ setup() {
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/prune.sh "${SANDBOX}/prune.sh"
 
   # prune.sh doesn't load .env, but a seed file keeps the sandbox layout
@@ -191,7 +192,7 @@ teardown() {
   mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
   : > "${ALT}/.env"
   run bash "${SANDBOX}/prune.sh" -C "${ALT}" --networks --dry-run
   assert_success

@@ -459,7 +459,7 @@ main() {
   # override cmd, so -d + CMD is ambiguous — refuse rather than silently
   # drop the cmd.
   if [[ "${DETACH}" == true ]] && (( ${#CMD_ARGS[@]} > 0 )); then
-    _log_err run "-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use './exec.sh -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
+    _log_err run run_detach_cmd_rejected "display=-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use './exec.sh -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
     exit 2
   fi
 
@@ -499,21 +499,21 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info run "$(_msg bootstrap info)"
+    _log_info run run_bootstrap "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift → auto-regen via subprocess (see build.sh for the full
     # rationale; subprocess avoids the #101 _msg shadow class).
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info run "$(_msg drift regen)"
+      _log_info run run_drift_regen "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    _log_err  run "$(_msg errors no_env)"
-    _log_info run "$(_msg errors rerun_setup)"
+    _log_err  run run_no_env "display=$(_msg errors no_env)"
+    _log_info run run_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
@@ -544,7 +544,7 @@ main() {
   if [[ "${PRE_BUILD}" == true && "${DRY_RUN}" != true ]]; then
     local _build_sh="${FILE_PATH}/build.sh"
     if [[ -x "${_build_sh}" ]]; then
-      _log_info run "$(_msg build invoking)"
+      _log_info run run_build_invoking "display=$(_msg build invoking)"
       "${_build_sh}" test
     fi
   elif [[ "${DRY_RUN}" != true ]]; then
@@ -553,8 +553,8 @@ main() {
          >/dev/null 2>&1; then
       local _build_sh="${FILE_PATH}/build.sh"
       if [[ -x "${_build_sh}" ]]; then
-        _log_info run "$(_msg build image_missing): ${_full_tag}"
-        _log_info run "$(_msg build delegating)"
+        _log_info run run_build_image_missing "display=$(_msg build image_missing): ${_full_tag}" "tag=${_full_tag}"
+        _log_info run run_build_delegating "display=$(_msg build delegating)"
         "${_build_sh}" "${TARGET}"
       fi
     fi
@@ -591,7 +591,7 @@ main() {
       # shellcheck disable=SC2059
       printf -v _stop "$(_msg hints stop_hint)" "${_instance_arg}"
       _parallel="$(_msg hints parallel_hint)"
-      _log_err run "${_already}
+      _log_err run run_already_running "display=${_already}
 ${_stop}
 ${_parallel}"
       exit 1

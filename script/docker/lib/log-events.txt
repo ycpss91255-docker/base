@@ -1,8 +1,8 @@
-# log-events.txt - Registered body enum for _log_* (#423).
+# log-events.txt - Registered body enum for _log_* (#423, #438).
 #
-# One event name per line. _log_* with a body listed here emits JSON;
-# unlisted body falls back to legacy text (until P4 strict enforcement).
-# Adding a new event requires a same-PR addition here.
+# One event name per line. _log_* with an unregistered body is a fatal
+# error (strict enforcement, #438). Adding a new event requires a
+# same-PR addition here.
 
 # setup.sh
 env_regenerated
@@ -27,6 +27,16 @@ ssh_x11_no_xauth
 ssh_x11_network_mismatch
 xauth_rewrite_failed
 xauth_empty_cookie
+conf_image_name_default
+conf_image_name_unknown
+conf_no_repo_conf
+conf_empty_repo_conf
+conf_template_missing
+conf_reset_aborted
+conf_reset_needs_yes
+conf_mount_stale_path
+stage_devel_reserved
+env_drift_detail
 
 # build.sh
 build_started
@@ -45,6 +55,9 @@ run_already_running
 run_no_env
 run_build_image_missing
 run_build_delegating
+run_rerun_setup
+run_build_invoking
+run_detach_cmd_rejected
 
 # exec.sh
 exec_not_running
@@ -69,6 +82,7 @@ prune_nothing_selected
 prune_aborted
 prune_volume_aborted
 prune_no_workspace
+prune_unknown_flag
 
 # upgrade.sh
 upgrade_started
@@ -81,6 +95,17 @@ upgrade_rollback
 init_started
 init_completed
 init_missing_required_arg
+init_progress
+
+# ci.sh
+ci_apt_update_failed
+ci_apt_install_failed
+ci_bats_mock_clone_failed
+ci_invalid_shard
+ci_empty_shard
+ci_no_docker_socket
+ci_no_docker_cli
+ci_unknown_option
 
 # general
 dry_run_cmd

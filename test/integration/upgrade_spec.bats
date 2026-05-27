@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
   UPGRADE="/source/upgrade.sh"
 
@@ -47,7 +48,7 @@ _seed_template_remote() {
   mkdir -p "${TMPL_WORK}/script/docker/lib"
   cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
+  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"

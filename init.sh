@@ -37,7 +37,7 @@ source "${TEMPLATE_DIR}/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/script/docker/_lib.sh"
 
-_log() { _log_info init "$*"; }
+_log() { _log_info init init_progress "display=$*"; }
 
 # ── Symlink helper ──────────────────────────────────────────────────────────
 

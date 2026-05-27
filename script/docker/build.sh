@@ -494,7 +494,7 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info build "$(_msg bootstrap info)"
+    _log_info build build_bootstrap "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift-check path. When setup.conf / GPU / GUI / USER_UID changed
@@ -510,7 +510,7 @@ main() {
     # build.sh's _msg() and silently blank out drift_regen / err_no_env
     # status lines.
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info build "$(_msg drift regen)"
+      _log_info build build_drift_regen "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
@@ -519,8 +519,8 @@ main() {
   # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
   # a useful error instead of letting _load_env fail on a missing file.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    _log_err  build "$(_msg errors no_env)"
-    _log_info build "$(_msg errors rerun_setup)"
+    _log_err  build build_no_env "display=$(_msg errors no_env)"
+    _log_info build build_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
@@ -643,10 +643,10 @@ _prune_predecessor() {
     --filter "reference=${_pre_build_id}" 2>/dev/null \
     | grep -v '^<none>:<none>$' || true)"
   if [[ -n "${_other_tags}" ]]; then
-    _log_info build "skip prune: predecessor still tagged (${_other_tags})"
+    _log_info build build_prune_skip_tagged "display=skip prune: predecessor still tagged (${_other_tags})" "tags=${_other_tags}"
     return 0
   fi
-  _log_info build "pruning displaced predecessor ${_pre_build_id:7:12}"
+  _log_info build build_prune_displaced "display=pruning displaced predecessor ${_pre_build_id:7:12}" "image_id=${_pre_build_id:7:12}"
   docker rmi "${_pre_build_id}" >/dev/null 2>&1 || true
 }
 

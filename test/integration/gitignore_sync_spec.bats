@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   TMP_ROOT="$(mktemp -d)"
@@ -166,7 +167,7 @@ _seed_upgrade_fixture() {
   # sub-libs (#284), so copy all three surfaces.
   cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
+  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do

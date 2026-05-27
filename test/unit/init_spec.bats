@@ -8,6 +8,7 @@
 # fallback, _create_version_file with no argument).
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
 
@@ -35,6 +36,8 @@ setup() {
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done
   unset _sl
+  ln -s /source/script/docker/lib/log-events.txt \
+        "${TMP_REPO}/.base/script/docker/lib/log-events.txt"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
   cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'
