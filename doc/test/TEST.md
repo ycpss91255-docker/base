@@ -633,7 +633,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (28)
+### test/unit/makefile_user_spec.bats (32)
 
 Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
 Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
@@ -646,10 +646,12 @@ help. Sandbox copies the Makefile into a fake repo, planting stub
 can assert exactly which underlying script ran and with what args.
 
 Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
-`make help` lists 10 user-facing targets; removed sub-cmd targets
+`make help` lists 11 user-facing targets; removed sub-cmd targets
 (`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
-across all 10 targets (build / run / exec / stop / prune / setup /
-setup-tui / upgrade / upgrade-check / help); positional forwarding
+across all 11 targets (build / run / start / exec / stop / prune / setup /
+setup-tui / upgrade / upgrade-check / help); `make start` combined
+build+run (invokes build.sh then run.sh, correct execution order, args
+forwarded to build.sh only, visible in help); positional forwarding
 (`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
 setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
 test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
