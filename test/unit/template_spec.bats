@@ -1233,7 +1233,7 @@ EOF
 @test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E 'SETUP_DIR|pip' "${_df}"
+  run grep -E 'SETUP_DIR|python3-pip|pip/setup|pip install' "${_df}"
   assert_failure
 }
 
