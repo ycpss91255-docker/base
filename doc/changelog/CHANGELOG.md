@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`run.sh` CMD separator `--` + positional stop** — first positional arg now stops run.sh flag parsing so CMD flags like `--target` no longer collide with run.sh's own `-t/--target`. Explicit `--` separator documented in usage (4 languages). Closes #448.
+
 ## [v0.38.0] - 2026-05-27
 
 ### Added

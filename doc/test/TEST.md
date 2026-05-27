@@ -497,7 +497,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (54)
+### test/unit/run_sh_spec.bats (57)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -523,7 +523,10 @@ trace pattern as build.sh, parity across wrappers), and **#386
 foreground exit auto compose-down** (default-on for devel + one-shot
 non-devel targets, `--no-rm` opts out, `-d` suppresses the trap; the
 trap fires `down --remove-orphans` to mirror stop.sh and close the
-worktree-removed-before-stop network leak).
+worktree-removed-before-stop network leak), and **#448 `--` CMD
+separator** (`--` stops flag parsing so CMD flags like `--target`
+don't collide; positional CMD also stops parsing; usage documents
+`--`).
 
 ### test/unit/exec_sh_spec.bats (53)
 
