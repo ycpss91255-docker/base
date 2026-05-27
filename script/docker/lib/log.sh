@@ -95,7 +95,7 @@ _log_emit_json() {
   printf '%s\n' "${json}"
 }
 
-# ── Legacy text helpers (backward compat until P2) ─────────────────
+# ── Text output helpers ─────────────────────────────────────────────
 
 _log_color_enabled() {
   local fd="${1:?_log_color_enabled requires fd}"
@@ -104,27 +104,30 @@ _log_color_enabled() {
   test -t "${fd}"
 }
 
-_log_legacy_text() {
+_log_text() {
   local level="${1}" fd="${2}" tag="${3}"
   shift 3
-  local label
-  case "${level}" in
-    ERROR)   label="ERROR" ;;
-    WARN)    label="WARNING" ;;
-    INFO)    label="INFO" ;;
-    DEBUG)   label="DEBUG" ;;
-    FATAL)   label="FATAL" ;;
-  esac
-  if [[ "${level}" == "ERROR" ]] && _log_color_enabled "${fd}"; then
-    printf '\033[1;31m[%s] %s:\033[0m %s\n' "${tag}" "${label}" "$*" >&"${fd}"
+  local msg=""
+  local arg
+  for arg in "$@"; do
+    [[ "${arg}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*= ]] && continue
+    msg+="${msg:+ }${arg}"
+  done
+  local ts
+  ts="$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+  if [[ "${level}" == "ERROR" || "${level}" == "FATAL" ]] && _log_color_enabled "${fd}"; then
+    printf '%s \033[1;31m[%s] %-5s:\033[0m %s\n' "${ts}" "${tag}" "${level}" "${msg}" >&"${fd}"
   elif [[ "${level}" == "WARN" ]] && _log_color_enabled "${fd}"; then
-    printf '\033[33m[%s] %s:\033[0m %s\n' "${tag}" "${label}" "$*" >&"${fd}"
+    printf '%s \033[33m[%s] %-5s:\033[0m %s\n' "${ts}" "${tag}" "${level}" "${msg}" >&"${fd}"
   else
-    printf '[%s] %s: %s\n' "${tag}" "${label}" "$*" >&"${fd}"
+    printf '%s [%s] %-5s: %s\n' "${ts}" "${tag}" "${level}" "${msg}" >&"${fd}"
   fi
 }
 
 # ── Core dispatch ──────────────────────────────────────────────────
+#
+# Dual output: terminal always gets text (with i18n); LOG_JSON_FILE
+# gets structured JSON. i18n messages only exist in text mode.
 
 _log_dispatch() {
   local severity_text="${1}" severity_number="${2}" fd="${3}"
@@ -132,15 +135,11 @@ _log_dispatch() {
   local body="${5:-}"
   shift 5 2>/dev/null || shift 4
 
-  if _log_is_registered "${body}"; then
+  _log_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
+
+  if [[ -n "${LOG_JSON_FILE:-}" ]]; then
     _log_emit_json "${severity_text}" "${severity_number}" \
-      "${service}" "${body}" "$@" >&"${fd}"
-  elif [[ "${LOG_STRICT_BODY:-}" == "1" ]]; then
-    printf '[log] FATAL: unregistered body "%s" (service=%s, level=%s). Add to %s or fix the caller.\n' \
-      "${body}" "${service}" "${severity_text}" "${_LOG_EVENTS_FILE}" >&2
-    return 1
-  else
-    _log_legacy_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
+      "${service}" "${body}" "$@" >> "${LOG_JSON_FILE}"
   fi
 }
 
