@@ -43,9 +43,8 @@ run_bootstrap
 run_drift_regen
 run_already_running
 run_no_env
-run_build_hint
 run_build_image_missing
-run_build_skips_lint
+run_build_delegating
 
 # exec.sh
 exec_not_running

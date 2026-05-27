@@ -517,10 +517,11 @@ routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
 branches, **runtime log-line i18n** (bootstrap + already-running
 error translate in all four languages via the local `_msg()` table),
-**#216 auto-build soft guard / `--build` opt-in** (image
-present → silent, image absent + TTY → INFO, image absent + no TTY →
-silent, per-target image inspect, `--build` invokes `./build.sh test`
-before compose up, `--build` after check-drift), and **`-C` / `--chdir`
+**#216/#429 auto-build gate** (image present → silent + no build,
+image absent → auto-delegates to `./build.sh TARGET`, non-devel target
+forwarded, build failure aborts run, per-target image inspect, `--build`
+invokes `./build.sh test` before compose up, `--build` after
+check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
 value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
