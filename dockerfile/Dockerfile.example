@@ -79,7 +79,7 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
         usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m \
             "$(getent passwd "${USER_UID}" | cut -d: -f1)"; \
     else \
-        useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"; \
+        useradd -m -l -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"; \
     fi && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
@@ -254,7 +254,8 @@ COPY .base/script/docker/lib /lint/lib
 # them into /lint/ so ShellCheck catches issues at build time.
 #COPY script/docker/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
-RUN cd /lint && hadolint Dockerfile
+WORKDIR /lint
+RUN hadolint Dockerfile
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
 COPY --from=test-tools-stage /opt/bats /opt/bats
