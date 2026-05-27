@@ -771,7 +771,7 @@ detect_image_name() {
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then
         _found="${_rule#@default:}"
-        printf "[setup] INFO: IMAGE_NAME using @default:%s\n" "${_found}" >&2
+        _log_info setup "IMAGE_NAME using @default:${_found}"
       fi
 
       [[ -n "${_found}" ]] && break
@@ -779,7 +779,7 @@ detect_image_name() {
   fi
 
   if [[ -z "${_found}" ]]; then
-    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
+    _log_warn setup "IMAGE_NAME could not be detected. Using 'unknown'."
     _found="unknown"
   fi
   # Lowercase + sanitize: docker compose project names (and image tags)
@@ -2662,9 +2662,9 @@ _check_setup_drift() {
 
   if (( ${#_drift[@]} > 0 )); then
     local _d
-    printf "[setup] drift detected since last setup.sh run:\n" >&2
+    _log_warn setup "drift detected since last setup.sh run:"
     for _d in "${_drift[@]}"; do
-      printf "[setup]   - %s\n" "${_d}" >&2
+      _log_warn setup "  - ${_d}"
     done
     return 1
   fi
@@ -3610,7 +3610,7 @@ _setup_reset() {
   local _env="${_base_path}/.env"
   local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
-    printf "[setup] template setup.conf not found at %s\n" "${_tpl_conf}" >&2
+    _log_err setup "template setup.conf not found at ${_tpl_conf}"
     return 1
   fi
 
@@ -3922,12 +3922,7 @@ _setup_apply() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      printf "[setup] WARNING: [volumes] mount_1 host path '%s' does not exist on this machine.\n" \
-        "${_mount_1_host}" >&2
-      printf "[setup]          This is usually a stale absolute path committed from\n" >&2
-      printf "[setup]          a different machine. Rewriting mount_1 to the portable\n" >&2
-      printf "[setup]          '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting\n" >&2
-      printf "[setup]          WS_PATH locally. Commit the updated setup.conf to share.\n" >&2
+      _log_warn setup "[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share."
       ws_path=""
       detect_ws_path ws_path "${_base_path}"
       [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
