@@ -1331,7 +1331,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "no per-repo setup.conf"
   # #186 regression guard: the heads-up must NOT be demoted to INFO
   # (where it would scroll past). The env_done line legitimately uses
@@ -1350,7 +1350,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1376,7 +1376,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "未找到"
 }
 
@@ -1502,7 +1502,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "no per-repo setup.conf"
 }
 
@@ -1514,7 +1514,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1536,7 +1536,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
-  assert_output --partial "[setup] WARNING:"
+  assert_output --partial "[setup] WARN :"
   assert_output --partial "未找到"
 }
 

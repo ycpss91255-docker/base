@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`lib/log.sh` rewritten as OTel-aligned 5-level JSON logger** (P1 of #423). 5 functions (`_log_debug` / `_log_info` / `_log_warn` / `_log_err` / `_log_fatal`) with `(service, body, [attr=val]...)` API. Registered body emits JSON per OTel Logs Data Model; unregistered body falls back to legacy text for backward compat. W3C TRACEPARENT propagation via `_log_with_trace` / `_log_with_span` scoped wrappers. Ships `lib/log-events.txt` (body enum registry) and `lib/log.lnav-format.json`. Closes #423.
+- **`lib/log.sh` dual output + text format upgrade** (P2). Terminal always receives text with ISO 8601 timestamp + 5-char aligned level (`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`). `LOG_JSON_FILE` env enables parallel structured JSON output to file. `attr=val` args are filtered from text display but included in JSON. `WARNING` label shortened to `WARN` for alignment. i18n messages preserved in text mode only.
 
 ## [v0.35.0] - 2026-05-27
 
