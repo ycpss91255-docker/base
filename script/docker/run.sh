@@ -172,6 +172,9 @@ usage() {
 CMD: 啟動容器後要執行的指令，對齊 `docker run <image> [cmd]` 語意：
   無 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
   有 CMD  → 覆蓋 Dockerfile CMD（例: ./run.sh -t runtime bash 進 runtime shell）
+  --      → 分隔 run.sh 旗標與 CMD；-- 之後的全部參數視為 CMD，不再由 run.sh 解析。
+            當 CMD 本身有 --target 等與 run.sh 衝突的旗標時必須使用。
+            例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     zh-CN)
@@ -209,6 +212,9 @@ EOF
 CMD: 启动容器后要执行的指令，对齐 `docker run <image> [cmd]` 语义:
   无 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
   有 CMD  → 覆盖 Dockerfile CMD（例: ./run.sh -t runtime bash 进 runtime shell）
+  --      → 分隔 run.sh 旗标与 CMD；-- 之后的全部参数视为 CMD，不再由 run.sh 解析。
+            当 CMD 本身有 --target 等与 run.sh 冲突的旗标时必须使用。
+            例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     ja)
@@ -252,6 +258,9 @@ EOF
 CMD: コンテナ起動後に実行するコマンド。`docker run <image> [cmd]` セマンティクス:
   CMD 無し → Dockerfile の CMD を実行（例: devel=bash, runtime=auto-run service）
   CMD あり → Dockerfile CMD を上書き（例: ./run.sh -t runtime bash で runtime shell）
+  --      → run.sh フラグと CMD を分離。-- 以降の全引数は CMD として扱い、run.sh は
+            解析しません。CMD 自体に --target 等 run.sh と衝突するフラグがある場合に
+            使用。例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     *)
@@ -295,6 +304,10 @@ Options:
 CMD: Command to run after the container starts; mirrors `docker run <image> [cmd]`:
   no CMD  → run the Dockerfile CMD (e.g. devel=bash, runtime=auto-run service)
   with CMD → override the Dockerfile CMD (e.g. ./run.sh -t runtime bash to shell in)
+  --      → separates run.sh flags from CMD; everything after -- is passed as CMD
+            without further parsing by run.sh. Required when CMD has flags that
+            collide with run.sh (e.g. --target).
+            Example: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
   esac
@@ -443,11 +456,8 @@ main() {
         break
         ;;
       *)
-        # Positional from here on is the CMD to run inside the container,
-        # mirroring `docker run <image> [cmd...]` semantics. Empty CMD_ARGS
-        # means "use the Dockerfile CMD".
-        CMD_ARGS+=("$1")
-        shift
+        CMD_ARGS+=("$@")
+        break
         ;;
     esac
   done

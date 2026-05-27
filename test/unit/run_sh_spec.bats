@@ -306,6 +306,30 @@ EOS
   assert_output --partial "bash"
 }
 
+# ── #448: -- CMD separator ────────────────────────────────────────────────
+
+@test "run.sh -- separates CMD from run.sh flags (#448)" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t cli -- sdkmanager --target JETSON
+  assert_success
+  assert_output --partial "sdkmanager"
+  assert_output --partial "--target"
+  assert_output --partial "JETSON"
+  refute_output --partial "service name"
+}
+
+@test "run.sh positional CMD stops flag parsing — --target in CMD is not consumed (#448)" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t cli sdkmanager --target JETSON
+  assert_success
+  assert_output --partial "sdkmanager"
+  assert_output --partial "--target"
+  assert_output --partial "JETSON"
+}
+
+@test "run.sh --help mentions -- CMD separator (#448)" {
+  run bash "${SANDBOX}/run.sh" --help
+  assert_output --partial "--"
+}
+
 # ── #386: foreground exit auto compose-down ────────────────────────────────
 # trap _compose_cleanup EXIT is installed for any foreground invocation
 # (devel + one-shot stages). It fires on normal exit, Ctrl-C, and signal.
