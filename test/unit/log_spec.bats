@@ -1,94 +1,146 @@
 #!/usr/bin/env bats
 #
-# log_spec.bats - Tests for OTel-aligned log.sh (#423).
-# Dual output: terminal = text (with timestamp + aligned level);
-# LOG_JSON_FILE = structured JSON per OTel Logs Data Model.
+# log_spec.bats - Tests for OTel-aligned log.sh (#423, #438).
+# Single-sink tty-detect dispatch: text on TTY, JSON on non-TTY.
+# LOG_FORMAT=auto|text|json override. Strict body enforcement.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   LOG_SH="/source/script/docker/lib/log.sh"
-  JSON_FILE="${BATS_TEST_TMPDIR}/log.jsonl"
 }
 
-# ── Text output format (terminal) ──────────────────────────────────
+# ── Text output format (LOG_FORMAT=text) ──────────────────────────
 
 @test "_log_info text output has timestamp + aligned level + tag" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_info setup 'phase done'"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated"
   assert_success
   assert_equal "${stderr}" ""
   [[ "${output}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]
-  [[ "${output}" == *"[setup] INFO : phase done" ]]
+  [[ "${output}" == *"[setup] INFO : env_regenerated" ]]
 }
 
 @test "_log_err text output to stderr with timestamp" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_err build 'something broke'"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_err build build_no_env"
   assert_success
   assert_equal "${output}" ""
   [[ "${stderr}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]
-  [[ "${stderr}" == *"[build] ERROR: something broke" ]]
+  [[ "${stderr}" == *"[build] ERROR: build_no_env" ]]
 }
 
 @test "_log_warn text output uses WARN (not WARNING)" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_warn run 'deprecated flag'"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_warn run run_no_env"
   assert_success
-  [[ "${stderr}" =~ 'WARN : deprecated flag'$ ]]
+  [[ "${stderr}" =~ 'WARN : run_no_env'$ ]]
 }
 
 @test "_log_debug text output to stdout" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_debug build 'trace msg'"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_debug build dry_run_cmd"
   assert_success
-  [[ "${output}" =~ 'DEBUG: trace msg'$ ]]
+  [[ "${output}" =~ 'DEBUG: dry_run_cmd'$ ]]
   assert_equal "${stderr}" ""
 }
 
 @test "_log_fatal text output to stderr" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_fatal init 'unrecoverable'"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_fatal init init_missing_required_arg"
   assert_success
-  [[ "${stderr}" =~ 'FATAL: unrecoverable'$ ]]
+  [[ "${stderr}" =~ 'FATAL: init_missing_required_arg'$ ]]
 }
 
 @test "text levels are right-aligned to 5 chars" {
   run --separate-stderr bash -c "
+    export LOG_FORMAT=text
     source ${LOG_SH}
-    _log_info  setup 'i'
-    _log_debug setup 'd'
+    _log_info  setup env_regenerated
+    _log_debug setup dry_run_cmd
   "
   assert_success
-  [[ "${lines[0]}" =~ 'INFO : i'$ ]]
-  [[ "${lines[1]}" =~ 'DEBUG: d'$ ]]
+  [[ "${lines[0]}" =~ 'INFO : env_regenerated'$ ]]
+  [[ "${lines[1]}" =~ 'DEBUG: dry_run_cmd'$ ]]
 }
 
 @test "text output joins multi-token message with spaces" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_err build word1 word2 word3"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_err build build_no_env word2 word3"
   assert_success
-  [[ "${stderr}" =~ 'ERROR: word1 word2 word3'$ ]]
+  [[ "${stderr}" =~ 'ERROR: build_no_env word2 word3'$ ]]
 }
 
 @test "text output skips attr=val args in message" {
-  run bash -c "source ${LOG_SH}; _log_info setup 'regen done' ws_path=/tmp conf_hash=abc"
+  run bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp conf_hash=abc"
   assert_success
-  [[ "${output}" =~ 'INFO : regen done'$ ]]
+  [[ "${output}" =~ 'INFO : env_regenerated'$ ]]
   refute_line --partial "ws_path"
 }
 
-# ── Stream routing ─────────────────────────────────────────────────
+@test "text output uses display= attribute over body when present" {
+  run bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated 'display=Env regenerated OK' ws_path=/tmp"
+  assert_success
+  [[ "${output}" =~ 'INFO : Env regenerated OK'$ ]]
+  refute_line --partial "env_regenerated"
+  refute_line --partial "ws_path"
+}
+
+@test "JSON includes display= as attribute alongside registered body" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated 'display=Env regenerated OK'"
+  assert_success
+  [[ "${output}" == *'"body":"env_regenerated"'* ]]
+  [[ "${output}" == *'"display":"Env regenerated OK"'* ]]
+}
+
+# ── Timestamp: UTC + microsecond (#438) ───────────────────────────
+
+@test "text timestamp is UTC with microsecond precision" {
+  run bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z ]]
+}
+
+@test "JSON timestamp is UTC with microsecond precision" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  local ts
+  ts="$(printf '%s' "${output}" | grep -o '"timestamp":"[^"]*"')"
+  [[ "${ts}" =~ \"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z\" ]]
+}
+
+# ── Stream routing (LOG_FORMAT=text) ──────────────────────────────
 
 @test "_log_info and _log_debug route to stdout" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_info setup msg1; _log_debug setup msg2"
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated; _log_debug setup dry_run_cmd"
   assert_success
   assert_equal "${stderr}" ""
-  [[ "${output}" == *"msg1"* ]]
-  [[ "${output}" == *"msg2"* ]]
+  [[ "${output}" == *"env_regenerated"* ]]
+  [[ "${output}" == *"dry_run_cmd"* ]]
 }
 
 @test "_log_warn _log_err _log_fatal route to stderr" {
   run --separate-stderr bash -c "
+    export LOG_FORMAT=text
     source ${LOG_SH}
-    _log_warn  setup w
-    _log_err   setup e
-    _log_fatal setup f
+    _log_warn  setup xauth_rewrite_failed
+    _log_err   setup conf_invalid_value
+    _log_fatal setup conf_unknown_subcmd
   "
   assert_success
   assert_equal "${output}" ""
@@ -97,121 +149,163 @@ setup() {
   [[ "${stderr}" == *"FATAL"* ]]
 }
 
-# ── JSON file output (LOG_JSON_FILE) ───────────────────────────────
+# ── Single-sink tty-detect dispatch (#438) ────────────────────────
 
-@test "LOG_JSON_FILE receives JSON when set" {
-  run bash -c "
-    export LOG_JSON_FILE='${JSON_FILE}'
-    source ${LOG_SH}
-    _log_info setup 'regen done' ws_path=/tmp
-  "
+@test "non-TTY stdout emits JSON by default (auto-detect)" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp"
   assert_success
-  [[ -f "${JSON_FILE}" ]]
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" == *'"severity_text":"INFO"'* ]]
-  [[ "${json}" == *'"body":"regen done"'* ]]
+  [[ "${output}" == *'"severity_text":"INFO"'* ]]
+  [[ "${output}" == *'"body":"env_regenerated"'* ]]
+  [[ "${output}" == *'"ws_path":"/tmp"'* ]]
 }
 
-@test "JSON file contains OTel fields" {
-  run bash -c "
-    export LOG_JSON_FILE='${JSON_FILE}'
-    source ${LOG_SH}
-    _log_info setup env_regenerated ws_path=/tmp
-  "
+@test "non-TTY stderr emits JSON for _log_err" {
+  run --separate-stderr bash -c "source ${LOG_SH}; _log_err build build_no_env"
   assert_success
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" == *'"timestamp":'* ]]
-  [[ "${json}" == *'"severity_text":"INFO"'* ]]
-  [[ "${json}" == *'"severity_number":9'* ]]
-  [[ "${json}" == *'"body":"env_regenerated"'* ]]
-  [[ "${json}" == *'"service.name":"setup"'* ]]
-  [[ "${json}" == *'"service.lang":"bash"'* ]]
-  [[ "${json}" == *'"code.filepath":'* ]]
-  [[ "${json}" == *'"code.lineno":'* ]]
-  [[ "${json}" == *'"thread.id":'* ]]
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *'"severity_text":"ERROR"'* ]]
+  [[ "${stderr}" == *'"body":"build_no_env"'* ]]
 }
 
-@test "JSON file contains custom attributes" {
+@test "LOG_FORMAT=text forces text output on non-TTY" {
   run bash -c "
-    export LOG_JSON_FILE='${JSON_FILE}'
-    source ${LOG_SH}
-    _log_info setup env_regenerated ws_path=/tmp conf_hash=abc123
-  "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup env_regenerated"
   assert_success
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" == *'"ws_path":"/tmp"'* ]]
-  [[ "${json}" == *'"conf_hash":"abc123"'* ]]
+  [[ "${output}" =~ 'INFO : env_regenerated'$ ]]
+  [[ "${output}" != *'"severity_text"'* ]]
+}
+
+@test "LOG_FORMAT=json forces JSON output" {
+  run bash -c "
+    export LOG_FORMAT=json
+    source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" == *'"severity_text":"INFO"'* ]]
+  [[ "${output}" == *'"body":"env_regenerated"'* ]]
+}
+
+@test "LOG_FORMAT=auto is equivalent to unset (non-TTY -> JSON)" {
+  local out_auto out_unset
+  out_auto="$(bash -c "export LOG_FORMAT=auto; source ${LOG_SH}; _log_info setup env_regenerated" 2>/dev/null)"
+  out_unset="$(bash -c "unset LOG_FORMAT; source ${LOG_SH}; _log_info setup env_regenerated" 2>/dev/null)"
+  [[ "${out_auto}" == *'"severity_text":"INFO"'* ]]
+  [[ "${out_unset}" == *'"severity_text":"INFO"'* ]]
+}
+
+# ── JSON output format (non-TTY auto-detect) ─────────────────────
+
+@test "JSON output contains OTel fields" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp"
+  assert_success
+  [[ "${output}" == *'"timestamp":'* ]]
+  [[ "${output}" == *'"severity_text":"INFO"'* ]]
+  [[ "${output}" == *'"severity_number":9'* ]]
+  [[ "${output}" == *'"body":"env_regenerated"'* ]]
+  [[ "${output}" == *'"service.name":"setup"'* ]]
+  [[ "${output}" == *'"service.lang":"bash"'* ]]
+  [[ "${output}" == *'"code.filepath":'* ]]
+  [[ "${output}" == *'"code.lineno":'* ]]
+  [[ "${output}" == *'"thread.id":'* ]]
+}
+
+@test "JSON output contains custom attributes" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp conf_hash=abc123"
+  assert_success
+  [[ "${output}" == *'"ws_path":"/tmp"'* ]]
+  [[ "${output}" == *'"conf_hash":"abc123"'* ]]
 }
 
 @test "JSON severity_number: DEBUG=5 INFO=9 WARN=13 ERROR=17 FATAL=21" {
   run bash -c "
-    export LOG_JSON_FILE='${JSON_FILE}'
     source ${LOG_SH}
     _log_debug build dry_run_cmd
     _log_info  setup env_regenerated
+  "
+  assert_success
+  [[ "${output}" == *'"severity_number":5'* ]]
+  [[ "${output}" == *'"severity_number":9'* ]]
+
+  run bash -c "
+    source ${LOG_SH}
     _log_warn  setup xauth_rewrite_failed
     _log_err   setup conf_invalid_value
     _log_fatal init  init_missing_required_arg
   " 2>/dev/null
   assert_success
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" == *'"severity_number":5'* ]]
-  [[ "${json}" == *'"severity_number":9'* ]]
-  [[ "${json}" == *'"severity_number":13'* ]]
-  [[ "${json}" == *'"severity_number":17'* ]]
-  [[ "${json}" == *'"severity_number":21'* ]]
+  local combined="${output}${stderr}"
+  [[ "${combined}" == *'"severity_number":13'* ]]
+  [[ "${combined}" == *'"severity_number":17'* ]]
+  [[ "${combined}" == *'"severity_number":21'* ]]
 }
 
-@test "no JSON file written when LOG_JSON_FILE is unset" {
-  run bash -c "unset LOG_JSON_FILE; source ${LOG_SH}; _log_info setup msg"
-  assert_success
-  [[ ! -f "${JSON_FILE}" ]]
-}
-
-@test "JSON file appends multiple entries" {
+@test "JSON output is valid per-line (starts with { ends with })" {
   run bash -c "
-    export LOG_JSON_FILE='${JSON_FILE}'
     source ${LOG_SH}
     _log_info setup env_regenerated
-    _log_err  setup conf_invalid_value
-  " 2>/dev/null
+    _log_info setup env_drift_detected
+  "
   assert_success
-  local count
-  count="$(wc -l < "${JSON_FILE}")"
+  local count=0
+  local line
+  while IFS= read -r line; do
+    [[ "${line}" == "{"*"}" ]]
+    [[ "${line}" == *'"timestamp":'* ]]
+    [[ "${line}" == *'"body":'* ]]
+    count=$(( count + 1 ))
+  done <<< "${output}"
   [[ "${count}" -eq 2 ]]
 }
 
-# ── TRACEPARENT in JSON file ───────────────────────────────────────
+# ── TRACEPARENT in JSON ───────────────────────────────────────────
 
 @test "JSON includes trace_id and span_id when TRACEPARENT is set" {
   run bash -c "
     export TRACEPARENT='00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'
-    export LOG_JSON_FILE='${JSON_FILE}'
     source ${LOG_SH}
     _log_info setup env_regenerated
   "
   assert_success
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" == *'"trace_id":"0af7651916cd43dd8448eb211c80319c"'* ]]
-  [[ "${json}" == *'"span_id":"b7ad6b7169203331"'* ]]
+  [[ "${output}" == *'"trace_id":"0af7651916cd43dd8448eb211c80319c"'* ]]
+  [[ "${output}" == *'"span_id":"b7ad6b7169203331"'* ]]
 }
 
 @test "JSON omits trace_id when TRACEPARENT is unset" {
   run bash -c "
     unset TRACEPARENT
-    export LOG_JSON_FILE='${JSON_FILE}'
     source ${LOG_SH}
     _log_info setup env_regenerated
   "
   assert_success
-  local json
-  json="$(cat "${JSON_FILE}")"
-  [[ "${json}" != *'"trace_id"'* ]]
+  [[ "${output}" != *'"trace_id"'* ]]
+}
+
+# ── Strict body enforcement (#438) ────────────────────────────────
+
+@test "unregistered body causes fatal exit" {
+  run bash -c "source ${LOG_SH}; _log_info setup not_a_real_event"
+  assert_failure
+  [[ "${output}${stderr}" == *'unregistered'* ]]
+  [[ "${output}${stderr}" == *'not_a_real_event'* ]]
+}
+
+@test "registered body succeeds normally" {
+  run bash -c "source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+}
+
+@test "empty body is allowed (no strict check)" {
+  run bash -c "
+    export LOG_FORMAT=text
+    source ${LOG_SH}; _log_info setup"
+  assert_success
+}
+
+@test "strict body error names the offending body and log-events.txt" {
+  run bash -c "source ${LOG_SH}; _log_info setup typo_event_name"
+  assert_failure
+  [[ "${output}${stderr}" == *'typo_event_name'* ]]
+  [[ "${output}${stderr}" == *'log-events.txt'* ]]
 }
 
 # ── Missing service is rejected ────────────────────────────────────
@@ -228,8 +322,9 @@ setup() {
 
 @test "_log_fatal does not exit; caller controls exit" {
   run --separate-stderr bash -c "
+    export LOG_FORMAT=text
     source ${LOG_SH}
-    _log_fatal init 'unrecoverable' arg=REPO_NAME
+    _log_fatal init init_missing_required_arg
     echo 'still running'
   "
   assert_success
@@ -280,23 +375,11 @@ setup() {
   [[ "${stderr}" == *"[trace started:"* ]]
 }
 
-# ── _log_plain backward compat ─────────────────────────────────────
+# ── _log_plain removed (#438) ─────────────────────────────────────
 
-@test "_log_plain writes tagged text to stdout (no style)" {
-  run --separate-stderr bash -c "source ${LOG_SH}; _log_plain build '' 'plain text'"
-  assert_success
-  assert_equal "${output}" "[build] plain text"
-  assert_equal "${stderr}" ""
-}
-
-@test "_log_plain with bold + FORCE_COLOR=1 wraps in ANSI bold" {
-  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LOG_SH}; FORCE_COLOR=1 _log_plain build bold 'header'"
-  assert_success
-  assert_equal "${output}" $'[build] \033[1mheader\033[0m'
-}
-
-@test "_log_plain with no tag exits non-zero" {
-  run -127 bash -c "source ${LOG_SH}; _log_plain"
+@test "_log_plain is no longer defined" {
+  run bash -c "source ${LOG_SH}; declare -F _log_plain"
+  assert_failure
 }
 
 # ── _log_color_enabled ─────────────────────────────────────────────
@@ -319,25 +402,31 @@ setup() {
 # ── FORCE_COLOR text ───────────────────────────────────────────────
 
 @test "_log_err FORCE_COLOR=1 emits red bold ANSI in text" {
-  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LOG_SH}; FORCE_COLOR=1 _log_err build msg"
+  run --separate-stderr bash -c "
+    export FORCE_COLOR=1 LOG_FORMAT=text
+    source ${LOG_SH}; _log_err build build_no_env"
   assert_success
   [[ "${stderr}" == *$'\033[1;31m'* ]]
   [[ "${stderr}" == *"ERROR"* ]]
-  [[ "${stderr}" == *"msg"* ]]
+  [[ "${stderr}" == *"build_no_env"* ]]
 }
 
 @test "_log_warn FORCE_COLOR=1 emits yellow ANSI in text" {
-  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LOG_SH}; FORCE_COLOR=1 _log_warn run msg"
+  run --separate-stderr bash -c "
+    export FORCE_COLOR=1 LOG_FORMAT=text
+    source ${LOG_SH}; _log_warn run run_no_env"
   assert_success
   [[ "${stderr}" == *$'\033[33m'* ]]
   [[ "${stderr}" == *"WARN"* ]]
 }
 
 @test "NO_COLOR=1 text omits ANSI" {
-  run --separate-stderr bash -c "NO_COLOR=1 FORCE_COLOR=1 source ${LOG_SH}; NO_COLOR=1 FORCE_COLOR=1 _log_err build msg"
+  run --separate-stderr bash -c "
+    export NO_COLOR=1 FORCE_COLOR=1 LOG_FORMAT=text
+    source ${LOG_SH}; _log_err build build_no_env"
   assert_success
   [[ "${stderr}" != *$'\033['* ]]
-  [[ "${stderr}" == *"ERROR: msg"* ]]
+  [[ "${stderr}" == *"ERROR: build_no_env"* ]]
 }
 
 # ── Event registry ─────────────────────────────────────────────────

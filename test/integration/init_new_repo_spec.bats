@@ -11,6 +11,7 @@
 # separate self-test.yaml job that has access to the host Docker daemon.
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   # Stage a fake repo dir whose basename will become IMAGE_NAME

@@ -9,8 +9,14 @@
 # (b) apt-get / git resolve to our mocks instead of the real binaries.
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
+  local _cmd
+  for _cmd in grep date cat printf; do
+    local _path
+    _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
+  done
 }
 
 teardown() {

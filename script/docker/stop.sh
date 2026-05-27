@@ -205,10 +205,10 @@ _down_one() {
       --filter "label=com.docker.compose.project=${_project_name}" \
       --format '{{.Names}} ({{.State}})' 2>/dev/null || true)"
     if [[ -n "${_matches}" ]]; then
-      _log_info stop "Tearing down containers in project ${_project_name}:"
+      _log_info stop stop_teardown "display=Tearing down containers in project ${_project_name}:" "project=${_project_name}"
       printf '%s\n' "${_matches}" | sed 's/^/  /' >&2
     else
-      _log_info stop "No containers found for project ${_project_name}"
+      _log_info stop stop_no_containers "display=No containers found for project ${_project_name}" "project=${_project_name}"
     fi
   fi
   COMPOSE_PROFILES='*' _compose_project down --remove-orphans "${PASSTHROUGH[@]}"
@@ -309,7 +309,7 @@ main() {
       local _no_inst
       # shellcheck disable=SC2059
       printf -v _no_inst "$(_msg info no_instances)" "${IMAGE_NAME}"
-      _log_info stop "${_no_inst}"
+      _log_info stop stop_no_containers "display=${_no_inst}"
       # Still honor --prune even when no instance found, so a stale repo
       # with orphan networks/images from past runs gets cleaned.
       _maybe_prune
@@ -343,9 +343,9 @@ _maybe_prune() {
     printf '[dry-run]'; printf ' %q' "${_img_cmd[@]}"; printf '\n'
     return 0
   fi
-  _log_info stop "Pruning orphan networks (until=10m)..."
+  _log_info stop stop_prune_networks "display=Pruning orphan networks (until=10m)..."
   "${_net_cmd[@]}" || true
-  _log_info stop "Pruning dangling images (until=24h)..."
+  _log_info stop stop_prune_images "display=Pruning dangling images (until=24h)..."
   "${_img_cmd[@]}" || true
 }
 

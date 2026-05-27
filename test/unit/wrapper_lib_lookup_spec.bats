@@ -30,7 +30,7 @@ setup() {
   cp /source/script/docker/_lib.sh "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${SANDBOX}/.base/script/docker/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
 
   for _w in build.sh run.sh exec.sh stop.sh; do
     ln -s "/source/script/docker/${_w}" "${SANDBOX}/${_w}"

@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 #
-# log.sh - OTel-aligned 5-level JSON logger (#423).
+# log.sh - OTel-aligned 5-level logger (#423, #438).
 #
 # 5 functions: _log_debug, _log_info, _log_warn, _log_err, _log_fatal.
 # API: _log_<level> <service> <body> [attr=val]...
 #
-# When <body> is a registered event (in log-events.txt), emits one JSON
-# line per the OTel Logs Data Model. When <body> is NOT registered,
-# falls back to legacy text output for backward compatibility (P2
-# migrates all callers; P4 enables strict rejection via LOG_STRICT_BODY).
+# Single-sink tty-detect dispatch: text when fd is a TTY, JSON when
+# piped/redirected. Override with LOG_FORMAT=auto|text|json.
+# Unregistered body (not in log-events.txt) is a fatal error.
 #
 # Stream routing (matches OTel severity mapping):
 #   _log_debug / _log_info -> stdout
@@ -18,7 +17,7 @@
 #   When set, trace_id and span_id are extracted and included in JSON.
 #   Scoped wrappers: _log_with_trace / _log_with_span.
 #
-# Refs: #423, OTel Logs Data Model, W3C Trace Context.
+# Refs: #423, #438, OTel Logs Data Model, W3C Trace Context.
 
 if [[ -n "${_DOCKER_LIB_LOG_SOURCED:-}" ]]; then
   return 0
@@ -31,8 +30,8 @@ readonly _LOG_EVENTS_FILE="${_LOG_LIB_DIR}/log-events.txt"
 # ── Event registry ─────────────────────────────────────────────────
 
 _log_is_registered() {
-  [[ -n "${1}" ]] && [[ -f "${_LOG_EVENTS_FILE}" ]] && \
-    grep -v '^[[:space:]]*#' "${_LOG_EVENTS_FILE}" | grep -v '^[[:space:]]*$' | grep -Fxq "${1}" 2>/dev/null
+  [[ -n "${1}" ]] && [[ "${1}" != \#* ]] && [[ -f "${_LOG_EVENTS_FILE}" ]] && \
+    grep -Fxq "${1}" "${_LOG_EVENTS_FILE}" 2>/dev/null
 }
 
 # ── JSON helpers ───────────────────────────────────────────────────
@@ -55,8 +54,7 @@ _log_emit_json() {
   shift 4
 
   local timestamp
-  timestamp="$(date -u '+%Y-%m-%dT%H:%M:%S.%NZ' 2>/dev/null \
-    || date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  timestamp="$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')"
 
   local trace_id="" span_id=""
   if [[ -n "${TRACEPARENT:-}" ]]; then
@@ -107,14 +105,20 @@ _log_color_enabled() {
 _log_text() {
   local level="${1}" fd="${2}" tag="${3}"
   shift 3
-  local msg=""
+  local msg="" display=""
   local arg
   for arg in "$@"; do
-    [[ "${arg}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*= ]] && continue
-    msg+="${msg:+ }${arg}"
+    if [[ "${arg}" == display=* ]]; then
+      display="${arg#display=}"
+    elif [[ "${arg}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*= ]]; then
+      continue
+    else
+      msg+="${msg:+ }${arg}"
+    fi
   done
+  [[ -n "${display}" ]] && msg="${display}"
   local ts
-  ts="$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')"
   if [[ "${level}" == "ERROR" || "${level}" == "FATAL" ]] && _log_color_enabled "${fd}"; then
     printf '%s \033[1;31m[%s] %-5s:\033[0m %s\n' "${ts}" "${tag}" "${level}" "${msg}" >&"${fd}"
   elif [[ "${level}" == "WARN" ]] && _log_color_enabled "${fd}"; then
@@ -126,8 +130,9 @@ _log_text() {
 
 # ── Core dispatch ──────────────────────────────────────────────────
 #
-# Dual output: terminal always gets text (with i18n); LOG_JSON_FILE
-# gets structured JSON. i18n messages only exist in text mode.
+# Single-sink tty-detect (#438): text when fd is a TTY, JSON when
+# piped/redirected. LOG_FORMAT=auto|text|json overrides detection.
+# Unregistered body is a fatal error (strict by default).
 
 _log_dispatch() {
   local severity_text="${1}" severity_number="${2}" fd="${3}"
@@ -135,12 +140,31 @@ _log_dispatch() {
   local body="${5:-}"
   shift 5 2>/dev/null || shift 4
 
-  _log_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
-
-  if [[ -n "${LOG_JSON_FILE:-}" ]]; then
-    _log_emit_json "${severity_text}" "${severity_number}" \
-      "${service}" "${body}" "$@" >> "${LOG_JSON_FILE}"
+  if [[ -n "${body}" ]] && [[ -f "${_LOG_EVENTS_FILE}" ]] \
+     && ! _log_is_registered "${body}"; then
+    printf 'FATAL: unregistered log body "%s" -- add it to %s\n' \
+      "${body}" "${_LOG_EVENTS_FILE}" >&2
+    return 1
   fi
+
+  local format="${LOG_FORMAT:-auto}"
+  case "${format}" in
+    text)
+      _log_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
+      ;;
+    json)
+      _log_emit_json "${severity_text}" "${severity_number}" \
+        "${service}" "${body}" "$@" >&"${fd}"
+      ;;
+    *)
+      if test -t "${fd}"; then
+        _log_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
+      else
+        _log_emit_json "${severity_text}" "${severity_number}" \
+          "${service}" "${body}" "$@" >&"${fd}"
+      fi
+      ;;
+  esac
 }
 
 # ── Public API ─────────────────────────────────────────────────────
@@ -150,22 +174,6 @@ _log_info()  { _log_dispatch INFO  9 1 "$@"; }
 _log_warn()  { _log_dispatch WARN 13 2 "$@"; }
 _log_err()   { _log_dispatch ERROR 17 2 "$@"; }
 _log_fatal() { _log_dispatch FATAL 21 2 "$@"; }
-
-# ── _log_plain (deprecated, removed in P2+) ────────────────────────
-
-_log_plain() {
-  local tag="${1:?_log_plain requires tag}"
-  local style="${2-}"
-  shift 2
-  local prefix="" suffix=""
-  if _log_color_enabled 1 && [[ -n "${style}" ]]; then
-    case "${style}" in
-      bold) prefix=$'\033[1m'; suffix=$'\033[0m' ;;
-      dim)  prefix=$'\033[2m'; suffix=$'\033[0m' ;;
-    esac
-  fi
-  printf '[%s] %s%s%s\n' "${tag}" "${prefix}" "$*" "${suffix}"
-}
 
 # ── TRACEPARENT scoped wrappers ────────────────────────────────────
 

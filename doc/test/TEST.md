@@ -47,35 +47,29 @@ Template self-tests: **1466 tests** total (1398 unit + 68 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (39)
+### test/unit/log_spec.bats (48)
 
-| Test | Description |
-|------|-------------|
-| `_log_err writes '[<tag>] ERROR: <msg>' to stderr (no TTY -> no color)` | Default routing + no-color path |
-| `_log_warn writes '[<tag>] WARNING: <msg>' to stderr (no TTY -> no color)` | Warning routing + no-color path |
-| `_log_info writes '[<tag>] INFO: <msg>' to stdout (no TTY -> no color)` | Info routing + no-color path |
-| `_log_err joins multi-token message with single spaces` | Multi-token message join |
-| `_log_err with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_warn with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_info with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_err with FORCE_COLOR=1 emits red bold ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
-| `_log_warn with FORCE_COLOR=1 emits yellow ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
-| `_log_info with FORCE_COLOR=1 emits dim ANSI on non-TTY stdout` | FORCE_COLOR overrides TTY detection |
-| `_log_err with NO_COLOR=1 + FORCE_COLOR=1 omits ANSI (NO_COLOR wins)` | NO_COLOR precedence |
-| `_log_warn with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
-| `_log_info with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
-| `_log_color_enabled returns non-zero on non-TTY fd 1 without overrides` | Auto-detect default off |
-| `_log_color_enabled returns 0 with FORCE_COLOR=1 on non-TTY` | FORCE_COLOR opt-in |
-| `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
-| `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
-| `_log_plain writes '[<tag>] <msg>' to stdout with no style (no ANSI even with FORCE_COLOR)` | Empty style suppresses color |
-| `_log_plain with bold style + FORCE_COLOR=1 wraps message in ANSI bold` | Bold style ANSI wrap |
-| `_log_plain with dim style + FORCE_COLOR=1 wraps message in ANSI dim` | Dim style ANSI wrap |
-| `_log_plain with bold style + NO_COLOR=1 omits ANSI even with FORCE_COLOR=1` | NO_COLOR precedence on _log_plain |
-| `_log_plain on non-TTY without FORCE_COLOR omits ANSI` | Auto-detect default off |
-| `_log_plain joins multi-token message with single spaces` | Multi-token message join |
-| `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
+OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
+`LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
+body = fatal), `display=` attribute for i18n text in text mode, UTC
+microsecond timestamps, `_log_plain` removed.
+
+| Category | Tests |
+|----------|-------|
+| Text output format (`LOG_FORMAT=text`): timestamp + aligned level + tag, multi-token join, attr=val skip, `display=` override | 10 |
+| Timestamp: UTC with microsecond precision in both text and JSON | 2 |
+| Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL | 2 |
+| Single-sink tty-detect dispatch (#438): non-TTY auto JSON, `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv | 5 |
+| JSON output: OTel fields, custom attributes, severity numbers, per-line structure | 4 |
+| TRACEPARENT in JSON: trace_id/span_id present/absent | 2 |
+| Strict body enforcement (#438): unregistered fatal, registered OK, empty OK, error names body + file | 4 |
+| Missing service rejected, `_log_fatal` does not auto-exit | 3 |
+| Scoped wrappers: `_log_with_trace` save/restore, `_log_with_span` trace_id | 4 |
+| `_log_plain` removed (#438) | 1 |
+| `_log_color_enabled`: TTY detect, FORCE_COLOR, NO_COLOR precedence | 3 |
+| FORCE_COLOR text: red bold ERROR, yellow WARN, NO_COLOR strips | 3 |
+| Event registry: registered/unregistered/comment detection | 3 |
+| lnav format file | 2 |
 
 ### test/unit/setup_spec.bats (309)
 

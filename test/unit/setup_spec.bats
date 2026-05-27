@@ -3,6 +3,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # Source setup.sh functions only (main is guarded)
@@ -1395,7 +1396,7 @@ EOF
   # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/_lib.sh"
-  cp /source/script/docker/lib/*.sh \
+  cp /source/script/docker/lib/* \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
 
@@ -1558,7 +1559,7 @@ EOF
   # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
   # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
-  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
 
   bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" apply \
@@ -1801,7 +1802,7 @@ EOF
   # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
   # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
-  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \

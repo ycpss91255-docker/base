@@ -24,6 +24,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -36,7 +37,7 @@ setup() {
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"

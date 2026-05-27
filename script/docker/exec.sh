@@ -412,7 +412,7 @@ main() {
     else
       _hint="$(_msg hints start_default)"
     fi
-    _log_err exec "${_not_running}
+    _log_err exec exec_not_running "display=${_not_running}
 ${_hint}"
     exit 1
   fi

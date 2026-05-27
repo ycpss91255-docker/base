@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`run.sh` first-run auto-build gate** — when the target image is missing locally, `run.sh` now delegates to `./build.sh <target>` instead of letting Compose auto-build (which silently skips the test stage). Makes `make run` on a fresh clone equivalent to `make build && make run`. Build failure aborts the run. The `--build` flag (explicit `./build.sh test` with lint+smoke) is unchanged. Closes #429.
+- **`lib/log.sh` single-sink tty-detect + strict body + microsecond UTC** (#438). (1) Dispatch switches on `test -t <fd>`: TTY emits text, pipe/redirect emits JSON; `LOG_FORMAT=auto|text|json` overrides. `LOG_JSON_FILE` dual-sink removed. (2) Unregistered body is a fatal error by default; all callers migrated to registered event names with `display=` attribute for i18n text. (3) Timestamps now ISO 8601 UTC with microsecond precision (`%6NZ`) in both text and JSON. (4) `_log_plain` removed; `config_summary.sh` uses local `_summary_print` helper. Breaking changes: `LOG_JSON_FILE` env dropped, `LOG_STRICT_BODY` env dropped (strict is now default). Closes #438.
 
 ## [v0.36.0] - 2026-05-27
 

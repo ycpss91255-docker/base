@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 }
 
@@ -474,7 +475,7 @@ EOF
   cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh"
@@ -496,7 +497,7 @@ EOF
   cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh" --dry-run
@@ -599,7 +600,7 @@ _stage_lint_layout() {
   cp /source/script/docker/_lib.sh   "${_dest}/_lib.sh"
   cp /source/script/docker/i18n.sh   "${_dest}/i18n.sh"
   mkdir -p "${_dest}/lib"
-  cp /source/script/docker/lib/*.sh  "${_dest}/lib/"
+  cp /source/script/docker/lib/*  "${_dest}/lib/"
 }
 
 @test "build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)" {

@@ -422,7 +422,7 @@ _is_ssh_x11() {
 _setup_ssh_x11_cookie() {
   local _file_path="${1:?_setup_ssh_x11_cookie requires <file_path>}"
   if ! command -v xauth >/dev/null 2>&1; then
-    _log_warn setup "SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
+    _log_warn setup ssh_x11_no_xauth "display=SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
     return 1
   fi
   local _out="${_file_path}/.docker.xauth"
@@ -439,7 +439,7 @@ _setup_ssh_x11_cookie() {
   xauth -i nlist "${DISPLAY}" 2>/dev/null \
     | sed -e 's/^..../ffff/' \
     | xauth -i -f "${_out}" nmerge - >/dev/null 2>&1 || {
-        _log_warn setup "xauth cookie rewrite failed; XAUTHORITY left at host value."
+        _log_warn setup xauth_rewrite_failed "display=xauth cookie rewrite failed; XAUTHORITY left at host value."
         return 1
       }
   # Defensive: verify the rewrite actually produced content. The pipe
@@ -450,7 +450,7 @@ _setup_ssh_x11_cookie() {
   # cookie path into .env (which then makes the container mount a
   # 0-byte cookie and fail X11 auth silently).
   if [[ ! -s "${_out}" ]]; then
-    _log_warn setup "xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
+    _log_warn setup xauth_empty_cookie "display=xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
     return 1
   fi
   printf '%s\n' "${_out}"
@@ -771,7 +771,7 @@ detect_image_name() {
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then
         _found="${_rule#@default:}"
-        _log_info setup "IMAGE_NAME using @default:${_found}"
+        _log_info setup conf_image_name_default "display=IMAGE_NAME using @default:${_found}" "default=${_found}"
       fi
 
       [[ -n "${_found}" ]] && break
@@ -779,7 +779,7 @@ detect_image_name() {
   fi
 
   if [[ -z "${_found}" ]]; then
-    _log_warn setup "IMAGE_NAME could not be detected. Using 'unknown'."
+    _log_warn setup conf_image_name_unknown "display=IMAGE_NAME could not be detected. Using 'unknown'."
     _found="unknown"
   fi
   # Lowercase + sanitize: docker compose project names (and image tags)
@@ -1786,9 +1786,9 @@ generate_compose_yaml() {
     _validate_stage_name "${_stage}" || _vrc=$?
     case "${_vrc}" in
       0) _emit_stages+=("${_stage}") ;;
-      1) _log_warn setup "$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" ;;
-      2) _log_err setup "$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")"; return 1 ;;
-      3) _log_err setup "$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")"; return 1 ;;
+      1) _log_warn setup stage_invalid_format "display=$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")" ;;
+      2) _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
+      3) _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
 
@@ -1809,15 +1809,15 @@ generate_compose_yaml() {
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
       sys|base|test)
-        _log_err setup "$(_setup_msg stage baseline_collision): [stage:${_cs}]"
+        _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       latest|v[0-9]*)
-        _log_err setup "$(_setup_msg stage reserved_tag): [stage:${_cs}]"
+        _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       devel)
-        _log_warn setup "[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
+        _log_warn setup stage_devel_reserved "display=[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
         continue
         ;;
     esac
@@ -1827,7 +1827,7 @@ generate_compose_yaml() {
       [[ "${_es}" == "${_cs}" ]] && _is_emitted=1 && break
     done
     if (( ! _is_emitted )); then
-      _log_warn setup "$(_setup_msg stage unknown_referenced): [stage:${_cs}]"
+      _log_warn setup stage_unknown_referenced "display=$(_setup_msg stage unknown_referenced): [stage:${_cs}]" "stage=${_cs}"
     fi
   done
 
@@ -2089,7 +2089,7 @@ YAML
           _so_filtered_keys+=("${_so_keys[_ki]}")
           _so_filtered_values+=("${_so_values[_ki]}")
         else
-          _log_warn setup "$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})"
+          _log_warn setup stage_override_key_not_allowed "display=$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})" "key=$(printf '%q' "${_so_keys[_ki]}")" "stage=${_emit_stage}"
         fi
       done
       local _has_overrides=0
@@ -2662,9 +2662,9 @@ _check_setup_drift() {
 
   if (( ${#_drift[@]} > 0 )); then
     local _d
-    _log_warn setup "drift detected since last setup.sh run:"
+    _log_warn setup env_drift_detected "display=drift detected since last setup.sh run:"
     for _d in "${_drift[@]}"; do
-      _log_warn setup "  - ${_d}"
+      _log_warn setup env_drift_detail "display=  - ${_d}" "detail=${_d}"
     done
     return 1
   fi
@@ -2703,7 +2703,7 @@ _setup_check_drift() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
@@ -2735,9 +2735,9 @@ _announce_template_default_fallback() {
   # source of truth post-#201.
   local _repo_conf="${_base}/config/docker/setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
-    _log_warn setup "$(_setup_msg warnings no_repo_conf)"
+    _log_warn setup conf_no_repo_conf "display=$(_setup_msg warnings no_repo_conf)"
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
-    _log_warn setup "$(_setup_msg warnings empty_repo_conf)"
+    _log_warn setup conf_empty_repo_conf "display=$(_setup_msg warnings empty_repo_conf)"
   fi
 }
 
@@ -2929,7 +2929,7 @@ _setup_set() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -2938,7 +2938,7 @@ _setup_set() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2973,12 +2973,12 @@ _setup_set() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}" "section=${_section}" "key=${_key}" "value=${_value}"
     return 2
   fi
 
@@ -3037,14 +3037,14 @@ _setup_show() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3072,7 +3072,7 @@ _setup_show() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
@@ -3097,7 +3097,7 @@ _setup_show() {
         return 0
       fi
     done
-    _log_err setup "$(_setup_msg errors key_not_found): ${_ns_key}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_ns_key}" "key=${_ns_key}"
     return 1
   fi
 
@@ -3110,7 +3110,7 @@ _setup_show() {
     fi
   done
   if (( _printed == 0 )); then
-    _log_err setup "$(_setup_msg errors section_not_found): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors section_not_found): ${_section}" "section=${_section}"
     return 1
   fi
   return 0
@@ -3145,14 +3145,14 @@ _setup_list() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3266,7 +3266,7 @@ _setup_add() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -3275,7 +3275,7 @@ _setup_add() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3300,7 +3300,7 @@ _setup_add() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
@@ -3367,7 +3367,7 @@ _setup_add() {
   local _new_key="${_list}_${_new_idx}"
 
   if ! _setup_validate_kv "${_section}" "${_new_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}" "section=${_section}" "key=${_new_key}" "value=${_value}"
     return 2
   fi
 
@@ -3442,7 +3442,7 @@ _setup_remove() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -3451,7 +3451,7 @@ _setup_remove() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3477,7 +3477,7 @@ _setup_remove() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
@@ -3489,7 +3489,7 @@ _setup_remove() {
   # a removable input).
   local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
-    _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
     return 1
   fi
 
@@ -3507,7 +3507,7 @@ _setup_remove() {
       fi
     done
     if [[ -z "${_target_key}" ]]; then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}" "key=${_section}.${_rest}" "value=${_value}"
       return 1
     fi
   else
@@ -3520,7 +3520,7 @@ _setup_remove() {
       fi
     done
     if (( ! _found )); then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
       return 1
     fi
     _target_key="${_rest}"
@@ -3592,7 +3592,7 @@ _setup_reset() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
@@ -3610,13 +3610,13 @@ _setup_reset() {
   local _env="${_base_path}/.env"
   local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
-    _log_err setup "template setup.conf not found at ${_tpl_conf}"
+    _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
   fi
 
   if (( ! _yes )); then
     if [[ ! -t 0 ]]; then
-      _log_err setup "$(_setup_msg reset needs_yes)"
+      _log_err setup conf_reset_needs_yes "display=$(_setup_msg reset needs_yes)"
       return 1
     fi
     printf "[setup] %s [y/N]: " "$(_setup_msg reset confirm)"
@@ -3625,7 +3625,7 @@ _setup_reset() {
     case "${_ans}" in
       y|Y|yes|YES) ;;
       *)
-        _log_warn setup "$(_setup_msg reset aborted)"
+        _log_warn setup conf_reset_aborted "display=$(_setup_msg reset aborted)"
         return 1
         ;;
     esac
@@ -3641,7 +3641,7 @@ _setup_reset() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg reset "done")"
+    _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
@@ -3702,7 +3702,7 @@ _setup_apply() {
         shift
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
@@ -3714,7 +3714,7 @@ _setup_apply() {
     case "${_gui_override}" in
       auto|force|off) ;;
       *)
-        _log_err setup "$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)"
+        _log_err setup gui_override_invalid "display=$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)" "value=${_gui_override}"
         return 2
         ;;
     esac
@@ -3922,7 +3922,7 @@ _setup_apply() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      _log_warn setup "[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share."
+      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
       ws_path=""
       detect_ws_path ws_path "${_base_path}"
       [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
@@ -4090,7 +4090,7 @@ _setup_apply() {
       && (( _no_x11_cookie == 0 )); then
     _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
-      _log_warn setup "SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321."
+      _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321." "mode=${net_mode}"
     fi
   fi
 
@@ -4142,7 +4142,7 @@ _setup_apply() {
     "${_logging_global_str}" "${_logging_per_svc_str}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg env "done")"
+    _log_info setup env_regenerated "display=$(_setup_msg env "done")"
     printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
       "${user_name}" "${user_uid}" "${user_gid}" \
       "${gpu_enabled_eff}" "${gpu_mode}" \
@@ -4185,7 +4185,7 @@ main() {
       shift
       ;;
     *)
-      _log_err setup "$(_setup_msg errors unknown_subcmd): $1"
+      _log_err setup conf_unknown_subcmd "display=$(_setup_msg errors unknown_subcmd): $1" "subcmd=$1"
       return 1
       ;;
   esac
