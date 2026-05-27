@@ -1,4 +1,4 @@
-name: Self Test
+name: CI
 
 on:
   push:
