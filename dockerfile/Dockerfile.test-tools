@@ -7,7 +7,7 @@
 #   Then in repo Dockerfile:
 #     COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
 
-ARG BATS_VERSION=v1.13.0
+ARG BATS_VERSION=1.13.0
 ARG ALPINE_VERSION=3.21
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
