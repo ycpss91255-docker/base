@@ -29,6 +29,8 @@ if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
   FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
 else
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 fi
@@ -57,21 +59,21 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lives at .base/script/docker/_lib.sh in normal consumer
+# _lib.sh lives at .base/script/docker/lib/_lib.sh in normal consumer
 # repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
 # scripts + helpers into /lint/. Issue #104 deduplicated the previously
 # inlined fallback `_detect_lang`; we now always have i18n.sh via
 # _lib.sh's sibling load.
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
-elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
+  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
+elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/_lib.sh"
+  source "${FILE_PATH}/lib/_lib.sh"
 else
   printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
   exit 1
 fi
 
@@ -455,7 +457,7 @@ main() {
     RUN_SETUP=true
   fi
 
-  local _setup="${FILE_PATH}/.base/script/docker/setup.sh"
+  local _setup="${FILE_PATH}/.base/script/docker/wrapper/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is

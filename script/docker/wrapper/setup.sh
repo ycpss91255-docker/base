@@ -20,19 +20,13 @@
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 _SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
+_SETUP_LIB_DIR="$(cd -- "${_SETUP_SCRIPT_DIR}/../lib" && pwd -P)"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/i18n.sh"
+source "${_SETUP_LIB_DIR}/i18n.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_tui_conf.sh"
-# _lib.sh provides _log_err / _log_warn / _log_info (#278). Sourcing
-# here makes them available throughout setup.sh's emission paths after
-# the #290 refactor that routes user-facing output through the
-# log-helper family instead of raw `printf "[setup] LEVEL: ..."` lines.
-# _lib.sh is idempotent (guarded by _DOCKER_LIB_SOURCED); its
-# transitive i18n.sh source is a no-op redefinition since we already
-# sourced i18n.sh above.
+source "${_SETUP_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_lib.sh"
+source "${_SETUP_LIB_DIR}/_lib.sh"
 
 # i18n message table, split per category and routed through _log_*
 # (closes #290). Renamed from a monolithic `_msg` to `_setup_msg`
@@ -531,7 +525,7 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
@@ -949,7 +943,7 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
@@ -1468,7 +1462,7 @@ _collect_logging() {
   local -a _g_keys=() _g_vals=()
   [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
   if (( ${#_g_keys[@]} == 0 )); then
-    local _tpl="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    local _tpl="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
   fi
   local i
@@ -2710,7 +2704,7 @@ _setup_check_drift() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -2983,7 +2977,7 @@ _setup_set() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # Writes target the per-repo override file (setup.conf). Bootstrap
@@ -3077,14 +3071,14 @@ _setup_show() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -3173,13 +3167,13 @@ _setup_list() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -3305,7 +3299,7 @@ _setup_add() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
@@ -3322,7 +3316,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -3482,7 +3476,7 @@ _setup_remove() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
@@ -3599,7 +3593,7 @@ _setup_reset() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
@@ -3608,7 +3602,7 @@ _setup_reset() {
   # path on the next apply.
   local _conf="${_base_path}/config/docker/setup.conf"
   local _env="${_base_path}/.env"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
     _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
@@ -3721,7 +3715,7 @@ _setup_apply() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -3888,7 +3882,7 @@ _setup_apply() {
     fi
     [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
       # Ensure config/docker/ parent dir exists before cp (post-#262
       # path; first-time bootstrap on a fresh repo will not have it).
@@ -3983,7 +3977,7 @@ _setup_apply() {
   # down default — avoids surprising the user with "my container lost
   # SYS_ADMIN / unconfined seccomp after I cleared the list".
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v

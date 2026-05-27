@@ -38,7 +38,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../docker/_lib.sh"
+source "${SCRIPT_DIR}/../docker/lib/_lib.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -139,11 +139,9 @@ _install_deps() {
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/script/docker" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
-  # #284: sub-libs under script/docker/lib/ also need linting; gitignore.sh
-  # has lived there unlinted since #172, this picks up both that file and
-  # the post-#284 sub-libs (log / env / conf / compose / config_summary).
+  find "${REPO_ROOT}/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"

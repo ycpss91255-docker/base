@@ -28,7 +28,7 @@ VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/script/docker/_lib.sh"
+source "${SCRIPT_DIR}/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
@@ -87,7 +87,7 @@ _verify_subtree_intact() {
   local _markers=(
     "${TEMPLATE_REL}/.version"
     "${TEMPLATE_REL}/init.sh"
-    "${TEMPLATE_REL}/script/docker/setup.sh"
+    "${TEMPLATE_REL}/script/docker/wrapper/setup.sh"
   )
   local _marker
   for _marker in "${_markers[@]}"; do

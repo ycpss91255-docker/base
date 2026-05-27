@@ -207,8 +207,8 @@ teardown() {
   '
   assert_success
 
-  # Every .sh under script/docker/ (non-recursive) must appear.
-  for _f in /source/script/docker/*.sh; do
+  # Every .sh under script/docker/wrapper/ and lib/ must appear.
+  for _f in /source/script/docker/wrapper/*.sh /source/script/docker/lib/*.sh; do
     run grep -F "${_f}" "${_log}"
     assert_success
   done

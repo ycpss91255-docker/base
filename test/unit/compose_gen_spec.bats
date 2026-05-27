@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Tests for generate_compose_yaml() in script/docker/setup.sh.
+# Tests for generate_compose_yaml() in script/docker/wrapper/setup.sh.
 # Verifies conditional emission of GPU deploy block, GUI env/volumes,
 # extra volumes list, and baseline structural elements.
 
@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/setup.sh
+  source /source/script/docker/wrapper/setup.sh
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"

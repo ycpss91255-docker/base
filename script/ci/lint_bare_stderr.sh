@@ -17,11 +17,11 @@ repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 _is_excluded_file() {
   case "${1}" in
     script/docker/lib/log.sh) return 0 ;;
-    script/docker/i18n.sh) return 0 ;;
-    script/docker/_entrypoint_logging.sh) return 0 ;;
-    script/docker/_tui_backend.sh) return 0 ;;
-    script/docker/_tui_conf.sh) return 0 ;;
-    script/docker/setup_tui.sh) return 0 ;;
+    script/docker/lib/i18n.sh) return 0 ;;
+    script/docker/runtime/logging.sh) return 0 ;;
+    script/docker/lib/_tui_backend.sh) return 0 ;;
+    script/docker/lib/_tui_conf.sh) return 0 ;;
+    script/docker/wrapper/setup_tui.sh) return 0 ;;
   esac
   return 1
 }
@@ -55,7 +55,7 @@ _is_allowlisted_line() {
 
   # Pre-sourcing bootstrap errors (cannot find _lib.sh).
   [[ "${line}" == *'cannot find _lib.sh'* ]] && return 0
-  [[ "${line}" == *'.base/script/docker/_lib.sh'* ]] && return 0
+  [[ "${line}" == *'.base/script/docker/lib/_lib.sh'* ]] && return 0
   [[ "${line}" == *'/_lib.sh'* ]] && return 0
 
   # Pre-sourcing -C/--chdir errors (before _lib.sh is loaded).
