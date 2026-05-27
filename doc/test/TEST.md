@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1458 tests** total (1390 unit + 68 integration).
+Template self-tests: **1471 tests** total (1403 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -47,7 +47,7 @@ Template self-tests: **1458 tests** total (1390 unit + 68 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (25)
+### test/unit/log_spec.bats (44)
 
 | Test | Description |
 |------|-------------|

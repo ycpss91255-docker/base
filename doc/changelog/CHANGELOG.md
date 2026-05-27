@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`lib/log.sh` rewritten as OTel-aligned 5-level JSON logger** (P1 of #423). 5 functions (`_log_debug` / `_log_info` / `_log_warn` / `_log_err` / `_log_fatal`) with `(service, body, [attr=val]...)` API. Registered body emits JSON per OTel Logs Data Model; unregistered body falls back to legacy text for backward compat. W3C TRACEPARENT propagation via `_log_with_trace` / `_log_with_span` scoped wrappers. Ships `lib/log-events.txt` (body enum registry) and `lib/log.lnav-format.json`. Closes #423.
+
 ## [v0.35.0] - 2026-05-27
 
 ### Added
