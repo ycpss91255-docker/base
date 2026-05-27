@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.35.0] - 2026-05-27
+
 ### Added
 - **`[network] pid` setting** for PID namespace mode (`host` / `private`). Default `private` (Docker default). Set `pid = host` when running multiple GPU-rendering containers on the same GPU to avoid NVIDIA driver pthread robust mutex failures (`ESRCH`). Follows the `[network] ipc` precedent: setup.conf -> `.env` `PID_MODE` -> compose.yaml `pid:`. Per-stage override and TUI selection (4 languages) included. Closes #412.
 - **`build-worker.yaml` `extra_stages` input** — opt-in comma-separated list of extra Dockerfile stages to build after the standard pipeline. For each stage `<name>`, if a corresponding `<name>-test` stage exists in the Dockerfile it is built first (same convention as `devel-test` / `runtime-test`). Each extra stage gets its own GHA cache scope. Blocklist validation rejects attempts to re-build standard pipeline stages. Closes #415.
