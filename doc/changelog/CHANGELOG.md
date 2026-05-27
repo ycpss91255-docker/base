@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.37.0] - 2026-05-27
+
 ### Added
 - **`make start` combined build+run target** — runs `./script/build.sh` then `./script/run.sh` in one step, reducing friction for new repo onboarding. Args after `--` are forwarded to build.sh only; run.sh runs with defaults. Closes #428.
 
