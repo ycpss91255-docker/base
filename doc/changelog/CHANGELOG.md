@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.38.0] - 2026-05-27
+
 ### Added
 - **`build-worker.yaml` `submodules` input** — optional checkout mode (`true` / `recursive`) for repos whose Dockerfile source lives in a git submodule. Default empty string preserves existing behavior (no submodule checkout). Only the `build` job checkout is affected; `path-filter` stays `submodules: false`. Closes #444.
 
