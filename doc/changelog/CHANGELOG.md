@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`.hadolint.yaml` cleanup** — removed 5 globally ignored rules (DL3003, DL3006, DL3007, DL3046, DL4006) and properly fixed the underlying violations: pinned bats/alpine versions via `ARG` in `Dockerfile.test-tools`, added `-l` flag to `useradd` in `Dockerfile.example`, replaced `RUN cd` with `WORKDIR`, and moved DL4006 to inline ignore on the Alpine `RUN` with pipe. Closes #405.
 
+### Removed
+- **`dockerfile/setup/` pip scaffolding** — removed entirely (reverses #261). `python3-pip` dropped from `Dockerfile.example` apt install, `SETUP_DIR` ARG and all COPY/RUN pip references removed. Downstream repos that need pip handle it independently in their own Dockerfiles. Closes #407.
+
 ### Fixed
 - **Makefile forwarding: absolute container paths** — `make exec -- /root/demo/test.sh` failed with `No rule to make target` because GNU Make's built-in implicit rules stat every goal on the host filesystem. Added `--no-builtin-rules` + `.SUFFIXES:` so the `%:` catch-all fires correctly for arbitrary absolute paths. Closes #414 (case 2).
 - **Makefile forwarding: VAR=VALUE args silently lost** — `make setup set build.arg_4 ROS2_DISTRO=jazzy` dropped the `ROS2_DISTRO=jazzy` token because Make treats any `KEY=VALUE` CLI token as a variable override, not a goal. Added a `MAKEOVERRIDES` guard that detects swallowed args and aborts with a clear error message pointing users to the underlying script. Closes #414 (case 1).

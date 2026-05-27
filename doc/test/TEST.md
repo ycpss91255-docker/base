@@ -761,7 +761,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (150)
+### test/unit/template_spec.bats (147)
 
 | Test | Description |
 |------|-------------|
@@ -906,14 +906,6 @@ the host file content and the inherited stdout (preserving
 | `alias_func is called` | Function call |
 | `color_git_branch is called` | Function call |
 | `color_git_branch sets PS1` | PS1 setting |
-
-### test/unit/pip_setup_spec.bats (3)
-
-| Test | Description |
-|------|-------------|
-| `pip setup.sh runs pip install with requirements.txt` | pip install |
-| `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
-| `pip setup.sh fails when pip is not available` | Missing pip error |
 
 ### test/unit/ci_spec.bats (17)
 
