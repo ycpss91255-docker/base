@@ -36,7 +36,7 @@ setup() {
   # present (so init.sh's existing-repo path fires), build.sh is
   # symlinked exactly as init.sh would have produced it.
   touch "${REPO_DIR}/Dockerfile"
-  ln -s .base/script/docker/build.sh "${REPO_DIR}/build.sh"
+  ln -s .base/script/docker/wrapper/build.sh "${REPO_DIR}/build.sh"
 
   cd "${REPO_DIR}"
 }

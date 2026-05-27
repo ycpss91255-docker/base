@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`run.sh` CMD separator `--` + positional stop** — first positional arg now stops run.sh flag parsing so CMD flags like `--target` no longer collide with run.sh's own `-t/--target`. Explicit `--` separator documented in usage (4 languages). Closes #448.
+- **`script/docker/` reorganized into role-based subdirectories** — wrappers move to `wrapper/`, all libs consolidate into `lib/`, container-side helpers move to `runtime/`. `_entrypoint_logging.sh` renamed to `runtime/logging.sh` (container path `/usr/local/lib/base/logging.sh`). New `runtime/entrypoint.sh` template replaces init.sh heredoc. Breaking: downstream symlink paths change; `make upgrade` handles migration automatically. Closes #406.
 
 ## [v0.38.0] - 2026-05-27
 

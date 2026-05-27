@@ -30,6 +30,8 @@ if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
   FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
 else
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 fi
@@ -59,17 +61,17 @@ done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 
-# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/lib/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage).
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[prune] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi

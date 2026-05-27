@@ -32,14 +32,15 @@ readonly FILE_PATH
 
 _TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
-_TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../.." && pwd -P)"
+_TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
+_TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"
 
 # shellcheck disable=SC1091
-source "${_TUI_SCRIPT_DIR}/i18n.sh"
+source "${_TUI_LIB_DIR}/i18n.sh"
 # shellcheck disable=SC1091
-source "${_TUI_SCRIPT_DIR}/_tui_backend.sh"
+source "${_TUI_LIB_DIR}/_tui_backend.sh"
 # shellcheck disable=SC1091
-source "${_TUI_SCRIPT_DIR}/_tui_conf.sh"
+source "${_TUI_LIB_DIR}/_tui_conf.sh"
 
 # ── Messages (4 languages) ────────────────────────────────────────────────
 # Flat associative arrays per language. Key format: <ns>.<name>. Missing

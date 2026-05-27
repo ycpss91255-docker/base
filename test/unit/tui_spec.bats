@@ -11,7 +11,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/_tui_conf.sh
+  source /source/script/docker/lib/_tui_conf.sh
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
@@ -434,7 +434,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected opens a msgbox when given a bad input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'title=%s\nbody=%s\n---\n' "$1" "$2" > "${_log}"
@@ -449,7 +449,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected is a no-op on empty input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'CALLED\n' >> "${_log}"
@@ -878,7 +878,7 @@ EOF
 _b5_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
 
   # Reset session state between tests
@@ -1078,7 +1078,7 @@ fi'
   # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main() from
   # running on source.
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   # Stub the interactive backend wrappers. _edit_section_deploy calls
   # _tui_select (mode), _tui_inputbox (count), _tui_checklist (caps),
@@ -1120,7 +1120,7 @@ fi'
 
 @test "_edit_section_deploy skips MIG msgbox when MIG disabled" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"
   : > "${TUI_MSGBOX_LOG}"
@@ -1158,7 +1158,7 @@ esac'
 _b6_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1260,7 +1260,7 @@ _b6_setup_tui() {
 _b_swap_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1315,7 +1315,7 @@ _b_swap_setup() {
 _b_remove_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
