@@ -463,9 +463,7 @@ main() {
   # override cmd, so -d + CMD is ambiguous — refuse rather than silently
   # drop the cmd.
   if [[ "${DETACH}" == true ]] && (( ${#CMD_ARGS[@]} > 0 )); then
-    printf "[run] ERROR: -d/--detach does not accept a CMD (got: %s). " "${CMD_ARGS[*]}" >&2
-    printf "Use './exec.sh -t %s %s' to run a command inside a detached container.\n" \
-      "${TARGET}" "${CMD_ARGS[*]}" >&2
+    _log_err run "-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use './exec.sh -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
     exit 2
   fi
 

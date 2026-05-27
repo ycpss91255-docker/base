@@ -370,7 +370,7 @@ main() {
       --bats-integration) bats_integration=1; shift ;;
       --coverage) mode="coverage"; shift ;;
       --behavioural) behavioural=1; shift ;;
-      *) echo "Unknown option: $1" >&2; exit 1 ;;
+      *) _die "Unknown option: $1" ;;
     esac
   done
 
