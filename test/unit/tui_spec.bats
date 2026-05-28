@@ -64,6 +64,44 @@ teardown() {
   [ "${status}" -ne 0 ]
 }
 
+# ── #450 mount propagation modes ──────────────────────────────────
+
+@test "_validate_mount accepts propagation mode rslave (#450)" {
+  _validate_mount "/dev:/dev:rslave"
+}
+
+@test "_validate_mount accepts propagation mode rshared (#450)" {
+  _validate_mount "/mnt:/mnt:rshared"
+}
+
+@test "_validate_mount accepts propagation mode rprivate (#450)" {
+  _validate_mount "/data:/data:rprivate"
+}
+
+@test "_validate_mount accepts combined rw,rslave (#450)" {
+  _validate_mount "/dev:/dev:rw,rslave"
+}
+
+@test "_validate_mount accepts combined ro,rshared (#450)" {
+  _validate_mount "/data:/data:ro,rshared"
+}
+
+@test "_validate_mount accepts non-recursive variants (#450)" {
+  _validate_mount "/dev:/dev:slave"
+  _validate_mount "/dev:/dev:shared"
+  _validate_mount "/dev:/dev:private"
+}
+
+@test "_validate_mount rejects invalid propagation mode (#450)" {
+  run _validate_mount "/dev:/dev:bogus"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_mount rejects rw,bogus combo (#450)" {
+  run _validate_mount "/dev:/dev:rw,bogus"
+  [ "${status}" -ne 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _validate_shm_size
 # ════════════════════════════════════════════════════════════════════

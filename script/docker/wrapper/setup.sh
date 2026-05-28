@@ -1546,6 +1546,37 @@ _expand_env_cross_refs() {
   done <<< "${_input}"
 }
 
+_device_has_propagation() {
+  local _entry="${1}"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  (( ${#_parts[@]} == 3 )) || return 1
+  [[ "${_parts[2]}" =~ (rslave|rshared|rprivate|slave|shared|private) ]]
+}
+
+_emit_device_as_volume() {
+  local _entry="${1}" _indent="${2:-    }"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  local _src="${_parts[0]}" _tgt="${_parts[1]}" _opts="${_parts[2]}"
+  local _propagation="" _read_only=""
+  local _o
+  IFS=',' read -ra _oarr <<< "${_opts}"
+  for _o in "${_oarr[@]}"; do
+    case "${_o}" in
+      ro) _read_only="true" ;;
+      rw) _read_only="false" ;;
+      rslave|rshared|rprivate|slave|shared|private) _propagation="${_o}" ;;
+    esac
+  done
+  echo "${_indent}  - type: bind"
+  echo "${_indent}    source: ${_src}"
+  echo "${_indent}    target: ${_tgt}"
+  [[ -n "${_read_only}" ]] && echo "${_indent}    read_only: ${_read_only}"
+  echo "${_indent}    bind:"
+  echo "${_indent}      propagation: ${_propagation}"
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -1982,7 +2013,15 @@ YAML
     # the [logging] local_path bind mount when the per-service
     # resolution yields a non-empty host path -- _devel_llp was resolved
     # earlier (above the env block) so it could share with LOG_FILE_PATH.
-    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]]; then
+    local _any_prop_device=false
+    if [[ -n "${_devices_str}" ]]; then
+      local _chk
+      while IFS= read -r _chk; do
+        [[ -z "${_chk}" ]] && continue
+        if _device_has_propagation "${_chk}"; then _any_prop_device=true; break; fi
+      done <<< "${_devices_str}"
+    fi
+    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
       echo "    volumes:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1996,13 +2035,25 @@ YAML
         echo "      - ${_m}"
       done
       [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
+      # #450: device entries with propagation redirect to volumes: long-form
+      if [[ -n "${_devices_str}" ]]; then
+        local _d
+        while IFS= read -r _d; do
+          [[ -z "${_d}" ]] && continue
+          _device_has_propagation "${_d}" && _emit_device_as_volume "${_d}" "    "
+        done <<< "${_devices_str}"
+      fi
     fi
-    # devices: + device_cgroup_rules: from [devices] section
+    # devices: from [devices] section (plain entries only, no propagation)
     if [[ -n "${_devices_str}" ]]; then
-      echo "    devices:"
-      local _d
+      local _has_plain=false _d
       while IFS= read -r _d; do
         [[ -z "${_d}" ]] && continue
+        _device_has_propagation "${_d}" && continue
+        if [[ "${_has_plain}" != true ]]; then
+          echo "    devices:"
+          _has_plain=true
+        fi
         echo "      - ${_d}"
       done <<< "${_devices_str}"
     fi
@@ -2332,7 +2383,7 @@ YAML
       # volumes: GUI baseline (effective gui) + effective volume list
       # + #328 [logging] local_path per-stage bind mount. _stage_llp
       # was resolved above the env block; reuse it here.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]]; then
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
         echo "    volumes:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2349,13 +2400,25 @@ YAML
           done <<< "${_eff_volumes}"
         fi
         [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
+        # #450: device entries with propagation redirect to volumes: long-form
+        if [[ -n "${_devices_str}" ]]; then
+          local _sd
+          while IFS= read -r _sd; do
+            [[ -z "${_sd}" ]] && continue
+            _device_has_propagation "${_sd}" && _emit_device_as_volume "${_sd}" "    "
+          done <<< "${_devices_str}"
+        fi
       fi
-      # devices: + cgroup_rules: from top-level (not yet per-stage).
+      # devices: from top-level (plain entries only, no propagation).
       if [[ -n "${_devices_str}" ]]; then
-        echo "    devices:"
-        local _sd
+        local _has_plain_sd=false _sd
         while IFS= read -r _sd; do
           [[ -z "${_sd}" ]] && continue
+          _device_has_propagation "${_sd}" && continue
+          if [[ "${_has_plain_sd}" != true ]]; then
+            echo "    devices:"
+            _has_plain_sd=true
+          fi
           echo "      - ${_sd}"
         done <<< "${_devices_str}"
       fi
@@ -3953,6 +4016,48 @@ _setup_apply() {
   local _cgroup_rule_str=""
   if (( ${#_cgroup_rule_arr[@]} > 0 )); then
     _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
+  fi
+
+  # ── #450 P2: propagation + privileged guard ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _has_prop=false _d_check
+    while IFS= read -r _d_check; do
+      [[ -z "${_d_check}" ]] && continue
+      if _device_has_propagation "${_d_check}"; then
+        _has_prop=true
+        break
+      fi
+    done <<< "${_devices_str}"
+    if [[ "${_has_prop}" == true ]]; then
+      local _priv_val=""
+      _get_conf_value _sec_k _sec_v "privileged" "" _priv_val
+      if [[ "${_priv_val}" != "true" ]]; then
+        _log_warn setup conf_invalid_value \
+          "display=device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup."
+      fi
+    fi
+  fi
+
+  # ── #450 P4: duplicate device/volume target path detection ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _d_dup
+    while IFS= read -r _d_dup; do
+      [[ -z "${_d_dup}" ]] && continue
+      _device_has_propagation "${_d_dup}" || continue
+      local -a _dup_parts=()
+      IFS=':' read -ra _dup_parts <<< "${_d_dup}"
+      local _dup_target="${_dup_parts[1]}"
+      local _ev
+      for _ev in "${extra_volumes[@]}"; do
+        local -a _ev_parts=()
+        IFS=':' read -ra _ev_parts <<< "${_ev}"
+        if [[ "${_ev_parts[1]}" == "${_dup_target}" ]]; then
+          _log_warn setup conf_invalid_value \
+            "display=duplicate target path '${_dup_target}': appears in both [devices] (with propagation) and [volumes]. The [devices] entry with propagation takes precedence."
+          break
+        fi
+      done
+    done <<< "${_devices_str}"
   fi
 
   # ── Collect [environment] env_*, [tmpfs] tmpfs_*, [network] port_* ──

@@ -4328,3 +4328,60 @@ EOC
   # CLI --gui force wins
   assert_output --partial "GUI_MODE=force"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# #450 P2: propagation + non-privileged guard
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply warns when device propagation used without privileged (#450 P2)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[security]
+privileged = false
+[devices]
+device_1 = /dev:/dev:rslave
+EOC
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  assert_output --partial "propagation"
+  assert_output --partial "privileged"
+}
+
+@test "apply suppresses propagation warning when privileged is true (#450 P2)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[security]
+privileged = true
+[devices]
+device_1 = /dev:/dev:rslave
+EOC
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  refute_output --partial "propagation"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #450 P4: duplicate device/volume target path detection
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply warns when device and volume have same target path (#450 P4)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[devices]
+device_1 = /dev:/dev:rslave
+[volumes]
+mount_5 = /dev:/dev
+EOC
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  assert_output --partial "duplicate"
+}
