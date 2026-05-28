@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.39.0] - 2026-05-28
+
 ### Added
 - **`[devices]` mount propagation support** — device entries like `device_1 = /dev:/dev:rslave` are auto-redirected from compose `devices:` to `volumes:` long-form bind mount (compose `devices:` does not support propagation). Plain devices without propagation emit to `devices:` as before. Validator (`_validate_mount`) extended to accept `rslave|rshared|rprivate|slave|shared|private` modes, combinable with `ro|rw` (e.g. `rw,rslave`). Warns when propagation is used without `[security] privileged = true` (P2, #453). Warns on duplicate target paths between `[devices]` and `[volumes]` (P4, #455). Per-stage emit supports propagation (P3, #454). Closes #450, closes #453, closes #454, closes #455.
 
