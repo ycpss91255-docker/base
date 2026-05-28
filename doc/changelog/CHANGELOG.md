@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`[devices]` mount propagation support** — device entries like `device_1 = /dev:/dev:rslave` are auto-redirected from compose `devices:` to `volumes:` long-form bind mount (compose `devices:` does not support propagation). Plain devices without propagation emit to `devices:` as before. Validator (`_validate_mount`) extended to accept `rslave|rshared|rprivate|slave|shared|private` modes, combinable with `ro|rw` (e.g. `rw,rslave`). Warns when propagation is used without `[security] privileged = true` (P2, #453). Warns on duplicate target paths between `[devices]` and `[volumes]` (P4, #455). Per-stage emit supports propagation (P3, #454). Closes #450, closes #453, closes #454, closes #455.
+
 ### Changed
 - **`run.sh` CMD separator `--` + positional stop** — first positional arg now stops run.sh flag parsing so CMD flags like `--target` no longer collide with run.sh's own `-t/--target`. Explicit `--` separator documented in usage (4 languages). Closes #448.
 - **`script/docker/` reorganized into role-based subdirectories** — wrappers move to `wrapper/`, all libs consolidate into `lib/`, container-side helpers move to `runtime/`. `_entrypoint_logging.sh` renamed to `runtime/logging.sh` (container path `/usr/local/lib/base/logging.sh`). New `runtime/entrypoint.sh` template replaces init.sh heredoc. Breaking: downstream symlink paths change; `make upgrade` handles migration automatically. Closes #406.
