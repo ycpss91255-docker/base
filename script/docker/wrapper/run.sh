@@ -639,14 +639,15 @@ ${_parallel}"
       _compose_project exec "${TARGET}" bash
     fi
   else
-    # Other one-shot stages (runtime, test, ...): `compose run --rm` with
-    # CMD passthrough. Empty CMD_ARGS → service's Dockerfile CMD runs
-    # (e.g. runtime auto-boots parameter_bridge). Non-empty overrides
-    # (e.g. `./run.sh -t runtime bash` to debug interactively).
+    # Other one-shot stages (runtime, test, ...): unified to `compose up`
+    # so the container_name: directive (#215, #322, #335) takes effect.
+    # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
+    # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_project up -d "${TARGET}"
+      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project run --rm "${TARGET}"
+      _compose_project up "${TARGET}"
     fi
   fi
 }

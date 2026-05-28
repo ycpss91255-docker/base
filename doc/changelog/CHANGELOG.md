@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`run.sh` non-devel stages now use `compose up`** — previously used `compose run --rm` which generated random hash container names (e.g. `user-repo-runtime-run-63e8313ab536`), bypassing the `container_name:` directive emitted by `setup.sh` (#215, #322, #335). Empty CMD → foreground `compose up`; CMD passed → `compose up -d` + `compose exec`. Container names now consistent across all stages. Closes #458.
+
 ## [v0.39.0] - 2026-05-28
 
 ### Added

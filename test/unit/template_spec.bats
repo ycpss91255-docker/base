@@ -319,9 +319,12 @@ setup() {
   assert_success
 }
 
-@test "run.sh non-devel TARGET still uses compose run --rm" {
-  # test/runtime/etc one-shots stay on compose run --rm (no exec needed)
-  run grep -E 'run --rm' /source/script/docker/wrapper/run.sh
+@test "run.sh non-devel TARGET uses compose up (#458)" {
+  # #458: non-devel stages unified to `compose up` so container_name takes
+  # effect. Previously `run --rm` bypassed it with random hash names.
+  run grep -E 'compose run --rm' /source/script/docker/wrapper/run.sh
+  assert_failure
+  run grep -E 'up "?\$\{TARGET\}"?' /source/script/docker/wrapper/run.sh
   assert_success
 }
 

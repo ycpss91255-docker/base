@@ -281,12 +281,27 @@ EOS
   assert_output --partial "exec"
 }
 
-@test "run.sh non-devel target routes to 'compose run --rm'" {
-  # -t is now the explicit target flag; positional would be treated as CMD.
+@test "run.sh non-devel target without CMD uses 'compose up' foreground (#458)" {
+  # #458: non-devel stages used to use 'compose run --rm' which bypassed
+  # container_name. Now unified to 'compose up' so container_name from
+  # #322 / #335 takes effect.
   run bash "${SANDBOX}/run.sh" --dry-run -t test
   assert_success
-  assert_output --partial "run"
-  assert_output --partial "--rm"
+  refute_output --partial "run --rm test"
+  refute_output --partial "run --rm 'test'"
+  # foreground compose up for the target (no -d, no run --rm)
+  assert_output --partial "compose"
+  assert_output --partial "up test"
+}
+
+@test "run.sh non-devel target WITH CMD uses 'up -d' + 'exec' (#458)" {
+  # #458: when CMD passed, use up -d + exec so container_name is preserved
+  # AND the user's CMD overrides Dockerfile CMD.
+  run bash "${SANDBOX}/run.sh" --dry-run -t test bash
+  assert_success
+  refute_output --partial "run --rm"
+  assert_output --partial "up -d test"
+  assert_output --partial "exec test bash"
 }
 
 @test "run.sh positional args after options become CMD passthrough (devel)" {
@@ -298,13 +313,14 @@ EOS
   assert_output --partial "ls /tmp"
 }
 
-@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD" {
+@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#458 up -d + exec)" {
+  # #458: non-devel + CMD now uses `up -d` + `exec` instead of `run --rm`
+  # so container_name is preserved.
   run bash "${SANDBOX}/run.sh" --dry-run -t runtime bash
   assert_success
-  assert_output --partial "run"
-  assert_output --partial "--rm"
-  assert_output --partial "runtime"
-  assert_output --partial "bash"
+  refute_output --partial "run --rm"
+  assert_output --partial "up -d runtime"
+  assert_output --partial "exec runtime bash"
 }
 
 # ── #448: -- CMD separator ────────────────────────────────────────────────
