@@ -406,7 +406,12 @@ RUN bats /smoke_test/
 #
 # FROM runtime AS runtime-test
 #
-# ARG RUNTIME_SMOKE_CMD='whoami && bash --version'
+# # #430: default smoke check now includes an ldd-based missing-dep scan
+# # via runtime/smoke.sh (catches missing .so installs that the old
+# # 'whoami && bash --version' default silently passed -- e.g.
+# # libboost_regex.so absent in ros1_bridge#123).
+# COPY .base/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
+# ARG RUNTIME_SMOKE_CMD='whoami && bash --version && bash /usr/local/lib/base/smoke.sh'
 # # Inherit USER from runtime (non-root). install-check doesn't need
 # # privilege; if downstream override needs root, prefix with sudo.
 # RUN bash -c "${RUNTIME_SMOKE_CMD}"
