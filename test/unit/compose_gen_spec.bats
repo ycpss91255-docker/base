@@ -174,6 +174,22 @@ teardown() {
   assert_success
 }
 
+@test "generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -E '^    volumes:$' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: all devices have propagation → no devices: section (#450)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -E '^    devices:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
 @test "generate_compose_yaml emits environment block from env_ list" {
   local _extras=()
   local _env

@@ -4385,3 +4385,19 @@ EOC
   assert_success
   assert_output --partial "duplicate"
 }
+
+@test "apply does NOT warn duplicate when device and volume targets differ (#450 P4)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[devices]
+device_1 = /dev:/dev:rslave
+[volumes]
+mount_5 = /data:/data
+EOC
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  refute_output --partial "duplicate"
+}
