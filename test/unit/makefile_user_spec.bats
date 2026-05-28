@@ -309,3 +309,36 @@ teardown() {
   assert_success
   assert_line "exec /root/demo/ros1_server.sh arg1"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# EXEC_ARGS env-var passthrough (#469: Kit-style `=` args)
+# ════════════════════════════════════════════════════════════════════
+
+@test "EXEC_ARGS env var forwards single =-bearing arg to exec.sh (#469)" {
+  # Isaac Sim Kit args use `--/path/to/key=value`. Inline `make exec`
+  # would trip the #414 guard via MAKEOVERRIDES; the env-var path
+  # bypasses it because the token never enters MAKECMDGOALS.
+  EXEC_ARGS='--/app/livestream/port=49100' run make exec
+  assert_success
+  assert_line "exec --/app/livestream/port=49100"
+}
+
+@test "EXEC_ARGS env var forwards multiple Kit-style args (#469)" {
+  EXEC_ARGS='--/app/livestream/port=49100 --/app/livestream/publicEndpointAddress=10.2.23.83' run make exec
+  assert_success
+  assert_line "exec --/app/livestream/port=49100 --/app/livestream/publicEndpointAddress=10.2.23.83"
+}
+
+@test "unset EXEC_ARGS leaves \`make exec\` unchanged (back-compat #469)" {
+  # No regression for callers who don't use the new env var.
+  unset EXEC_ARGS
+  run make exec
+  assert_success
+  assert_line "exec"
+}
+
+@test "EXEC_ARGS combines with \`--\`-prefixed positional args (#469)" {
+  EXEC_ARGS='--/app/livestream/port=49100' run make exec -- -t bats-src /run.sh
+  assert_success
+  assert_line "exec -t bats-src /run.sh --/app/livestream/port=49100"
+}

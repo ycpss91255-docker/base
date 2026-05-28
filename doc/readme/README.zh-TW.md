@@ -186,6 +186,10 @@ make run -- -t headless               # 跑 headless 變體
 make run -- -t gui                    # 跑 gui 變體
 make exec -- -t headless bash         # 進入 running 的 headless container
 
+# Kit 風格的 `=` 參數會被 #414 guard 擋下，改走 EXEC_ARGS env var (#469)：
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+
 # 等效直接 .sh 寫法：
 ./script/build.sh
 ./script/run.sh -t headless

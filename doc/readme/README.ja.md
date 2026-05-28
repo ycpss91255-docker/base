@@ -188,6 +188,11 @@ make run -- -t headless               # headless バリアントを起動
 make run -- -t gui                    # gui バリアントを起動
 make exec -- -t headless bash         # running の headless container に exec
 
+# Kit スタイルの `=` 付き引数は #414 ガードに引っかかるため、
+# EXEC_ARGS env var 経由で渡す (#469):
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+
 # 等価な直接 .sh 呼び出し:
 ./script/build.sh
 ./script/run.sh -t headless
