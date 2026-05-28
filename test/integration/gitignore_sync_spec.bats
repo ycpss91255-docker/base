@@ -28,10 +28,10 @@ teardown() {
 # init.sh new-repo path: .gitignore is created via lib (single source)
 # ════════════════════════════════════════════════════════════════════
 
-@test "init.sh new-repo: .gitignore contains all 7 canonical entries" {
+@test "init.sh new-repo: .gitignore contains all canonical entries (#462: + runtime.env)" {
   bash .base/init.sh
   local _entry
-  for _entry in .env .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.bak runtime.env compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
