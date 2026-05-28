@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **TUI mount mode picker for `[devices]`/`[volumes]`** — new `_prompt_mount_with_picker` walks the user through host path, container path, access mode (`ro`/`rw`/none), and propagation mode (`rslave`/`rshared`/`rprivate`/`slave`/`shared`/`private`/none) via separate radiolist prompts. Pure `_assemble_mount_value` helper builds the final `host:container[:mode]` string. Lets users discover propagation modes from #450 without reading docs. Closes #461.
+
 ### Fixed
 - **`run.sh` non-devel stages now use `compose up`** — previously used `compose run --rm` which generated random hash container names (e.g. `user-repo-runtime-run-63e8313ab536`), bypassing the `container_name:` directive emitted by `setup.sh` (#215, #322, #335). Empty CMD → foreground `compose up`; CMD passed → `compose up -d` + `compose exec`. Container names now consistent across all stages. Closes #458.
 

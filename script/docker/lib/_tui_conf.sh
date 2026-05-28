@@ -53,6 +53,22 @@ _validate_mount() {
   return 0
 }
 
+# _assemble_mount_value <host> <container> [<mode>]
+#
+# Builds the host:container[:mode] string for [devices] device_* and
+# [volumes] mount_* entries. Lets the TUI collect pieces separately
+# (path inputbox + mode picker) and assemble them safely (#461).
+_assemble_mount_value() {
+  local _host="${1:?_assemble_mount_value requires host}"
+  local _container="${2:?_assemble_mount_value requires container}"
+  local _mode_str="${3-}"
+  if [[ -n "${_mode_str}" ]]; then
+    printf '%s:%s:%s\n' "${_host}" "${_container}" "${_mode_str}"
+  else
+    printf '%s:%s\n' "${_host}" "${_container}"
+  fi
+}
+
 # _validate_gpu_count <value>
 #
 # Accepts "all" or a positive integer.
