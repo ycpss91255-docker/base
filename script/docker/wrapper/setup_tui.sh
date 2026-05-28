@@ -1589,6 +1589,45 @@ _edit_section_gui() {
   _override_set "gui.mode" "${_v}"
 }
 
+# _prompt_mount_with_picker [initial] — #461 mount mode picker
+#
+# Collects host, container, access mode, and propagation mode through
+# inputbox + radiolist primitives, then assembles via the pure
+# _assemble_mount_value helper. Lets users discover valid mode options
+# (rw, ro, rslave, rshared, etc.) without reading docs/CHANGELOG.
+#
+# Returns the assembled host:container[:mode] string on stdout.
+# Exit non-zero on cancel/Esc at any step.
+_prompt_mount_with_picker() {
+  local _initial="${1-}"
+  local _init_host="" _init_container="" _init_mode=""
+  if [[ -n "${_initial}" ]]; then
+    IFS=':' read -r _init_host _init_container _init_mode <<< "${_initial}"
+  fi
+  local _host _container _access _prop _mode_combined
+  _host="$(_tui_inputbox "Mount: host path" "Host path" "${_init_host}")"   || return 1
+  _container="$(_tui_inputbox "Mount: container path" "Container path" "${_init_container}")" || return 1
+  _access="$(_tui_radiolist "Access mode" "Pick access mode" \
+    none "no access constraint" on \
+    ro   "read-only"            off \
+    rw   "read-write"           off)" || return 1
+  _prop="$(_tui_radiolist "Propagation mode" "Pick mount propagation (Docker bind mount)" \
+    none     "no propagation flag (Docker default rprivate)" on \
+    rslave   "recursive slave (host events propagate in)"    off \
+    rshared  "recursive shared (bidirectional)"              off \
+    rprivate "recursive private (explicit Docker default)"   off \
+    slave    "non-recursive slave"                           off \
+    shared   "non-recursive shared"                          off \
+    private  "non-recursive private"                         off)" || return 1
+  _mode_combined=""
+  [[ "${_access}" != "none" ]] && _mode_combined="${_access}"
+  if [[ "${_prop}" != "none" ]]; then
+    [[ -n "${_mode_combined}" ]] && _mode_combined+=","
+    _mode_combined+="${_prop}"
+  fi
+  _assemble_mount_value "${_host}" "${_container}" "${_mode_combined}"
+}
+
 _edit_section_volumes() {
   _edit_list_section volumes mount_ \
     volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
