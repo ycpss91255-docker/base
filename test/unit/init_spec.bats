@@ -32,7 +32,7 @@ setup() {
         "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
   ln -s /source/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
-  for _sl in log env conf compose config_summary; do
+  for _sl in log env conf conf_logging compose config_summary; do
     ln -s "/source/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done
