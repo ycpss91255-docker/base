@@ -127,94 +127,9 @@ teardown() {
   echo "${output}" | grep -F 'max-file: "3"'
 }
 
-# ════════════════════════════════════════════════════════════════════
-# _parse_logging_svc_sections
-# ════════════════════════════════════════════════════════════════════
-
-@test "_parse_logging_svc_sections enumerates services in file order" {
-  cat > "${CONF_FILE}" <<'CONF'
-[logging]
-driver = json-file
-
-[logging.runtime]
-max_size = 50m
-
-[logging.devel]
-compress = false
-CONF
-  local -a _svcs=()
-  _parse_logging_svc_sections "${CONF_FILE}" _svcs
-  [[ "${#_svcs[@]}" -eq 2 ]]
-  [[ "${_svcs[0]}" == "runtime" ]]
-  [[ "${_svcs[1]}" == "devel" ]]
-}
-
-@test "_parse_logging_svc_sections ignores plain [logging] section" {
-  cat > "${CONF_FILE}" <<'CONF'
-[logging]
-driver = json-file
-CONF
-  local -a _svcs=()
-  _parse_logging_svc_sections "${CONF_FILE}" _svcs
-  [[ "${#_svcs[@]}" -eq 0 ]]
-}
-
-@test "_parse_logging_svc_sections returns empty when file does not exist" {
-  local -a _svcs=()
-  _parse_logging_svc_sections "/no/such/file" _svcs
-  [[ "${#_svcs[@]}" -eq 0 ]]
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _collect_logging
-# ════════════════════════════════════════════════════════════════════
-
-@test "_collect_logging reads global [logging] from per-repo setup.conf" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[logging]
-driver = local
-max_size = 20m
-CONF
-  local _g="" _p=""
-  _collect_logging "${TEMP_DIR}" _g _p
-  [[ "${_g}" == *"driver=local"* ]]
-  [[ "${_g}" == *"max_size=20m"* ]]
-  [[ -z "${_p}" ]]
-}
-
-@test "_collect_logging reads per-service [logging.<svc>] sections" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[logging]
-driver = json-file
-
-[logging.runtime]
-max_size = 100m
-compress = false
-CONF
-  local _g="" _p=""
-  _collect_logging "${TEMP_DIR}" _g _p
-  [[ "${_p}" == *"runtime:max_size=100m"* ]]
-  [[ "${_p}" == *"runtime:compress=false"* ]]
-}
-
-@test "_collect_logging returns empty when no [logging] sections anywhere" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[image]
-rule_1 = @basename
-CONF
-  local _g="" _p=""
-  # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a
-  # path whose ../../config/docker/setup.conf does not exist).
-  local _save="${_SETUP_SCRIPT_DIR:-}"
-  _SETUP_SCRIPT_DIR="${TEMP_DIR}/nonexistent/docker"
-  _collect_logging "${TEMP_DIR}" _g _p
-  _SETUP_SCRIPT_DIR="${_save}"
-  [[ -z "${_g}" ]]
-  [[ -z "${_p}" ]]
-}
+# _parse_logging_svc_sections / _collect_logging parser tests moved
+# to test/unit/conf_logging_spec.bats when the implementations were
+# extracted to lib/conf_logging.sh in #402 (PR-A).
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml: [logging] local_path bind mount + LOG_FILE_PATH (#328)
