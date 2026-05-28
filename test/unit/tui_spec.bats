@@ -92,6 +92,10 @@ teardown() {
   _validate_mount "/dev:/dev:private"
 }
 
+@test "_validate_mount accepts combined rw,slave non-recursive (#450)" {
+  _validate_mount "/dev:/dev:rw,slave"
+}
+
 @test "_validate_mount rejects invalid propagation mode (#450)" {
   run _validate_mount "/dev:/dev:bogus"
   [ "${status}" -ne 0 ]
