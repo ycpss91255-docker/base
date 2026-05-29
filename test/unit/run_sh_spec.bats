@@ -800,3 +800,50 @@ EOS
   assert_success
   [[ "${stderr}" == *"+ "* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# #465 — per-instance compose overlay
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh --instance NAME with config/instances/NAME.yaml adds overlay -f (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.yaml"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
+}
+
+@test "run.sh --instance NAME with config/instances/NAME.env adds overlay --env-file (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.env"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
+}
+
+@test "run.sh --instance NAME with BOTH yaml + env attaches both overlays (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.yaml"
+  : > "${SANDBOX}/config/instances/dev1.env"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
+  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
+}
+
+@test "run.sh --instance NAME with NO overlay files behaves like plain (#465)" {
+  # No config/instances/ dir at all -- run.sh must not error out, just
+  # fall back to the existing _compose_project flow.
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  refute_output --partial "config/instances/dev1.yaml"
+  refute_output --partial "config/instances/dev1.env"
+}
+
+@test "run.sh --instance rejects invalid name (uppercase) before compose call (#465)" {
+  run bash "${SANDBOX}/run.sh" --instance Foo --dry-run
+  assert_failure
+  assert_output --partial "instance name"
+  # Did not proceed to compose invocation
+  refute_output --partial "[dry-run] docker compose"
+}

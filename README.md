@@ -609,6 +609,21 @@ parallel containers (e.g. two branches side by side): set
 `alice-<repo>-2`-named project. Empty by default; bumped by the
 `-n / --instance` flag on the wrappers when applicable.
 
+**Per-instance overlays (#465).** When `run.sh --instance NAME` is
+given, `run.sh` also picks up these two optional files as compose
+overlays:
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+Either file may exist alone; missing files are silently skipped. Use
+the yaml for structural overrides (per-instance ports, volumes,
+cache dirs) and the env for pure `${VAR}` overrides shared with
+`compose.yaml`. `NAME` is validated as `^[a-z0-9][a-z0-9_-]*$` for
+path safety.
+
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 `claude_code`, default `INSTANCE_SUFFIX` empty:
 
