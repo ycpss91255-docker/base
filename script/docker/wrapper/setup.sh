@@ -452,55 +452,12 @@ _setup_ssh_x11_cookie() {
 
 # ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
-# ════════════════════════════════════════════════════════════════════
-
-# _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
 #
-# Reads one section [<section>] from <file> into parallel arrays.
-# Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
-# caller should use _load_setup_conf which handles the merge (replace strategy).
-_parse_ini_section() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
-  local -n _pis_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
-  local -n _pis_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-
-  _pis_keys=()
-  _pis_values=()
-  [[ -f "${_file}" ]] || return 0
-
-  local __pis_line __pis_current="" __pis_k __pis_v
-  while IFS= read -r __pis_line || [[ -n "${__pis_line}" ]]; do
-    [[ -z "${__pis_line}" || "${__pis_line}" =~ ^[[:space:]]*# ]] && continue
-
-    # Trim
-    __pis_line="${__pis_line#"${__pis_line%%[![:space:]]*}"}"
-    __pis_line="${__pis_line%"${__pis_line##*[![:space:]]}"}"
-    [[ -z "${__pis_line}" ]] && continue
-
-    # Section header
-    if [[ "${__pis_line}" =~ ^\[(.+)\]$ ]]; then
-      __pis_current="${BASH_REMATCH[1]}"
-      continue
-    fi
-
-    # Only collect entries for the requested section
-    [[ "${__pis_current}" == "${_section}" ]] || continue
-
-    # Require key = value
-    [[ "${__pis_line}" != *=* ]] && continue
-    __pis_k="${__pis_line%%=*}"
-    __pis_v="${__pis_line#*=}"
-    __pis_k="${__pis_k#"${__pis_k%%[![:space:]]*}"}"
-    __pis_k="${__pis_k%"${__pis_k##*[![:space:]]}"}"
-    __pis_v="${__pis_v#"${__pis_v%%[![:space:]]*}"}"
-    __pis_v="${__pis_v%"${__pis_v##*[![:space:]]}"}"
-
-    _pis_keys+=("${__pis_k}")
-    _pis_values+=("${__pis_v}")
-  done < "${_file}"
-}
+# _parse_ini_section moved to lib/conf.sh in #402 (PR-B) so init.sh
+# can reach it via _lib.sh without sourcing setup.sh. The function
+# stays callable from this file via the same name (_lib.sh sources
+# conf.sh in the umbrella loader near setup.sh's top).
+# ════════════════════════════════════════════════════════════════════
 
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
@@ -1277,136 +1234,12 @@ _resolve_stage_list() {
 # without circular sourcing. _lib.sh now pulls conf_logging.sh in
 # automatically, so callers below still resolve the same names.
 
-# _sync_logging_local_paths_gitignore <base_path> <global_str> <per_svc_str>
-#
-# After `apply` resolves [logging] / [logging.<svc>] for compose
-# emit, ensure the per-repo .gitignore covers each relative
-# local_path so users don't accidentally commit container logs.
-# Absolute paths and `~/...` are skipped — gitignore patterns apply
-# only inside the repo.
-#
-# Entries live inside a managed block introduced by a stable marker
-# comment. The block scope is the marker line plus any immediately-
-# following lines that look like a gitignore dir entry (`/<path>/`);
-# the first non-matching line (blank line, comment, non-anchored
-# entry, etc.) ends the block. On each apply we rewrite the block to
-# exactly the current desired entries, which prunes stale entries
-# left over from prior `local_path` values (#390). The marker
-# comment itself is dropped when the block ends up empty so an
-# `apply` with no logging local_path leaves no trace. Lines outside
-# the managed block are user-owned and never touched.
-_sync_logging_local_paths_gitignore() {
-  local _base="${1:?}"
-  local _global="${2:-}"
-  local _per_svc="${3:-}"
-  local _gitignore="${_base%/}/.gitignore"
-  local _marker='# managed by template: [logging] local_path (do not remove)'
-
-  local -a _candidates=()
-  local _line _k _v
-  if [[ -n "${_global}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      _k="${_line%%=*}"
-      _v="${_line#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_global}"
-  fi
-  if [[ -n "${_per_svc}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      # per_svc entry shape: "<svc>:KEY=VALUE"
-      local _kv="${_line#*:}"
-      _k="${_kv%%=*}"
-      _v="${_kv#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_per_svc}"
-  fi
-
-  # Filter: keep only relative paths; strip leading `./`, trailing `/`.
-  local -a _entries=()
-  local _p
-  for _p in "${_candidates[@]}"; do
-    # Skip absolute + ~ -- those live outside the repo.
-    [[ "${_p}" == /* ]] && continue
-    [[ "${_p}" == "~"* ]] && continue
-    # Normalise: drop leading `./` and trailing `/`.
-    _p="${_p#./}"
-    while [[ "${_p}" == */ ]]; do
-      _p="${_p%/}"
-    done
-    [[ -z "${_p}" ]] && continue
-    # gitignore: leading `/` anchors to repo root (matches our path
-    # semantics: relative paths are repo-root-relative). Trailing `/`
-    # marks it as a directory so it matches the dir + its contents.
-    _entries+=("/${_p}/")
-  done
-
-  # Dedup.
-  local -A _seen=()
-  local -a _desired=()
-  for _p in "${_entries[@]}"; do
-    [[ -n "${_seen[${_p}]:-}" ]] && continue
-    _seen[${_p}]=1
-    _desired+=("${_p}")
-  done
-
-  # If file doesn't exist and nothing desired, leave it absent.
-  if [[ ! -f "${_gitignore}" ]]; then
-    (( ${#_desired[@]} == 0 )) && return 0
-    : > "${_gitignore}"
-  fi
-
-  # Split existing content into pre-marker / post-marker, dropping
-  # the marker block itself (re-emitted below from _desired). When
-  # no marker exists, every line lands in _pre and the block is
-  # appended at the end if anything is desired.
-  local -a _pre=() _post=()
-  local _in_block=0 _seen_marker=0
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_seen_marker}" -eq 0 && "${_line}" == "${_marker}" ]]; then
-      _seen_marker=1
-      _in_block=1
-      continue
-    fi
-    if [[ "${_in_block}" -eq 1 ]]; then
-      # Consume only gitignore dir-entry shape; anything else ends
-      # the managed block and is preserved as post-block content.
-      if [[ "${_line}" =~ ^/.+/$ ]]; then
-        continue
-      fi
-      _in_block=0
-      _post+=("${_line}")
-      continue
-    fi
-    if [[ "${_seen_marker}" -eq 1 ]]; then
-      _post+=("${_line}")
-    else
-      _pre+=("${_line}")
-    fi
-  done < "${_gitignore}"
-
-  # Compose output: pre / marker+desired (if any) / post. When there
-  # is nothing desired and no prior marker existed, return early to
-  # keep the file byte-identical to the input (preserves idempotency
-  # and avoids touching unrelated files).
-  if (( ${#_desired[@]} == 0 && _seen_marker == 0 )); then
-    return 0
-  fi
-
-  {
-    if (( ${#_pre[@]} > 0 )); then
-      printf '%s\n' "${_pre[@]}"
-    fi
-    if (( ${#_desired[@]} > 0 )); then
-      printf '%s\n' "${_marker}"
-      printf '%s\n' "${_desired[@]}"
-    fi
-    if (( ${#_post[@]} > 0 )); then
-      printf '%s\n' "${_post[@]}"
-    fi
-  } > "${_gitignore}"
-}
+# _sync_logging_local_paths_gitignore moved to lib/gitignore.sh in
+# #402 (PR-B) and renamed _sync_logging_gitignore (now takes only
+# <base_path>, calls _collect_logging itself). Sync runs at
+# init.sh / upgrade.sh time instead of every setup.sh apply, so
+# the file stays in step across template versions even when no
+# wrapper has fired since the last setup.conf edit.
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
@@ -4180,13 +4013,6 @@ _setup_apply() {
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
     || return $?
-
-  # #328: ensure repo .gitignore covers every relative [logging]
-  # local_path so the user doesn't accidentally commit container logs
-  # on the next `git add -A`. Absolute paths and `~/...` are skipped
-  # (gitignore patterns only apply inside the repo). Idempotent.
-  _sync_logging_local_paths_gitignore "${_base_path}" \
-    "${_logging_global_str}" "${_logging_per_svc_str}"
 
   # #462: emit runtime.env mirroring [environment] entries so standalone
   # scripts (docker run wrappers, host-side helpers) can source the same
