@@ -148,13 +148,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Hadolint — Dockerfile.example
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: dockerfile/Dockerfile.example
           config: .hadolint.yaml
 
       - name: Hadolint — Dockerfile.test-tools
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: dockerfile/Dockerfile.test-tools
           config: .hadolint.yaml
