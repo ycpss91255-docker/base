@@ -294,8 +294,9 @@ setup() {
 }
 
 @test "run.sh devel branch uses compose exec to enter shell" {
-  # Refactored: now goes through `_compose_project exec` wrapper.
-  run grep -E '_compose_project exec' /source/script/docker/wrapper/run.sh
+  # Refactored: now goes through `_compose_dispatch exec` shim (#465)
+  # which delegates to `_compose_project exec` after overlay routing.
+  run grep -E '_compose_(project|dispatch) exec' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -1403,7 +1404,7 @@ EOF
     awk '
       /_app_cleanup\\(\\) \\{/ { in_func = 1; next }
       in_func && /_run_post_hook run/ { print \"POST_LINE=\" NR; post_seen = 1 }
-      in_func && /_compose_project down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
+      in_func && /_compose_(project|dispatch) down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
       in_func && /^\\}/ { exit }
     ' /source/script/docker/wrapper/run.sh
   "
