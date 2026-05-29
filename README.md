@@ -224,6 +224,11 @@ make run -- -t headless               # runs the headless variant
 make run -- -t gui                    # runs the gui variant
 make exec -- -t headless bash         # exec into running headless container
 
+# Kit-style args (containing `=`) trip the #414 guard inline. Pass them
+# via the EXEC_ARGS env var instead (#469):
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+
 # Equivalent direct .sh invocation:
 ./script/build.sh
 ./script/run.sh -t headless

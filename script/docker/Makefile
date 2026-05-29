@@ -45,9 +45,9 @@ start: ## Build + run in one step (e.g. make start  |  make start -- --no-cache)
 	./script/build.sh $(filter-out $@,$(MAKECMDGOALS))
 	./script/run.sh
 
-exec: ## Exec into running container (e.g. make exec -- -t bats-src bash)
+exec: ## Exec into running container (e.g. make exec -- -t bats-src bash; EXEC_ARGS='--/app/k=v' make exec for Kit-style args, #469)
 	$(_check_overrides)
-	./script/exec.sh $(filter-out $@,$(MAKECMDGOALS))
+	./script/exec.sh $(filter-out $@,$(MAKECMDGOALS)) $(EXEC_ARGS)
 
 stop: ## Stop and remove containers
 	$(_check_overrides)
