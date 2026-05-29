@@ -490,6 +490,45 @@ Main
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
+### Wrapper 毎の pre/post hook（#440）
+
+各 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`）は、以下 2 つのオプショナルな repo-local script を検出します:
+
+```
+script/hooks/pre/<wrapper>.sh    # env 準備完了後、main logic 前
+script/hooks/post/<wrapper>.sh   # main logic 後（run.sh は EXIT trap 内）
+```
+
+`init.sh` が 14 個の executable stub を自動生成（デフォルト `exit 0`）するので、
+hook framework は箱から出してすぐに使えます。`exit 0` を host-side の処理
+（例: `multiarch/qemu-user-static` の binfmt 登録、mount ディレクトリ作成、
+hardware preflight）に置き換えてください。stub は upgrade に対して
+冪等 — pre-#440 の template でも `make upgrade` 後に scaffolding が
+補完されます。
+
+**Contract:**
+
+| 項目 | 動作 |
+|---|---|
+| 引数 | wrapper が受け取った `"$@"` と同じ |
+| 実行位置 | ホスト（container 内では**ない**） |
+| `pre` 非ゼロ | wrapper を abort |
+| `post` 非ゼロ | wrapper exit code を override；cleanup は実行（run.sh） |
+| 非 executable | hard fail + `chmod +x` ヒント |
+| `--dry-run` | 両 hook とも silent skip |
+
+**例 — jetson_sdk_manager の binfmt 登録:**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。

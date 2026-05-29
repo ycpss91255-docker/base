@@ -519,6 +519,45 @@ configuration. Both files are regenerated on every `make upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
+### Per-wrapper hooks (#440)
+
+Every wrapper (`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`) checks for an optional repo-local script at:
+
+```
+script/hooks/pre/<wrapper>.sh    # runs after env prep, before main work
+script/hooks/post/<wrapper>.sh   # runs after main work (or in EXIT trap for run.sh)
+```
+
+`init.sh` ships 14 executable stubs (`exit 0` by default), so the
+hook framework is ready out of the box. Replace `exit 0` with your
+own host-side steps (e.g. `multiarch/qemu-user-static` binfmt
+registration, mount-point dir creation, hardware preflight). Stubs
+are idempotent across upgrades — pre-#440 templates pick up the
+scaffolding on the next `make upgrade`.
+
+**Contract:**
+
+| Aspect | Behavior |
+|---|---|
+| Args | Same `"$@"` the wrapper received |
+| Where | Host-side (NOT inside the container) |
+| `pre` non-zero | Aborts the wrapper |
+| `post` non-zero | Overrides wrapper exit code; cleanup still runs (run.sh) |
+| Not executable | Hard fail with `chmod +x` hint |
+| `--dry-run` | Both hooks silently skipped |
+
+**Example — jetson_sdk_manager binfmt setup:**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### Naming scheme: three namespaces, two user identities
 
 `setup.sh` emits three names in `.env` / `compose.yaml`. They look

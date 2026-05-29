@@ -419,7 +419,17 @@ ${_hint}"
     exit 1
   fi
 
+  # #440: pre-exec hook fires after container-running check, before
+  # the actual `compose exec`. Skipped under --dry-run.
+  _run_pre_hook exec "$@" || exit $?
+
   _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@"
+  local _exec_rc=$?
+
+  # #440: post-exec hook fires after exec returns; container is still
+  # running so the hook can `docker exec` for final reporting.
+  _run_post_hook exec "$@" || exit $?
+  return "${_exec_rc}"
 }
 
 main "$@"

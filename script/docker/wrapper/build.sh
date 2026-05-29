@@ -603,6 +603,10 @@ main() {
       "${_full_tag}" 2>/dev/null || true)"
   fi
 
+  # #440: pre-build hook fires after env prep, before docker build.
+  # Skipped under --dry-run.
+  _run_pre_hook build "$@" || exit $?
+
   _compose_project build "${_compose_args[@]}" "${TARGET}"
 
   if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true \
@@ -614,6 +618,9 @@ main() {
     # available without a daemon round-trip).
     printf '[dry-run] docker rmi <old-id-of %s if displaced>\n' "${_full_tag}"
   fi
+
+  # #440: post-build hook fires at end of successful build path.
+  _run_post_hook build "$@"
 }
 
 # _prune_predecessor removes the displaced predecessor image after a

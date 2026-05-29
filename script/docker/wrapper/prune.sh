@@ -603,6 +603,10 @@ main() {
     exit 2
   fi
 
+  # #440: pre-prune hook fires after arg parsing + target selection,
+  # before any docker prune fires. Skipped under --dry-run.
+  _run_pre_hook prune "$@" || exit $?
+
   # Resolve per-target until value: --until overrides the per-kind default.
   local _net_until="${UNTIL_OVERRIDE:-10m}"
   local _img_until="${UNTIL_OVERRIDE:-24h}"
@@ -645,6 +649,10 @@ main() {
   if [[ "${DO_WORKTREE_ORPHANS}" == true ]]; then
     _run_worktree_orphans_prune
   fi
+
+  # #440: post-prune hook fires at end of main(), after all prune
+  # targets complete.
+  _run_post_hook prune "$@"
 }
 
 main "$@"

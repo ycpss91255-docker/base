@@ -311,6 +311,10 @@ MD
 - Initial release
 MD
   _log "  Created doc/changelog/CHANGELOG.md"
+
+  # #440: hook scaffolding under script/hooks/{pre,post}/.
+  _create_hook_stubs
+  _log "  Created script/hooks/{pre,post}/ stubs"
 }
 
 # ── Existing repo initialization ────────────────────────────────────────────
@@ -319,6 +323,44 @@ _init_existing_repo() {
   _log "Existing repo detected (Dockerfile found)"
   _create_symlinks
   _sync_existing_gitignore
+  # #440: ensure the pre/post hook scaffolding exists. Idempotent;
+  # already-present stubs are left untouched. Upgrades from pre-#440
+  # templates pick up the 14 stubs automatically here.
+  _create_hook_stubs
+}
+
+# _create_hook_stubs
+#   Creates 14 stub files (7 wrappers x 2 phases) under
+#   script/hooks/{pre,post}/. Idempotent: never overwrites an
+#   existing file (so user-authored hooks survive re-init / upgrade).
+#   All freshly-written stubs land with mode 755 so the
+#   non-executable hard-fail path in lib/hook.sh never trips
+#   spuriously on a fresh init (#440).
+_create_hook_stubs() {
+  mkdir -p "${REPO_ROOT}/script/hooks/pre" "${REPO_ROOT}/script/hooks/post"
+  local _wrapper _kind _file _verb _abort
+  for _kind in pre post; do
+    if [[ "${_kind}" == "pre" ]]; then
+      _verb="before"
+      _abort="aborts the wrapper"
+    else
+      _verb="after"
+      _abort="fails the wrapper with this rc"
+    fi
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${REPO_ROOT}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -e "${_file}" ]] && continue
+      cat > "${_file}" <<HOOK
+#!/usr/bin/env bash
+# ${_kind}-${_wrapper} hook: host-side, runs ${_verb} ${_wrapper}.sh main logic.
+# Receives the same "\$@" as ${_wrapper}.sh. Non-zero exit ${_abort}.
+# Replace \`exit 0\` with your steps (binfmt register, mount dir prep, etc.).
+# Skipped when ./{$_wrapper}.sh runs with --dry-run.
+exit 0
+HOOK
+      chmod 755 "${_file}"
+    done
+  done
 }
 
 # _sync_existing_gitignore

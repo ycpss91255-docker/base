@@ -461,6 +461,44 @@ Main
 `make upgrade` 都会重新生成这两个文件（init.sh 在 subtree pull 后重跑
 `setup.sh apply`）— 不要手改，需要 override 写到 `setup.conf`。
 
+### 每个 wrapper 的 pre/post hook（#440）
+
+每个 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`）会检测以下两个可选的 repo-local script：
+
+```
+script/hooks/pre/<wrapper>.sh    # env 准备完成后、主逻辑前
+script/hooks/post/<wrapper>.sh   # 主逻辑后（run.sh 则在 EXIT trap 内）
+```
+
+`init.sh` 自动创建 14 个 executable stub（默认 `exit 0`），所以
+hook 框架开箱即用。把 `exit 0` 换成你的 host-side 步骤（如
+`multiarch/qemu-user-static` binfmt 注册、mount 目录创建、硬件预检）。
+Stub 对 upgrade 幂等 — pre-#440 的 template 跑 `make upgrade` 后自动
+补齐 scaffolding。
+
+**Contract：**
+
+| 方面 | 行为 |
+|---|---|
+| 参数 | 跟 wrapper 收到的 `"$@"` 一样 |
+| 执行位置 | 主机（**不是** container 内） |
+| `pre` 非零 | abort wrapper |
+| `post` 非零 | override wrapper exit code；cleanup 照跑（run.sh） |
+| 非 executable | hard fail + `chmod +x` 提示 |
+| `--dry-run` | 两个 hook 都 silent skip |
+
+**示例 — jetson_sdk_manager binfmt 注册：**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
