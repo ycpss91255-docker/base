@@ -299,6 +299,10 @@ main() {
   # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
   _load_env "${FILE_PATH}/.env"
 
+  # #440: pre-stop hook fires after env load, before docker stop.
+  # Skipped under --dry-run.
+  _run_pre_hook stop "$@" || exit $?
+
   if [[ "${ALL_INSTANCES}" == true ]]; then
     # Find all docker compose projects whose name starts with our prefix.
     local _prefix="${DOCKER_HUB_USER}-${IMAGE_NAME}"
@@ -330,6 +334,10 @@ main() {
   fi
 
   _maybe_prune
+
+  # #440: post-stop hook fires at end of main(), after compose down +
+  # opt-in prune are complete.
+  _run_post_hook stop "$@"
 }
 
 # _maybe_prune runs the opt-in --prune cleanup after compose down has

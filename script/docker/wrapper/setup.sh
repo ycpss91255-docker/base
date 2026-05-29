@@ -4243,6 +4243,11 @@ main() {
       ;;
   esac
 
+  # #440: pre-setup hook fires before any subcommand runs. Skipped
+  # under --dry-run. Captured here (not per-subcommand) so all
+  # subcommands get uniform pre/post coverage.
+  _run_pre_hook setup "$@" || exit $?
+
   case "${_subcmd}" in
     apply)        _setup_apply       "$@" ;;
     check-drift)  _setup_check_drift "$@" ;;
@@ -4253,6 +4258,11 @@ main() {
     remove)       _setup_remove      "$@" ;;
     reset)        _setup_reset       "$@" ;;
   esac
+  local _rc=$?
+
+  # #440: post-setup hook fires after the subcommand returns.
+  _run_post_hook setup "$@" || exit $?
+  return "${_rc}"
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

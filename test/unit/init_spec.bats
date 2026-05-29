@@ -32,7 +32,7 @@ setup() {
         "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
   ln -s /source/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
-  for _sl in log env conf conf_logging compose config_summary; do
+  for _sl in log env conf conf_logging compose config_summary hook; do
     ln -s "/source/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done
@@ -376,4 +376,64 @@ REMOTE
   assert_success
   run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
   assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _kind _wrapper _file
+  for _kind in pre post; do
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${TMP_REPO}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -f "${_file}" ]] || { echo "missing ${_file}"; return 1; }
+      [[ -x "${_file}" ]] || { echo "not executable: ${_file}"; return 1; }
+    done
+  done
+}
+
+@test "_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file
+  for _file in "${TMP_REPO}/script/hooks/pre/run.sh" \
+               "${TMP_REPO}/script/hooks/post/build.sh"; do
+    run head -n 1 "${_file}"
+    assert_output "#!/usr/bin/env bash"
+    run tail -n 1 "${_file}"
+    assert_output "exit 0"
+  done
+}
+
+@test "_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file="${TMP_REPO}/script/hooks/pre/run.sh"
+  # Simulate user editing their hook
+  printf '#!/usr/bin/env bash\necho USER_CONTENT\nexit 0\n' > "${_file}"
+  chmod +x "${_file}"
+  # Re-run init's stub creator
+  _create_hook_stubs
+  run grep -F "USER_CONTENT" "${_file}"
+  assert_success
+}
+
+@test "_create_new_repo: includes hook stubs in new-repo layout (#440)" {
+  _source_init
+  _create_new_repo "main"
+  [[ -x "${TMP_REPO}/script/hooks/pre/run.sh" ]] || { echo "missing pre/run.sh"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/run.sh" ]] || { echo "missing post/run.sh"; return 1; }
+}
+
+@test "_init_existing_repo: creates missing hook stubs on upgrade (#440)" {
+  _source_init
+  # Simulate an existing repo on pre-#440 template — no hooks/ dir yet
+  [[ ! -d "${TMP_REPO}/script/hooks" ]] || rm -rf "${TMP_REPO}/script/hooks"
+  : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
+  _init_existing_repo
+  [[ -x "${TMP_REPO}/script/hooks/pre/build.sh" ]] || { echo "missing pre/build.sh after upgrade"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/setup_tui.sh" ]] || { echo "missing post/setup_tui.sh after upgrade"; return 1; }
 }

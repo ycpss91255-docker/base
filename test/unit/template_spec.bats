@@ -299,21 +299,23 @@ setup() {
   assert_success
 }
 
-@test "run.sh foreground installs trap to auto-down on exit" {
-  # #386: trap calls _compose_cleanup which runs compose down. Trap is
-  # installed centrally before the dispatch block so both devel and
-  # non-devel foreground paths get the cleanup; -d / --no-rm opt out.
-  run grep -E 'trap _compose_cleanup EXIT' /source/script/docker/wrapper/run.sh
+@test "run.sh foreground installs trap to auto-down on exit (#440 renamed _app_cleanup)" {
+  # #386: trap installed centrally before the dispatch block so both devel
+  # and non-devel foreground paths get the cleanup; -d / --no-rm opt out.
+  # #440: renamed from _compose_cleanup to _app_cleanup since the handler
+  # now also runs the post-run hook before compose down.
+  run grep -E 'trap _app_cleanup EXIT' /source/script/docker/wrapper/run.sh
   assert_success
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
+  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "run.sh _compose_cleanup uses --remove-orphans + short timeout" {
+@test "run.sh _app_cleanup uses --remove-orphans + short timeout (#440)" {
   # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
   # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
   # period (user already exited the foreground shell — nothing to drain).
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
+  # #440: function renamed; behaviour unchanged.
+  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
   assert_success
   run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/wrapper/run.sh
   assert_success
@@ -1369,5 +1371,58 @@ EOF
   # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
   run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
     /source/script/docker/wrapper/setup.sh
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: pre/post hook wiring presence across all 7 wrappers
+# ════════════════════════════════════════════════════════════════════
+
+@test "all 7 wrappers call _run_pre_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_pre_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_pre_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "all 7 wrappers call _run_post_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_post_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_post_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "run.sh _app_cleanup runs post-hook before compose down (#440)" {
+  # Order matters: container must still be alive when post-hook runs
+  # so the hook can `docker exec` for final reporting.
+  run bash -c "
+    awk '
+      /_app_cleanup\\(\\) \\{/ { in_func = 1; next }
+      in_func && /_run_post_hook run/ { print \"POST_LINE=\" NR; post_seen = 1 }
+      in_func && /_compose_project down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
+      in_func && /^\\}/ { exit }
+    ' /source/script/docker/wrapper/run.sh
+  "
+  assert_output --partial "POST_LINE="
+  assert_output --partial "DOWN_LINE="
+  local _post_line _down_line
+  _post_line="$(echo "${output}" | grep POST_LINE | cut -d= -f2 | head -1)"
+  _down_line="$(echo "${output}" | grep DOWN_LINE | cut -d= -f2 | head -1)"
+  (( _post_line < _down_line )) \
+    || { echo "post-hook should run before compose down: post=${_post_line} down=${_down_line}"; return 1; }
+}
+
+@test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
+  # Regression guard for Q13: dry-run contract requires no side effects.
+  run grep -E 'DRY_RUN.*true' /source/script/docker/lib/hook.sh
+  assert_success
+}
+
+@test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
+  run grep -E 'not executable.*chmod' /source/script/docker/lib/hook.sh
   assert_success
 }
