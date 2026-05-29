@@ -576,6 +576,19 @@ name も結果としてユーザ間衝突を回避できます。`#322` の CHAN
 デフォルトは空文字列で、wrapper が対応する場面では `-n /
 --instance` で指定できます。
 
+**Per-instance overlay (#465)**。`run.sh --instance NAME` は次の
+2 つの optional ファイルを compose overlay として自動検出します:
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+どちらか一方だけの存在も可、ファイルがなければ silent skip。yaml は
+structural override（per-instance の ports、volumes、cache 等）、env は
+`compose.yaml` と共有する `${VAR}` override に使います。`NAME` は
+`^[a-z0-9][a-z0-9_-]*$` で validation され、path 安全を保証します。
+
 具体例。OS user `alice`、Docker Hub user `alice-hub`、repo
 `claude_code`、デフォルト `INSTANCE_SUFFIX` 空:
 

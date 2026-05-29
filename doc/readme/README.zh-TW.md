@@ -537,6 +537,19 @@ Project name 用 `DOCKER_HUB_USER` 是 #322 之前就決定，未動：在
 `INSTANCE_SUFFIX=2` 就會拿到 `alice-<repo>-2` 跟對應的 project
 name。預設空字串；wrappers 支援的場合可用 `-n / --instance` 帶起來。
 
+**Per-instance overlay (#465)**。`run.sh --instance NAME` 同時會自動
+偵測下面兩個 optional 檔案當 compose overlay：
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+兩個檔案任一存在皆可；不存在就 silent skip。yaml 用於 structural
+override（per-instance ports、volumes、cache 路徑），env 用於與
+`compose.yaml` 共享的 `${VAR}` override。`NAME` 受 `^[a-z0-9][a-z0-9_-]*$`
+驗證以保 path 安全。
+
 範例。OS user `alice`，Docker Hub user `alice-hub`，repo
 `claude_code`，預設 `INSTANCE_SUFFIX` 空：
 
