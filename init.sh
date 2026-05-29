@@ -258,8 +258,11 @@ YAML
 
   # .gitignore: source canonical set from lib/gitignore.sh so future
   # template-added derived artifacts propagate via the existing-repo
-  # sync path on next upgrade (#172).
+  # sync path on next upgrade (#172). #402 PR-B adds the [logging]
+  # local_path managed block here so new repos start with the right
+  # entries without waiting for the first setup.sh apply.
   _sync_gitignore "${REPO_ROOT}/.gitignore"
+  _sync_logging_gitignore "${REPO_ROOT}"
   _log "  Created .gitignore"
 
   # doc/
@@ -371,6 +374,11 @@ HOOK
 _sync_existing_gitignore() {
   _sync_gitignore "${REPO_ROOT}/.gitignore"
   _untrack_canonical_in_repo "${REPO_ROOT}"
+  # #402 PR-B: rebuild the [logging] local_path managed block from the
+  # current setup.conf. Used to live in setup.sh apply (runtime); now
+  # tied to init/upgrade lifecycle so the file stays consistent even
+  # when setup.conf changed between wrapper invocations.
+  _sync_logging_gitignore "${REPO_ROOT}"
 }
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
