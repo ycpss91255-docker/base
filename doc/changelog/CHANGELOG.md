@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.40.0-rc1] - 2026-05-30
+
 ### Added
 - **`EXEC_ARGS` env var passthrough for `make exec`** — Kit-style args containing `=` (e.g. `--/app/livestream/port=49100`) historically tripped the #414 `MAKEOVERRIDES` guard, forcing users to call `./script/exec.sh` directly. Setting `EXEC_ARGS='--/app/k=v ...'` in the env now forwards those tokens to `exec.sh` via `$(EXEC_ARGS)`, bypassing make's variable-override interception. Existing `make exec -- -t target cmd` invocations are unaffected; EXEC_ARGS is appended after the `--`-forwarded args. Documented in README + zh-TW/zh-CN/ja translations. Closes #469.
 - **Per-instance compose overlay for `run.sh --instance NAME`** — `run.sh --instance NAME` now also auto-detects `config/instances/<NAME>.yaml` (compose `-f` overlay) and `config/instances/<NAME>.env` (compose `--env-file` overlay) on top of the existing `INSTANCE_SUFFIX`-only behaviour. Either file may exist alone; missing files are silently skipped. Yaml handles structural overrides (per-instance ports, volumes, cache dirs); env handles pure `${VAR}` overrides shared with `compose.yaml`. `NAME` is validated against `^[a-z0-9][a-z0-9_-]*$` (lowercase alphanumeric + `_-`) for path safety -- `--instance ../etc/passwd` and similar are rejected up front. New `lib/compose.sh::_compose_project_with_overlay` wraps the underlying invocation; `lib/compose.sh::_validate_instance_name` enforces the rule. README + 3 translations updated. Closes #465.
