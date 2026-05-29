@@ -89,7 +89,11 @@ _collect_logging() {
   # Global [logging] -- per-repo first, fall back to template if absent.
   local -a _g_keys=() _g_vals=()
   [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
-  if (( ${#_g_keys[@]} == 0 )); then
+  if (( ${#_g_keys[@]} == 0 )) && [[ -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
+    # _SETUP_SCRIPT_DIR is set by setup.sh; init.sh / upgrade.sh call
+    # _collect_logging via _sync_logging_gitignore (#402 PR-B) without
+    # sourcing setup.sh, so the template-fallback step is skipped in
+    # that path. Per-repo setup.conf already covers downstream cases.
     local _tpl="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
   fi
