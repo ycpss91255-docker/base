@@ -90,6 +90,7 @@ upgrade_started
 upgrade_completed
 upgrade_subtree_pull_failed
 upgrade_version_bumped
+upgrade_version_mismatch
 upgrade_rollback
 
 # init.sh

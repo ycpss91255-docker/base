@@ -399,7 +399,10 @@ STUB
 
   assert_failure
   assert_output --partial "integrity check failed"
-  assert_output --partial ".base/.version"
+  # R1+ (#477) detects destructive FF via subtree dir missing, ahead of the
+  # later .version / version-mismatch checks. The legacy assertion against
+  # ".base/.version" missing was specific to the pre-R1+ marker list.
+  assert_output --partial "subtree dir missing"
   assert_output --partial "Rolling back"
   assert_output --partial "upgrade aborted"
 
