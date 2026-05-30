@@ -1043,7 +1043,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (35)
+### test/unit/upgrade_spec.bats (38)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -1057,7 +1057,11 @@ the three safety guards added after the v0.9.7 Jetson incident
 `_verify_subtree_intact` with rollback), structural invariants that
 pin call-ordering in `_upgrade` (identity check runs before subtree
 pull, integrity verification runs after, pre-pull HEAD is snapshotted
-for rollback), and the SemVer §11-aware `_semver_cmp` + `_check`
+for rollback), the R1+ rewrite of `_verify_subtree_intact` (#477)
+that replaces the hard-coded marker list with a path-agnostic
+structural invariant + target-version match (catches destructive
+fast-forward, empty subtree, malformed `.version`, and wrong-tag
+pulls), and the SemVer §11-aware `_semver_cmp` + `_check`
 behavior added for issue #156 (prerelease ahead of latest stable
 must not be reported as "needing downgrade").
 
@@ -1075,11 +1079,14 @@ must not be reported as "needing downgrade").
 | `_require_clean_merge_state succeeds in clean repo` | Happy path |
 | `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
 | `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
-| `_verify_subtree_intact succeeds when all markers present` | Happy path |
+| `_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)` | R1+ happy path |
 | `_verify_subtree_intact rolls back when template/.version is missing` | Destructive-FF rollback |
-| `_verify_subtree_intact rolls back when template/script/docker/setup.sh is missing` | Marker rollback |
+| `_verify_subtree_intact rolls back when template/ dir is missing (#477 destructive-FF detector)` | R1+ dir-missing rollback |
+| `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
+| `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
+| `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
-| `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
+| `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
 | `_semver_cmp: equal versions return 0` | Equality |
 | `_semver_cmp: lower core returns 1` | Behind core |
