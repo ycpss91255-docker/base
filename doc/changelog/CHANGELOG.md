@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.40.0-rc1] - 2026-05-30
+## [v0.40.0] - 2026-05-30
 
 ### Added
 - **`EXEC_ARGS` env var passthrough for `make exec`** — Kit-style args containing `=` (e.g. `--/app/livestream/port=49100`) historically tripped the #414 `MAKEOVERRIDES` guard, forcing users to call `./script/exec.sh` directly. Setting `EXEC_ARGS='--/app/k=v ...'` in the env now forwards those tokens to `exec.sh` via `$(EXEC_ARGS)`, bypassing make's variable-override interception. Existing `make exec -- -t target cmd` invocations are unaffected; EXEC_ARGS is appended after the `--`-forwarded args. Documented in README + zh-TW/zh-CN/ja translations. Closes #469.
