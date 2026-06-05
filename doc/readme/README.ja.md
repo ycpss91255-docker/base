@@ -65,7 +65,7 @@ graph TB
 
     subgraph consumer["Docker Repo（例: my_app）"]
         symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
-        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
     end
@@ -296,7 +296,6 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 
 - `Dockerfile`
 - `compose.yaml`
-- `.env.example`
 - `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
   - `script/entrypoint.sh`（canonical）
   - ros / アプリ起動 helper 等

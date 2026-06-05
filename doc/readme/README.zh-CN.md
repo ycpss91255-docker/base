@@ -65,7 +65,7 @@ graph TB
 
     subgraph consumer["Docker Repo（例如 my_app）"]
         symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
-        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
     end
@@ -284,7 +284,6 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 
 - `Dockerfile`
 - `compose.yaml`
-- `.env.example`
 - `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
   - `script/entrypoint.sh`（canonical）
   - 任何 ros / app 启动 helper 等

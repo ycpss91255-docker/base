@@ -1666,6 +1666,23 @@ generate_compose_yaml() {
     esac
   }
 
+  # env_file emitter (#502): inject the hand-authored .env workload
+  # overlay into the service so per-task env vars take effect with
+  # `make run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
+  # relative to compose.yaml (repo root). The devel block emits it and
+  # `extends: devel` stages inherit it; the per-stage standalone block
+  # (override mode, no extends) re-emits it. Plain (not required:false):
+  # setup.sh scaffolds .env on apply, so it always exists before compose
+  # runs. .env.generated (the resolved cache) is NOT listed here -- it
+  # feeds compose interpolation via the CLI --env-file flag, not the
+  # container environment (#502 two-role split).
+  _emit_env_file_block() {
+    cat <<'YAML'
+    env_file:
+      - .env
+YAML
+  }
+
   # #410: section emitters shared by the devel block and the per-stage
   # standalone block. Both iterate the SAME top-level [security] /
   # [devices] / [tmpfs] strings (a stage standalone block re-emits the
@@ -1903,6 +1920,8 @@ YAML
     stdin_open: true
     tty: true
 YAML
+    # Workload overlay (#502): devel emits it; extends:devel stages inherit.
+    _emit_env_file_block
     _emit_runtime_line
     _emit_restart_line
     # cap_add / cap_drop / security_opt + group_add (#410 shared emitters).
@@ -2231,6 +2250,9 @@ YAML
     profiles:
       - ${_svc}
 YAML
+      # Workload overlay (#502): standalone block has no `extends: devel`
+      # to inherit from, so re-emit env_file explicitly.
+      _emit_env_file_block
       # privileged: literal when stage overrides; else env-var ref
       # (same shape devel emits — .env's PRIVILEGED applies).
       if [[ -n "${_eff_privileged}" ]]; then
@@ -2556,6 +2578,29 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _scaffold_env_overlay <path>
+#
+# Create the hand-authored `.env` workload overlay with guidance
+# comments if it does not exist (#502, A2 file roles). Idempotent:
+# never overwrites an existing file -- the overlay is user-owned after
+# its first creation, so setup.sh leaves it alone on every later apply.
+# ════════════════════════════════════════════════════════════════════
+_scaffold_env_overlay() {
+  local _path="${1:?}"
+  [[ -e "${_path}" ]] && return 0
+  cat > "${_path}" << 'EOF'
+# Workload overlay -- hand-authored, gitignored. setup.sh creates this
+# file once and never edits it again. Put per-task / volatile env vars
+# here as KEY=VALUE (e.g. ROS_DOMAIN_ID=42, LOG_LEVEL=debug, API tokens).
+# They are injected into the container via `env_file: - .env` and take
+# effect with only `make run` -- no regenerate, no SETUP_CONF_HASH drift,
+# no git churn. Machine-bound / set-once params (GPU, privileged, mounts,
+# IMAGE_NAME, APT mirror) belong in config/docker/setup.conf instead.
+# See README "Where each parameter lives (env vs workload)".
+EOF
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _check_setup_drift <base_path>
 #
 # Compares current system state + setup.conf hash against .env's SETUP_*
@@ -2567,10 +2612,10 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 _check_setup_drift() {
   local _base="${1:?}"
-  local _env_file="${_base}/.env"
+  local _env_file="${_base}/.env.generated"
   [[ -f "${_env_file}" ]] || return 0
 
-  # Read stored values from .env without polluting caller's env
+  # Read stored values from .env.generated without polluting caller's env
   local _stored_hash="" _stored_df_hash="" _stored_gui="" _stored_gpu="" _stored_uid=""
   _stored_hash="$(   grep -oP '^SETUP_CONF_HASH=\K.*'       "${_env_file}" 2>/dev/null || true)"
   _stored_df_hash="$(grep -oP '^SETUP_DOCKERFILE_HASH=\K.*' "${_env_file}" 2>/dev/null || true)"
@@ -3546,11 +3591,12 @@ _setup_reset() {
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
-  # rebuilds .env + compose.yaml purely from the template baseline. The
-  # workspace mount_1 is re-detected and re-written via the bootstrap
-  # path on the next apply.
+  # rebuilds .env.generated + compose.yaml purely from the template
+  # baseline. The workspace mount_1 is re-detected and re-written via the
+  # bootstrap path on the next apply. The hand-authored .env workload
+  # overlay is user-owned and intentionally left untouched by reset.
   local _conf="${_base_path}/config/docker/setup.conf"
-  local _env="${_base_path}/.env"
+  local _env="${_base_path}/.env.generated"
   local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
     _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
@@ -3669,7 +3715,22 @@ _setup_apply() {
 
   _announce_template_default_fallback "${_base_path}"
 
-  local _env_file="${_base_path}/.env"
+  # A2 file roles (#502): .env.generated is the derived interpolation
+  # cache written by setup.sh; .env is the hand-authored workload
+  # overlay (never touched here after the first-apply scaffold).
+  local _env_file="${_base_path}/.env.generated"
+  local _overlay_file="${_base_path}/.env"
+
+  # Migrate a pre-#502 layout where .env WAS the cache: if no
+  # .env.generated exists yet but .env carries the setup.sh auto-gen
+  # marker, it is a stale cache, not a user overlay. Back it up and
+  # promote it to .env.generated so the prior-values source below still
+  # resolves; write_env regenerates it and a fresh overlay is scaffolded.
+  if [[ ! -f "${_env_file}" && -f "${_overlay_file}" ]] \
+      && grep -q '^SETUP_CONF_HASH=' "${_overlay_file}" 2>/dev/null; then
+    cp -- "${_overlay_file}" "${_overlay_file}.bak"
+    mv -- "${_overlay_file}" "${_env_file}"
+  fi
 
   if [[ -f "${_env_file}" ]]; then
     set -o allexport
@@ -4121,6 +4182,10 @@ _setup_apply() {
     "${target_arch}" \
     "${build_network}" \
     "${_ssh_x11_xauth}"
+
+  # Create the hand-authored .env workload overlay on first apply (#502).
+  # Idempotent: never overwrites an existing user-owned overlay.
+  _scaffold_env_overlay "${_overlay_file}"
 
   local runtime_resolved=""
   _resolve_runtime "${gpu_runtime_mode}" runtime_resolved

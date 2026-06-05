@@ -62,11 +62,15 @@ _compose() {
 #
 # Requires:
 #   PROJECT_NAME : set by _compute_project_name
-#   FILE_PATH    : the repo root (where compose.yaml and .env live)
+#   FILE_PATH    : the repo root (where compose.yaml + .env.generated live)
+#
+# --env-file points at .env.generated (the derived interpolation cache,
+# #502). The hand-authored .env workload overlay reaches containers via
+# each service's `env_file: - .env` directive, not this CLI flag.
 _compose_project() {
   _compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
-    --env-file "${FILE_PATH}/.env" \
+    --env-file "${FILE_PATH}/.env.generated" \
     "$@"
 }
 

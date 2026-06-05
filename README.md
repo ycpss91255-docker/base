@@ -65,7 +65,7 @@ graph TB
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
         symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
-        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
@@ -347,7 +347,6 @@ diagnostics pointing at the missing artifact.
 
 - `Dockerfile`
 - `compose.yaml`
-- `.env.example`
 - `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
   - `script/entrypoint.sh` (canonical)
   - any ros / app launch helpers etc.
