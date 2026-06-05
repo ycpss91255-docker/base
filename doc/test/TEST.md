@@ -498,7 +498,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (57)
+### test/unit/run_sh_spec.bats (64)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate

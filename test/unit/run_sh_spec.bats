@@ -434,6 +434,14 @@ EOS
   assert_failure
 }
 
+@test "run.sh --instance with invalid value exits 2 (#408 sub-task C)" {
+  # An invalid --instance value is an argument error -> POSIX usage exit
+  # code 2 (was exit 1 before #408-C). Leading '-' / path chars violate
+  # the ^[a-z0-9][a-z0-9_-]*$ rule.
+  run bash "${SANDBOX}/run.sh" --instance "../evil"
+  [[ "${status}" -eq 2 ]] || { echo "expected exit 2, got ${status}"; return 1; }
+}
+
 @test "run.sh --lang zh-CN prints Simplified Chinese usage text" {
   run bash "${SANDBOX}/run.sh" --lang zh-CN --help
   assert_success

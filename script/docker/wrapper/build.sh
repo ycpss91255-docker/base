@@ -3,79 +3,28 @@
 
 set -euo pipefail
 
-# Default FILE_PATH = the user's repo root. Invocation paths we need to
-# cover, all of which must resolve FILE_PATH to the repo root so that
-# ${FILE_PATH}/.base/, ${FILE_PATH}/config/, ${FILE_PATH}/.env, etc.
-# work:
-#   - <repo>/build.sh                       # pre-#330 root-symlink layout
-#   - <repo>/script/build.sh                # post-#330 script/-subfolder layout
-#   - <repo>/.base/script/docker/build.sh   # direct invocation
-#   - /lint/build.sh                        # Dockerfile test stage
-# Heuristic: if our invocation directory has a .base/ sibling, we are at
-# the repo root already; if the parent has .base/ we are one level deeper
-# (the post-#330 script/ subfolder) and step up; otherwise (direct or
-# test-stage call) fall back to the invocation directory and rely on the
-# sibling _lib.sh lookup below.
-# `-C <dir>` / `--chdir <dir>` overrides this so the wrapper operates on
-# a different repo without changing the caller's cwd. Critical for
-# Claude Code's sandbox `excludedCommands` matching: top-level command
-# stays `./build.sh ...` rather than `(cd <dir> && ...)` or
-# `bash -c "cd <dir> && ..."`, neither of which the bash AST parser
-# unwraps into the `./build.sh *` prefix (refs docker_harness#53). The
-# pre-pass runs before _lib.sh is sourced so all path-dependent
-# operations (including the _lib.sh lookup) honor the override.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-else
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-fi
-unset _FILE_PATH_INVOKE_DIR
-_chdir_i=1
-while (( _chdir_i <= $# )); do
-  case "${!_chdir_i}" in
-    -C|--chdir)
-      _chdir_next=$((_chdir_i + 1))
-      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
-        printf '[build] ERROR: -C/--chdir requires a value\n' >&2
-        exit 2
-      fi
-      _chdir_arg="${!_chdir_next}"
-      if [[ ! -d "${_chdir_arg}" ]]; then
-        printf '[build] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
-        exit 2
-      fi
-      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
-      _chdir_i=$((_chdir_next + 1))
-      ;;
-    *)
-      _chdir_i=$((_chdir_i + 1))
-      ;;
-  esac
+# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
+# and source _lib.sh -- all in lib/bootstrap.sh. Locate it from this
+# wrapper's real path (readlink -f follows the consumer-repo symlink),
+# trying the canonical ../lib/ split then the flat /lint lib/ sibling.
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+for _bootstrap_cand in \
+  "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  if [[ -f "${_bootstrap_cand}" ]]; then
+    # shellcheck source=script/docker/lib/bootstrap.sh
+    source "${_bootstrap_cand}"
+    break
+  fi
 done
-unset _chdir_i _chdir_next _chdir_arg
-readonly FILE_PATH
-# _lib.sh lives at .base/script/docker/lib/_lib.sh in normal consumer
-# repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
-# scripts + helpers into /lint/. Issue #104 deduplicated the previously
-# inlined fallback `_detect_lang`; we now always have i18n.sh via
-# _lib.sh's sibling load.
-if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
-elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/lib/_lib.sh"
-else
-  printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
+unset _bootstrap_self _bootstrap_cand
+if ! declare -F _bootstrap >/dev/null 2>&1; then
+  printf '[build] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+_bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
