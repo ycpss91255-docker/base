@@ -31,4 +31,6 @@ source "${_lib_dir}/conf_logging.sh"
 source "${_lib_dir}/compose.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/config_summary.sh"
+# shellcheck disable=SC1091
+source "${_lib_dir}/hook.sh"
 unset _lib_dir

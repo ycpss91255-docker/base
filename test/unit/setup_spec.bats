@@ -156,11 +156,27 @@ fi'
   assert_equal "${_n}" "0"
 }
 
-@test "template setup.conf ships [devices] device_1 = /dev:/dev by default" {
-  # Dev-friendly default: new repos get full /dev tree bound without
-  # needing to run TUI. Template source-of-truth.
+@test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
+  # #466 F2: /dev:/dev is no longer bound by default -- repos that need
+  # device access uncomment it or add via `setup.sh add devices.device`.
   run grep -E '^device_1 = /dev:/dev$' /source/config/docker/setup.conf
+  assert_failure
+  run grep -E '^# device_1 = /dev:/dev$' /source/config/docker/setup.conf
   assert_success
+}
+
+@test "[devices] opt-in (#466): empty section + slim template emits no devices block" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[devices]
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    devices:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
 @test "template setup.conf [deploy] enables ALL GPU capabilities by default" {
@@ -172,12 +188,240 @@ fi'
   assert_success
 }
 
-@test "[security] cap_add_* fallback: repo setup.conf with no cap_add_* uses template defaults" {
-  # Simulate a repo override that keeps privileged=false but wiped all
-  # cap_add_* entries. Expected behaviour: setup.sh falls back to the
-  # template's baseline (SYS_ADMIN / NET_ADMIN / MKNOD) so the container
-  # does not silently drop to Docker's stripped-down default capability
-  # set.
+@test "setup.sh apply emits top-level name: in compose.yaml (#472)" {
+  # End-to-end: apply renders a top-level name: with the literal compose
+  # vars so non-wrapper tools resolve the wrapper's project name.
+  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+# ── #478 [lifecycle] restart policy ─────────────────────────────────────────
+
+@test "[lifecycle] restart = always emits restart: always under devel (#478)" {
+  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    restart: always$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[lifecycle] restart = no (default) emits no restart: field (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    restart:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
+  printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '    restart: "on-failure:3"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "template setup.conf ships [lifecycle] restart = no (#478)" {
+  run grep -E '^restart = no$' /source/config/docker/setup.conf
+  assert_success
+}
+
+@test "setup.sh set lifecycle.restart rejects an invalid policy (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main set lifecycle.restart bogus --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+}
+
+@test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  local _v
+  for _v in no always unless-stopped on-failure on-failure:3; do
+    run bash -c "
+      source /source/script/docker/wrapper/setup.sh
+      main set lifecycle.restart '${_v}' --base-path '${TEMP_DIR}' 2>&1
+    "
+    assert_success
+  done
+}
+
+# ── #496 [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
+
+@test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '- "44"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '- "992"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS=''
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[deploy] dri_groups = off emits no group_add even with GUI (#496)" {
+  printf '[deploy]\ndri_groups = off\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = off\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
+  run grep -E '^dri_groups = auto$' /source/config/docker/setup.conf
+  assert_success
+}
+
+@test "_detect_dri_groups dedups repeated GIDs (#496)" {
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 44 992'
+    source /source/script/docker/wrapper/setup.sh
+    _detect_dri_groups
+  "
+  assert_success
+  # override echoes verbatim; dedup happens on the real stat path. Assert the
+  # override passthrough works (real-stat dedup is covered by sort -u).
+  assert_output --partial "44"
+  assert_output --partial "992"
+}
+
+# ── #481 [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
+
+@test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
+  printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[deploy] legacy runtime key still works + warns (#481 W3 alias)" {
+  printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  # the legacy alias is consumed but a deprecation is surfaced
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_output --partial "gpu_runtime"
+}
+
+@test "[deploy] gpu_runtime wins when both keys present (#481)" {
+  printf '[deploy]\ngpu_runtime = nvidia\nruntime = off\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
+  run grep -E '^gpu_runtime = auto$' /source/config/docker/setup.conf
+  assert_success
+  run grep -E '^runtime = ' /source/config/docker/setup.conf
+  assert_failure
+}
+
+@test "per-stage override accepts deploy.gpu_runtime (#481)" {
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    _validate_stage_override_key deploy.gpu_runtime
+  "
+  assert_success
+}
+
+@test "per-stage override still accepts legacy deploy.runtime (#481 alias)" {
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    _validate_stage_override_key deploy.runtime
+  "
+  assert_success
+}
+
+@test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
+  # #466 F2: the template no longer ships cap_add_* defaults, so a repo
+  # with an empty [security] section (the omniverse case) falls back to a
+  # SLIM template and gets NO cap_add block -- privileges are opt-in, not
+  # silently inherited. Repos that need caps declare them explicitly
+  # (covered by the regression test below).
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
 privileged = false
@@ -189,14 +433,14 @@ EOF
   "
   assert_success
   run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
-  assert_success
-  run grep -F -- '- NET_ADMIN' "${TEMP_DIR}/compose.yaml"
-  assert_success
-  run grep -F -- '- MKNOD' "${TEMP_DIR}/compose.yaml"
-  assert_success
+  assert_failure
+  run grep -E '^    cap_add:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
-@test "[security] security_opt_* fallback: missing security_opt_* uses template defaults" {
+@test "[security] security_opt opt-in (#466): empty section + slim template emits no security_opt" {
+  # #466 F2: template no longer ships security_opt_1 = seccomp:unconfined,
+  # so an empty [security] section yields no security_opt block.
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
 privileged = false
@@ -206,6 +450,64 @@ EOF
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
+  assert_success
+  run grep -F -- '- seccomp:unconfined' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+  run grep -E '^    security_opt:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[security] opt-in via wrapper: setup.sh add security.cap_add then apply emits cap_add (#466)" {
+  # The slim template makes caps opt-in; the opt-in path is the wrapper,
+  # not hand-editing commented lines. `setup.sh add` writes the entry into
+  # the per-repo setup.conf, and the next apply emits it.
+  printf '[security]\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main add security.cap_add SYS_ADMIN --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[security] privileged defaults to false when key absent (#466 opt-in)" {
+  # A repo that declares [security] (e.g. for cap_add) but omits the
+  # privileged key must NOT silently get privileged=true. #466 flips the
+  # default to false so privilege is opt-in across the board.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[security]
+cap_add_1 = SYS_ADMIN
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^PRIVILEGED=false$' "${TEMP_DIR}/.env"
+  assert_success
+}
+
+@test "[security] opt-in still works via explicit declaration (#466 regression)" {
+  # Repos that need privileges declare them (e.g. via `setup.sh add
+  # security.cap_add SYS_ADMIN` or the TUI). The slim template only
+  # changes the DEFAULT -- an explicit cap_add must still emit.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[security]
+privileged = false
+cap_add_1 = SYS_ADMIN
+security_opt_1 = seccomp:unconfined
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
   assert_success
   run grep -F -- '- seccomp:unconfined' "${TEMP_DIR}/compose.yaml"
   assert_success

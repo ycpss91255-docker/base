@@ -29,6 +29,7 @@ xauth_rewrite_failed
 xauth_empty_cookie
 conf_image_name_default
 conf_image_name_unknown
+conf_runtime_key_deprecated
 conf_no_repo_conf
 conf_empty_repo_conf
 conf_template_missing
@@ -58,6 +59,7 @@ run_build_delegating
 run_rerun_setup
 run_build_invoking
 run_detach_cmd_rejected
+run_instance_overlay
 
 # exec.sh
 exec_not_running
@@ -89,6 +91,7 @@ upgrade_started
 upgrade_completed
 upgrade_subtree_pull_failed
 upgrade_version_bumped
+upgrade_version_mismatch
 upgrade_rollback
 
 # init.sh

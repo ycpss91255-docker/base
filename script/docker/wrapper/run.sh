@@ -316,7 +316,7 @@ EOF
   exit 0
 }
 
-# _compose_cleanup tears down the project on shell exit so the container
+# _app_cleanup tears down the project on shell exit so the container
 # and its compose-project default network do not outlive the foreground
 # `./run.sh` session. Installed via `trap ... EXIT` in foreground mode by
 # default (#386); covers normal exit, Ctrl-C, and signal termination.
@@ -338,16 +338,65 @@ EOF
 # redirect is dropped so the planned `[dry-run] docker compose ... down
 # --remove-orphans` line is actually visible — same convention as the
 # rest of `_compose` callers.
-_compose_cleanup() {
+# _app_cleanup
+#
+# run.sh's EXIT trap handler. Runs post-run hook first (container is
+# still alive at this point so the hook can `docker exec` into it),
+# then tears the project down via `compose down`. Hook failure
+# overrides the wrapper exit code but still lets cleanup run --
+# matches the strict-with-cleanup policy decided for #440.
+#
+# Renamed from _compose_cleanup in #440 to reflect that the cleanup
+# scope now covers both the post-hook and compose lifecycle, not
+# just compose. Future expansion (metric flush, log close, etc.)
+# also lands here.
+_app_cleanup() {
+  local _post_rc=0
+  _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || _post_rc=$?
   if [[ "${DRY_RUN:-false}" == true ]]; then
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 || true
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 || true
   else
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 \
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 \
       >/dev/null 2>&1 || true
+  fi
+  if (( _post_rc != 0 )); then
+    exit "${_post_rc}"
   fi
 }
 
+# _compose_dispatch <verb> <args>
+#
+# Single dispatch point for compose invocations from run.sh. When
+# INSTANCE is set, routes through _compose_project_with_overlay so
+# config/instances/${INSTANCE}.{yaml,env} are auto-loaded as compose
+# overlays (#465). Otherwise delegates to plain _compose_project.
+#
+# The wrapper silently skips missing overlay files, so callers do not
+# need to pre-check. INSTANCE was already validated by
+# _validate_instance_name in the --instance arm, so the path
+# interpolation is shell-safe.
+_compose_dispatch() {
+  if [[ -z "${INSTANCE:-}" ]]; then
+    _compose_project "$@"
+    return $?
+  fi
+  local _overlay_yaml="${FILE_PATH}/config/instances/${INSTANCE}.yaml"
+  local _overlay_env="${FILE_PATH}/config/instances/${INSTANCE}.env"
+  if [[ "${QUIET:-0}" != 1 ]]; then
+    [[ -f "${_overlay_yaml}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_yaml}"
+    [[ -f "${_overlay_env}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_env}"
+  fi
+  _compose_project_with_overlay "${_overlay_yaml}" "${_overlay_env}" -- "$@"
+}
+
 main() {
+  # #440: keep the wrapper's original argv around so the EXIT trap
+  # (which fires asynchronously and can no longer see main's local $@)
+  # can forward identical "$@" to the post-run hook.
+  ORIG_ARGV=("$@")
+
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # See build.sh's main() for the full rationale (#222).
@@ -441,6 +490,13 @@ main() {
         ;;
       --instance)
         INSTANCE="${2:?"--instance requires a value"}"
+        # #465: strict char-class rule so the value can be safely
+        # interpolated into config/instances/${INSTANCE}.{yaml,env}.
+        # Reject path traversal etc. up front rather than relying on
+        # silent file-not-found fall-through.
+        if ! _validate_instance_name "${INSTANCE}"; then
+          exit 1
+        fi
         shift 2
         ;;
       --lang)
@@ -538,6 +594,14 @@ main() {
   # Mute with QUIET=1 for piped / CI logs.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
+  # ── #440: pre-run hook (after env prep, before build delegate) ──
+  # Fires once env validation + drift resolution + config summary are
+  # done but BEFORE the image-check / build delegate, so a hook that
+  # needs to set up host state required by build (e.g. binfmt
+  # registration for cross-arch images on jetson_sdk_manager) can do
+  # its work before docker build runs. Skipped under --dry-run.
+  _run_pre_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
+
   # ── #216 / #429: auto-build gate ──
   # When the target image is missing locally, delegate to build.sh
   # instead of letting compose auto-build (which silently skips the
@@ -620,23 +684,23 @@ ${_parallel}"
   # ... down --remove-orphans" line is visible in the planned-action
   # output (no real teardown happens — _compose honors DRY_RUN).
   if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
-    trap _compose_cleanup EXIT
+    trap _app_cleanup EXIT
   fi
 
   if [[ "${DETACH}" == true ]]; then
-    _compose_project down 2>/dev/null || true
-    _compose_project up -d "${TARGET}"
+    _compose_dispatch down 2>/dev/null || true
+    _compose_dispatch up -d "${TARGET}"
   elif [[ "${TARGET}" == "devel" ]]; then
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-installed `trap _compose_cleanup EXIT` above (#386).
-    _compose_project up -d "${TARGET}"
+    # centrally-installed `trap _app_cleanup EXIT` above (#386, #440, #465).
+    _compose_dispatch up -d "${TARGET}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project exec "${TARGET}" bash
+      _compose_dispatch exec "${TARGET}" bash
     fi
   else
     # Other one-shot stages (runtime, test, ...): unified to `compose up`
@@ -644,10 +708,10 @@ ${_parallel}"
     # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
     # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project up -d "${TARGET}"
-      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch up -d "${TARGET}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project up "${TARGET}"
+      _compose_dispatch up "${TARGET}"
     fi
   fi
 }

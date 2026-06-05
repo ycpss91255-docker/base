@@ -166,6 +166,15 @@ _setup_msg_stage() {
 }
 
 # Dispatcher — keeps a single _setup_msg call shape across the script.
+_setup_msg_deploy() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:runtime_deprecated) echo "[deploy] runtime 已更名為 gpu_runtime；舊鍵仍可用（永久別名），請改用 gpu_runtime（v1.0.0 將移除）" ;;
+    zh-CN:runtime_deprecated) echo "[deploy] runtime 已更名为 gpu_runtime；旧键仍可用（永久别名），请改用 gpu_runtime（v1.0.0 将移除）" ;;
+    ja:runtime_deprecated)    echo "[deploy] runtime は gpu_runtime に改名されました。旧キーは当面有効（恒久エイリアス）ですが gpu_runtime へ移行してください（v1.0.0 で削除）" ;;
+    *:runtime_deprecated)     echo "[deploy] runtime is renamed to gpu_runtime; the old key still works (permanent alias) but please migrate to gpu_runtime (removal at v1.0.0)" ;;
+  esac
+}
+
 _setup_msg() {
   local _category="${1:?_setup_msg requires category}"
   local _key="${2:?_setup_msg requires key}"
@@ -452,55 +461,12 @@ _setup_ssh_x11_cookie() {
 
 # ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
-# ════════════════════════════════════════════════════════════════════
-
-# _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
 #
-# Reads one section [<section>] from <file> into parallel arrays.
-# Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
-# caller should use _load_setup_conf which handles the merge (replace strategy).
-_parse_ini_section() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
-  local -n _pis_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
-  local -n _pis_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-
-  _pis_keys=()
-  _pis_values=()
-  [[ -f "${_file}" ]] || return 0
-
-  local __pis_line __pis_current="" __pis_k __pis_v
-  while IFS= read -r __pis_line || [[ -n "${__pis_line}" ]]; do
-    [[ -z "${__pis_line}" || "${__pis_line}" =~ ^[[:space:]]*# ]] && continue
-
-    # Trim
-    __pis_line="${__pis_line#"${__pis_line%%[![:space:]]*}"}"
-    __pis_line="${__pis_line%"${__pis_line##*[![:space:]]}"}"
-    [[ -z "${__pis_line}" ]] && continue
-
-    # Section header
-    if [[ "${__pis_line}" =~ ^\[(.+)\]$ ]]; then
-      __pis_current="${BASH_REMATCH[1]}"
-      continue
-    fi
-
-    # Only collect entries for the requested section
-    [[ "${__pis_current}" == "${_section}" ]] || continue
-
-    # Require key = value
-    [[ "${__pis_line}" != *=* ]] && continue
-    __pis_k="${__pis_line%%=*}"
-    __pis_v="${__pis_line#*=}"
-    __pis_k="${__pis_k#"${__pis_k%%[![:space:]]*}"}"
-    __pis_k="${__pis_k%"${__pis_k##*[![:space:]]}"}"
-    __pis_v="${__pis_v#"${__pis_v%%[![:space:]]*}"}"
-    __pis_v="${__pis_v%"${__pis_v##*[![:space:]]}"}"
-
-    _pis_keys+=("${__pis_k}")
-    _pis_values+=("${__pis_v}")
-  done < "${_file}"
-}
+# _parse_ini_section moved to lib/conf.sh in #402 (PR-B) so init.sh
+# can reach it via _lib.sh without sourcing setup.sh. The function
+# stays callable from this file via the same name (_lib.sh sources
+# conf.sh in the umbrella loader near setup.sh's top).
+# ════════════════════════════════════════════════════════════════════
 
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
@@ -890,6 +856,27 @@ _detect_jetson() {
   [[ -f "/etc/nv_tegra_release" ]]
 }
 
+# _detect_dri_groups
+#   Echo space-separated unique numeric GIDs that own the host's
+#   /dev/dri/{card*,renderD*} nodes (#496) so a container can be granted
+#   /dev/dri access via group_add on non-NVIDIA (Intel/AMD iGPU) hosts.
+#   Numeric GIDs only -- the render GID varies per host, so names are
+#   non-portable. Echoes empty when /dev/dri is absent (graceful).
+#   Env override SETUP_DETECT_DRI_GROUPS forces the result (used by tests
+#   to avoid touching /dev/dri).
+_detect_dri_groups() {
+  if [[ -n "${SETUP_DETECT_DRI_GROUPS:-}" ]]; then
+    printf '%s' "${SETUP_DETECT_DRI_GROUPS}"
+    return 0
+  fi
+  local _gids
+  # stat over a non-matching glob just yields no output (stderr suppressed);
+  # sort -u dedups the common case where card* + renderD* share the video GID.
+  _gids="$(stat -c %g /dev/dri/card* /dev/dri/renderD* 2>/dev/null \
+             | sort -u | tr '\n' ' ')"
+  printf '%s' "${_gids% }"
+}
+
 # _resolve_runtime <mode> <outvar>
 #   mode=nvidia → "nvidia" (force, e.g. desktop with csv-mode toolkit)
 #   mode=auto   → "nvidia" iff _detect_jetson, else ""
@@ -1160,7 +1147,7 @@ _load_stage_overrides() {
 _validate_stage_override_key() {
   local _key="${1:?"${FUNCNAME[0]}: missing key"}"
   case "${_key}" in
-    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.runtime) return 0 ;;
+    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.gpu_runtime|deploy.runtime) return 0 ;;
     gui.mode) return 0 ;;
     network.mode|network.ipc|network.pid|network.network_name) return 0 ;;
     security.privileged) return 0 ;;
@@ -1277,136 +1264,12 @@ _resolve_stage_list() {
 # without circular sourcing. _lib.sh now pulls conf_logging.sh in
 # automatically, so callers below still resolve the same names.
 
-# _sync_logging_local_paths_gitignore <base_path> <global_str> <per_svc_str>
-#
-# After `apply` resolves [logging] / [logging.<svc>] for compose
-# emit, ensure the per-repo .gitignore covers each relative
-# local_path so users don't accidentally commit container logs.
-# Absolute paths and `~/...` are skipped — gitignore patterns apply
-# only inside the repo.
-#
-# Entries live inside a managed block introduced by a stable marker
-# comment. The block scope is the marker line plus any immediately-
-# following lines that look like a gitignore dir entry (`/<path>/`);
-# the first non-matching line (blank line, comment, non-anchored
-# entry, etc.) ends the block. On each apply we rewrite the block to
-# exactly the current desired entries, which prunes stale entries
-# left over from prior `local_path` values (#390). The marker
-# comment itself is dropped when the block ends up empty so an
-# `apply` with no logging local_path leaves no trace. Lines outside
-# the managed block are user-owned and never touched.
-_sync_logging_local_paths_gitignore() {
-  local _base="${1:?}"
-  local _global="${2:-}"
-  local _per_svc="${3:-}"
-  local _gitignore="${_base%/}/.gitignore"
-  local _marker='# managed by template: [logging] local_path (do not remove)'
-
-  local -a _candidates=()
-  local _line _k _v
-  if [[ -n "${_global}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      _k="${_line%%=*}"
-      _v="${_line#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_global}"
-  fi
-  if [[ -n "${_per_svc}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      # per_svc entry shape: "<svc>:KEY=VALUE"
-      local _kv="${_line#*:}"
-      _k="${_kv%%=*}"
-      _v="${_kv#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_per_svc}"
-  fi
-
-  # Filter: keep only relative paths; strip leading `./`, trailing `/`.
-  local -a _entries=()
-  local _p
-  for _p in "${_candidates[@]}"; do
-    # Skip absolute + ~ -- those live outside the repo.
-    [[ "${_p}" == /* ]] && continue
-    [[ "${_p}" == "~"* ]] && continue
-    # Normalise: drop leading `./` and trailing `/`.
-    _p="${_p#./}"
-    while [[ "${_p}" == */ ]]; do
-      _p="${_p%/}"
-    done
-    [[ -z "${_p}" ]] && continue
-    # gitignore: leading `/` anchors to repo root (matches our path
-    # semantics: relative paths are repo-root-relative). Trailing `/`
-    # marks it as a directory so it matches the dir + its contents.
-    _entries+=("/${_p}/")
-  done
-
-  # Dedup.
-  local -A _seen=()
-  local -a _desired=()
-  for _p in "${_entries[@]}"; do
-    [[ -n "${_seen[${_p}]:-}" ]] && continue
-    _seen[${_p}]=1
-    _desired+=("${_p}")
-  done
-
-  # If file doesn't exist and nothing desired, leave it absent.
-  if [[ ! -f "${_gitignore}" ]]; then
-    (( ${#_desired[@]} == 0 )) && return 0
-    : > "${_gitignore}"
-  fi
-
-  # Split existing content into pre-marker / post-marker, dropping
-  # the marker block itself (re-emitted below from _desired). When
-  # no marker exists, every line lands in _pre and the block is
-  # appended at the end if anything is desired.
-  local -a _pre=() _post=()
-  local _in_block=0 _seen_marker=0
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_seen_marker}" -eq 0 && "${_line}" == "${_marker}" ]]; then
-      _seen_marker=1
-      _in_block=1
-      continue
-    fi
-    if [[ "${_in_block}" -eq 1 ]]; then
-      # Consume only gitignore dir-entry shape; anything else ends
-      # the managed block and is preserved as post-block content.
-      if [[ "${_line}" =~ ^/.+/$ ]]; then
-        continue
-      fi
-      _in_block=0
-      _post+=("${_line}")
-      continue
-    fi
-    if [[ "${_seen_marker}" -eq 1 ]]; then
-      _post+=("${_line}")
-    else
-      _pre+=("${_line}")
-    fi
-  done < "${_gitignore}"
-
-  # Compose output: pre / marker+desired (if any) / post. When there
-  # is nothing desired and no prior marker existed, return early to
-  # keep the file byte-identical to the input (preserves idempotency
-  # and avoids touching unrelated files).
-  if (( ${#_desired[@]} == 0 && _seen_marker == 0 )); then
-    return 0
-  fi
-
-  {
-    if (( ${#_pre[@]} > 0 )); then
-      printf '%s\n' "${_pre[@]}"
-    fi
-    if (( ${#_desired[@]} > 0 )); then
-      printf '%s\n' "${_marker}"
-      printf '%s\n' "${_desired[@]}"
-    fi
-    if (( ${#_post[@]} > 0 )); then
-      printf '%s\n' "${_post[@]}"
-    fi
-  } > "${_gitignore}"
-}
+# _sync_logging_local_paths_gitignore moved to lib/gitignore.sh in
+# #402 (PR-B) and renamed _sync_logging_gitignore (now takes only
+# <base_path>, calls _collect_logging itself). Sync runs at
+# init.sh / upgrade.sh time instead of every setup.sh apply, so
+# the file stays in step across template versions even when no
+# wrapper has fired since the last setup.conf edit.
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
@@ -1525,6 +1388,56 @@ _emit_device_as_volume() {
   echo "${_indent}      propagation: ${_propagation}"
 }
 
+# _classify_volume_lhs <mount_string>
+#
+# Classify a `host:container[:mode]` mount by its left-hand side (#482,
+# Option A / D-Strict). A LHS that looks like a path -- starts with `/`,
+# `./`, `~/`, or a `${...}` variable reference -- is a bind mount; anything
+# else is a Docker named-volume reference. Echoes `bind` or `named`.
+_classify_volume_lhs() {
+  # The `~/` and `${` globs are single-quoted so they stay literal: an
+  # unquoted `~/*` case pattern undergoes tilde expansion (to $HOME/*) and
+  # would never match a literal `~/...` LHS; an unquoted `${`-glob is fine
+  # but quoting keeps both path-prefix markers consistent and silences
+  # SC2016 (the literal `${` is intentional -- a `${VAR}` LHS is a bind path).
+  # shellcheck disable=SC2016,SC2088
+  case "${1%%:*}" in
+    /*|./*|'~/'*|'${'*) printf 'bind\n' ;;
+    *)                 printf 'named\n' ;;
+  esac
+}
+
+# _collect_named_volumes <assoc_array_name> <newline_separated_mounts>
+#
+# Add the named-volume names from <mounts> into the associative array used
+# as a set (key = volume name, the LHS before the first `:`, which already
+# excludes any `:mode` suffix). Bind mounts are skipped.
+_collect_named_volumes() {
+  local -n _cnv_set="$1"
+  local _line
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    [[ "$(_classify_volume_lhs "${_line}")" == named ]] || continue
+    _cnv_set["${_line%%:*}"]=1
+  done <<< "$2"
+}
+
+# _emit_volumes_block <assoc_array_name>
+#
+# Emit a top-level `volumes:` declaration with one bare stub per collected
+# named volume (no driver / labels / options -> Docker's default `local`
+# driver). Emits nothing when the set is empty (zero-diff for bind-only
+# repos). Names are sorted for deterministic output.
+_emit_volumes_block() {
+  local -n _evb_set="$1"
+  (( ${#_evb_set[@]} == 0 )) && return 0
+  printf '\nvolumes:\n'
+  local _k
+  while IFS= read -r _k; do
+    printf '  %s:\n' "${_k}"
+  done < <(printf '%s\n' "${!_evb_set[@]}" | sort)
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -1553,6 +1466,8 @@ generate_compose_yaml() {
   local _additional_contexts_str="${25:-}"
   local _logging_global_str="${26:-}"
   local _logging_per_svc_str="${27:-}"
+  local _restart="${28:-no}"
+  local _dri_groups_str="${29:-}"
 
   # _logging_svc_kv <svc> <out_assoc_name>
   #
@@ -1733,6 +1648,18 @@ generate_compose_yaml() {
     printf '    runtime: %s\n' "${_runtime}"
   }
 
+  # restart emitter (#478): [lifecycle] restart policy on the devel service.
+  # Default `no` emits nothing (zero-diff). Stages that `extends: devel`
+  # inherit the value via compose. `on-failure:N` is quoted because the `:`
+  # would otherwise read as a YAML mapping.
+  _emit_restart_line() {
+    [[ "${_restart}" == "no" ]] && return 0
+    case "${_restart}" in
+      on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
+      *)            printf '    restart: %s\n'   "${_restart}" ;;
+    esac
+  }
+
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
@@ -1824,6 +1751,15 @@ generate_compose_yaml() {
 # AUTO-GENERATED BY setup.sh — DO NOT EDIT.
 # Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
 HEADER
+    # #472: top-level name: so non-wrapper tools (lazydocker / docker compose
+    # ps / IDE panels) resolve the same project name the wrapper pins via -p.
+    # Literal vars -> compose interpolates from .env at parse time; matches
+    # lib/compose.sh PROJECT_NAME. INSTANCE_SUFFIX is absent from .env so it
+    # expands empty (base instance) for non-wrapper tools; the wrapper's -p
+    # still wins for per-instance runs (compose precedence: -p > name:).
+    cat <<'YAML'
+name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+YAML
     cat <<YAML
 services:
   devel:
@@ -1877,6 +1813,7 @@ YAML
     tty: true
 YAML
     _emit_runtime_line
+    _emit_restart_line
     # cap_add / cap_drop / security_opt from [security] section
     if [[ -n "${_cap_add_str}" ]]; then
       echo "    cap_add:"
@@ -1901,6 +1838,15 @@ YAML
         [[ -z "${_so}" ]] && continue
         echo "      - ${_so}"
       done <<< "${_sec_opt_str}"
+    fi
+    # #496: group_add for /dev/dri access on iGPU hosts. GUI-gated (DRI is
+    # for GL rendering); numeric GIDs quoted as strings.
+    if [[ "${_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
+      echo "    group_add:"
+      local _gid
+      for _gid in ${_dri_groups_str}; do
+        echo "      - \"${_gid}\""
+      done
     fi
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
@@ -2070,6 +2016,14 @@ YAML
       _top_volumes_str="${_top_volumes_str%$'\n'}"
     fi
 
+    # #482: accumulate named-volume references across devel + every stage so
+    # the top-level `volumes:` declaration can be emitted once at the end
+    # (compose requires every named volume a service references to be
+    # declared). Bind mounts never enter this set. Per-stage volumes are
+    # added inside the emit loop below as each stage's effective list resolves.
+    local -A _named_vols=()
+    _collect_named_volumes _named_vols "${_top_volumes_str}"
+
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
       # Load + filter [stage:<name>] overrides for this stage.
@@ -2164,7 +2118,9 @@ YAML
       local _eff_gpu_count _eff_gpu_caps _eff_runtime
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_count" "${_gpu_count}" _eff_gpu_count
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_runtime}" _eff_runtime
+      # #481: gpu_runtime primary, legacy deploy.runtime alias as fallback.
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_runtime" "${_runtime}" _eff_runtime
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_eff_runtime}" _eff_runtime
 
       local _eff_net_mode _eff_ipc_mode _eff_pid_mode _eff_net_name _eff_privileged
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
@@ -2175,6 +2131,9 @@ YAML
 
       local _eff_volumes _eff_environment _eff_ports
       _resolve_stage_list _so_filtered_keys _so_filtered_values "volumes.mount_" "volumes.mount_inherit" "${_top_volumes_str}" _eff_volumes
+      # #482: pick up any named volumes this stage introduces (a per-stage
+      # mount_* override may add one the top-level list lacks).
+      _collect_named_volumes _named_vols "${_eff_volumes}"
       _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
       _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
 
@@ -2281,6 +2240,14 @@ YAML
           [[ -z "${_sa_so}" ]] && continue
           echo "      - ${_sa_so}"
         done <<< "${_sec_opt_str}"
+      fi
+      # #496: group_add for /dev/dri, GUI-gated on the stage's effective gui.
+      if [[ "${_eff_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
+        echo "    group_add:"
+        local _sa_gid
+        for _sa_gid in ${_dri_groups_str}; do
+          echo "      - \"${_sa_gid}\""
+        done
       fi
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).
@@ -2459,6 +2426,10 @@ YAML
       echo "      - ${_test_llp}"
     fi
     _emit_logging_block test
+    # #482: top-level volumes: declaration for any named volumes referenced
+    # by devel or a stage. Emitted before networks: (top-level section order).
+    # No-op (zero-diff) when only bind mounts are used.
+    _emit_volumes_block _named_vols
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
@@ -2756,7 +2727,7 @@ _announce_template_default_fallback() {
 _setup_known_section() {
   local _s="${1-}"
   case "${_s}" in
-    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
+    image|build|deploy|lifecycle|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
       return 0 ;;
     logging.?*)
       # Per-service override section [logging.<svc>] -- shape only;
@@ -2795,6 +2766,11 @@ _setup_validate_kv() {
       # non-empty values.
       [[ -z "${_value}" ]] && return 0
       _validate_shm_size "${_value}" ;;
+    lifecycle.restart)
+      # #478: 5 canonical docker restart policies. Empty allowed (= clear
+      # key, falls back to template default `no`).
+      [[ -z "${_value}" ]] && return 0
+      _validate_restart "${_value}" ;;
     *)
       # [logging] + [logging.<svc>] share the same key validators —
       # docker daemon's `logging.driver` + `logging.options.*` shape.
@@ -3771,6 +3747,7 @@ _setup_apply() {
   _load_setup_conf "${_base_path}" "environment"         _env_k _env_v
   _load_setup_conf "${_base_path}" "tmpfs"               _tmp_k _tmp_v
   _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
+  _load_setup_conf "${_base_path}" "lifecycle"           _life_k _life_v
   _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
 
   # Build args: each `[build] arg_N = KEY=VALUE` entry becomes a
@@ -3832,13 +3809,27 @@ _setup_apply() {
   local build_network=""
   _resolve_build_network "${build_network_mode}" build_network
 
-  local gpu_mode="" gpu_count="" gpu_caps="" runtime_mode=""
+  local gpu_mode="" gpu_count="" gpu_caps="" gpu_runtime_mode=""
   local gui_mode=""
   local net_mode="" ipc_mode="" pid_mode="" privileged="" network_name=""
   _get_conf_value _dep_k _dep_v "gpu_mode"         "auto" gpu_mode
   _get_conf_value _dep_k _dep_v "gpu_count"        "all"  gpu_count
   _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
-  _get_conf_value _dep_k _dep_v "runtime"          "auto" runtime_mode
+  # #481: gpu_runtime is the canonical key (GPU family). The legacy
+  # `runtime` key is a permanent alias (W3) -- consumed with a deprecation
+  # warning, scheduled for removal at v1.0.0 (see doc/deprecations.md).
+  _get_conf_value _dep_k _dep_v "gpu_runtime"      ""     gpu_runtime_mode
+  if [[ -z "${gpu_runtime_mode}" ]]; then
+    local _legacy_runtime=""
+    _get_conf_value _dep_k _dep_v "runtime"        ""     _legacy_runtime
+    if [[ -n "${_legacy_runtime}" ]]; then
+      gpu_runtime_mode="${_legacy_runtime}"
+      _log_warn setup conf_runtime_key_deprecated \
+        "display=$(_setup_msg deploy runtime_deprecated)"
+    else
+      gpu_runtime_mode="auto"
+    fi
+  fi
   _get_conf_value _gui_k _gui_v "mode"             "auto" gui_mode
   # #338: resolution order CLI > env > conf > default.
   # If --gui was passed, override; otherwise honor SETUP_GUI env var
@@ -3855,7 +3846,20 @@ _setup_apply() {
   _get_conf_value _net_k _net_v "ipc"              "host"    ipc_mode
   _get_conf_value _net_k _net_v "pid"              "private" pid_mode
   _get_conf_value _net_k _net_v "network_name"     ""        network_name
-  _get_conf_value _sec_k _sec_v "privileged"       "true" privileged
+  # #466: privileged is opt-in -- default false when the key is absent so a
+  # repo that declares [security] (e.g. for cap_add) without a privileged
+  # key does not silently run privileged.
+  _get_conf_value _sec_k _sec_v "privileged"       "false" privileged
+
+  # #478: [lifecycle] restart policy (default no -> devel emits no restart:).
+  local restart_policy=""
+  _get_conf_value _life_k _life_v "restart"        "no"    restart_policy
+
+  # #496: dri_groups (non-NVIDIA iGPU /dev/dri access). auto -> detect host
+  # GIDs at generation time (numeric, per-host); off -> none.
+  local dri_groups_mode="" dri_groups_str=""
+  _get_conf_value _dep_k _dep_v "dri_groups"       "auto"  dri_groups_mode
+  [[ "${dri_groups_mode}" == "auto" ]] && dri_groups_str="$(_detect_dri_groups)"
 
   # ── WS_PATH + workspace mount ──
   #
@@ -4105,7 +4109,7 @@ _setup_apply() {
     printf 'GPU_ENABLED=%s\n' "${gpu_enabled_eff}"
     printf 'GPU_COUNT=%s\n' "${gpu_count}"
     printf 'GPU_CAPABILITIES=%s\n' "${gpu_caps}"
-    printf 'RUNTIME=%s\n' "${runtime_mode}"
+    printf 'RUNTIME=%s\n' "${gpu_runtime_mode}"
     printf 'GUI_DETECTED=%s\n' "${gui_detected}"
     printf 'GUI_MODE=%s\n' "${gui_mode}"
     printf 'GUI_ENABLED=%s\n' "${gui_enabled_eff}"
@@ -4157,7 +4161,7 @@ _setup_apply() {
     "${_ssh_x11_xauth}"
 
   local runtime_resolved=""
-  _resolve_runtime "${runtime_mode}" runtime_resolved
+  _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
 
   # Propagate generate_compose_yaml's exit explicitly: when sourced
   # (no `set -e`) a hard-error return from the stage validator (#215
@@ -4179,14 +4183,9 @@ _setup_apply() {
     "${_additional_contexts_str}" \
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
+    "${restart_policy}" \
+    "${dri_groups_str}" \
     || return $?
-
-  # #328: ensure repo .gitignore covers every relative [logging]
-  # local_path so the user doesn't accidentally commit container logs
-  # on the next `git add -A`. Absolute paths and `~/...` are skipped
-  # (gitignore patterns only apply inside the repo). Idempotent.
-  _sync_logging_local_paths_gitignore "${_base_path}" \
-    "${_logging_global_str}" "${_logging_per_svc_str}"
 
   # #462: emit runtime.env mirroring [environment] entries so standalone
   # scripts (docker run wrappers, host-side helpers) can source the same
@@ -4243,6 +4242,11 @@ main() {
       ;;
   esac
 
+  # #440: pre-setup hook fires before any subcommand runs. Skipped
+  # under --dry-run. Captured here (not per-subcommand) so all
+  # subcommands get uniform pre/post coverage.
+  _run_pre_hook setup "$@" || exit $?
+
   case "${_subcmd}" in
     apply)        _setup_apply       "$@" ;;
     check-drift)  _setup_check_drift "$@" ;;
@@ -4253,6 +4257,11 @@ main() {
     remove)       _setup_remove      "$@" ;;
     reset)        _setup_reset       "$@" ;;
   esac
+  local _rc=$?
+
+  # #440: post-setup hook fires after the subcommand returns.
+  _run_post_hook setup "$@" || exit $?
+  return "${_rc}"
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

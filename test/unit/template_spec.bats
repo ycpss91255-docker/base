@@ -228,30 +228,13 @@ setup() {
   assert_success
 }
 
-@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
-  assert_success
-}
-
-@test "build.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/build.sh
-  assert_success
-}
-
-@test "run.sh routes compose calls through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "exec.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/exec.sh
-  assert_success
-}
-
-@test "stop.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/stop.sh
-  assert_success
-}
+# Wrapper -> compose dispatch is asserted behaviourally in
+# test/integration/wrapper_compose_dispatch_spec.bats (#490): each wrapper
+# is run with --dry-run and the planned `docker compose -p <project> <verb>`
+# is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
+# The old name-coupled greps for `_compose_project` here were removed —
+# they broke on every internal rename (#480 shim, #484 rename) and could
+# not catch a bypass.
 
 @test "exec.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/script/docker/wrapper/exec.sh
@@ -294,30 +277,16 @@ setup() {
 }
 
 @test "run.sh devel branch uses compose exec to enter shell" {
-  # Refactored: now goes through `_compose_project exec` wrapper.
-  run grep -E '_compose_project exec' /source/script/docker/wrapper/run.sh
+  # Refactored: now goes through `_compose_dispatch exec` shim (#465)
+  # which delegates to `_compose_project exec` after overlay routing.
+  run grep -E '_compose_(project|dispatch) exec' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "run.sh foreground installs trap to auto-down on exit" {
-  # #386: trap calls _compose_cleanup which runs compose down. Trap is
-  # installed centrally before the dispatch block so both devel and
-  # non-devel foreground paths get the cleanup; -d / --no-rm opt out.
-  run grep -E 'trap _compose_cleanup EXIT' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "run.sh _compose_cleanup uses --remove-orphans + short timeout" {
-  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
-  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
-  # period (user already exited the foreground shell — nothing to drain).
-  run grep -E '_compose_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/wrapper/run.sh
-  assert_success
-}
+# run.sh foreground EXIT-trap cleanup (auto compose-down with
+# --remove-orphans -t 0) is asserted behaviourally in
+# wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
+# of grepping the `_app_cleanup` identifier (renamed in #440).
 
 @test "run.sh non-devel TARGET uses compose up (#458)" {
   # #458: non-devel stages unified to `compose up` so container_name takes
@@ -1369,5 +1338,58 @@ EOF
   # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
   run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
     /source/script/docker/wrapper/setup.sh
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: pre/post hook wiring presence across all 7 wrappers
+# ════════════════════════════════════════════════════════════════════
+
+@test "all 7 wrappers call _run_pre_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_pre_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_pre_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "all 7 wrappers call _run_post_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_post_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_post_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "run.sh _app_cleanup runs post-hook before compose down (#440)" {
+  # Order matters: container must still be alive when post-hook runs
+  # so the hook can `docker exec` for final reporting.
+  run bash -c "
+    awk '
+      /_app_cleanup\\(\\) \\{/ { in_func = 1; next }
+      in_func && /_run_post_hook run/ { print \"POST_LINE=\" NR; post_seen = 1 }
+      in_func && /_compose_(project|dispatch) down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
+      in_func && /^\\}/ { exit }
+    ' /source/script/docker/wrapper/run.sh
+  "
+  assert_output --partial "POST_LINE="
+  assert_output --partial "DOWN_LINE="
+  local _post_line _down_line
+  _post_line="$(echo "${output}" | grep POST_LINE | cut -d= -f2 | head -1)"
+  _down_line="$(echo "${output}" | grep DOWN_LINE | cut -d= -f2 | head -1)"
+  (( _post_line < _down_line )) \
+    || { echo "post-hook should run before compose down: post=${_post_line} down=${_down_line}"; return 1; }
+}
+
+@test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
+  # Regression guard for Q13: dry-run contract requires no side effects.
+  run grep -E 'DRY_RUN.*true' /source/script/docker/lib/hook.sh
+  assert_success
+}
+
+@test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
+  run grep -E 'not executable.*chmod' /source/script/docker/lib/hook.sh
   assert_success
 }

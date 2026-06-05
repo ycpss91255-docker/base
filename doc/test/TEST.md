@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1466 tests** total (1398 unit + 68 integration).
+Template self-tests: **1465 tests** total (1391 unit + 74 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -71,7 +71,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (309)
+### test/unit/setup_spec.bats (340)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -659,7 +659,7 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (52)
+### test/unit/compose_gen_spec.bats (70)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -762,7 +762,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (147)
+### test/unit/template_spec.bats (145)
 
 | Test | Description |
 |------|-------------|
@@ -1043,7 +1043,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (35)
+### test/unit/upgrade_spec.bats (38)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -1057,7 +1057,11 @@ the three safety guards added after the v0.9.7 Jetson incident
 `_verify_subtree_intact` with rollback), structural invariants that
 pin call-ordering in `_upgrade` (identity check runs before subtree
 pull, integrity verification runs after, pre-pull HEAD is snapshotted
-for rollback), and the SemVer §11-aware `_semver_cmp` + `_check`
+for rollback), the R1+ rewrite of `_verify_subtree_intact` (#477)
+that replaces the hard-coded marker list with a path-agnostic
+structural invariant + target-version match (catches destructive
+fast-forward, empty subtree, malformed `.version`, and wrong-tag
+pulls), and the SemVer §11-aware `_semver_cmp` + `_check`
 behavior added for issue #156 (prerelease ahead of latest stable
 must not be reported as "needing downgrade").
 
@@ -1075,11 +1079,14 @@ must not be reported as "needing downgrade").
 | `_require_clean_merge_state succeeds in clean repo` | Happy path |
 | `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
 | `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
-| `_verify_subtree_intact succeeds when all markers present` | Happy path |
+| `_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)` | R1+ happy path |
 | `_verify_subtree_intact rolls back when template/.version is missing` | Destructive-FF rollback |
-| `_verify_subtree_intact rolls back when template/script/docker/setup.sh is missing` | Marker rollback |
+| `_verify_subtree_intact rolls back when template/ dir is missing (#477 destructive-FF detector)` | R1+ dir-missing rollback |
+| `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
+| `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
+| `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
-| `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
+| `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
 | `_semver_cmp: equal versions return 0` | Equality |
 | `_semver_cmp: lower core returns 1` | Behind core |
@@ -1190,6 +1197,27 @@ invocation — `build.sh --dry-run`).
 |------|-------------|
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
+
+### test/integration/wrapper_compose_dispatch_spec.bats (6)
+
+Behavioural assertion (#490) that every wrapper routes its `docker compose`
+calls through the `-p`-injecting dispatcher. Reuses the
+`fresh_clone_portability_spec.bats` fixture pattern (cp `/source` -> `.base/`,
+symlink the wrappers from the repo root, materialize `.env` + `compose.yaml`
+via `build.sh --dry-run`), then runs each wrapper with `--dry-run` and
+inspects the planned `[dry-run] docker compose -p <project> <verb>` line.
+Immune to internal renames (replaces the old name-coupled `_compose_project` /
+`_app_cleanup` greps in `template_spec.bats`) and catches a raw-`docker
+compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
+
+| Test | Description |
+|------|-------------|
+| `build.sh --dry-run dispatches compose build with -p project flag` | build dispatch |
+| `run.sh --dry-run (default devel) dispatches compose up + exec with -p` | run devel up+exec |
+| `exec.sh --dry-run dispatches compose exec with -p` | exec dispatch |
+| `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
+| `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
+| `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
 ### test/integration/upgrade_spec.bats (16)
 

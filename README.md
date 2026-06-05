@@ -125,6 +125,12 @@ flowchart LR
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/unit/` | Template self-tests (bats + kcov) |
 | `test/integration/` | Level-1 `init.sh` end-to-end tests |
+
+Multi-tool downstream repos (e.g. `.bats` + `pytest` in one category)
+segregate by a `<tool>` subdir -- `test/<category>/<tool>/` (e.g.
+`test/smoke/bats/`, `test/smoke/pytest/`). Single-tool repos stay flat.
+See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
+
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.). Sub-cmds forward positionally (`make build test`); flags need `--` separator (`make build -- --no-cache test`). `make` no-arg prints help (`.DEFAULT_GOAL := help`). |
 | `Makefile.ci` | Template CI entry (`make -f Makefile.ci test`, `make -f Makefile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
@@ -224,6 +230,11 @@ make run -- -t headless               # runs the headless variant
 make run -- -t gui                    # runs the gui variant
 make exec -- -t headless bash         # exec into running headless container
 
+# Kit-style args (containing `=`) trip the #414 guard inline. Pass them
+# via the EXEC_ARGS env var instead (#469):
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+
 # Equivalent direct .sh invocation:
 ./script/build.sh
 ./script/run.sh -t headless
@@ -283,7 +294,7 @@ Allowlist (v1 — keys that can be overridden per-stage):
 
 | Section | Keys |
 |---|---|
-| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime` (legacy `runtime` still accepted) |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged` |
@@ -347,6 +358,10 @@ two derived artifacts.
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
+           dri_groups (auto|off) — iGPU /dev/dri group_add on GUI svcs
+[lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
+           default no; on devel (extends:devel stages inherit). Avoid
+           always/unless-stopped on stages that exit 0 (infinite restart).
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none), ipc, pid (host|private), privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
@@ -361,6 +376,13 @@ Template default lives at `.base/config/docker/setup.conf`
 Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
 to template.
+
+**Privileges are opt-in** (#466): the template ships lean `[security]`
+(`privileged = false`, no `cap_add` / `security_opt`) and `[devices]`
+(no `/dev:/dev`) defaults, so lightweight repos and tooling stages stay
+clean. Enable what a container needs via `setup_tui.sh` (security /
+devices pages), `setup.sh add security.cap_add SYS_ADMIN`, or by
+uncommenting the examples in the template.
 
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
 is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
@@ -519,6 +541,45 @@ configuration. Both files are regenerated on every `make upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
+### Per-wrapper hooks (#440)
+
+Every wrapper (`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`) checks for an optional repo-local script at:
+
+```
+script/hooks/pre/<wrapper>.sh    # runs after env prep, before main work
+script/hooks/post/<wrapper>.sh   # runs after main work (or in EXIT trap for run.sh)
+```
+
+`init.sh` ships 14 executable stubs (`exit 0` by default), so the
+hook framework is ready out of the box. Replace `exit 0` with your
+own host-side steps (e.g. `multiarch/qemu-user-static` binfmt
+registration, mount-point dir creation, hardware preflight). Stubs
+are idempotent across upgrades — pre-#440 templates pick up the
+scaffolding on the next `make upgrade`.
+
+**Contract:**
+
+| Aspect | Behavior |
+|---|---|
+| Args | Same `"$@"` the wrapper received |
+| Where | Host-side (NOT inside the container) |
+| `pre` non-zero | Aborts the wrapper |
+| `post` non-zero | Overrides wrapper exit code; cleanup still runs (run.sh) |
+| Not executable | Hard fail with `chmod +x` hint |
+| `--dry-run` | Both hooks silently skipped |
+
+**Example — jetson_sdk_manager binfmt setup:**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### Naming scheme: three namespaces, two user identities
 
 `setup.sh` emits three names in `.env` / `compose.yaml`. They look
@@ -564,6 +625,21 @@ parallel containers (e.g. two branches side by side): set
 `INSTANCE_SUFFIX=2` and you get `alice-<repo>-2` /
 `alice-<repo>-2`-named project. Empty by default; bumped by the
 `-n / --instance` flag on the wrappers when applicable.
+
+**Per-instance overlays (#465).** When `run.sh --instance NAME` is
+given, `run.sh` also picks up these two optional files as compose
+overlays:
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+Either file may exist alone; missing files are silently skipped. Use
+the yaml for structural overrides (per-instance ports, volumes,
+cache dirs) and the env for pure `${VAR}` overrides shared with
+`compose.yaml`. `NAME` is validated as `^[a-z0-9][a-z0-9_-]*$` for
+path safety.
 
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 `claude_code`, default `INSTANCE_SUFFIX` empty:
