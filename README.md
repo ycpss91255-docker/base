@@ -409,6 +409,33 @@ to opt out of mounting a workspace. Edit via:
                               # to <repo>/config/docker/setup.conf
 ```
 
+### Where each parameter lives (env vs workload)
+
+Not every runtime value belongs in `setup.conf`. The dividing question
+(axis A, [ADR-00000003](doc/adr/00000003-env-vs-workload-param-boundary.md))
+is **"does this value change when you switch machines?"** -- if yes it is
+*environment* (machine-bound, stays in `setup.conf`); if it changes per
+task it is *workload*. "Does it need a rebuild?" (axis C) breaks grey
+cases. Three channels carry these values, and only the first survives
+into a field deployment that ships just the image:
+
+| Parameter kind | Examples | Where it lives | Dev host | Field |
+|---|---|---|---|---|
+| machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | inlined as `docker run` flags in a generated `deploy.sh` |
+| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | baked `ENV` defaults (+ optional launcher `-e`) |
+| structured app **config** | bridge topic lists, pipeline definitions | an app config file/dir (e.g. `config/<repo>/*.yaml`) | bind-mounted (edit + restart, no rebuild) | `COPY`-baked into the image |
+
+`setup.conf`'s `[environment]` section is the *first* kind -- stable,
+machine-bound env defaults that get baked into the runtime image as
+`ENV`. Put per-task env vars in the `.env` overlay instead, so a tweak
+needs only `make run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
+drift, no git churn).
+
+> The `.env` overlay, the runtime-stage `ENV` bake, and the generated
+> `deploy.sh` field launcher are rolling out across the
+> [#497](https://github.com/ycpss91255-docker/base/issues/497) epic; this
+> section documents the routing model they implement.
+
 ### Logging output to host
 
 Set `[logging] local_path` to tee container stdout/stderr to a host-side
