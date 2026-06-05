@@ -1132,6 +1132,131 @@ _generate_runtime_dockerfile() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _emit_docker_run_flags <flags_assoc> <out_array>
+#
+# S6 of #497 (#506): map a resolved docker-flag record to a `docker run`
+# argv fragment for the self-contained field launcher (`deploy.sh`). The
+# deploy generator resolves the chosen stage's flags through the S5
+# layer (_resolve_docker_flags) and merges in the top-level-only fields,
+# then calls this to turn that record into runnable `docker run` args.
+#
+# <flags_assoc> recognised keys (all optional; absent = unset):
+#   privileged          "true" -> --privileged
+#   gpu / gpu_count / gpu_caps
+#                       gpu="true" -> --gpus (count>0 -> count=N[,capabilities=csv];
+#                       else "all")
+#   runtime             non-empty & not off/auto -> --runtime=<v>
+#   net_mode / net_name host -> --network=host; bridge+name -> --network=<name>
+#   ipc_mode            non-empty & != private -> --ipc=<v>
+#   pid_mode            host -> --pid=host
+#   shm_size            set & ipc_mode != host -> --shm-size=<v>
+#   restart             set & != no -> --restart=<v>
+#   volumes (nl list)   each -> -v <entry>
+#   ports (nl list)     each -> -p <entry>  (only when net_mode=bridge)
+#   devices (nl list)   plain -> --device <entry>; entry with a propagation
+#                       mode (rslave/rshared/...) -> -v <entry> (docker run
+#                       --device has no propagation, mirroring compose #450)
+#   cap_add (nl list)   each -> --cap-add <cap>
+#   cap_drop (nl list)  each -> --cap-drop <cap>
+#   security_opt (nl)   each -> --security-opt <opt>
+#   dri_groups (space)  each gid -> --group-add <gid>
+#   cgroup_rules (nl)   each -> --device-cgroup-rule <rule>
+#
+# Deliberately NOT mapped: [environment] (baked into the image as ENV by
+# S3, so the launcher carries only docker-level flags) and gui / X11 (the
+# field launcher targets headless run; GUI is a dev-only compose concern).
+# Each flag and its value are pushed as SEPARATE array elements so the
+# caller can quote them individually when writing deploy.sh.
+# ════════════════════════════════════════════════════════════════════
+_emit_docker_run_flags() {
+  local -n _edrf_f="${1:?"${FUNCNAME[0]}: missing flags assoc"}"
+  local -n _edrf_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  local _item
+
+  # Push "<flag> <item>" for each non-empty line of a newline-list value.
+  _edrf_push_list() {
+    local _flag="${1}" _list="${2}"
+    [[ -n "${_list}" ]] || return 0
+    while IFS= read -r _item; do
+      [[ -n "${_item}" ]] || continue
+      _edrf_out+=("${_flag}" "${_item}")
+    done <<< "${_list}"
+  }
+
+  [[ "${_edrf_f["privileged"]:-}" == "true" ]] && _edrf_out+=("--privileged")
+
+  if [[ "${_edrf_f["gpu"]:-}" == "true" ]]; then
+    local _gc="${_edrf_f["gpu_count"]:-}" _gcaps="${_edrf_f["gpu_caps"]:-}" _spec
+    if [[ "${_gc}" =~ ^[0-9]+$ ]] && (( _gc > 0 )); then
+      _spec="count=${_gc}"
+      [[ -n "${_gcaps}" ]] && _spec+=",capabilities=${_gcaps// /,}"
+    else
+      _spec="all"
+    fi
+    _edrf_out+=("--gpus" "${_spec}")
+  fi
+
+  local _rt="${_edrf_f["runtime"]:-}"
+  if [[ -n "${_rt}" && "${_rt}" != "off" && "${_rt}" != "auto" ]]; then
+    _edrf_out+=("--runtime=${_rt}")
+  fi
+
+  local _nm="${_edrf_f["net_mode"]:-}" _nn="${_edrf_f["net_name"]:-}"
+  if [[ "${_nm}" == "host" ]]; then
+    _edrf_out+=("--network=host")
+  elif [[ "${_nm}" == "bridge" && -n "${_nn}" ]]; then
+    _edrf_out+=("--network=${_nn}")
+  fi
+
+  local _ipc="${_edrf_f["ipc_mode"]:-}"
+  [[ -n "${_ipc}" && "${_ipc}" != "private" ]] && _edrf_out+=("--ipc=${_ipc}")
+
+  [[ "${_edrf_f["pid_mode"]:-}" == "host" ]] && _edrf_out+=("--pid=host")
+
+  local _shm="${_edrf_f["shm_size"]:-}"
+  [[ -n "${_shm}" && "${_ipc}" != "host" ]] && _edrf_out+=("--shm-size=${_shm}")
+
+  local _rs="${_edrf_f["restart"]:-}"
+  [[ -n "${_rs}" && "${_rs}" != "no" ]] && _edrf_out+=("--restart=${_rs}")
+
+  _edrf_push_list "-v" "${_edrf_f["volumes"]:-}"
+
+  if [[ "${_nm}" == "bridge" ]]; then
+    _edrf_push_list "-p" "${_edrf_f["ports"]:-}"
+  fi
+
+  # Devices: a propagation mode in the 3rd colon field cannot ride on
+  # `docker run --device`, so route those to `-v` (mirrors the compose
+  # device->volume redirect from #450); plain devices stay on --device.
+  local _dev
+  if [[ -n "${_edrf_f["devices"]:-}" ]]; then
+    while IFS= read -r _dev; do
+      [[ -n "${_dev}" ]] || continue
+      if [[ "${_dev}" =~ :(rslave|rshared|rprivate|slave|shared|private)([,:]|$) ]]; then
+        _edrf_out+=("-v" "${_dev}")
+      else
+        _edrf_out+=("--device" "${_dev}")
+      fi
+    done <<< "${_edrf_f["devices"]}"
+  fi
+
+  _edrf_push_list "--cap-add" "${_edrf_f["cap_add"]:-}"
+  _edrf_push_list "--cap-drop" "${_edrf_f["cap_drop"]:-}"
+  _edrf_push_list "--security-opt" "${_edrf_f["security_opt"]:-}"
+
+  local _gid
+  if [[ -n "${_edrf_f["dri_groups"]:-}" ]]; then
+    for _gid in ${_edrf_f["dri_groups"]}; do
+      _edrf_out+=("--group-add" "${_gid}")
+    done
+  fi
+
+  _edrf_push_list "--device-cgroup-rule" "${_edrf_f["cgroup_rules"]:-}"
+
+  unset -f _edrf_push_list
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Per-stage overrides (#220)
 #
 # `[stage:<name>]` sections in <repo>/setup.conf override top-level
