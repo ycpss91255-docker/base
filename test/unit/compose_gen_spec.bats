@@ -14,6 +14,17 @@ setup() {
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
+  # #493 (A1'-b): the `test` service is emitted from the `devel-test`
+  # baseline stage via the per-stage loop, so generate_compose_yaml now
+  # needs a Dockerfile that declares it. Ship a minimal baseline so the
+  # default (no custom Dockerfile) path still produces devel + test.
+  # Tests that need extra stages overwrite this file.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
 }
 
 teardown() {
@@ -548,17 +559,19 @@ teardown() {
   assert_success
 }
 
-@test "generate_compose_yaml emits TARGETARCH line in both services when target_arch set" {
+@test "generate_compose_yaml emits TARGETARCH build arg on devel (test inherits via extends, #493)" {
   local _extras=()
   # Positional args up to #21 are optional (defaults via ${N:-}); pos #22 is target_arch.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "arm64"
-  # Must appear under both devel + test service build.args blocks.
+  # #493 (A1'-b): the test service is now an extends:devel stage with no
+  # override, so it does not re-emit its own build.args — it inherits
+  # devel's TARGETARCH at compose-merge time. The line appears once.
   run grep -cF 'TARGETARCH: ${TARGET_ARCH}' "${COMPOSE_OUT}"
   assert_success
-  assert_output "2"
+  assert_output "1"
 }
 
 @test "generate_compose_yaml omits TARGETARCH line when target_arch empty (BuildKit auto-fill)" {
@@ -570,17 +583,18 @@ teardown() {
   assert_failure
 }
 
-@test "generate_compose_yaml emits build.network line in both services when build_network set" {
+@test "generate_compose_yaml emits build.network on devel (test inherits via extends, #493)" {
   local _extras=()
   # Pos #23 is build_network.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "host"
-  # Must appear under both devel + test service build blocks.
+  # #493 (A1'-b): test is an extends:devel stage with no override, so the
+  # build.network line is emitted once on devel and inherited by test.
   run grep -cE '^      network: host$' "${COMPOSE_OUT}"
   assert_success
-  assert_output "2"
+  assert_output "1"
 }
 
 @test "generate_compose_yaml omits build.network line when build_network empty" {
@@ -868,6 +882,8 @@ CMD ["bash"]
 
 FROM devel AS runtime
 CMD ["/app"]
+
+FROM devel AS devel-test
 DOCK
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \

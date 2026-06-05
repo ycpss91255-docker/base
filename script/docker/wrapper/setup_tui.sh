@@ -1954,7 +1954,10 @@ _list_dockerfile_stages_available() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      sys|devel-base|devel|devel-test|runtime-test) continue ;;
+      # #493 (A1'-b): devel-test is offered as an editable stage (the
+      # `test` service override surface); only the rest of the baseline
+      # and the legacy aliases stay hidden.
+      sys|devel-base|devel|runtime-test) continue ;;
       base|test) continue ;;
     esac
     case "${_seen}" in

@@ -529,6 +529,12 @@ EOF
 }
 
 @test "[additional_contexts] context_1 = NAME=PATH emits block under devel/test build" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [additional_contexts]
 context_1 = repo=..
@@ -554,10 +560,12 @@ EOF
 @test "[additional_contexts] runtime service inherits the block when Dockerfile declares AS runtime" {
   # Stub a Dockerfile with `AS runtime` so generate_compose_yaml emits
   # the runtime service. Then assert additional_contexts: appears 3 times
-  # (once under each of devel / runtime / test).
+  # (once under each of devel / runtime / test). The `test` service comes
+  # from the devel-test stage (#493), so the fixture must declare it.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS runtime
+FROM sys AS devel-test
 EOF
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [additional_contexts]
@@ -3334,10 +3342,17 @@ EOF
 @test "_validate_stage_name rejects baseline collision with exit 2 (HARD ERROR)" {
   # Forward-looking baseline + legacy aliases (kept during v0.21.x
   # transition for backward compat with un-renamed downstream Dockerfiles).
-  for _base in sys devel-base devel devel-test runtime-test base test; do
+  # #493 (A1'-b): devel-test is NOT here — it is now an emittable stage
+  # (legacy service name `test`); see the dedicated test below.
+  for _base in sys devel-base devel runtime-test base test; do
     run _validate_stage_name "${_base}"
     [[ "${status}" -eq 2 ]] || { echo "expected 2 for '${_base}', got ${status}"; return 1; }
   done
+}
+
+@test "_validate_stage_name accepts devel-test as an emittable stage (#493 A1'-b)" {
+  run _validate_stage_name "devel-test"
+  [[ "${status}" -eq 0 ]] || { echo "expected 0 for devel-test, got ${status}"; return 1; }
 }
 
 @test "_validate_stage_name rejects reserved tag-namespace names with exit 3 (HARD ERROR)" {
@@ -3369,6 +3384,21 @@ EOF
 }
 
 @test "_parse_dockerfile_stages: returns nothing for Dockerfile with only new baseline stages (#243)" {
+  # #493 (A1'-b): devel-test is no longer baseline-filtered — it is an
+  # emittable stage now, so it is excluded from this "baseline → nothing"
+  # fixture and covered by the dedicated test below.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM runtime AS runtime-test
+EOF
+  run _parse_dockerfile_stages "${TEMP_DIR}/Dockerfile"
+  assert_success
+  assert_output ""
+}
+
+@test "_parse_dockerfile_stages: returns devel-test (promoted out of baseline, #493)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM ubuntu:24.04 AS sys
 FROM sys AS devel-base
@@ -3378,7 +3408,7 @@ FROM runtime AS runtime-test
 EOF
   run _parse_dockerfile_stages "${TEMP_DIR}/Dockerfile"
   assert_success
-  assert_output ""
+  assert_output "devel-test"
 }
 
 @test "_parse_dockerfile_stages: extracts non-baseline stages" {
@@ -3620,11 +3650,13 @@ EOF
 }
 
 @test "auto-emit: no extra stages → only devel + test in compose.yaml" {
+  # #493 (A1'-b): the `test` service is emitted from the devel-test
+  # baseline stage, so the baseline-only fixture declares it.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
-FROM sys AS base
-FROM base AS devel
-FROM devel AS test
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
 EOF
   unset SETUP_CONF
   run bash -c "
@@ -4331,6 +4363,43 @@ EOF
   "
   assert_failure
   assert_output --partial "[stage:sys]"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #493 Bug A (A1'-b) — devel-test gains an override surface
+#
+# devel-test is promoted out of the baseline blocklist: it now flows
+# through the per-stage inherit-with-override model like any other
+# non-baseline stage, but keeps the legacy service NAME / image TAG /
+# profile `test` (`make exec -t test` unchanged) while build.target
+# stays the real Dockerfile stage `devel-test`. The [stage:devel-test]
+# section is the override surface (so e.g. Isaac can enable GPU pytest).
+# ════════════════════════════════════════════════════════════════════
+
+@test "stage-override(#493): [stage:devel-test] deploy.gpu_mode=force emits GPU deploy block on the test service" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[stage:devel-test]
+deploy.gpu_mode = force
+EOF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  # Slice the `test:` service block (service name stays `test`).
+  run bash -c "awk '/^  test:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  # Override forces a GPU reservation onto the test service.
+  assert_output --partial "driver: nvidia"
+  assert_output --partial "capabilities:"
+  # build.target is still the real Dockerfile stage, not the service name.
+  assert_output --partial "target: devel-test"
 }
 
 # ════════════════════════════════════════════════════════════════════
