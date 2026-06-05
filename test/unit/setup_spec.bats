@@ -188,6 +188,20 @@ EOF
   assert_success
 }
 
+@test "setup.sh apply emits top-level name: in compose.yaml (#472)" {
+  # End-to-end: apply renders a top-level name: with the literal compose
+  # vars so non-wrapper tools resolve the wrapper's project name.
+  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
 @test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
   # #466 F2: the template no longer ships cap_add_* defaults, so a repo
   # with an empty [security] section (the omniverse case) falls back to a
