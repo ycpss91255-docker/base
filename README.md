@@ -294,7 +294,7 @@ Allowlist (v1 — keys that can be overridden per-stage):
 
 | Section | Keys |
 |---|---|
-| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime` (legacy `runtime` still accepted) |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged` |

@@ -348,6 +348,74 @@ EOF
   assert_output --partial "992"
 }
 
+# ── #481 [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
+
+@test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
+  printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[deploy] legacy runtime key still works + warns (#481 W3 alias)" {
+  printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  # the legacy alias is consumed but a deprecation is surfaced
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_output --partial "gpu_runtime"
+}
+
+@test "[deploy] gpu_runtime wins when both keys present (#481)" {
+  printf '[deploy]\ngpu_runtime = nvidia\nruntime = off\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    runtime: nvidia$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
+  run grep -E '^gpu_runtime = auto$' /source/config/docker/setup.conf
+  assert_success
+  run grep -E '^runtime = ' /source/config/docker/setup.conf
+  assert_failure
+}
+
+@test "per-stage override accepts deploy.gpu_runtime (#481)" {
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    _validate_stage_override_key deploy.gpu_runtime
+  "
+  assert_success
+}
+
+@test "per-stage override still accepts legacy deploy.runtime (#481 alias)" {
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    _validate_stage_override_key deploy.runtime
+  "
+  assert_success
+}
+
 @test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
   # #466 F2: the template no longer ships cap_add_* defaults, so a repo
   # with an empty [security] section (the omniverse case) falls back to a

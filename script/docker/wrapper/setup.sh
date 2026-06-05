@@ -166,6 +166,15 @@ _setup_msg_stage() {
 }
 
 # Dispatcher — keeps a single _setup_msg call shape across the script.
+_setup_msg_deploy() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:runtime_deprecated) echo "[deploy] runtime 已更名為 gpu_runtime；舊鍵仍可用（永久別名），請改用 gpu_runtime（v1.0.0 將移除）" ;;
+    zh-CN:runtime_deprecated) echo "[deploy] runtime 已更名为 gpu_runtime；旧键仍可用（永久别名），请改用 gpu_runtime（v1.0.0 将移除）" ;;
+    ja:runtime_deprecated)    echo "[deploy] runtime は gpu_runtime に改名されました。旧キーは当面有効（恒久エイリアス）ですが gpu_runtime へ移行してください（v1.0.0 で削除）" ;;
+    *:runtime_deprecated)     echo "[deploy] runtime is renamed to gpu_runtime; the old key still works (permanent alias) but please migrate to gpu_runtime (removal at v1.0.0)" ;;
+  esac
+}
+
 _setup_msg() {
   local _category="${1:?_setup_msg requires category}"
   local _key="${2:?_setup_msg requires key}"
@@ -1138,7 +1147,7 @@ _load_stage_overrides() {
 _validate_stage_override_key() {
   local _key="${1:?"${FUNCNAME[0]}: missing key"}"
   case "${_key}" in
-    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.runtime) return 0 ;;
+    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.gpu_runtime|deploy.runtime) return 0 ;;
     gui.mode) return 0 ;;
     network.mode|network.ipc|network.pid|network.network_name) return 0 ;;
     security.privileged) return 0 ;;
@@ -2109,7 +2118,9 @@ YAML
       local _eff_gpu_count _eff_gpu_caps _eff_runtime
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_count" "${_gpu_count}" _eff_gpu_count
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_runtime}" _eff_runtime
+      # #481: gpu_runtime primary, legacy deploy.runtime alias as fallback.
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_runtime" "${_runtime}" _eff_runtime
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_eff_runtime}" _eff_runtime
 
       local _eff_net_mode _eff_ipc_mode _eff_pid_mode _eff_net_name _eff_privileged
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
@@ -3798,13 +3809,27 @@ _setup_apply() {
   local build_network=""
   _resolve_build_network "${build_network_mode}" build_network
 
-  local gpu_mode="" gpu_count="" gpu_caps="" runtime_mode=""
+  local gpu_mode="" gpu_count="" gpu_caps="" gpu_runtime_mode=""
   local gui_mode=""
   local net_mode="" ipc_mode="" pid_mode="" privileged="" network_name=""
   _get_conf_value _dep_k _dep_v "gpu_mode"         "auto" gpu_mode
   _get_conf_value _dep_k _dep_v "gpu_count"        "all"  gpu_count
   _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
-  _get_conf_value _dep_k _dep_v "runtime"          "auto" runtime_mode
+  # #481: gpu_runtime is the canonical key (GPU family). The legacy
+  # `runtime` key is a permanent alias (W3) -- consumed with a deprecation
+  # warning, scheduled for removal at v1.0.0 (see doc/deprecations.md).
+  _get_conf_value _dep_k _dep_v "gpu_runtime"      ""     gpu_runtime_mode
+  if [[ -z "${gpu_runtime_mode}" ]]; then
+    local _legacy_runtime=""
+    _get_conf_value _dep_k _dep_v "runtime"        ""     _legacy_runtime
+    if [[ -n "${_legacy_runtime}" ]]; then
+      gpu_runtime_mode="${_legacy_runtime}"
+      _log_warn setup conf_runtime_key_deprecated \
+        "display=$(_setup_msg deploy runtime_deprecated)"
+    else
+      gpu_runtime_mode="auto"
+    fi
+  fi
   _get_conf_value _gui_k _gui_v "mode"             "auto" gui_mode
   # #338: resolution order CLI > env > conf > default.
   # If --gui was passed, override; otherwise honor SETUP_GUI env var
@@ -4084,7 +4109,7 @@ _setup_apply() {
     printf 'GPU_ENABLED=%s\n' "${gpu_enabled_eff}"
     printf 'GPU_COUNT=%s\n' "${gpu_count}"
     printf 'GPU_CAPABILITIES=%s\n' "${gpu_caps}"
-    printf 'RUNTIME=%s\n' "${runtime_mode}"
+    printf 'RUNTIME=%s\n' "${gpu_runtime_mode}"
     printf 'GUI_DETECTED=%s\n' "${gui_detected}"
     printf 'GUI_MODE=%s\n' "${gui_mode}"
     printf 'GUI_ENABLED=%s\n' "${gui_enabled_eff}"
@@ -4136,7 +4161,7 @@ _setup_apply() {
     "${_ssh_x11_xauth}"
 
   local runtime_resolved=""
-  _resolve_runtime "${runtime_mode}" runtime_resolved
+  _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
 
   # Propagate generate_compose_yaml's exit explicitly: when sourced
   # (no `set -e`) a hard-error return from the stage validator (#215
