@@ -1666,6 +1666,91 @@ generate_compose_yaml() {
     esac
   }
 
+  # #410: section emitters shared by the devel block and the per-stage
+  # standalone block. Both iterate the SAME top-level [security] /
+  # [devices] / [tmpfs] strings (a stage standalone block re-emits the
+  # enclosing-scope values, #220), so the emitted bytes are identical --
+  # hoisting removes the duplication without touching the principled
+  # devel-vs-stage differences (env-var refs vs literals, extends base
+  # vs standalone, stdin/tty, profiles) which stay inline per mode.
+
+  # cap_add / cap_drop / security_opt from [security] (enclosing scope).
+  _emit_caps_block() {
+    local _c
+    if [[ -n "${_cap_add_str}" ]]; then
+      echo "    cap_add:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_cap_add_str}"
+    fi
+    if [[ -n "${_cap_drop_str}" ]]; then
+      echo "    cap_drop:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_cap_drop_str}"
+    fi
+    if [[ -n "${_sec_opt_str}" ]]; then
+      echo "    security_opt:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_sec_opt_str}"
+    fi
+  }
+
+  # group_add for /dev/dri (#496): GUI-gated; caller passes the effective
+  # gui flag (devel's _gui or a stage's _eff_gui). Numeric GIDs quoted.
+  _emit_group_add_block() {
+    local _g="$1"
+    [[ "${_g}" == "true" && -n "${_dri_groups_str}" ]] || return 0
+    echo "    group_add:"
+    local _gid
+    for _gid in ${_dri_groups_str}; do
+      echo "      - \"${_gid}\""
+    done
+  }
+
+  # device_cgroup_rules from [devices] cgroup_rule_* (enclosing scope).
+  _emit_cgroup_rules_block() {
+    [[ -n "${_cgroup_rule_str}" ]] || return 0
+    echo "    device_cgroup_rules:"
+    local _cr
+    while IFS= read -r _cr; do
+      [[ -z "${_cr}" ]] && continue
+      echo "      - \"${_cr}\""
+    done <<< "${_cgroup_rule_str}"
+  }
+
+  # tmpfs from [tmpfs] (enclosing scope).
+  _emit_tmpfs_block() {
+    [[ -n "${_tmpfs_str}" ]] || return 0
+    echo "    tmpfs:"
+    local _tf
+    while IFS= read -r _tf; do
+      [[ -z "${_tf}" ]] && continue
+      echo "      - ${_tf}"
+    done <<< "${_tmpfs_str}"
+  }
+
+  # deploy GPU reservation: caller passes the effective gpu flag, count,
+  # and pre-built capabilities YAML array (devel's globals or a stage's
+  # resolved values).
+  _emit_gpu_deploy_block() {
+    local _g="$1" _count="$2" _caps="$3"
+    [[ "${_g}" == "true" ]] || return 0
+    cat <<YAML
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${_count}
+              capabilities: ${_caps}
+YAML
+  }
+
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
@@ -1820,40 +1905,9 @@ YAML
 YAML
     _emit_runtime_line
     _emit_restart_line
-    # cap_add / cap_drop / security_opt from [security] section
-    if [[ -n "${_cap_add_str}" ]]; then
-      echo "    cap_add:"
-      local _cap
-      while IFS= read -r _cap; do
-        [[ -z "${_cap}" ]] && continue
-        echo "      - ${_cap}"
-      done <<< "${_cap_add_str}"
-    fi
-    if [[ -n "${_cap_drop_str}" ]]; then
-      echo "    cap_drop:"
-      local _cd
-      while IFS= read -r _cd; do
-        [[ -z "${_cd}" ]] && continue
-        echo "      - ${_cd}"
-      done <<< "${_cap_drop_str}"
-    fi
-    if [[ -n "${_sec_opt_str}" ]]; then
-      echo "    security_opt:"
-      local _so
-      while IFS= read -r _so; do
-        [[ -z "${_so}" ]] && continue
-        echo "      - ${_so}"
-      done <<< "${_sec_opt_str}"
-    fi
-    # #496: group_add for /dev/dri access on iGPU hosts. GUI-gated (DRI is
-    # for GL rendering); numeric GIDs quoted as strings.
-    if [[ "${_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
-      echo "    group_add:"
-      local _gid
-      for _gid in ${_dri_groups_str}; do
-        echo "      - \"${_gid}\""
-      done
-    fi
+    # cap_add / cap_drop / security_opt + group_add (#410 shared emitters).
+    _emit_caps_block
+    _emit_group_add_block "${_gui}"
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
     networks:
@@ -1957,39 +2011,14 @@ YAML
         echo "      - ${_d}"
       done <<< "${_devices_str}"
     fi
-    # device_cgroup_rules: (dynamic device permissions, e.g. USB hotplug)
-    if [[ -n "${_cgroup_rule_str}" ]]; then
-      echo "    device_cgroup_rules:"
-      local _cr
-      while IFS= read -r _cr; do
-        [[ -z "${_cr}" ]] && continue
-        echo "      - \"${_cr}\""
-      done <<< "${_cgroup_rule_str}"
-    fi
-    # tmpfs: RAM-backed mounts
-    if [[ -n "${_tmpfs_str}" ]]; then
-      echo "    tmpfs:"
-      local _tf
-      while IFS= read -r _tf; do
-        [[ -z "${_tf}" ]] && continue
-        echo "      - ${_tf}"
-      done <<< "${_tmpfs_str}"
-    fi
+    # device_cgroup_rules + tmpfs (#410 shared emitters).
+    _emit_cgroup_rules_block
+    _emit_tmpfs_block
     # shm_size: only emitted when ipc != host (otherwise Docker ignores it)
     if [[ -n "${_shm_size}" ]] && [[ "${_ipc_mode}" != "host" ]]; then
       echo "    shm_size: ${_shm_size}"
     fi
-    if [[ "${_gpu}" == "true" ]]; then
-      cat <<YAML
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${_gpu_count}
-              capabilities: ${_caps_yaml}
-YAML
-    fi
+    _emit_gpu_deploy_block "${_gpu}" "${_gpu_count}" "${_caps_yaml}"
     _emit_logging_block devel
 
     # Auto-emit a service per non-baseline stage parsed from the
@@ -2229,40 +2258,12 @@ YAML
          [[ "${_eff_runtime}" != "auto" ]]; then
         echo "    runtime: ${_eff_runtime}"
       fi
-      # cap_add / cap_drop / security_opt — re-emit from top-level
-      # (not yet in per-stage allowlist; v2 may revisit).
-      if [[ -n "${_cap_add_str}" ]]; then
-        echo "    cap_add:"
-        local _sa_cap
-        while IFS= read -r _sa_cap; do
-          [[ -z "${_sa_cap}" ]] && continue
-          echo "      - ${_sa_cap}"
-        done <<< "${_cap_add_str}"
-      fi
-      if [[ -n "${_cap_drop_str}" ]]; then
-        echo "    cap_drop:"
-        local _sa_cd
-        while IFS= read -r _sa_cd; do
-          [[ -z "${_sa_cd}" ]] && continue
-          echo "      - ${_sa_cd}"
-        done <<< "${_cap_drop_str}"
-      fi
-      if [[ -n "${_sec_opt_str}" ]]; then
-        echo "    security_opt:"
-        local _sa_so
-        while IFS= read -r _sa_so; do
-          [[ -z "${_sa_so}" ]] && continue
-          echo "      - ${_sa_so}"
-        done <<< "${_sec_opt_str}"
-      fi
-      # #496: group_add for /dev/dri, GUI-gated on the stage's effective gui.
-      if [[ "${_eff_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
-        echo "    group_add:"
-        local _sa_gid
-        for _sa_gid in ${_dri_groups_str}; do
-          echo "      - \"${_sa_gid}\""
-        done
-      fi
+      # cap_add / cap_drop / security_opt + group_add re-emitted from
+      # top-level (not yet in the per-stage allowlist; v2 may revisit) --
+      # shared emitters with devel (#410). group_add is gated on the
+      # stage's effective gui.
+      _emit_caps_block
+      _emit_group_add_block "${_eff_gui}"
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).
       if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
@@ -2351,29 +2352,16 @@ YAML
           echo "      - ${_sd}"
         done <<< "${_devices_str}"
       fi
-      if [[ -n "${_cgroup_rule_str}" ]]; then
-        echo "    device_cgroup_rules:"
-        local _scr
-        while IFS= read -r _scr; do
-          [[ -z "${_scr}" ]] && continue
-          echo "      - \"${_scr}\""
-        done <<< "${_cgroup_rule_str}"
-      fi
-      # tmpfs: from top-level.
-      if [[ -n "${_tmpfs_str}" ]]; then
-        echo "    tmpfs:"
-        local _stf
-        while IFS= read -r _stf; do
-          [[ -z "${_stf}" ]] && continue
-          echo "      - ${_stf}"
-        done <<< "${_tmpfs_str}"
-      fi
+      # device_cgroup_rules + tmpfs from top-level (#410 shared emitters).
+      _emit_cgroup_rules_block
+      _emit_tmpfs_block
       # shm_size: depends on effective ipc (only emitted under
       # non-host ipc, mirroring devel).
       if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
         echo "    shm_size: ${_shm_size}"
       fi
-      # deploy / GPU block: emit when effective gpu is enabled.
+      # deploy / GPU block (#410 shared emitter): build the effective caps
+      # YAML (per-stage resolution differs from devel), then emit.
       if [[ "${_eff_gpu}" == "true" ]]; then
         local -a _eff_caps_arr=()
         read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
@@ -2384,15 +2372,7 @@ YAML
           else _eff_caps_yaml+=", ${_ec}"; fi
         done
         _eff_caps_yaml+="]"
-        cat <<YAML
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${_eff_gpu_count}
-              capabilities: ${_eff_caps_yaml}
-YAML
+        _emit_gpu_deploy_block "${_eff_gpu}" "${_eff_gpu_count}" "${_eff_caps_yaml}"
       fi
       # Stage emits a standalone block (no `extends: devel`), so it
       # carries no inherited logging — always emit the effective
