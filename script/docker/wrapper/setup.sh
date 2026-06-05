@@ -1358,6 +1358,56 @@ _emit_device_as_volume() {
   echo "${_indent}      propagation: ${_propagation}"
 }
 
+# _classify_volume_lhs <mount_string>
+#
+# Classify a `host:container[:mode]` mount by its left-hand side (#482,
+# Option A / D-Strict). A LHS that looks like a path -- starts with `/`,
+# `./`, `~/`, or a `${...}` variable reference -- is a bind mount; anything
+# else is a Docker named-volume reference. Echoes `bind` or `named`.
+_classify_volume_lhs() {
+  # The `~/` and `${` globs are single-quoted so they stay literal: an
+  # unquoted `~/*` case pattern undergoes tilde expansion (to $HOME/*) and
+  # would never match a literal `~/...` LHS; an unquoted `${`-glob is fine
+  # but quoting keeps both path-prefix markers consistent and silences
+  # SC2016 (the literal `${` is intentional -- a `${VAR}` LHS is a bind path).
+  # shellcheck disable=SC2016,SC2088
+  case "${1%%:*}" in
+    /*|./*|'~/'*|'${'*) printf 'bind\n' ;;
+    *)                 printf 'named\n' ;;
+  esac
+}
+
+# _collect_named_volumes <assoc_array_name> <newline_separated_mounts>
+#
+# Add the named-volume names from <mounts> into the associative array used
+# as a set (key = volume name, the LHS before the first `:`, which already
+# excludes any `:mode` suffix). Bind mounts are skipped.
+_collect_named_volumes() {
+  local -n _cnv_set="$1"
+  local _line
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    [[ "$(_classify_volume_lhs "${_line}")" == named ]] || continue
+    _cnv_set["${_line%%:*}"]=1
+  done <<< "$2"
+}
+
+# _emit_volumes_block <assoc_array_name>
+#
+# Emit a top-level `volumes:` declaration with one bare stub per collected
+# named volume (no driver / labels / options -> Docker's default `local`
+# driver). Emits nothing when the set is empty (zero-diff for bind-only
+# repos). Names are sorted for deterministic output.
+_emit_volumes_block() {
+  local -n _evb_set="$1"
+  (( ${#_evb_set[@]} == 0 )) && return 0
+  printf '\nvolumes:\n'
+  local _k
+  while IFS= read -r _k; do
+    printf '  %s:\n' "${_k}"
+  done < <(printf '%s\n' "${!_evb_set[@]}" | sort)
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -1912,6 +1962,14 @@ YAML
       _top_volumes_str="${_top_volumes_str%$'\n'}"
     fi
 
+    # #482: accumulate named-volume references across devel + every stage so
+    # the top-level `volumes:` declaration can be emitted once at the end
+    # (compose requires every named volume a service references to be
+    # declared). Bind mounts never enter this set. Per-stage volumes are
+    # added inside the emit loop below as each stage's effective list resolves.
+    local -A _named_vols=()
+    _collect_named_volumes _named_vols "${_top_volumes_str}"
+
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
       # Load + filter [stage:<name>] overrides for this stage.
@@ -2017,6 +2075,9 @@ YAML
 
       local _eff_volumes _eff_environment _eff_ports
       _resolve_stage_list _so_filtered_keys _so_filtered_values "volumes.mount_" "volumes.mount_inherit" "${_top_volumes_str}" _eff_volumes
+      # #482: pick up any named volumes this stage introduces (a per-stage
+      # mount_* override may add one the top-level list lacks).
+      _collect_named_volumes _named_vols "${_eff_volumes}"
       _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
       _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
 
@@ -2301,6 +2362,10 @@ YAML
       echo "      - ${_test_llp}"
     fi
     _emit_logging_block test
+    # #482: top-level volumes: declaration for any named volumes referenced
+    # by devel or a stage. Emitted before networks: (top-level section order).
+    # No-op (zero-diff) when only bind mounts are used.
+    _emit_volumes_block _named_vols
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
