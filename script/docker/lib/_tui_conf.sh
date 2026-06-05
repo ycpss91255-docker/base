@@ -92,6 +92,20 @@ _validate_enum() {
   return 1
 }
 
+# _validate_restart <value>
+#
+# #478: docker restart policy. One of no / always / unless-stopped /
+# on-failure / on-failure:N (N a positive integer). Returns 0 if valid.
+_validate_restart() {
+  case "${1-}" in
+    no|always|unless-stopped|on-failure) return 0 ;;
+    on-failure:*)
+      # N must be a positive integer (no extglob dependency).
+      [[ "${1#on-failure:}" =~ ^[1-9][0-9]*$ ]] ;;
+    *) return 1 ;;
+  esac
+}
+
 # _validate_shm_size <value>
 #
 # Docker `shm_size` accepts `<num><unit>` where unit ∈ b/k/m/g or kb/mb/gb

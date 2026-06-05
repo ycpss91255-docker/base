@@ -202,6 +202,72 @@ EOF
   assert_success
 }
 
+# ── #478 [lifecycle] restart policy ─────────────────────────────────────────
+
+@test "[lifecycle] restart = always emits restart: always under devel (#478)" {
+  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    restart: always$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[lifecycle] restart = no (default) emits no restart: field (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    restart:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
+  printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '    restart: "on-failure:3"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "template setup.conf ships [lifecycle] restart = no (#478)" {
+  run grep -E '^restart = no$' /source/config/docker/setup.conf
+  assert_success
+}
+
+@test "setup.sh set lifecycle.restart rejects an invalid policy (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main set lifecycle.restart bogus --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+}
+
+@test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  local _v
+  for _v in no always unless-stopped on-failure on-failure:3; do
+    run bash -c "
+      source /source/script/docker/wrapper/setup.sh
+      main set lifecycle.restart '${_v}' --base-path '${TEMP_DIR}' 2>&1
+    "
+    assert_success
+  done
+}
+
 @test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
   # #466 F2: the template no longer ships cap_add_* defaults, so a repo
   # with an empty [security] section (the omniverse case) falls back to a

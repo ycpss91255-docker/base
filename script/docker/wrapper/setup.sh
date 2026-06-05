@@ -1436,6 +1436,7 @@ generate_compose_yaml() {
   local _additional_contexts_str="${25:-}"
   local _logging_global_str="${26:-}"
   local _logging_per_svc_str="${27:-}"
+  local _restart="${28:-no}"
 
   # _logging_svc_kv <svc> <out_assoc_name>
   #
@@ -1616,6 +1617,18 @@ generate_compose_yaml() {
     printf '    runtime: %s\n' "${_runtime}"
   }
 
+  # restart emitter (#478): [lifecycle] restart policy on the devel service.
+  # Default `no` emits nothing (zero-diff). Stages that `extends: devel`
+  # inherit the value via compose. `on-failure:N` is quoted because the `:`
+  # would otherwise read as a YAML mapping.
+  _emit_restart_line() {
+    [[ "${_restart}" == "no" ]] && return 0
+    case "${_restart}" in
+      on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
+      *)            printf '    restart: %s\n'   "${_restart}" ;;
+    esac
+  }
+
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
@@ -1769,6 +1782,7 @@ YAML
     tty: true
 YAML
     _emit_runtime_line
+    _emit_restart_line
     # cap_add / cap_drop / security_opt from [security] section
     if [[ -n "${_cap_add_str}" ]]; then
       echo "    cap_add:"
@@ -2663,7 +2677,7 @@ _announce_template_default_fallback() {
 _setup_known_section() {
   local _s="${1-}"
   case "${_s}" in
-    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
+    image|build|deploy|lifecycle|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
       return 0 ;;
     logging.?*)
       # Per-service override section [logging.<svc>] -- shape only;
@@ -2702,6 +2716,11 @@ _setup_validate_kv() {
       # non-empty values.
       [[ -z "${_value}" ]] && return 0
       _validate_shm_size "${_value}" ;;
+    lifecycle.restart)
+      # #478: 5 canonical docker restart policies. Empty allowed (= clear
+      # key, falls back to template default `no`).
+      [[ -z "${_value}" ]] && return 0
+      _validate_restart "${_value}" ;;
     *)
       # [logging] + [logging.<svc>] share the same key validators —
       # docker daemon's `logging.driver` + `logging.options.*` shape.
@@ -3678,6 +3697,7 @@ _setup_apply() {
   _load_setup_conf "${_base_path}" "environment"         _env_k _env_v
   _load_setup_conf "${_base_path}" "tmpfs"               _tmp_k _tmp_v
   _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
+  _load_setup_conf "${_base_path}" "lifecycle"           _life_k _life_v
   _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
 
   # Build args: each `[build] arg_N = KEY=VALUE` entry becomes a
@@ -3766,6 +3786,10 @@ _setup_apply() {
   # repo that declares [security] (e.g. for cap_add) without a privileged
   # key does not silently run privileged.
   _get_conf_value _sec_k _sec_v "privileged"       "false" privileged
+
+  # #478: [lifecycle] restart policy (default no -> devel emits no restart:).
+  local restart_policy=""
+  _get_conf_value _life_k _life_v "restart"        "no"    restart_policy
 
   # ── WS_PATH + workspace mount ──
   #
@@ -4089,6 +4113,7 @@ _setup_apply() {
     "${_additional_contexts_str}" \
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
+    "${restart_policy}" \
     || return $?
 
   # #462: emit runtime.env mirroring [environment] entries so standalone
