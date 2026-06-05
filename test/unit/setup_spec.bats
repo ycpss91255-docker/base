@@ -1101,6 +1101,118 @@ EOF
   assert_equal "${#_k[@]}" "0"
 }
 
+# A section like [logging] must NOT absorb entries from a distinct
+# dotted sub-section [logging.web]. Section matching is exact, not
+# prefix-based. conf_logging.sh relies on this: it reads the global
+# [logging] block and per-service [logging.<svc>] blocks separately.
+@test "_parse_ini_section does not absorb dotted sub-sections" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "logging" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_k[0]}" "driver"
+  assert_equal "${_v[0]}" "json-file"
+}
+
+@test "_parse_ini_section reads a dotted section name" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+max_size = 5m
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "logging.web" _k _v
+  assert_equal "${#_k[@]}" "2"
+  assert_equal "${_k[0]}" "driver"
+  assert_equal "${_v[0]}" "local"
+  assert_equal "${_k[1]}" "max_size"
+  assert_equal "${_v[1]}" "5m"
+}
+
+# Duplicate keys and a reopened section are preserved in file order
+# (the original single-pass reader appended every matching line).
+@test "_parse_ini_section preserves duplicate keys and reopened sections in order" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[volumes]
+mount_1 = a:a
+
+[other]
+x = y
+
+[volumes]
+mount_1 = b:b
+mount_2 = c:c
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "volumes" _k _v
+  assert_equal "${#_k[@]}" "3"
+  assert_equal "${_k[0]}" "mount_1"
+  assert_equal "${_v[0]}" "a:a"
+  assert_equal "${_k[1]}" "mount_1"
+  assert_equal "${_v[1]}" "b:b"
+  assert_equal "${_k[2]}" "mount_2"
+  assert_equal "${_v[2]}" "c:c"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _ini_tokenize (shared single-pass core)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_ini_tokenize tracks the owning section per entry and dedups headers" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[gpu]
+mode = auto
+
+[gui]
+mode = off
+
+[gpu]
+count = all
+EOF
+  local -a _s=() _es=() _k=() _v=()
+  _ini_tokenize "${_conf}" _s _es _k _v
+  # sections[] dedups by first appearance.
+  assert_equal "${#_s[@]}" "2"
+  assert_equal "${_s[0]}" "gpu"
+  assert_equal "${_s[1]}" "gui"
+  # entries keep their owning section even across a reopened header.
+  assert_equal "${#_k[@]}" "3"
+  assert_equal "${_es[0]}" "gpu"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_es[1]}" "gui"
+  assert_equal "${_es[2]}" "gpu"
+  assert_equal "${_k[2]}" "count"
+}
+
+@test "_ini_tokenize keeps dotted keys verbatim (per-stage override keys)" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[stage:headless]
+gui.mode = off
+deploy.gpu_mode = force
+EOF
+  local -a _s=() _es=() _k=() _v=()
+  _ini_tokenize "${_conf}" _s _es _k _v
+  assert_equal "${_es[0]}" "stage:headless"
+  assert_equal "${_k[0]}" "gui.mode"
+  assert_equal "${_v[0]}" "off"
+  assert_equal "${_k[1]}" "deploy.gpu_mode"
+  assert_equal "${_v[1]}" "force"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _load_setup_conf (per-repo replace / template fallback)
 # ════════════════════════════════════════════════════════════════════
