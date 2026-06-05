@@ -608,17 +608,18 @@ _stage_lint_layout() {
   rm -rf "${_tmp}"
 }
 
-@test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
-  # No .base/script/docker/lib/_lib.sh nor sibling _lib.sh → explicit
-  # non-zero exit + error message pointing the user at the two
-  # expected paths. Better UX than the old silent inline fallback
-  # that hid the absence.
+@test "build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)" {
+  # build.sh copied alone (no lib/bootstrap.sh, no _lib.sh) -> explicit
+  # non-zero exit + a clear broken-install diagnostic. Post-#408 the
+  # shared preamble lives in lib/bootstrap.sh (which in turn sources
+  # _lib.sh), so the first missing dependency reported is bootstrap.sh.
+  # Better UX than a cryptic `_bootstrap: command not found`.
   local _tmp
   _tmp="$(mktemp -d)"
   cp /source/script/docker/wrapper/build.sh "${_tmp}/build.sh"
   run bash "${_tmp}/build.sh" -h
   assert_failure
-  assert_output --partial "cannot find _lib.sh"
+  assert_output --partial "cannot find lib/bootstrap.sh"
   rm -rf "${_tmp}"
 }
 
