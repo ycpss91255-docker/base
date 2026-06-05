@@ -349,8 +349,8 @@ _maybe_prune() {
   local -a _net_cmd=(docker network prune -f --filter "until=10m")
   local -a _img_cmd=(docker image   prune -f --filter "until=24h")
   if [[ "${DRY_RUN}" == true ]]; then
-    printf '[dry-run]'; printf ' %q' "${_net_cmd[@]}"; printf '\n'
-    printf '[dry-run]'; printf ' %q' "${_img_cmd[@]}"; printf '\n'
+    _dry_run_cmd "${_net_cmd[@]}"
+    _dry_run_cmd "${_img_cmd[@]}"
     return 0
   fi
   _log_info stop stop_prune_networks "display=Pruning orphan networks (until=10m)..."

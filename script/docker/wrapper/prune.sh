@@ -296,13 +296,7 @@ _run_prune() {
     # Skipping the flag avoids a "filter until is unsupported" warning.
     cmd+=(--filter "until=${until_val}")
   fi
-  if [[ "${DRY_RUN}" == true ]]; then
-    printf '[dry-run]'
-    printf ' %q' "${cmd[@]}"
-    printf '\n'
-  else
-    "${cmd[@]}"
-  fi
+  _dry_run_cmd "${cmd[@]}"
 }
 
 # ── #388 worktree-orphans prune ───────────────────────────────────────────
@@ -481,11 +475,7 @@ _run_worktree_orphans_prune() {
 
   local _img
   for _img in "${_candidates[@]}"; do
-    if [[ "${DRY_RUN}" == true ]]; then
-      printf '[dry-run] docker rmi %q\n' "${_img}"
-    else
-      docker rmi "${_img}" || true
-    fi
+    _dry_run_cmd docker rmi "${_img}" || true
   done
 }
 

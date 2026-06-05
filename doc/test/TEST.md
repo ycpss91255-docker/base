@@ -47,7 +47,7 @@ Template self-tests: **1465 tests** total (1391 unit + 74 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (48)
+### test/unit/log_spec.bats (52)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
