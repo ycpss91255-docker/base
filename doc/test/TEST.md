@@ -71,7 +71,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (358)
+### test/unit/setup_spec.bats (360)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
@@ -119,6 +119,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | #338 apply CLI flags (`--gui auto|force|off` per-invocation override via print-resolved diff vs setup.conf; `--gui=force` short-form; invalid `--gui bogus` rejected; `--print-resolved` dumps key=value without writing `.env` / `compose.yaml`; `--no-x11-cookie` sets `X11_COOKIE_SKIP=1` in the dump; default `X11_COOKIE_SKIP=0`; `SETUP_GUI` env var overrides setup.conf when no CLI flag; CLI `--gui` wins over `SETUP_GUI` env var) | 9 |
 | #502 A2 file roles (`apply` writes the `.env.generated` cache, scaffolds the `.env` workload overlay when absent, never overwrites an existing overlay, `_scaffold_env_overlay` idempotent, legacy `.env` cache migrated to `.env.generated` + backed up, devel service emits `env_file: - .env`) | 6 |
 | #503 `_generate_runtime_dockerfile` ENV-bake primitive (injects `ENV` after `FROM ... AS runtime`, expands cross-refs, returns 1 with no runtime stage / empty `[environment]`) | 4 |
+| #504 `config/app/` dev bind-mount (`apply` binds `./config/app:/opt/app/config` when the dir is present, omits it when absent) | 2 |
 
 ### test/unit/tui_spec.bats (106)
 

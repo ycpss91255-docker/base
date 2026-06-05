@@ -422,7 +422,7 @@ into a field deployment that ships just the image:
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | inlined as `docker run` flags in a generated `deploy.sh` |
 | volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | baked `ENV` defaults (+ optional launcher `-e`) |
-| structured app **config** | bridge topic lists, pipeline definitions | an app config file/dir (e.g. `config/<repo>/*.yaml`) | bind-mounted (edit + restart, no rebuild) | `COPY`-baked into the image |
+| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked into the image |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults that get baked into the runtime image as
