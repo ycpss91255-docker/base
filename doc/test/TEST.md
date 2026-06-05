@@ -664,7 +664,7 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (70)
+### test/unit/compose_gen_spec.bats (82)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -703,6 +703,18 @@ env/volumes + extra volumes from `[volumes]` section.
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
+| `_resolve_docker_flags: no overrides => inherits all parent values (#505)` | inherit baseline |
+| `_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)` | gui force-off |
+| `_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)` | gui force-on |
+| `_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)` | gpu force-off |
+| `_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)` | gpu scalars |
+| `_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)` | runtime override |
+| `_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)` | runtime legacy alias |
+| `_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)` | runtime per-stage precedence |
+| `_resolve_docker_flags: network scalars + privileged override (#505)` | net + privileged |
+| `_resolve_docker_flags: list fields append to top by default (#505)` | list append |
+| `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
+| `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
 ### test/unit/compose_logging_spec.bats (32)
 
