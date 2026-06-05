@@ -193,7 +193,7 @@ _TUI_MSG_EN[devices.edit_cgroup]="Cgroup rules (device_cgroup_rules:)"
 _TUI_MSG_EN[devices.add_device]="Add device binding"
 _TUI_MSG_EN[devices.add_cgroup]="Add cgroup rule"
 _TUI_MSG_EN[devices.back]="Back to main menu"
-_TUI_MSG_EN[devices.device.prompt]=$'Device binding\n  - Format: <host>[:<container>[:rwm]]\n  - Empty = delete this entry\n  - Default: /dev:/dev (bind whole /dev tree)\n  - Example (single): /dev/video0:/dev/video0'
+_TUI_MSG_EN[devices.device.prompt]=$'Device binding\n  - Format: <host>[:<container>[:rwm]]\n  - Empty = delete this entry\n  - Example (whole tree): /dev:/dev\n  - Example (single): /dev/video0:/dev/video0'
 _TUI_MSG_EN[devices.cgroup.title]="Cgroup rules"
 _TUI_MSG_EN[devices.cgroup.menu]="Select an entry to edit, or Add a new cgroup rule"
 _TUI_MSG_EN[devices.cgroup.prompt]=$'Cgroup rule\n  - Format: <type> <major>:<minor|*> <perms>\n    type: c (char), b (block), a (all)\n    perms: any of r / w / m\n  - Empty = delete this entry\n  - Example (USB): c 189:* rwm\n  - Example (V4L2): c 81:* rwm'
@@ -411,7 +411,7 @@ _TUI_MSG_ZH_TW[devices.edit_cgroup]="Cgroup 規則（device_cgroup_rules:）"
 _TUI_MSG_ZH_TW[devices.add_device]="新增 device binding"
 _TUI_MSG_ZH_TW[devices.add_cgroup]="新增 cgroup rule"
 _TUI_MSG_ZH_TW[devices.back]="回主選單"
-_TUI_MSG_ZH_TW[devices.device.prompt]=$'Device 綁定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 刪除此項目\n  - 預設：/dev:/dev（綁定整個 /dev）\n  - 範例（單一）：/dev/video0:/dev/video0'
+_TUI_MSG_ZH_TW[devices.device.prompt]=$'Device 綁定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 刪除此項目\n  - 範例（整個 /dev）：/dev:/dev\n  - 範例（單一）：/dev/video0:/dev/video0'
 _TUI_MSG_ZH_TW[devices.cgroup.title]="Cgroup 規則"
 _TUI_MSG_ZH_TW[devices.cgroup.menu]="選擇項目編輯，或新增 cgroup 規則"
 _TUI_MSG_ZH_TW[devices.cgroup.prompt]=$'Cgroup 規則\n  - 格式：<type> <major>:<minor|*> <perms>\n    type: c（字元）、b（區塊）、a（全部）\n    perms: r / w / m 任意組合\n  - 留空 = 刪除此項目\n  - USB 範例：c 189:* rwm\n  - V4L2 範例：c 81:* rwm'
@@ -627,7 +627,7 @@ _TUI_MSG_ZH_CN[devices.edit_cgroup]="Cgroup 规则（device_cgroup_rules:）"
 _TUI_MSG_ZH_CN[devices.add_device]="新增 device binding"
 _TUI_MSG_ZH_CN[devices.add_cgroup]="新增 cgroup rule"
 _TUI_MSG_ZH_CN[devices.back]="回主菜单"
-_TUI_MSG_ZH_CN[devices.device.prompt]=$'Device 绑定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 删除此项目\n  - 默认：/dev:/dev（绑定整个 /dev）\n  - 示例（单一）：/dev/video0:/dev/video0'
+_TUI_MSG_ZH_CN[devices.device.prompt]=$'Device 绑定\n  - 格式：<host>[:<container>[:rwm]]\n  - 留空 = 删除此项目\n  - 示例（整个 /dev）：/dev:/dev\n  - 示例（单一）：/dev/video0:/dev/video0'
 _TUI_MSG_ZH_CN[devices.cgroup.title]="Cgroup 规则"
 _TUI_MSG_ZH_CN[devices.cgroup.menu]="选择项目编辑，或新增 cgroup 规则"
 _TUI_MSG_ZH_CN[devices.cgroup.prompt]=$'Cgroup 规则\n  - 格式：<type> <major>:<minor|*> <perms>\n    type: c（字符）、b（块）、a（全部）\n    perms: r / w / m 任意组合\n  - 留空 = 删除此项目\n  - USB 示例：c 189:* rwm\n  - V4L2 示例：c 81:* rwm'
@@ -838,7 +838,7 @@ _TUI_MSG_JA[devices.edit_cgroup]="Cgroup ルール (device_cgroup_rules:)"
 _TUI_MSG_JA[devices.add_device]="device binding を追加"
 _TUI_MSG_JA[devices.add_cgroup]="cgroup rule を追加"
 _TUI_MSG_JA[devices.back]="メインメニューへ戻る"
-_TUI_MSG_JA[devices.device.prompt]=$'デバイスバインド\n  - 形式: <host>[:<container>[:rwm]]\n  - 空 = この項目を削除\n  - デフォルト: /dev:/dev (/dev ツリー全体をバインド)\n  - 例 (単一): /dev/video0:/dev/video0'
+_TUI_MSG_JA[devices.device.prompt]=$'デバイスバインド\n  - 形式: <host>[:<container>[:rwm]]\n  - 空 = この項目を削除\n  - 例 (ツリー全体): /dev:/dev\n  - 例 (単一): /dev/video0:/dev/video0'
 _TUI_MSG_JA[devices.cgroup.title]="Cgroup ルール"
 _TUI_MSG_JA[devices.cgroup.menu]="編集する項目を選択、または cgroup ルールを追加"
 _TUI_MSG_JA[devices.cgroup.prompt]=$'Cgroup ルール\n  - 形式: <type> <major>:<minor|*> <perms>\n    type: c (文字)、b (ブロック)、a (全)\n    perms: r / w / m の任意組合せ\n  - 空 = この項目を削除\n  - USB 例: c 189:* rwm\n  - V4L2 例: c 81:* rwm'

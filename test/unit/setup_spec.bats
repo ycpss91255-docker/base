@@ -156,11 +156,27 @@ fi'
   assert_equal "${_n}" "0"
 }
 
-@test "template setup.conf ships [devices] device_1 = /dev:/dev by default" {
-  # Dev-friendly default: new repos get full /dev tree bound without
-  # needing to run TUI. Template source-of-truth.
+@test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
+  # #466 F2: /dev:/dev is no longer bound by default -- repos that need
+  # device access uncomment it or add via `setup.sh add devices.device`.
   run grep -E '^device_1 = /dev:/dev$' /source/config/docker/setup.conf
+  assert_failure
+  run grep -E '^# device_1 = /dev:/dev$' /source/config/docker/setup.conf
   assert_success
+}
+
+@test "[devices] opt-in (#466): empty section + slim template emits no devices block" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[devices]
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    devices:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
 @test "template setup.conf [deploy] enables ALL GPU capabilities by default" {
@@ -172,12 +188,12 @@ fi'
   assert_success
 }
 
-@test "[security] cap_add_* fallback: repo setup.conf with no cap_add_* uses template defaults" {
-  # Simulate a repo override that keeps privileged=false but wiped all
-  # cap_add_* entries. Expected behaviour: setup.sh falls back to the
-  # template's baseline (SYS_ADMIN / NET_ADMIN / MKNOD) so the container
-  # does not silently drop to Docker's stripped-down default capability
-  # set.
+@test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
+  # #466 F2: the template no longer ships cap_add_* defaults, so a repo
+  # with an empty [security] section (the omniverse case) falls back to a
+  # SLIM template and gets NO cap_add block -- privileges are opt-in, not
+  # silently inherited. Repos that need caps declare them explicitly
+  # (covered by the regression test below).
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
 privileged = false
@@ -189,14 +205,14 @@ EOF
   "
   assert_success
   run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
-  assert_success
-  run grep -F -- '- NET_ADMIN' "${TEMP_DIR}/compose.yaml"
-  assert_success
-  run grep -F -- '- MKNOD' "${TEMP_DIR}/compose.yaml"
-  assert_success
+  assert_failure
+  run grep -E '^    cap_add:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
-@test "[security] security_opt_* fallback: missing security_opt_* uses template defaults" {
+@test "[security] security_opt opt-in (#466): empty section + slim template emits no security_opt" {
+  # #466 F2: template no longer ships security_opt_1 = seccomp:unconfined,
+  # so an empty [security] section yields no security_opt block.
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
 privileged = false
@@ -206,6 +222,64 @@ EOF
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
+  assert_success
+  run grep -F -- '- seccomp:unconfined' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+  run grep -E '^    security_opt:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[security] opt-in via wrapper: setup.sh add security.cap_add then apply emits cap_add (#466)" {
+  # The slim template makes caps opt-in; the opt-in path is the wrapper,
+  # not hand-editing commented lines. `setup.sh add` writes the entry into
+  # the per-repo setup.conf, and the next apply emits it.
+  printf '[security]\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main add security.cap_add SYS_ADMIN --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[security] privileged defaults to false when key absent (#466 opt-in)" {
+  # A repo that declares [security] (e.g. for cap_add) but omits the
+  # privileged key must NOT silently get privileged=true. #466 flips the
+  # default to false so privilege is opt-in across the board.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[security]
+cap_add_1 = SYS_ADMIN
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^PRIVILEGED=false$' "${TEMP_DIR}/.env"
+  assert_success
+}
+
+@test "[security] opt-in still works via explicit declaration (#466 regression)" {
+  # Repos that need privileges declare them (e.g. via `setup.sh add
+  # security.cap_add SYS_ADMIN` or the TUI). The slim template only
+  # changes the DEFAULT -- an explicit cap_add must still emit.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[security]
+privileged = false
+cap_add_1 = SYS_ADMIN
+security_opt_1 = seccomp:unconfined
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -F -- '- SYS_ADMIN' "${TEMP_DIR}/compose.yaml"
   assert_success
   run grep -F -- '- seccomp:unconfined' "${TEMP_DIR}/compose.yaml"
   assert_success

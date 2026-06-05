@@ -3688,7 +3688,10 @@ _setup_apply() {
   _get_conf_value _net_k _net_v "ipc"              "host"    ipc_mode
   _get_conf_value _net_k _net_v "pid"              "private" pid_mode
   _get_conf_value _net_k _net_v "network_name"     ""        network_name
-  _get_conf_value _sec_k _sec_v "privileged"       "true" privileged
+  # #466: privileged is opt-in -- default false when the key is absent so a
+  # repo that declares [security] (e.g. for cap_add) without a privileged
+  # key does not silently run privileged.
+  _get_conf_value _sec_k _sec_v "privileged"       "false" privileged
 
   # ── WS_PATH + workspace mount ──
   #
