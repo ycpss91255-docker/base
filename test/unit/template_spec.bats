@@ -228,30 +228,13 @@ setup() {
   assert_success
 }
 
-@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
-  assert_success
-}
-
-@test "build.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/build.sh
-  assert_success
-}
-
-@test "run.sh routes compose calls through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "exec.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/exec.sh
-  assert_success
-}
-
-@test "stop.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/stop.sh
-  assert_success
-}
+# Wrapper -> compose dispatch is asserted behaviourally in
+# test/integration/wrapper_compose_dispatch_spec.bats (#490): each wrapper
+# is run with --dry-run and the planned `docker compose -p <project> <verb>`
+# is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
+# The old name-coupled greps for `_compose_project` here were removed —
+# they broke on every internal rename (#480 shim, #484 rename) and could
+# not catch a bypass.
 
 @test "exec.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/script/docker/wrapper/exec.sh
@@ -300,27 +283,10 @@ setup() {
   assert_success
 }
 
-@test "run.sh foreground installs trap to auto-down on exit (#440 renamed _app_cleanup)" {
-  # #386: trap installed centrally before the dispatch block so both devel
-  # and non-devel foreground paths get the cleanup; -d / --no-rm opt out.
-  # #440: renamed from _compose_cleanup to _app_cleanup since the handler
-  # now also runs the post-run hook before compose down.
-  run grep -E 'trap _app_cleanup EXIT' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "run.sh _app_cleanup uses --remove-orphans + short timeout (#440)" {
-  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
-  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
-  # period (user already exited the foreground shell — nothing to drain).
-  # #440: function renamed; behaviour unchanged.
-  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/wrapper/run.sh
-  assert_success
-}
+# run.sh foreground EXIT-trap cleanup (auto compose-down with
+# --remove-orphans -t 0) is asserted behaviourally in
+# wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
+# of grepping the `_app_cleanup` identifier (renamed in #440).
 
 @test "run.sh non-devel TARGET uses compose up (#458)" {
   # #458: non-devel stages unified to `compose up` so container_name takes

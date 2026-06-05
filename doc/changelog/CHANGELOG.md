@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Wrapper -> compose dispatch is now asserted behaviourally** — new `test/integration/wrapper_compose_dispatch_spec.bats` runs each wrapper (`build` / `run` / `exec` / `stop`) with `--dry-run` and checks the planned `docker compose -p <project> <verb>` (including the `-p` flag), replacing the name-coupled `_compose_project` / `_app_cleanup` greps in `template_spec.bats`. The behavioural assertions are immune to internal renames (which broke the old greps twice during the v0.40.0 cycle: #480's `_compose_dispatch` shim, #484's `_app_cleanup` rename) and additionally catch a raw-`docker compose` bypass (a missing `-p`) that a grep could not. Closes #490.
+
 ### Fixed
 - **`upgrade.sh` post-pull integrity check rewritten as R1+ (structural invariant + target match)** — `_verify_subtree_intact` no longer asserts specific files exist at hard-coded paths (the v0.39.0 reorg of `script/docker/setup.sh` -> `wrapper/setup.sh` tripped the legacy marker list and broke `make upgrade v0.39.0+` from any pre-v0.39.0 release; tested v0.34.1 reproducer rolled back at Step 2/5). The new check is path-agnostic: it verifies `${TEMPLATE_REL}/` is a non-empty directory, `${TEMPLATE_REL}/.version` exists and parses as semver, and the pulled version matches the caller's target (catches wrong-tag / wrong-remote pulls that pass the structural check but deliver the wrong thing). Sibling path-coupling regions in upgrade.sh (`init.sh` invocation, `config/` drift detection, Dockerfile lib auto-patch) are intentionally not covered here -- tracked in #492. Pre-v0.39.0 downstream repos still need a manual one-shot patch of their stale `.base/upgrade.sh` before they can reach a version carrying this fix. Closes #477.
 
