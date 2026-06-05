@@ -71,11 +71,12 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (343)
+### test/unit/setup_spec.bats (348)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
-(`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
-with replace strategy), image_name rule engine via `[image] rules`,
+(`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
+section merging (`_load_setup_conf` with replace strategy), image_name
+rule engine via `[image] rules`,
 resolvers (`_resolve_gpu`, `_resolve_gui`), workspace path detection,
 conf hash computation, drift detection, `write_env` (now including
 runtime values + SETUP_* metadata), the `main()` CLI, and workspace
@@ -85,7 +86,8 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 |----------|-------|
 | `detect_user_info` / `detect_hardware` / `detect_docker_hub_user` / `detect_gpu` / `detect_gui` | 11 |
 | `_is_ssh_x11` / `_setup_ssh_x11_cookie` (#321: 6 detection cases + cookie rewrite via stubbed xauth + warn on missing xauth + write_env XAUTHORITY override on/off) | 10 |
-| `_parse_ini_section` (section isolation, comments, trim, missing) | 6 |
+| `_parse_ini_section` (section isolation, comments, trim, missing, dotted-section non-absorption, dotted section read, dup/reopened order) | 9 |
+| `_ini_tokenize` (per-entry owning section + header dedup, dotted keys verbatim) | 2 |
 | `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
 | `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
 | `_resolve_gpu` / `_resolve_gui` | 7 |
