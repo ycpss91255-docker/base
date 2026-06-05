@@ -65,6 +65,86 @@ teardown() {
   assert_output "1"
 }
 
+# ── #482 top-level volumes: (Option A / D-Strict) ───────────────────────────
+
+@test "generate_compose_yaml named volume mount emits top-level volumes: stub (#482)" {
+  local _extras=('my_state:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^  my_state:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- my_state:/srv/state' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml bind mounts never enter top-level volumes: (#482)" {
+  # /, ./, ~/, ${ prefixes are all binds -> no top-level volumes block.
+  local _extras=('/var/log:/log' './data:/data' '~/.ssh:/home/u/.ssh:ro' '${WS_PATH}:/work')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml bind-only repo is zero-diff (no top-level volumes:) (#482)" {
+  # Critical: bind-only output must be unchanged for the 17 downstream repos.
+  local _extras=('${WS_PATH}:/home/${USER_NAME}/work')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml named volume with :mode strips mode from top-level name (#482)" {
+  local _extras=('my_state:/srv/state:rw')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # top-level stub has the bare name, no :rw
+  run grep -E '^  my_state:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^  my_state:rw' "${COMPOSE_OUT}"
+  assert_failure
+  # service level keeps the mode
+  run grep -F -- '- my_state:/srv/state:rw' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml dedups a named volume referenced twice (#482)" {
+  local _extras=('my_state:/srv/state' 'my_state:/srv/other:rw')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -c '^  my_state:$' "${COMPOSE_OUT}"
+  assert_output "1"
+}
+
+@test "generate_compose_yaml top-level volumes: stub has no driver/labels (#482)" {
+  local _extras=('my_state:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # the line after `  my_state:` must not be an indented driver/labels key
+  run grep -A1 '^  my_state:$' "${COMPOSE_OUT}"
+  refute_output --partial "driver"
+  refute_output --partial "labels"
+}
+
+@test "generate_compose_yaml emits volumes: before networks: (#482)" {
+  # network on -> both top-level blocks present; volumes precedes networks.
+  local _extras=('my_state:/srv/state')
+  NETWORK_MODE=bridge NETWORK_NAME=mynet \
+    generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+      "false" "false" "0" "gpu" _extras
+  if grep -qE '^networks:$' "${COMPOSE_OUT}"; then
+    local _vol_ln _net_ln
+    _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+    _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+    (( _vol_ln < _net_ln ))
+  else
+    skip "networks: not emitted in this invocation shape"
+  fi
+}
+
 @test "generate_compose_yaml emits workspace mount when present in extras" {
   # Workspace is now driven by [volumes] mount_1 (setup.sh writeback),
   # not a hard-coded baseline. Simulate the extras array containing a
