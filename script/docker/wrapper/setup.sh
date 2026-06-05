@@ -4034,6 +4034,19 @@ _setup_apply() {
   local -a extra_volumes=()
   _get_conf_list_sorted _vol_k _vol_v "mount_" extra_volumes
 
+  # S4 (#504): structured app-config channel. When the repo ships a
+  # config/app/ dir, dev-bind it into the container at a fixed path so
+  # structured runtime config (e.g. ros1_bridge bridge topics) is
+  # editable on the host with edit + restart, no rebuild. Convention over
+  # configuration: the directory's presence is the only switch (no
+  # setup.conf knob). The deploy flow (S6) COPY-bakes the same dir into
+  # the field image instead (immutable artifact, ADR-00000003 / #506).
+  # Emitted through the regular mount path so per-stage mount_inherit and
+  # the top-level volumes: classifier (#482, a ./ bind) apply uniformly.
+  if [[ -d "${_base_path}/config/app" ]]; then
+    extra_volumes+=("./config/app:/opt/app/config")
+  fi
+
   # ── Collect [devices] entries (device_*) ──
   local -a _devices_arr=()
   _get_conf_list_sorted _dev_k _dev_v "device_" _devices_arr

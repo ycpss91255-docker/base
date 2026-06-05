@@ -2663,6 +2663,27 @@ EOF
   assert_failure
 }
 
+# ════════════════════════════════════════════════════════════════════
+# config/app/ structured app-config dev bind-mount (S4, #504)
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply dev-binds config/app/ into the devel service when present (#504)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/config/app"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F './config/app:/opt/app/config' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "apply omits the config/app bind when the directory is absent (#504)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/opt/app/config' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
   rm -f "${TEMP_DIR}/config/docker/setup.conf" "${TEMP_DIR}/config/docker/setup.conf"
   run main reset --yes --base-path "${TEMP_DIR}"
