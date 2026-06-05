@@ -277,8 +277,8 @@ _ensure_env_loaded() {
     return 0
   fi
   _PRUNE_ENV_LOADED=1
-  if [[ -f "${FILE_PATH}/.env" ]]; then
-    _load_env "${FILE_PATH}/.env"
+  if [[ -f "${FILE_PATH}/.env.generated" ]]; then
+    _load_env "${FILE_PATH}/.env.generated"
   fi
 }
 

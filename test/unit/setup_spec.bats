@@ -487,7 +487,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -E '^PRIVILEGED=false$' "${TEMP_DIR}/.env"
+  run grep -E '^PRIVILEGED=false$' "${TEMP_DIR}/.env.generated"
   assert_success
 }
 
@@ -985,7 +985,7 @@ EOS
 # ════════════════════════════════════════════════════════════════════
 
 @test "write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)" {
-  local _env="${TEMP_DIR}/.env"
+  local _env="${TEMP_DIR}/.env.generated"
   # Pass all positional args incl. the new trailing _ssh_x11_xauth.
   write_env "${_env}" \
     alice alice 1000 1000 \
@@ -1003,7 +1003,7 @@ EOS
 }
 
 @test "write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)" {
-  local _env="${TEMP_DIR}/.env"
+  local _env="${TEMP_DIR}/.env.generated"
   write_env "${_env}" \
     alice alice 1000 1000 \
     x86_64 alice false myrepo /tmp/ws \
@@ -1596,7 +1596,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "write_env creates .env with all required variables and SETUP_* metadata" {
-  local _env="${TEMP_DIR}/.env"
+  local _env="${TEMP_DIR}/.env.generated"
   write_env "${_env}" \
     "testuser" "testgroup" "1001" "1001" \
     "x86_64" "dockerhub" "true" \
@@ -1645,7 +1645,7 @@ EOF
   # Prime .env by running a full setup cycle (write_env + _compute_conf_hash)
   local _h=""
   _compute_conf_hash "${TEMP_DIR}" _h
-  write_env "${TEMP_DIR}/.env" \
+  write_env "${TEMP_DIR}/.env.generated" \
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
@@ -1664,7 +1664,7 @@ EOF
 @test "_check_setup_drift returns non-zero when conf hash changes" {
   local _h_old=""
   _compute_conf_hash "${TEMP_DIR}" _h_old
-  write_env "${TEMP_DIR}/.env" \
+  write_env "${TEMP_DIR}/.env.generated" \
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
@@ -1691,7 +1691,7 @@ EOF
   local _h=""
   _compute_conf_hash "${TEMP_DIR}" _h
   # Store with GPU=false
-  write_env "${TEMP_DIR}/.env" \
+  write_env "${TEMP_DIR}/.env.generated" \
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
@@ -1825,7 +1825,7 @@ EOF
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/wrapper/setup.sh" apply
   assert_success
-  assert [ -f "${TEMP_DIR}/sandbox_repo/.env" ]
+  assert [ -f "${TEMP_DIR}/sandbox_repo/.env.generated" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1863,7 +1863,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
   assert [ -f "${TEMP_DIR}/compose.yaml" ]
 }
 
@@ -1881,7 +1881,7 @@ EOF
 @test "main check-drift returns 0 when nothing changed" {
   local _h=""
   _compute_conf_hash "${TEMP_DIR}" _h
-  write_env "${TEMP_DIR}/.env" \
+  write_env "${TEMP_DIR}/.env.generated" \
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
@@ -1898,7 +1898,7 @@ EOF
 @test "main check-drift returns non-zero when conf hash drifts" {
   local _h_old=""
   _compute_conf_hash "${TEMP_DIR}" _h_old
-  write_env "${TEMP_DIR}/.env" \
+  write_env "${TEMP_DIR}/.env.generated" \
     "user" "group" "$(id -u)" "$(id -g)" \
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
@@ -2107,15 +2107,15 @@ EOF
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
-  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
   local _before
-  _before="$(stat -c %Y "${TEMP_DIR}/.env")"
+  _before="$(stat -c %Y "${TEMP_DIR}/.env.generated")"
   # Wait one second so mtime resolution can register a difference if regen happened.
   sleep 1
   run main set network.mode host --base-path "${TEMP_DIR}"
   assert_success
   local _after
-  _after="$(stat -c %Y "${TEMP_DIR}/.env")"
+  _after="$(stat -c %Y "${TEMP_DIR}/.env.generated")"
   assert_equal "${_before}" "${_after}"
 }
 
@@ -2327,14 +2327,14 @@ EOF
 [volumes]
 mount_1 = /a:/a
 EOF
-  : > "${TEMP_DIR}/.env"
+  : > "${TEMP_DIR}/.env.generated"
   local _before
-  _before="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  _before="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
   sleep 1
   run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
   assert_success
   local _after
-  _after="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  _after="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
   assert_equal "${_before}" "${_after}"
 }
 
@@ -2507,29 +2507,29 @@ EOF
   assert_success
 }
 
-@test "main reset --yes backs up prior .env to .env.bak" {
+@test "main reset --yes backs up prior .env.generated to .env.generated.bak" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env"
+  printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env.generated"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/.env.bak" ]
-  run grep "IMAGE_NAME=customimg" "${TEMP_DIR}/.env.bak"
+  assert [ -f "${TEMP_DIR}/.env.generated.bak" ]
+  run grep "IMAGE_NAME=customimg" "${TEMP_DIR}/.env.generated.bak"
   assert_success
 }
 
 @test "main reset --yes does NOT regenerate .env" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  : > "${TEMP_DIR}/.env"
+  : > "${TEMP_DIR}/.env.generated"
   local _before
-  _before="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+  _before="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
   sleep 1
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
   # Either .env still has its prior mtime (file untouched), or it was
   # moved to .env.bak — but a fresh derived .env should NOT exist yet.
-  if [[ -f "${TEMP_DIR}/.env" ]]; then
+  if [[ -f "${TEMP_DIR}/.env.generated" ]]; then
     local _after
-    _after="$(stat -c '%Y' "${TEMP_DIR}/.env")"
+    _after="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
     assert_equal "${_before}" "${_after}"
   fi
 }
@@ -2547,6 +2547,76 @@ EOF
   run main reset --bogus --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown argument"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# .env.generated cache + .env workload overlay (A2 file roles, #502)
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply writes the derived cache to .env.generated (not .env)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply scaffolds a .env workload overlay when absent" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  refute [ -f "${TEMP_DIR}/.env" ]
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  # Scaffold carries guidance, not derived values (no SETUP_* metadata).
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "apply does NOT overwrite an existing hand-authored .env overlay" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run cat "${TEMP_DIR}/.env"
+  assert_output "ROS_DOMAIN_ID=42"
+}
+
+@test "apply migrates a legacy .env cache to .env.generated + backs it up" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  # Pre-#502 layout: .env IS the cache (carries the auto-gen marker) and
+  # .env.generated does not exist yet.
+  cat > "${TEMP_DIR}/.env" <<'EOF'
+IMAGE_NAME=legacycache
+SETUP_CONF_HASH=deadbeef
+EOF
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  # The stale cache is backed up and a fresh derived cache is written.
+  assert [ -f "${TEMP_DIR}/.env.bak" ]
+  run grep -E '^IMAGE_NAME=legacycache$' "${TEMP_DIR}/.env.bak"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  # .env is no longer the cache: it is the scaffolded overlay (no marker).
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "_scaffold_env_overlay is idempotent (never overwrites)" {
+  printf 'USER_KEY=keep\n' > "${TEMP_DIR}/.env"
+  run _scaffold_env_overlay "${TEMP_DIR}/.env"
+  assert_success
+  run cat "${TEMP_DIR}/.env"
+  assert_output "USER_KEY=keep"
+}
+
+@test "apply emits env_file: - .env on the devel service (#502 overlay)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  assert_output --partial "- .env"
 }
 
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
@@ -2683,8 +2753,8 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
-    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
-    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env'
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com"
@@ -2700,8 +2770,8 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
-    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
-    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env'
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "APT_MIRROR_UBUNTU=archive.ubuntu.com"
@@ -2719,8 +2789,8 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
-    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env'
-    grep '^TZ=' '${TEMP_DIR}/.env'
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^TZ=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "APT_MIRROR_UBUNTU=mirror.example.com"
@@ -2737,7 +2807,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
-    grep '^PYTHON_VERSION=' '${TEMP_DIR}/.env'
+    grep '^PYTHON_VERSION=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "PYTHON_VERSION=3.12"
@@ -2749,7 +2819,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^TARGET_ARCH=' '${TEMP_DIR}/.env'
+    grep '^TARGET_ARCH=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "TARGET_ARCH=arm64"
@@ -2762,7 +2832,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -c '^TARGET_ARCH=' '${TEMP_DIR}/.env'
+    grep -c '^TARGET_ARCH=' '${TEMP_DIR}/.env.generated'
   "
   # grep -c prints "0" and exits 1 when pattern missing; we want exactly that.
   assert_failure
@@ -2775,7 +2845,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
+    grep '^BUILD_NETWORK=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
   assert_output --partial "BUILD_NETWORK=host"
@@ -2787,7 +2857,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -c '^BUILD_NETWORK=' '${TEMP_DIR}/.env'
+    grep -c '^BUILD_NETWORK=' '${TEMP_DIR}/.env.generated'
   "
   assert_failure
   assert_output "0"
@@ -2838,7 +2908,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
-    grep '^WS_PATH=' '${_repo}/.env'
+    grep '^WS_PATH=' '${_repo}/.env.generated'
     grep '^mount_1' '${_repo}/config/docker/setup.conf'
   "
   assert_success
@@ -2865,7 +2935,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
-    grep '^WS_PATH=' '${_repo}/.env'
+    grep '^WS_PATH=' '${_repo}/.env.generated'
     grep '^mount_1' '${_repo}/config/docker/setup.conf'
   "
   assert_success
@@ -2893,7 +2963,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
-    grep '^WS_PATH=' '${_repo}/.env'
+    grep '^WS_PATH=' '${_repo}/.env.generated'
   "
   assert_success
   # Stale path does not leak into .env (apply regenerates from .local +
@@ -3114,7 +3184,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^NETWORK_MODE=' '${TEMP_DIR}/.env'
+    grep '^NETWORK_MODE=' '${TEMP_DIR}/.env.generated'
   "
   assert_output "NETWORK_MODE=host"
 }
@@ -3129,7 +3199,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^IPC_MODE=' '${TEMP_DIR}/.env'
+    grep '^IPC_MODE=' '${TEMP_DIR}/.env.generated'
   "
   assert_output "IPC_MODE=private"
 }
@@ -3145,7 +3215,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^PID_MODE=' '${TEMP_DIR}/.env'
+    grep '^PID_MODE=' '${TEMP_DIR}/.env.generated'
   "
   assert_output "PID_MODE=host"
 }
@@ -3160,7 +3230,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^PID_MODE=' '${TEMP_DIR}/.env'
+    grep '^PID_MODE=' '${TEMP_DIR}/.env.generated'
   "
   assert_output "PID_MODE=private"
 }
@@ -3422,7 +3492,7 @@ EOF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep '^PRIVILEGED=' '${TEMP_DIR}/.env'
+    grep '^PRIVILEGED=' '${TEMP_DIR}/.env.generated'
   "
   assert_output "PRIVILEGED=false"
 }
@@ -3890,7 +3960,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
-  run grep -E '^SETUP_DOCKERFILE_HASH=[a-f0-9]{64}$' "${TEMP_DIR}/.env"
+  run grep -E '^SETUP_DOCKERFILE_HASH=[a-f0-9]{64}$' "${TEMP_DIR}/.env.generated"
   assert_success
 }
 
@@ -3917,8 +3987,8 @@ EOF
   # drift sources stay quiet and we observe ONLY the Dockerfile drift.
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
-    detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env' 2>/dev/null || echo false)\"; }
-    detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env' 2>/dev/null || echo false)\"; }
+    detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
+    detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     _check_setup_drift '${TEMP_DIR}'
   "
   assert_failure
@@ -3953,8 +4023,8 @@ EOF
 
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
-    detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env' 2>/dev/null || echo false)\"; }
-    detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env' 2>/dev/null || echo false)\"; }
+    detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
+    detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     _check_setup_drift '${TEMP_DIR}'
   "
   assert_failure
@@ -4715,7 +4785,7 @@ EOC
   assert_output --partial "GPU_MODE=off"
   assert_output --partial "GPU_ENABLED=false"
   # And NO file was written.
-  [[ ! -f "${TEMP_DIR}/.env" ]]
+  [[ ! -f "${TEMP_DIR}/.env.generated" ]]
   [[ ! -f "${TEMP_DIR}/compose.yaml" ]]
 }
 

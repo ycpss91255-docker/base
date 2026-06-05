@@ -40,19 +40,19 @@ _msg_bootstrap() {
 
 _msg_drift() {
   case "${_LANG}:${1:?}" in
-    zh-TW:regen)  echo "重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:regen)  echo "重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
-    ja:regen)     echo ".env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:regen)      echo "regenerating .env / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:regen)  echo "重新產生 .env.generated / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env.generated / compose.yaml（setup.conf 已变更）" ;;
+    ja:regen)     echo ".env.generated / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:regen)      echo "regenerating .env.generated / compose.yaml (setup.conf drifted)" ;;
   esac
 }
 
 _msg_errors() {
   case "${_LANG}:${1:?}" in
-    zh-TW:no_env)            echo "setup 未產生 .env。" ;;
-    zh-CN:no_env)            echo "setup 未生成 .env。" ;;
-    ja:no_env)               echo "setup が .env を生成しませんでした。" ;;
-    *:no_env)                echo "setup did not produce .env." ;;
+    zh-TW:no_env)            echo "setup 未產生 .env.generated。" ;;
+    zh-CN:no_env)            echo "setup 未生成 .env.generated。" ;;
+    ja:no_env)               echo "setup が .env.generated を生成しませんでした。" ;;
+    *:no_env)                echo "setup did not produce .env.generated." ;;
     zh-TW:rerun_setup)       echo "請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
     zh-CN:rerun_setup)       echo "请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
     ja:rerun_setup)          echo "'./run.sh --setup' で再実行してエディタを開いてください。" ;;
@@ -533,7 +533,7 @@ main() {
   # without a .env.
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env" ]] \
+  elif [[ ! -f "${FILE_PATH}/.env.generated" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     _log_info run run_bootstrap "display=$(_msg bootstrap info)"
@@ -548,14 +548,14 @@ main() {
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
-  if [[ ! -f "${FILE_PATH}/.env" ]]; then
+  if [[ ! -f "${FILE_PATH}/.env.generated" ]]; then
     _log_err  run run_no_env "display=$(_msg errors no_env)"
     _log_info run run_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
   # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
-  _load_env "${FILE_PATH}/.env"
+  _load_env "${FILE_PATH}/.env.generated"
   _compute_project_name "${INSTANCE}"
 
   # Pre-run snapshot so the user can see which files + values this

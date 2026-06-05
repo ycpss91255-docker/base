@@ -349,8 +349,8 @@ main() {
     esac
   fi
 
-  # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
-  _load_env "${FILE_PATH}/.env"
+  # Load .env.generated, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
+  _load_env "${FILE_PATH}/.env.generated"
   _compute_project_name "${INSTANCE}"
 
   # Precheck: refuse with a friendly hint if the target container is not

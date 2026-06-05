@@ -438,7 +438,7 @@ setup() {
   # without docker on PATH so the precheck fails (no container can be found).
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
@@ -460,7 +460,7 @@ EOF
 @test "exec.sh --dry-run skips precheck and prints compose command" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$

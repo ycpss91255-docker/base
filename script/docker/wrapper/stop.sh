@@ -263,8 +263,8 @@ main() {
   done
   export DRY_RUN
 
-  # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
-  _load_env "${FILE_PATH}/.env"
+  # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available below.
+  _load_env "${FILE_PATH}/.env.generated"
 
   # #440: pre-stop hook fires after env load, before docker stop.
   # Skipped under --dry-run.

@@ -57,7 +57,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac
@@ -144,7 +144,7 @@ teardown() {
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "First run"
-  assert [ -f "${SANDBOX}/.env" ]
+  assert [ -f "${SANDBOX}/.env.generated" ]
 }
 
 @test "run.sh auto-regens .env / compose.yaml when drift detected" {
@@ -153,7 +153,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
@@ -183,7 +183,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac
@@ -200,7 +200,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
@@ -214,7 +214,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   rm -f "${SANDBOX}/config/docker/setup.conf"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
@@ -230,7 +230,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
@@ -406,7 +406,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   # Simulate a running container matching CONTAINER_NAME=${USER_NAME}-mockimg
   # (#322: container_name now includes USER_NAME prefix to disambiguate
   # per-OS-user on shared hosts).
@@ -530,7 +530,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   # #322: container_name now includes USER_NAME prefix.
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang zh-TW
@@ -543,7 +543,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   # #322: container_name now includes USER_NAME prefix.
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang ja
@@ -560,7 +560,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
@@ -576,7 +576,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
@@ -593,7 +593,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
@@ -608,7 +608,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
@@ -627,7 +627,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   cat > "${BIN_DIR}/docker" <<'EOS'
@@ -657,7 +657,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
@@ -672,7 +672,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=true
@@ -691,7 +691,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
 
