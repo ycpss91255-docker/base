@@ -358,6 +358,9 @@ two derived artifacts.
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
+[lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
+           default no; on devel (extends:devel stages inherit). Avoid
+           always/unless-stopped on stages that exit 0 (infinite restart).
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none), ipc, pid (host|private), privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
