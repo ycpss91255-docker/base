@@ -247,10 +247,12 @@ Constraints:
   digit / dot etc. are rejected (WARN + skip; the rest of the parse
   continues).
 - Names colliding with the baseline (`sys` / `devel-base` / `devel`
-  / `devel-test` / `runtime-test`, plus legacy aliases `base` / `test`
-  during the v0.21.x transition) are a hard error from `setup.sh
-  apply`. So are names colliding with the template-controlled
-  image-tag namespace (`latest`, `v[0-9]*`).
+  / `runtime-test`, plus legacy aliases `base` / `test` during the
+  v0.21.x transition) are a hard error from `setup.sh apply`. So are
+  names colliding with the template-controlled image-tag namespace
+  (`latest`, `v[0-9]*`). `devel-test` is **not** a collision — it is
+  emitted as the `test` service through the per-stage model (#493, see
+  below).
 - Adding / removing a stage triggers `setup.sh check-drift` (via
   `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
@@ -310,7 +312,16 @@ Notes:
 
 - `[stage:devel]` is **reserved** (v1 no-op + WARN). Edit top-level
   sections to tune devel. Revisit in v2.
-- `[stage:sys|base|test]` is a **hard error** (baseline collision).
+- `[stage:devel-test]` (#493) is the override surface for the **`test`
+  service** (the `devel-test` Dockerfile stage). By default `test`
+  `extends: devel` and inherits its runtime config; declare
+  `[stage:devel-test]` to diverge — e.g. `deploy.gpu_mode = force` to
+  give GPU-requiring runtime tests (Isaac Sim pytest) a GPU even when
+  devel has none. The service name stays `test` (`./script/exec.sh -t
+  test` unchanged); `build.target` stays `devel-test`.
+- `[stage:sys|base|test]` is a **hard error** (baseline collision) —
+  use `[stage:devel-test]` to control the test service, not
+  `[stage:test]`.
 - `[stage:foo]` referencing a stage absent from the Dockerfile is
   **WARN + skipped** (the rest of `setup.sh apply` continues).
 - Override keys outside the allowlist are **WARN + skipped per-key**.

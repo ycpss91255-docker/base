@@ -980,10 +980,16 @@ _validate_stage_name() {
   # collision.
 
   # 1. baseline collision (template-managed stages)
-  #    Forward-looking: sys / devel-base / devel / devel-test / runtime-test
+  #    Forward-looking: sys / devel-base / devel / runtime-test
   #    Legacy (backward-compat during v0.21.x transition): base / test
+  #    #493 (A1'-b): `devel-test` is NOT in this set — it is emitted as a
+  #    compose service (legacy name `test`) through the per-stage
+  #    inherit-with-override loop, so `[stage:devel-test]` gives it a
+  #    runtime control surface (e.g. GPU pytest). The service name `test`
+  #    stays blocklisted below so a Dockerfile `AS test` can't collide
+  #    with devel-test's emitted service.
   case "${_stage}" in
-    sys|devel-base|devel|devel-test|runtime-test) return 2 ;;
+    sys|devel-base|devel|runtime-test) return 2 ;;
     base|test) return 2 ;;
   esac
   # 2. reserved tag namespace (template-controlled tag slots)
@@ -1026,7 +1032,7 @@ _parse_dockerfile_stages() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      sys|devel-base|devel|devel-test|runtime-test) continue ;;
+      sys|devel-base|devel|runtime-test) continue ;;
       base|test) continue ;;
     esac
     case "${_seen}" in
@@ -2026,6 +2032,14 @@ YAML
 
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
+      # #493 (A1'-b): devel-test is emitted under the legacy service
+      # name `test` (preserves `make exec -t test`, the `:test` image
+      # tag, the `test` profile, and [logging.test] keying). All other
+      # stages use their own name. build.target and the
+      # [stage:<name>] override lookup stay on the real Dockerfile
+      # stage name `_emit_stage` (= devel-test).
+      local _svc="${_emit_stage}"
+      [[ "${_emit_stage}" == "devel-test" ]] && _svc="test"
       # Load + filter [stage:<name>] overrides for this stage.
       local -a _so_keys=() _so_values=()
       _load_stage_overrides "${_setup_base}" "${_emit_stage}" _so_keys _so_values
@@ -2049,7 +2063,7 @@ YAML
       if (( ! _has_overrides )); then
         cat <<YAML
 
-  ${_emit_stage}:
+  ${_svc}:
     extends:
       service: devel
     build:
@@ -2059,12 +2073,12 @@ YAML
 YAML
         _emit_additional_contexts_block
         cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
-      - ${_emit_stage}
+      - ${_svc}
 YAML
         # #328 / #367: per-stage LOG_FILE_PATH + volume mount when
         # [logging] / [logging.<stage>] local_path is set. compose's
@@ -2076,10 +2090,10 @@ YAML
         # identical bind strings (#367 Option A: emit uniformly on
         # every service block, no extends-relationship detection).
         local _stage_llp=""
-        _logging_svc_local_path_mount "${_emit_stage}" _stage_llp
+        _logging_svc_local_path_mount "${_svc}" _stage_llp
         if [[ -n "${_stage_llp}" ]]; then
           echo "    environment:"
-          echo "      - LOG_FILE_PATH=/var/log/${_name}/${_emit_stage}.log"
+          echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
           echo "    volumes:"
           echo "      - ${_stage_llp}"
         fi
@@ -2089,8 +2103,8 @@ YAML
         # sub-keys so devel's logging block carries over -- emit
         # only when the stage actually diverges from devel.
         if [[ -n "${_logging_per_svc_str}" ]] && \
-           grep -qE "^${_emit_stage}:" <<< "${_logging_per_svc_str}"; then
-          _emit_logging_block "${_emit_stage}"
+           grep -qE "^${_svc}:" <<< "${_logging_per_svc_str}"; then
+          _emit_logging_block "${_svc}"
         fi
         continue
       fi
@@ -2160,7 +2174,7 @@ YAML
 
       cat <<YAML
 
-  ${_emit_stage}:
+  ${_svc}:
     build:
       context: .
       dockerfile: Dockerfile
@@ -2181,12 +2195,12 @@ YAML
       _emit_target_arch_line
       _emit_user_build_args
       cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
-      - ${_emit_stage}
+      - ${_svc}
 YAML
       # privileged: literal when stage overrides; else env-var ref
       # (same shape devel emits — .env's PRIVILEGED applies).
@@ -2264,9 +2278,9 @@ YAML
       # environment: GUI baseline (effective gui) + effective env list
       # + #328 LOG_FILE_PATH for the per-stage tee target.
       local _stage_llp=""
-      _logging_svc_local_path_mount "${_emit_stage}" _stage_llp
+      _logging_svc_local_path_mount "${_svc}" _stage_llp
       local _stage_log_file=""
-      [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_emit_stage}.log"
+      [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
       if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
         echo "    environment:"
         if [[ "${_eff_gui}" == "true" ]]; then
@@ -2383,49 +2397,17 @@ YAML
       # Stage emits a standalone block (no `extends: devel`), so it
       # carries no inherited logging — always emit the effective
       # logging block when [logging] or [logging.<stage>] is set.
-      _emit_logging_block "${_emit_stage}"
+      # Keyed by the service name (`_svc`) so devel-test's logging stays
+      # under [logging.test] (#493).
+      _emit_logging_block "${_svc}"
     done
 
-    cat <<YAML
+    # #493 (A1'-b): the `test` service is no longer a hardcoded bare
+    # block here — devel-test flows through the per-stage loop above
+    # (emitted under the legacy service name `test` via `_svc`), so it
+    # inherits devel by default and honours [stage:devel-test] overrides
+    # like any other non-baseline stage.
 
-  test:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: devel-test
-YAML
-    _emit_additional_contexts_block
-    _emit_build_network_line
-    cat <<YAML
-      args:
-        APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
-        APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
-        TZ: \${TZ:-Asia/Taipei}
-        USER_NAME: \${USER_NAME}
-        USER_GROUP: \${USER_GROUP}
-        USER_UID: \${USER_UID}
-        USER_GID: \${USER_GID}
-YAML
-    _emit_target_arch_line
-    _emit_user_build_args
-    cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:test
-    profiles:
-      - test
-YAML
-    # #328: [logging.test] local_path emits a host bind mount onto
-    # the test service. test has no other volumes / environment block
-    # by default, so both blocks are gated on local_path being set on
-    # this service.
-    local _test_llp=""
-    _logging_svc_local_path_mount test _test_llp
-    if [[ -n "${_test_llp}" ]]; then
-      echo "    environment:"
-      echo "      - LOG_FILE_PATH=/var/log/${_name}/test.log"
-      echo "    volumes:"
-      echo "      - ${_test_llp}"
-    fi
-    _emit_logging_block test
     # #482: top-level volumes: declaration for any named volumes referenced
     # by devel or a stage. Emitted before networks: (top-level section order).
     # No-op (zero-diff) when only bind mounts are used.
