@@ -943,3 +943,296 @@ DOCK
   run grep -E '^  runtime:' "${COMPOSE_OUT}"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _resolve_docker_flags — single per-stage flag-resolution layer (#505)
+#
+# Resolves one stage's effective docker flags from its [stage:*]
+# overrides (already filtered to the allowlist) layered over the parent
+# (devel / top-level) already-resolved values. The ONE resolution layer
+# both the compose renderer (generate_compose_yaml per-stage loop) and
+# the deploy renderer (S6 #506, runtime stage) call, so the two never
+# drift. Modes (gui/gpu) inherit the parent's resolved boolean unless
+# the stage forces off/force — no per-stage hardware re-detection.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_resolve_docker_flags: no overrides => inherits all parent values (#505)" {
+  local -a _k=() _v=()
+  local -A _parent=(
+    [gui]="true" [gpu]="true" [gpu_count]="2" [gpu_caps]="gpu compute"
+    [runtime]="nvidia" [net_mode]="bridge" [ipc_mode]="host"
+    [pid_mode]="private" [net_name]="mynet"
+    [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]=$'9000:9000'
+  )
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "true"
+  assert_equal "${_eff[gpu]}" "true"
+  assert_equal "${_eff[gpu_count]}" "2"
+  assert_equal "${_eff[gpu_caps]}" "gpu compute"
+  assert_equal "${_eff[runtime]}" "nvidia"
+  assert_equal "${_eff[net_mode]}" "bridge"
+  assert_equal "${_eff[ipc_mode]}" "host"
+  assert_equal "${_eff[pid_mode]}" "private"
+  assert_equal "${_eff[net_name]}" "mynet"
+  assert_equal "${_eff[privileged]}" ""
+  assert_equal "${_eff[volumes]}" "./a:/a"
+  assert_equal "${_eff[environment]}" "TOP=1"
+  assert_equal "${_eff[ports]}" "9000:9000"
+}
+
+@test "_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)" {
+  local -a _k=("gui.mode") _v=("off")
+  local -A _parent=([gui]="true" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "false"
+}
+
+@test "_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)" {
+  local -a _k=("gui.mode") _v=("force")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "true"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)" {
+  local -a _k=("deploy.gpu_mode") _v=("off")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="2" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gpu]}" "false"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)" {
+  local -a _k=("deploy.gpu_count" "deploy.gpu_capabilities") _v=("4" "compute utility")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="1" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gpu_count]}" "4"
+  assert_equal "${_eff[gpu_caps]}" "compute utility"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)" {
+  local -a _k=("deploy.gpu_runtime") _v=("nvidia")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)" {
+  # Pre-existing per-stage precedence preserved byte-for-byte by the #505
+  # refactor: when BOTH keys appear under [stage:*], deploy.gpu_runtime is
+  # resolved first (with the parent as fallback), then the legacy
+  # deploy.runtime is resolved with that result as ITS fallback -- so a
+  # present deploy.runtime wins. (This per-stage edge case differs from the
+  # global resolution where gpu_runtime wins; left unchanged here because
+  # S5 is a byte-identical refactor, not a behaviour change.)
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "off"
+}
+
+@test "_resolve_docker_flags: network scalars + privileged override (#505)" {
+  local -a _k=("network.mode" "network.ipc" "network.pid" "network.network_name" "security.privileged") \
+           _v=("bridge" "private" "host" "altnet" "true")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="default" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[net_mode]}" "bridge"
+  assert_equal "${_eff[ipc_mode]}" "private"
+  assert_equal "${_eff[pid_mode]}" "host"
+  assert_equal "${_eff[net_name]}" "altnet"
+  assert_equal "${_eff[privileged]}" "true"
+}
+
+@test "_resolve_docker_flags: list fields append to top by default (#505)" {
+  local -a _k=("volumes.mount_1" "environment.env_1" "network.port_1") \
+           _v=("./b:/b" "STAGE=1" "8080:80")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="bridge" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]=$'9000:9000')
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[volumes]}" $'./a:/a\n./b:/b'
+  assert_equal "${_eff[environment]}" $'TOP=1\nSTAGE=1'
+  assert_equal "${_eff[ports]}" $'9000:9000\n8080:80'
+}
+
+@test "_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)" {
+  local -a _k=("volumes.mount_inherit" "volumes.mount_1" "environment.env_inherit" "environment.env_1") \
+           _v=("false" "./only:/only" "false" "ONLY=1")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[volumes]}" "./only:/only"
+  assert_equal "${_eff[environment]}" "ONLY=1"
+}
+
+@test "generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)" {
+  # Full-file golden master guarding the #505 refactor: the per-stage
+  # resolution now flows through the single _resolve_docker_flags layer.
+  # The fixture exercises a [stage:headless] override hitting every
+  # branch -- gui off, gpu off, ipc override (shm emit), privileged
+  # override, runtime inherit, net inherit, env replace, volume replace,
+  # port append -- so any drift in the assembled compose.yaml fails here.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS headless
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:headless]
+gui.mode = off
+deploy.gpu_mode = off
+network.ipc = private
+security.privileged = true
+volumes.mount_inherit = false
+volumes.mount_1 = ./hl-data:/data
+environment.env_inherit = false
+environment.env_1 = HEADLESS=1
+network.port_1 = 8080:80
+CONF
+  local _extras=('./ws:/workspace' 'state_vol:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "true" "1" "gpu compute" \
+    _extras "mynet" \
+    "" \
+    $'TOP_ENV=1' "" $'9000:9000' \
+    "256m" "bridge" "host" "private" \
+    "" "" "" \
+    "" \
+    "" \
+    "" \
+    "host" \
+    "nvidia" \
+    "" \
+    "" \
+    "" \
+    "no" \
+    ""
+  cat > "${TEMP_DIR}/expected.yaml" <<'GOLDEN'
+# AUTO-GENERATED BY setup.sh — DO NOT EDIT.
+# Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
+name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+services:
+  devel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel
+      network: host
+      args:
+        APT_MIRROR_UBUNTU: ${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: ${TZ:-Asia/Taipei}
+        USER_NAME: ${USER_NAME}
+        USER_GROUP: ${USER_GROUP}
+        USER_UID: ${USER_UID}
+        USER_GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER:-local}/myrepo:devel
+    container_name: ${USER_NAME}-myrepo${INSTANCE_SUFFIX:-}
+    privileged: ${PRIVILEGED}
+    ipc: ${IPC_MODE}
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    runtime: nvidia
+    networks:
+      - mynet
+    environment:
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+      - XAUTHORITY=${XAUTHORITY:-}
+      - TOP_ENV=1
+    ports:
+      - "9000:9000"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
+      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+      - ./ws:/workspace
+      - state_vol:/srv/state
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute]
+
+  test:
+    extends:
+      service: devel
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel-test
+    image: ${DOCKER_HUB_USER:-local}/myrepo:test
+    container_name: ${USER_NAME}-myrepo-test${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - test
+
+  headless:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: headless
+      network: host
+      args:
+        APT_MIRROR_UBUNTU: ${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: ${TZ:-Asia/Taipei}
+        USER_NAME: ${USER_NAME}
+        USER_GROUP: ${USER_GROUP}
+        USER_UID: ${USER_UID}
+        USER_GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER:-local}/myrepo:headless
+    container_name: ${USER_NAME}-myrepo-headless${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - headless
+    env_file:
+      - .env
+    privileged: true
+    ipc: private
+    runtime: nvidia
+    networks:
+      - mynet
+    environment:
+      - HEADLESS=1
+    ports:
+      - "9000:9000"
+      - "8080:80"
+    volumes:
+      - ./hl-data:/data
+    shm_size: 256m
+
+volumes:
+  state_vol:
+
+networks:
+  mynet:
+    driver: bridge
+GOLDEN
+  run diff -u "${TEMP_DIR}/expected.yaml" "${COMPOSE_OUT}"
+  assert_success
+}

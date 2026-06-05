@@ -1321,6 +1321,89 @@ _resolve_stage_list() {
   fi
 }
 
+# _resolve_docker_flags <stage_keys> <stage_values> <parent_assoc> <out_assoc>
+#
+# THE single per-stage docker-flag resolution layer (#505). Given one
+# stage's [stage:<name>] overrides (already filtered to the allowlist)
+# layered over the parent (devel / top-level) already-resolved values,
+# it computes the stage's effective docker flags into <out_assoc>.
+#
+# Both renderers call this so per-stage semantics never drift:
+#   - the compose renderer (generate_compose_yaml's per-stage loop), and
+#   - the deploy renderer (S6 #506), which resolves the runtime stage's
+#     flags to emit a field docker-run launcher.
+#
+# Modes (gui / gpu) inherit the parent's already-resolved boolean unless
+# the stage forces off / force — per-stage does NOT re-detect hardware
+# (that host-specific detection is the global resolution's job, upstream
+# of this layer). Other scalars fall back to the parent's effective
+# value; list fields (volumes / environment / ports) delegate to
+# _resolve_stage_list (append-by-default, replace on `*_inherit = false`).
+#
+# Args:
+#   $1 stage_keys    (array ref)  filtered [stage:*] override keys
+#   $2 stage_values  (array ref)  parallel override values
+#   $3 parent        (assoc ref)  parent fallbacks + top-level lists:
+#        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
+#        net_name volumes_top env_top ports_top
+#   $4 out           (assoc ref)  effective record, keys:
+#        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
+#        net_name privileged volumes environment ports
+_resolve_docker_flags() {
+  local -n _rdf_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
+  local -n _rdf_values="${2:?"${FUNCNAME[0]}: missing values array"}"
+  local -n _rdf_parent="${3:?"${FUNCNAME[0]}: missing parent assoc"}"
+  local -n _rdf_out="${4:?"${FUNCNAME[0]}: missing out assoc"}"
+  local _mode _tmp
+
+  # gui / gpu: off|force decide outright; anything else (incl. absent or
+  # "auto") inherits the parent's already-resolved boolean. Assoc-array
+  # subscripts are quoted as string literals so ShellCheck does not read
+  # them as arithmetic variable references (SC2154) -- _rdf_out is a
+  # nameref, so ShellCheck cannot infer it is associative.
+  _resolve_stage_scalar _rdf_keys _rdf_values "gui.mode" "" _mode
+  case "${_mode}" in
+    off)   _rdf_out["gui"]="false" ;;
+    force) _rdf_out["gui"]="true" ;;
+    *)     _rdf_out["gui"]="${_rdf_parent["gui"]}" ;;
+  esac
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_mode" "" _mode
+  case "${_mode}" in
+    off)   _rdf_out["gpu"]="false" ;;
+    force) _rdf_out["gpu"]="true" ;;
+    *)     _rdf_out["gpu"]="${_rdf_parent["gpu"]}" ;;
+  esac
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_count" "${_rdf_parent["gpu_count"]}" _tmp
+  _rdf_out["gpu_count"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_capabilities" "${_rdf_parent["gpu_caps"]}" _tmp
+  _rdf_out["gpu_caps"]="${_tmp}"
+
+  # #481: gpu_runtime primary, legacy deploy.runtime alias as fallback.
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "${_rdf_parent["runtime"]}" _tmp
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "${_tmp}" _tmp
+  _rdf_out["runtime"]="${_tmp}"
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.mode" "${_rdf_parent["net_mode"]}" _tmp
+  _rdf_out["net_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.ipc" "${_rdf_parent["ipc_mode"]}" _tmp
+  _rdf_out["ipc_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.pid" "${_rdf_parent["pid_mode"]}" _tmp
+  _rdf_out["pid_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.network_name" "${_rdf_parent["net_name"]}" _tmp
+  _rdf_out["net_name"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "security.privileged" "" _tmp
+  _rdf_out["privileged"]="${_tmp}"
+
+  _resolve_stage_list _rdf_keys _rdf_values "volumes.mount_" "volumes.mount_inherit" "${_rdf_parent["volumes_top"]}" _tmp
+  _rdf_out["volumes"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "environment.env_" "environment.env_inherit" "${_rdf_parent["env_top"]}" _tmp
+  _rdf_out["environment"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "network.port_" "network.port_inherit" "${_rdf_parent["ports_top"]}" _tmp
+  _rdf_out["ports"]="${_tmp}"
+}
+
 # _parse_logging_svc_sections / _collect_logging moved to
 # lib/conf_logging.sh in #402 (PR-A) so both setup.sh and the
 # upcoming PR-B gitignore sync (lib/gitignore.sh) can share them
@@ -2214,47 +2297,46 @@ YAML
         continue
       fi
 
-      # Resolve effective per-stage values. For modes (gui / gpu),
-      # absent or "auto" inherits the parent's already-resolved boolean
-      # — we don't re-detect inside the stage. For other scalars, the
-      # parent's effective value is the fallback.
-      local _eff_gui_mode _eff_gui
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "gui.mode" "" _eff_gui_mode
-      case "${_eff_gui_mode}" in
-        off)   _eff_gui="false" ;;
-        force) _eff_gui="true" ;;
-        *)     _eff_gui="${_gui}" ;;
-      esac
-
-      local _eff_gpu_mode _eff_gpu
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_mode" "" _eff_gpu_mode
-      case "${_eff_gpu_mode}" in
-        off)   _eff_gpu="false" ;;
-        force) _eff_gpu="true" ;;
-        *)     _eff_gpu="${_gpu}" ;;
-      esac
-
-      local _eff_gpu_count _eff_gpu_caps _eff_runtime
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_count" "${_gpu_count}" _eff_gpu_count
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
-      # #481: gpu_runtime primary, legacy deploy.runtime alias as fallback.
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_runtime" "${_runtime}" _eff_runtime
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_eff_runtime}" _eff_runtime
-
-      local _eff_net_mode _eff_ipc_mode _eff_pid_mode _eff_net_name _eff_privileged
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.ipc" "${_ipc_mode}" _eff_ipc_mode
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.pid" "${_pid_mode}" _eff_pid_mode
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.network_name" "${_net_name}" _eff_net_name
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "security.privileged" "" _eff_privileged
-
-      local _eff_volumes _eff_environment _eff_ports
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "volumes.mount_" "volumes.mount_inherit" "${_top_volumes_str}" _eff_volumes
+      # Resolve effective per-stage docker flags through the single
+      # shared resolution layer (#505). The deploy renderer (S6 #506)
+      # calls the same _resolve_docker_flags for the runtime stage, so
+      # the two renderers never drift. Modes (gui / gpu) inherit the
+      # parent's already-resolved boolean unless the stage forces
+      # off / force — no per-stage hardware re-detection. The resolved
+      # record is unpacked into the existing _eff_* locals so the emit
+      # blocks below stay untouched.
+      local -A _dflags_parent=(
+        [gui]="${_gui}"
+        [gpu]="${_gpu}"
+        [gpu_count]="${_gpu_count}"
+        [gpu_caps]="${_gpu_caps}"
+        [runtime]="${_runtime}"
+        [net_mode]="${_net_mode}"
+        [ipc_mode]="${_ipc_mode}"
+        [pid_mode]="${_pid_mode}"
+        [net_name]="${_net_name}"
+        [volumes_top]="${_top_volumes_str}"
+        [env_top]="${_env_str}"
+        [ports_top]="${_ports_str}"
+      )
+      local -A _dflags_eff=()
+      _resolve_docker_flags _so_filtered_keys _so_filtered_values _dflags_parent _dflags_eff
+      local _eff_gui="${_dflags_eff[gui]}"
+      local _eff_gpu="${_dflags_eff[gpu]}"
+      local _eff_gpu_count="${_dflags_eff[gpu_count]}"
+      local _eff_gpu_caps="${_dflags_eff[gpu_caps]}"
+      local _eff_runtime="${_dflags_eff[runtime]}"
+      local _eff_net_mode="${_dflags_eff[net_mode]}"
+      local _eff_ipc_mode="${_dflags_eff[ipc_mode]}"
+      local _eff_pid_mode="${_dflags_eff[pid_mode]}"
+      local _eff_net_name="${_dflags_eff[net_name]}"
+      local _eff_privileged="${_dflags_eff[privileged]}"
+      local _eff_volumes="${_dflags_eff[volumes]}"
+      local _eff_environment="${_dflags_eff[environment]}"
+      local _eff_ports="${_dflags_eff[ports]}"
       # #482: pick up any named volumes this stage introduces (a per-stage
       # mount_* override may add one the top-level list lacks).
       _collect_named_volumes _named_vols "${_eff_volumes}"
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
 
       # ── Standalone emit (#220 v0.18.1 fix) ──────────────────────────
       #
