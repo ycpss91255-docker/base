@@ -2619,6 +2619,50 @@ EOF
   assert_output --partial "- .env"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# .Dockerfile.generated: [environment] baked as runtime-stage ENV (S3, #503)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_generate_runtime_dockerfile injects ENV after FROM ... AS runtime" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  cat > "${_df}" <<'EOF'
+FROM ubuntu AS sys
+FROM sys AS devel
+FROM ubuntu AS runtime
+USER app
+EOF
+  run _generate_runtime_dockerfile "${_df}" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug' "${_out}"
+  assert_success
+  assert [ -f "${_out}" ]
+  run cat "${_out}"
+  assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
+  assert_output --partial 'ENV LOG_LEVEL="debug"'
+}
+
+@test "_generate_runtime_dockerfile expands cross-refs in baked ENV" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS runtime\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" $'NS=robot\nTOPIC=${NS}/cmd' "${_out}"
+  assert_success
+  run grep -E '^ENV TOPIC=' "${_out}"
+  assert_output 'ENV TOPIC="robot/cmd"'
+}
+
+@test "_generate_runtime_dockerfile returns 1 when no runtime stage" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS sys\nFROM sys AS devel\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" 'ROS_DOMAIN_ID=42' "${_out}"
+  assert_failure
+  refute [ -f "${_out}" ]
+}
+
+@test "_generate_runtime_dockerfile returns 1 when [environment] empty" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS runtime\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" '' "${_out}"
+  assert_failure
+}
+
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
   rm -f "${TEMP_DIR}/config/docker/setup.conf" "${TEMP_DIR}/config/docker/setup.conf"
   run main reset --yes --base-path "${TEMP_DIR}"
