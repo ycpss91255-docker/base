@@ -125,6 +125,12 @@ flowchart LR
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/unit/` | Template self-tests (bats + kcov) |
 | `test/integration/` | Level-1 `init.sh` end-to-end tests |
+
+Multi-tool downstream repos (e.g. `.bats` + `pytest` in one category)
+segregate by a `<tool>` subdir -- `test/<category>/<tool>/` (e.g.
+`test/smoke/bats/`, `test/smoke/pytest/`). Single-tool repos stay flat.
+See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
+
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.). Sub-cmds forward positionally (`make build test`); flags need `--` separator (`make build -- --no-cache test`). `make` no-arg prints help (`.DEFAULT_GOAL := help`). |
 | `Makefile.ci` | Template CI entry (`make -f Makefile.ci test`, `make -f Makefile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
