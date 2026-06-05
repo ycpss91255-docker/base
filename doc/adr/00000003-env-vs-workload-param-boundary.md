@@ -90,6 +90,25 @@ rebuild?) is the tie-breaker for grey cases.
 `make` / wrappers. This is precisely what frees the `.env` name to be
 repurposed.
 
+## Parameter routing (usage)
+
+Where a given parameter lives follows axis A ("does it change when you
+switch machines?"). Three channels, distinguished by *kind* of value:
+
+| Parameter kind | Where it lives | Dev host | Field |
+|---|---|---|---|
+| machine-bound / set-once (GPU, `privileged`, mounts, `IMAGE_NAME`, APT mirror) | `setup.conf` (committed) | rendered into `compose.yaml` | inlined as `docker run` flags in the generated `deploy.sh` |
+| volatile workload **env vars** (`ROS_DOMAIN_ID`, `LOG_LEVEL`, tokens) | `.env` overlay (hand-authored, gitignored) | `env_file: [.env.generated, .env]`, later wins | baked `ENV` defaults + optional `deploy.sh -e` |
+| structured app **config** (bridge topics, pipeline lists) | an app config file/dir (e.g. `config/<repo>/*.yaml`) | bind-mounted into the container (edit + restart, no rebuild) | `COPY`-baked into the image |
+
+The third channel is distinct from the `.env` overlay: the overlay
+carries flat `KEY=VALUE` env vars only; structured config goes to its own
+file and follows the immutable-image bake model of ADR-00000001 (dev
+bind-mount for fast iteration, deploy-time bake for a self-contained
+field image). Concrete use-case examples (which env var goes where for a
+given repo) live in the README, not here -- this records the routing
+*decision*, not a tutorial.
+
 ## Alternatives
 
 - **A1 -- keep `.env` derived, add a new `env.local` overlay.** Zero
