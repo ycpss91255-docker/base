@@ -441,13 +441,16 @@ teardown() {
   assert_output --partial "AUTO-GENERATED"
 }
 
-@test "new repo: compose.yaml ships devices: /dev:/dev by default" {
+@test "new repo: compose.yaml omits devices block by default (#466 opt-in)" {
+  # #466 F2: a fresh repo no longer binds /dev:/dev (or any device) by
+  # default -- device access is opt-in. Repos that need it uncomment the
+  # template example or add via the TUI / `setup.sh add devices.device`.
   bash .base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep -E '^    devices:$' "${REPO_DIR}/compose.yaml"
-  assert_success
+  assert_failure
   run grep -F -- '- /dev:/dev' "${REPO_DIR}/compose.yaml"
-  assert_success
+  assert_failure
 }
 
 @test "new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)" {

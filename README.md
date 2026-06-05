@@ -373,6 +373,13 @@ Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
 to template.
 
+**Privileges are opt-in** (#466): the template ships lean `[security]`
+(`privileged = false`, no `cap_add` / `security_opt`) and `[devices]`
+(no `/dev:/dev`) defaults, so lightweight repos and tooling stages stay
+clean. Enable what a container needs via `setup_tui.sh` (security /
+devices pages), `setup.sh add security.cap_add SYS_ADMIN`, or by
+uncommenting the examples in the template.
+
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
 is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
 automatically) and the detected workspace is written to `[volumes]
