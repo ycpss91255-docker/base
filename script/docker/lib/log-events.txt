@@ -29,6 +29,7 @@ xauth_rewrite_failed
 xauth_empty_cookie
 conf_image_name_default
 conf_image_name_unknown
+conf_runtime_key_deprecated
 conf_no_repo_conf
 conf_empty_repo_conf
 conf_template_missing

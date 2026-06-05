@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1466 tests** total (1398 unit + 68 integration).
+Template self-tests: **1465 tests** total (1391 unit + 74 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -71,7 +71,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (309)
+### test/unit/setup_spec.bats (340)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -659,7 +659,7 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (52)
+### test/unit/compose_gen_spec.bats (70)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -762,7 +762,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (147)
+### test/unit/template_spec.bats (145)
 
 | Test | Description |
 |------|-------------|
@@ -1197,6 +1197,27 @@ invocation — `build.sh --dry-run`).
 |------|-------------|
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
+
+### test/integration/wrapper_compose_dispatch_spec.bats (6)
+
+Behavioural assertion (#490) that every wrapper routes its `docker compose`
+calls through the `-p`-injecting dispatcher. Reuses the
+`fresh_clone_portability_spec.bats` fixture pattern (cp `/source` -> `.base/`,
+symlink the wrappers from the repo root, materialize `.env` + `compose.yaml`
+via `build.sh --dry-run`), then runs each wrapper with `--dry-run` and
+inspects the planned `[dry-run] docker compose -p <project> <verb>` line.
+Immune to internal renames (replaces the old name-coupled `_compose_project` /
+`_app_cleanup` greps in `template_spec.bats`) and catches a raw-`docker
+compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
+
+| Test | Description |
+|------|-------------|
+| `build.sh --dry-run dispatches compose build with -p project flag` | build dispatch |
+| `run.sh --dry-run (default devel) dispatches compose up + exec with -p` | run devel up+exec |
+| `exec.sh --dry-run dispatches compose exec with -p` | exec dispatch |
+| `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
+| `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
+| `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
 ### test/integration/upgrade_spec.bats (16)
 
