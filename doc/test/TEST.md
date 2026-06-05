@@ -716,6 +716,41 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
+### test/unit/deploy_spec.bats (21)
+
+Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
+the pure mapping from a resolved docker-flag record to a `docker run`
+argv fragment for the self-contained `deploy.sh` field launcher. Asserts
+each flag mapping plus the conditional gates that mirror the compose
+emit (shm only when ipc != host, ports only under bridge, gpu `all` vs
+`count=N,capabilities`, device propagation -> `-v`, runtime off/auto
+skipped, ipc `private` skipped) and the deliberate omissions
+(`[environment]` baked, gui dev-only).
+
+| Test | Description |
+|------|-------------|
+| `privileged=true emits --privileged` | privileged |
+| `gpu count=0 emits --gpus all` | gpu all |
+| `gpu count>0 emits count+capabilities spec` | gpu partition |
+| `gpu=false emits no --gpus` | gpu off |
+| `runtime=nvidia emits --runtime=nvidia` | runtime on |
+| `runtime off/auto/empty emits no --runtime` | runtime skip |
+| `net host emits --network=host` | net host |
+| `net bridge + name emits --network=<name>` | net named bridge |
+| `net bridge without name emits no --network` | default bridge |
+| `ipc host emits --ipc=host; private is skipped` | ipc gate |
+| `pid host emits --pid=host` | pid host |
+| `shm_size emitted only when ipc != host` | shm gate |
+| `restart emitted only when set and != no` | restart gate |
+| `volumes each emit -v` | volumes |
+| `ports emit -p only under bridge` | ports gate |
+| `plain device -> --device, propagation device -> -v` | device split |
+| `caps + security_opt map to docker run flags` | caps/secopt |
+| `dri_groups (space-sep) each map to --group-add` | group-add |
+| `cgroup_rules map to --device-cgroup-rule` | cgroup rules |
+| `environment and gui are NOT mapped (baked / dev-only)` | omissions |
+| `empty record emits nothing` | empty no-op |
+
 ### test/unit/compose_logging_spec.bats (32)
 
 Covers `[logging]` + `[logging.<svc>]` support in
