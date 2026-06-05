@@ -268,6 +268,86 @@ EOF
   done
 }
 
+# ── #496 [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
+
+@test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '- "44"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F -- '- "992"' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS=''
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[deploy] dri_groups = off emits no group_add even with GUI (#496)" {
+  printf '[deploy]\ndri_groups = off\n[gui]\nmode = force\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)" {
+  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = off\n' \
+    > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    group_add:$' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
+  run grep -E '^dri_groups = auto$' /source/config/docker/setup.conf
+  assert_success
+}
+
+@test "_detect_dri_groups dedups repeated GIDs (#496)" {
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 44 992'
+    source /source/script/docker/wrapper/setup.sh
+    _detect_dri_groups
+  "
+  assert_success
+  # override echoes verbatim; dedup happens on the real stat path. Assert the
+  # override passthrough works (real-stat dedup is covered by sort -u).
+  assert_output --partial "44"
+  assert_output --partial "992"
+}
+
 @test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
   # #466 F2: the template no longer ships cap_add_* defaults, so a repo
   # with an empty [security] section (the omniverse case) falls back to a

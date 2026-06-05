@@ -358,6 +358,7 @@ two derived artifacts.
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
+           dri_groups (auto|off) — iGPU /dev/dri group_add on GUI svcs
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
            default no; on devel (extends:devel stages inherit). Avoid
            always/unless-stopped on stages that exit 0 (infinite restart).

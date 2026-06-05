@@ -847,6 +847,27 @@ _detect_jetson() {
   [[ -f "/etc/nv_tegra_release" ]]
 }
 
+# _detect_dri_groups
+#   Echo space-separated unique numeric GIDs that own the host's
+#   /dev/dri/{card*,renderD*} nodes (#496) so a container can be granted
+#   /dev/dri access via group_add on non-NVIDIA (Intel/AMD iGPU) hosts.
+#   Numeric GIDs only -- the render GID varies per host, so names are
+#   non-portable. Echoes empty when /dev/dri is absent (graceful).
+#   Env override SETUP_DETECT_DRI_GROUPS forces the result (used by tests
+#   to avoid touching /dev/dri).
+_detect_dri_groups() {
+  if [[ -n "${SETUP_DETECT_DRI_GROUPS:-}" ]]; then
+    printf '%s' "${SETUP_DETECT_DRI_GROUPS}"
+    return 0
+  fi
+  local _gids
+  # stat over a non-matching glob just yields no output (stderr suppressed);
+  # sort -u dedups the common case where card* + renderD* share the video GID.
+  _gids="$(stat -c %g /dev/dri/card* /dev/dri/renderD* 2>/dev/null \
+             | sort -u | tr '\n' ' ')"
+  printf '%s' "${_gids% }"
+}
+
 # _resolve_runtime <mode> <outvar>
 #   mode=nvidia → "nvidia" (force, e.g. desktop with csv-mode toolkit)
 #   mode=auto   → "nvidia" iff _detect_jetson, else ""
@@ -1437,6 +1458,7 @@ generate_compose_yaml() {
   local _logging_global_str="${26:-}"
   local _logging_per_svc_str="${27:-}"
   local _restart="${28:-no}"
+  local _dri_groups_str="${29:-}"
 
   # _logging_svc_kv <svc> <out_assoc_name>
   #
@@ -1807,6 +1829,15 @@ YAML
         [[ -z "${_so}" ]] && continue
         echo "      - ${_so}"
       done <<< "${_sec_opt_str}"
+    fi
+    # #496: group_add for /dev/dri access on iGPU hosts. GUI-gated (DRI is
+    # for GL rendering); numeric GIDs quoted as strings.
+    if [[ "${_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
+      echo "    group_add:"
+      local _gid
+      for _gid in ${_dri_groups_str}; do
+        echo "      - \"${_gid}\""
+      done
     fi
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
@@ -2198,6 +2229,14 @@ YAML
           [[ -z "${_sa_so}" ]] && continue
           echo "      - ${_sa_so}"
         done <<< "${_sec_opt_str}"
+      fi
+      # #496: group_add for /dev/dri, GUI-gated on the stage's effective gui.
+      if [[ "${_eff_gui}" == "true" && -n "${_dri_groups_str}" ]]; then
+        echo "    group_add:"
+        local _sa_gid
+        for _sa_gid in ${_dri_groups_str}; do
+          echo "      - \"${_sa_gid}\""
+        done
       fi
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).
@@ -3791,6 +3830,12 @@ _setup_apply() {
   local restart_policy=""
   _get_conf_value _life_k _life_v "restart"        "no"    restart_policy
 
+  # #496: dri_groups (non-NVIDIA iGPU /dev/dri access). auto -> detect host
+  # GIDs at generation time (numeric, per-host); off -> none.
+  local dri_groups_mode="" dri_groups_str=""
+  _get_conf_value _dep_k _dep_v "dri_groups"       "auto"  dri_groups_mode
+  [[ "${dri_groups_mode}" == "auto" ]] && dri_groups_str="$(_detect_dri_groups)"
+
   # ── WS_PATH + workspace mount ──
   #
   # mount_1 can be:
@@ -4114,6 +4159,7 @@ _setup_apply() {
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
     "${restart_policy}" \
+    "${dri_groups_str}" \
     || return $?
 
   # #462: emit runtime.env mirroring [environment] entries so standalone
