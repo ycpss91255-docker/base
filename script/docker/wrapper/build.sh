@@ -448,11 +448,7 @@ main() {
         esac
       fi
     fi
-    if [[ "${DRY_RUN}" == true ]]; then
-      printf "[dry-run] %s/.base/init.sh --gen-conf --force\n" "${FILE_PATH}"
-    else
-      bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
-    fi
+    _dry_run_cmd bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
     # Force a fresh setup.sh run so .env + compose.yaml follow the new conf.
     RUN_SETUP=true
   fi
