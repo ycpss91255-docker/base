@@ -223,3 +223,92 @@ _run_line() {
   _emit_docker_run_flags _f _out
   assert_equal "${#_out[@]}" "0"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_context (S6b, #506) — the shared conf-resolution layer
+# used by both apply and the deploy generator. Loads setup.conf sections
+# and resolves the docker/build scalars + list strings into one record.
+# ════════════════════════════════════════════════════════════════════
+
+_write_conf() {
+  local _dir="${1}"; shift
+  mkdir -p "${_dir}/config/docker"
+  printf '%s\n' "$@" > "${_dir}/config/docker/setup.conf"
+}
+
+@test "_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" \
+    "[deploy]" "gpu_mode = force" "gpu_count = 2" "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" \
+    "[network]" "mode = bridge" "ipc = private" "network_name = mynet" "port_1 = 8080:80" \
+    "[security]" "privileged = true" \
+    "[devices]" "device_1 = /dev/ttyUSB0" \
+    "[environment]" "env_1 = FOO=bar" \
+    "[resources]" "shm_size = 256m" \
+    "[lifecycle]" "restart = on-failure"
+  local -A _ctx=()
+  _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[gpu_mode]}" "force"
+  assert_equal "${_ctx[gpu_count]}" "2"
+  assert_equal "${_ctx[gpu_caps]}" "gpu compute"
+  assert_equal "${_ctx[gpu_runtime_mode]}" "nvidia"
+  assert_equal "${_ctx[net_mode]}" "bridge"
+  assert_equal "${_ctx[ipc_mode]}" "private"
+  assert_equal "${_ctx[network_name]}" "mynet"
+  assert_equal "${_ctx[privileged]}" "true"
+  assert_equal "${_ctx[devices_str]}" "/dev/ttyUSB0"
+  assert_equal "${_ctx[env_str]}" "FOO=bar"
+  assert_equal "${_ctx[ports_str]}" "8080:80"
+  assert_equal "${_ctx[shm_size]}" "256m"
+  assert_equal "${_ctx[restart_policy]}" "on-failure"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: applies effective defaults for a minimal repo conf (#506)" {
+  # A repo conf that omits [deploy]/[network]/... still resolves through
+  # the template-merged effective config (_load_setup_conf merges template
+  # + per-repo), matching what apply produces. gpu_capabilities is omitted
+  # here because its value is template-driven (not a bare _get_conf_value
+  # fallback); the keys below are stable across template + bare default.
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[image_name]" "name = placeholder"
+  local -A _ctx=()
+  _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[gpu_mode]}" "auto"
+  assert_equal "${_ctx[gpu_count]}" "all"
+  assert_equal "${_ctx[gpu_runtime_mode]}" "auto"
+  assert_equal "${_ctx[gui_mode]}" "auto"
+  assert_equal "${_ctx[net_mode]}" "host"
+  assert_equal "${_ctx[ipc_mode]}" "host"
+  assert_equal "${_ctx[pid_mode]}" "private"
+  assert_equal "${_ctx[privileged]}" "false"
+  assert_equal "${_ctx[restart_policy]}" "no"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode (#506/#481)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "runtime = nvidia"
+  local -A _ctx=()
+  _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[gpu_runtime_mode]}" "nvidia"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS (#506/#496)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "dri_groups = auto"
+  local -A _ctx=()
+  SETUP_DETECT_DRI_GROUPS="44 110" _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[dri_groups_str]}" "44 110"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: dri_groups off yields empty (#506/#496)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "dri_groups = off"
+  local -A _ctx=()
+  SETUP_DETECT_DRI_GROUPS="44 110" _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[dri_groups_str]}" ""
+  rm -rf "${_d}"
+}

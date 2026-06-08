@@ -1257,6 +1257,156 @@ _emit_docker_run_flags() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_context <base_path> <out_assoc>
+#
+# S6b of #497 (#506): the single conf-derived resolution layer shared by
+# `apply` (the compose renderer) and the deploy generator. Loads the
+# relevant setup.conf sections from <base_path> and resolves the
+# scalar modes + aggregated list strings that both paths consume, into
+# <out_assoc>. This is the global counterpart to the per-stage
+# _resolve_docker_flags (S5): apply unpacks the record into its existing
+# locals, and the deploy generator (S6b-gen) feeds it as the parent for
+# the runtime stage. Keeping one resolver means the field deploy can
+# never drift from what `apply` would produce for the same setup.conf.
+#
+# Pure resolution: it does NOT apply the `--gui` CLI / SETUP_GUI env
+# override (apply layers that on top of the returned gui_mode), it does
+# NOT resolve the detection-dependent enabled booleans (callers run
+# _resolve_gpu / _resolve_gui with their own host detection), and it does
+# NOT touch the WS_PATH / mount_1 migration or the #450 device/volume
+# validation warnings (those stay apply-side -- dev-specific side
+# effects). The one intrinsic side effect kept here is the legacy
+# `[deploy] runtime` deprecation warning (#481), since it is tied to
+# resolving gpu_runtime from the conf.
+#
+# Populated keys: build_network gpu_mode gpu_count gpu_caps
+#   gpu_runtime_mode gui_mode net_mode ipc_mode pid_mode network_name
+#   privileged restart_policy dri_groups_str devices_str cgroup_rule_str
+#   env_str tmpfs_str ports_str cap_add_str cap_drop_str sec_opt_str
+#   shm_size  (assoc subscripts quoted so ShellCheck does not read them
+#   as arithmetic refs (SC2154) -- the out-param is a nameref).
+# ════════════════════════════════════════════════════════════════════
+_resolve_deploy_context() {
+  local _rdc_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _rdc_out="${2:?"${FUNCNAME[0]}: missing out assoc"}"
+
+  local -a _b_k=() _b_v=() _d_k=() _d_v=() _g_k=() _g_v=() _n_k=() _n_v=()
+  local -a _s_k=() _s_v=() _l_k=() _l_v=() _r_k=() _r_v=() _e_k=() _e_v=()
+  local -a _t_k=() _t_v=() _dv_k=() _dv_v=()
+  _load_setup_conf "${_rdc_base}" "build"       _b_k  _b_v
+  _load_setup_conf "${_rdc_base}" "deploy"      _d_k  _d_v
+  _load_setup_conf "${_rdc_base}" "gui"         _g_k  _g_v
+  _load_setup_conf "${_rdc_base}" "network"     _n_k  _n_v
+  _load_setup_conf "${_rdc_base}" "security"    _s_k  _s_v
+  _load_setup_conf "${_rdc_base}" "lifecycle"   _l_k  _l_v
+  _load_setup_conf "${_rdc_base}" "resources"   _r_k  _r_v
+  _load_setup_conf "${_rdc_base}" "environment" _e_k  _e_v
+  _load_setup_conf "${_rdc_base}" "tmpfs"       _t_k  _t_v
+  _load_setup_conf "${_rdc_base}" "devices"     _dv_k _dv_v
+
+  local _tmp=""
+
+  # build-time network (scalar [build] network; auto -> host on Jetson).
+  local _build_network_mode="" _build_network=""
+  _get_conf_value _b_k _b_v "network" "auto" _build_network_mode
+  _resolve_build_network "${_build_network_mode}" _build_network
+  _rdc_out["build_network"]="${_build_network}"
+
+  # [deploy] GPU family.
+  _get_conf_value _d_k _d_v "gpu_mode"         "auto" _tmp; _rdc_out["gpu_mode"]="${_tmp}"
+  _get_conf_value _d_k _d_v "gpu_count"        "all"  _tmp; _rdc_out["gpu_count"]="${_tmp}"
+  _get_conf_value _d_k _d_v "gpu_capabilities" "gpu"  _tmp; _rdc_out["gpu_caps"]="${_tmp}"
+  # #481: gpu_runtime is the canonical key; legacy `runtime` is a permanent
+  # alias (W3) consumed with a deprecation warning, removed at v1.0.0.
+  local _gpu_runtime_mode=""
+  _get_conf_value _d_k _d_v "gpu_runtime" "" _gpu_runtime_mode
+  if [[ -z "${_gpu_runtime_mode}" ]]; then
+    local _legacy_runtime=""
+    _get_conf_value _d_k _d_v "runtime" "" _legacy_runtime
+    if [[ -n "${_legacy_runtime}" ]]; then
+      _gpu_runtime_mode="${_legacy_runtime}"
+      _log_warn setup conf_runtime_key_deprecated \
+        "display=$(_setup_msg deploy runtime_deprecated)"
+    else
+      _gpu_runtime_mode="auto"
+    fi
+  fi
+  _rdc_out["gpu_runtime_mode"]="${_gpu_runtime_mode}"
+
+  # [gui] mode (conf only -- caller layers the --gui / SETUP_GUI override).
+  _get_conf_value _g_k _g_v "mode" "auto" _tmp; _rdc_out["gui_mode"]="${_tmp}"
+
+  # [network] + [security] scalars.
+  _get_conf_value _n_k _n_v "mode"         "host"    _tmp; _rdc_out["net_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "ipc"          "host"    _tmp; _rdc_out["ipc_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "pid"          "private" _tmp; _rdc_out["pid_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "network_name" ""        _tmp; _rdc_out["network_name"]="${_tmp}"
+  # #466: privileged opt-in -- default false when the key is absent.
+  _get_conf_value _s_k _s_v "privileged"   "false"   _tmp; _rdc_out["privileged"]="${_tmp}"
+
+  # #478: [lifecycle] restart policy (default no).
+  _get_conf_value _l_k _l_v "restart" "no" _tmp; _rdc_out["restart_policy"]="${_tmp}"
+
+  # #496: dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
+  local _dri_groups_mode="" _dri_groups_str=""
+  _get_conf_value _d_k _d_v "dri_groups" "auto" _dri_groups_mode
+  [[ "${_dri_groups_mode}" == "auto" ]] && _dri_groups_str="$(_detect_dri_groups)"
+  _rdc_out["dri_groups_str"]="${_dri_groups_str}"
+
+  # [devices] device_* + cgroup_rule_*.
+  local -a _devices_arr=() _cgroup_rule_arr=()
+  _get_conf_list_sorted _dv_k _dv_v "device_"      _devices_arr
+  _get_conf_list_sorted _dv_k _dv_v "cgroup_rule_" _cgroup_rule_arr
+  local _devices_str="" _cgroup_rule_str=""
+  (( ${#_devices_arr[@]}      > 0 )) && _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
+  (( ${#_cgroup_rule_arr[@]}  > 0 )) && _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
+  _rdc_out["devices_str"]="${_devices_str}"
+  _rdc_out["cgroup_rule_str"]="${_cgroup_rule_str}"
+
+  # [environment] env_*, [tmpfs] tmpfs_*, [network] port_*.
+  local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
+  _get_conf_list_sorted _e_k _e_v "env_"   _env_arr
+  _get_conf_list_sorted _t_k _t_v "tmpfs_" _tmpfs_arr
+  _get_conf_list_sorted _n_k _n_v "port_"  _ports_arr
+  local _env_str="" _tmpfs_str="" _ports_str=""
+  (( ${#_env_arr[@]}   > 0 )) && _env_str="$(printf '%s\n'   "${_env_arr[@]}")"
+  (( ${#_tmpfs_arr[@]} > 0 )) && _tmpfs_str="$(printf '%s\n' "${_tmpfs_arr[@]}")"
+  (( ${#_ports_arr[@]} > 0 )) && _ports_str="$(printf '%s\n' "${_ports_arr[@]}")"
+  _rdc_out["env_str"]="${_env_str}"
+  _rdc_out["tmpfs_str"]="${_tmpfs_str}"
+  _rdc_out["ports_str"]="${_ports_str}"
+
+  # [security] cap_add_*, cap_drop_*, security_opt_* with template fallback:
+  # a per-repo [security] that wipes a list falls back to the template
+  # baseline rather than Docker's stripped default (#466 rationale).
+  local -a _cap_add_arr=() _cap_drop_arr=() _sec_opt_arr=()
+  _get_conf_list_sorted _s_k _s_v "cap_add_"      _cap_add_arr
+  _get_conf_list_sorted _s_k _s_v "cap_drop_"     _cap_drop_arr
+  _get_conf_list_sorted _s_k _s_v "security_opt_" _sec_opt_arr
+  local _tpl_setup_conf
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local -a _tpl_sec_k=() _tpl_sec_v=()
+  [[ -f "${_tpl_setup_conf}" ]] \
+    && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
+  (( ${#_cap_add_arr[@]}  == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_add_"      _cap_add_arr
+  (( ${#_cap_drop_arr[@]} == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_drop_"     _cap_drop_arr
+  (( ${#_sec_opt_arr[@]}  == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "security_opt_" _sec_opt_arr
+  local _cap_add_str="" _cap_drop_str="" _sec_opt_str=""
+  (( ${#_cap_add_arr[@]}  > 0 )) && _cap_add_str="$(printf '%s\n'  "${_cap_add_arr[@]}")"
+  (( ${#_cap_drop_arr[@]} > 0 )) && _cap_drop_str="$(printf '%s\n' "${_cap_drop_arr[@]}")"
+  (( ${#_sec_opt_arr[@]}  > 0 )) && _sec_opt_str="$(printf '%s\n'  "${_sec_opt_arr[@]}")"
+  _rdc_out["cap_add_str"]="${_cap_add_str}"
+  _rdc_out["cap_drop_str"]="${_cap_drop_str}"
+  _rdc_out["sec_opt_str"]="${_sec_opt_str}"
+
+  # [resources] shm_size (only meaningful when ipc != host).
+  _get_conf_value _r_k _r_v "shm_size" "" _tmp; _rdc_out["shm_size"]="${_tmp}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Per-stage overrides (#220)
 #
 # `[stage:<name>]` sections in <repo>/setup.conf override top-level
@@ -4016,25 +4166,20 @@ _setup_apply() {
   BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
 
   # ── Load setup.conf sections ──
-  local -a _dep_k=() _dep_v=() _gui_k=() _gui_v=() _net_k=() _net_v=() _vol_k=() _vol_v=()
-  local -a _build_k=() _build_v=()
-  local -a _dev_k=() _dev_v=()
-  local -a _res_k=() _res_v=()
-  local -a _env_k=() _env_v=()
-  local -a _tmp_k=() _tmp_v=()
-  local -a _sec_k=() _sec_v=()
+  # Only the sections apply still consumes directly are loaded here:
+  # [build] (build args / target_arch), [volumes] (WS_PATH + extra_volumes),
+  # [security] (the #450 propagation guard re-reads privileged), and
+  # [additional_contexts]. Every docker/build scalar + list-string the
+  # compose call needs (gpu / gui / network / devices / env / tmpfs /
+  # ports / caps / shm / restart / dri / build_network) is resolved by the
+  # shared _resolve_deploy_context below (S6b, #506), which loads its own
+  # sections -- the same resolver the deploy generator uses, so the field
+  # deploy can never drift from apply.
+  local -a _build_k=() _build_v=() _vol_k=() _vol_v=() _sec_k=() _sec_v=()
   local -a _ac_k=() _ac_v=()
   _load_setup_conf "${_base_path}" "build"               _build_k _build_v
-  _load_setup_conf "${_base_path}" "deploy"              _dep_k _dep_v
-  _load_setup_conf "${_base_path}" "gui"                 _gui_k _gui_v
-  _load_setup_conf "${_base_path}" "network"             _net_k _net_v
   _load_setup_conf "${_base_path}" "volumes"             _vol_k _vol_v
-  _load_setup_conf "${_base_path}" "devices"             _dev_k _dev_v
-  _load_setup_conf "${_base_path}" "resources"           _res_k _res_v
-  _load_setup_conf "${_base_path}" "environment"         _env_k _env_v
-  _load_setup_conf "${_base_path}" "tmpfs"               _tmp_k _tmp_v
   _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
-  _load_setup_conf "${_base_path}" "lifecycle"           _life_k _life_v
   _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
 
   # Build args: each `[build] arg_N = KEY=VALUE` entry becomes a
@@ -4091,37 +4236,31 @@ _setup_apply() {
   # compose.yaml and `--network <value>` to the auxiliary test-tools
   # docker build. Typical value: `host`, for hosts whose docker bridge
   # NAT is unusable (stripped embedded kernels, iptables:false).
-  local build_network_mode=""
-  _get_conf_value _build_k _build_v "network" "auto" build_network_mode
-  local build_network=""
-  _resolve_build_network "${build_network_mode}" build_network
+  # ── Resolve conf-derived docker/build params via the shared layer ──
+  # S6b (#506): _resolve_deploy_context is the single conf resolution that
+  # both apply and the deploy generator use, so the field deploy never
+  # drifts from what apply produces for the same setup.conf. Its record is
+  # unpacked into the existing locals below; the --gui / SETUP_GUI override,
+  # the detection-dependent enabled booleans, the WS_PATH / mount_1
+  # migration, and the #450 device/volume validation stay apply-side.
+  local -A _dctx=()
+  _resolve_deploy_context "${_base_path}" _dctx
+  local build_network="${_dctx[build_network]}"
+  local gpu_mode="${_dctx[gpu_mode]}"
+  local gpu_count="${_dctx[gpu_count]}"
+  local gpu_caps="${_dctx[gpu_caps]}"
+  local gpu_runtime_mode="${_dctx[gpu_runtime_mode]}"
+  local gui_mode="${_dctx[gui_mode]}"
+  local net_mode="${_dctx[net_mode]}"
+  local ipc_mode="${_dctx[ipc_mode]}"
+  local pid_mode="${_dctx[pid_mode]}"
+  local network_name="${_dctx[network_name]}"
+  local privileged="${_dctx[privileged]}"
+  local restart_policy="${_dctx[restart_policy]}"
+  local dri_groups_str="${_dctx[dri_groups_str]}"
 
-  local gpu_mode="" gpu_count="" gpu_caps="" gpu_runtime_mode=""
-  local gui_mode=""
-  local net_mode="" ipc_mode="" pid_mode="" privileged="" network_name=""
-  _get_conf_value _dep_k _dep_v "gpu_mode"         "auto" gpu_mode
-  _get_conf_value _dep_k _dep_v "gpu_count"        "all"  gpu_count
-  _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
-  # #481: gpu_runtime is the canonical key (GPU family). The legacy
-  # `runtime` key is a permanent alias (W3) -- consumed with a deprecation
-  # warning, scheduled for removal at v1.0.0 (see doc/deprecations.md).
-  _get_conf_value _dep_k _dep_v "gpu_runtime"      ""     gpu_runtime_mode
-  if [[ -z "${gpu_runtime_mode}" ]]; then
-    local _legacy_runtime=""
-    _get_conf_value _dep_k _dep_v "runtime"        ""     _legacy_runtime
-    if [[ -n "${_legacy_runtime}" ]]; then
-      gpu_runtime_mode="${_legacy_runtime}"
-      _log_warn setup conf_runtime_key_deprecated \
-        "display=$(_setup_msg deploy runtime_deprecated)"
-    else
-      gpu_runtime_mode="auto"
-    fi
-  fi
-  _get_conf_value _gui_k _gui_v "mode"             "auto" gui_mode
-  # #338: resolution order CLI > env > conf > default.
-  # If --gui was passed, override; otherwise honor SETUP_GUI env var
-  # if set (already a documented mechanism elsewhere); fall back to
-  # the value read from setup.conf.
+  # #338: resolution order CLI > env > conf > default. The shared resolver
+  # returns the conf gui_mode; layer the --gui / SETUP_GUI override on top.
   if [[ -n "${_gui_override}" ]]; then
     gui_mode="${_gui_override}"
   elif [[ -n "${SETUP_GUI:-}" ]]; then
@@ -4129,24 +4268,6 @@ _setup_apply() {
       auto|force|off) gui_mode="${SETUP_GUI}" ;;
     esac
   fi
-  _get_conf_value _net_k _net_v "mode"             "host" net_mode
-  _get_conf_value _net_k _net_v "ipc"              "host"    ipc_mode
-  _get_conf_value _net_k _net_v "pid"              "private" pid_mode
-  _get_conf_value _net_k _net_v "network_name"     ""        network_name
-  # #466: privileged is opt-in -- default false when the key is absent so a
-  # repo that declares [security] (e.g. for cap_add) without a privileged
-  # key does not silently run privileged.
-  _get_conf_value _sec_k _sec_v "privileged"       "false" privileged
-
-  # #478: [lifecycle] restart policy (default no -> devel emits no restart:).
-  local restart_policy=""
-  _get_conf_value _life_k _life_v "restart"        "no"    restart_policy
-
-  # #496: dri_groups (non-NVIDIA iGPU /dev/dri access). auto -> detect host
-  # GIDs at generation time (numeric, per-host); off -> none.
-  local dri_groups_mode="" dri_groups_str=""
-  _get_conf_value _dep_k _dep_v "dri_groups"       "auto"  dri_groups_mode
-  [[ "${dri_groups_mode}" == "auto" ]] && dri_groups_str="$(_detect_dri_groups)"
 
   # ── WS_PATH + workspace mount ──
   #
@@ -4254,21 +4375,9 @@ _setup_apply() {
     extra_volumes+=("./config/app:/opt/app/config")
   fi
 
-  # ── Collect [devices] entries (device_*) ──
-  local -a _devices_arr=()
-  _get_conf_list_sorted _dev_k _dev_v "device_" _devices_arr
-  local _devices_str=""
-  if (( ${#_devices_arr[@]} > 0 )); then
-    _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
-  fi
-
-  # ── Collect [devices] cgroup_rule_* ──
-  local -a _cgroup_rule_arr=()
-  _get_conf_list_sorted _dev_k _dev_v "cgroup_rule_" _cgroup_rule_arr
-  local _cgroup_rule_str=""
-  if (( ${#_cgroup_rule_arr[@]} > 0 )); then
-    _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
-  fi
+  # ── [devices] device_* + cgroup_rule_* (from the shared resolver) ──
+  local _devices_str="${_dctx[devices_str]}"
+  local _cgroup_rule_str="${_dctx[cgroup_rule_str]}"
 
   # ── #450 P2: propagation + privileged guard ──
   if [[ -n "${_devices_str}" ]]; then
@@ -4312,43 +4421,15 @@ _setup_apply() {
     done <<< "${_devices_str}"
   fi
 
-  # ── Collect [environment] env_*, [tmpfs] tmpfs_*, [network] port_* ──
-  local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
-  _get_conf_list_sorted _env_k _env_v "env_"    _env_arr
-  _get_conf_list_sorted _tmp_k _tmp_v "tmpfs_"  _tmpfs_arr
-  _get_conf_list_sorted _net_k _net_v "port_"   _ports_arr
-  local _env_str="" _tmpfs_str="" _ports_str=""
-  (( ${#_env_arr[@]}    > 0 )) && _env_str="$(printf '%s\n'    "${_env_arr[@]}")"
-  (( ${#_tmpfs_arr[@]}  > 0 )) && _tmpfs_str="$(printf '%s\n'  "${_tmpfs_arr[@]}")"
-  (( ${#_ports_arr[@]}  > 0 )) && _ports_str="$(printf '%s\n'  "${_ports_arr[@]}")"
-
-  # ── Collect [security] cap_add_*, cap_drop_*, security_opt_* ──
-  local -a _cap_add_arr=() _cap_drop_arr=() _sec_opt_arr=()
-  _get_conf_list_sorted _sec_k _sec_v "cap_add_"      _cap_add_arr
-  _get_conf_list_sorted _sec_k _sec_v "cap_drop_"     _cap_drop_arr
-  _get_conf_list_sorted _sec_k _sec_v "security_opt_" _sec_opt_arr
-
-  # Security fallback: if the per-repo [security] section wiped a list
-  # (no cap_add_* entries at all, likewise for cap_drop_* / security_opt_*),
-  # fall back to the template's baseline rather than Docker's stripped-
-  # down default — avoids surprising the user with "my container lost
-  # SYS_ADMIN / unconfined seccomp after I cleared the list".
-  local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
-  local -a _tpl_sec_k=() _tpl_sec_v=()
-  [[ -f "${_tpl_setup_conf}" ]] \
-    && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
-  (( ${#_cap_add_arr[@]}  == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_add_"      _cap_add_arr
-  (( ${#_cap_drop_arr[@]} == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_drop_"     _cap_drop_arr
-  (( ${#_sec_opt_arr[@]}  == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "security_opt_" _sec_opt_arr
-
-  local _cap_add_str="" _cap_drop_str="" _sec_opt_str=""
-  (( ${#_cap_add_arr[@]}  > 0 )) && _cap_add_str="$(printf '%s\n'  "${_cap_add_arr[@]}")"
-  (( ${#_cap_drop_arr[@]} > 0 )) && _cap_drop_str="$(printf '%s\n' "${_cap_drop_arr[@]}")"
-  (( ${#_sec_opt_arr[@]}  > 0 )) && _sec_opt_str="$(printf '%s\n'  "${_sec_opt_arr[@]}")"
+  # ── [environment] env_*, [tmpfs] tmpfs_*, [network] port_* + [security]
+  # cap_add_* / cap_drop_* / security_opt_* (template-fallback applied) and
+  # [resources] shm_size all come from the shared resolver. ──
+  local _env_str="${_dctx[env_str]}"
+  local _tmpfs_str="${_dctx[tmpfs_str]}"
+  local _ports_str="${_dctx[ports_str]}"
+  local _cap_add_str="${_dctx[cap_add_str]}"
+  local _cap_drop_str="${_dctx[cap_drop_str]}"
+  local _sec_opt_str="${_dctx[sec_opt_str]}"
 
   # ── Collect [additional_contexts] context_* ──
   # Each entry is `NAME=PATH`. Validation (NAME shape, PATH non-empty)
@@ -4361,8 +4442,7 @@ _setup_apply() {
   (( ${#_ac_arr[@]} > 0 )) && _additional_contexts_str="$(printf '%s\n' "${_ac_arr[@]}")"
 
   # ── [resources] shm_size (only meaningful when ipc != host) ──
-  local _shm_size=""
-  _get_conf_value _res_k _res_v "shm_size" "" _shm_size
+  local _shm_size="${_dctx[shm_size]}"
 
   # ── [logging] + [logging.<svc>] (#310) ──
   local _logging_global_str="" _logging_per_svc_str=""
