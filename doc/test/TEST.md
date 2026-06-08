@@ -989,7 +989,7 @@ the host file content and the inherited stdout (preserving
 | `color_git_branch is called` | Function call |
 | `color_git_branch sets PS1` | PS1 setting |
 
-### test/unit/ci_spec.bats (17)
+### test/unit/ci_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -1010,6 +1010,14 @@ the host file content and the inherited stdout (preserving
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
+| `main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1` | #523 single-file dispatch |
+| `main --bats-path: accepts a directory` | #523 directory path |
+| `main --bats-path: non-existent path dies with ci_bats_path_not_found` | #523 missing-path guard |
+| `main --bats-path: test/behavioural/ path dies with a clear hint` | #523 behavioural guard |
+| `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
+| `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
+| `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
+| `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 
 ### test/unit/init_spec.bats (22)
 
