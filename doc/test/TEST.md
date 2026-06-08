@@ -121,7 +121,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | #503 `_generate_runtime_dockerfile` ENV-bake primitive (injects `ENV` after `FROM ... AS runtime`, expands cross-refs, returns 1 with no runtime stage / empty `[environment]`) | 4 |
 | #504 `config/app/` dev bind-mount (`apply` binds `./config/app:/opt/app/config` when the dir is present, omits it when absent) | 2 |
 
-### test/unit/tui_spec.bats (120)
+### test/unit/tui_spec.bats (123)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -140,6 +140,7 @@ parsers, and setup.conf round-trip.
 | Per-stage `[stage:NAME]` round-trip (#220: namespaced load, append new section, multi-section append, round-trip, in-place update of existing section) | 5 |
 | `_validate_log_*` (#328: driver name shape, max_size num+unit, max_file positive int, compress boolean; covers happy paths + rejection of empty / whitespace / wrong unit / decimals / case mismatches) | 7 |
 | `_edit_section_lifecycle` (#514: restart radiolist writes simple policy + default no; on-failure:N assembly; empty-N -> bare on-failure; invalid-N re-prompt then accept) | 5 |
+| `_edit_section_deploy` legacy runtime->gpu_runtime migration (#517: suggest msgbox when legacy [deploy] runtime present; silent when gpu_runtime already used; writes canonical gpu_runtime key) | 3 |
 
 ### test/unit/tui_backend_spec.bats (28)
 

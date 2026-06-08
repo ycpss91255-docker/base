@@ -1656,3 +1656,48 @@ _lc_setup_tui() {
   run cat "${TUI_MSGBOX_LOG}"
   assert_output --partial "retry count"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_deploy — legacy runtime -> gpu_runtime migration (#517)
+# ════════════════════════════════════════════════════════════════════
+
+# Drive _edit_section_deploy through to the runtime block: mode auto (not
+# off), MIG disabled, count all, caps gpu. _tui_select branches on the
+# prompt so the runtime radiolist returns nvidia while GPU mode stays auto.
+_517_stub_deploy() {
+  _tui_select() { case "${2}" in *runtime*) printf '%s' "nvidia" ;; *) printf '%s' "auto" ;; esac; }
+  _tui_inputbox()  { printf '%s' "all"; }
+  _tui_checklist() { printf '%s\n' "gpu"; }
+  _tui_msgbox()    { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  mock_cmd "nvidia-smi" 'case "$1 $2" in "--query-gpu=mig.mode.current --format=csv,noheader") echo "Disabled";; esac; [[ "$1" == "-L" ]] && echo "GPU 0: x"'
+}
+
+@test "_edit_section_deploy suggests migration when legacy [deploy] runtime present (no silent rewrite) (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.runtime]="nvidia"   # legacy key loaded from setup.conf
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "legacy [deploy] runtime"
+}
+
+@test "_edit_section_deploy: no migration suggestion when gpu_runtime already used (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.gpu_runtime]="auto"  # already migrated
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  refute_output --partial "legacy [deploy] runtime"
+}
+
+@test "_edit_section_deploy writes the canonical gpu_runtime key (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _517_stub_deploy
+  _edit_section_deploy
+  [ "$(_override_get "deploy.gpu_runtime" "")" == "nvidia" ]
+}
