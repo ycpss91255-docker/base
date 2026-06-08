@@ -716,7 +716,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/unit/deploy_spec.bats (34)
+### test/unit/deploy_spec.bats (39)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -763,6 +763,11 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_generate_deploy_sh: [lifecycle] restart inlines --restart` | restart inline |
 | `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
 | `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
+| `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
+| `_bake_config_copy: handles src == out in place` | in-place bake |
+| `_generate_deploy_bundle: dry-run plans build --target + save + tar.xz` | bundle plan |
+| `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
+| `_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies` | plain build |
 
 ### test/unit/compose_logging_spec.bats (32)
 

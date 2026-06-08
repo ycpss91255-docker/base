@@ -434,3 +434,102 @@ _write_conf() {
   assert_success
   rm -rf "${_d}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _bake_config_copy (S4 deploy half) + _generate_deploy_bundle (S6c, #506)
+# orchestrator. The bundle orchestration's docker / tar steps run through
+# _dry_run_cmd, so DRY_RUN=true asserts the plan without building.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_bake_config_copy: splices COPY config/app into the target stage (#506/#504)" {
+  local _d; _d="$(mktemp -d)"
+  cat > "${_d}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out"
+  run cat "${_d}/out"
+  assert_output --partial "COPY config/app /opt/app/config"
+  # COPY lands inside the runtime stage (after its FROM, before CMD).
+  local _from _copy _cmd
+  _from="$(grep -n 'AS runtime' "${_d}/out" | head -1 | cut -d: -f1)"
+  _copy="$(grep -n 'COPY config/app' "${_d}/out" | head -1 | cut -d: -f1)"
+  _cmd="$(grep -n 'CMD' "${_d}/out" | head -1 | cut -d: -f1)"
+  (( _from < _copy )) && (( _copy < _cmd ))
+  rm -rf "${_d}"
+}
+
+@test "_bake_config_copy: handles src == out in place (#506/#504)" {
+  local _d; _d="$(mktemp -d)"
+  cat > "${_d}/Dockerfile" <<'DOCK'
+FROM scratch AS runtime
+CMD ["/app"]
+DOCK
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/Dockerfile"
+  run cat "${_d}/Dockerfile"
+  assert_output --partial "COPY config/app /opt/app/config"
+  assert_output --partial "FROM scratch AS runtime"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: dry-run plans build --target + save + tar.xz (#506)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/docker"
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
+  cat > "${_d}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  local _bundle="${_d}/myrepo-runtime.deploy.tar.xz"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_bundle}"
+  unset DRY_RUN
+  assert_success
+  assert_output --partial "docker build --target runtime"
+  assert_output --partial "docker save"
+  assert_output --partial "tar -C"
+  assert_output --partial "-cJf"
+  assert_output --partial "${_bundle}"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#506/#503)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/docker"
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
+  cat > "${_d}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/b.tar.xz"
+  unset DRY_RUN
+  assert_success
+  assert_output --partial "Dockerfile.deploy"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies (#506)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/docker"
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" > "${_d}/config/docker/setup.conf"
+  cat > "${_d}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+DOCK
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "devel" "${_d}/b.tar.xz"
+  unset DRY_RUN
+  assert_success
+  assert_output --partial "-f ${_d}/Dockerfile "
+  refute_output --partial "Dockerfile.deploy"
+  rm -rf "${_d}"
+}
