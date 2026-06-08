@@ -275,6 +275,31 @@ EOS
   assert_output --partial "-d"
 }
 
+@test "run.sh -d runs the repo-local post/run hook (#537)" {
+  # #537: detached mode installs no foreground EXIT trap, so the post-run
+  # hook (#440) must be invoked directly after `compose up -d`. Regression
+  # guard: the hook fired only in foreground before this fix. NOTE: not
+  # --dry-run -- __hook_run no-ops under DRY_RUN, so the hook must run for
+  # real (docker is the BIN_DIR stub; DOCKER_IMAGE_PRESENT skips the guard).
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
+  export DOCKER_IMAGE_PRESENT=true
+  mkdir -p "${SANDBOX}/script/hooks/post"
+  cat > "${SANDBOX}/script/hooks/post/run.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "POST_RUN_HOOK_FIRED"
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/post/run.sh"
+  run bash "${SANDBOX}/run.sh" -t test -d
+  assert_success
+  assert_output --partial "POST_RUN_HOOK_FIRED"
+}
+
 @test "run.sh devel target routes to 'compose up -d' + 'compose exec'" {
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
