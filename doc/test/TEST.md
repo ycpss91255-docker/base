@@ -1019,6 +1019,26 @@ the host file content and the inherited stdout (preserving
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 
+### test/unit/lint_mixed_test_layout_spec.bats (8)
+
+Covers `script/ci/lint_mixed_test_layout.sh` (#495 / ADR-00000004): the
+WARNING-only lint that flags a `test/<category>/` directory mixing test
+runner families (`.bats` + `test_*.py`) at one level and suggests the
+`test/<category>/<tool>/` subdir split. Asserts the warn / silent cases,
+that non-test files are ignored, the non-blocking exit 0, the
+non-directory exit 2, and the `_runner_family` classifier.
+
+| Test | Description |
+|------|-------------|
+| `warns when a category mixes bats and python at one level` | mixed -> WARN |
+| `silent for a single-tool (bats-only) category` | bats-only silent |
+| `silent for a single-tool (python-only) category` | python-only silent |
+| `warns only for the mixed category among several` | per-category scoping |
+| `non-test files do not trigger a warning` | helper / docs ignored |
+| `is non-blocking: exits 0 even when it warns` | advisory exit 0 |
+| `exits 2 when given a non-directory root` | usage error |
+| `_runner_family classifies bats / python / other` | classifier unit |
+
 ### test/unit/init_spec.bats (22)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
