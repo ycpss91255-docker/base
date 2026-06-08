@@ -716,7 +716,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/unit/deploy_spec.bats (21)
+### test/unit/deploy_spec.bats (26)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -750,6 +750,11 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `cgroup_rules map to --device-cgroup-rule` | cgroup rules |
 | `environment and gui are NOT mapped (baked / dev-only)` | omissions |
 | `empty record emits nothing` | empty no-op |
+| `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
+| `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
+| `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
+| `_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS` | dri auto |
+| `_resolve_deploy_context: dri_groups off yields empty` | dri off |
 
 ### test/unit/compose_logging_spec.bats (32)
 
