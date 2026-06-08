@@ -312,3 +312,125 @@ _write_conf() {
   assert_equal "${_ctx[dri_groups_str]}" ""
   rm -rf "${_d}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_sh (S6b-gen, #506) — writes the self-contained field
+# launcher by tying _resolve_deploy_context + _resolve_docker_flags +
+# _emit_docker_run_flags together. Generated file is chmod +x and
+# ShellCheck-clean; carries docker-level flags only (no -e / no -v).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_generate_deploy_sh: writes an executable launcher with the expected skeleton (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "local/myrepo:runtime" "myrepo-field" "${_out}"
+  [ -x "${_out}" ]
+  run cat "${_out}"
+  assert_output --partial "/usr/bin/env bash"
+  assert_output --partial "set -euo pipefail"
+  assert_output --partial 'IMAGE="${DEPLOY_IMAGE:-local/myrepo:runtime}"'
+  assert_output --partial 'CONTAINER_NAME="${DEPLOY_CONTAINER_NAME:-myrepo-field}"'
+  assert_output --partial "exec docker run"
+  assert_output --partial '"${IMAGE}"'
+  assert_output --partial '"$@"'
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: inlines global [security] privileged + caps + devices (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[security]" "privileged = true" "cap_add_1 = SYS_ADMIN" \
+    "[devices]" "device_1 = /dev/ttyUSB0"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "--privileged"
+  assert_output --partial "--cap-add"
+  assert_output --partial "SYS_ADMIN"
+  assert_output --partial "--device"
+  assert_output --partial "/dev/ttyUSB0"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: gpu force inlines --gpus count + capabilities + runtime (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
+    "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" "dri_groups = off"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "--gpus"
+  assert_output --partial "count=2"
+  # %q escapes the comma in the generated file (count=2\,capabilities=gpu\,compute);
+  # the shell unescapes it back to a comma at field run time.
+  assert_output --partial "capabilities=gpu"
+  assert_output --partial "--runtime=nvidia"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: network host inlines --network=host (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[network]" "mode = host"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "--network=host"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: omits -e (env baked) and -v (no dev binds) (#506)" {
+  local _d; _d="$(mktemp -d)"
+  # SC2016: the literal ${WS_PATH} is intentional -- it is the portable
+  # workspace-bind form written verbatim into setup.conf, not a shell expansion.
+  # shellcheck disable=SC2016
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[environment]" "env_1 = FOO=bar" \
+    "[volumes]" 'mount_1 = ${WS_PATH}:/work'
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  refute_output --partial "FOO=bar"
+  refute_output --partial " -e "
+  refute_output --partial " -v "
+  refute_output --partial "/work"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: [lifecycle] restart inlines --restart (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[lifecycle]" "restart = on-failure"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "--restart=on-failure"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: per-stage [stage:runtime] override is applied (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[network]" "mode = host" \
+    "[stage:runtime]" "network.mode = bridge" "network.network_name = fieldnet"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "--network=fieldnet"
+  refute_output --partial "--network=host"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: generated launcher is ShellCheck-clean (#506)" {
+  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
+    "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" "dri_groups = off" \
+    "[security]" "privileged = true" "cap_add_1 = SYS_ADMIN" \
+    "[devices]" "device_1 = /dev:/dev:rslave" \
+    "[lifecycle]" "restart = on-failure"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run shellcheck "${_out}"
+  assert_success
+  rm -rf "${_d}"
+}
