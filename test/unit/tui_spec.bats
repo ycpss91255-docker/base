@@ -1594,3 +1594,65 @@ EOF
   run grep -c "^\[stage:headless\]$" "${TEMP_DIR}/out.conf"
   assert_output "1"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_lifecycle — [lifecycle] restart TUI page (#514)
+# ════════════════════════════════════════════════════════════════════
+
+_lc_setup_tui() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/wrapper/setup_tui.sh
+  _tui_init_lang
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+}
+
+@test "_edit_section_lifecycle writes a simple policy (always)" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "always"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "always" ]
+}
+
+@test "_edit_section_lifecycle writes the default no policy" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "no"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "no" ]
+}
+
+@test "_edit_section_lifecycle on-failure with N assembles on-failure:N" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' "3"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:3" ]
+}
+
+@test "_edit_section_lifecycle on-failure with empty N falls back to bare on-failure" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' ""; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure" ]
+}
+
+@test "_edit_section_lifecycle on-failure re-prompts on invalid N then accepts" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_select()  { printf '%s' "on-failure"; }
+  # First inputbox call returns an invalid value, second a valid one.
+  _tui_inputbox() {
+    local _f="${TEMP_DIR}/n_calls"
+    local _c; _c="$(cat "${_f}" 2>/dev/null || echo 0)"; _c=$((_c + 1)); echo "${_c}" > "${_f}"
+    if [[ "${_c}" -eq 1 ]]; then printf '%s' "0xy"; else printf '%s' "5"; fi
+  }
+  _tui_msgbox() { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:5" ]
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "retry count"
+}

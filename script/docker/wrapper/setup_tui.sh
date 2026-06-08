@@ -225,6 +225,17 @@ _TUI_MSG_EN[err.invalid_mount]="Invalid mount format (expected <host>:<container
 _TUI_MSG_EN[err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
 _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
+# [lifecycle] restart policy page (#514, fast-follow of #478)
+_TUI_MSG_EN[main.lifecycle]="container restart policy"
+_TUI_MSG_EN[lifecycle.title]="Lifecycle"
+_TUI_MSG_EN[lifecycle.restart.prompt]=$'Container restart policy.\n\nCaveat: always / unless-stopped restart on ANY exit -- a stage that\nextends devel and exits 0 (e.g. the test service) would loop. Prefer\non-failure for auto-retry.'
+_TUI_MSG_EN[lifecycle.restart.no]="no (never restart -- default; emits no restart: field)"
+_TUI_MSG_EN[lifecycle.restart.always]="always (restart on any exit, incl. manual stop)"
+_TUI_MSG_EN[lifecycle.restart.unless_stopped]="unless-stopped (restart on any exit unless manually stopped)"
+_TUI_MSG_EN[lifecycle.restart.on_failure]="on-failure (restart only on non-zero exit)"
+_TUI_MSG_EN[lifecycle.restart.n_prompt]="Max retry count for on-failure (integer >= 1; leave empty for unlimited bare on-failure)"
+_TUI_MSG_EN[err.invalid_restart]="Invalid restart policy (no / always / unless-stopped / on-failure / on-failure:N)"
+_TUI_MSG_EN[err.invalid_restart_n]="Invalid retry count (expected a positive integer, or empty for bare on-failure)"
 _TUI_MSG_EN[err.invalid_shm_size]=$'Invalid shm_size\n  - Expected: <num><unit>\n  - Units: b, k/kb, m/mb, g/gb (case-insensitive)\n  - Example: 2gb, 512mb'
 _TUI_MSG_EN[err.invalid_port_mapping]=$'Invalid port mapping\n  - Expected: <host>:<container>[/tcp|udp]\n  - Example: 8080:80, 5000:5000/udp'
 _TUI_MSG_EN[err.invalid_env_kv]=$'Invalid env var\n  - Expected: KEY=VALUE\n  - KEY must start with letter or _ and contain only [A-Za-z0-9_]'
@@ -443,6 +454,17 @@ _TUI_MSG_ZH_TW[err.invalid_mount]="掛載格式錯誤（預期 <host>:<container
 _TUI_MSG_ZH_TW[err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
+# [lifecycle] restart policy page (#514, fast-follow of #478)
+_TUI_MSG_ZH_TW[main.lifecycle]="容器重啟策略"
+_TUI_MSG_ZH_TW[lifecycle.title]="生命週期"
+_TUI_MSG_ZH_TW[lifecycle.restart.prompt]=$'容器重啟策略。\n\n注意：always / unless-stopped 會在「任何」退出時重啟 —— 一個 extends\ndevel 且以 0 結束的 stage（例如 test service）會無限重啟。要自動重試\n請優先選 on-failure。'
+_TUI_MSG_ZH_TW[lifecycle.restart.no]="no（永不重啟 —— 預設；不輸出 restart: 欄位）"
+_TUI_MSG_ZH_TW[lifecycle.restart.always]="always（任何退出都重啟，含手動停止）"
+_TUI_MSG_ZH_TW[lifecycle.restart.unless_stopped]="unless-stopped（任何退出都重啟，除非手動停止）"
+_TUI_MSG_ZH_TW[lifecycle.restart.on_failure]="on-failure（僅非零退出時重啟）"
+_TUI_MSG_ZH_TW[lifecycle.restart.n_prompt]="on-failure 最大重試次數（整數 >= 1；留空 = 不限次數的純 on-failure）"
+_TUI_MSG_ZH_TW[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
+_TUI_MSG_ZH_TW[err.invalid_restart_n]="重試次數不合法（預期正整數，或留空為純 on-failure）"
 _TUI_MSG_ZH_TW[err.invalid_shm_size]=$'shm_size 格式錯誤\n  - 預期：<數字><單位>\n  - 單位：b、k/kb、m/mb、g/gb（大小寫不限）\n  - 範例：2gb、512mb'
 _TUI_MSG_ZH_TW[err.invalid_port_mapping]=$'Port 映射格式錯誤\n  - 預期：<host>:<container>[/tcp|udp]\n  - 範例：8080:80、5000:5000/udp'
 _TUI_MSG_ZH_TW[err.invalid_env_kv]=$'環境變數格式錯誤\n  - 預期：KEY=VALUE\n  - KEY 需以字母或 _ 開頭，僅含 [A-Za-z0-9_]'
@@ -683,6 +705,17 @@ _TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
+# [lifecycle] restart policy page (#514, fast-follow of #478)
+_TUI_MSG_ZH_CN[main.lifecycle]="容器重启策略"
+_TUI_MSG_ZH_CN[lifecycle.title]="生命周期"
+_TUI_MSG_ZH_CN[lifecycle.restart.prompt]=$'容器重启策略。\n\n注意：always / unless-stopped 会在「任何」退出时重启 —— 一个 extends\ndevel 且以 0 结束的 stage（例如 test service）会无限重启。要自动重试\n请优先选 on-failure。'
+_TUI_MSG_ZH_CN[lifecycle.restart.no]="no（永不重启 —— 默认；不输出 restart: 字段）"
+_TUI_MSG_ZH_CN[lifecycle.restart.always]="always（任何退出都重启，含手动停止）"
+_TUI_MSG_ZH_CN[lifecycle.restart.unless_stopped]="unless-stopped（任何退出都重启，除非手动停止）"
+_TUI_MSG_ZH_CN[lifecycle.restart.on_failure]="on-failure（仅非零退出时重启）"
+_TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整数 >= 1；留空 = 不限次数的纯 on-failure）"
+_TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
+_TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env + compose.yaml..."
 _TUI_MSG_ZH_CN[action.prompt]="选择动作"
@@ -894,6 +927,17 @@ _TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
+# [lifecycle] restart policy page (#514, fast-follow of #478)
+_TUI_MSG_JA[main.lifecycle]="コンテナ再起動ポリシー"
+_TUI_MSG_JA[lifecycle.title]="ライフサイクル"
+_TUI_MSG_JA[lifecycle.restart.prompt]=$'コンテナ再起動ポリシー。\n\n注意：always / unless-stopped は「あらゆる」終了で再起動します ——\ndevel を extends して 0 で終了する stage（例：test サービス）は\nループします。自動リトライには on-failure を推奨します。'
+_TUI_MSG_JA[lifecycle.restart.no]="no（再起動しない —— デフォルト；restart: フィールドを出力しない）"
+_TUI_MSG_JA[lifecycle.restart.always]="always（手動停止を含むあらゆる終了で再起動）"
+_TUI_MSG_JA[lifecycle.restart.unless_stopped]="unless-stopped（手動停止を除くあらゆる終了で再起動）"
+_TUI_MSG_JA[lifecycle.restart.on_failure]="on-failure（非ゼロ終了時のみ再起動）"
+_TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数（整数 >= 1；空欄 = 回数無制限の素の on-failure）"
+_TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
+_TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
 _TUI_MSG_JA[saved]="%s に保存しました。.env + compose.yaml を再生成中..."
 _TUI_MSG_JA[action.prompt]="アクションを選択"
@@ -1575,6 +1619,46 @@ _edit_section_deploy() {
     _override_set "deploy.runtime" "${_v}"
   else
     _tui_msgbox "$(_tui_msg deploy.title)" "$(_tui_msg err.invalid_runtime)"
+  fi
+}
+
+# [lifecycle] restart policy page (#514, fast-follow of #478). Radiolist of
+# the 4 docker policies; on-failure adds a two-step optional integer retry
+# count (>=1, empty -> bare on-failure). Reuses _validate_restart from
+# lib/_tui_conf.sh; the on-failure:N value is assembled here.
+_edit_section_lifecycle() {
+  local _v _cur _cur_base _n _cur_n
+  _cur="$(_override_get "lifecycle.restart" "no")"
+  _cur_base="${_cur%%:*}"
+  _v="$(_tui_select "$(_tui_msg lifecycle.title)" "$(_tui_msg lifecycle.restart.prompt)" \
+    no             "$(_tui_msg lifecycle.restart.no)"             "$([[ "${_cur_base}" == no ]]             && echo ON || echo off)" \
+    always         "$(_tui_msg lifecycle.restart.always)"         "$([[ "${_cur_base}" == always ]]         && echo ON || echo off)" \
+    unless-stopped "$(_tui_msg lifecycle.restart.unless_stopped)" "$([[ "${_cur_base}" == unless-stopped ]] && echo ON || echo off)" \
+    on-failure     "$(_tui_msg lifecycle.restart.on_failure)"     "$([[ "${_cur_base}" == on-failure ]]     && echo ON || echo off)")" \
+    || return 0
+
+  # on-failure: optional retry count. Empty input keeps the bare policy.
+  if [[ "${_v}" == "on-failure" ]]; then
+    _cur_n=""
+    [[ "${_cur}" == on-failure:* ]] && _cur_n="${_cur#on-failure:}"
+    while :; do
+      _n="$(_tui_inputbox "$(_tui_msg lifecycle.title)" "$(_tui_msg lifecycle.restart.n_prompt)" "${_cur_n}")" \
+        || return 0
+      if [[ -z "${_n}" ]]; then
+        _v="on-failure"
+        break
+      elif [[ "${_n}" =~ ^[1-9][0-9]*$ ]]; then
+        _v="on-failure:${_n}"
+        break
+      fi
+      _tui_msgbox "$(_tui_msg lifecycle.title)" "$(_tui_msg err.invalid_restart_n)"
+    done
+  fi
+
+  if _validate_restart "${_v}"; then
+    _override_set "lifecycle.restart" "${_v}"
+  else
+    _tui_msgbox "$(_tui_msg lifecycle.title)" "$(_tui_msg err.invalid_restart)"
   fi
 }
 
@@ -2326,9 +2410,10 @@ _render_runtime_menu() {
       gui         "$(_tui_msg main.gui)" \
       environment "$(_tui_msg main.environment)" \
       logging     "$(_tui_msg main.logging)" \
+      lifecycle   "$(_tui_msg main.lifecycle)" \
       __back      "$(_tui_msg runtime.back)")" || break
     case "${_choice}" in
-      network|deploy|gui|environment|logging) "_edit_section_${_choice}" ;;
+      network|deploy|gui|environment|logging|lifecycle) "_edit_section_${_choice}" ;;
       __back|"") break ;;
     esac
   done
