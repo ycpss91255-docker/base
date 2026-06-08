@@ -667,6 +667,21 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
+### test/unit/justfile_spec.bats (4)
+
+Static content checks for the user-facing `script/docker/justfile`
+(ADR-00000005, #545): `just` replaces the GNU make wrapper, with recipes
+forwarding 1:1 to `./script/<name>.sh` via `{{args}}` passthrough (no
+`MAKEOVERRIDES` / `--` / `EXEC_ARGS` workarounds). Asserted by grep, not
+execution -- `just` is not in the test-tools image; downstream installs it.
+
+| Test | Description |
+|------|-------------|
+| `justfile exists` | file present |
+| `declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
+| `recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
+| `default recipe lists recipes (replaces make help)` | `default: @just --list` |
+
 ### test/unit/compose_gen_spec.bats (85)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
@@ -1042,7 +1057,7 @@ non-directory exit 2, and the `_runner_family` classifier.
 | `exits 2 when given a non-directory root` | usage error |
 | `_runner_family classifies bats / python / other` | classifier unit |
 
-### test/unit/init_spec.bats (22)
+### test/unit/init_spec.bats (28)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements

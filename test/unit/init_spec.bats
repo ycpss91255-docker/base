@@ -232,6 +232,16 @@ REMOTE
   assert_output ".base/script/docker/Makefile"
 }
 
+@test "_create_symlinks: places justfile at root with the direct .base/ target (#545)" {
+  _source_init
+  _create_symlinks
+  # ADR-00000005: just is the new user-facing entry; the justfile symlink
+  # sits at root (like Makefile) so `just <verb>` runs from the repo root.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
+}
+
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
   # Pretend an earlier run left a regular file where the symlink should go.
   # Post-#330 the symlinks live under script/, so the stale-replacement

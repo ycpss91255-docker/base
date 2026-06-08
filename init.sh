@@ -77,6 +77,10 @@ _create_symlinks() {
     fi
   done
   _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
+  # ADR-00000005: `just` is the new user-facing entry (additive alongside
+  # Makefile in this phase). justfile sits at root with the direct .base/
+  # target, same as Makefile.
+  _symlink "${TEMPLATE_REL}/script/docker/justfile" "justfile"
 
   if [[ ! -f .hadolint.yaml ]] \
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" \
