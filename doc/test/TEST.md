@@ -716,7 +716,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/unit/deploy_spec.bats (39)
+### test/unit/deploy_spec.bats (45)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -768,6 +768,12 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_generate_deploy_bundle: dry-run plans build --target + save + tar.xz` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
 | `_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies` | plain build |
+| `_setup_deploy: --dry-run previews the launcher + prints the build plan` | deploy dry-run |
+| `_setup_deploy: refuses in a non-interactive shell without -y` | non-tty refuse |
+| `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
+| `_setup_deploy: rejects an unknown flag` | arg validation |
+| `_setup_deploy: --stage selects the target stage` | stage select |
+| `main deploy routes to _setup_deploy` | dispatch wiring |
 
 ### test/unit/compose_logging_spec.bats (32)
 

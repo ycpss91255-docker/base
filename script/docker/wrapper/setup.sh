@@ -236,6 +236,16 @@ Subcommands:
                 setup.conf / .env are saved to setup.conf.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
+  deploy [--stage S] [--output F] [--dry-run] [-y|--yes]
+                Build a self-contained field bundle for stage S (default
+                runtime): bake [environment] as ENV + COPY config/app
+                into the image, docker build --target S, generate
+                deploy.sh, docker save, and tar.xz {image, deploy.sh}.
+                Previews the resolved launcher (every inlined docker
+                flag) and prompts before building; --dry-run prints the
+                plan only; -y skips the prompt. Default output is
+                <base-path>/deploy/<name>-<stage>.tar.xz. Field flow:
+                extract, docker load < image.tar, ./deploy.sh.
 
 Options:
   -h, --help            Show this help and exit.
@@ -4824,6 +4834,108 @@ _setup_apply() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_deploy [-h] [--base-path P] [--lang L] [--stage S]
+#               [--output|-o F] [--dry-run] [-y|--yes] [-q|--quiet]
+#
+# S6d of #497 (#506): user-facing entry for the self-contained field
+# deploy bundle. Previews the resolved field launcher (every inlined
+# docker-level flag -- the per-parameter review), asks for confirmation,
+# then calls _generate_deploy_bundle (S6c) to build the immutable image
+# and write the tar.xz bundle. `--dry-run` prints the build plan without
+# building (and skips the prompt); `-y` skips the prompt; a non-tty shell
+# without `-y` refuses (mirrors `reset`). Default stage is `runtime`;
+# default output is <base>/deploy/<name>-<stage>.tar.xz.
+#
+# Note: the graphical per-param TUI page (setup_tui.sh) is an optional
+# fast-follow -- this plain-text preview already surfaces every resolved
+# flag and is script / CI friendly (the issue invited the lighter flow).
+# ════════════════════════════════════════════════════════════════════
+_setup_deploy() {
+  local _base_path="" _stage="runtime" _output="" _yes=0 _quiet=0 _dry=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)     usage ;;
+      --base-path)   _base_path="${2:?"--base-path requires a value"}"; shift 2 ;;
+      --lang)        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"; _sanitize_lang _LANG "setup"; shift 2 ;;
+      --stage)       _stage="${2:?"--stage requires a value"}"; shift 2 ;;
+      --stage=*)     _stage="${1#--stage=}"; shift ;;
+      --output|-o)   _output="${2:?"--output requires a value"}"; shift 2 ;;
+      --output=*)    _output="${1#--output=}"; shift ;;
+      --dry-run)     _dry=1; shift ;;
+      -y|--yes)      _yes=1; shift ;;
+      -q|--quiet)    _quiet=1; shift ;;
+      *)
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+  fi
+  if [[ ! -f "${_base_path}/Dockerfile" ]]; then
+    _log_err setup deploy_no_dockerfile "display=[setup] deploy: no Dockerfile at ${_base_path}; cannot build the field image." "path=${_base_path}"
+    return 1
+  fi
+
+  local _name=""
+  BASE_PATH="${_base_path}" detect_image_name _name "${_base_path}"
+  [[ -z "${_output}" ]] && _output="${_base_path}/deploy/${_name}-${_stage}.tar.xz"
+
+  # Per-parameter review: generate the launcher to a temp file and print
+  # it so the user sees every inlined docker-level flag before building.
+  if (( ! _quiet )); then
+    local _preview
+    _preview="$(mktemp)"
+    _generate_deploy_sh "${_base_path}" "${_stage}" "${_name}:${_stage}" "${_name}-${_stage}" "${_preview}"
+    printf '[setup] deploy plan: stage=%s image=%s:%s bundle=%s\n' \
+      "${_stage}" "${_name}" "${_stage}" "${_output}"
+    printf '[setup] field launcher to be generated (review every flag):\n'
+    sed 's/^/    /' "${_preview}"
+    rm -f "${_preview}"
+  fi
+
+  # Confirmation: skipped on --dry-run / -y; a non-tty shell without -y
+  # refuses rather than build silently (mirrors reset).
+  if (( ! _dry )) && (( ! _yes )); then
+    if [[ ! -t 0 ]]; then
+      _log_err setup deploy_needs_yes "display=[setup] deploy: refusing to build without confirmation in a non-interactive shell; pass -y to proceed."
+      return 1
+    fi
+    printf "[setup] build the field image and write %s? [y/N]: " "${_output}"
+    local _ans=""
+    read -r _ans
+    case "${_ans}" in
+      y|Y|yes|YES) ;;
+      *)
+        _log_warn setup deploy_aborted "display=[setup] deploy aborted."
+        return 1
+        ;;
+    esac
+  fi
+
+  mkdir -p "$(dirname -- "${_output}")"
+  local _rc=0
+  if (( _dry )); then
+    DRY_RUN=true _generate_deploy_bundle "${_base_path}" "${_stage}" "${_output}" || _rc=$?
+  else
+    _generate_deploy_bundle "${_base_path}" "${_stage}" "${_output}" || _rc=$?
+  fi
+  if (( _rc != 0 )); then
+    _log_err setup deploy_failed "display=[setup] deploy: bundle generation failed (rc=${_rc})." "rc=${_rc}"
+    return "${_rc}"
+  fi
+
+  if (( ! _quiet )) && (( ! _dry )); then
+    _log_info setup deploy_done "display=[setup] deploy bundle written: ${_output}"
+    printf "[setup] field flow: tar -xJf %s && docker load < image.tar && ./deploy.sh\n" \
+      "$(basename -- "${_output}")"
+  fi
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
 # main
 #
 # Top-level entry. Routes to subcommand handlers; preserves the legacy
@@ -4852,7 +4964,7 @@ main() {
     -h|--help)
       usage
       ;;
-    apply|check-drift|set|show|list|add|remove|reset)
+    apply|check-drift|set|show|list|add|remove|reset|deploy)
       _subcmd="$1"
       shift
       ;;
@@ -4876,6 +4988,7 @@ main() {
     add)          _setup_add         "$@" ;;
     remove)       _setup_remove      "$@" ;;
     reset)        _setup_reset       "$@" ;;
+    deploy)       _setup_deploy      "$@" ;;
   esac
   local _rc=$?
 

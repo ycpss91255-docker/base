@@ -533,3 +533,81 @@ DOCK
   refute_output --partial "Dockerfile.deploy"
   rm -rf "${_d}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_deploy (S6d, #506) — the `setup.sh deploy` subcommand: preview +
+# confirmation + _generate_deploy_bundle. Plus dispatch wiring in main().
+# ════════════════════════════════════════════════════════════════════
+
+_write_deploy_repo() {
+  local _dir="${1}"
+  mkdir -p "${_dir}/config/docker"
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
+    "[security]" "privileged = true" > "${_dir}/config/docker/setup.conf"
+  cat > "${_dir}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+}
+
+@test "_setup_deploy: --dry-run previews the launcher + prints the build plan (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_success
+  assert_output --partial "deploy plan: stage=runtime"
+  assert_output --partial "field launcher to be generated"
+  assert_output --partial "--privileged"
+  assert_output --partial "docker build --target runtime"
+  assert_output --partial "docker save"
+  assert_output --partial "-cJf"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: refuses in a non-interactive shell without -y (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}"
+  assert_failure
+  assert_output --partial "non-interactive shell"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: errors when the repo has no Dockerfile (#506)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/docker"
+  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/config/docker/setup.conf"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_failure
+  assert_output --partial "no Dockerfile"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: rejects an unknown flag (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --bogus
+  assert_failure
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: --stage selects the target stage (#506)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel --dry-run
+  assert_success
+  assert_output --partial "docker build --target devel"
+  rm -rf "${_d}"
+}
+
+@test "main deploy routes to _setup_deploy (#506 dispatch)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run main deploy --base-path "${_d}" --dry-run
+  assert_success
+  assert_output --partial "deploy plan: stage=runtime"
+  rm -rf "${_d}"
+}

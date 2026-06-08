@@ -435,6 +435,50 @@ drift, no git churn).
 > [#497](https://github.com/ycpss91255-docker/base/issues/497) epic; this
 > section documents the routing model they implement.
 
+### Field deployment (`setup.sh deploy`)
+
+`./setup.sh deploy` builds a self-contained field bundle from the same
+`setup.conf` -- the deploy half of the routing model above. It targets a
+stage (default `runtime`) and produces a single `tar.xz` carrying just two
+things: the immutable image and a generated `deploy.sh` launcher.
+
+```bash
+./setup.sh deploy                       # build runtime bundle (prompts first)
+./setup.sh deploy --dry-run             # print the build plan, build nothing
+./setup.sh deploy --stage runtime -y    # skip the confirmation prompt
+./setup.sh deploy -o /tmp/robot.tar.xz  # custom output path
+```
+
+What it does, in order:
+
+1. bake the `[environment]` defaults into the image as real `ENV` (S3) and
+   `COPY` `config/app/` into it when present (S4) -- so the field image is
+   self-contained (no env file, no config bind travels);
+2. `docker build --target <stage>` the immutable image;
+3. generate `deploy.sh` -- a `docker run` launcher with every machine-bound
+   docker-level flag inlined (privileged / gpus / runtime / network / ipc /
+   pid / devices / caps / shm / restart / group-add), resolved from the
+   chosen stage exactly as `compose.yaml` would for dev;
+4. `docker save` the image and `tar -cJf` `{image.tar, deploy.sh}` into the
+   bundle.
+
+Before building, it prints the resolved launcher so you can review every
+inlined flag, then prompts (skip with `-y`; `--dry-run` prints the plan and
+the launcher without building; a non-interactive shell without `-y`
+refuses). On the field machine:
+
+```bash
+tar -xJf <name>-runtime.tar.xz
+docker load < image.tar
+./deploy.sh                 # or: DEPLOY_IMAGE=... DEPLOY_CONTAINER_NAME=... ./deploy.sh
+```
+
+The launcher carries docker-level flags only by design: workload env vars
+are baked `ENV` (override at run time with `-e` after `./deploy.sh`), and
+the dev workspace bind is intentionally dropped (the field image ships its
+own code). `--group-add` GIDs (iGPU `/dev/dri`) are read from the
+generating host and may need adjusting on a different field machine.
+
 ### Logging output to host
 
 Set `[logging] local_path` to tee container stdout/stderr to a host-side
@@ -553,6 +597,7 @@ Re-run with `--setup` to regenerate `.env` + `compose.yaml`.
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match |
 | `reset [-y\|--yes]` | Restore template default; archives prior `setup.conf` → `setup.conf.bak`, prior `.env` → `.env.bak` |
+| `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field bundle (`tar.xz` of image + generated `deploy.sh`) for stage `S` (default `runtime`); previews the resolved launcher and prompts before building. See [Field deployment](#field-deployment-setupsh-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
 
