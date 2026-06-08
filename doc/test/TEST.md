@@ -71,7 +71,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (360)
+### test/unit/setup_spec.bats (358)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf

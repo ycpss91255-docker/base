@@ -19,7 +19,6 @@ _canonical_gitignore_entries() {
 .env
 .env.generated
 .env.bak
-runtime.env
 compose.yaml
 setup.conf.bak
 setup.conf.local
