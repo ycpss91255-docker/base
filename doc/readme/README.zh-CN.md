@@ -426,6 +426,29 @@ Main
 
 带 `--setup` 重跑以重新生成 `.env` + `compose.yaml`。
 
+### Field 部署（`setup.sh deploy`）
+
+`./setup.sh deploy` 用同一份 `setup.conf` 打包出自带式 field bundle —— 即路由模型的 deploy 半边。它针对某个 stage（默认 `runtime`）产出单一 `tar.xz`，内含两样东西：不可变镜像，与生成的 `deploy.sh` 启动器。
+
+```bash
+./setup.sh deploy                       # 打包 runtime bundle（会先确认）
+./setup.sh deploy --dry-run             # 只打印 build plan，不实际 build
+./setup.sh deploy --stage runtime -y    # 跳过确认提示
+./setup.sh deploy -o /tmp/robot.tar.xz  # 自定义输出路径
+```
+
+依序：(1) 把 `[environment]` 默认烤成镜像的真 `ENV`（S3）、有 `config/app/` 就 `COPY` 进镜像（S4），使 field 镜像自带（不带 env 文件、不带 config bind）；(2) `docker build --target <stage>`；(3) 生成 `deploy.sh` —— 一支把所有机器绑定的 docker 层级旗标（privileged / gpus / runtime / network / ipc / pid / devices / caps / shm / restart / group-add）inline 进去的 `docker run` 启动器，解析自该 stage、与 dev 的 `compose.yaml` 一致；(4) `docker save` 并 `tar -cJf` 出 `{image.tar, deploy.sh}`。
+
+build 前会打印解析后的启动器让你逐项检视每个 inline 旗标再确认（`-y` 跳过；`--dry-run` 只打印 plan 与启动器不 build；非交互 shell 未带 `-y` 会拒绝）。field 机器上：
+
+```bash
+tar -xJf <name>-runtime.tar.xz
+docker load < image.tar
+./deploy.sh                 # 或：DEPLOY_IMAGE=... DEPLOY_CONTAINER_NAME=... ./deploy.sh
+```
+
+启动器刻意只带 docker 层级旗标：workload 环境变量已烤成 `ENV`（运行时可在 `./deploy.sh` 后用 `-e` 覆盖），dev 的 workspace bind 刻意舍弃（field 镜像自带代码）。`--group-add` 的 GID（iGPU `/dev/dri`）读自生成主机，换到不同 field 机器可能需调整。
+
 ### setup.sh 子命令（v0.11.0+）
 
 `setup.sh` 是 git 风格的后端，提供明确的子命令。build / run / TUI 脚本会代为调用；直接调用适合脚本化 / 非交互场景：
@@ -440,6 +463,7 @@ Main
 | `add <section>.<list> <value>` | 加到列表型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除 |
 | `reset [-y\|--yes]` | 恢复 template 默认；旧 `setup.conf` → `setup.conf.bak`、旧 `.env` → `.env.bak` |
+| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自带式 field bundle（image + 生成 `deploy.sh` 的 `tar.xz`），stage `S` 默认 `runtime`；build 前先预览解析后的启动器并确认。见 [Field 部署](#field-部署setupsh-deploy) |
 
 带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
 
