@@ -156,10 +156,16 @@ _run_shellcheck() {
   find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
+  shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
+
+  # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
+  # the build. Runs in the lint phase so it surfaces on every shellcheck path
+  # (local make test + the dedicated --shellcheck-only GHA job).
+  "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh" "${REPO_ROOT}"
 }
 
 # ── Bats tests ───────────────────────────────────────────────────────────────
