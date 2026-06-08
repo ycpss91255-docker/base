@@ -114,6 +114,9 @@ ci_empty_shard
 ci_no_docker_socket
 ci_no_docker_cli
 ci_unknown_option
+ci_bats_path_not_found
+ci_bats_path_behavioural
+ci_bats_path_coverage
 
 # general
 dry_run_cmd
