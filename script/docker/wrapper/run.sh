@@ -659,6 +659,12 @@ ${_parallel}"
   if [[ "${DETACH}" == true ]]; then
     _compose_dispatch down 2>/dev/null || true
     _compose_dispatch up -d "${TARGET}"
+    # #537: detached installs no foreground EXIT trap, so the post-run hook
+    # (#440) would never fire. Run it directly here -- the container is up,
+    # so the hook can `docker exec` / `docker cp` into it. Decoupled from
+    # `compose down`: the -d lifecycle is user-managed (no teardown). Hook
+    # failure surfaces as a non-zero exit, matching the foreground trap.
+    _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
   elif [[ "${TARGET}" == "devel" ]]; then
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
