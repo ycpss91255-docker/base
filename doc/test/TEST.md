@@ -716,7 +716,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/unit/deploy_spec.bats (26)
+### test/unit/deploy_spec.bats (34)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -755,6 +755,14 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
 | `_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS` | dri auto |
 | `_resolve_deploy_context: dri_groups off yields empty` | dri off |
+| `_generate_deploy_sh: writes an executable launcher with the expected skeleton` | launcher skeleton |
+| `_generate_deploy_sh: inlines global [security] privileged + caps + devices` | global security/devices |
+| `_generate_deploy_sh: gpu force inlines --gpus count + capabilities + runtime` | gpu inline |
+| `_generate_deploy_sh: network host inlines --network=host` | network inline |
+| `_generate_deploy_sh: omits -e (env baked) and -v (no dev binds)` | env/volume omission |
+| `_generate_deploy_sh: [lifecycle] restart inlines --restart` | restart inline |
+| `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
+| `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
 
 ### test/unit/compose_logging_spec.bats (32)
 

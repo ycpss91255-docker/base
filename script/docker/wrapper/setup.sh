@@ -1679,6 +1679,149 @@ _resolve_docker_flags() {
   _rdf_out["ports"]="${_tmp}"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_sh <base_path> <stage> <image_ref> <container_name> <out>
+#
+# S6b-gen of #497 (#506): write a self-contained `docker run` field
+# launcher (`deploy.sh`) for the baked <stage> image. Ties the three
+# resolution layers together:
+#   _resolve_deploy_context  (global conf, S6b) -> the stage parent
+#   _resolve_docker_flags    (per-stage overrides, S5) -> effective record
+#   _emit_docker_run_flags   (S6a) -> the `docker run` argv fragment
+#
+# The launcher carries only docker-level flags. By design it omits:
+#   - environment (-e): [environment] is baked into the image as ENV (S3);
+#   - volumes (-v): bind mounts reference dev-host paths absent in the
+#     field, and structured config is COPY-baked (S4); so the field image
+#     is self-contained.
+# GPU enablement is resolved with the generating host's detection (same as
+# apply); the runtime stage's [stage:runtime] overrides still apply. The
+# image / container name are overridable at run time via DEPLOY_IMAGE /
+# DEPLOY_CONTAINER_NAME, and trailing args are appended to the container
+# command. The generated file is chmod +x and ShellCheck-clean.
+#
+# Consumed by the S6 bundle orchestrator (S6c): build --target <stage> ->
+# docker save -> tar.xz {image, deploy.sh}.
+# ════════════════════════════════════════════════════════════════════
+_generate_deploy_sh() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local _image_ref="${3:?"${FUNCNAME[0]}: missing image_ref"}"
+  local _container_name="${4:?"${FUNCNAME[0]}: missing container_name"}"
+  local _out="${5:?"${FUNCNAME[0]}: missing out path"}"
+
+  # Global conf context (shared with apply via S6b).
+  local -A _ctx=()
+  _resolve_deploy_context "${_base}" _ctx
+
+  # Detection-dependent enabled state + runtime, resolved like apply does.
+  local _gpu_detected="" _gpu_enabled="" _runtime_resolved=""
+  detect_gpu _gpu_detected
+  _resolve_gpu "${_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
+  _resolve_runtime "${_ctx["gpu_runtime_mode"]}" _runtime_resolved
+
+  # Per-stage [stage:<stage>] overrides, filtered to the allowlist.
+  local -a _so_k=() _so_v=() _sof_k=() _sof_v=()
+  _load_stage_overrides "${_base}" "${_stage}" _so_k _so_v
+  local _ki
+  for (( _ki = 0; _ki < ${#_so_k[@]}; _ki++ )); do
+    if _validate_stage_override_key "${_so_k[_ki]}"; then
+      _sof_k+=("${_so_k[_ki]}")
+      _sof_v+=("${_so_v[_ki]}")
+    fi
+  done
+
+  # Parent record for the per-stage resolver. gui is forced off (the field
+  # launcher is headless); volumes_top / env_top are empty so the field run
+  # carries no bind mounts and no -e (baked ENV instead).
+  local -A _parent=(
+    [gui]="false"
+    [gpu]="${_gpu_enabled}"
+    [gpu_count]="${_ctx["gpu_count"]}"
+    [gpu_caps]="${_ctx["gpu_caps"]}"
+    [runtime]="${_runtime_resolved}"
+    [net_mode]="${_ctx["net_mode"]}"
+    [ipc_mode]="${_ctx["ipc_mode"]}"
+    [pid_mode]="${_ctx["pid_mode"]}"
+    [net_name]="${_ctx["network_name"]}"
+    [volumes_top]=""
+    [env_top]=""
+    [ports_top]="${_ctx["ports_str"]}"
+  )
+  local -A _eff=()
+  _resolve_docker_flags _sof_k _sof_v _parent _eff
+
+  # Merge the per-stage effective scalars with the top-level-only fields
+  # (devices / caps / security_opt / shm / dri / cgroup / restart) into the
+  # record _emit_docker_run_flags maps. volumes / environment are omitted.
+  # privileged: _resolve_docker_flags only fills it from a [stage:*]
+  # security.privileged override (empty otherwise, since compose carries the
+  # global value via the devel `${PRIVILEGED}` env var). The field launcher
+  # has no such env layer, so fall back to the global [security] privileged.
+  local -A _flags=(
+    [privileged]="${_eff["privileged"]:-${_ctx["privileged"]}}"
+    [gpu]="${_eff["gpu"]}"
+    [gpu_count]="${_eff["gpu_count"]}"
+    [gpu_caps]="${_eff["gpu_caps"]}"
+    [runtime]="${_eff["runtime"]}"
+    [net_mode]="${_eff["net_mode"]}"
+    [net_name]="${_eff["net_name"]}"
+    [ipc_mode]="${_eff["ipc_mode"]}"
+    [pid_mode]="${_eff["pid_mode"]}"
+    [ports]="${_eff["ports"]}"
+    [shm_size]="${_ctx["shm_size"]}"
+    [restart]="${_ctx["restart_policy"]}"
+    [devices]="${_ctx["devices_str"]}"
+    [cap_add]="${_ctx["cap_add_str"]}"
+    [cap_drop]="${_ctx["cap_drop_str"]}"
+    [security_opt]="${_ctx["sec_opt_str"]}"
+    [dri_groups]="${_ctx["dri_groups_str"]}"
+    [cgroup_rules]="${_ctx["cgroup_rule_str"]}"
+  )
+  local -a _argv=()
+  _emit_docker_run_flags _flags _argv
+
+  # Emit deploy.sh. Runtime-expanded vars / backticks are escaped so they
+  # land literally in the generated script; per-arg %q quoting keeps each
+  # flag a single, safely-quoted token.
+  {
+    cat <<EOF
+#!/usr/bin/env bash
+# AUTO-GENERATED field deployment launcher (setup.sh S6, #506). DO NOT EDIT.
+#
+# Self-contained \`docker run\` launcher for the baked \`${_stage}\` image.
+# The docker-level flags below are inlined from the resolved \`${_stage}\`
+# stage of setup.conf; [environment] defaults and structured config are
+# baked into the image (S3/S4), so no env file or config bind travels.
+# Field flow: \`docker load < <image>.tar\` then \`./deploy.sh\`.
+#
+# Overrides: DEPLOY_IMAGE / DEPLOY_CONTAINER_NAME env vars; any args after
+# \`./deploy.sh\` are appended to the container command. Note: --group-add
+# GIDs (iGPU /dev/dri) are from the generating host and may need adjusting
+# on a different field machine.
+set -euo pipefail
+
+IMAGE="\${DEPLOY_IMAGE:-${_image_ref}}"
+CONTAINER_NAME="\${DEPLOY_CONTAINER_NAME:-${_container_name}}"
+
+exec docker run \\
+  --detach \\
+  --name "\${CONTAINER_NAME}" \\
+EOF
+    local _a
+    for _a in "${_argv[@]}"; do
+      printf '  %q \\\n' "${_a}"
+    done
+    # SC2016: the ${IMAGE} / "$@" tokens are emitted verbatim into the
+    # generated deploy.sh and expand at field run time, not here.
+    # shellcheck disable=SC2016
+    printf '  "${IMAGE}" \\\n'
+    # shellcheck disable=SC2016
+    printf '  "$@"\n'
+  } > "${_out}"
+  chmod +x "${_out}"
+}
+
 # _parse_logging_svc_sections / _collect_logging moved to
 # lib/conf_logging.sh in #402 (PR-A) so both setup.sh and the
 # upcoming PR-B gitignore sync (lib/gitignore.sh) can share them
