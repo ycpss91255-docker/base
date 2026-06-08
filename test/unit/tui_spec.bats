@@ -1694,6 +1694,18 @@ _517_stub_deploy() {
   refute_output --partial "legacy [deploy] runtime"
 }
 
+@test "_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_msgbox() { printf 'TITLE=%s\nBODY<<<%s>>>\n' "${1}" "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _show_runtime_env_info
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial ".env"
+  assert_output --partial "informational"
+  # Info-only: never records a config override (S2 invariant: never writes .env).
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+}
+
 @test "_edit_section_deploy writes the canonical gpu_runtime key (#517)" {
   _lc_setup_tui
   TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
