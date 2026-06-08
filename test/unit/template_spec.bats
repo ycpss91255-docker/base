@@ -511,6 +511,18 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools curl release downloads retry on transient failure (#550)" {
+  # The shellcheck + hadolint binaries are fetched from github.com release
+  # CDN at build time; a transient 504 there used to fail the whole build
+  # first-hit (no retry). Every curl that pulls a release must use
+  # --retry-all-errors so a 504/timeout retries transparently instead of
+  # blocking every code PR's CI on a release-CDN hiccup.
+  local _n
+  _n="$(grep -cE 'curl .*--retry-all-errors' /source/dockerfile/Dockerfile.test-tools)"
+  # both the shellcheck tarball and the hadolint binary downloads
+  [ "${_n}" -ge 2 ]
+}
+
 @test "Dockerfile.test-tools branches case for amd64 and arm64" {
   # Must handle both common arches; amd64 → x86_64 binaries,
   # arm64 → aarch64 (shellcheck) + arm64 (hadolint) binaries.
