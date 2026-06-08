@@ -1,4 +1,4 @@
-# template
+# base
 
 [![CI](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
 [![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
@@ -35,7 +35,7 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git main --squash
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 ./.base/init.sh
 
 # Upgrade to latest
@@ -55,7 +55,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 
 ```mermaid
 graph TB
-    subgraph template["template (shared repo)"]
+    subgraph base["base (shared repo)"]
         scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
@@ -64,13 +64,13 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["Makefile → .base/script/docker/Makefile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
-    template -- "git subtree" --> consumer
+    base -- "git subtree" --> consumer
     scripts -. symlink .-> symlinks
     smoke -. "Dockerfile COPY" .-> repo_test
     workflows -. "@tag reference" .-> main_yaml
@@ -81,11 +81,11 @@ graph TB
 ```mermaid
 flowchart LR
     subgraph local["Local"]
-        build_test["./script/build.sh test"]
+        build_test["./build.sh test"]
         make_test["make build test"]
     end
 
-    subgraph ci_container["CI Container (kcov/kcov)"]
+    subgraph ci_container["CI Container (ghcr.io/ycpss91255-docker/test-tools:latest)"]
         shellcheck["ShellCheck"]
         hadolint["Hadolint"]
         bats["Bats smoke tests"]
@@ -114,13 +114,29 @@ flowchart LR
 | `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`; `--build` opt-in pre-flight ./build.sh test for fresh-clone CI parity) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
+| `prune.sh` | Prune dangling images / build cache for the repo |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
-| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
-| `script/docker/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
-| `script/docker/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
-| `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
-| `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
-| `config/` | Container-internal shell configs (bashrc, tmux, terminator, pip) |
+| `script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
+| `script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
+| `script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
+| `script/docker/lib/conf.sh` | INI file parser and section merger |
+| `script/docker/lib/conf_logging.sh` | Logging configuration helpers |
+| `script/docker/lib/env.sh` | Environment variable setup and defaults |
+| `script/docker/lib/gitignore.sh` | Gitignore file management |
+| `script/docker/lib/hook.sh` | Per-wrapper pre/post hook invocation |
+| `script/docker/lib/i18n.sh` | Language detection and localization (`_detect_lang`, `_LANG`) |
+| `script/docker/lib/log.sh` | Unified logging and output utilities |
+| `script/docker/lib/config_summary.sh` | Summary of runtime configuration |
+| `script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
+| `script/docker/runtime/logging.sh` | Host-side log tee helper |
+| `script/docker/runtime/smoke.sh` | Runtime install-check smoke |
+| `script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `script/ci/ci.sh` | CI orchestration (local + remote) |
+| `script/ci/lint_bare_stderr.sh` | Bare stderr lint checker |
+| `script/ci/lint_mixed_test_layout.sh` | Mixed-tool test layout validator |
+| `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
 | `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/unit/` | Template self-tests (bats + kcov) |
@@ -136,7 +152,6 @@ See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 | `Makefile.ci` | Template CI entry (`make -f Makefile.ci test`, `make -f Makefile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
-| `script/ci/ci.sh` | CI pipeline (local + remote) |
 | `dockerfile/Dockerfile.example` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
@@ -236,9 +251,9 @@ EXEC_ARGS='--/app/livestream/port=49100' \
   make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
 
 # Equivalent direct .sh invocation:
-./script/build.sh
-./script/run.sh -t headless
-./script/exec.sh -t headless bash
+./build.sh
+./run.sh -t headless
+./exec.sh -t headless bash
 ```
 
 Constraints:
@@ -557,7 +572,7 @@ every build or launch:
 > `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
 > smoke (pre-#243 this stage was named `test`). `run.sh`
 > prints an informational `[run] INFO:` block when this is about to
-> happen (TTY only). Pass `--build` to pre-flight `./script/build.sh test`
+> happen (TTY only). Pass `--build` to pre-flight `./build.sh test`
 > first if you want full local-CI parity in one command:
 >
 > ```bash
@@ -765,9 +780,9 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 
-# 2. Add subtree
+# 2. Add subtree (pin a specific release tag, not a moving branch)
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git main --squash
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 
 # 3. Initialize symlinks (one command; runs setup.sh under the hood)
 ./.base/init.sh
@@ -967,71 +982,141 @@ See [TEST.md](doc/test/TEST.md) for details.
 ├── init.sh                           # Initialize repo (new or existing)
 ├── upgrade.sh                        # Upgrade template subtree version
 ├── script/
-│   ├── docker/                       # Docker operation scripts (symlinked by repos)
-│   │   ├── build.sh
-│   │   ├── run.sh
-│   │   ├── exec.sh
-│   │   ├── stop.sh
-│   │   ├── setup.sh                  # .env generator
-│   │   ├── _lib.sh                   # Shared helpers (_load_env, _compose, _compose_project)
-│   │   ├── i18n.sh                   # Shared language detection (_detect_lang, _LANG)
-│   │   └── Makefile
-│   └── ci/
-│       └── ci.sh                     # CI pipeline (local + remote)
+│   ├── docker/                       # Docker operation scripts
+│   │   ├── wrapper/                  # User-facing wrapper scripts
+│   │   │   ├── build.sh
+│   │   │   ├── run.sh
+│   │   │   ├── exec.sh
+│   │   │   ├── stop.sh
+│   │   │   ├── prune.sh
+│   │   │   ├── setup.sh              # .env generator
+│   │   │   └── setup_tui.sh          # Interactive setup editor
+│   │   ├── lib/                      # Shared helper modules
+│   │   │   ├── _lib.sh               # Core wrappers library
+│   │   │   ├── bootstrap.sh          # Wrapper initialization
+│   │   │   ├── compose.sh            # Compose generation
+│   │   │   ├── conf.sh               # INI parser
+│   │   │   ├── conf_logging.sh       # Logging config
+│   │   │   ├── env.sh                # Environment setup
+│   │   │   ├── gitignore.sh          # Gitignore management
+│   │   │   ├── hook.sh               # Per-wrapper hooks
+│   │   │   ├── i18n.sh               # Language detection
+│   │   │   ├── log.sh                # Logging utilities
+│   │   │   ├── config_summary.sh     # Config summary
+│   │   │   ├── _tui_backend.sh       # TUI dialog/whiptail wrapper
+│   │   │   ├── _tui_conf.sh          # TUI INI validators
+│   │   │   ├── log-events.txt        # Log event catalog
+│   │   │   └── log.lnav-format.json  # Lnav format definition
+│   │   ├── runtime/                  # Runtime in-container scripts
+│   │   │   ├── entrypoint.sh         # Template entrypoint helper
+│   │   │   ├── logging.sh            # Host-side log tee helper
+│   │   │   └── smoke.sh              # Runtime install-check smoke
+│   │   ├── Makefile                  # Docker operations entry
+│   │   └── setup.conf                # Template runtime config defaults
+│   └── ci/                           # CI pipeline scripts
+│       ├── ci.sh                     # CI orchestration (local + remote)
+│       ├── lint_bare_stderr.sh       # Bare stderr lint checker
+│       └── lint_mixed_test_layout.sh # Mixed-tool test layout validator
 ├── dockerfile/
-│   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
-│   ├── Dockerfile.example            # Dockerfile template for new repos (sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test])
-│   └── setup/                        # Build-time install scaffolding (COPY'd into ${SETUP_DIR}, wiped before image ships)
-│       └── pip/
-│           ├── setup.sh
-│           └── requirements.txt
-├── config/                           # Container-internal shell/tool configs (layered into ${CONFIG_DIR} at build time, template#254)
+│   ├── Dockerfile.example            # Multi-stage template (sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test])
+│   └── Dockerfile.test-tools         # Pre-built lint/test tools image
+├── config/                           # Container-internal shell/tool configs
 │   ├── docker/
 │   │   └── setup.conf                # Runtime config (per-repo override mirror: <repo>/config/docker/setup.conf)
 │   └── shell/
 │       ├── bashrc
-│       ├── bashrc.d/
+│       ├── bashrc.d/                 # Interactive shell bootstrap drop-ins
+│       │   └── .gitkeep
 │       ├── terminator/
 │       │   ├── setup.sh
 │       │   └── config
 │       └── tmux/
 │           ├── setup.sh
+│           ├── README.adoc
 │           └── tmux.conf
 ├── test/
 │   ├── smoke/                        # Shared smoke tests + runtime assertion helpers
-│   │   ├── test_helper.bash          #  → assert_cmd_installed / _runs / file / dir / owned_by / pip_pkg
+│   │   ├── test_helper.bash          # assert_cmd_installed / _runs / file / dir / owned_by / pip_pkg
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
 │   ├── unit/                         # Template self-tests (bats + kcov)
 │   │   ├── test_helper.bash
 │   │   ├── bashrc_spec.bats
-│   │   ├── ci_spec.bats              # ci.sh _install_deps
-│   │   ├── lib_spec.bats             # _lib.sh
-│   │   ├── pip_setup_spec.bats
+│   │   ├── build_sh_spec.bats
+│   │   ├── build_sh_prune_spec.bats
+│   │   ├── build_worker_yaml_spec.bats
+│   │   ├── ci_spec.bats
+│   │   ├── compose_gen_spec.bats
+│   │   ├── compose_logging_spec.bats
+│   │   ├── compose_overlay_spec.bats
+│   │   ├── conf_logging_spec.bats
+│   │   ├── deploy_spec.bats
+│   │   ├── entrypoint_logging_spec.bats
+│   │   ├── exec_sh_spec.bats
+│   │   ├── gitignore_spec.bats
+│   │   ├── hook_spec.bats
+│   │   ├── init_spec.bats
+│   │   ├── lib_spec.bats
+│   │   ├── lint_mixed_test_layout_spec.bats
+│   │   ├── log_spec.bats
+│   │   ├── makefile_user_spec.bats
+│   │   ├── multi_distro_build_worker_yaml_spec.bats
+│   │   ├── prune_sh_spec.bats
+│   │   ├── release_test_tools_yaml_spec.bats
+│   │   ├── run_sh_spec.bats
+│   │   ├── runtime_smoke_spec.bats
+│   │   ├── self_test_yaml_spec.bats
 │   │   ├── setup_spec.bats
-│   │   ├── smoke_helper_spec.bats    # Runtime assertion helpers
+│   │   ├── smoke_helper_spec.bats
+│   │   ├── stop_sh_spec.bats
 │   │   ├── template_spec.bats
 │   │   ├── terminator_config_spec.bats
 │   │   ├── terminator_setup_spec.bats
 │   │   ├── tmux_conf_spec.bats
-│   │   └── tmux_setup_spec.bats
-│   └── integration/
-│       └── init_new_repo_spec.bats   # Level-1 init.sh end-to-end
+│   │   ├── tmux_setup_spec.bats
+│   │   ├── tui_backend_spec.bats
+│   │   ├── tui_flow.bats
+│   │   ├── tui_mount_assembler_spec.bats
+│   │   ├── tui_spec.bats
+│   │   ├── upgrade_spec.bats
+│   │   └── wrapper_lib_lookup_spec.bats
+│   ├── integration/                  # Level-1 init.sh end-to-end tests
+│   │   ├── init_new_repo_spec.bats
+│   │   ├── upgrade_spec.bats
+│   │   ├── fresh_clone_portability_spec.bats
+│   │   ├── gitignore_sync_spec.bats
+│   │   └── wrapper_compose_dispatch_spec.bats
+│   └── behavioural/                  # Runtime integration tests
+│       └── runtime_test_smoke_spec.bats
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
+├── .dockerignore
 ├── codecov.yml
 ├── .github/workflows/
 │   ├── self-test.yaml                # Template CI
 │   ├── build-worker.yaml             # Reusable build + smoke-test workflow
 │   ├── release-worker.yaml           # Reusable release (source archive) workflow
-│   ├── publish-worker.yaml           # Reusable image publish workflow (opt-in; pushes to GHCR)
+│   ├── publish-worker.yaml           # Reusable image publish workflow (opt-in)
+│   ├── multi-distro-build-worker.yaml # Multi-distro build workflow
 │   └── release-test-tools.yaml       # Template's own test-tools image release
 ├── doc/
-│   ├── readme/                       # README translations (zh-TW / zh-CN / ja)
-│   ├── test/TEST.md                  # Test catalog (spec tables)
-│   └── changelog/CHANGELOG.md        # Release notes
+│   ├── readme/                       # README translations
+│   │   ├── README.zh-TW.md
+│   │   ├── README.zh-CN.md
+│   │   └── README.ja.md
+│   ├── adr/                          # Architecture Decision Records
+│   │   ├── 00000001-setup-conf-vs-compose.md
+│   │   ├── 00000002-no-latest-tag.md
+│   │   ├── 00000003-env-vs-workload-param-boundary.md
+│   │   └── 00000004-test-category-tool-subdir-layout.md
+│   ├── test/
+│   │   └── TEST.md                   # Test catalog and spec tables
+│   ├── changelog/
+│   │   └── CHANGELOG.md              # Release notes
+│   └── deprecations.md
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
+
