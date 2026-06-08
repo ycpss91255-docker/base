@@ -1995,34 +1995,9 @@ _expand_env_cross_refs() {
   done <<< "${_input}"
 }
 
-# _write_runtime_env <out_file> <env_str>
-#
-# Mirror compose.yaml's resolved [environment] entries into runtime.env
-# so standalone scripts (docker run wrappers, host-side helpers like
-# isaac/script/run_instance.sh) can `source runtime.env` to see the
-# same values compose injects. Reuses _expand_env_cross_refs so both
-# files agree on cross-ref resolution (#236 + #462).
-#
-# Always (re)creates the file, even when <env_str> is empty -- callers
-# can test `[[ -s runtime.env ]]` to distinguish "no env declared" from
-# "file missing because apply never ran".
-_write_runtime_env() {
-  local _out_file="${1:?}"
-  local _env_str="${2:-}"
-  : > "${_out_file}"
-  if [[ -n "${_env_str}" ]]; then
-    # NB: outer array MUST NOT be named `_expanded` -- callee
-    # _expand_env_cross_refs declares its own `local _expanded` loop
-    # var, which collides with the nameref and silently masks writes.
-    local -a _runtime_env_arr=()
-    _expand_env_cross_refs "${_env_str}" _runtime_env_arr
-    local _entry
-    for _entry in "${_runtime_env_arr[@]}"; do
-      [[ -z "${_entry}" ]] && continue
-      printf '%s\n' "${_entry}" >> "${_out_file}"
-    done
-  fi
-}
+# _write_runtime_env was retired in S7 (#507): runtime.env (#462) is
+# superseded by the S3 baked ENV (in-container) + .env.generated/.env
+# (host-side helpers source these instead).
 
 _device_has_propagation() {
   local _entry="${1}"
@@ -4817,11 +4792,10 @@ _setup_apply() {
     "${dri_groups_str}" \
     || return $?
 
-  # #462: emit runtime.env mirroring [environment] entries so standalone
-  # scripts (docker run wrappers, host-side helpers) can source the same
-  # values that compose.yaml injects. Same cross-ref expansion as compose
-  # so both files see identical resolved values.
-  _write_runtime_env "${_base_path}/runtime.env" "${_env_str}"
+  # S7 (#507): runtime.env (#462) retired. Under the A2 model its purpose
+  # is superseded -- [environment] defaults are baked into the runtime
+  # image as ENV (S3), and host-side standalone helpers source
+  # .env.generated (resolved cache) + .env (overlay) instead.
 
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup env_regenerated "display=$(_setup_msg env "done")"

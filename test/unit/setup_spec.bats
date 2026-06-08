@@ -5021,47 +5021,11 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #462 runtime.env emit for [environment] entries
+# S7 (#507): runtime.env retired. apply no longer emits it; [environment]
+# still reaches compose.yaml (and is baked as ENV for the field via S3).
 # ════════════════════════════════════════════════════════════════════
 
-@test "apply emits runtime.env with single [environment] entry (#462)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
-[environment]
-env_1 = FOO=bar
-EOC
-  run bash -c "
-    source /source/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_success
-  assert [ -f "${TEMP_DIR}/runtime.env" ]
-  run grep -F 'FOO=bar' "${TEMP_DIR}/runtime.env"
-  assert_success
-}
-
-@test "apply emits runtime.env with multiple [environment] entries preserved (#462)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
-[environment]
-env_1 = ALPHA=1
-env_2 = BETA=2
-env_3 = GAMMA=three
-EOC
-  run bash -c "
-    source /source/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_success
-  run grep -c '=' "${TEMP_DIR}/runtime.env"
-  assert_output "3"
-  run grep -F 'ALPHA=1' "${TEMP_DIR}/runtime.env"
-  assert_success
-  run grep -F 'BETA=2' "${TEMP_DIR}/runtime.env"
-  assert_success
-  run grep -F 'GAMMA=three' "${TEMP_DIR}/runtime.env"
-  assert_success
-}
-
-@test "apply expands cross-refs in runtime.env to match compose.yaml (#462 + #236)" {
+@test "apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)" {
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
 [environment]
 env_1 = FOO=bar
@@ -5072,23 +5036,17 @@ EOC
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -F 'BAR=bar_x' "${TEMP_DIR}/runtime.env"
-  assert_success
-  # Same expanded value must also appear in compose.yaml (parity).
+  # runtime.env is retired -- it must NOT be created.
+  assert [ ! -f "${TEMP_DIR}/runtime.env" ]
+  # The resolved (cross-ref expanded) values still reach compose.yaml.
   run grep -F 'BAR=bar_x' "${TEMP_DIR}/compose.yaml"
   assert_success
 }
 
-@test "apply emits empty runtime.env when [environment] is empty (#462)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
-[environment]
-EOC
+@test "_write_runtime_env is removed (#507)" {
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
+    declare -F _write_runtime_env
   "
-  assert_success
-  assert [ -f "${TEMP_DIR}/runtime.env" ]
-  run wc -c < "${TEMP_DIR}/runtime.env"
-  assert_output "0"
+  assert_failure
 }
