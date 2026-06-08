@@ -846,7 +846,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (145)
+### test/unit/template_spec.bats (146)
 
 | Test | Description |
 |------|-------------|
