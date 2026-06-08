@@ -246,13 +246,16 @@ deploy.gpu_capabilities = gpu compute utility graphics video
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
-| `[security]` | `privileged` |
+| `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
 
-List 欄位（`mount_*` / `port_*` / `env_*`）採 **append-default**：
-stage 的項目附加在 top-level 之後。要完全取代 top-level，設
-`<list>_inherit = false`（例：`volumes.mount_inherit = false`）。
+List 欄位（`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*` /
+`security_opt_*`）採 **append-default**：stage 的項目附加在 top-level
+之後。要完全取代 top-level，設 `<list>_inherit = false`（例：
+`volumes.mount_inherit = false`，或 `security.cap_add_inherit = false`
+清掉某 stage 繼承的 caps —— #526：唯讀 probe stage 可清掉 flash stage
+的 `SYS_ADMIN`）。
 
 注意事項：
 

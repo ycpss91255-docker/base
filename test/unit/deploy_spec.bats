@@ -420,6 +420,32 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+@test "_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[security]" "cap_add_1 = SYS_ADMIN" "security_opt_1 = seccomp:unconfined" \
+    "[stage:runtime]" "security.cap_add_inherit = false" "security.security_opt_inherit = false"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  refute_output --partial "SYS_ADMIN"
+  refute_output --partial "seccomp:unconfined"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[security]" "cap_add_1 = SYS_ADMIN" \
+    "[stage:runtime]" "security.cap_add_1 = MKNOD"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  run cat "${_out}"
+  assert_output --partial "SYS_ADMIN"
+  assert_output --partial "MKNOD"
+  rm -rf "${_d}"
+}
+
 @test "_generate_deploy_sh: generated launcher is ShellCheck-clean (#506)" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
   local _d; _d="$(mktemp -d)"
