@@ -299,14 +299,16 @@ Allowlist (v1 — keys that can be overridden per-stage):
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime` (legacy `runtime` still accepted) |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
-| `[security]` | `privileged` |
+| `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
 
-List fields (`mount_*` / `port_*` / `env_*`) follow **append-default**:
-the stage's items are appended to top-level entries. To replace
-top-level entirely, set `<list>_inherit = false` (e.g.
-`volumes.mount_inherit = false`).
+List fields (`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*`
+/ `security_opt_*`) follow **append-default**: the stage's items are
+appended to top-level entries. To replace top-level entirely, set
+`<list>_inherit = false` (e.g. `volumes.mount_inherit = false`, or
+`security.cap_add_inherit = false` to drop a stage's inherited caps —
+#526: a read-only probe stage clears the flash stage's `SYS_ADMIN`).
 
 Notes:
 

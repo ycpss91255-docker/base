@@ -1483,15 +1483,23 @@ _load_stage_overrides() {
 #   [deploy]      gpu_mode, gpu_count, gpu_capabilities, runtime
 #   [gui]         mode
 #   [network]     mode, ipc, pid, network_name, port_<N>, port_inherit
-#   [security]    privileged
+#   [security]    privileged, cap_add_<N>, cap_add_inherit,
+#                 cap_drop_<N>, cap_drop_inherit,
+#                 security_opt_<N>, security_opt_inherit
 #   [volumes]     mount_<N>, mount_inherit
 #   [environment] env_<N>, env_inherit
 #
-# Excluded by design (v1):
-#   [image_name] / [build] / security.cap_*/security_opt_* / [devices] /
-#   [tmpfs] / [additional_contexts] / [resources] — outside the
-#   "Isaac Sim per-stage runtime" use case driving #220. Re-evaluate in
-#   v2 once a real downstream need surfaces.
+# security cap_add / cap_drop / security_opt (#526): added in v2 once a
+# real downstream need surfaced (jetson_sdk_manager#69 — per-stage caps so
+# a read-only probe stage drops the flash stage's SYS_ADMIN). Same
+# append-by-default / *_inherit=false-replaces list convention as
+# volumes / env / ports.
+#
+# Excluded by design:
+#   [image_name] / [build] / [devices] / [tmpfs] /
+#   [additional_contexts] / [resources] — outside the "Isaac Sim
+#   per-stage runtime" use case driving #220. Re-evaluate once a real
+#   downstream need surfaces.
 _validate_stage_override_key() {
   local _key="${1:?"${FUNCNAME[0]}: missing key"}"
   case "${_key}" in
@@ -1500,8 +1508,9 @@ _validate_stage_override_key() {
     network.mode|network.ipc|network.pid|network.network_name) return 0 ;;
     security.privileged) return 0 ;;
     network.port_inherit|volumes.mount_inherit|environment.env_inherit) return 0 ;;
+    security.cap_add_inherit|security.cap_drop_inherit|security.security_opt_inherit) return 0 ;;
   esac
-  if [[ "${_key}" =~ ^(network\.port|volumes\.mount|environment\.env)_[0-9]+$ ]]; then
+  if [[ "${_key}" =~ ^(network\.port|volumes\.mount|environment\.env|security\.cap_add|security\.cap_drop|security\.security_opt)_[0-9]+$ ]]; then
     return 0
   fi
   return 1
@@ -1631,9 +1640,11 @@ _resolve_stage_list() {
 #   $3 parent        (assoc ref)  parent fallbacks + top-level lists:
 #        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
 #        net_name volumes_top env_top ports_top
+#        cap_add_top cap_drop_top sec_opt_top
 #   $4 out           (assoc ref)  effective record, keys:
 #        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
 #        net_name privileged volumes environment ports
+#        cap_add cap_drop security_opt
 _resolve_docker_flags() {
   local -n _rdf_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
   local -n _rdf_values="${2:?"${FUNCNAME[0]}: missing values array"}"
@@ -1687,6 +1698,18 @@ _resolve_docker_flags() {
   _rdf_out["environment"]="${_tmp}"
   _resolve_stage_list _rdf_keys _rdf_values "network.port_" "network.port_inherit" "${_rdf_parent["ports_top"]}" _tmp
   _rdf_out["ports"]="${_tmp}"
+
+  # #526: per-stage [security] cap_add / cap_drop / security_opt as list
+  # fields, same append-by-default / *_inherit=false-replaces convention as
+  # volumes / env / ports above. A stage sets `cap_add_inherit = false`
+  # (and lists no entries) to drop all inherited caps — e.g. a read-only
+  # probe stage that should not inherit the flash stage's SYS_ADMIN.
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_add_" "security.cap_add_inherit" "${_rdf_parent["cap_add_top"]}" _tmp
+  _rdf_out["cap_add"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_drop_" "security.cap_drop_inherit" "${_rdf_parent["cap_drop_top"]}" _tmp
+  _rdf_out["cap_drop"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "security.security_opt_" "security.security_opt_inherit" "${_rdf_parent["sec_opt_top"]}" _tmp
+  _rdf_out["security_opt"]="${_tmp}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1757,6 +1780,9 @@ _generate_deploy_sh() {
     [volumes_top]=""
     [env_top]=""
     [ports_top]="${_ctx["ports_str"]}"
+    [cap_add_top]="${_ctx["cap_add_str"]}"
+    [cap_drop_top]="${_ctx["cap_drop_str"]}"
+    [sec_opt_top]="${_ctx["sec_opt_str"]}"
   )
   local -A _eff=()
   _resolve_docker_flags _sof_k _sof_v _parent _eff
@@ -1782,9 +1808,9 @@ _generate_deploy_sh() {
     [shm_size]="${_ctx["shm_size"]}"
     [restart]="${_ctx["restart_policy"]}"
     [devices]="${_ctx["devices_str"]}"
-    [cap_add]="${_ctx["cap_add_str"]}"
-    [cap_drop]="${_ctx["cap_drop_str"]}"
-    [security_opt]="${_ctx["sec_opt_str"]}"
+    [cap_add]="${_eff["cap_add"]}"
+    [cap_drop]="${_eff["cap_drop"]}"
+    [security_opt]="${_eff["security_opt"]}"
     [dri_groups]="${_ctx["dri_groups_str"]}"
     [cgroup_rules]="${_ctx["cgroup_rule_str"]}"
   )
@@ -2327,29 +2353,35 @@ YAML
   # devel-vs-stage differences (env-var refs vs literals, extends base
   # vs standalone, stdin/tty, profiles) which stay inline per mode.
 
-  # cap_add / cap_drop / security_opt from [security] (enclosing scope).
+  # cap_add / cap_drop / security_opt. Defaults to the enclosing-scope
+  # top-level [security] strings (the devel block). The per-stage
+  # standalone block (#526) passes its effective resolved lists so a
+  # stage can override / clear inherited caps via [stage:*] security.*.
   _emit_caps_block() {
+    local _cap_add="${1-${_cap_add_str}}"
+    local _cap_drop="${2-${_cap_drop_str}}"
+    local _sec_opt="${3-${_sec_opt_str}}"
     local _c
-    if [[ -n "${_cap_add_str}" ]]; then
+    if [[ -n "${_cap_add}" ]]; then
       echo "    cap_add:"
       while IFS= read -r _c; do
         [[ -z "${_c}" ]] && continue
         echo "      - ${_c}"
-      done <<< "${_cap_add_str}"
+      done <<< "${_cap_add}"
     fi
-    if [[ -n "${_cap_drop_str}" ]]; then
+    if [[ -n "${_cap_drop}" ]]; then
       echo "    cap_drop:"
       while IFS= read -r _c; do
         [[ -z "${_c}" ]] && continue
         echo "      - ${_c}"
-      done <<< "${_cap_drop_str}"
+      done <<< "${_cap_drop}"
     fi
-    if [[ -n "${_sec_opt_str}" ]]; then
+    if [[ -n "${_sec_opt}" ]]; then
       echo "    security_opt:"
       while IFS= read -r _c; do
         [[ -z "${_c}" ]] && continue
         echo "      - ${_c}"
-      done <<< "${_sec_opt_str}"
+      done <<< "${_sec_opt}"
     fi
   }
 
@@ -2814,6 +2846,9 @@ YAML
         [volumes_top]="${_top_volumes_str}"
         [env_top]="${_env_str}"
         [ports_top]="${_ports_str}"
+        [cap_add_top]="${_cap_add_str}"
+        [cap_drop_top]="${_cap_drop_str}"
+        [sec_opt_top]="${_sec_opt_str}"
       )
       local -A _dflags_eff=()
       _resolve_docker_flags _so_filtered_keys _so_filtered_values _dflags_parent _dflags_eff
@@ -2830,6 +2865,9 @@ YAML
       local _eff_volumes="${_dflags_eff[volumes]}"
       local _eff_environment="${_dflags_eff[environment]}"
       local _eff_ports="${_dflags_eff[ports]}"
+      local _eff_cap_add="${_dflags_eff[cap_add]}"
+      local _eff_cap_drop="${_dflags_eff[cap_drop]}"
+      local _eff_sec_opt="${_dflags_eff[security_opt]}"
       # #482: pick up any named volumes this stage introduces (a per-stage
       # mount_* override may add one the top-level list lacks).
       _collect_named_volumes _named_vols "${_eff_volumes}"
@@ -2915,11 +2953,12 @@ YAML
          [[ "${_eff_runtime}" != "auto" ]]; then
         echo "    runtime: ${_eff_runtime}"
       fi
-      # cap_add / cap_drop / security_opt + group_add re-emitted from
-      # top-level (not yet in the per-stage allowlist; v2 may revisit) --
-      # shared emitters with devel (#410). group_add is gated on the
-      # stage's effective gui.
-      _emit_caps_block
+      # cap_add / cap_drop / security_opt: effective per-stage lists
+      # (#526) — a stage can override / clear inherited caps via [stage:*]
+      # security.cap_add_* / cap_drop_* / security_opt_* (+ *_inherit),
+      # else inherits the top-level [security] block. group_add is gated
+      # on the stage's effective gui. Shared emitter with devel (#410).
+      _emit_caps_block "${_eff_cap_add}" "${_eff_cap_drop}" "${_eff_sec_opt}"
       _emit_group_add_block "${_eff_gui}"
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).

@@ -255,14 +255,18 @@ Override 可能な key (v1)：
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
-| `[security]` | `privileged` |
+| `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
 
-List フィールド（`mount_*` / `port_*` / `env_*`）は **append-default**：
-stage の項目が top-level の後に追加されます。完全に top-level を
-置き換える場合は `<list>_inherit = false` を設定します
-（例：`volumes.mount_inherit = false`）。
+List フィールド（`mount_*` / `port_*` / `env_*` / `cap_add_*` /
+`cap_drop_*` / `security_opt_*`）は **append-default**：stage の項目が
+top-level の後に追加されます。完全に top-level を置き換える場合は
+`<list>_inherit = false` を設定します（例：
+`volumes.mount_inherit = false`、または
+`security.cap_add_inherit = false` で stage が継承した caps をクリア
+—— #526：読み取り専用の probe stage が flash stage の `SYS_ADMIN` を
+クリア）。
 
 注意事項：
 

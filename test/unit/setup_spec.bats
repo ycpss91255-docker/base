@@ -4233,7 +4233,10 @@ EOF
     volumes.mount_1 \
     volumes.mount_42 \
     environment.env_1 \
-    environment.env_7
+    environment.env_7 \
+    security.cap_add_1 \
+    security.cap_drop_2 \
+    security.security_opt_1
   do
     run _validate_stage_override_key "${_k}"
     assert_success
@@ -4241,7 +4244,8 @@ EOF
 }
 
 @test "_validate_stage_override_key: accepts inherit meta-keys" {
-  for _k in network.port_inherit volumes.mount_inherit environment.env_inherit; do
+  for _k in network.port_inherit volumes.mount_inherit environment.env_inherit \
+            security.cap_add_inherit security.cap_drop_inherit security.security_opt_inherit; do
     run _validate_stage_override_key "${_k}"
     assert_success
   done
@@ -4252,8 +4256,8 @@ EOF
     image.rule_1 \
     build.arg_1 \
     build.target_arch \
-    security.cap_add_1 \
-    security.security_opt_1 \
+    security.cap_add \
+    security.foo_1 \
     devices.device_1 \
     tmpfs.tmpfs_1 \
     additional_contexts.context_1 \

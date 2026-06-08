@@ -503,6 +503,58 @@ teardown() {
   assert_failure
 }
 
+@test "generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:probe]
+security.cap_add_inherit = false
+security.security_opt_inherit = false
+CONF
+  local _extras=()
+  local _cap_add _sec_opt
+  printf -v _cap_add '%s' "SYS_ADMIN"
+  printf -v _sec_opt '%s' "seccomp:unconfined"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "${_cap_add}" "" "${_sec_opt}"
+  # devel inherits the top-level caps.
+  run awk '/^  devel:/{f=1} f&&/cap_add:/{print; exit}' "${COMPOSE_OUT}"
+  assert_output --partial "cap_add:"
+  # probe (cleared) carries no cap_add / security_opt.
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  refute [ -n "$(grep -F 'SYS_ADMIN' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F 'seccomp:unconfined' <<< "${_probe_block}")" ]
+}
+
+@test "generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS flash
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:flash]
+security.cap_add_1 = MKNOD
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "SYS_ADMIN" "" ""
+  local _flash_block
+  _flash_block="$(awk '/^  flash:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F 'SYS_ADMIN' <<< "${_flash_block}")" ]
+  assert [ -n "$(grep -F 'MKNOD' <<< "${_flash_block}")" ]
+}
+
 @test "generate_compose_yaml emits network_mode/ipc/privileged via env var" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -1077,6 +1129,17 @@ DOCK
   _resolve_docker_flags _k _v _parent _eff
   assert_equal "${_eff[volumes]}" "./only:/only"
   assert_equal "${_eff[environment]}" "ONLY=1"
+}
+
+@test "_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)" {
+  local -a _k=("security.cap_add_1" "security.cap_drop_1" "security.security_opt_1") \
+           _v=("MKNOD" "NET_RAW" "apparmor:unconfined")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="" [cap_add_top]=$'SYS_ADMIN' [cap_drop_top]=$'ALL' [sec_opt_top]=$'seccomp:unconfined')
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[cap_add]}" $'SYS_ADMIN\nMKNOD'
+  assert_equal "${_eff[cap_drop]}" $'ALL\nNET_RAW'
+  assert_equal "${_eff[security_opt]}" $'seccomp:unconfined\napparmor:unconfined'
 }
 
 @test "generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)" {

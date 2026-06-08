@@ -664,7 +664,7 @@ multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
 multiple, after `--` separator — all abort with error); absolute
 container path forwarding (`/nonexistent/...`, `/root/demo/...`).
 
-### test/unit/compose_gen_spec.bats (82)
+### test/unit/compose_gen_spec.bats (85)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -715,8 +715,11 @@ env/volumes + extra volumes from `[volumes]` section.
 | `_resolve_docker_flags: list fields append to top by default (#505)` | list append |
 | `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
+| `_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)` | per-stage caps append |
+| `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
+| `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
 
-### test/unit/deploy_spec.bats (45)
+### test/unit/deploy_spec.bats (47)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -762,6 +765,8 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_generate_deploy_sh: omits -e (env baked) and -v (no dev binds)` | env/volume omission |
 | `_generate_deploy_sh: [lifecycle] restart inlines --restart` | restart inline |
 | `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
+| `_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)` | per-stage caps clear |
+| `_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append |
 | `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
 | `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
 | `_bake_config_copy: handles src == out in place` | in-place bake |
