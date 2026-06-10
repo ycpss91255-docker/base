@@ -18,6 +18,7 @@
 ## 目次
 
 - [TL;DR](#tldr)
+- [前提条件](#前提条件)
 - [概要](#概要)
 - [クイックスタート](#クイックスタート)
 - [CI Reusable Workflows](#ci-reusable-workflows)
@@ -43,9 +44,33 @@ just upgrade-check   # 確認
 just upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-just test            # ShellCheck + Bats + Kcov
-just                 # 全コマンド表示
+make -f Makefile.ci test   # ShellCheck + Bats + Kcov
+just                       # 全 recipe 表示
 ```
+
+## 前提条件
+
+コンテナ操作は Docker 上で [`just`](https://github.com/casey/just)（command
+runner）を介して実行します。`just <verb>` エントリポイントを使う前に、host へ
+両方をインストールしてください:
+
+- **Docker** + Docker Compose v2（`docker compose`）。
+- **just** -- 近年のどのリリースでも動作します（recipe は variadic
+  パラメータのみ使用、初期バージョンから対応）。パッケージマネージャまたは
+  公式インストーラで導入します:
+
+  ```bash
+  apt install just         # Debian 13+ / Ubuntu 24.04+
+  brew install just        # macOS / Linuxbrew
+  cargo install just       # crates.io から
+  # または公式のビルド済みバイナリインストーラ:
+  curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+      | bash -s -- --to ~/.local/bin
+  ```
+
+  全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
+  参照。`just` が使えない場合、各 recipe には raw fallback
+  （`./script/<verb>.sh`、`./.base/upgrade.sh`）があります -- [クイックスタート](#クイックスタート)参照。
 
 ## 概要
 
