@@ -156,7 +156,7 @@ teardown() {
   assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
-@test "new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
+@test "new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)" {
   bash .base/init.sh
   # 7 wrappers under script/, each pointing to ../.base/script/docker/wrapper/<name>.sh
   for f in run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
@@ -166,10 +166,11 @@ teardown() {
     # And NOT at root.
     assert [ ! -e "${REPO_DIR}/${f}" ]
   done
-  # Makefile retains the root location (the elevated user entry).
-  assert [ -L "${REPO_DIR}/Makefile" ]
-  run readlink "${REPO_DIR}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  # #546: the root user entry is the justfile (Makefile retired).
+  assert [ -L "${REPO_DIR}/justfile" ]
+  run readlink "${REPO_DIR}/justfile"
+  assert_output ".base/script/docker/justfile"
+  assert [ ! -e "${REPO_DIR}/Makefile" ]
 }
 
 @test "new repo: config/ is an empty placeholder (template#254 layered override)" {

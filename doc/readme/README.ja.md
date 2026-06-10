@@ -39,12 +39,12 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # 最新版にアップグレード
-make upgrade-check   # 確認
-make upgrade         # pull + バージョンファイル + workflow tag 更新
+just upgrade-check   # 確認
+just upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-make test            # ShellCheck + Bats + Kcov
-make help            # 全コマンド表示
+just test            # ShellCheck + Bats + Kcov
+just                 # 全コマンド表示
 ```
 
 ## 概要
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例: my_app）"]
-        symlinks["Makefile → .base/script/docker/Makefile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
@@ -82,7 +82,7 @@ graph TB
 flowchart LR
     subgraph local["ローカル"]
         build_test["./build.sh test"]
-        make_test["make build test"]
+        make_test["just build test"]
     end
 
     subgraph ci_container["CI コンテナ（ghcr.io/ycpss91255-docker/test-tools:latest）"]
@@ -139,7 +139,7 @@ flowchart LR
 | `test/unit/` | Template 自身のテスト（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
-| `Makefile` | Repo コマンドエントリ（`make build`、`make run`、`make stop` 等）。Sub-cmd は位置引数として直接渡し（`make build test`）；flag には `--` セパレータが必要（`make build -- --no-cache test`）。`make` 単独で help を表示（`.DEFAULT_GOAL := help`）。 |
+| `justfile` | Repo コマンドエントリ（`just build`、`just run`、`just stop` 等）の `just <verb>` recipe。引数は `{{args}}` でそのまま wrapper に渡されます（`just build --no-cache test`）。`just` 単独で recipe 一覧を表示。 |
 | `Makefile.ci` | Template CI コマンドエントリ（`make -f Makefile.ci test`、`make -f Makefile.ci lint` 等）。user-facing と CI-facing の分離は意図的。 |
 | `init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成 |
 | `upgrade.sh` | Subtree バージョンアップグレード |
@@ -199,15 +199,13 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-make build                            # compose.yaml を再生成、全 stage を build
-make run -- -t headless               # headless バリアントを起動
-make run -- -t gui                    # gui バリアントを起動
-make exec -- -t headless bash         # running の headless container に exec
+just build                            # compose.yaml を再生成、全 stage を build
+just run -t headless                  # headless バリアントを起動
+just run -t gui                       # gui バリアントを起動
+just exec -t headless bash            # running の headless container に exec
 
-# Kit スタイルの `=` 付き引数は #414 ガードに引っかかるため、
-# EXEC_ARGS env var 経由で渡す (#469):
-EXEC_ARGS='--/app/livestream/port=49100' \
-  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+# Kit スタイルの `=` 付き引数も just ではそのまま渡せます (#469):
+just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等価な直接 .sh 呼び出し:
 ./build.sh
@@ -431,7 +429,7 @@ Main
 の度に再実行されることはありません：
 
 - **`./.base/init.sh`** がスケルトン生成後に 1 回自動実行
-- **`make upgrade` / `./.base/upgrade.sh`** が subtree pull の後に
+- **`just upgrade` / `./.base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
   baseline で `.env` / `compose.yaml` を再生成した状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
@@ -452,9 +450,9 @@ Main
 > で実行したい場合は `--build` フラグを付けてください：
 >
 > ```bash
-> make build test                   # 明示的に lint + smoke を実行
-> make run -- --build               # lint + smoke を実行してから compose up
-> make run                          # デフォルト — 高速パス、lint/smoke はスキップ
+> just build test                   # 明示的に lint + smoke を実行
+> just run --build                  # lint + smoke を実行してから compose up
+> just run                          # デフォルト — 高速パス、lint/smoke はスキップ
 > ```
 
 `setup.sh apply` は毎回 `compose.yaml` をゼロから書き直しますが、
@@ -534,7 +532,7 @@ docker load < image.tar
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
-両ファイルは `make upgrade` のたびに再生成されます（init.sh が subtree
+両ファイルは `just upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
@@ -552,7 +550,7 @@ script/hooks/post/<wrapper>.sh   # main logic 後（run.sh は EXIT trap 内）
 hook framework は箱から出してすぐに使えます。`exit 0` を host-side の処理
 （例: `multiarch/qemu-user-static` の binfmt 登録、mount ディレクトリ作成、
 hardware preflight）に置き換えてください。stub は upgrade に対して
-冪等 — pre-#440 の template でも `make upgrade` 後に scaffolding が
+冪等 — pre-#440 の template でも `just upgrade` 後に scaffolding が
 補完されます。
 
 **Contract:**
@@ -696,19 +694,19 @@ git subtree add --prefix=.base \
 
 ```bash
 # 新バージョンの確認
-make upgrade-check
+just upgrade-check
 
 # 最新にアップグレード（subtree pull + バージョンファイル + workflow tag）
-make upgrade
+just upgrade
 
 # バージョン指定
-make upgrade VERSION=v0.3.0
+just upgrade v0.3.0
 # 指定したバージョンが現在の local pin より古い場合（例：v0.12.0-rc1 から
 # v0.11.0 への巻き戻し）は SemVer §11 に従って暗黙の downgrade として
 # 拒否されます。意図的な rollback の場合は .base/.version を手動編集
 # してください。
 
-# make が使えない場合のフォールバック
+# just が使えない場合のフォールバック
 ./.base/upgrade.sh v0.3.0
 ```
 
@@ -720,7 +718,7 @@ make upgrade VERSION=v0.3.0
    `git reset --hard` で rollback（旧 `git-subtree.sh` の destructive FF
    対策）
 3. `./.base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
-   / `Makefile` …）の再同期、`.gitignore` を canonical entry set に
+   / `justfile` …）の再同期、`.gitignore` を canonical entry set に
    同期、derived artifact になった旧 tracked ファイル（`.env`、
    `compose.yaml`、…）を `git rm --cached`、最後に `setup.sh apply` を
    呼んで `.env` + `compose.yaml` を再生成
@@ -749,7 +747,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、base の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `make upgrade VERSION=vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、base の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `just upgrade vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
 ## CI Reusable Workflows
 
@@ -799,7 +797,7 @@ jobs:
 make -f Makefile.ci test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
 make -f Makefile.ci lint        # ShellCheck のみ
 make -f Makefile.ci clean       # カバレッジレポート削除
-make help        # repo ターゲット表示
+just             # repo recipe 一覧表示
 make -f Makefile.ci help  # CI ターゲット表示
 ```
 
@@ -849,7 +847,7 @@ make -f Makefile.ci help  # CI ターゲット表示
 │   │   │   ├── entrypoint.sh         # Template entrypoint helper
 │   │   │   ├── logging.sh            # Host-side log tee helper
 │   │   │   └── smoke.sh              # Runtime install-check smoke
-│   │   ├── Makefile                  # Docker operations entry
+│   │   ├── justfile                  # Docker operations entry (just)
 │   │   └── setup.conf                # Template runtime config defaults
 │   └── ci/                           # CI pipeline scripts
 │       ├── ci.sh                     # CI orchestration (local + remote)

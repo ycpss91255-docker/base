@@ -640,32 +640,25 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (32)
+### test/unit/justfile_user_spec.bats (7)
 
-Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
-Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
-with positional sub-cmd args carried via `$(filter-out $@,$(MAKECMDGOALS))`
-and flags requiring the `--` separator. A `%:` catch-all rule no-ops the
-forwarded positional tokens so Make does not error on `make build test`.
-`.DEFAULT_GOAL := help` flips the bare-`make` invocation from build to
-help. Sandbox copies the Makefile into a fake repo, planting stub
-`script/*.sh` recorders that log their argv into stdout so each test
-can assert exactly which underlying script ran and with what args.
+Executable tests for the user-facing `script/docker/justfile` (#546 /
+ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
+the removed `makefile_user_spec`: sandboxes a repo with the justfile
+symlinked at root + stub `script/*.sh` recorders, and RUNS `just <verb>`
+to assert 1:1 forwarding with `{{args}}` passthrough. Skips when `just`
+is not yet in the test-tools image (pre-release GHCR pull -- see
+template_spec for the `apk add ... just` guard + the release smoke check).
 
-Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
-`make help` lists 11 user-facing targets; removed sub-cmd targets
-(`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
-across all 11 targets (build / run / start / exec / stop / prune / setup /
-setup-tui / upgrade / upgrade-check / help); `make start` combined
-build+run (invokes build.sh then run.sh, correct execution order, args
-forwarded to build.sh only, visible in help); positional forwarding
-(`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
-setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
-test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
-no-op (`make foo` succeeds silently, `make build foo bar` forwards
-multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
-multiple, after `--` separator — all abort with error); absolute
-container path forwarding (`/nonexistent/...`, `/root/demo/...`).
+| Test | Description |
+|------|-------------|
+| `just build forwards positional args` | `just build test` -> build.sh test |
+| `just build passes flags through verbatim` | no `--` separator needed |
+| `just exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
+| `just run / stop / prune / setup forward` | wrapper dispatch |
+| `just setup-tui forwards to setup_tui.sh` | hyphenated recipe |
+| `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
+| `bare just lists recipes` | replaces `make help` |
 
 ### test/unit/justfile_spec.bats (4)
 
@@ -861,7 +854,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (146)
+### test/unit/template_spec.bats (143)
 
 | Test | Description |
 |------|-------------|
@@ -872,16 +865,12 @@ the host file content and the inherited stdout (preserving
 | `setup.sh exists and is executable` | File check |
 | `ci.sh exists and is executable` | File check |
 | `ci.sh uses set -euo pipefail` | Shell convention |
-| `Makefile exists (repo entry)` | File check |
-| `Makefile has build target` | Makefile target |
 | `Makefile.ci exists (template CI)` | File check |
 | `Makefile.ci has test target` | Makefile target |
 | `Makefile.ci has lint target` | Makefile target |
 | `Makefile.ci has upgrade target` | Makefile target |
 | `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
-| `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
-| `Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap exit 1 = success |
-| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: same wrap on Makefile.ci |
+| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on Makefile.ci |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -1057,7 +1046,7 @@ non-directory exit 2, and the `_runner_family` classifier.
 | `exits 2 when given a non-directory root` | usage error |
 | `_runner_family classifies bats / python / other` | classifier unit |
 
-### test/unit/init_spec.bats (28)
+### test/unit/init_spec.bats (29)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -1078,7 +1067,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
 | `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
-| `_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)` | 7 wrappers under script/ with ../ targets; Makefile at root |
+| `_create_symlinks: places 7 wrapper symlinks under script/ (#330)` | 7 wrappers under script/ with ../ targets; justfile at root, no Makefile |
+| `_create_symlinks: places justfile at root with the direct .base/ target (#545)` | root justfile -> .base/script/docker/justfile |
+| `_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)` | Makefile retired; stale symlink dropped on upgrade |
 | `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
 | `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
@@ -1281,7 +1272,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/test/TEST.md exists` | TEST.md gen |
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink lives under script/, not root (#330)` | symlink target moved to script/build.sh |
-| `new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)` | symlink set: 7 wrappers + Makefile root |
+| `new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)` | symlink set: 7 wrappers + justfile root, no Makefile |
 | `new repo: config/ is an empty placeholder (template#254 layered override)` | config placeholder |
 | `new repo: init.sh preserves pre-existing config/ directory (no clobber)` | config preservation |
 | `new repo: init.sh drops stale config symlink before creating placeholder` | config-symlink drop |
@@ -1371,8 +1362,8 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
-| `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
-| `make upgrade-check (downstream Makefile): exit 0 when up-to-date` | Up-to-date path stays green |
+| `just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
+| `just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |

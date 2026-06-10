@@ -39,12 +39,12 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # Upgrade to latest
-make upgrade-check   # check
-make upgrade         # pull + update version + workflow tag
+just upgrade-check   # check
+just upgrade         # pull + update version + workflow tag
 
 # Run CI
-make test            # ShellCheck + Bats + Kcov
-make help            # show all commands
+make -f Makefile.ci test   # ShellCheck + Bats + Kcov
+just                       # show all recipes
 ```
 
 ## Overview
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["Makefile → .base/script/docker/Makefile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -82,7 +82,7 @@ graph TB
 flowchart LR
     subgraph local["Local"]
         build_test["./build.sh test"]
-        make_test["make build test"]
+        make_test["just build test"]
     end
 
     subgraph ci_container["CI Container (ghcr.io/ycpss91255-docker/test-tools:latest)"]
@@ -148,7 +148,7 @@ segregate by a `<tool>` subdir -- `test/<category>/<tool>/` (e.g.
 See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 
 | `.hadolint.yaml` | Shared Hadolint rules |
-| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.). Sub-cmds forward positionally (`make build test`); flags need `--` separator (`make build -- --no-cache test`). `make` no-arg prints help (`.DEFAULT_GOAL := help`). |
+| `justfile` | Repo entry — `just <verb>` recipes (`just build`, `just run`, `just stop`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just build --no-cache test`); `just` with no recipe lists all recipes. |
 | `Makefile.ci` | Template CI entry (`make -f Makefile.ci test`, `make -f Makefile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
@@ -240,15 +240,14 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-make build                            # regenerates compose.yaml, builds all stages
-make run -- -t headless               # runs the headless variant
-make run -- -t gui                    # runs the gui variant
-make exec -- -t headless bash         # exec into running headless container
+just build                            # regenerates compose.yaml, builds all stages
+just run -t headless                  # runs the headless variant
+just run -t gui                       # runs the gui variant
+just exec -t headless bash            # exec into running headless container
 
-# Kit-style args (containing `=`) trip the #414 guard inline. Pass them
-# via the EXEC_ARGS env var instead (#469):
-EXEC_ARGS='--/app/livestream/port=49100' \
-  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+# Kit-style args (containing `=`) pass straight through as recipe
+# arguments — no env-var workaround needed:
+just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # Equivalent direct .sh invocation:
 ./build.sh
@@ -444,7 +443,7 @@ into a field deployment that ships just the image:
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults that get baked into the runtime image as
 `ENV`. Put per-task env vars in the `.env` overlay instead, so a tweak
-needs only `make run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
+needs only `just run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
 drift, no git churn).
 
 > The `.env` overlay, the runtime-stage `ENV` bake, and the generated
@@ -558,7 +557,7 @@ Main
 every build or launch:
 
 - **`./.base/init.sh`** runs it once after the skeleton lands
-- **`make upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
+- **`just upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
   `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
@@ -576,9 +575,9 @@ every build or launch:
 > first if you want full local-CI parity in one command:
 >
 > ```bash
-> make build test                   # explicit lint + smoke pass
-> make run -- --build               # same, then compose up
-> make run                          # default — fast path, lint/smoke skipped
+> just build test                   # explicit lint + smoke pass
+> just run --build                  # same, then compose up
+> just run                          # default — fast path, lint/smoke skipped
 > ```
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
@@ -636,7 +635,7 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
-configuration. Both files are regenerated on every `make upgrade`
+configuration. Both files are regenerated on every `just upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
@@ -655,7 +654,7 @@ hook framework is ready out of the box. Replace `exit 0` with your
 own host-side steps (e.g. `multiarch/qemu-user-static` binfmt
 registration, mount-point dir creation, hardware preflight). Stubs
 are idempotent across upgrades — pre-#440 templates pick up the
-scaffolding on the next `make upgrade`.
+scaffolding on the next `just upgrade`.
 
 **Contract:**
 
@@ -798,18 +797,18 @@ upgrade.sh fails fast with an actionable message instead of half-pulling.
 
 ```bash
 # Check if update available
-make upgrade-check
+just upgrade-check
 
 # Upgrade to latest (subtree pull + version file + workflow tag)
-make upgrade
+just upgrade
 
 # Or pin a specific version
-make upgrade VERSION=v0.3.0
+just upgrade v0.3.0
 # Pinning to a version OLDER than the current local pin (e.g. rolling
 # from v0.12.0-rc1 back to v0.11.0) is refused as an implicit downgrade
 # per SemVer §11. Edit .base/.version manually if intentional.
 
-# Fallback if make is unavailable
+# Fallback if just is unavailable
 ./.base/upgrade.sh v0.3.0
 ```
 
@@ -821,7 +820,7 @@ make upgrade VERSION=v0.3.0
    `.base/script/docker/setup.sh`) are missing (catches the
    destructive fast-forward seen on older `git-subtree.sh`)
 3. `./.base/init.sh` re-runs to: resync root symlinks
-   (`build.sh` / `run.sh` / `Makefile` …), sync `.gitignore` against
+   (`build.sh` / `run.sh` / `justfile` …), sync `.gitignore` against
    the canonical entry set, `git rm --cached` any tracked-but-now-derived
    files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
    regenerate `.env` + `compose.yaml`
@@ -853,7 +852,7 @@ updates:
 
 Dependabot notices the `uses: ycpss91255-docker/base/...@vX.Y.Z` refs in
 `main.yaml`, compares against the template's latest tag, and files a PR. You
-still run `make upgrade VERSION=vX.Y.Z` locally to sync the subtree itself —
+still run `just upgrade vX.Y.Z` locally to sync the subtree itself —
 Dependabot only bumps the workflow refs.
 
 ## CI Reusable Workflows
@@ -961,7 +960,7 @@ Using `Makefile.ci` (from template root):
 make -f Makefile.ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
 make -f Makefile.ci lint        # ShellCheck only
 make -f Makefile.ci clean       # Remove coverage reports
-make help        # Show repo targets
+just                      # Show repo recipes
 make -f Makefile.ci help  # Show CI targets
 ```
 
@@ -1011,7 +1010,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   │   │   ├── entrypoint.sh         # Template entrypoint helper
 │   │   │   ├── logging.sh            # Host-side log tee helper
 │   │   │   └── smoke.sh              # Runtime install-check smoke
-│   │   ├── Makefile                  # Docker operations entry
+│   │   ├── justfile                  # Docker operations entry (just)
 │   │   └── setup.conf                # Template runtime config defaults
 │   └── ci/                           # CI pipeline scripts
 │       ├── ci.sh                     # CI orchestration (local + remote)
