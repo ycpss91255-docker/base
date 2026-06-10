@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.41.0-rc1] - 2026-06-10
+## [v0.41.0] - 2026-06-10
 
 ### Added
 - **`justfile` user-facing entry point, additive alongside the Makefile (#545, ADR-00000005 phase 1)** — new `script/docker/justfile` (symlinked from the downstream repo root as `justfile` by `init.sh`) provides `just <verb>` recipes (`build` / `run` / `start` / `exec` / `stop` / `prune` / `setup` / `setup-tui` / `upgrade` / `upgrade-check`) that forward 1:1 to `./script/<wrapper>.sh` with full `{{args}}` passthrough. Because `just` does not treat `VAR=VALUE` as overrides or consume `--`/`-flag` argv for itself, the make-era workarounds (`MAKEOVERRIDES` guard #414, mandatory `--` separator #448, `EXEC_ARGS` shim #469) are simply unnecessary: `just exec -t cli --/app/k=v` passes through verbatim. Bare `just` runs `just --list` (replaces `make help`). This is the **additive** phase -- the Makefile stays; its retirement + the downstream fanout is #546. `Makefile.ci` is unrelated and stays on make. Closes #545. Refs ADR-00000005, #475.
