@@ -865,16 +865,12 @@ the host file content and the inherited stdout (preserving
 | `setup.sh exists and is executable` | File check |
 | `ci.sh exists and is executable` | File check |
 | `ci.sh uses set -euo pipefail` | Shell convention |
-| `Makefile exists (repo entry)` | File check |
-| `Makefile has build target` | Makefile target |
 | `Makefile.ci exists (template CI)` | File check |
 | `Makefile.ci has test target` | Makefile target |
 | `Makefile.ci has lint target` | Makefile target |
 | `Makefile.ci has upgrade target` | Makefile target |
 | `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
-| `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
-| `Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap exit 1 = success |
-| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: same wrap on Makefile.ci |
+| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on Makefile.ci |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -1071,7 +1067,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
 | `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
-| `_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)` | 7 wrappers under script/ with ../ targets; Makefile at root |
+| `_create_symlinks: places 7 wrapper symlinks under script/ (#330)` | 7 wrappers under script/ with ../ targets; justfile at root, no Makefile |
+| `_create_symlinks: places justfile at root with the direct .base/ target (#545)` | root justfile -> .base/script/docker/justfile |
+| `_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)` | Makefile retired; stale symlink dropped on upgrade |
 | `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
 | `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
@@ -1274,7 +1272,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/test/TEST.md exists` | TEST.md gen |
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink lives under script/, not root (#330)` | symlink target moved to script/build.sh |
-| `new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)` | symlink set: 7 wrappers + Makefile root |
+| `new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)` | symlink set: 7 wrappers + justfile root, no Makefile |
 | `new repo: config/ is an empty placeholder (template#254 layered override)` | config placeholder |
 | `new repo: init.sh preserves pre-existing config/ directory (no clobber)` | config preservation |
 | `new repo: init.sh drops stale config symlink before creating placeholder` | config-symlink drop |
@@ -1364,8 +1362,8 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
-| `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
-| `make upgrade-check (downstream Makefile): exit 0 when up-to-date` | Up-to-date path stays green |
+| `just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
+| `just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |

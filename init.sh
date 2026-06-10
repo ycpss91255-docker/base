@@ -54,8 +54,8 @@ _create_symlinks() {
   _log "Creating symlinks:"
   # #330: the seven user-facing wrappers live under script/ now, with
   # link targets relative to the link's directory ("../" prefix).
-  # Root keeps `Makefile` as the elevated user entry; flag / sub-cmd
-  # forwarding is documented in script/docker/Makefile itself.
+  # #546: the root user entry is the `justfile` (the container-ops
+  # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/build.sh" "script/build.sh"
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/run.sh" "script/run.sh"
