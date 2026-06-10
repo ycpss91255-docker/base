@@ -242,6 +242,18 @@ REMOTE
   assert_output ".base/script/docker/justfile"
 }
 
+@test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
+  # ADR-00000005 phase 2: the Makefile is retired in favour of `just`.
+  # _create_symlinks must no longer create a root Makefile, and an
+  # upgrading repo's pre-existing root Makefile symlink must be dropped
+  # (init.sh resync) so it does not dangle once .base/ no longer ships one.
+  _source_init
+  ln -sf ".base/script/docker/Makefile" "${TMP_REPO}/Makefile"   # legacy symlink from an older base
+  _create_symlinks
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+  assert [ ! -L "${TMP_REPO}/Makefile" ]
+}
+
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
   # Pretend an earlier run left a regular file where the symlink should go.
   # Post-#330 the symlinks live under script/, so the stale-replacement
