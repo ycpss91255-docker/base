@@ -18,6 +18,7 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 ## Table of Contents
 
 - [TL;DR](#tldr)
+- [Prerequisites](#prerequisites)
 - [Overview](#overview)
 - [Quick Start](#quick-start)
 - [CI Reusable Workflows](#ci-reusable-workflows)
@@ -46,6 +47,30 @@ just upgrade         # pull + update version + workflow tag
 make -f Makefile.ci test   # ShellCheck + Bats + Kcov
 just                       # show all recipes
 ```
+
+## Prerequisites
+
+Container operations run through [`just`](https://github.com/casey/just) (the
+command runner) layered on Docker. Install both on the host before using the
+`just <verb>` entry point:
+
+- **Docker** + Docker Compose v2 (`docker compose`).
+- **just** -- any recent release works (the recipes use only variadic
+  parameters, supported since early versions). Install via a package manager
+  or the official installer:
+
+  ```bash
+  apt install just         # Debian 13+ / Ubuntu 24.04+
+  brew install just        # macOS / Linuxbrew
+  cargo install just       # from crates.io
+  # or the official prebuilt-binary installer:
+  curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+      | bash -s -- --to ~/.local/bin
+  ```
+
+  See the [official install guide](https://github.com/casey/just#installation)
+  for every method. If `just` is unavailable each recipe has a raw fallback
+  (`./script/<verb>.sh`, `./.base/upgrade.sh`) -- see [Quick Start](#quick-start).
 
 ## Overview
 

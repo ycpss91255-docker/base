@@ -18,6 +18,7 @@
 ## 目录
 
 - [TL;DR](#tldr)
+- [必要条件](#必要条件)
 - [概述](#概述)
 - [快速开始](#快速开始)
 - [CI Reusable Workflows](#ci-reusable-workflows)
@@ -43,9 +44,31 @@ just upgrade-check   # 检查
 just upgrade         # pull + 更新版本文件 + workflow tag
 
 # 运行 CI
-make test            # ShellCheck + Bats + Kcov
-make help            # 显示所有命令
+make -f Makefile.ci test   # ShellCheck + Bats + Kcov
+just                       # 列出所有 recipe
 ```
+
+## 必要条件
+
+容器操作透过 [`just`](https://github.com/casey/just)（command runner）搭配
+Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
+
+- **Docker** + Docker Compose v2（`docker compose`）。
+- **just** -- 任何近期版本皆可（recipe 仅用到 variadic 参数，早期版本即支持）。
+  通过包管理器或官方安装程序安装：
+
+  ```bash
+  apt install just         # Debian 13+ / Ubuntu 24.04+
+  brew install just        # macOS / Linuxbrew
+  cargo install just       # 从 crates.io
+  # 或官方预编译 binary 安装程序：
+  curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+      | bash -s -- --to ~/.local/bin
+  ```
+
+  完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
+  `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
+  `./.base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 
 ## 概述
 
