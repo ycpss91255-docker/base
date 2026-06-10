@@ -39,12 +39,12 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # 升級到最新版
-make upgrade-check   # 檢查
-make upgrade         # pull + 更新版本檔 + workflow tag
+just upgrade-check   # 檢查
+just upgrade         # pull + 更新版本檔 + workflow tag
 
 # 執行 CI
-make test            # ShellCheck + Bats + Kcov
-make help            # 顯示所有指令
+make -f Makefile.ci test   # ShellCheck + Bats + Kcov
+just                       # 列出所有 recipe
 ```
 
 ## 概述
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["Makefile → .base/script/docker/Makefile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 專屬）"]
         main_yaml["main.yaml<br/>→ 呼叫可重用 workflows"]
@@ -82,7 +82,7 @@ graph TB
 flowchart LR
     subgraph local["本地"]
         build_test["./build.sh test"]
-        make_test["make build test"]
+        make_test["just build test"]
     end
 
     subgraph ci_container["CI 容器（ghcr.io/ycpss91255-docker/test-tools:latest）"]
@@ -143,7 +143,7 @@ flowchart LR
 | `test/integration/` | Level-1 `init.sh` 整合測試 |
 | `test/behavioural/` | Runtime 整合測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
-| `Makefile` | Repo 指令入口（`make build`、`make run`、`make stop` 等）。Sub-cmd 直接位置傳遞（`make build test`）；flag 需要 `--` 分隔符（`make build -- --no-cache test`）。`make` 無參印 help（`.DEFAULT_GOAL := help`）。 |
+| `justfile` | Repo 指令入口（`just build`、`just run`、`just stop` 等 recipe）。Sub-cmd 與 flag 透過 `{{args}}` 直接傳遞，不需要 `--` 分隔符（`just build --no-cache test`）。`just` 無參時列出所有 recipe。 |
 | `Makefile.ci` | Template CI 指令入口（`make -f Makefile.ci test`、`make -f Makefile.ci lint` 等）。user-facing 跟 CI-facing 是刻意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架產生 |
 | `upgrade.sh` | Subtree 版本升級 |
@@ -198,14 +198,13 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-make build                            # 重新產 compose.yaml，build 所有 stages
-make run -- -t headless               # 跑 headless 變體
-make run -- -t gui                    # 跑 gui 變體
-make exec -- -t headless bash         # 進入 running 的 headless container
+just build                            # 重新產 compose.yaml，build 所有 stages
+just run -t headless                  # 跑 headless 變體
+just run -t gui                       # 跑 gui 變體
+just exec -t headless bash            # 進入 running 的 headless container
 
-# Kit 風格的 `=` 參數會被 #414 guard 擋下，改走 EXEC_ARGS env var (#469)：
-EXEC_ARGS='--/app/livestream/port=49100' \
-  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+# Kit 風格的 `=` 參數可直接傳遞：
+just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等效直接 .sh 寫法：
 ./build.sh
@@ -409,7 +408,7 @@ Main
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
 - **`./.base/init.sh`** 建完骨架自動跑一次
-- **`make upgrade` / `./.base/upgrade.sh`** subtree pull 後透過 init.sh
+- **`just upgrade` / `./.base/upgrade.sh`** subtree pull 後透過 init.sh
   再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
@@ -425,9 +424,9 @@ Main
 > 想要一次取得跟 CI 同樣的完整驗證，加 `--build` flag：
 >
 > ```bash
-> make build test                   # 顯式跑 lint + smoke
-> make run -- --build               # 跑完 lint + smoke 再 compose up
-> make run                          # 預設 — 快速路徑，跳過 lint/smoke
+> just build test                   # 顯式跑 lint + smoke
+> just run --build                  # 跑完 lint + smoke 再 compose up
+> just run                          # 預設 — 快速路徑，跳過 lint/smoke
 > ```
 
 `setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
@@ -505,7 +504,7 @@ docker load < image.tar
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
-`make upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
+`just upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
 ### 每個 wrapper 的 pre/post hook（#440）
@@ -522,7 +521,7 @@ script/hooks/post/<wrapper>.sh   # 主邏輯後（run.sh 的話在 EXIT trap 內
 框架 out-of-the-box 直接可用。把 `exit 0` 換成你的 host-side 步驟
 （例如 `multiarch/qemu-user-static` binfmt 註冊、mount 目錄建立、
 硬體預檢）。Stub 對 upgrade 是 idempotent — pre-#440 的 template 跑
-`make upgrade` 後自動補齊 scaffolding。
+`just upgrade` 後自動補齊 scaffolding。
 
 **Contract：**
 
@@ -655,18 +654,18 @@ fail-fast 帶可操作訊息，避免半套 pull。
 
 ```bash
 # 檢查是否有新版
-make upgrade-check
+just upgrade-check
 
 # 升級到最新（subtree pull + 版本檔 + workflow tag）
-make upgrade
+just upgrade
 
 # 或指定版本
-make upgrade VERSION=v0.3.0
+just upgrade v0.3.0
 # 指定的版本若比目前 local 還舊（例如從 v0.12.0-rc1 退回 v0.11.0）會被
 # 視為隱式 downgrade 拒絕（依 SemVer §11）。如果是刻意要 rollback，自
 # 行手改 .base/.version。
 
-# 沒有 make 時的 fallback
+# 沒有 just 時的 fallback
 ./.base/upgrade.sh v0.3.0
 ```
 
@@ -677,7 +676,7 @@ make upgrade VERSION=v0.3.0
    `.base/init.sh`、`.base/script/docker/wrapper/setup.sh`）若不見了會
    `git reset --hard` rollback（防舊版 `git-subtree.sh` destructive FF）
 3. `./.base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
-   / `Makefile` …）、把 `.gitignore` 同步到 canonical entry set、
+   / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、
    `git rm --cached` 已經變成 derived artifact 的舊 tracked 檔（`.env`、
    `compose.yaml`、…），最後呼叫 `setup.sh apply` 重生 `.env` +
    `compose.yaml`
@@ -705,7 +704,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 base 最新 tag 後開 PR。subtree 本身仍需在本地跑 `make upgrade VERSION=vX.Y.Z` — Dependabot 只負責 workflow ref。
+Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 base 最新 tag 後開 PR。subtree 本身仍需在本地跑 `just upgrade vX.Y.Z` — Dependabot 只負責 workflow ref。
 
 ## CI Reusable Workflows
 
@@ -755,7 +754,7 @@ jobs:
 make -f Makefile.ci test        # 完整 CI（ShellCheck + Bats + Kcov）透過 docker compose
 make -f Makefile.ci lint        # 只跑 ShellCheck
 make -f Makefile.ci clean       # 清除覆蓋率報表
-make help        # 顯示 repo 指令
+just             # 列出 repo recipe
 make -f Makefile.ci help  # 顯示 CI 指令
 ```
 
@@ -805,7 +804,7 @@ make -f Makefile.ci help  # 顯示 CI 指令
 │   │   │   ├── entrypoint.sh         # Template entrypoint helper
 │   │   │   ├── logging.sh            # Host 端 log tee helper
 │   │   │   └── smoke.sh              # Runtime install-check smoke
-│   │   ├── Makefile                  # Docker 操作入口
+│   │   ├── justfile                  # Docker 操作入口（just）
 │   │   └── setup.conf                # Template runtime 配置預設
 │   └── ci/                           # CI pipeline 腳本
 │       ├── ci.sh                     # CI orchestration（本地 + 遠端）

@@ -174,7 +174,7 @@ _seed_upgrade_fixture() {
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh; do
     : > "${TMPL_WORK}/script/docker/wrapper/${_f}"
   done
-  : > "${TMPL_WORK}/script/docker/Makefile"
+  : > "${TMPL_WORK}/script/docker/justfile"
   : > "${TMPL_WORK}/.hadolint.yaml"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/upgrade.sh" \
            "${TMPL_WORK}/script/docker/wrapper/setup.sh"

@@ -640,32 +640,25 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (32)
+### test/unit/justfile_user_spec.bats (7)
 
-Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
-Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
-with positional sub-cmd args carried via `$(filter-out $@,$(MAKECMDGOALS))`
-and flags requiring the `--` separator. A `%:` catch-all rule no-ops the
-forwarded positional tokens so Make does not error on `make build test`.
-`.DEFAULT_GOAL := help` flips the bare-`make` invocation from build to
-help. Sandbox copies the Makefile into a fake repo, planting stub
-`script/*.sh` recorders that log their argv into stdout so each test
-can assert exactly which underlying script ran and with what args.
+Executable tests for the user-facing `script/docker/justfile` (#546 /
+ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
+the removed `makefile_user_spec`: sandboxes a repo with the justfile
+symlinked at root + stub `script/*.sh` recorders, and RUNS `just <verb>`
+to assert 1:1 forwarding with `{{args}}` passthrough. Skips when `just`
+is not yet in the test-tools image (pre-release GHCR pull -- see
+template_spec for the `apk add ... just` guard + the release smoke check).
 
-Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
-`make help` lists 11 user-facing targets; removed sub-cmd targets
-(`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
-across all 11 targets (build / run / start / exec / stop / prune / setup /
-setup-tui / upgrade / upgrade-check / help); `make start` combined
-build+run (invokes build.sh then run.sh, correct execution order, args
-forwarded to build.sh only, visible in help); positional forwarding
-(`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
-setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
-test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
-no-op (`make foo` succeeds silently, `make build foo bar` forwards
-multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
-multiple, after `--` separator — all abort with error); absolute
-container path forwarding (`/nonexistent/...`, `/root/demo/...`).
+| Test | Description |
+|------|-------------|
+| `just build forwards positional args` | `just build test` -> build.sh test |
+| `just build passes flags through verbatim` | no `--` separator needed |
+| `just exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
+| `just run / stop / prune / setup forward` | wrapper dispatch |
+| `just setup-tui forwards to setup_tui.sh` | hyphenated recipe |
+| `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
+| `bare just lists recipes` | replaces `make help` |
 
 ### test/unit/justfile_spec.bats (4)
 
@@ -861,7 +854,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (146)
+### test/unit/template_spec.bats (143)
 
 | Test | Description |
 |------|-------------|
@@ -1057,7 +1050,7 @@ non-directory exit 2, and the `_runner_family` classifier.
 | `exits 2 when given a non-directory root` | usage error |
 | `_runner_family classifies bats / python / other` | classifier unit |
 
-### test/unit/init_spec.bats (28)
+### test/unit/init_spec.bats (29)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements

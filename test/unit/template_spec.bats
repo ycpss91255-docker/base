@@ -48,25 +48,9 @@ setup() {
   assert_success
 }
 
-@test "Makefile exists (repo entry)" {
-  assert [ -f /source/script/docker/Makefile ]
-}
-
-@test "Makefile has build target" {
-  run grep -E '^build:' /source/script/docker/Makefile
-  assert_success
-}
-
-@test "Makefile upgrade target uses ./.base/upgrade.sh (not ./.base/script/upgrade.sh)" {
-  # Regression: the Makefile symlinked into every downstream repo has
-  # called `./.base/script/upgrade.sh` since v0.10.x, but upgrade.sh
-  # actually lives at template root (`./.base/upgrade.sh`). The
-  # broken target produced "No such file or directory" on `make upgrade`
-  # / `make upgrade-check` for fresh consumer repos.
-  run grep -E '^[[:space:]]+\./.base/upgrade\.sh' /source/script/docker/Makefile
-  assert_success
-  refute_output --partial "./.base/script/upgrade.sh"
-}
+# #546: the container-ops Makefile is retired for `just`; its existence /
+# build-target / upgrade-path checks moved to justfile_spec.bats (static)
+# + justfile_user_spec.bats (executable). Makefile.ci (CI entry) stays.
 
 @test "Makefile.ci exists (template CI)" {
   assert [ -f /source/Makefile.ci ]
@@ -92,18 +76,6 @@ setup() {
   # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
   # VERSION resolves to "latest" and a set VERSION pins a specific tag.
   run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
-  assert_success
-}
-
-@test "Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Regression #175: `upgrade.sh --check` exits 1 when an update is
-  # available (documented shell convention so `if ./upgrade.sh --check;
-  # then ...` works). The Makefile recipe must wrap the call so make
-  # treats exit 1 as success — the check itself succeeded, the user-
-  # facing message already conveys the result. Exit codes ≥2 (genuine
-  # failures) still propagate.
-  run grep -E '\./.base/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
-      /source/script/docker/Makefile
   assert_success
 }
 
