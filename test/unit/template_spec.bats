@@ -492,6 +492,14 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools installs just (#546: justfile entry-point execution in CI)" {
+  # #546 retires the Makefile for `just`; the test-tools image must carry
+  # `just` so justfile_user_spec / upgrade-check can exercise the entry
+  # point for real (mirroring the old executable Makefile tests).
+  run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools declares ARG TARGETARCH" {
   run grep -E '^ARG TARGETARCH' /source/dockerfile/Dockerfile.test-tools
   assert_success
