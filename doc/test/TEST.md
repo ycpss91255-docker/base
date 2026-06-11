@@ -791,7 +791,7 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_setup_deploy: --stage selects the target stage` | stage select |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
 
-### test/unit/compose_logging_spec.bats (32)
+### test/unit/compose_logging_spec.bats (17)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -1224,7 +1224,15 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/unit/gitignore_spec.bats (16)
+### test/unit/conf_accessor_spec.bats (3)
+
+Unit tests for the `conf.sh` opaque accessor interface (#564): `_conf_load`
+loads a file into a named handle, `_conf_get` reads a value by (section, key)
+with an optional default, `_conf_sections` lists section names, and `_conf_list`
+lists a section's keys -- all without callers touching the internal
+parallel-array representation or the `<section>.<key>` namespacing rule.
+
+### test/unit/gitignore_spec.bats (26)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.

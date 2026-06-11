@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`conf.sh` opaque accessor interface (#564, architecture deepening)** — new read-side accessor verbs hide `conf.sh`'s internal parallel-array representation and the `<section>.<key>` namespacing rule so callers query setup.conf without knowing the data model: `_conf_load <file> <handle>` tokenizes a file once into a named handle; `_conf_get <handle> <section> <key> [default]` returns a value (last occurrence wins) or the default; `_conf_sections <handle>` lists section names in first-appearance order; `_conf_list <handle> <section>` lists a section's keys in file order (for iterating list sections like `volumes mount_*` / `environment env_*`). The existing `_ini_tokenize` / `_parse_ini_section` / `_load_setup_conf_full` readers are unchanged (the accessors are a thin opaque layer over the tokenizer). Caller adoption lands incrementally starting with the resolved-config seam (#563), which restructures the prime adoption site (`_resolve_deploy_context`) — migrating those call sites now would be churn #563 immediately rewrites. Unit-tested in `test/unit/conf_accessor_spec.bats`. Refs #564, #563.
+
 ## [v0.41.0] - 2026-06-10
 
 ### Added
