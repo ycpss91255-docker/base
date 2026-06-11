@@ -32,3 +32,11 @@ teardown() {
   assert_success
   assert_output "auto"
 }
+
+@test "_conf_sections lists section names in first-appearance order" {
+  _conf_load "${FIX}" H
+  run _conf_sections H
+  assert_success
+  assert_line --index 0 "deploy"
+  assert_line --index 1 "network"
+}
