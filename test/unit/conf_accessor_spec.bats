@@ -40,3 +40,11 @@ teardown() {
   assert_line --index 0 "deploy"
   assert_line --index 1 "network"
 }
+
+@test "_conf_list lists a section's keys in file order" {
+  _conf_load "${FIX}" H
+  run _conf_list H deploy
+  assert_success
+  assert_line --index 0 "gpu_runtime"
+  assert_line --index 1 "gpu_count"
+}
