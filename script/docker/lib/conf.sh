@@ -226,6 +226,19 @@ _conf_get() {
   printf '%s\n' "${_cg_val}"
 }
 
+# _conf_sections <handle>
+#
+# Echo the handle's section names (deduped, first-appearance order), one
+# per line.
+_conf_sections() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local -n _cs_s="${_h}__sects"
+  local _cs_i
+  for (( _cs_i = 0; _cs_i < ${#_cs_s[@]}; _cs_i++ )); do
+    printf '%s\n' "${_cs_s[_cs_i]}"
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
