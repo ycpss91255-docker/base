@@ -239,6 +239,22 @@ _conf_sections() {
   done
 }
 
+# _conf_list <handle> <section>
+#
+# Echo the keys present in <section> from <handle>, one per line, in file
+# order (duplicates preserved). Empty output for an absent section. Use to
+# iterate list-style sections (e.g. volumes `mount_*`, environment `env_*`).
+_conf_list() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
+  local -n _ls_es="${_h}__es" _ls_k="${_h}__keys"
+  local _ls_i
+  for (( _ls_i = 0; _ls_i < ${#_ls_k[@]}; _ls_i++ )); do
+    [[ "${_ls_es[_ls_i]}" == "${_sec}" ]] && printf '%s\n' "${_ls_k[_ls_i]}"
+  done
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
