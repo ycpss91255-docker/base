@@ -185,6 +185,77 @@ _parse_ini_section() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Opaque accessor interface (#564)
+# ════════════════════════════════════════════════════════════════════
+#
+# Callers load a file once into a named handle and query it by
+# (section, key) via the accessor verbs below, without touching the
+# parallel-array representation or the `<section>.<key>` namespacing rule.
+# A "handle" is just a name prefix; _conf_load creates the backing global
+# arrays (`<handle>__es` / `<handle>__keys` / `<handle>__vals` +
+# `<handle>__sects`) so the accessors can find them by prefix.
+
+# _conf_load <file> <handle>
+#
+# Tokenize <file> once into the global arrays backing <handle>. Safe to
+# call on a missing file (yields an empty handle).
+_conf_load() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
+  declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+  local -n _cl_s="${_h}__sects" _cl_es="${_h}__es" _cl_k="${_h}__keys" _cl_v="${_h}__vals"
+  _ini_tokenize "${_file}" _cl_s _cl_es _cl_k _cl_v
+}
+
+# _conf_get <handle> <section> <key> [default]
+#
+# Echo the value for <section>.<key> from <handle>, or [default] (empty
+# if omitted) when absent. Last occurrence wins (override semantics).
+_conf_get() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _key="${3:?"${FUNCNAME[0]}: missing key"}"
+  local _def="${4-}"
+  local -n _cg_es="${_h}__es" _cg_k="${_h}__keys" _cg_v="${_h}__vals"
+  local _cg_i _cg_val="${_def}"
+  for (( _cg_i = 0; _cg_i < ${#_cg_k[@]}; _cg_i++ )); do
+    if [[ "${_cg_es[_cg_i]}" == "${_sec}" && "${_cg_k[_cg_i]}" == "${_key}" ]]; then
+      _cg_val="${_cg_v[_cg_i]}"
+    fi
+  done
+  printf '%s\n' "${_cg_val}"
+}
+
+# _conf_sections <handle>
+#
+# Echo the handle's section names (deduped, first-appearance order), one
+# per line.
+_conf_sections() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local -n _cs_s="${_h}__sects"
+  local _cs_i
+  for (( _cs_i = 0; _cs_i < ${#_cs_s[@]}; _cs_i++ )); do
+    printf '%s\n' "${_cs_s[_cs_i]}"
+  done
+}
+
+# _conf_list <handle> <section>
+#
+# Echo the keys present in <section> from <handle>, one per line, in file
+# order (duplicates preserved). Empty output for an absent section. Use to
+# iterate list-style sections (e.g. volumes `mount_*`, environment `env_*`).
+_conf_list() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
+  local -n _ls_es="${_h}__es" _ls_k="${_h}__keys"
+  local _ls_i
+  for (( _ls_i = 0; _ls_i < ${#_ls_k[@]}; _ls_i++ )); do
+    [[ "${_ls_es[_ls_i]}" == "${_sec}" ]] && printf '%s\n' "${_ls_k[_ls_i]}"
+  done
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
 
