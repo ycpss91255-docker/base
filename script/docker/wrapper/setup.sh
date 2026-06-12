@@ -2568,6 +2568,312 @@ _logging_svc_local_path_mount() {
   _llp_out="${_raw}:/var/log/${_name}"
 }
 
+# _emit_stage_service <ctx_assoc> <resolved_assoc> <svc> <emit_stage> <has_overrides>
+#
+# Per-service compose emitter (#566). Consumes one resolved-stage value
+# (the _dflags_eff record produced by _resolve_docker_flags) plus the
+# shared static context, and emits a single service YAML fragment:
+#
+#   has_overrides=0 -> the minimal `extends: devel` shape (#215),
+#                      byte-for-byte identical to pre-#220 for the 17
+#                      downstream repos that carry no [stage:*] sections;
+#   has_overrides=1 -> a standalone block (no extends) whose every list
+#                      field carries exactly the stage's resolved set
+#                      (#220 v0.18.1: compose `extends` MERGES lists, so
+#                      a stage that clears an inherited entry cannot use
+#                      extends).
+#
+# generate_compose_yaml owns resolution (override load/filter +
+# _resolve_docker_flags) and the top-level assembly; this function owns
+# only the per-service emission. The leaf emitters (_emit_caps_block,
+# _emit_gpu_deploy_block, _emit_logging_block, ...) are its sub-seams.
+_emit_stage_service() {
+  local -n _ess_ctx="$1"
+  local -n _ess_res="$2"
+  local _svc="$3"
+  local _emit_stage="$4"
+  local _has_overrides="$5"
+
+  # Rehydrate the shared static context under the names the emit bodies
+  # use (kept identical to generate_compose_yaml's scope so the emitted
+  # bytes never drift).
+  local _name="${_ess_ctx[name]-}"
+  local _setup_base="${_ess_ctx[setup_base]-}"
+  local _additional_contexts_str="${_ess_ctx[additional_contexts]-}"
+  local _build_network="${_ess_ctx[build_network]-}"
+  local _target_arch="${_ess_ctx[target_arch]-}"
+  local _user_build_args_str="${_ess_ctx[user_build_args]-}"
+  local _devices_str="${_ess_ctx[devices]-}"
+  local _cgroup_rule_str="${_ess_ctx[cgroup_rule]-}"
+  local _tmpfs_str="${_ess_ctx[tmpfs]-}"
+  local _shm_size="${_ess_ctx[shm_size]-}"
+  local _dri_groups_str="${_ess_ctx[dri_groups]-}"
+  local _logging_global_str="${_ess_ctx[logging_global]-}"
+  local _logging_per_svc_str="${_ess_ctx[logging_per_svc]-}"
+  local _net_mode="${_ess_ctx[net_mode]-host}"
+  local _ipc_mode="${_ess_ctx[ipc_mode]-host}"
+  local _pid_mode="${_ess_ctx[pid_mode]-private}"
+  local _any_prop_device="${_ess_ctx[any_prop_device]-false}"
+
+  # ── Zero-diff path (#215): stage with NO overrides keeps the minimal
+  # extends:devel shape. Critical for the 17 existing downstream repos
+  # (no [stage:*] sections -> byte-for-byte identical to pre-#220).
+  if (( ! _has_overrides )); then
+    cat <<YAML
+
+  ${_svc}:
+    extends:
+      service: devel
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${_emit_stage}
+YAML
+    _emit_additional_contexts_block "${_additional_contexts_str}"
+    cat <<YAML
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - ${_svc}
+YAML
+    # #328 / #367: per-stage LOG_FILE_PATH + volume mount when [logging] /
+    # [logging.<stage>] local_path is set. compose's `extends` merge
+    # inherits devel's environment / volumes lists, then concatenates the
+    # child's entries on top -- last-wins at runtime means the per-stage
+    # override here takes effect. Volume mount duplicates devel's inherited
+    # mount but compose dedups identical bind strings (#367 Option A).
+    local _stage_llp=""
+    _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
+    if [[ -n "${_stage_llp}" ]]; then
+      echo "    environment:"
+      echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
+      echo "    volumes:"
+      echo "      - ${_stage_llp}"
+    fi
+    # Per-stage [logging.<stage>] driver / rotation override (if any).
+    # Without an override compose `extends: devel` already covers
+    # logging: -- emit only when the stage actually diverges from devel.
+    if [[ -n "${_logging_per_svc_str}" ]] && \
+       grep -qE "^${_svc}:" <<< "${_logging_per_svc_str}"; then
+      _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
+    fi
+    return 0
+  fi
+
+  # Rehydrate the resolved-stage record (_dflags_eff shape).
+  local _eff_gui="${_ess_res[gui]-}"
+  local _eff_gpu="${_ess_res[gpu]-}"
+  local _eff_gpu_count="${_ess_res[gpu_count]-}"
+  local _eff_gpu_caps="${_ess_res[gpu_caps]-}"
+  local _eff_runtime="${_ess_res[runtime]-}"
+  local _eff_net_mode="${_ess_res[net_mode]-}"
+  local _eff_ipc_mode="${_ess_res[ipc_mode]-}"
+  local _eff_pid_mode="${_ess_res[pid_mode]-}"
+  local _eff_net_name="${_ess_res[net_name]-}"
+  local _eff_privileged="${_ess_res[privileged]-}"
+  local _eff_volumes="${_ess_res[volumes]-}"
+  local _eff_environment="${_ess_res[environment]-}"
+  local _eff_ports="${_ess_res[ports]-}"
+  local _eff_cap_add="${_ess_res[cap_add]-}"
+  local _eff_cap_drop="${_ess_res[cap_drop]-}"
+  local _eff_sec_opt="${_ess_res[security_opt]-}"
+
+  # ── Standalone emit (#220 v0.18.1 fix) ──────────────────────────────
+  #
+  # Stages with overrides drop `extends: devel` and emit a full service
+  # block, because compose `extends` MERGES list fields (volumes /
+  # environment / ports / cap_add / deploy.devices) by appending child
+  # entries to the parent's, not replacing them. Standalone emit sidesteps
+  # the merge entirely: every list the stage touches contains exactly the
+  # resolved set. Top-level fields not yet in the per-stage allowlist
+  # (devices / cgroup_rules / tmpfs) are re-emitted from the enclosing
+  # scope's top-level values so the stage still inherits those by default.
+  cat <<YAML
+
+  ${_svc}:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${_emit_stage}
+YAML
+  _emit_additional_contexts_block "${_additional_contexts_str}"
+  _emit_build_network_line "${_build_network}"
+  cat <<YAML
+      args:
+        APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: \${TZ:-Asia/Taipei}
+        USER_NAME: \${USER_NAME}
+        USER_GROUP: \${USER_GROUP}
+        USER_UID: \${USER_UID}
+        USER_GID: \${USER_GID}
+YAML
+  _emit_target_arch_line "${_target_arch}"
+  _emit_user_build_args "${_user_build_args_str}"
+  cat <<YAML
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - ${_svc}
+YAML
+  # Workload overlay (#502): standalone block has no `extends: devel`
+  # to inherit from, so re-emit env_file explicitly.
+  _emit_env_file_block
+  # privileged: literal when stage overrides; else env-var ref
+  # (same shape devel emits — .env's PRIVILEGED applies).
+  if [[ -n "${_eff_privileged}" ]]; then
+    echo "    privileged: ${_eff_privileged}"
+  else
+    echo "    privileged: \${PRIVILEGED}"
+  fi
+  # ipc: literal when stage overrides; else env-var ref.
+  if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
+    echo "    ipc: ${_eff_ipc_mode}"
+  else
+    echo "    ipc: \${IPC_MODE}"
+  fi
+  # pid: only emitted for "host" — Docker rejects "private" as literal.
+  if [[ "${_eff_pid_mode}" == "host" ]]; then
+    if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+      echo "    pid: ${_eff_pid_mode}"
+    else
+      echo "    pid: \${PID_MODE}"
+    fi
+  fi
+  # runtime: only when explicitly set non-empty / non-auto / non-off.
+  if [[ -n "${_eff_runtime}" ]] && \
+     [[ "${_eff_runtime}" != "off" ]] && \
+     [[ "${_eff_runtime}" != "auto" ]]; then
+    echo "    runtime: ${_eff_runtime}"
+  fi
+  # cap_add / cap_drop / security_opt: effective per-stage lists (#526) —
+  # a stage can override / clear inherited caps via [stage:*]
+  # security.cap_add_* / cap_drop_* / security_opt_* (+ *_inherit), else
+  # inherits the top-level [security] block. group_add is gated on the
+  # stage's effective gui. Shared emitter with devel (#410).
+  _emit_caps_block "${_eff_cap_add}" "${_eff_cap_drop}" "${_eff_sec_opt}"
+  _emit_group_add_block "${_eff_gui}" "${_dri_groups_str}"
+  # network: literal mode + optional named network. When stage didn't
+  # override mode, fall back to env-var ref (matches devel).
+  if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
+    cat <<YAML
+    networks:
+      - ${_eff_net_name}
+YAML
+  elif [[ "${_eff_net_mode}" != "${_net_mode}" ]]; then
+    echo "    network_mode: ${_eff_net_mode}"
+  else
+    echo "    network_mode: \${NETWORK_MODE}"
+  fi
+  # environment: GUI baseline (effective gui) + effective env list
+  # + #328 LOG_FILE_PATH for the per-stage tee target.
+  local _stage_llp=""
+  _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
+  local _stage_log_file=""
+  [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
+  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
+    echo "    environment:"
+    if [[ "${_eff_gui}" == "true" ]]; then
+      cat <<'YAML'
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+      - XAUTHORITY=${XAUTHORITY:-}
+YAML
+    fi
+    if [[ -n "${_eff_environment}" ]]; then
+      local _ev
+      while IFS= read -r _ev; do
+        [[ -z "${_ev}" ]] && continue
+        echo "      - ${_ev}"
+      done <<< "${_eff_environment}"
+    fi
+    [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
+  fi
+  # ports: only under bridge mode (compose ignores it under host).
+  if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
+    echo "    ports:"
+    local _sp
+    while IFS= read -r _sp; do
+      [[ -z "${_sp}" ]] && continue
+      echo "      - \"${_sp}\""
+    done <<< "${_eff_ports}"
+  fi
+  # volumes: GUI baseline (effective gui) + effective volume list
+  # + #328 [logging] local_path per-stage bind mount. _stage_llp was
+  # resolved above the env block; reuse it here.
+  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
+    echo "    volumes:"
+    if [[ "${_eff_gui}" == "true" ]]; then
+      cat <<'YAML'
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
+      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+YAML
+    fi
+    if [[ -n "${_eff_volumes}" ]]; then
+      local _m
+      while IFS= read -r _m; do
+        [[ -z "${_m}" ]] && continue
+        echo "      - ${_m}"
+      done <<< "${_eff_volumes}"
+    fi
+    [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
+    # #450: device entries with propagation redirect to volumes: long-form
+    if [[ -n "${_devices_str}" ]]; then
+      local _sd
+      while IFS= read -r _sd; do
+        [[ -z "${_sd}" ]] && continue
+        _device_has_propagation "${_sd}" && _emit_device_as_volume "${_sd}" "    "
+      done <<< "${_devices_str}"
+    fi
+  fi
+  # devices: from top-level (plain entries only, no propagation).
+  if [[ -n "${_devices_str}" ]]; then
+    local _has_plain_sd=false _sd
+    while IFS= read -r _sd; do
+      [[ -z "${_sd}" ]] && continue
+      _device_has_propagation "${_sd}" && continue
+      if [[ "${_has_plain_sd}" != true ]]; then
+        echo "    devices:"
+        _has_plain_sd=true
+      fi
+      echo "      - ${_sd}"
+    done <<< "${_devices_str}"
+  fi
+  # device_cgroup_rules + tmpfs from top-level (#410 shared emitters).
+  _emit_cgroup_rules_block "${_cgroup_rule_str}"
+  _emit_tmpfs_block "${_tmpfs_str}"
+  # shm_size: depends on effective ipc (only emitted under non-host ipc,
+  # mirroring devel).
+  if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
+    echo "    shm_size: ${_shm_size}"
+  fi
+  # deploy / GPU block (#410 shared emitter): build the effective caps
+  # YAML (per-stage resolution differs from devel), then emit.
+  if [[ "${_eff_gpu}" == "true" ]]; then
+    local -a _eff_caps_arr=()
+    read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
+    local _eff_caps_yaml="["
+    local _ef=1 _ec
+    for _ec in "${_eff_caps_arr[@]}"; do
+      if (( _ef )); then _eff_caps_yaml+="${_ec}"; _ef=0
+      else _eff_caps_yaml+=", ${_ec}"; fi
+    done
+    _eff_caps_yaml+="]"
+    _emit_gpu_deploy_block "${_eff_gpu}" "${_eff_gpu_count}" "${_eff_caps_yaml}"
+  fi
+  # Stage emits a standalone block (no `extends: devel`), so it carries no
+  # inherited logging — always emit the effective logging block when
+  # [logging] or [logging.<stage>] is set. Keyed by the service name
+  # (`_svc`) so devel-test's logging stays under [logging.test] (#493).
+  _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -2894,14 +3200,35 @@ YAML
     local -A _named_vols=()
     _collect_named_volumes _named_vols "${_top_volumes_str}"
 
+    # Build the shared static context once; every stage's emit reads it.
+    local -A _stage_ctx=(
+      [name]="${_name}"
+      [setup_base]="${_setup_base}"
+      [additional_contexts]="${_additional_contexts_str}"
+      [build_network]="${_build_network}"
+      [target_arch]="${_target_arch}"
+      [user_build_args]="${_user_build_args_str}"
+      [devices]="${_devices_str}"
+      [cgroup_rule]="${_cgroup_rule_str}"
+      [tmpfs]="${_tmpfs_str}"
+      [shm_size]="${_shm_size}"
+      [dri_groups]="${_dri_groups_str}"
+      [logging_global]="${_logging_global_str}"
+      [logging_per_svc]="${_logging_per_svc_str}"
+      [net_mode]="${_net_mode}"
+      [ipc_mode]="${_ipc_mode}"
+      [pid_mode]="${_pid_mode}"
+      [any_prop_device]="${_any_prop_device}"
+    )
+
+    # Auto-emit a service per non-baseline stage parsed from the
+    # Dockerfile (#215). For each: compute the legacy/real service name,
+    # load + filter [stage:<name>] overrides, resolve them into a
+    # per-stage docker-flags record (#505) when present, then hand that
+    # resolved-stage value to the per-service emitter (#566). devel-test
+    # flows through here under the legacy service name `test` (#493).
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
-      # #493 (A1'-b): devel-test is emitted under the legacy service
-      # name `test` (preserves `make exec -t test`, the `:test` image
-      # tag, the `test` profile, and [logging.test] keying). All other
-      # stages use their own name. build.target and the
-      # [stage:<name>] override lookup stay on the real Dockerfile
-      # stage name `_emit_stage` (= devel-test).
       local _svc="${_emit_stage}"
       [[ "${_emit_stage}" == "devel-test" ]] && _svc="test"
       # Load + filter [stage:<name>] overrides for this stage.
@@ -2920,310 +3247,36 @@ YAML
       local _has_overrides=0
       (( ${#_so_filtered_keys[@]} > 0 )) && _has_overrides=1
 
-      # Zero-diff path: stage with NO overrides keeps the minimal
-      # extends:devel shape from #215. Critical for the 17 existing
-      # downstream repos (no [stage:*] sections → byte-for-byte
-      # identical compose.yaml output to pre-#220).
-      if (( ! _has_overrides )); then
-        cat <<YAML
-
-  ${_svc}:
-    extends:
-      service: devel
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: ${_emit_stage}
-YAML
-        _emit_additional_contexts_block "${_additional_contexts_str}"
-        cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
-    stdin_open: false
-    tty: false
-    profiles:
-      - ${_svc}
-YAML
-        # #328 / #367: per-stage LOG_FILE_PATH + volume mount when
-        # [logging] / [logging.<stage>] local_path is set. compose's
-        # `extends` merge inherits devel's `environment:` and
-        # `volumes:` lists, then concatenates the child's entries on
-        # top -- last-wins resolution at runtime means the per-stage
-        # override here takes effect. Volume mount is duplicated
-        # against devel's inherited mount but compose dedups
-        # identical bind strings (#367 Option A: emit uniformly on
-        # every service block, no extends-relationship detection).
-        local _stage_llp=""
-        _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
-        if [[ -n "${_stage_llp}" ]]; then
-          echo "    environment:"
-          echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
-          echo "    volumes:"
-          echo "      - ${_stage_llp}"
-        fi
-        # Per-stage [logging.<stage>] driver / rotation override
-        # (if any). Without an override compose `extends: devel`
-        # already covers logging:: compose extends merges mapping
-        # sub-keys so devel's logging block carries over -- emit
-        # only when the stage actually diverges from devel.
-        if [[ -n "${_logging_per_svc_str}" ]] && \
-           grep -qE "^${_svc}:" <<< "${_logging_per_svc_str}"; then
-          _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
-        fi
-        continue
-      fi
-
-      # Resolve effective per-stage docker flags through the single
-      # shared resolution layer (#505). The deploy renderer (S6 #506)
-      # calls the same _resolve_docker_flags for the runtime stage, so
-      # the two renderers never drift. Modes (gui / gpu) inherit the
-      # parent's already-resolved boolean unless the stage forces
-      # off / force — no per-stage hardware re-detection. The resolved
-      # record is unpacked into the existing _eff_* locals so the emit
-      # blocks below stay untouched.
-      local -A _dflags_parent=(
-        [gui]="${_gui}"
-        [gpu]="${_gpu}"
-        [gpu_count]="${_gpu_count}"
-        [gpu_caps]="${_gpu_caps}"
-        [runtime]="${_runtime}"
-        [net_mode]="${_net_mode}"
-        [ipc_mode]="${_ipc_mode}"
-        [pid_mode]="${_pid_mode}"
-        [net_name]="${_net_name}"
-        [volumes_top]="${_top_volumes_str}"
-        [env_top]="${_env_str}"
-        [ports_top]="${_ports_str}"
-        [cap_add_top]="${_cap_add_str}"
-        [cap_drop_top]="${_cap_drop_str}"
-        [sec_opt_top]="${_sec_opt_str}"
-      )
+      # Resolve the per-stage docker flags through the single shared
+      # resolution layer (#505) when the stage carries overrides. The
+      # resolved record is the emitter's input contract (#566); the
+      # zero-diff stage needs none (it `extends: devel`).
       local -A _dflags_eff=()
-      _resolve_docker_flags _so_filtered_keys _so_filtered_values _dflags_parent _dflags_eff
-      local _eff_gui="${_dflags_eff[gui]}"
-      local _eff_gpu="${_dflags_eff[gpu]}"
-      local _eff_gpu_count="${_dflags_eff[gpu_count]}"
-      local _eff_gpu_caps="${_dflags_eff[gpu_caps]}"
-      local _eff_runtime="${_dflags_eff[runtime]}"
-      local _eff_net_mode="${_dflags_eff[net_mode]}"
-      local _eff_ipc_mode="${_dflags_eff[ipc_mode]}"
-      local _eff_pid_mode="${_dflags_eff[pid_mode]}"
-      local _eff_net_name="${_dflags_eff[net_name]}"
-      local _eff_privileged="${_dflags_eff[privileged]}"
-      local _eff_volumes="${_dflags_eff[volumes]}"
-      local _eff_environment="${_dflags_eff[environment]}"
-      local _eff_ports="${_dflags_eff[ports]}"
-      local _eff_cap_add="${_dflags_eff[cap_add]}"
-      local _eff_cap_drop="${_dflags_eff[cap_drop]}"
-      local _eff_sec_opt="${_dflags_eff[security_opt]}"
-      # #482: pick up any named volumes this stage introduces (a per-stage
-      # mount_* override may add one the top-level list lacks).
-      _collect_named_volumes _named_vols "${_eff_volumes}"
+      if (( _has_overrides )); then
+        local -A _dflags_parent=(
+          [gui]="${_gui}"
+          [gpu]="${_gpu}"
+          [gpu_count]="${_gpu_count}"
+          [gpu_caps]="${_gpu_caps}"
+          [runtime]="${_runtime}"
+          [net_mode]="${_net_mode}"
+          [ipc_mode]="${_ipc_mode}"
+          [pid_mode]="${_pid_mode}"
+          [net_name]="${_net_name}"
+          [volumes_top]="${_top_volumes_str}"
+          [env_top]="${_env_str}"
+          [ports_top]="${_ports_str}"
+          [cap_add_top]="${_cap_add_str}"
+          [cap_drop_top]="${_cap_drop_str}"
+          [sec_opt_top]="${_sec_opt_str}"
+        )
+        _resolve_docker_flags _so_filtered_keys _so_filtered_values _dflags_parent _dflags_eff
+        # #482: pick up any named volumes this stage introduces (a
+        # per-stage mount_* override may add one the top-level list lacks).
+        _collect_named_volumes _named_vols "${_dflags_eff[volumes]}"
+      fi
 
-      # ── Standalone emit (#220 v0.18.1 fix) ──────────────────────────
-      #
-      # Stages with overrides drop `extends: devel` and emit a full
-      # service block. Reason: compose `extends` MERGES list fields
-      # (volumes / environment / ports / cap_add / deploy.devices) by
-      # appending child entries to parent's, not replacing them. So a
-      # stage that wants `gui.mode = off` cannot suppress devel's X11
-      # mount / DISPLAY env via extends — they merge back in. The Isaac
-      # Sim headless validation (#220 comment 2026-05-06) confirmed
-      # this. Standalone emit sidesteps the merge entirely: every list
-      # the stage touches contains exactly the resolved set of entries.
-      #
-      # Top-level fields not yet in the per-stage allowlist (`cap_add` /
-      # `cap_drop` / `security_opt` / `devices` / `cgroup_rules` /
-      # `tmpfs`) are re-emitted from the enclosing scope's top-level
-      # values so the stage still inherits those by default.
-      #
-      # Cost: a stage with even a single scalar override now produces
-      # ~150 lines of compose.yaml instead of ~10. compose.yaml is
-      # auto-generated, so the verbosity is fine; correctness wins.
-
-      cat <<YAML
-
-  ${_svc}:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: ${_emit_stage}
-YAML
-      _emit_additional_contexts_block "${_additional_contexts_str}"
-      _emit_build_network_line "${_build_network}"
-      cat <<YAML
-      args:
-        APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
-        APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
-        TZ: \${TZ:-Asia/Taipei}
-        USER_NAME: \${USER_NAME}
-        USER_GROUP: \${USER_GROUP}
-        USER_UID: \${USER_UID}
-        USER_GID: \${USER_GID}
-YAML
-      _emit_target_arch_line "${_target_arch}"
-      _emit_user_build_args "${_user_build_args_str}"
-      cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
-    stdin_open: false
-    tty: false
-    profiles:
-      - ${_svc}
-YAML
-      # Workload overlay (#502): standalone block has no `extends: devel`
-      # to inherit from, so re-emit env_file explicitly.
-      _emit_env_file_block
-      # privileged: literal when stage overrides; else env-var ref
-      # (same shape devel emits — .env's PRIVILEGED applies).
-      if [[ -n "${_eff_privileged}" ]]; then
-        echo "    privileged: ${_eff_privileged}"
-      else
-        echo "    privileged: \${PRIVILEGED}"
-      fi
-      # ipc: literal when stage overrides; else env-var ref.
-      if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
-        echo "    ipc: ${_eff_ipc_mode}"
-      else
-        echo "    ipc: \${IPC_MODE}"
-      fi
-      # pid: only emitted for "host" — Docker rejects "private" as literal.
-      if [[ "${_eff_pid_mode}" == "host" ]]; then
-        if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
-          echo "    pid: ${_eff_pid_mode}"
-        else
-          echo "    pid: \${PID_MODE}"
-        fi
-      fi
-      # runtime: only when explicitly set non-empty / non-auto / non-off.
-      if [[ -n "${_eff_runtime}" ]] && \
-         [[ "${_eff_runtime}" != "off" ]] && \
-         [[ "${_eff_runtime}" != "auto" ]]; then
-        echo "    runtime: ${_eff_runtime}"
-      fi
-      # cap_add / cap_drop / security_opt: effective per-stage lists
-      # (#526) — a stage can override / clear inherited caps via [stage:*]
-      # security.cap_add_* / cap_drop_* / security_opt_* (+ *_inherit),
-      # else inherits the top-level [security] block. group_add is gated
-      # on the stage's effective gui. Shared emitter with devel (#410).
-      _emit_caps_block "${_eff_cap_add}" "${_eff_cap_drop}" "${_eff_sec_opt}"
-      _emit_group_add_block "${_eff_gui}" "${_dri_groups_str}"
-      # network: literal mode + optional named network. When stage
-      # didn't override mode, fall back to env-var ref (matches devel).
-      if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
-        cat <<YAML
-    networks:
-      - ${_eff_net_name}
-YAML
-      elif [[ "${_eff_net_mode}" != "${_net_mode}" ]]; then
-        echo "    network_mode: ${_eff_net_mode}"
-      else
-        echo "    network_mode: \${NETWORK_MODE}"
-      fi
-      # environment: GUI baseline (effective gui) + effective env list
-      # + #328 LOG_FILE_PATH for the per-stage tee target.
-      local _stage_llp=""
-      _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
-      local _stage_log_file=""
-      [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
-        echo "    environment:"
-        if [[ "${_eff_gui}" == "true" ]]; then
-          cat <<'YAML'
-      - DISPLAY=${DISPLAY:-}
-      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
-      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
-      - XAUTHORITY=${XAUTHORITY:-}
-YAML
-        fi
-        if [[ -n "${_eff_environment}" ]]; then
-          local _ev
-          while IFS= read -r _ev; do
-            [[ -z "${_ev}" ]] && continue
-            echo "      - ${_ev}"
-          done <<< "${_eff_environment}"
-        fi
-        [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
-      fi
-      # ports: only under bridge mode (compose ignores it under host).
-      if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
-        echo "    ports:"
-        local _sp
-        while IFS= read -r _sp; do
-          [[ -z "${_sp}" ]] && continue
-          echo "      - \"${_sp}\""
-        done <<< "${_eff_ports}"
-      fi
-      # volumes: GUI baseline (effective gui) + effective volume list
-      # + #328 [logging] local_path per-stage bind mount. _stage_llp
-      # was resolved above the env block; reuse it here.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
-        echo "    volumes:"
-        if [[ "${_eff_gui}" == "true" ]]; then
-          cat <<'YAML'
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
-      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
-YAML
-        fi
-        if [[ -n "${_eff_volumes}" ]]; then
-          local _m
-          while IFS= read -r _m; do
-            [[ -z "${_m}" ]] && continue
-            echo "      - ${_m}"
-          done <<< "${_eff_volumes}"
-        fi
-        [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
-        # #450: device entries with propagation redirect to volumes: long-form
-        if [[ -n "${_devices_str}" ]]; then
-          local _sd
-          while IFS= read -r _sd; do
-            [[ -z "${_sd}" ]] && continue
-            _device_has_propagation "${_sd}" && _emit_device_as_volume "${_sd}" "    "
-          done <<< "${_devices_str}"
-        fi
-      fi
-      # devices: from top-level (plain entries only, no propagation).
-      if [[ -n "${_devices_str}" ]]; then
-        local _has_plain_sd=false _sd
-        while IFS= read -r _sd; do
-          [[ -z "${_sd}" ]] && continue
-          _device_has_propagation "${_sd}" && continue
-          if [[ "${_has_plain_sd}" != true ]]; then
-            echo "    devices:"
-            _has_plain_sd=true
-          fi
-          echo "      - ${_sd}"
-        done <<< "${_devices_str}"
-      fi
-      # device_cgroup_rules + tmpfs from top-level (#410 shared emitters).
-      _emit_cgroup_rules_block "${_cgroup_rule_str}"
-      _emit_tmpfs_block "${_tmpfs_str}"
-      # shm_size: depends on effective ipc (only emitted under
-      # non-host ipc, mirroring devel).
-      if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
-        echo "    shm_size: ${_shm_size}"
-      fi
-      # deploy / GPU block (#410 shared emitter): build the effective caps
-      # YAML (per-stage resolution differs from devel), then emit.
-      if [[ "${_eff_gpu}" == "true" ]]; then
-        local -a _eff_caps_arr=()
-        read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
-        local _eff_caps_yaml="["
-        local _ef=1 _ec
-        for _ec in "${_eff_caps_arr[@]}"; do
-          if (( _ef )); then _eff_caps_yaml+="${_ec}"; _ef=0
-          else _eff_caps_yaml+=", ${_ec}"; fi
-        done
-        _eff_caps_yaml+="]"
-        _emit_gpu_deploy_block "${_eff_gpu}" "${_eff_gpu_count}" "${_eff_caps_yaml}"
-      fi
-      # Stage emits a standalone block (no `extends: devel`), so it
-      # carries no inherited logging — always emit the effective
-      # logging block when [logging] or [logging.<stage>] is set.
-      # Keyed by the service name (`_svc`) so devel-test's logging stays
-      # under [logging.test] (#493).
-      _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
+      _emit_stage_service _stage_ctx _dflags_eff "${_svc}" "${_emit_stage}" "${_has_overrides}"
     done
 
     # #493 (A1'-b): the `test` service is no longer a hardcoded bare
