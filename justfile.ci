@@ -39,12 +39,10 @@ clean:
 init:
     ./init.sh
 
-# Upgrade template subtree (e.g. just -f justfile.ci upgrade v0.30.0;
-# empty args resolves to latest)
+# Upgrade template subtree (e.g. just -f justfile.ci upgrade v0.30.0; empty = latest)
 upgrade *args:
     ./upgrade.sh {{args}}
 
-# Check if a newer template version is available (exit 0 up-to-date or
-# update available; non-1 is a real error)
+# Check for a newer template version (exit 0 = up-to-date or available; non-1 = error)
 upgrade-check:
     @./upgrade.sh --check || [ $? -eq 1 ]
