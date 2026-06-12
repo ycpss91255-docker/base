@@ -305,6 +305,41 @@ _conf_load_merged() {
   return 0
 }
 
+# _conf_list_sorted <handle> <section> <prefix> <outvar_array>
+#
+# Collect entries in <section> whose key is "<prefix><N>" (numeric suffix),
+# skip empty values (opt-out), sort by the numeric suffix, and return the
+# VALUES in that order into <outvar_array>. The opaque-handle equivalent of
+# setup.sh's _get_conf_list_sorted (which reads raw parallel arrays).
+_conf_list_sorted() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _prefix="${3:?"${FUNCNAME[0]}: missing prefix"}"
+  local -n _cls_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  local -n _cls_es="${_h}__es" _cls_k="${_h}__keys" _cls_v="${_h}__vals"
+
+  _cls_out=()
+  local -a _cls_pairs=()
+  local _cls_i _cls_num
+  for (( _cls_i = 0; _cls_i < ${#_cls_k[@]}; _cls_i++ )); do
+    [[ "${_cls_es[_cls_i]}" == "${_sec}" ]] || continue
+    [[ "${_cls_k[_cls_i]}" == "${_prefix}"* ]] || continue
+    _cls_num="${_cls_k[_cls_i]#"${_prefix}"}"
+    [[ "${_cls_num}" =~ ^[0-9]+$ ]] || continue
+    [[ -z "${_cls_v[_cls_i]}" ]] && continue
+    _cls_pairs+=("${_cls_num}:${_cls_v[_cls_i]}")
+  done
+
+  if (( ${#_cls_pairs[@]} > 0 )); then
+    local _cls_sorted _cls_line
+    _cls_sorted="$(printf '%s\n' "${_cls_pairs[@]}" | sort -t: -k1,1n)"
+    while IFS= read -r _cls_line; do
+      _cls_out+=("${_cls_line#*:}")
+    done <<< "${_cls_sorted}"
+  fi
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
