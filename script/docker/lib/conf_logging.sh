@@ -26,10 +26,17 @@ if [[ -n "${_DOCKER_LIB_CONF_LOGGING_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
-# _parse_logging_svc_sections depends on the caller having sourced
+# Self-source the conf.sh dependency (#568 Part A): _collect_logging uses
 # _parse_ini_section (in lib/conf.sh since #402; full INI handling
-# consolidated there in #411). Same with _SETUP_SCRIPT_DIR for the
-# template fallback in _collect_logging.
+# consolidated there in #411). Pull it in directly -- idempotent via
+# conf.sh's own double-source guard -- so _lib.sh load order is not
+# load-bearing and a caller sourcing conf_logging.sh alone still works.
+# (_SETUP_SCRIPT_DIR for the template fallback in _collect_logging is a
+# caller-provided global, not a sourced module.)
+_conf_logging_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=script/docker/lib/conf.sh
+source "${_conf_logging_dir}/conf.sh"
+unset _conf_logging_dir
 
 # _parse_logging_svc_sections <file> <out_array>
 #
