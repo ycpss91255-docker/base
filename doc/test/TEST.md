@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1750 tests** total (1676 unit + 74 integration).
+Template self-tests: **1758 tests** total (1684 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
