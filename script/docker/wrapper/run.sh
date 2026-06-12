@@ -358,6 +358,25 @@ _compose_dispatch() {
   _compose_project_with_overlay "${_overlay_yaml}" "${_overlay_env}" -- "$@"
 }
 
+# _normalize_interactive_rc <rc>
+#
+# A no-CMD foreground session -- a devel attached shell, or a one-shot
+# stage's foreground `compose up` -- carries out the exit status of the
+# LAST command the user ran, not run.sh's own success. An interactive bash
+# exits with $? of its last command, so a Ctrl-C-cleared line ($?=130 =
+# 128 + SIGINT) rides out on the following Ctrl-D / exit. Treat a clean
+# leave (normal exit 0, or 130) as success so `just run` does not flag a
+# scary recipe failure on a perfectly normal exit. Any other code (e.g.
+# 127) still propagates so genuine breakage surfaces. With a CMD (command
+# mode, `just run <cmd>`) this is bypassed and the real exit code is
+# propagated for scripting. See #580.
+_normalize_interactive_rc() {
+  case "${1:?}" in
+    0|130) printf '0' ;;
+    *)     printf '%s' "${1}" ;;
+  esac
+}
+
 main() {
   # #440: keep the wrapper's original argv around so the EXIT trap
   # (which fires asynchronously and can no longer see main's local $@)
@@ -673,9 +692,13 @@ ${_parallel}"
     # centrally-installed `trap _app_cleanup EXIT` above (#386, #440, #465).
     _compose_dispatch up -d "${TARGET}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
+      # Command mode: propagate the real exit code for scripting (#580).
       _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_dispatch exec "${TARGET}" bash
+      # Interactive attached shell: normalize a clean leave to 0 (#580).
+      local _rc=0
+      _compose_dispatch exec "${TARGET}" bash || _rc=$?
+      return "$(_normalize_interactive_rc "${_rc}")"
     fi
   else
     # Other one-shot stages (runtime, test, ...): unified to `compose up`
@@ -683,10 +706,15 @@ ${_parallel}"
     # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
     # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
+      # Command mode: propagate the real exit code for scripting (#580).
       _compose_dispatch up -d "${TARGET}"
       _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_dispatch up "${TARGET}"
+      # Foreground service: a clean Ctrl-C stop ($?=130) is not a failure;
+      # normalize it (and 0) to 0 (#580).
+      local _rc=0
+      _compose_dispatch up "${TARGET}" || _rc=$?
+      return "$(_normalize_interactive_rc "${_rc}")"
     fi
   fi
 }

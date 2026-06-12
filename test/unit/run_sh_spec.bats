@@ -838,6 +838,85 @@ EOS
 # #465 — per-instance compose overlay
 # ════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════
+# #580 — interactive / foreground-up exit-code normalization
+# ════════════════════════════════════════════════════════════════════
+# A no-CMD foreground session (devel attached shell, or a one-shot stage's
+# foreground `compose up`) carries out the exit status of the LAST command the
+# user ran -- e.g. a Ctrl-C-cleared line leaves $?=130 (128 + SIGINT), which
+# then rides out on Ctrl-D / exit. That is not a run.sh failure, so the no-CMD
+# foreground paths normalize the clean-exit codes (0 and 130) to 0. WITH a CMD
+# (command mode, `just run <cmd>`) the real exit code still propagates so
+# scripting can detect genuine failures.
+
+# Installs a real-mode fixture: .env/setup.conf/compose present, image cached
+# (skip the build delegate), and a docker stub whose `compose exec` exits
+# DOCKER_EXEC_RC and foreground `compose up` (no -d) exits DOCKER_UP_RC, so a
+# test can drive run.sh's final exit code. `up -d` (devel pre-step) stays 0.
+_exit_code_fixture() {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
+  export DOCKER_IMAGE_PRESENT=true
+  cat > "${BIN_DIR}/docker" <<'EOS'
+#!/usr/bin/env bash
+case "$1" in
+  ps) cat "${DOCKER_PS_FILE}"; exit 0 ;;
+esac
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then exit 0; fi
+_has_up=0; _has_d=0; _has_exec=0
+for _a in "$@"; do
+  [[ "${_a}" == "up" ]]   && _has_up=1
+  [[ "${_a}" == "-d" ]]   && _has_d=1
+  [[ "${_a}" == "exec" ]] && _has_exec=1
+done
+(( _has_exec )) && exit "${DOCKER_EXEC_RC:-0}"
+(( _has_up && ! _has_d )) && exit "${DOCKER_UP_RC:-0}"
+exit 0
+EOS
+  chmod +x "${BIN_DIR}/docker"
+}
+
+@test "run.sh: interactive devel shell exiting 130 normalizes to 0 (#580)" {
+  _exit_code_fixture
+  export DOCKER_EXEC_RC=130
+  run -0 bash "${SANDBOX}/run.sh"
+}
+
+@test "run.sh: interactive devel shell exiting 0 stays 0 (#580)" {
+  _exit_code_fixture
+  export DOCKER_EXEC_RC=0
+  run -0 bash "${SANDBOX}/run.sh"
+}
+
+@test "run.sh: interactive devel shell exiting 127 still propagates (genuine breakage) (#580)" {
+  _exit_code_fixture
+  export DOCKER_EXEC_RC=127
+  run -127 bash "${SANDBOX}/run.sh"
+}
+
+@test "run.sh: command mode (devel WITH CMD) exiting 130 propagates, not normalized (#580)" {
+  _exit_code_fixture
+  export DOCKER_EXEC_RC=130
+  run -130 bash "${SANDBOX}/run.sh" ls /tmp
+}
+
+@test "run.sh: non-devel foreground up exiting 130 normalizes to 0 (#580)" {
+  _exit_code_fixture
+  export DOCKER_UP_RC=130
+  run -0 bash "${SANDBOX}/run.sh" -t runtime
+}
+
+@test "run.sh: command mode (non-devel WITH CMD) exiting 130 propagates (#580)" {
+  _exit_code_fixture
+  export DOCKER_EXEC_RC=130
+  run -130 bash "${SANDBOX}/run.sh" -t runtime bash
+}
+
 @test "run.sh --instance NAME with config/instances/NAME.yaml adds overlay -f (#465)" {
   mkdir -p "${SANDBOX}/config/instances"
   : > "${SANDBOX}/config/instances/dev1.yaml"

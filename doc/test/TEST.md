@@ -509,7 +509,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (65)
+### test/unit/run_sh_spec.bats (71)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -538,7 +538,12 @@ trap fires `down --remove-orphans` to mirror stop.sh and close the
 worktree-removed-before-stop network leak), and **#448 `--` CMD
 separator** (`--` stops flag parsing so CMD flags like `--target`
 don't collide; positional CMD also stops parsing; usage documents
-`--`).
+`--`), and **#580 interactive exit-code normalization**
+(`_normalize_interactive_rc` maps clean-exit codes 0 and 130 to 0 on
+the no-CMD foreground paths -- devel attached shell and one-shot stage
+`compose up` -- so a Ctrl-C-cleared line carried out on exit isn't a
+recipe failure, while a genuine non-clean code like 127 still
+propagates and command mode `just run <cmd>` keeps the real exit code).
 
 ### test/unit/exec_sh_spec.bats (53)
 
