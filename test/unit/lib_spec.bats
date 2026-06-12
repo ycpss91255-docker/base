@@ -50,6 +50,17 @@ setup() {
   assert_output "ja"
 }
 
+# ── lib self-sourcing (load order not load-bearing, #568 Part A) ─────────────
+
+@test "conf_logging.sh self-sources its conf.sh dependency in isolation (#568)" {
+  # Sourcing conf_logging.sh alone (no _lib.sh / conf.sh first) must still
+  # make its _parse_ini_section dependency available -- the module
+  # idempotently self-sources its deps so _lib.sh load order is not
+  # load-bearing.
+  run bash -c "source /source/script/docker/lib/conf_logging.sh; declare -F _parse_ini_section"
+  assert_success
+}
+
 # ── double-source guard ─────────────────────────────────────────────────────
 
 @test "_lib.sh is idempotent when sourced twice" {
