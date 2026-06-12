@@ -1,0 +1,50 @@
+# Base / template self-test gate (just). Invoked as
+# `just -f justfile.ci <recipe>` -- `just` does not auto-discover a
+# `justfile.ci`, so it never collides with the auto-discovered
+# container-ops `justfile` (script/docker/justfile, symlinked into
+# downstream roots).
+#
+# ADR-00000005: `just` is the single runner. This file retires the
+# former `Makefile.ci`; each recipe maps 1:1 to the old make target, so
+# `just -f justfile.ci test` mirrors the former `make -f Makefile.ci
+# test`. This is the dev-loop / CI lint+test wrapper, distinct from the
+# user-facing container-ops entry.
+
+# Default: list available recipes (replaces `make help`).
+default:
+    @just --justfile '{{justfile()}}' --list
+
+# Run ShellCheck + Bats (no kcov -- fast dev loop)
+test:
+    ./script/ci/ci.sh
+
+# Run behavioural runtime-test specs (opt-in; mounts host docker.sock)
+test-behavioural:
+    docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+    TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-behavioural
+
+# Run ShellCheck only
+lint:
+    ./script/ci/ci.sh --lint-only
+
+# Run ShellCheck + Bats + Kcov coverage (slow; CI / release)
+coverage:
+    ./script/ci/ci.sh --coverage
+
+# Remove coverage reports
+clean:
+    rm -rf coverage/
+
+# Initialize repo (new or existing)
+init:
+    ./init.sh
+
+# Upgrade template subtree (e.g. just -f justfile.ci upgrade v0.30.0;
+# empty args resolves to latest)
+upgrade *args:
+    ./upgrade.sh {{args}}
+
+# Check if a newer template version is available (exit 0 up-to-date or
+# update available; non-1 is a real error)
+upgrade-check:
+    @./upgrade.sh --check || [ $? -eq 1 ]

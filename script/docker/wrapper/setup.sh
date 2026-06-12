@@ -2467,7 +2467,7 @@ generate_compose_yaml() {
 
   # env_file emitter (#502): inject the hand-authored .env workload
   # overlay into the service so per-task env vars take effect with
-  # `make run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
+  # `just run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
   # relative to compose.yaml (repo root). The devel block emits it and
   # `extends: devel` stages inherit it; the per-stage standalone block
   # (override mode, no extends) re-emits it. Plain (not required:false):
@@ -2886,7 +2886,7 @@ YAML
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
       # #493 (A1'-b): devel-test is emitted under the legacy service
-      # name `test` (preserves `make exec -t test`, the `:test` image
+      # name `test` (preserves `just exec -t test`, the `:test` image
       # tag, the `test` profile, and [logging.test] keying). All other
       # stages use their own name. build.target and the
       # [stage:<name>] override lookup stay on the real Dockerfile
@@ -3404,7 +3404,7 @@ _scaffold_env_overlay() {
 # file once and never edits it again. Put per-task / volatile env vars
 # here as KEY=VALUE (e.g. ROS_DOMAIN_ID=42, LOG_LEVEL=debug, API tokens).
 # They are injected into the container via `env_file: - .env` and take
-# effect with only `make run` -- no regenerate, no SETUP_CONF_HASH drift,
+# effect with only `just run` -- no regenerate, no SETUP_CONF_HASH drift,
 # no git churn. Machine-bound / set-once params (GPU, privileged, mounts,
 # IMAGE_NAME, APT mirror) belong in config/docker/setup.conf instead.
 # See README "Where each parameter lives (env vs workload)".
@@ -3798,7 +3798,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -4175,7 +4175,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -4339,7 +4339,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -4443,7 +4443,7 @@ _setup_reset() {
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 

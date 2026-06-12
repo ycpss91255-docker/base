@@ -13,7 +13,9 @@
 #   just exec -t bats-src bash       -> ./script/exec.sh -t bats-src bash
 #   EXEC_ARGS-style Kit args pass through directly: just exec -t cli --/app/k=v
 #
-# `Makefile.ci` (the CI lint/test entry) is unrelated and stays on make.
+# The base-only CI lint/test entry is `justfile.ci` (run from the base
+# repo root as `just -f justfile.ci <recipe>`); it is unrelated to this
+# container-ops entry. `just` is the single runner -- make is retired.
 
 # Default: list available recipes (replaces `make help`).
 default:

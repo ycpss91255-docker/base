@@ -205,7 +205,7 @@ Does NOT touch running containers or active resources.
 Options:
   -h, --help        Show this help
   -C, --chdir DIR   Operate on the repo at DIR without changing the caller's cwd
-                    (mirrors git -C / make -C; flag accepted for parity with the
+                    (mirrors git -C; flag accepted for parity with the
                     other 4 wrappers; prune itself is daemon-wide).
   --networks        Prune unused networks (default --filter until=10m). Use when
                     docker complains "all predefined address pools have been
