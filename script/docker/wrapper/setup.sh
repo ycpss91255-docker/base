@@ -2248,6 +2248,198 @@ _emit_volumes_block() {
   done < <(printf '%s\n' "${!_evb_set[@]}" | sort)
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Shared compose leaf emitters (#566)
+#
+# Hoisted out of generate_compose_yaml so the per-service emitter
+# (_emit_stage_service) and the devel baseline block can share them as
+# independently-testable sub-seams. Each takes its context explicitly
+# instead of closing over generate_compose_yaml's 29 positional args.
+# ════════════════════════════════════════════════════════════════════
+
+# additional_contexts emitter: forwards `[additional_contexts]
+# context_N = NAME=PATH` entries to compose.yaml's
+# `build.additional_contexts:` block under every service that has its
+# own `build:` (devel / runtime / test). Empty = omit the block so
+# repos that don't need named build contexts see no diff.
+_emit_additional_contexts_block() {
+  local _additional_contexts_str="${1-}"
+  [[ -z "${_additional_contexts_str}" ]] && return 0
+  echo "      additional_contexts:"
+  local _ac _name _path
+  while IFS= read -r _ac; do
+    [[ -z "${_ac}" ]] && continue
+    _name="${_ac%%=*}"
+    _path="${_ac#*=}"
+    printf '        %s: %s\n' "${_name}" "${_path}"
+  done <<< "${_additional_contexts_str}"
+}
+
+# TARGETARCH line emitter: only when target_arch is set. Empty =
+# omit the line entirely so BuildKit auto-fills TARGETARCH from the
+# host. Shared between devel + test service blocks below.
+_emit_target_arch_line() {
+  local _target_arch="${1-}"
+  [[ -z "${_target_arch}" ]] && return 0
+  # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
+  printf '        TARGETARCH: ${TARGET_ARCH}\n'
+}
+
+# build.network emitter: only when build_network is set. Empty =
+# omit the line so Docker uses its default (bridge). Non-empty =
+# force the build to use that network (typically "host" for
+# environments where bridge NAT doesn't work).
+_emit_build_network_line() {
+  local _build_network="${1-}"
+  [[ -z "${_build_network}" ]] && return 0
+  printf '      network: %s\n' "${_build_network}"
+}
+
+# runtime emitter: Jetson / csv-mode nvidia-container-toolkit hosts
+# need `runtime: nvidia` at service level to bypass the modern
+# --gpus flow (which `deploy.resources.reservations.devices`
+# translates to). Empty = omit so Docker uses the default runc.
+# Only emitted for the devel service; devel-test doesn't run.
+_emit_runtime_line() {
+  local _runtime="${1-}"
+  [[ -z "${_runtime}" ]] && return 0
+  printf '    runtime: %s\n' "${_runtime}"
+}
+
+# restart emitter (#478): [lifecycle] restart policy on the devel service.
+# Default `no` emits nothing (zero-diff). Stages that `extends: devel`
+# inherit the value via compose. `on-failure:N` is quoted because the `:`
+# would otherwise read as a YAML mapping.
+_emit_restart_line() {
+  local _restart="${1-no}"
+  [[ "${_restart}" == "no" ]] && return 0
+  case "${_restart}" in
+    on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
+    *)            printf '    restart: %s\n'   "${_restart}" ;;
+  esac
+}
+
+# env_file emitter (#502): inject the hand-authored .env workload
+# overlay into the service so per-task env vars take effect with
+# `make run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
+# relative to compose.yaml (repo root). The devel block emits it and
+# `extends: devel` stages inherit it; the per-stage standalone block
+# (override mode, no extends) re-emits it. Plain (not required:false):
+# setup.sh scaffolds .env on apply, so it always exists before compose
+# runs. .env.generated (the resolved cache) is NOT listed here -- it
+# feeds compose interpolation via the CLI --env-file flag, not the
+# container environment (#502 two-role split).
+_emit_env_file_block() {
+  cat <<'YAML'
+    env_file:
+      - .env
+YAML
+}
+
+# User-added [build] args: emit each as `KEY: ${KEY}` — Dockerfile's
+# `ARG KEY="default"` fallback handles empty values. No hard-coded
+# defaults here since template doesn't know them.
+_emit_user_build_args() {
+  local _user_build_args_str="${1-}"
+  [[ -z "${_user_build_args_str}" ]] && return 0
+  local _ub _k
+  while IFS= read -r _ub; do
+    [[ -z "${_ub}" ]] && continue
+    _k="${_ub%%=*}"
+    # Emit literal compose substitution `${KEY}` into compose.yaml;
+    # the ${} is consumed by docker compose at runtime, not bash.
+    # shellcheck disable=SC2016
+    printf '        %s: ${%s}\n' "${_k}" "${_k}"
+  done <<< "${_user_build_args_str}"
+}
+
+# cap_add / cap_drop / security_opt. The devel block passes the
+# top-level [security] strings; the per-stage standalone block (#526)
+# passes its effective resolved lists so a stage can override / clear
+# inherited caps via [stage:*] security.*.
+_emit_caps_block() {
+  local _cap_add="${1-}"
+  local _cap_drop="${2-}"
+  local _sec_opt="${3-}"
+  local _c
+  if [[ -n "${_cap_add}" ]]; then
+    echo "    cap_add:"
+    while IFS= read -r _c; do
+      [[ -z "${_c}" ]] && continue
+      echo "      - ${_c}"
+    done <<< "${_cap_add}"
+  fi
+  if [[ -n "${_cap_drop}" ]]; then
+    echo "    cap_drop:"
+    while IFS= read -r _c; do
+      [[ -z "${_c}" ]] && continue
+      echo "      - ${_c}"
+    done <<< "${_cap_drop}"
+  fi
+  if [[ -n "${_sec_opt}" ]]; then
+    echo "    security_opt:"
+    while IFS= read -r _c; do
+      [[ -z "${_c}" ]] && continue
+      echo "      - ${_c}"
+    done <<< "${_sec_opt}"
+  fi
+}
+
+# group_add for /dev/dri (#496): GUI-gated; caller passes the effective
+# gui flag (devel's _gui or a stage's _eff_gui) and the resolved
+# dri_groups string. Numeric GIDs quoted.
+_emit_group_add_block() {
+  local _g="$1"
+  local _dri_groups_str="${2-}"
+  [[ "${_g}" == "true" && -n "${_dri_groups_str}" ]] || return 0
+  echo "    group_add:"
+  local _gid
+  for _gid in ${_dri_groups_str}; do
+    echo "      - \"${_gid}\""
+  done
+}
+
+# device_cgroup_rules from [devices] cgroup_rule_* (enclosing scope).
+_emit_cgroup_rules_block() {
+  local _cgroup_rule_str="${1-}"
+  [[ -n "${_cgroup_rule_str}" ]] || return 0
+  echo "    device_cgroup_rules:"
+  local _cr
+  while IFS= read -r _cr; do
+    [[ -z "${_cr}" ]] && continue
+    echo "      - \"${_cr}\""
+  done <<< "${_cgroup_rule_str}"
+}
+
+# tmpfs from [tmpfs] (enclosing scope).
+_emit_tmpfs_block() {
+  local _tmpfs_str="${1-}"
+  [[ -n "${_tmpfs_str}" ]] || return 0
+  echo "    tmpfs:"
+  local _tf
+  while IFS= read -r _tf; do
+    [[ -z "${_tf}" ]] && continue
+    echo "      - ${_tf}"
+  done <<< "${_tmpfs_str}"
+}
+
+# deploy GPU reservation: caller passes the effective gpu flag, count,
+# and pre-built capabilities YAML array (devel's globals or a stage's
+# resolved values).
+_emit_gpu_deploy_block() {
+  local _g="$1" _count="$2" _caps="$3"
+  [[ "${_g}" == "true" ]] || return 0
+  cat <<YAML
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${_count}
+              capabilities: ${_caps}
+YAML
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -2413,171 +2605,6 @@ generate_compose_yaml() {
     [[ -z "${_mount}" ]] || echo "      - ${_mount}"
   }
 
-  # additional_contexts emitter: forwards `[additional_contexts]
-  # context_N = NAME=PATH` entries to compose.yaml's
-  # `build.additional_contexts:` block under every service that has its
-  # own `build:` (devel / runtime / test). Empty = omit the block so
-  # repos that don't need named build contexts see no diff.
-  _emit_additional_contexts_block() {
-    [[ -z "${_additional_contexts_str}" ]] && return 0
-    echo "      additional_contexts:"
-    local _ac _name _path
-    while IFS= read -r _ac; do
-      [[ -z "${_ac}" ]] && continue
-      _name="${_ac%%=*}"
-      _path="${_ac#*=}"
-      printf '        %s: %s\n' "${_name}" "${_path}"
-    done <<< "${_additional_contexts_str}"
-  }
-
-  # TARGETARCH line emitter: only when target_arch is set. Empty =
-  # omit the line entirely so BuildKit auto-fills TARGETARCH from the
-  # host. Shared between devel + test service blocks below.
-  _emit_target_arch_line() {
-    [[ -z "${_target_arch}" ]] && return 0
-    # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
-    printf '        TARGETARCH: ${TARGET_ARCH}\n'
-  }
-
-  # build.network emitter: only when build_network is set. Empty =
-  # omit the line so Docker uses its default (bridge). Non-empty =
-  # force the build to use that network (typically "host" for
-  # environments where bridge NAT doesn't work).
-  _emit_build_network_line() {
-    [[ -z "${_build_network}" ]] && return 0
-    printf '      network: %s\n' "${_build_network}"
-  }
-
-  # runtime emitter: Jetson / csv-mode nvidia-container-toolkit hosts
-  # need `runtime: nvidia` at service level to bypass the modern
-  # --gpus flow (which `deploy.resources.reservations.devices`
-  # translates to). Empty = omit so Docker uses the default runc.
-  # Only emitted for the devel service; devel-test doesn't run.
-  _emit_runtime_line() {
-    [[ -z "${_runtime}" ]] && return 0
-    printf '    runtime: %s\n' "${_runtime}"
-  }
-
-  # restart emitter (#478): [lifecycle] restart policy on the devel service.
-  # Default `no` emits nothing (zero-diff). Stages that `extends: devel`
-  # inherit the value via compose. `on-failure:N` is quoted because the `:`
-  # would otherwise read as a YAML mapping.
-  _emit_restart_line() {
-    [[ "${_restart}" == "no" ]] && return 0
-    case "${_restart}" in
-      on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
-      *)            printf '    restart: %s\n'   "${_restart}" ;;
-    esac
-  }
-
-  # env_file emitter (#502): inject the hand-authored .env workload
-  # overlay into the service so per-task env vars take effect with
-  # `make run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
-  # relative to compose.yaml (repo root). The devel block emits it and
-  # `extends: devel` stages inherit it; the per-stage standalone block
-  # (override mode, no extends) re-emits it. Plain (not required:false):
-  # setup.sh scaffolds .env on apply, so it always exists before compose
-  # runs. .env.generated (the resolved cache) is NOT listed here -- it
-  # feeds compose interpolation via the CLI --env-file flag, not the
-  # container environment (#502 two-role split).
-  _emit_env_file_block() {
-    cat <<'YAML'
-    env_file:
-      - .env
-YAML
-  }
-
-  # #410: section emitters shared by the devel block and the per-stage
-  # standalone block. Both iterate the SAME top-level [security] /
-  # [devices] / [tmpfs] strings (a stage standalone block re-emits the
-  # enclosing-scope values, #220), so the emitted bytes are identical --
-  # hoisting removes the duplication without touching the principled
-  # devel-vs-stage differences (env-var refs vs literals, extends base
-  # vs standalone, stdin/tty, profiles) which stay inline per mode.
-
-  # cap_add / cap_drop / security_opt. Defaults to the enclosing-scope
-  # top-level [security] strings (the devel block). The per-stage
-  # standalone block (#526) passes its effective resolved lists so a
-  # stage can override / clear inherited caps via [stage:*] security.*.
-  _emit_caps_block() {
-    local _cap_add="${1-${_cap_add_str}}"
-    local _cap_drop="${2-${_cap_drop_str}}"
-    local _sec_opt="${3-${_sec_opt_str}}"
-    local _c
-    if [[ -n "${_cap_add}" ]]; then
-      echo "    cap_add:"
-      while IFS= read -r _c; do
-        [[ -z "${_c}" ]] && continue
-        echo "      - ${_c}"
-      done <<< "${_cap_add}"
-    fi
-    if [[ -n "${_cap_drop}" ]]; then
-      echo "    cap_drop:"
-      while IFS= read -r _c; do
-        [[ -z "${_c}" ]] && continue
-        echo "      - ${_c}"
-      done <<< "${_cap_drop}"
-    fi
-    if [[ -n "${_sec_opt}" ]]; then
-      echo "    security_opt:"
-      while IFS= read -r _c; do
-        [[ -z "${_c}" ]] && continue
-        echo "      - ${_c}"
-      done <<< "${_sec_opt}"
-    fi
-  }
-
-  # group_add for /dev/dri (#496): GUI-gated; caller passes the effective
-  # gui flag (devel's _gui or a stage's _eff_gui). Numeric GIDs quoted.
-  _emit_group_add_block() {
-    local _g="$1"
-    [[ "${_g}" == "true" && -n "${_dri_groups_str}" ]] || return 0
-    echo "    group_add:"
-    local _gid
-    for _gid in ${_dri_groups_str}; do
-      echo "      - \"${_gid}\""
-    done
-  }
-
-  # device_cgroup_rules from [devices] cgroup_rule_* (enclosing scope).
-  _emit_cgroup_rules_block() {
-    [[ -n "${_cgroup_rule_str}" ]] || return 0
-    echo "    device_cgroup_rules:"
-    local _cr
-    while IFS= read -r _cr; do
-      [[ -z "${_cr}" ]] && continue
-      echo "      - \"${_cr}\""
-    done <<< "${_cgroup_rule_str}"
-  }
-
-  # tmpfs from [tmpfs] (enclosing scope).
-  _emit_tmpfs_block() {
-    [[ -n "${_tmpfs_str}" ]] || return 0
-    echo "    tmpfs:"
-    local _tf
-    while IFS= read -r _tf; do
-      [[ -z "${_tf}" ]] && continue
-      echo "      - ${_tf}"
-    done <<< "${_tmpfs_str}"
-  }
-
-  # deploy GPU reservation: caller passes the effective gpu flag, count,
-  # and pre-built capabilities YAML array (devel's globals or a stage's
-  # resolved values).
-  _emit_gpu_deploy_block() {
-    local _g="$1" _count="$2" _caps="$3"
-    [[ "${_g}" == "true" ]] || return 0
-    cat <<YAML
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${_count}
-              capabilities: ${_caps}
-YAML
-  }
-
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
@@ -2686,8 +2713,8 @@ services:
       dockerfile: Dockerfile
       target: devel
 YAML
-    _emit_additional_contexts_block
-    _emit_build_network_line
+    _emit_additional_contexts_block "${_additional_contexts_str}"
+    _emit_build_network_line "${_build_network}"
     cat <<YAML
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
@@ -2698,23 +2725,8 @@ YAML
         USER_UID: \${USER_UID}
         USER_GID: \${USER_GID}
 YAML
-    _emit_target_arch_line
-    # User-added [build] args: emit each as `KEY: \${KEY}` — Dockerfile's
-    # `ARG KEY="default"` fallback handles empty values. No hard-coded
-    # defaults here since template doesn't know them.
-    _emit_user_build_args() {
-      [[ -z "${_user_build_args_str}" ]] && return 0
-      local _ub _k
-      while IFS= read -r _ub; do
-        [[ -z "${_ub}" ]] && continue
-        _k="${_ub%%=*}"
-        # Emit literal compose substitution `${KEY}` into compose.yaml;
-        # the ${} is consumed by docker compose at runtime, not bash.
-        # shellcheck disable=SC2016
-        printf '        %s: ${%s}\n' "${_k}" "${_k}"
-      done <<< "${_user_build_args_str}"
-    }
-    _emit_user_build_args
+    _emit_target_arch_line "${_target_arch}"
+    _emit_user_build_args "${_user_build_args_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
     container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
@@ -2732,11 +2744,11 @@ YAML
 YAML
     # Workload overlay (#502): devel emits it; extends:devel stages inherit.
     _emit_env_file_block
-    _emit_runtime_line
-    _emit_restart_line
+    _emit_runtime_line "${_runtime}"
+    _emit_restart_line "${_restart}"
     # cap_add / cap_drop / security_opt + group_add (#410 shared emitters).
-    _emit_caps_block
-    _emit_group_add_block "${_gui}"
+    _emit_caps_block "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}"
+    _emit_group_add_block "${_gui}" "${_dri_groups_str}"
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
     networks:
@@ -2841,8 +2853,8 @@ YAML
       done <<< "${_devices_str}"
     fi
     # device_cgroup_rules + tmpfs (#410 shared emitters).
-    _emit_cgroup_rules_block
-    _emit_tmpfs_block
+    _emit_cgroup_rules_block "${_cgroup_rule_str}"
+    _emit_tmpfs_block "${_tmpfs_str}"
     # shm_size: only emitted when ipc != host (otherwise Docker ignores it)
     if [[ -n "${_shm_size}" ]] && [[ "${_ipc_mode}" != "host" ]]; then
       echo "    shm_size: ${_shm_size}"
@@ -2929,7 +2941,7 @@ YAML
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
-        _emit_additional_contexts_block
+        _emit_additional_contexts_block "${_additional_contexts_str}"
         cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
     container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
@@ -3043,8 +3055,8 @@ YAML
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
-      _emit_additional_contexts_block
-      _emit_build_network_line
+      _emit_additional_contexts_block "${_additional_contexts_str}"
+      _emit_build_network_line "${_build_network}"
       cat <<YAML
       args:
         APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
@@ -3055,8 +3067,8 @@ YAML
         USER_UID: \${USER_UID}
         USER_GID: \${USER_GID}
 YAML
-      _emit_target_arch_line
-      _emit_user_build_args
+      _emit_target_arch_line "${_target_arch}"
+      _emit_user_build_args "${_user_build_args_str}"
       cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
     container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
@@ -3101,7 +3113,7 @@ YAML
       # else inherits the top-level [security] block. group_add is gated
       # on the stage's effective gui. Shared emitter with devel (#410).
       _emit_caps_block "${_eff_cap_add}" "${_eff_cap_drop}" "${_eff_sec_opt}"
-      _emit_group_add_block "${_eff_gui}"
+      _emit_group_add_block "${_eff_gui}" "${_dri_groups_str}"
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).
       if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
@@ -3191,8 +3203,8 @@ YAML
         done <<< "${_devices_str}"
       fi
       # device_cgroup_rules + tmpfs from top-level (#410 shared emitters).
-      _emit_cgroup_rules_block
-      _emit_tmpfs_block
+      _emit_cgroup_rules_block "${_cgroup_rule_str}"
+      _emit_tmpfs_block "${_tmpfs_str}"
       # shm_size: depends on effective ipc (only emitted under
       # non-host ipc, mirroring devel).
       if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
