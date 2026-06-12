@@ -210,3 +210,85 @@ setup() {
   _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=/srv/logs/' ""
   [ "${_m}" = "/srv/logs:/var/log/myrepo" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _emit_stage_service <ctx> <resolved> <svc> <emit_stage> <has_overrides>
+#
+# The per-service emitter (#566): consumes a resolved-stage value (the
+# _dflags_eff record from _resolve_docker_flags) plus a shared static
+# context, and emits a single service YAML fragment. Replaces the inline
+# per-stage loop body of generate_compose_yaml. Tested here in isolation
+# instead of grepping the whole ~900-line emitter's output.
+# ════════════════════════════════════════════════════════════════════
+
+# A fully-populated static context (every key the emitter reads).
+_mk_ctx() {
+  local -n _c="$1"
+  _c=(
+    [name]=myrepo [setup_base]=/tmp/ess [additional_contexts]=""
+    [build_network]="" [target_arch]="" [user_build_args]=""
+    [devices]="" [cgroup_rule]="" [tmpfs]="" [shm_size]=""
+    [dri_groups]="" [logging_global]="" [logging_per_svc]=""
+    [net_mode]=host [ipc_mode]=host [pid_mode]=private
+    [any_prop_device]=false
+  )
+}
+
+@test "_emit_stage_service: zero-diff stage emits the extends:devel shape" {
+  local -A _ctx=(); _mk_ctx _ctx
+  local -A _res=()
+  run _emit_stage_service _ctx _res test devel-test 0
+  assert_success
+  assert_line "  test:"
+  assert_line "    extends:"
+  assert_line "      service: devel"
+  assert_line "      target: devel-test"
+  assert_line '    image: ${DOCKER_HUB_USER:-local}/myrepo:test'
+  assert_line "    stdin_open: false"
+  assert_line "    profiles:"
+  assert_line "      - test"
+}
+
+@test "_emit_stage_service: zero-diff stage with per-svc logging override emits logging block" {
+  local -A _ctx=(); _mk_ctx _ctx
+  _ctx[logging_per_svc]=$'test:driver=local'
+  local -A _res=()
+  run _emit_stage_service _ctx _res test devel-test 0
+  assert_line "    extends:"
+  assert_line "      driver: local"
+}
+
+@test "_emit_stage_service: stage with overrides emits a standalone block (no extends)" {
+  local -A _ctx=(); _mk_ctx _ctx
+  local -A _res=(
+    [gui]=false [gpu]=false [gpu_count]=0 [gpu_caps]=gpu [runtime]=""
+    [net_mode]=host [ipc_mode]=private [pid_mode]=private [net_name]=""
+    [privileged]=true [volumes]="./hl:/data" [environment]="HEADLESS=1"
+    [ports]="" [cap_add]="" [cap_drop]="" [security_opt]=""
+  )
+  run _emit_stage_service _ctx _res headless headless 1
+  assert_success
+  refute_line "    extends:"
+  assert_line "  headless:"
+  assert_line "      target: headless"
+  assert_line "    privileged: true"
+  assert_line "    ipc: private"
+  assert_line "      - HEADLESS=1"
+  assert_line "      - ./hl:/data"
+  assert_line "    profiles:"
+  assert_line "      - headless"
+}
+
+@test "_emit_stage_service: override stage GPU resolution emits deploy reservation" {
+  local -A _ctx=(); _mk_ctx _ctx
+  local -A _res=(
+    [gui]=false [gpu]=true [gpu_count]=2 [gpu_caps]="gpu compute" [runtime]=""
+    [net_mode]=host [ipc_mode]=host [pid_mode]=private [net_name]=""
+    [privileged]="" [volumes]="" [environment]="" [ports]=""
+    [cap_add]="" [cap_drop]="" [security_opt]=""
+  )
+  run _emit_stage_service _ctx _res sim sim 1
+  assert_line "    deploy:"
+  assert_line "              count: 2"
+  assert_line "              capabilities: [gpu, compute]"
+}
