@@ -519,6 +519,27 @@ _load_setup_conf() {
   _parse_ini_section "${_template_conf}" "${_section}" _lsc_keys _lsc_values
 }
 
+# _setup_conf_handle <base> <handle>
+#
+# Load the effective setup.conf into an opaque conf.sh <handle>: honours the
+# SETUP_CONF override (single file, no merge), otherwise the template +
+# per-repo section-replace merge (same precedence as _load_setup_conf, but as
+# one queryable handle for the _conf_get / _conf_list_sorted accessors). The
+# single place that resolves the template / repo / SETUP_CONF paths for the
+# accessor readers (#563 / #564).
+_setup_conf_handle() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base"}"
+  local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
+  if [[ -n "${SETUP_CONF:-}" ]]; then
+    _conf_load "${SETUP_CONF}" "${_h}"
+    return 0
+  fi
+  _conf_load_merged \
+    "${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf" \
+    "${_base}/config/docker/setup.conf" \
+    "${_h}"
+}
+
 # _setup_load_merged_full <template_path> <local_path> \
 #                         <sections_outvar> <keys_outvar> <values_outvar>
 #
@@ -712,12 +733,12 @@ detect_image_name() {
   local _path="${1:?"${FUNCNAME[0]}: missing path"}"
 
   local _base="${BASE_PATH:-${_path}}"
-  local -a __din_keys=() __din_values=()
-  _load_setup_conf "${_base}" "image" __din_keys __din_values
 
-  # Collect rule_N entries in numeric order.
+  # Collect [image] rule_N entries in numeric order via the opaque conf
+  # handle (effective SETUP_CONF / template+repo merge; #563 / #564).
+  _setup_conf_handle "${_base}" _DIN_CONF
   local -a _rule_arr=()
-  _get_conf_list_sorted __din_keys __din_values "rule_" _rule_arr
+  _conf_list_sorted _DIN_CONF image "rule_" _rule_arr
 
   local _found=""
   if (( ${#_rule_arr[@]} > 0 )); then
