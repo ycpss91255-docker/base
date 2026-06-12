@@ -43,6 +43,7 @@ unset _schema_dir
 # (matches setup.sh's historical default-accept behaviour).
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_VALIDATOR=(
+  [deploy.gpu_count]=_validate_gpu_count
   [network.port_]=_validate_port_mapping
 )
 
@@ -51,7 +52,9 @@ declare -gA SCHEMA_VALIDATOR=(
 # always accepted. The exception is keys whose validator rejects empty by
 # design — they are marked "validate" so the empty string is passed
 # through to the validator (which rejects it).
-declare -gA SCHEMA_EMPTY=()
+declare -gA SCHEMA_EMPTY=(
+  [deploy.gpu_count]=validate
+)
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_canonical_key <section> <key> <out_canon>
