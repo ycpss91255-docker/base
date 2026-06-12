@@ -101,4 +101,10 @@ _bootstrap() {
     printf '  %s\n' "${FILE_PATH}/lib/_lib.sh" >&2
     exit 1
   fi
+
+  # #568 Part B: i18n.sh no longer seeds _LANG at source time. Resolve it
+  # once here (SETUP_LANG override else $LANG detection) so every wrapper's
+  # _msg works during arg parsing; a later --lang flag overrides it via
+  # _sanitize_lang. _LANG is global (no `local` declared in this function).
+  _resolve_lang _LANG
 }

@@ -12,16 +12,18 @@ Template self-tests: **1465 tests** total (1391 unit + 74 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (43)
+### test/unit/lib_spec.bats (45)
 
 | Test | Description |
 |------|-------------|
-| `_lib.sh sets _LANG to 'en' when LANG is unset` | Default language |
-| `_lib.sh sets _LANG to 'zh-TW' for zh_TW.UTF-8` | Traditional Chinese |
-| `_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8` | Simplified Chinese |
-| `_lib.sh sets _LANG to 'zh-CN' for zh_SG (Singapore)` | Singapore variant |
-| `_lib.sh sets _LANG to 'ja' for ja_JP.UTF-8` | Japanese |
-| `_lib.sh honors SETUP_LANG override` | Env override |
+| `_resolve_lang sets 'en' when LANG is unset (#568)` | Default language |
+| `_resolve_lang sets 'zh-TW' for zh_TW.UTF-8 (#568)` | Traditional Chinese |
+| `_resolve_lang sets 'zh-CN' for zh_CN.UTF-8 (#568)` | Simplified Chinese |
+| `_resolve_lang sets 'zh-CN' for zh_SG (Singapore) (#568)` | Singapore variant |
+| `_resolve_lang sets 'ja' for ja_JP.UTF-8 (#568)` | Japanese |
+| `_resolve_lang honors SETUP_LANG override (#568)` | Env override |
+| `_lib.sh does NOT set _LANG at source time (#568 Part B)` | Load-time side-effect removed |
+| `conf_logging.sh self-sources its conf.sh dependency in isolation (#568)` | Self-sourcing (load order not load-bearing) |
 | `_lib.sh is idempotent when sourced twice` | Double-source guard |
 | `_load_env exports variables from a .env file` | Env loader works |
 | `_load_env errors when no path is given` | Required arg check |

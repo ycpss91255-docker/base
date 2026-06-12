@@ -9,8 +9,14 @@
 #   _sanitize_lang   — warn + fall back to "en" when an unsupported
 #                      --lang value is given. Non-fatal; lets the user
 #                      see the typo but keeps going in English.
+#   _resolve_lang    — resolve the effective language (SETUP_LANG env
+#                      override, else $LANG detection) into a caller var.
 #
-# After sourcing, _LANG is set (caller can override via SETUP_LANG env var).
+# #568 Part B: sourcing this module no longer sets _LANG as a load-time
+# side-effect. Callers invoke `_resolve_lang _LANG` explicitly (the
+# wrapper preamble lib/bootstrap.sh does this once for build / run / exec
+# / stop / prune; setup.sh and setup_tui.sh do it after sourcing). This
+# removes the "forgot to source i18n.sh first -> silent English" class.
 
 _detect_lang() {
   local _sys_lang="${LANG:-}"
@@ -63,4 +69,13 @@ _sanitize_lang() {
   _sl_ref="en"
 }
 
-_LANG="${SETUP_LANG:-$(_detect_lang)}"
+# _resolve_lang <outvar_name>
+#
+# Resolve the effective language into the named caller variable: the
+# SETUP_LANG env override wins, else detect from $LANG. Replaces the old
+# module-load-time `_LANG=...` side-effect (#568 Part B) so the choice is
+# an explicit, code-verifiable call rather than a hidden source effect.
+_resolve_lang() {
+  local -n _rl_ref="${1:?"${FUNCNAME[0]}: missing outvar name"}"
+  _rl_ref="${SETUP_LANG:-$(_detect_lang)}"
+}

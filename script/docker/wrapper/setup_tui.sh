@@ -994,7 +994,9 @@ _tui_init_lang() {
 # Source-time default so _tui_msg works even when setup_tui.sh is sourced
 # without going through main() (e.g. bats tests that source + invoke a
 # specific section editor directly). main() re-runs _tui_init_lang after
-# --lang parsing.
+# --lang parsing. #568 Part B: i18n.sh no longer seeds _LANG at source
+# time, so resolve it explicitly before _tui_init_lang reads it.
+_resolve_lang _LANG
 _TUI_LANG_UPPER="${_TUI_LANG_UPPER:-EN}"
 _tui_init_lang 2>/dev/null || true
 
