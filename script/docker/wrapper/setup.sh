@@ -1734,7 +1734,7 @@ _resolve_docker_flags() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_deploy_sh <base_path> <stage> <image_ref> <container_name> <out>
+# _generate_deploy_sh <base_path> <stage> <image_ref> <container_name> <out> [<ctx_assoc>]
 #
 # S6b-gen of #497 (#506): write a self-contained `docker run` field
 # launcher (`deploy.sh`) for the baked <stage> image. Ties the three
@@ -1763,16 +1763,32 @@ _generate_deploy_sh() {
   local _image_ref="${3:?"${FUNCNAME[0]}: missing image_ref"}"
   local _container_name="${4:?"${FUNCNAME[0]}: missing container_name"}"
   local _out="${5:?"${FUNCNAME[0]}: missing out path"}"
+  # #563: optional pre-resolved context. The bundle orchestrator resolves
+  # _resolve_deploy_context once (for the Dockerfile env bake) and threads
+  # it in here so the field launcher consumes the same canonical record
+  # rather than re-resolving setup.conf a second time within one deploy.
+  local _ctx_src="${6:-}"
 
-  # Global conf context (shared with apply via S6b).
-  local -A _ctx=()
-  _resolve_deploy_context "${_base}" _ctx
+  # Global conf context (shared with apply via S6b). Consume the passed
+  # record when given, else resolve standalone (direct callers / tests).
+  # The working var is function-prefixed (_gds_ctx) so a caller passing an
+  # assoc literally named `_ctx` is not shadowed by this local nameref bind.
+  local -A _gds_ctx=()
+  if [[ -n "${_ctx_src}" ]]; then
+    local -n _gds_ctx_in="${_ctx_src}"
+    local _gds_k
+    for _gds_k in "${!_gds_ctx_in[@]}"; do
+      _gds_ctx["${_gds_k}"]="${_gds_ctx_in[${_gds_k}]}"
+    done
+  else
+    _resolve_deploy_context "${_base}" _gds_ctx
+  fi
 
   # Detection-dependent enabled state + runtime, resolved like apply does.
   local _gpu_detected="" _gpu_enabled="" _runtime_resolved=""
   detect_gpu _gpu_detected
-  _resolve_gpu "${_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
-  _resolve_runtime "${_ctx["gpu_runtime_mode"]}" _runtime_resolved
+  _resolve_gpu "${_gds_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
+  _resolve_runtime "${_gds_ctx["gpu_runtime_mode"]}" _runtime_resolved
 
   # Per-stage [stage:<stage>] overrides, filtered to the allowlist.
   local -a _so_k=() _so_v=() _sof_k=() _sof_v=()
@@ -1791,19 +1807,19 @@ _generate_deploy_sh() {
   local -A _parent=(
     [gui]="false"
     [gpu]="${_gpu_enabled}"
-    [gpu_count]="${_ctx["gpu_count"]}"
-    [gpu_caps]="${_ctx["gpu_caps"]}"
+    [gpu_count]="${_gds_ctx["gpu_count"]}"
+    [gpu_caps]="${_gds_ctx["gpu_caps"]}"
     [runtime]="${_runtime_resolved}"
-    [net_mode]="${_ctx["net_mode"]}"
-    [ipc_mode]="${_ctx["ipc_mode"]}"
-    [pid_mode]="${_ctx["pid_mode"]}"
-    [net_name]="${_ctx["network_name"]}"
+    [net_mode]="${_gds_ctx["net_mode"]}"
+    [ipc_mode]="${_gds_ctx["ipc_mode"]}"
+    [pid_mode]="${_gds_ctx["pid_mode"]}"
+    [net_name]="${_gds_ctx["network_name"]}"
     [volumes_top]=""
     [env_top]=""
-    [ports_top]="${_ctx["ports_str"]}"
-    [cap_add_top]="${_ctx["cap_add_str"]}"
-    [cap_drop_top]="${_ctx["cap_drop_str"]}"
-    [sec_opt_top]="${_ctx["sec_opt_str"]}"
+    [ports_top]="${_gds_ctx["ports_str"]}"
+    [cap_add_top]="${_gds_ctx["cap_add_str"]}"
+    [cap_drop_top]="${_gds_ctx["cap_drop_str"]}"
+    [sec_opt_top]="${_gds_ctx["sec_opt_str"]}"
   )
   local -A _eff=()
   _resolve_docker_flags _sof_k _sof_v _parent _eff
@@ -1816,7 +1832,7 @@ _generate_deploy_sh() {
   # global value via the devel `${PRIVILEGED}` env var). The field launcher
   # has no such env layer, so fall back to the global [security] privileged.
   local -A _flags=(
-    [privileged]="${_eff["privileged"]:-${_ctx["privileged"]}}"
+    [privileged]="${_eff["privileged"]:-${_gds_ctx["privileged"]}}"
     [gpu]="${_eff["gpu"]}"
     [gpu_count]="${_eff["gpu_count"]}"
     [gpu_caps]="${_eff["gpu_caps"]}"
@@ -1826,14 +1842,14 @@ _generate_deploy_sh() {
     [ipc_mode]="${_eff["ipc_mode"]}"
     [pid_mode]="${_eff["pid_mode"]}"
     [ports]="${_eff["ports"]}"
-    [shm_size]="${_ctx["shm_size"]}"
-    [restart]="${_ctx["restart_policy"]}"
-    [devices]="${_ctx["devices_str"]}"
+    [shm_size]="${_gds_ctx["shm_size"]}"
+    [restart]="${_gds_ctx["restart_policy"]}"
+    [devices]="${_gds_ctx["devices_str"]}"
     [cap_add]="${_eff["cap_add"]}"
     [cap_drop]="${_eff["cap_drop"]}"
     [security_opt]="${_eff["security_opt"]}"
-    [dri_groups]="${_ctx["dri_groups_str"]}"
-    [cgroup_rules]="${_ctx["cgroup_rule_str"]}"
+    [dri_groups]="${_gds_ctx["dri_groups_str"]}"
+    [cgroup_rules]="${_gds_ctx["cgroup_rule_str"]}"
   )
   local -a _argv=()
   _emit_docker_run_flags _flags _argv
@@ -1956,7 +1972,7 @@ _generate_deploy_bundle() {
 
   # Generate the field launcher up front so the plan is inspectable even
   # under DRY_RUN (the docker/tar steps below are the only guarded ones).
-  _generate_deploy_sh "${_base}" "${_stage}" "${_image}" "${_container}" "${_work}/deploy.sh"
+  _generate_deploy_sh "${_base}" "${_stage}" "${_image}" "${_container}" "${_work}/deploy.sh" _ctx
 
   local _rc=0
   _dry_run_cmd docker build --target "${_stage}" \

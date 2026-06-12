@@ -730,7 +730,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
 
-### test/unit/deploy_spec.bats (47)
+### test/unit/deploy_spec.bats (48)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -778,6 +778,7 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
 | `_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)` | per-stage caps clear |
 | `_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append |
+| `_generate_deploy_sh: consumes a passed pre-resolved ctx instead of re-resolving (#563)` | resolve-once seam |
 | `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
 | `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
 | `_bake_config_copy: handles src == out in place` | in-place bake |
