@@ -28,6 +28,11 @@ source "${_SETUP_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
 source "${_SETUP_LIB_DIR}/_lib.sh"
 
+# #568 Part B: i18n.sh no longer seeds _LANG at source time -- resolve it
+# explicitly so the _setup_msg_* tables work before --lang parsing (which
+# overrides _LANG later via _sanitize_lang).
+_resolve_lang _LANG
+
 # i18n message table, split per category and routed through _log_*
 # (closes #290). Renamed from a monolithic `_msg` to `_setup_msg`
 # (closes #101) so sourcing this file from build.sh / run.sh doesn't
