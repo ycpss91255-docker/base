@@ -43,9 +43,29 @@ unset _schema_dir
 # (matches setup.sh's historical default-accept behaviour).
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_VALIDATOR=(
+  # ── scalar keys ──────────────────────────────────────────────────
   [deploy.gpu_count]=_validate_gpu_count
+  [deploy.gpu_runtime]=_validate_runtime
+  [deploy.runtime]=_validate_runtime          # legacy alias (#481)
+  [resources.shm_size]=_validate_shm_size
+  [lifecycle.restart]=_validate_restart
+  [build.target_arch]=_validate_target_arch
+  [build.build_network]=_validate_build_network
+  [network.name]=_validate_network_name
   [logging.driver]=_validate_log_driver
+  [logging.max_size]=_validate_log_max_size
+  [logging.max_file]=_validate_log_max_file
+  [logging.compress]=_validate_log_compress
+  [logging.local_path]=_validate_log_local_path
+  # ── list keys (numbered suffix normalised to the trailing-_ prefix) ─
+  [volumes.mount_]=_validate_mount
+  [devices.device_]=_validate_mount
+  [devices.cgroup_rule_]=_validate_cgroup_rule
+  [environment.env_]=_validate_env_kv
   [network.port_]=_validate_port_mapping
+  [additional_contexts.context_]=_validate_additional_context
+  [security.cap_add_]=_validate_capability
+  [security.cap_drop_]=_validate_capability
 )
 
 # SCHEMA_EMPTY records the per-key empty-value policy. Default (a key
