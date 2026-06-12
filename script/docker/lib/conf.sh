@@ -255,6 +255,56 @@ _conf_list() {
   return 0
 }
 
+# _conf_load_merged <template_file> <repo_file> <handle>
+#
+# Load the section-replace merge of <template_file> overlaid by
+# <repo_file> into <handle>: for each section the repo file defines (>=1
+# entry), the repo's entries replace the template's for that section
+# wholesale; sections the repo omits keep the template's entries. Section
+# order is template order followed by repo-only sections. Mirrors the
+# per-section merge setup.sh applies via _load_setup_conf, but as one
+# queryable handle (explicit paths -- no dependency on caller globals).
+_conf_load_merged() {
+  local _tpl="${1:?"${FUNCNAME[0]}: missing template file"}"
+  local _repo="${2:?"${FUNCNAME[0]}: missing repo file"}"
+  local _h="${3:?"${FUNCNAME[0]}: missing handle"}"
+
+  local -a _clm_ts=() _clm_tes=() _clm_tk=() _clm_tv=()
+  local -a _clm_rs=() _clm_res=() _clm_rk=() _clm_rv=()
+  _ini_tokenize "${_tpl}" _clm_ts _clm_tes _clm_tk _clm_tv
+  _ini_tokenize "${_repo}" _clm_rs _clm_res _clm_rk _clm_rv
+
+  local -A _clm_repo_has=()
+  local _clm_i
+  for (( _clm_i = 0; _clm_i < ${#_clm_res[@]}; _clm_i++ )); do
+    _clm_repo_has["${_clm_res[_clm_i]}"]=1
+  done
+
+  declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+  local -n _clm_ms="${_h}__sects" _clm_mes="${_h}__es" _clm_mk="${_h}__keys" _clm_mv="${_h}__vals"
+
+  local -A _clm_seen=()
+  local _clm_s
+  for _clm_s in "${_clm_ts[@]}" "${_clm_rs[@]}"; do
+    [[ -n "${_clm_seen[${_clm_s}]:-}" ]] || { _clm_ms+=("${_clm_s}"); _clm_seen["${_clm_s}"]=1; }
+  done
+
+  for _clm_s in "${_clm_ms[@]}"; do
+    if [[ -n "${_clm_repo_has[${_clm_s}]:-}" ]]; then
+      for (( _clm_i = 0; _clm_i < ${#_clm_rk[@]}; _clm_i++ )); do
+        [[ "${_clm_res[_clm_i]}" == "${_clm_s}" ]] || continue
+        _clm_mes+=("${_clm_s}"); _clm_mk+=("${_clm_rk[_clm_i]}"); _clm_mv+=("${_clm_rv[_clm_i]}")
+      done
+    else
+      for (( _clm_i = 0; _clm_i < ${#_clm_tk[@]}; _clm_i++ )); do
+        [[ "${_clm_tes[_clm_i]}" == "${_clm_s}" ]] || continue
+        _clm_mes+=("${_clm_s}"); _clm_mk+=("${_clm_tk[_clm_i]}"); _clm_mv+=("${_clm_tv[_clm_i]}")
+      done
+    fi
+  done
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
