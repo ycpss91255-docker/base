@@ -74,3 +74,23 @@ EOF
   assert_output "FROM_TEMPLATE"
   rm -f "${_tpl}" "${_repo}"
 }
+
+@test "_conf_list_sorted returns prefix_N values in numeric order, skipping empties" {
+  local _f
+  _f="$(mktemp)"
+  cat > "${_f}" <<'EOF'
+[volumes]
+mount_2 = b
+mount_10 = c
+mount_1 = a
+mount_3 =
+EOF
+  _conf_load "${_f}" H
+  local -a out=()
+  _conf_list_sorted H volumes mount_ out
+  assert_equal "${#out[@]}" 3
+  assert_equal "${out[0]}" a
+  assert_equal "${out[1]}" b
+  assert_equal "${out[2]}" c
+  rm -f "${_f}"
+}
