@@ -50,3 +50,33 @@ setup() {
   run _schema_validate deploy gpu_count ""
   [ "${status}" -ne 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_validate — per-service logging section normalisation
+# ([logging.<svc>] shares the [logging] key validators) + empty=allow
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_validate routes logging.driver to _validate_log_driver (accept)" {
+  run _schema_validate logging driver "json-file"
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_validate routes logging.driver to _validate_log_driver (reject)" {
+  run _schema_validate logging driver "bad driver!"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_validate allows empty logging.driver (empty policy = allow)" {
+  run _schema_validate logging driver ""
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_validate normalises logging.<svc> to the logging key set (reject)" {
+  run _schema_validate logging.test driver "bad driver!"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_validate normalises logging.<svc> to the logging key set (accept)" {
+  run _schema_validate logging.devel driver "journald"
+  [ "${status}" -eq 0 ]
+}
