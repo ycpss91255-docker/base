@@ -469,6 +469,21 @@ EOF
   [[ "$(ovr_get additional_contexts.context_1)" == "base=docker-image://debian:bookworm-slim" ]]
 }
 
+# ════════════════════════════════════════════════════════════════════
+# #560: the TUI validates through the shared schema registry, keyed by
+# (section, key) — NOT a validator name threaded through the call site.
+# _edit_list_entry must reject an invalid value for a registered key even
+# when no validator argument is passed; the registry is the single source.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_edit_list_entry validates via the schema registry, no validator arg (#560)" {
+  # No validator argument: first input is an invalid port (registry must
+  # reject -> msgbox -> retry), second is valid and is written.
+  queue "0|not-a-port" "0|8080:80"
+  _edit_list_entry network port_ 1 "prompt"
+  [[ "$(ovr_get network.port_1)" == "8080:80" ]]
+}
+
 @test "_render_advanced_menu: additional_contexts choice dispatches to its editor" {
   # Click additional_contexts → its editor immediately Cancels (empty
   # menu pick) → user lands back on advanced menu → __back exits.
