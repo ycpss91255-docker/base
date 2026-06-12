@@ -48,3 +48,29 @@ teardown() {
   assert_line --index 0 "gpu_runtime"
   assert_line --index 1 "gpu_count"
 }
+
+@test "_conf_load_merged: repo section replaces template section wholesale" {
+  local _tpl _repo
+  _tpl="$(mktemp)"; _repo="$(mktemp)"
+  cat > "${_tpl}" <<'EOF'
+[deploy]
+gpu_runtime = auto
+gpu_count = 0
+
+[build]
+arg_1 = FROM_TEMPLATE
+EOF
+  cat > "${_repo}" <<'EOF'
+[deploy]
+gpu_runtime = nvidia
+EOF
+  _conf_load_merged "${_tpl}" "${_repo}" M
+  run _conf_get M deploy gpu_runtime
+  assert_success
+  assert_output "nvidia"
+  run _conf_get M deploy gpu_count missing
+  assert_output "missing"
+  run _conf_get M build arg_1
+  assert_output "FROM_TEMPLATE"
+  rm -f "${_tpl}" "${_repo}"
+}
