@@ -721,7 +721,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: stage with overrides emits a standalone block (no extends)` | #220 standalone |
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 
-### test/unit/compose_gen_spec.bats (85)
+### test/unit/compose_gen_spec.bats (87)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -744,6 +744,8 @@ env/volumes + extra volumes from `[volumes]` section.
 | `GPU disabled => no deploy block` | GPU off |
 | `GPU with specific count and capabilities` | GPU args |
 | `GUI enabled => DISPLAY env + X11 volumes present` | GUI on |
+| `GUI: xauth mounts at fixed neutral target, not host abs path` | #582 mount target |
+| `GUI: container XAUTHORITY points at the fixed mount target` | #582 env sync |
 | `GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
 | `extra volumes appended after baseline` | volumes list |
 | `empty extras => no extra mount lines` | empty list |
