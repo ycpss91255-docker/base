@@ -14,40 +14,52 @@ setup() {
 
 # ── _detect_lang / _LANG ────────────────────────────────────────────────────
 
-@test "_lib.sh sets _LANG to 'en' when LANG is unset" {
-  run bash -c "unset LANG SETUP_LANG; source ${LIB}; echo \"\${_LANG}\""
+# #568 Part B: i18n.sh no longer sets _LANG as a module-load side-effect;
+# callers resolve it explicitly via _resolve_lang. These assert the new
+# contract -- the function maps LANG / SETUP_LANG to the canonical code.
+
+@test "_resolve_lang sets 'en' when LANG is unset (#568)" {
+  run bash -c "unset LANG SETUP_LANG; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "en"
 }
 
-@test "_lib.sh sets _LANG to 'zh-TW' for zh_TW.UTF-8" {
-  run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8 source ${LIB}; echo \"\${_LANG}\""
+@test "_resolve_lang sets 'zh-TW' for zh_TW.UTF-8 (#568)" {
+  run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-TW"
 }
 
-@test "_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8" {
-  run bash -c "unset SETUP_LANG; LANG=zh_CN.UTF-8 source ${LIB}; echo \"\${_LANG}\""
+@test "_resolve_lang sets 'zh-CN' for zh_CN.UTF-8 (#568)" {
+  run bash -c "unset SETUP_LANG; LANG=zh_CN.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-CN"
 }
 
-@test "_lib.sh sets _LANG to 'zh-CN' for zh_SG (Singapore)" {
-  run bash -c "unset SETUP_LANG; LANG=zh_SG.UTF-8 source ${LIB}; echo \"\${_LANG}\""
+@test "_resolve_lang sets 'zh-CN' for zh_SG (Singapore) (#568)" {
+  run bash -c "unset SETUP_LANG; LANG=zh_SG.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-CN"
 }
 
-@test "_lib.sh sets _LANG to 'ja' for ja_JP.UTF-8" {
-  run bash -c "unset SETUP_LANG; LANG=ja_JP.UTF-8 source ${LIB}; echo \"\${_LANG}\""
+@test "_resolve_lang sets 'ja' for ja_JP.UTF-8 (#568)" {
+  run bash -c "unset SETUP_LANG; LANG=ja_JP.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "ja"
 }
 
-@test "_lib.sh honors SETUP_LANG override" {
-  run bash -c "SETUP_LANG=ja LANG=en_US.UTF-8 source ${LIB}; echo \"\${_LANG}\""
+@test "_resolve_lang honors SETUP_LANG override (#568)" {
+  run bash -c "SETUP_LANG=ja LANG=en_US.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "ja"
+}
+
+@test "_lib.sh does NOT set _LANG at source time (#568 Part B)" {
+  # The load-time side-effect is removed -- sourcing the lib chain leaves
+  # _LANG unset until a caller invokes _resolve_lang explicitly.
+  run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8; source ${LIB}; echo \"\${_LANG:-UNSET}\""
+  assert_success
+  assert_output "UNSET"
 }
 
 # ── lib self-sourcing (load order not load-bearing, #568 Part A) ─────────────
