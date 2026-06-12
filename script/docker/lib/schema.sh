@@ -97,6 +97,24 @@ declare -gA SCHEMA_EMPTY=(
 )
 
 # ════════════════════════════════════════════════════════════════════
+# _schema_is_section <section>
+#
+# Returns 0 when <section> is one of the SCHEMA_SECTIONS, 1 otherwise.
+# The single membership predicate consumers (setup.sh's
+# _setup_known_section, the TUI dispatch) route through so the section
+# list is not duplicated. Per-service [logging.<svc>] variants are NOT
+# sections here -- that special case lives in _setup_known_section.
+# ════════════════════════════════════════════════════════════════════
+_schema_is_section() {
+  local _s="${1-}"
+  local _sec
+  for _sec in "${SCHEMA_SECTIONS[@]}"; do
+    [[ "${_sec}" == "${_s}" ]] && return 0
+  done
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _schema_canonical_key <section> <key> <out_canon>
 #
 # Resolves (section,key) to its registry canonical key in <out_canon>,
