@@ -209,3 +209,35 @@ _assert_schema() {
   run _schema_is_section brandnew
   [ "${status}" -eq 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_section_keys <section> <outarray> — registered keys per
+# section, derived from SCHEMA_VALIDATOR by canonical-key prefix (#561).
+# Order is unspecified (assoc-array iteration), so tests sort.
+# ════════════════════════════════════════════════════════════════════
+
+# _sorted_keys <section> -> echoes the section's keys, sorted, space-joined.
+_sorted_keys() {
+  local -a _k=()
+  _schema_section_keys "${1}" _k
+  (( ${#_k[@]} == 0 )) && return 0
+  printf '%s\n' "${_k[@]}" | sort | tr '\n' ' '
+}
+
+@test "_schema_section_keys returns scalar+list keys for build (#561)" {
+  [ "$(_sorted_keys build)" = "arg_ network target_arch " ]
+}
+
+@test "_schema_section_keys returns all logging keys (#561)" {
+  [ "$(_sorted_keys logging)" = "compress driver local_path max_file max_size " ]
+}
+
+@test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {
+  [ "$(_sorted_keys deploy)" = "gpu_count gpu_runtime runtime " ]
+}
+
+@test "_schema_section_keys is empty for a free-form-only section (image) (#561)" {
+  local -a _k=()
+  _schema_section_keys image _k
+  [ "${#_k[@]}" -eq 0 ]
+}
