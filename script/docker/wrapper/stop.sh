@@ -56,7 +56,7 @@ usage() {
 
 選項:
   -h, --help        顯示此說明
-  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C
+  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（預設 + 全部命名 instance)
   --prune           stop 完後順手清 orphan networks (--filter until=10m) +
@@ -78,7 +78,7 @@ EOF
 
 选项:
   -h, --help        显示此说明
-  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C
+  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（默认 + 全部命名 instance)
   --prune           stop 完后顺手清 orphan networks (--filter until=10m) +
@@ -123,7 +123,7 @@ Stop and remove containers. Default: stop only the default instance.
 Options:
   -h, --help        Show this help
   -C, --chdir DIR   Operate on the repo at DIR without changing the caller's cwd
-                    (mirrors git -C / make -C)
+                    (mirrors git -C)
   --instance NAME   Stop only the named instance
   -a, --all         Stop ALL instances (default + every named instance)
   --prune           After stopping, also reclaim orphan networks

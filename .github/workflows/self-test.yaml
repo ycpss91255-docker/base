@@ -122,7 +122,7 @@ jobs:
     # A 30s shellcheck regression now surfaces in ~45s wall time instead
     # of waiting for the full bats suite inside the `test` job. The
     # `test` job passes --bats-only so the shellcheck phase doesn't run
-    # twice; local `make test` keeps the full pipeline.
+    # twice; local `just -f justfile.ci test` keeps the full pipeline.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
@@ -579,7 +579,7 @@ jobs:
 
           mkdir -p "${ARCHIVE_NAME}"
           cp -r init.sh upgrade.sh \
-                .hadolint.yaml Makefile.ci compose.yaml \
+                .hadolint.yaml justfile.ci compose.yaml \
                 config/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"

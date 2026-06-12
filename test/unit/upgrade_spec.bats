@@ -356,7 +356,7 @@ _mk_subtree_repo() {
 # associated normal version (rc1 < final). GNU `sort -V` sorts the
 # other way (final < rc1, treating `-` as "less than empty"), which is
 # why upgrade.sh needs its own comparator: the wrong ordering causes
-# `make upgrade-check` to mis-classify v0.12.0-rc1 vs released v0.12.0
+# `just upgrade-check` to mis-classify v0.12.0-rc1 vs released v0.12.0
 # once the stable tag exists.
 #
 # Returns: 0 = equal, 1 = a < b, 2 = a > b.

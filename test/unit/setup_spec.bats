@@ -4622,7 +4622,7 @@ EOF
 # devel-test is promoted out of the baseline blocklist: it now flows
 # through the per-stage inherit-with-override model like any other
 # non-baseline stage, but keeps the legacy service NAME / image TAG /
-# profile `test` (`make exec -t test` unchanged) while build.target
+# profile `test` (`just exec -t test` unchanged) while build.target
 # stays the real Dockerfile stage `devel-test`. The [stage:devel-test]
 # section is the override surface (so e.g. Isaac can enable GPU pytest).
 # ════════════════════════════════════════════════════════════════════
@@ -4665,7 +4665,7 @@ EOF
   assert_success
   assert_output --partial "[setup] set [build] arg_4 = ROS2_DISTRO=jazzy"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'make build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
 }
 
 @test "setup.sh set --quiet: produces empty stdout" {
@@ -4704,7 +4704,7 @@ EOF
   assert_success
   assert_output --partial "[setup] add [build] arg_"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'make build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
 }
 
 @test "setup.sh add --quiet: produces empty stdout" {
@@ -4728,7 +4728,7 @@ EOC
   assert_success
   assert_output --partial "[setup] remove [build] arg_1"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'make build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
 }
 
 @test "setup.sh remove --quiet: produces empty stdout" {
@@ -4753,7 +4753,7 @@ EOC
   assert_success
   assert_output --partial "[setup]"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'make build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
 }
 
 @test "setup.sh reset --yes --quiet: produces empty stdout" {

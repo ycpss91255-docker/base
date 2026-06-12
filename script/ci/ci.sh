@@ -25,7 +25,8 @@
 #
 # Kcov instrumentation wraps every bats command and slows the suite
 # 2-5x, so the default no longer runs it. Run `--coverage` (or
-# `make coverage`) when you need the HTML report before releasing.
+# `just -f justfile.ci coverage`) when you need the HTML report before
+# releasing.
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
@@ -86,10 +87,10 @@ dev-loop default skips it.
 
 Examples:
   ./ci.sh                       # Fast: ShellCheck + Bats (no kcov)
-  make test                     # Same as above
+  just -f justfile.ci test      # Same as above
   ./ci.sh --coverage            # Full: ShellCheck + Bats + Kcov
-  make coverage                 # Same as above
-  make lint                     # ShellCheck only
+  just -f justfile.ci coverage  # Same as above
+  just -f justfile.ci lint      # ShellCheck only
   ./ci.sh --shellcheck-only     # Direct shellcheck, no compose
   ./ci.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./ci.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -129,16 +130,16 @@ _install_deps() {
   apt-get update -qq \
     || _die ci_apt_update_failed "apt-get update failed. Check network / apt mirror reachability."
 
-  # `make` is needed by integration tests that exercise the downstream
-  # Makefile recipes (#175 / #182). The kcov image's apt repo doesn't
-  # ship it by default, so without this the upgrade-check integration
-  # tests fail with exit 127 only under `make coverage` (the same tests
-  # pass under `make test`, where the alpine test-tools image bundles
-  # make from #182).
+  # The kcov/coverage image is debian-based and ships none of the bats
+  # toolchain, so install it here; `parallel` shards the bats run. The
+  # downstream-justfile integration test (`just upgrade-check`)
+  # self-skips when `just` is absent -- it runs against the test-tools
+  # image (which bundles just), not this kcov image -- so no make/just
+  # runner is needed in this debian environment.
   apt-get install -y --no-install-recommends \
       bats bats-support bats-assert \
       shellcheck git ca-certificates \
-      parallel make \
+      parallel \
     || _die ci_apt_install_failed "apt-get install failed for bats/shellcheck deps."
 
   # bats-mock is distro-packaged on newer distros but missing on bookworm,
@@ -164,7 +165,7 @@ _run_shellcheck() {
 
   # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
   # the build. Runs in the lint phase so it surfaces on every shellcheck path
-  # (local make test + the dedicated --shellcheck-only GHA job).
+  # (local just -f justfile.ci test + the dedicated --shellcheck-only GHA job).
   "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh" "${REPO_ROOT}"
 }
 
@@ -212,7 +213,7 @@ _run_integration_tests() {
 
 _run_tests() {
   # Wrapper retained for the full sequential dev-loop path (local
-  # `make test`). Kept so refactors are localised; the CI matrix shard
+  # `just -f justfile.ci test`). Kept so refactors are localised; the CI matrix shard
   # jobs go through _run_unit_shard / _run_integration_tests directly.
   _run_unit_tests
   _run_integration_tests
@@ -320,12 +321,12 @@ _run_via_compose() {
   #
   # BATS_ONLY is forwarded so the inner `--ci` dispatch can skip
   # _run_shellcheck when the dedicated GHA shellcheck job (#376) is
-  # covering it in parallel. Default 0 keeps the local `make test`
+  # covering it in parallel. Default 0 keeps the local `just -f justfile.ci test`
   # path unchanged (full shellcheck + bats).
   #
   # BATS_UNIT_SHARD / BATS_INTEGRATION (#377) route the matrix
   # bats-unit + bats-integration GHA jobs to the right subset inside
-  # the container; empty / 0 keep the local `make test` path
+  # the container; empty / 0 keep the local `just -f justfile.ci test` path
   # unchanged (full unit + integration).
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
@@ -353,7 +354,7 @@ readonly _BEHAVIOURAL_BUILDER="template-behavioural"
 
 _behavioural_setup() {
   [[ -S /var/run/docker.sock ]] \
-    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'make test-behavioural' (ci-behavioural service)."
+    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'just -f justfile.ci test-behavioural' (ci-behavioural service)."
   command -v docker >/dev/null 2>&1 \
     || _die ci_no_docker_cli "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
 
@@ -440,7 +441,7 @@ main() {
     if [[ -n "${bats_path}" ]]; then
       if [[ "${bats_path}" == test/behavioural || "${bats_path}" == test/behavioural/* ]]; then
         _die ci_bats_path_behavioural \
-          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'make test-behavioural' (host ci.sh cannot launch it)."
+          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'just -f justfile.ci test-behavioural' (host ci.sh cannot launch it)."
       fi
       [[ -e "${REPO_ROOT}/${bats_path}" ]] \
         || _die ci_bats_path_not_found \
@@ -505,7 +506,7 @@ main() {
       #   --bats-only          -> BATS_ONLY=1 (skip _run_shellcheck)
       #   --bats-unit-shard X  -> BATS_ONLY=1 + BATS_UNIT_SHARD=X
       #   --bats-integration   -> BATS_ONLY=1 + BATS_INTEGRATION=1
-      # Local `make test` (no flags) keeps the full pipeline.
+      # Local `just -f justfile.ci test` (no flags) keeps the full pipeline.
       if [[ -n "${bats_unit_shard}" ]]; then
         BATS_ONLY=1 BATS_UNIT_SHARD="${bats_unit_shard}" _run_via_compose ci 0
       elif [[ "${bats_integration}" == "1" ]]; then
