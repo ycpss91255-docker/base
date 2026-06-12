@@ -3603,14 +3603,16 @@ _announce_template_default_fallback() {
 # _setup_known_section <section>
 #
 # Returns 0 when <section> is one of the known setup.conf section
-# names, 1 otherwise. Mirrors the section list documented in the
-# project CLAUDE.md and `setup.conf` headers.
+# names, 1 otherwise. Derives the base section list from the schema
+# registry (SCHEMA_SECTIONS, via _schema_is_section) so adding a section
+# there makes it known here without a parallel edit (#561). The
+# per-service [logging.<svc>] override is the one shape the registry
+# does not model, so it stays an explicit special case.
 # ════════════════════════════════════════════════════════════════════
 _setup_known_section() {
   local _s="${1-}"
+  _schema_is_section "${_s}" && return 0
   case "${_s}" in
-    image|build|deploy|lifecycle|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
-      return 0 ;;
     logging.?*)
       # Per-service override section [logging.<svc>] -- shape only;
       # `<svc>` must be non-empty (rejects `logging.` trailing-dot).
