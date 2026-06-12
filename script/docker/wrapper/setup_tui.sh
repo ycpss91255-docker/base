@@ -2655,6 +2655,20 @@ _warn_if_lang_rejected() {
     "$(printf "$(_tui_msg lang.invalid.body)" "${_bad}")"
 }
 
+# _tui_known_subcommand <arg>
+#
+# Returns 0 when <arg> is a valid direct-jump subcommand: any schema
+# section (derived from SCHEMA_SECTIONS so adding a section makes it a
+# valid subcommand automatically, #561) or the `ports` pseudo-section
+# (a [network] sub-editor with no section of its own). Used by main's
+# argument parser as the single validity gate for `setup_tui.sh <name>`.
+_tui_known_subcommand() {
+  local _arg="${1-}"
+  _schema_is_section "${_arg}" && return 0
+  [[ "${_arg}" == "ports" ]] && return 0
+  return 1
+}
+
 main() {
   local _subcmd=""
   # Remember the raw --lang value if sanitize rejects it, so we can
@@ -2675,13 +2689,14 @@ main() {
         fi
         shift 2
         ;;
-      image|build|network|deploy|gui|volumes|devices|resources|environment|tmpfs|ports|security)
-        _subcmd="${1}"
-        shift
-        ;;
       *)
-        printf "[tui] unknown argument: %s\n" "${1}" >&2
-        usage
+        if _tui_known_subcommand "${1}"; then
+          _subcmd="${1}"
+          shift
+        else
+          printf "[tui] unknown argument: %s\n" "${1}" >&2
+          usage
+        fi
         ;;
     esac
   done
