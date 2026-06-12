@@ -720,6 +720,32 @@ CONF
   assert_success
 }
 
+@test "generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)" {
+  # The host XAUTHORITY resolves to a deep absolute path (e.g.
+  # <...>/workspace/docker/app/<repo>/.docker.xauth). Mirroring it as the
+  # mount target makes Docker auto-create the intermediate dirs inside the
+  # container HOME -> a confusing empty ~/workspace tree next to ~/work.
+  # Source stays the host cookie; target is a fixed neutral path.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "false" "0" "gpu" _extras
+  run grep -F '${XAUTHORITY:-/dev/null}:/tmp/.docker.xauth:ro' "${COMPOSE_OUT}"
+  assert_success
+  # The old self-mirrored form (target == host abs path) must be gone.
+  run grep -F ':${XAUTHORITY:-/dev/null}:ro' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)" {
+  # The in-container XAUTHORITY env must match where the cookie is now
+  # mounted, otherwise X11 clients cannot find it.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "false" "0" "gpu" _extras
+  run grep -F 'XAUTHORITY=/tmp/.docker.xauth' "${COMPOSE_OUT}"
+  assert_success
+}
+
 @test "generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -1221,14 +1247,14 @@ services:
       - DISPLAY=${DISPLAY:-}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
-      - XAUTHORITY=${XAUTHORITY:-}
+      - XAUTHORITY=/tmp/.docker.xauth
       - TOP_ENV=1
     ports:
       - "9000:9000"
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
-      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+      - ${XAUTHORITY:-/dev/null}:/tmp/.docker.xauth:ro
       - ./ws:/workspace
       - state_vol:/srv/state
     deploy:

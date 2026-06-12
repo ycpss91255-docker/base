@@ -2782,7 +2782,7 @@ YAML
       - DISPLAY=${DISPLAY:-}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
-      - XAUTHORITY=${XAUTHORITY:-}
+      - XAUTHORITY=/tmp/.docker.xauth
 YAML
     fi
     if [[ -n "${_eff_environment}" ]]; then
@@ -2812,7 +2812,7 @@ YAML
       cat <<'YAML'
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
-      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+      - ${XAUTHORITY:-/dev/null}:/tmp/.docker.xauth:ro
 YAML
     fi
     if [[ -n "${_eff_volumes}" ]]; then
@@ -3075,7 +3075,7 @@ YAML
       - DISPLAY=${DISPLAY:-}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
-      - XAUTHORITY=${XAUTHORITY:-}
+      - XAUTHORITY=/tmp/.docker.xauth
 YAML
       fi
       if [[ -n "${_env_str}" ]]; then
@@ -3122,7 +3122,7 @@ YAML
         cat <<'YAML'
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
-      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+      - ${XAUTHORITY:-/dev/null}:/tmp/.docker.xauth:ro
 YAML
       fi
       local _m
