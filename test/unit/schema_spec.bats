@@ -107,10 +107,11 @@ _assert_schema() {
   _assert_schema resources shm_size "2gb" ok
   _assert_schema lifecycle restart "unless-stopped" ok
   _assert_schema build target_arch "arm64" ok
-  _assert_schema build build_network "host" ok
+  _assert_schema build network "host" ok
+  _assert_schema build arg_1 "FOO=bar" ok
   _assert_schema deploy gpu_runtime "nvidia" ok
   _assert_schema deploy runtime "auto" ok
-  _assert_schema network name "my_net" ok
+  _assert_schema network network_name "my_net" ok
   _assert_schema logging max_size "10m" ok
   _assert_schema logging max_file "3" ok
   _assert_schema logging compress "true" ok
@@ -128,10 +129,11 @@ _assert_schema() {
   _assert_schema resources shm_size "huge" fail
   _assert_schema lifecycle restart "sometimes" fail
   _assert_schema build target_arch "sparc" fail
-  _assert_schema build build_network "carrier-pigeon" fail
+  _assert_schema build network "carrier-pigeon" fail
+  _assert_schema build arg_1 "1BAD=x" fail
   _assert_schema deploy gpu_runtime "podman" fail
   _assert_schema deploy runtime "podman" fail
-  _assert_schema network name "-bad" fail
+  _assert_schema network network_name "-bad" fail
   _assert_schema logging max_size "10petabytes" fail
   _assert_schema logging max_file "0" fail
   _assert_schema logging compress "maybe" fail
@@ -149,7 +151,8 @@ _assert_schema() {
   _assert_schema resources shm_size "" ok
   _assert_schema lifecycle restart "" ok
   _assert_schema build target_arch "" ok
-  _assert_schema network name "" ok
+  _assert_schema build arg_1 "" ok
+  _assert_schema network network_name "" ok
   _assert_schema volumes mount_1 "" ok
   _assert_schema devices device_1 "" ok
   _assert_schema environment env_1 "" ok

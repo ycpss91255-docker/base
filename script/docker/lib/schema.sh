@@ -50,14 +50,15 @@ declare -gA SCHEMA_VALIDATOR=(
   [resources.shm_size]=_validate_shm_size
   [lifecycle.restart]=_validate_restart
   [build.target_arch]=_validate_target_arch
-  [build.build_network]=_validate_build_network
-  [network.name]=_validate_network_name
+  [build.network]=_validate_build_network
+  [network.network_name]=_validate_network_name
   [logging.driver]=_validate_log_driver
   [logging.max_size]=_validate_log_max_size
   [logging.max_file]=_validate_log_max_file
   [logging.compress]=_validate_log_compress
   [logging.local_path]=_validate_log_local_path
   # ── list keys (numbered suffix normalised to the trailing-_ prefix) ─
+  [build.arg_]=_validate_env_kv
   [volumes.mount_]=_validate_mount
   [devices.device_]=_validate_mount
   [devices.cgroup_rule_]=_validate_cgroup_rule

@@ -2099,9 +2099,9 @@ EOF
   assert_output --partial "Invalid value"
 }
 
-@test "set rejects an invalid build_network (#560 schema unification)" {
+@test "set rejects an invalid build network (#560 schema unification)" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  run main set build.build_network carrier-pigeon --base-path "${TEMP_DIR}"
+  run main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
@@ -2113,9 +2113,9 @@ EOF
   assert_output --partial "Invalid value"
 }
 
-@test "set rejects an invalid network name (#560 schema unification)" {
+@test "set rejects an invalid network_name (#560 schema unification)" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  run main set network.name "-bad" --base-path "${TEMP_DIR}"
+  run main set network.network_name "-bad" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
