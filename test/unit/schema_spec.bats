@@ -177,3 +177,35 @@ _assert_schema() {
   local _expected="image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
   [ "${SCHEMA_SECTIONS[*]}" = "${_expected}" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_is_section — SCHEMA_SECTIONS membership predicate (#561)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_is_section accepts a registered section with typed keys (#561)" {
+  run _schema_is_section build
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_is_section accepts a free-form-only section (image) (#561)" {
+  run _schema_is_section image
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_is_section rejects an unknown section (#561)" {
+  run _schema_is_section nonsense
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_is_section rejects a per-service logging variant (#561)" {
+  # [logging.<svc>] is not a base section; its known-ness is the
+  # _setup_known_section special case, not this membership predicate.
+  run _schema_is_section logging.foo
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)" {
+  SCHEMA_SECTIONS+=(brandnew)
+  run _schema_is_section brandnew
+  [ "${status}" -eq 0 ]
+}
