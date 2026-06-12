@@ -201,6 +201,12 @@ setup() {
 
 @test "_logging_svc_local_path_mount: relative path resolves against base, mounts /var/log/<name>" {
   local _m=""
-  _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=./logs' ""
+  _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=logs' ""
   [ "${_m}" = "/tmp/lpbase/logs:/var/log/myrepo" ]
+}
+
+@test "_logging_svc_local_path_mount: absolute path passed verbatim (trailing slash stripped)" {
+  local _m=""
+  _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=/srv/logs/' ""
+  [ "${_m}" = "/srv/logs:/var/log/myrepo" ]
 }

@@ -2440,6 +2440,134 @@ _emit_gpu_deploy_block() {
 YAML
 }
 
+# _logging_svc_kv <svc> <out_assoc_name> <global_str> <per_svc_str>
+#
+# Resolve effective logging KV map for compose service <svc>:
+#   1. seed with global [logging] entries (`<global_str>`)
+#   2. overlay per-service [logging.<svc>] entries — key-level merge
+#
+# If both inputs are empty the map stays empty and the emitter
+# downstream skips the `logging:` block entirely (back-compat with
+# downstream repos that haven't adopted [logging] yet).
+_logging_svc_kv() {
+  local _svc="$1"
+  local -n _lkv="$2"
+  local _logging_global_str="${3-}"
+  local _logging_per_svc_str="${4-}"
+  _lkv=()
+  local _line _k _v
+  if [[ -n "${_logging_global_str}" ]]; then
+    while IFS= read -r _line; do
+      [[ -z "${_line}" ]] && continue
+      _k="${_line%%=*}"
+      _v="${_line#*=}"
+      _lkv["${_k}"]="${_v}"
+    done <<< "${_logging_global_str}"
+  fi
+  if [[ -n "${_logging_per_svc_str}" ]]; then
+    while IFS= read -r _line; do
+      [[ -z "${_line}" ]] && continue
+      [[ "${_line%%:*}" == "${_svc}" ]] || continue
+      _line="${_line#*:}"
+      _k="${_line%%=*}"
+      _v="${_line#*=}"
+      _lkv["${_k}"]="${_v}"
+    done <<< "${_logging_per_svc_str}"
+  fi
+}
+
+# _emit_logging_block <svc> <global_str> <per_svc_str>
+#
+# Emit compose `logging:` mapping for service <svc>. Maps four
+# setup.conf keys (driver / max_size / max_file / compress) to the
+# corresponding Docker compose option names (driver as scalar;
+# max-size / max-file / compress as `options:` sub-keys, dash-named
+# per Docker docs). The 5th key, `local_path`, is **not** a Docker
+# logging option -- it triggers a per-service volume bind via
+# `_logging_svc_local_path_mount` (emitted from each service's
+# `volumes:` block), so this function deliberately ignores it.
+# No-op when no docker-option key is set on this service.
+_emit_logging_block() {
+  local _svc="$1"
+  local _logging_global_str="${2-}"
+  local _logging_per_svc_str="${3-}"
+  local -A _kv=()
+  _logging_svc_kv "${_svc}" _kv "${_logging_global_str}" "${_logging_per_svc_str}"
+  local _have_opts=0 _k
+  for _k in driver max_size max_file compress; do
+    [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
+  done
+  (( _have_opts == 0 )) && return 0
+  echo "    logging:"
+  [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
+  local _opts=0
+  for _k in max_size max_file compress; do
+    [[ -n "${_kv[${_k}]:-}" ]] && _opts=1 && break
+  done
+  if (( _opts )); then
+    echo "      options:"
+    [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
+    [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
+    [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
+  fi
+  return 0
+}
+
+# _logging_svc_local_path_mount <svc> <out_var> <name> <base> <global> <per_svc>
+#
+# Resolves the effective `local_path` for service <svc> against the
+# repo base directory <base> and emits a compose volume mount string
+# `<host>:/var/log/<name>` (no leading indentation; caller decides
+# placement). Empty out when local_path is unset or empty.
+#
+# Path semantics (from #328):
+#   ./logs/     relative to repo root (<base>)
+#   /abs/path/  used verbatim
+#   ~/dir/      ~ expanded against $HOME
+#   (empty)     feature disabled, no mount
+#
+# The function also creates the host directory eagerly with
+# `mkdir -p` so the bind mount works on first `./run.sh` without
+# Docker silently creating a root-owned dir.
+_logging_svc_local_path_mount() {
+  local _svc="$1"
+  local -n _llp_out="$2"
+  local _name="${3-}"
+  local _setup_base="${4-}"
+  local _logging_global_str="${5-}"
+  local _logging_per_svc_str="${6-}"
+  _llp_out=""
+  local -A _kv=()
+  _logging_svc_kv "${_svc}" _kv "${_logging_global_str}" "${_logging_per_svc_str}"
+  local _raw="${_kv[local_path]:-}"
+  [[ -z "${_raw}" ]] && return 0
+  # ~ expansion at front only (not embedded — same restriction as
+  # POSIX sh). The pattern uses single-char literal match (\~) and
+  # case so shellcheck SC2088 doesn't flag it; we're matching the
+  # user's *literal* `~/foo` setup.conf value and rewriting it to
+  # ${HOME}/foo.
+  case "${_raw}" in
+    \~/*)
+      _raw="${HOME}/${_raw#\~/}" ;;
+    \~)
+      _raw="${HOME}" ;;
+  esac
+  # Strip trailing slashes for predictable mount string.
+  while [[ "${_raw}" == */ && "${_raw}" != "/" ]]; do
+    _raw="${_raw%/}"
+  done
+  # Relative -> resolve against repo root (the compose.yaml's directory).
+  if [[ "${_raw}" != /* ]]; then
+    _raw="${_setup_base%/}/${_raw}"
+  fi
+  # Create the dir eagerly so `docker run` doesn't auto-create it
+  # root-owned. Failure is non-fatal -- if the user's running setup
+  # without write perms to that dir, the eventual docker run will
+  # raise a clear error.
+  mkdir -p "${_raw}" 2>/dev/null || true
+  _llp_out="${_raw}:/var/log/${_name}"
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -2470,140 +2598,6 @@ generate_compose_yaml() {
   local _logging_per_svc_str="${27:-}"
   local _restart="${28:-no}"
   local _dri_groups_str="${29:-}"
-
-  # _logging_svc_kv <svc> <out_assoc_name>
-  #
-  # Resolve effective logging KV map for compose service <svc>:
-  #   1. seed with global [logging] entries (`_logging_global_str`)
-  #   2. overlay per-service [logging.<svc>] entries — key-level merge
-  #
-  # If both inputs are empty the map stays empty and the emitter
-  # downstream skips the `logging:` block entirely (back-compat with
-  # downstream repos that haven't adopted [logging] yet).
-  _logging_svc_kv() {
-    local _svc="$1"
-    local -n _lkv="$2"
-    _lkv=()
-    local _line _k _v
-    if [[ -n "${_logging_global_str}" ]]; then
-      while IFS= read -r _line; do
-        [[ -z "${_line}" ]] && continue
-        _k="${_line%%=*}"
-        _v="${_line#*=}"
-        _lkv["${_k}"]="${_v}"
-      done <<< "${_logging_global_str}"
-    fi
-    if [[ -n "${_logging_per_svc_str}" ]]; then
-      while IFS= read -r _line; do
-        [[ -z "${_line}" ]] && continue
-        [[ "${_line%%:*}" == "${_svc}" ]] || continue
-        _line="${_line#*:}"
-        _k="${_line%%=*}"
-        _v="${_line#*=}"
-        _lkv["${_k}"]="${_v}"
-      done <<< "${_logging_per_svc_str}"
-    fi
-  }
-
-  # _emit_logging_block <svc>
-  #
-  # Emit compose `logging:` mapping for service <svc>. Maps four
-  # setup.conf keys (driver / max_size / max_file / compress) to the
-  # corresponding Docker compose option names (driver as scalar;
-  # max-size / max-file / compress as `options:` sub-keys, dash-named
-  # per Docker docs). The 5th key, `local_path`, is **not** a Docker
-  # logging option -- it triggers a per-service volume bind via
-  # `_logging_svc_local_path_mount` (emitted from each service's
-  # `volumes:` block), so this function deliberately ignores it.
-  # No-op when no docker-option key is set on this service.
-  _emit_logging_block() {
-    local _svc="$1"
-    local -A _kv=()
-    _logging_svc_kv "${_svc}" _kv
-    local _have_opts=0 _k
-    for _k in driver max_size max_file compress; do
-      [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
-    done
-    (( _have_opts == 0 )) && return 0
-    echo "    logging:"
-    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
-    local _opts=0
-    for _k in max_size max_file compress; do
-      [[ -n "${_kv[${_k}]:-}" ]] && _opts=1 && break
-    done
-    if (( _opts )); then
-      echo "      options:"
-      [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
-      [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
-      [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
-    fi
-    return 0
-  }
-
-  # _logging_svc_local_path_mount <svc> <out_var>
-  #
-  # Resolves the effective `local_path` for service <svc> against the
-  # repo base directory and emits a compose volume mount string
-  # `<host>:/var/log/<repo>` (no leading indentation; caller decides
-  # placement). Empty out when local_path is unset or empty.
-  #
-  # Path semantics (from #328):
-  #   ./logs/     relative to repo root (dirname of generated compose.yaml)
-  #   /abs/path/  used verbatim
-  #   ~/dir/      ~ expanded against $HOME
-  #   (empty)     feature disabled, no mount
-  #
-  # The function also creates the host directory eagerly with
-  # `mkdir -p` so the bind mount works on first `./run.sh` without
-  # Docker silently creating a root-owned dir.
-  _logging_svc_local_path_mount() {
-    local _svc="$1"
-    local -n _llp_out="$2"
-    _llp_out=""
-    local -A _kv=()
-    _logging_svc_kv "${_svc}" _kv
-    local _raw="${_kv[local_path]:-}"
-    [[ -z "${_raw}" ]] && return 0
-    # ~ expansion at front only (not embedded — same restriction as
-    # POSIX sh). The pattern uses single-char literal match (\~) and
-    # case so shellcheck SC2088 doesn't flag it; we're matching the
-    # user's *literal* `~/foo` setup.conf value and rewriting it to
-    # ${HOME}/foo.
-    case "${_raw}" in
-      \~/*)
-        _raw="${HOME}/${_raw#\~/}" ;;
-      \~)
-        _raw="${HOME}" ;;
-    esac
-    # Strip trailing slashes for predictable mount string.
-    while [[ "${_raw}" == */ && "${_raw}" != "/" ]]; do
-      _raw="${_raw%/}"
-    done
-    # Relative -> resolve against repo root (the compose.yaml's
-    # directory, captured earlier in generate_compose_yaml as
-    # _setup_base).
-    if [[ "${_raw}" != /* ]]; then
-      _raw="${_setup_base%/}/${_raw}"
-    fi
-    # Create the dir eagerly so `docker run` doesn't auto-create it
-    # root-owned. Failure is non-fatal -- if the user's running setup
-    # without write perms to that dir, the eventual docker run will
-    # raise a clear error.
-    mkdir -p "${_raw}" 2>/dev/null || true
-    _llp_out="${_raw}:/var/log/${_name}"
-  }
-
-  # _emit_logging_local_path_volume <svc>
-  #
-  # Prints a single compose volume line if service <svc> resolves a
-  # non-empty `local_path`. Indentation matches the surrounding
-  # `volumes:` block (6 spaces, list-item dash, then the resolved
-  # mount string).
-  _emit_logging_local_path_volume() {
-    local _mount=""
-    _logging_svc_local_path_mount "$1" _mount
-    [[ -z "${_mount}" ]] || echo "      - ${_mount}"
-  }
 
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
@@ -2765,7 +2759,7 @@ YAML
     # this variable, but the env block needs to know about the mount
     # too, so we compute once and share.
     local _devel_llp=""
-    _logging_svc_local_path_mount devel _devel_llp
+    _logging_svc_local_path_mount devel _devel_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
     local _devel_log_file=""
     [[ -n "${_devel_llp}" ]] && _devel_log_file="/var/log/${_name}/devel.log"
     if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]]; then
@@ -2860,7 +2854,7 @@ YAML
       echo "    shm_size: ${_shm_size}"
     fi
     _emit_gpu_deploy_block "${_gpu}" "${_gpu_count}" "${_caps_yaml}"
-    _emit_logging_block devel
+    _emit_logging_block devel "${_logging_global_str}" "${_logging_per_svc_str}"
 
     # Auto-emit a service per non-baseline stage parsed from the
     # Dockerfile (#215). Each service:
@@ -2960,7 +2954,7 @@ YAML
         # identical bind strings (#367 Option A: emit uniformly on
         # every service block, no extends-relationship detection).
         local _stage_llp=""
-        _logging_svc_local_path_mount "${_svc}" _stage_llp
+        _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
         if [[ -n "${_stage_llp}" ]]; then
           echo "    environment:"
           echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
@@ -2974,7 +2968,7 @@ YAML
         # only when the stage actually diverges from devel.
         if [[ -n "${_logging_per_svc_str}" ]] && \
            grep -qE "^${_svc}:" <<< "${_logging_per_svc_str}"; then
-          _emit_logging_block "${_svc}"
+          _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
         fi
         continue
       fi
@@ -3129,7 +3123,7 @@ YAML
       # environment: GUI baseline (effective gui) + effective env list
       # + #328 LOG_FILE_PATH for the per-stage tee target.
       local _stage_llp=""
-      _logging_svc_local_path_mount "${_svc}" _stage_llp
+      _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
       local _stage_log_file=""
       [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
       if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
@@ -3229,7 +3223,7 @@ YAML
       # logging block when [logging] or [logging.<stage>] is set.
       # Keyed by the service name (`_svc`) so devel-test's logging stays
       # under [logging.test] (#493).
-      _emit_logging_block "${_svc}"
+      _emit_logging_block "${_svc}" "${_logging_global_str}" "${_logging_per_svc_str}"
     done
 
     # #493 (A1'-b): the `test` service is no longer a hardcoded bare
