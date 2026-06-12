@@ -69,6 +69,24 @@ declare -gA SCHEMA_VALIDATOR=(
   [security.cap_drop_]=_validate_capability
 )
 
+# ════════════════════════════════════════════════════════════════════
+# SCHEMA_SECTIONS — the ordered list of setup.conf sections (#561).
+#
+# Single source for "which sections exist, in what order" (the order
+# matches the setup.conf template headers). Consumers derive from this
+# instead of hand-maintaining parallel section lists:
+#   - setup.sh's _setup_known_section (via _schema_is_section)
+#   - the TUI menu dispatch + CLI subcommand recognition
+# so adding a section here makes it known/dispatchable without editing
+# those call sites. Note some sections (image / gui / tmpfs) carry only
+# free-form keys and so have no SCHEMA_VALIDATOR rows; the list is kept
+# explicit rather than derived from the validator map so those sections
+# are not dropped.
+declare -ga SCHEMA_SECTIONS=(
+  image build deploy lifecycle gui network security resources
+  environment tmpfs devices volumes additional_contexts logging
+)
+
 # SCHEMA_EMPTY records the per-key empty-value policy. Default (a key
 # absent from this map) is "allow": an empty value clears the key and is
 # always accepted. The exception is keys whose validator rejects empty by
@@ -77,6 +95,45 @@ declare -gA SCHEMA_VALIDATOR=(
 declare -gA SCHEMA_EMPTY=(
   [deploy.gpu_count]=validate
 )
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_is_section <section>
+#
+# Returns 0 when <section> is one of the SCHEMA_SECTIONS, 1 otherwise.
+# The single membership predicate consumers (setup.sh's
+# _setup_known_section, the TUI dispatch) route through so the section
+# list is not duplicated. Per-service [logging.<svc>] variants are NOT
+# sections here -- that special case lives in _setup_known_section.
+# ════════════════════════════════════════════════════════════════════
+_schema_is_section() {
+  local _s="${1-}"
+  local _sec
+  for _sec in "${SCHEMA_SECTIONS[@]}"; do
+    [[ "${_sec}" == "${_s}" ]] && return 0
+  done
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_section_keys <section> <outarray>
+#
+# Fills <outarray> with the registered key parts for <section>, derived
+# from SCHEMA_VALIDATOR by canonical-key prefix. A scalar canonical key
+# "<section>.<key>" yields "<key>"; a list key "<section>.<prefix>_"
+# yields "<prefix>_" (trailing underscore kept). Free-form-only sections
+# (image / gui / tmpfs) yield an empty array. Order is unspecified
+# (associative-array iteration) -- callers that need a stable order sort.
+# ════════════════════════════════════════════════════════════════════
+_schema_section_keys() {
+  local _section="${1-}"
+  local -n _ssk_out="${2:?_schema_section_keys: missing out var}"
+  _ssk_out=()
+  local _canon
+  for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
+    [[ "${_canon}" == "${_section}."* ]] && _ssk_out+=("${_canon#"${_section}".}")
+  done
+  return 0
+}
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_canonical_key <section> <key> <out_canon>

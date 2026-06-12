@@ -164,3 +164,80 @@ _assert_schema() {
   _assert_schema security security_opt_1 "anything goes" ok
   _assert_schema image rule_1 "whatever" ok
 }
+
+# ════════════════════════════════════════════════════════════════════
+# SCHEMA_SECTIONS — ordered section list (#561, epic #559)
+#
+# Single source for "which sections exist, in what order". setup.sh's
+# _setup_known_section and the TUI dispatch derive from it so adding a
+# section here makes it known/dispatchable without hand-editing them.
+# ════════════════════════════════════════════════════════════════════
+
+@test "SCHEMA_SECTIONS lists every setup.conf section in file order (#561)" {
+  local _expected="image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
+  [ "${SCHEMA_SECTIONS[*]}" = "${_expected}" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_is_section — SCHEMA_SECTIONS membership predicate (#561)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_is_section accepts a registered section with typed keys (#561)" {
+  run _schema_is_section build
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_is_section accepts a free-form-only section (image) (#561)" {
+  run _schema_is_section image
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_is_section rejects an unknown section (#561)" {
+  run _schema_is_section nonsense
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_is_section rejects a per-service logging variant (#561)" {
+  # [logging.<svc>] is not a base section; its known-ness is the
+  # _setup_known_section special case, not this membership predicate.
+  run _schema_is_section logging.foo
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)" {
+  SCHEMA_SECTIONS+=(brandnew)
+  run _schema_is_section brandnew
+  [ "${status}" -eq 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_section_keys <section> <outarray> — registered keys per
+# section, derived from SCHEMA_VALIDATOR by canonical-key prefix (#561).
+# Order is unspecified (assoc-array iteration), so tests sort.
+# ════════════════════════════════════════════════════════════════════
+
+# _sorted_keys <section> -> echoes the section's keys, sorted, space-joined.
+_sorted_keys() {
+  local -a _k=()
+  _schema_section_keys "${1}" _k
+  (( ${#_k[@]} == 0 )) && return 0
+  printf '%s\n' "${_k[@]}" | sort | tr '\n' ' '
+}
+
+@test "_schema_section_keys returns scalar+list keys for build (#561)" {
+  [ "$(_sorted_keys build)" = "arg_ network target_arch " ]
+}
+
+@test "_schema_section_keys returns all logging keys (#561)" {
+  [ "$(_sorted_keys logging)" = "compress driver local_path max_file max_size " ]
+}
+
+@test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {
+  [ "$(_sorted_keys deploy)" = "gpu_count gpu_runtime runtime " ]
+}
+
+@test "_schema_section_keys is empty for a free-form-only section (image) (#561)" {
+  local -a _k=()
+  _schema_section_keys image _k
+  [ "${#_k[@]}" -eq 0 ]
+}

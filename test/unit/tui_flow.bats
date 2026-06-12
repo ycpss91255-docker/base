@@ -180,6 +180,30 @@ EOF
   assert_success
 }
 
+@test "_tui_known_subcommand accepts every SCHEMA_SECTIONS member (#561)" {
+  local _s
+  for _s in "${SCHEMA_SECTIONS[@]}"; do
+    run _tui_known_subcommand "${_s}"
+    [ "${status}" -eq 0 ]
+  done
+}
+
+@test "_tui_known_subcommand accepts the ports pseudo-section (#561)" {
+  run _tui_known_subcommand ports
+  [ "${status}" -eq 0 ]
+}
+
+@test "_tui_known_subcommand rejects an unknown argument (#561)" {
+  run _tui_known_subcommand bogus
+  [ "${status}" -ne 0 ]
+}
+
+@test "_tui_known_subcommand derives from SCHEMA_SECTIONS (single source) (#561)" {
+  SCHEMA_SECTIONS+=(brandnew)
+  run _tui_known_subcommand brandnew
+  [ "${status}" -eq 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _edit_image_rule (#177 regression site)
 #
