@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1729 tests** total (1655 unit + 74 integration).
+Template self-tests: **1758 tests** total (1684 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -73,7 +73,33 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (363)
+### test/unit/schema_spec.bats (14)
+
+Covers the setup.conf validation registry (`lib/schema.sh`, #560): the
+single `_schema_validate <section> <key> <value>` gate that both
+setup.sh (`set` / `add`) and the TUI route through. Verifies registry
+dispatch (scalar exact-match + numbered-list prefix normalisation),
+per-service `[logging.<svc>]` section normalisation, the empty-value
+policy (default allow / clear; `deploy.gpu_count` rejects empty), and
+the full union of validated keys -- including the keys that were
+historically free-form in setup.sh (`build.network` / `build.arg_` /
+`deploy.gpu_runtime` + `runtime` alias / `network.network_name` /
+`devices.device_` / `security.cap_add_` / `cap_drop_`).
+
+| Test | Description |
+|------|-------------|
+| `routes network.port_N to _validate_port_mapping (accept/reject)` | list prefix dispatch |
+| `routes deploy.gpu_count to _validate_gpu_count (accept/reject)` | scalar dispatch |
+| `rejects empty deploy.gpu_count (empty policy = validate)` | empty exception |
+| `routes logging.driver to _validate_log_driver (accept/reject)` | logging scalar |
+| `allows empty logging.driver (empty policy = allow)` | empty default |
+| `normalises logging.<svc> to the logging key set (accept/reject)` | per-service section |
+| `accepts every registered key's valid sample` | union coverage (accept) |
+| `rejects every registered key's invalid sample` | union coverage (reject) |
+| `allows empty (clear) for every list + clearable scalar key` | clear-key semantics |
+| `accepts free-form (unregistered) keys` | default-accept |
+
+### test/unit/setup_spec.bats (369)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
@@ -163,7 +189,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 | whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
-### test/unit/tui_flow.bats (100)
+### test/unit/tui_flow.bats (101)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
