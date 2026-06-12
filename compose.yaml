@@ -25,8 +25,9 @@ services:
   # socket mounted so test/behavioural/*.bats can drive
   # `docker buildx build --target runtime-test ...` against synthesized
   # fixtures and assert build pass/fail. Opt-in: never invoked by the
-  # default `make test` flow. Local users run via `make
-  # test-behavioural`; CI runs via a dedicated Behavioural Test job
+  # default `just -f justfile.ci test` flow. Local users run via
+  # `just -f justfile.ci test-behavioural`; CI runs via a dedicated
+  # Behavioural Test job
   # in self-test.yaml. The dedicated buildx builder (template-behavioural)
   # is created/pruned per ci.sh --behavioural run so this service does
   # NOT pollute the host's default buildx context or shared image cache.

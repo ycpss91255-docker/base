@@ -77,7 +77,7 @@ usage() {
 選項:
   -h, --help     顯示此說明
   -C, --chdir DIR
-                 對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
+                 對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C。
                  須在其他選項與 TARGET 之前指定。
   -s, --setup    強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
                  預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
@@ -116,7 +116,7 @@ EOF
 选项:
   -h, --help     显示此说明
   -C, --chdir DIR
-                 对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
+                 对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C。
                  须在其他选项与 TARGET 之前指定。
   -s, --setup    强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
                  默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
@@ -156,7 +156,7 @@ EOF
   -h, --help     このヘルプを表示
   -C, --chdir DIR
                  DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
-                 git -C / make -C と同様。他のオプションや TARGET より前に指定。
+                 git -C と同様。他のオプションや TARGET より前に指定。
   -s, --setup    setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外は
                  非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
                  / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
@@ -199,7 +199,7 @@ Options:
   -h, --help     Show this help
   -C, --chdir DIR
                  Operate on the repo at DIR without changing the caller's cwd.
-                 Mirrors git -C / make -C. Must come before other options and
+                 Mirrors git -C. Must come before other options and
                  the TARGET.
   -s, --setup    Force rerun setup.sh (opens the TUI on an interactive TTY,
                  otherwise non-interactive apply). Default (no flag):

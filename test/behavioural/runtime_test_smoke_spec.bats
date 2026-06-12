@@ -20,7 +20,7 @@
 
 setup_file() {
   if [[ ! -S /var/run/docker.sock ]]; then
-    skip "behavioural test: /var/run/docker.sock not mounted (run via 'make test-behavioural')"
+    skip "behavioural test: /var/run/docker.sock not mounted (run via 'just -f justfile.ci test-behavioural')"
   fi
   if ! command -v docker >/dev/null 2>&1; then
     skip "behavioural test: docker CLI not present (test-tools < v0.23.2)"

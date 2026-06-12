@@ -1,8 +1,8 @@
 # TEST.md
 
-Template self-tests: **1727 tests** total (1653 unit + 74 integration).
+Template self-tests: **1729 tests** total (1655 unit + 74 integration).
 
-> Counted scope is the `make -f Makefile.ci test` self-test suite —
+> Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
@@ -896,7 +896,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (143)
+### test/unit/template_spec.bats (145)
 
 | Test | Description |
 |------|-------------|
@@ -907,12 +907,14 @@ the host file content and the inherited stdout (preserving
 | `setup.sh exists and is executable` | File check |
 | `ci.sh exists and is executable` | File check |
 | `ci.sh uses set -euo pipefail` | Shell convention |
-| `Makefile.ci exists (template CI)` | File check |
-| `Makefile.ci has test target` | Makefile target |
-| `Makefile.ci has lint target` | Makefile target |
-| `Makefile.ci has upgrade target` | Makefile target |
-| `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
-| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on Makefile.ci |
+| `justfile.ci exists (template CI gate)` | File check |
+| `Makefile.ci no longer exists (retired for justfile.ci)` | File absence (single runner) |
+| `justfile.ci has test recipe` | just recipe |
+| `justfile.ci has lint recipe` | just recipe |
+| `justfile.ci has coverage recipe` | just recipe |
+| `justfile.ci upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
+| `justfile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.ci |
+| `Dockerfile.test-tools no longer installs make (single runner: just)` | dead make dependency removed |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -1448,8 +1450,8 @@ in `template_spec.bats`. Issue #249.
 
 Excluded from the `1080` self-test total because they require host
 docker access (mounted via the `ci-behavioural` compose service)
-which the default `ci` service does NOT provide. Run with `make
--f Makefile.ci test-behavioural` locally, or via the dedicated
+which the default `ci` service does NOT provide. Run with `just
+-f justfile.ci test-behavioural` locally, or via the dedicated
 `Behavioural Test` job in `self-test.yaml` on CI. Each test
 invokes one `docker buildx build` (~5-15s amd64, ~30-60s arm64
 QEMU); the dedicated `template-behavioural` buildx builder
@@ -1473,7 +1475,7 @@ Shared specs that ship with `template/test/smoke/` and run at Dockerfile
 repo and every downstream repo that consumes the template. They assert
 the integrity of the generated `compose.yaml` + the wrapper scripts'
 `-h` / `--help` paths. **Not** part of the 935-test self-test count
-(those run via `make -f Makefile.ci test` and never enter the build
+(those run via `just -f justfile.ci test` and never enter the build
 graph).
 
 How they reach downstream repos: each `Dockerfile`'s `test` stage does

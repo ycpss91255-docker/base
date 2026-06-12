@@ -68,7 +68,7 @@ usage() {
 
 選項:
   -h, --help        顯示此說明
-  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
+  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C。
                     須在 CMD 之前指定。
   -t, --target T    服務名稱（預設: devel）
   --instance NAME   進入命名 instance（預設為 default instance）
@@ -108,7 +108,7 @@ EOF
 
 选项:
   -h, --help        显示此说明
-  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
+  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C。
                     须在 CMD 之前指定。
   -t, --target T    服务名称（默认: devel）
   --instance NAME   进入命名 instance（默认为 default instance）
@@ -149,7 +149,7 @@ EOF
 オプション:
   -h, --help        このヘルプを表示
   -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
-                    git -C / make -C と同様。CMD の前に指定。
+                    git -C と同様。CMD の前に指定。
   -t, --target T    サービス名（デフォルト: devel）
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
@@ -190,7 +190,7 @@ Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run]
 Options:
   -h, --help        Show this help
   -C, --chdir DIR   Operate on the repo at DIR without changing the caller's
-                    cwd. Mirrors git -C / make -C. Must come before the CMD.
+                    cwd. Mirrors git -C. Must come before the CMD.
   -t, --target T    Service name (default: devel)
   --instance NAME   Enter a named instance (default: default instance)
   --lang LANG       Set message language (default: en)

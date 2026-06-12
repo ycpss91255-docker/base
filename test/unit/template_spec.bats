@@ -35,7 +35,7 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Structure: ci.sh and Makefile exist
+# Structure: ci.sh and justfile.ci exist
 # ════════════════════════════════════════════════════════════════════
 
 @test "ci.sh exists and is executable" {
@@ -48,43 +48,50 @@ setup() {
   assert_success
 }
 
-# #546: the container-ops Makefile is retired for `just`; its existence /
-# build-target / upgrade-path checks moved to justfile_spec.bats (static)
-# + justfile_user_spec.bats (executable). Makefile.ci (CI entry) stays.
+# The container-ops Makefile was retired for `just`; its existence /
+# build-target / upgrade-path checks live in justfile_spec.bats (static)
+# + justfile_user_spec.bats (executable). The base-only CI gate
+# `Makefile.ci` is likewise retired for `justfile.ci`, so the repo
+# carries a single runner (just); `just -f justfile.ci <recipe>` mirrors
+# the former `make -f Makefile.ci <target>`.
 
-@test "Makefile.ci exists (template CI)" {
-  assert [ -f /source/Makefile.ci ]
+@test "justfile.ci exists (template CI gate)" {
+  assert [ -f /source/justfile.ci ]
 }
 
-@test "Makefile.ci has test target" {
-  run grep -E '^test:' /source/Makefile.ci
+@test "Makefile.ci no longer exists (retired for justfile.ci)" {
+  assert [ ! -e /source/Makefile.ci ]
+}
+
+@test "justfile.ci has test recipe" {
+  run grep -E '^test:' /source/justfile.ci
   assert_success
 }
 
-@test "Makefile.ci has lint target" {
-  run grep -E '^lint:' /source/Makefile.ci
+@test "justfile.ci has lint recipe" {
+  run grep -E '^lint:' /source/justfile.ci
   assert_success
 }
 
-@test "Makefile.ci has upgrade target" {
-  run grep -E '^upgrade:' /source/Makefile.ci
+@test "justfile.ci has coverage recipe" {
+  run grep -E '^coverage:' /source/justfile.ci
   assert_success
 }
 
-@test "Makefile.ci upgrade target forwards optional VERSION variable" {
-  # `make -f Makefile.ci upgrade [VERSION=vX.Y.Z]` is the documented entry
-  # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
-  # VERSION resolves to "latest" and a set VERSION pins a specific tag.
-  run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
+@test "justfile.ci upgrade recipe forwards {{args}} to ./upgrade.sh" {
+  # `just -f justfile.ci upgrade [vX.Y.Z]` is the documented entry point.
+  # The recipe forwards {{args}} to ./upgrade.sh so an empty arg resolves
+  # to "latest" and a set arg pins a specific tag -- no VAR=VALUE token,
+  # which is the whole point of moving off make.
+  run grep -F './upgrade.sh {{args}}' /source/justfile.ci
   assert_success
 }
 
-@test "Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Same wrap as the downstream Makefile (regression #175). Template's
-  # own `make -f Makefile.ci upgrade-check` was failing on every release
-  # cycle when upstream/downstream diverged.
-  run grep -E '\./upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
-      /source/Makefile.ci
+@test "justfile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)" {
+  # Same wrap as the downstream justfile (regression #175): the runner
+  # must not mistake exit 1 (update available) for a real error.
+  run grep -E '\./upgrade\.sh --check \|\| \[ \$\? -eq 1 \]' \
+      /source/justfile.ci
   assert_success
 }
 
@@ -464,12 +471,19 @@ EOF
   assert_success
 }
 
-@test "Dockerfile.test-tools installs just (#546: justfile entry-point execution in CI)" {
-  # #546 retires the Makefile for `just`; the test-tools image must carry
-  # `just` so justfile_user_spec / upgrade-check can exercise the entry
-  # point for real (mirroring the old executable Makefile tests).
+@test "Dockerfile.test-tools installs just (justfile entry-point execution in CI)" {
+  # The test-tools image must carry `just` so justfile_user_spec /
+  # upgrade-check can exercise the entry point for real.
   run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
   assert_success
+}
+
+@test "Dockerfile.test-tools no longer installs make (single runner: just)" {
+  # make was retired with Makefile.ci; the integration tests now exercise
+  # the downstream justfile (`just upgrade-check`), so the dead make
+  # dependency must not creep back into the image.
+  run grep -E 'apk add .*\bmake\b' /source/dockerfile/Dockerfile.test-tools
+  assert_failure
 }
 
 @test "Dockerfile.test-tools declares ARG TARGETARCH" {
