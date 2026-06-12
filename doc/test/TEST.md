@@ -1224,12 +1224,14 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/unit/conf_accessor_spec.bats (3)
+### test/unit/conf_accessor_spec.bats (5)
 
-Unit tests for the `conf.sh` opaque accessor interface (#564): `_conf_load`
+Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
-with an optional default, `_conf_sections` lists section names, and `_conf_list`
-lists a section's keys -- all without callers touching the internal
+with an optional default, `_conf_sections` lists section names, `_conf_list`
+lists a section's keys, `_conf_load_merged` loads a template+repo section-replace
+merge into a handle, and `_conf_list_sorted` returns `prefix_N` values in numeric
+order (skipping empties) -- all without callers touching the internal
 parallel-array representation or the `<section>.<key>` namespacing rule.
 
 ### test/unit/gitignore_spec.bats (26)
