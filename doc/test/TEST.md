@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1465 tests** total (1391 unit + 74 integration).
+Template self-tests: **1729 tests** total (1655 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -677,6 +677,44 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | `declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
 | `recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
 | `default recipe lists recipes (replaces make help)` | `default: @just --list` |
+
+### test/unit/compose_emitter_spec.bats (27)
+
+Covers the per-service compose emitter (`_emit_stage_service`) and its
+shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
+(#566). Each emitter is exercised in isolation -- build the inputs, call
+the emitter, assert on the small fragment it returns -- instead of
+running the whole ~900-line generator and grepping its YAML output.
+
+| Test | Description |
+|------|-------------|
+| `_emit_gpu_deploy_block: gui=false emits nothing` | GPU off |
+| `_emit_gpu_deploy_block: gui=true emits deploy reservation with count + caps` | GPU on |
+| `_emit_caps_block: all empty emits nothing` | caps off |
+| `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
+| `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
+| `_emit_env_file_block: emits the .env workload overlay block` | #502 env_file |
+| `_emit_target_arch_line: empty omits; set emits literal TARGET_ARCH ref` | TARGETARCH |
+| `_emit_build_network_line: empty omits; set emits network line` | build.network |
+| `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
+| `_emit_restart_line: 'no' omits; plain value plain; on-failure:N quoted` | #478 restart |
+| `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
+| `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
+| `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
+| `_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids` | #496 group_add |
+| `_emit_user_build_args: empty omits; entries emit KEY: ${KEY} pairs` | build args |
+| `_logging_svc_kv: seeds from global then overlays per-service` | logging merge |
+| `_logging_svc_kv: a different service does not pick up another svc overlay` | svc keying |
+| `_emit_logging_block: empty global + per-svc emits nothing` | logging off |
+| `_emit_logging_block: driver + rotation maps to compose options block` | logging opts |
+| `_emit_logging_block: keys off the service name for per-svc overrides` | per-svc |
+| `_logging_svc_local_path_mount: empty local_path yields empty mount` | #328 off |
+| `_logging_svc_local_path_mount: relative path resolves against base` | rel path |
+| `_logging_svc_local_path_mount: absolute path passed verbatim` | abs path |
+| `_emit_stage_service: zero-diff stage emits the extends:devel shape` | #215 zero-diff |
+| `_emit_stage_service: zero-diff stage with per-svc logging override emits logging block` | zero-diff logging |
+| `_emit_stage_service: stage with overrides emits a standalone block (no extends)` | #220 standalone |
+| `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 
 ### test/unit/compose_gen_spec.bats (85)
 
