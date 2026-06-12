@@ -26,6 +26,8 @@ source "${_lib_dir}/env.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/conf.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/schema.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/conf_logging.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/compose.sh"

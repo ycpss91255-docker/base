@@ -3624,114 +3624,21 @@ _setup_known_section() {
 # ════════════════════════════════════════════════════════════════════
 # _setup_validate_kv <section> <key> <value>
 #
-# For typed keys with a matching validator in `_tui_conf.sh`, runs
-# the validator and returns its exit code. Free-form keys (everything
-# not in the typed list) accept any value (returns 0).
+# Thin adapter over the shared validation registry (#560). The accept /
+# reject decision for every typed key now lives in lib/schema.sh's
+# `_schema_validate`, which both this `set` / `add` path AND the TUI
+# route through -- so the two can no longer drift. Free-form keys (not in
+# the registry) accept any value; empty-value (clear-key) semantics and
+# per-service [logging.<svc>] normalisation are handled there.
 #
-# Empty values are allowed (writes through `_upsert_conf_value` so the
-# user can clear an opt-in key). The exception is keys whose validator
-# rejects empty by design (gpu_count / mount_* / cgroup_rule_* /
-# port_* / env_*); we delegate to the validator for those.
+# Note: this unifies the rule set. Keys the TUI already validated but
+# setup.sh historically accepted (build.target_arch / build.build_network
+# / deploy.gpu_runtime + legacy runtime alias / network.name /
+# devices.device_* / security.cap_add_* / cap_drop_*) are now rejected by
+# `set` / `add` too.
 # ════════════════════════════════════════════════════════════════════
 _setup_validate_kv() {
-  local _section="${1-}"
-  local _key="${2-}"
-  local _value="${3-}"
-
-  # Empty values: allowed (clear-key semantics) for free-form keys; for
-  # typed keys, fall through to the validator which decides.
-  case "${_section}.${_key}" in
-    deploy.gpu_count)
-      _validate_gpu_count "${_value}" ;;
-    resources.shm_size)
-      # Empty is meaningful (= "use compose default"); only validate
-      # non-empty values.
-      [[ -z "${_value}" ]] && return 0
-      _validate_shm_size "${_value}" ;;
-    lifecycle.restart)
-      # #478: 5 canonical docker restart policies. Empty allowed (= clear
-      # key, falls back to template default `no`).
-      [[ -z "${_value}" ]] && return 0
-      _validate_restart "${_value}" ;;
-    *)
-      # [logging] + [logging.<svc>] share the same key validators —
-      # docker daemon's `logging.driver` + `logging.options.*` shape.
-      # Empty allowed = "clear key, fall through to template default".
-      case "${_section}" in
-        logging|logging.*)
-          case "${_key}" in
-            driver)
-              [[ -z "${_value}" ]] && return 0
-              _validate_log_driver "${_value}"
-              return $? ;;
-            max_size)
-              [[ -z "${_value}" ]] && return 0
-              _validate_log_max_size "${_value}"
-              return $? ;;
-            max_file)
-              [[ -z "${_value}" ]] && return 0
-              _validate_log_max_file "${_value}"
-              return $? ;;
-            compress)
-              [[ -z "${_value}" ]] && return 0
-              _validate_log_compress "${_value}"
-              return $? ;;
-            local_path)
-              [[ -z "${_value}" ]] && return 0
-              _validate_log_local_path "${_value}"
-              return $? ;;
-            *)
-              return 0 ;;
-          esac
-          ;;
-      esac
-      case "${_section}" in
-        volumes)
-          if [[ "${_key}" == mount_* ]]; then
-            # Empty mount_N is the documented opt-out; don't reject it.
-            [[ -z "${_value}" ]] && return 0
-            _validate_mount "${_value}"
-          else
-            return 0
-          fi
-          ;;
-        devices)
-          if [[ "${_key}" == cgroup_rule_* ]]; then
-            [[ -z "${_value}" ]] && return 0
-            _validate_cgroup_rule "${_value}"
-          else
-            return 0
-          fi
-          ;;
-        environment)
-          if [[ "${_key}" == env_* ]]; then
-            [[ -z "${_value}" ]] && return 0
-            _validate_env_kv "${_value}"
-          else
-            return 0
-          fi
-          ;;
-        network)
-          if [[ "${_key}" == port_* ]]; then
-            [[ -z "${_value}" ]] && return 0
-            _validate_port_mapping "${_value}"
-          else
-            return 0
-          fi
-          ;;
-        additional_contexts)
-          if [[ "${_key}" == context_* ]]; then
-            [[ -z "${_value}" ]] && return 0
-            _validate_additional_context "${_value}"
-          else
-            return 0
-          fi
-          ;;
-        *)
-          return 0 ;;
-      esac
-      ;;
-  esac
+  _schema_validate "${1-}" "${2-}" "${3-}"
 }
 
 # ════════════════════════════════════════════════════════════════════
