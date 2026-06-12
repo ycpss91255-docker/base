@@ -44,6 +44,7 @@ unset _schema_dir
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_VALIDATOR=(
   [deploy.gpu_count]=_validate_gpu_count
+  [logging.driver]=_validate_log_driver
   [network.port_]=_validate_port_mapping
 )
 
