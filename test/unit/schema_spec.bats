@@ -31,3 +31,22 @@ setup() {
   run _schema_validate network port_1 "not-a-port"
   [ "${status}" -ne 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_validate — scalar keys (exact match) + empty-value policy
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_validate routes deploy.gpu_count to _validate_gpu_count (accept)" {
+  run _schema_validate deploy gpu_count "all"
+  [ "${status}" -eq 0 ]
+}
+
+@test "_schema_validate routes deploy.gpu_count to _validate_gpu_count (reject)" {
+  run _schema_validate deploy gpu_count "-1"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_schema_validate rejects empty deploy.gpu_count (empty policy = validate)" {
+  run _schema_validate deploy gpu_count ""
+  [ "${status}" -ne 0 ]
+}
