@@ -5054,3 +5054,91 @@ EOC
   "
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _reconcile_workspace_path (#569) — the WS_PATH / mount_1 reconciliation
+# state machine extracted from _setup_apply into a testable seam. The 4
+# (+empty) branches become direct unit tests instead of being reachable
+# only through a full apply. detect_ws_path is deterministic here: with no
+# *_ws sibling on the fixture path it falls back to dirname(base_path).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_reconcile_workspace_path: portable form detects WS_PATH locally, mount_1 untouched (#569)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}/config/docker"
+  # shellcheck disable=SC2016  # literal ${WS_PATH} is the portable form stored in setup.conf
+  printf '[volumes]\nmount_1 = ${WS_PATH}:/home/${USER_NAME}/work\n' \
+    > "${_base}/config/docker/setup.conf"
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_base}" "volumes" _vk _vv
+  local _ws=""
+  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  # detect_ws_path fallback = dirname(base) = TEMP_DIR.
+  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+  # mount_1 stays the portable form (no rewrite).
+  run cat "${_base}/config/docker/setup.conf"
+  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+}
+
+@test "_reconcile_workspace_path: absolute existing host path is honored as WS_PATH (#569)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}/config/docker"
+  local _pinned="${TEMP_DIR}/pinned_ws"
+  mkdir -p "${_pinned}"
+  printf '[volumes]\nmount_1 = %s:/work\n' "${_pinned}" \
+    > "${_base}/config/docker/setup.conf"
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_base}" "volumes" _vk _vv
+  local _ws=""
+  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  assert_equal "${_ws}" "${_pinned}"
+  # conf untouched (absolute path honored, not rewritten).
+  run cat "${_base}/config/docker/setup.conf"
+  assert_output --partial "mount_1 = ${_pinned}:/work"
+}
+
+@test "_reconcile_workspace_path: stale absolute path warns + rewrites mount_1 to portable (#569)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}/config/docker"
+  printf '[volumes]\nmount_1 = /nonexistent/contributor-a/repo:/work\n' \
+    > "${_base}/config/docker/setup.conf"
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_base}" "volumes" _vk _vv
+  local _ws=""
+  run _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  assert_success
+  assert_output --partial "stale"
+  # mount_1 migrated back to the portable form.
+  run cat "${_base}/config/docker/setup.conf"
+  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  refute_output --partial "/nonexistent/contributor-a/repo"
+}
+
+@test "_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}/config/docker"
+  printf '[volumes]\nmount_1 =\n' > "${_base}/config/docker/setup.conf"
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_base}" "volumes" _vk _vv
+  local _ws=""
+  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+  run cat "${_base}/config/docker/setup.conf"
+  assert_output --partial "mount_1 ="
+}
+
+@test "_reconcile_workspace_path: first-time bootstrap copies template + writes portable mount_1 (#569)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}"
+  local _repo_conf="${_base}/config/docker/setup.conf"
+  # No repo conf yet -> bootstrap from the real template.
+  [ ! -f "${_repo_conf}" ]
+  local -a _vk=() _vv=()
+  local _ws=""
+  _reconcile_workspace_path "${_base}" "${_repo_conf}" _vk _vv _ws
+  # template was copied into place + mount_1 written portable.
+  assert [ -f "${_repo_conf}" ]
+  run cat "${_repo_conf}"
+  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+}

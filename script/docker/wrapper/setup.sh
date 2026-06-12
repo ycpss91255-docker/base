@@ -840,6 +840,106 @@ detect_ws_path() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _reconcile_workspace_path <base_path> <repo_conf> <vol_keys> <vol_values> <ws_path>
+#
+# Reconcile the workspace bind (`[volumes] mount_1`) + WS_PATH for one
+# apply (#569). Deep module: the state machine that was inlined in
+# _setup_apply. mount_1 can be:
+#   - absent repo conf  -> first-time bootstrap: copy the template, write
+#     mount_1 in the portable `${WS_PATH}:...` form, reload [volumes]
+#   - portable form     -> detect WS_PATH locally; mount_1 untouched
+#   - absolute, exists  -> honor the pinned host path as WS_PATH
+#   - absolute, stale   -> warn, rewrite mount_1 to portable, re-detect
+#   - empty mount_1     -> best-effort WS_PATH detection only; conf untouched
+#
+# Mutates <vol_keys>/<vol_values> in place (reloaded after any mount_1
+# rewrite so the caller's extra_volumes pickup sees the new value) and
+# writes the resolved absolute path into <ws_path> (seeded by the caller
+# from ${WS_PATH:-}). setup.conf is written only on bootstrap / stale
+# rewrite. The detection-dependent steps reuse detect_ws_path, same as
+# apply, so behaviour is identical to the prior inline block.
+# ════════════════════════════════════════════════════════════════════
+_reconcile_workspace_path() {
+  local _rwp_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _rwp_repo_conf="${2:?"${FUNCNAME[0]}: missing repo_conf"}"
+  local -n _rwp_vk="${3:?"${FUNCNAME[0]}: missing vol_keys"}"
+  local -n _rwp_vv="${4:?"${FUNCNAME[0]}: missing vol_values"}"
+  local -n _rwp_ws="${5:?"${FUNCNAME[0]}: missing ws_path out"}"
+
+  local _mount_1=""
+  _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
+
+  # SC2016: literal ${WS_PATH} / ${USER_NAME} are intentional — this
+  # string is written into setup.conf and expanded by docker-compose
+  # (via .env) at container start time, not by shell here.
+  # shellcheck disable=SC2016
+  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
+
+  if [[ ! -f "${_rwp_repo_conf}" ]]; then
+    # First-time bootstrap: create per-repo setup.conf from template.
+    # Write mount_1 as the portable ${WS_PATH} form so the committed
+    # file stays machine-agnostic; .env carries the detected absolute
+    # path for docker-compose to expand.
+    if [[ -z "${_rwp_ws}" ]] || [[ ! -d "${_rwp_ws}" ]]; then
+      detect_ws_path _rwp_ws "${_rwp_base}"
+    fi
+    [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
+    local _tpl_conf
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+    if [[ -f "${_tpl_conf}" ]]; then
+      # Ensure config/docker/ parent dir exists before cp (post-#262
+      # path; first-time bootstrap on a fresh repo will not have it).
+      mkdir -p "$(dirname "${_rwp_repo_conf}")"
+      cp "${_tpl_conf}" "${_rwp_repo_conf}"
+      _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
+        "${_ws_portable_form}"
+      # Reload [volumes] so extra_volumes picks up the new mount_1.
+      _rwp_vk=(); _rwp_vv=()
+      _load_setup_conf "${_rwp_base}" "volumes" _rwp_vk _rwp_vv
+      _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
+    fi
+  elif [[ -n "${_mount_1}" ]]; then
+    local _mount_1_host=""
+    _mount_host_path "${_mount_1}" _mount_1_host
+    # SC2016: literal ${WS_PATH} / $WS_PATH substrings are intentional
+    # — we are matching the variable reference stored in setup.conf,
+    # not expanding it.
+    # shellcheck disable=SC2016
+    if [[ "${_mount_1_host}" == *'${WS_PATH}'* ]] \
+        || [[ "${_mount_1_host}" == *'$WS_PATH'* ]]; then
+      # Portable form — detect ws_path locally; mount_1 stays untouched.
+      _rwp_ws=""
+      detect_ws_path _rwp_ws "${_rwp_base}"
+      [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
+    elif [[ -d "${_mount_1_host}" ]]; then
+      # User pinned an absolute path that exists locally — honor it.
+      _rwp_ws="${_mount_1_host}"
+    else
+      # Absolute path that doesn't exist on this machine — almost always
+      # a stale bake from another contributor's clone. Warn loudly so
+      # the user understands the rewrite, then migrate mount_1 back to
+      # the portable form.
+      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
+      _rwp_ws=""
+      detect_ws_path _rwp_ws "${_rwp_base}"
+      [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
+      _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
+        "${_ws_portable_form}"
+      _rwp_vk=(); _rwp_vv=()
+      _load_setup_conf "${_rwp_base}" "volumes" _rwp_vk _rwp_vv
+      _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
+    fi
+  else
+    # setup.conf exists but user cleared mount_1: best-effort detection
+    # for WS_PATH only; do not touch setup.conf.
+    if [[ -z "${_rwp_ws}" ]] || [[ ! -d "${_rwp_ws}" ]]; then
+      detect_ws_path _rwp_ws "${_rwp_base}"
+    fi
+    [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Resolvers: mode + detection → final enabled state
 # ════════════════════════════════════════════════════════════════════
 
@@ -4583,77 +4683,10 @@ _setup_apply() {
   # First-time bootstrap (no <repo>/setup.conf) copies the template and
   # writes mount_1 in the portable form.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _mount_1=""
-  _get_conf_value _vol_k _vol_v "mount_1" "" _mount_1
-
-  # SC2016: literal ${WS_PATH} / ${USER_NAME} are intentional — this
-  # string is written into setup.conf and expanded by docker-compose
-  # (via .env) at container start time, not by shell here.
-  # shellcheck disable=SC2016
-  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
-
-  if [[ ! -f "${_repo_conf}" ]]; then
-    # First-time bootstrap: create per-repo setup.conf from template.
-    # Write mount_1 as the portable ${WS_PATH} form so the committed
-    # file stays machine-agnostic; .env carries the detected absolute
-    # path for docker-compose to expand.
-    if [[ -z "${ws_path}" ]] || [[ ! -d "${ws_path}" ]]; then
-      detect_ws_path ws_path "${_base_path}"
-    fi
-    [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
-    local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
-    if [[ -f "${_tpl_conf}" ]]; then
-      # Ensure config/docker/ parent dir exists before cp (post-#262
-      # path; first-time bootstrap on a fresh repo will not have it).
-      mkdir -p "$(dirname "${_repo_conf}")"
-      cp "${_tpl_conf}" "${_repo_conf}"
-      _upsert_conf_value "${_repo_conf}" "volumes" "mount_1" \
-        "${_ws_portable_form}"
-      # Reload [volumes] so extra_volumes picks up the new mount_1.
-      _vol_k=(); _vol_v=()
-      _load_setup_conf "${_base_path}" "volumes" _vol_k _vol_v
-      _get_conf_value _vol_k _vol_v "mount_1" "" _mount_1
-    fi
-  elif [[ -n "${_mount_1}" ]]; then
-    local _mount_1_host=""
-    _mount_host_path "${_mount_1}" _mount_1_host
-    # SC2016: literal ${WS_PATH} / $WS_PATH substrings are intentional
-    # — we are matching the variable reference stored in setup.conf,
-    # not expanding it.
-    # shellcheck disable=SC2016
-    if [[ "${_mount_1_host}" == *'${WS_PATH}'* ]] \
-        || [[ "${_mount_1_host}" == *'$WS_PATH'* ]]; then
-      # Portable form — detect ws_path locally; mount_1 stays untouched.
-      ws_path=""
-      detect_ws_path ws_path "${_base_path}"
-      [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
-    elif [[ -d "${_mount_1_host}" ]]; then
-      # User pinned an absolute path that exists locally — honor it.
-      ws_path="${_mount_1_host}"
-    else
-      # Absolute path that doesn't exist on this machine — almost always
-      # a stale bake from another contributor's clone. Warn loudly so
-      # the user understands the rewrite, then migrate mount_1 back to
-      # the portable form.
-      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
-      ws_path=""
-      detect_ws_path ws_path "${_base_path}"
-      [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
-      _upsert_conf_value "${_repo_conf}" "volumes" "mount_1" \
-        "${_ws_portable_form}"
-      _vol_k=(); _vol_v=()
-      _load_setup_conf "${_base_path}" "volumes" _vol_k _vol_v
-      _get_conf_value _vol_k _vol_v "mount_1" "" _mount_1
-    fi
-  else
-    # setup.conf exists but user cleared mount_1: best-effort detection
-    # for WS_PATH only; do not touch setup.conf.
-    if [[ -z "${ws_path}" ]] || [[ ! -d "${ws_path}" ]]; then
-      detect_ws_path ws_path "${_base_path}"
-    fi
-    [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
-  fi
+  # The WS_PATH / mount_1 reconciliation state machine (#569). Mutates
+  # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
+  # resolves ws_path (seeded above from ${WS_PATH:-}).
+  _reconcile_workspace_path "${_base_path}" "${_repo_conf}" _vol_k _vol_v ws_path
 
   # shellcheck disable=SC2034  # populated via nameref by _get_conf_list_sorted
   local -a extra_volumes=()

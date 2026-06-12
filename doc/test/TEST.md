@@ -71,7 +71,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (358)
+### test/unit/setup_spec.bats (363)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
@@ -93,6 +93,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `_resolve_gpu` / `_resolve_gui` | 7 |
 | `detect_image_name` (template default, per-repo rules, @default, order) | 7 |
 | `detect_ws_path` (strategies 1/2/3 + missing base_path) | 5 |
+| `_reconcile_workspace_path` (#569: portable form, absolute-exists, stale-warn-rewrite, empty mount_1, first-time bootstrap) | 5 |
 | `_compute_conf_hash` | 2 |
 | `write_env` (all fields + SETUP_* metadata) | 1 |
 | `_check_setup_drift` (no-op, silent, conf drift, GPU drift) | 4 |
