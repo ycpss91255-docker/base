@@ -164,3 +164,16 @@ _assert_schema() {
   _assert_schema security security_opt_1 "anything goes" ok
   _assert_schema image rule_1 "whatever" ok
 }
+
+# ════════════════════════════════════════════════════════════════════
+# SCHEMA_SECTIONS — ordered section list (#561, epic #559)
+#
+# Single source for "which sections exist, in what order". setup.sh's
+# _setup_known_section and the TUI dispatch derive from it so adding a
+# section here makes it known/dispatchable without hand-editing them.
+# ════════════════════════════════════════════════════════════════════
+
+@test "SCHEMA_SECTIONS lists every setup.conf section in file order (#561)" {
+  local _expected="image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
+  [ "${SCHEMA_SECTIONS[*]}" = "${_expected}" ]
+}
