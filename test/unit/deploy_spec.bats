@@ -446,6 +446,23 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+@test "_generate_deploy_sh: consumes a passed pre-resolved ctx instead of re-resolving (#563)" {
+  local _d; _d="$(mktemp -d)"
+  # On-disk conf carries no [lifecycle], so a fresh resolve yields restart
+  # "no" (-> no --restart line). Resolve once, mutate the canonical record,
+  # and feed it through: the seam must consume THIS value, proving the deploy
+  # bundle resolves the context once and shares it rather than re-resolving.
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
+  local -A _ctx=()
+  SETUP_DETECT_DRI_GROUPS="" _resolve_deploy_context "${_d}" _ctx
+  _ctx[restart_policy]="on-failure"
+  local _out="${_d}/deploy.sh"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}" _ctx
+  run cat "${_out}"
+  assert_output --partial "--restart=on-failure"
+  rm -rf "${_d}"
+}
+
 @test "_generate_deploy_sh: generated launcher is ShellCheck-clean (#506)" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
   local _d; _d="$(mktemp -d)"
