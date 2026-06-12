@@ -41,6 +41,8 @@ source "${_TUI_LIB_DIR}/i18n.sh"
 source "${_TUI_LIB_DIR}/_tui_backend.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/_tui_conf.sh"
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/schema.sh"
 
 # ── Messages (4 languages) ────────────────────────────────────────────────
 # Flat associative arrays per language. Key format: <ns>.<name>. Missing
@@ -1421,7 +1423,7 @@ _edit_section_build() {
         local _new
         _new="$(_tui_inputbox "$(_tui_msg build.title)" \
           "$(_tui_msg build.target_arch.prompt)" "${_arch_cur}")" || continue
-        if ! _validate_target_arch "${_new}"; then
+        if ! _schema_validate build target_arch "${_new}"; then
           _tui_msgbox "$(_tui_msg build.title)" "$(_tui_msg err.invalid_target_arch)"
           continue
         fi
@@ -1435,7 +1437,7 @@ _edit_section_build() {
         local _new_net
         _new_net="$(_tui_inputbox "$(_tui_msg build.title)" \
           "$(_tui_msg build.network.prompt)" "${_net_cur}")" || continue
-        if ! _validate_build_network "${_new_net}"; then
+        if ! _schema_validate build network "${_new_net}"; then
           _tui_msgbox "$(_tui_msg build.title)" "$(_tui_msg err.invalid_build_network)"
           continue
         fi
@@ -1444,7 +1446,7 @@ _edit_section_build() {
       args)
         _edit_list_section build arg_ \
           build.title build.menu build.add build.back \
-          build.arg.prompt _validate_env_kv err.invalid_env_kv
+          build.arg.prompt err.invalid_env_kv
         ;;
       __back|"") return 0 ;;
     esac
@@ -1484,8 +1486,9 @@ _edit_section_network() {
     while :; do
       _v="$(_tui_inputbox "$(_tui_msg network.title)" "$(_tui_msg network.name.prompt)" "${_cur}")" \
         || return 0
-      # Empty is allowed (compose creates default bridge) — skip validation.
-      if [[ -z "${_v}" ]] || _validate_network_name "${_v}"; then
+      # Empty is allowed (compose creates default bridge); the registry's
+      # empty-policy handles that.
+      if _schema_validate network network_name "${_v}"; then
         _override_set "network.network_name" "${_v}"
         break
       fi
@@ -1505,8 +1508,9 @@ _edit_section_network() {
     while :; do
       _v="$(_tui_inputbox "shm_size (ipc=${_selected_ipc})" \
         "$(_tui_msg resources.shm_size.prompt)" "${_cur}")" || return 0
-      # Empty is allowed (Docker default 64mb) — skip validation.
-      if [[ -z "${_v}" ]] || _validate_shm_size "${_v}"; then
+      # Empty is allowed (Docker default 64mb); the registry's empty-policy
+      # handles that.
+      if _schema_validate resources shm_size "${_v}"; then
         _override_set "resources.shm_size" "${_v}"
         break
       fi
@@ -1550,12 +1554,12 @@ _edit_section_security() {
       cap_add)
         _edit_list_section security cap_add_ \
           security.title security.cap_add.menu security.cap_add.add security.back \
-          security.cap_add.prompt _validate_capability err.invalid_capability
+          security.cap_add.prompt err.invalid_capability
         ;;
       cap_drop)
         _edit_list_section security cap_drop_ \
           security.title security.cap_drop.menu security.cap_drop.add security.back \
-          security.cap_drop.prompt _validate_capability err.invalid_capability
+          security.cap_drop.prompt err.invalid_capability
         ;;
       security_opt)
         _edit_list_section security security_opt_ \
@@ -1610,7 +1614,7 @@ _edit_section_deploy() {
     _cur="$(_override_get "deploy.gpu_count" "all")"
     _v="$(_tui_inputbox "$(_tui_msg deploy.title)" "${_count_prompt}" "${_cur}")" \
       || return 0
-    if _validate_gpu_count "${_v}"; then
+    if _schema_validate deploy gpu_count "${_v}"; then
       _override_set "deploy.gpu_count" "${_v}"
       break
     fi
@@ -1649,7 +1653,7 @@ _edit_section_deploy() {
     nvidia "$(_tui_msg deploy.runtime.nvidia)" "$([[ "${_cur}" == nvidia ]] && echo ON || echo off)" \
     off    "$(_tui_msg deploy.runtime.off)"    "$([[ "${_cur}" == off ]]    && echo ON || echo off)")" \
     || return 0
-  if _validate_runtime "${_v}"; then
+  if _schema_validate deploy gpu_runtime "${_v}"; then
     _override_set "deploy.gpu_runtime" "${_v}"
   else
     _tui_msgbox "$(_tui_msg deploy.title)" "$(_tui_msg err.invalid_runtime)"
@@ -1658,8 +1662,8 @@ _edit_section_deploy() {
 
 # [lifecycle] restart policy page (#514, fast-follow of #478). Radiolist of
 # the 4 docker policies; on-failure adds a two-step optional integer retry
-# count (>=1, empty -> bare on-failure). Reuses _validate_restart from
-# lib/_tui_conf.sh; the on-failure:N value is assembled here.
+# count (>=1, empty -> bare on-failure). Validates via _schema_validate
+# (lifecycle.restart); the on-failure:N value is assembled here.
 _edit_section_lifecycle() {
   local _v _cur _cur_base _n _cur_n
   _cur="$(_override_get "lifecycle.restart" "no")"
@@ -1689,7 +1693,7 @@ _edit_section_lifecycle() {
     done
   fi
 
-  if _validate_restart "${_v}"; then
+  if _schema_validate lifecycle restart "${_v}"; then
     _override_set "lifecycle.restart" "${_v}"
   else
     _tui_msgbox "$(_tui_msg lifecycle.title)" "$(_tui_msg err.invalid_restart)"
@@ -1749,7 +1753,7 @@ _prompt_mount_with_picker() {
 _edit_section_volumes() {
   _edit_list_section volumes mount_ \
     volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+    err.invalid_mount
 }
 
 _edit_section_resources() {
@@ -1778,7 +1782,7 @@ _edit_list_section() {
   local _section="${1}" _prefix="${2}"
   local _title_key="${3}" _menu_key="${4}" _add_key="${5}" _back_key="${6}"
   local _entry_key="${7}"
-  local _validator="${8:-}" _err_key="${9:-}"
+  local _err_key="${8:-}"
 
   while :; do
     local -a _nums=()
@@ -1834,13 +1838,13 @@ _edit_list_section() {
           (( _next++ ))
         done
         _edit_list_entry "${_section}" "${_prefix}" "${_next}" \
-          "$(_tui_msg "${_entry_key}")" "${_validator}" "${_err_key}" || true
+          "$(_tui_msg "${_entry_key}")" "${_err_key}" || true
         ;;
       "${_prefix}"*)
         # Direct edit: click item -> inputbox. Empty value marks the key
         # for removal (no separate Edit/Remove sub-menu).
         _edit_list_entry "${_section}" "${_prefix}" "${_choice#"${_prefix}"}" \
-          "$(_tui_msg "${_entry_key}")" "${_validator}" "${_err_key}" || true
+          "$(_tui_msg "${_entry_key}")" "${_err_key}" || true
         ;;
     esac
   done
@@ -1848,7 +1852,7 @@ _edit_list_section() {
 
 _edit_list_entry() {
   local _section="${1}" _prefix="${2}" _n="${3}" _prompt="${4}"
-  local _validator="${5:-}" _err_key="${6:-}"
+  local _err_key="${5:-}"
   local _nskey="${_section}.${_prefix}${_n}"
   # Dialog title strips the trailing underscore so "env_" becomes "env",
   # "mount_" becomes "mount" — cleaner header without the per-entry index.
@@ -1862,8 +1866,9 @@ _edit_list_entry() {
       _mark_removed "${_nskey}"
       return 0
     fi
-    # Non-empty: validate if a validator was provided.
-    if [[ -z "${_validator}" ]] || "${_validator}" "${_v}"; then
+    # Non-empty: validate through the shared registry (#560), keyed by
+    # (section, key). Free-form keys (no registry entry) accept any value.
+    if _schema_validate "${_section}" "${_prefix}${_n}" "${_v}"; then
       _override_set "${_nskey}" "${_v}"
       return 0
     fi
@@ -1876,7 +1881,7 @@ _edit_list_entry() {
 _edit_section_environment() {
   _edit_list_section environment env_ \
     environment.title environment.menu environment.add environment.back \
-    environment.entry.prompt _validate_env_kv err.invalid_env_kv
+    environment.entry.prompt err.invalid_env_kv
 }
 
 _edit_section_tmpfs() {
@@ -1897,7 +1902,7 @@ _edit_section_ports() {
   fi
   _edit_list_section network port_ \
     ports.title ports.menu ports.add ports.back ports.entry.prompt \
-    _validate_port_mapping err.invalid_port_mapping
+    err.invalid_port_mapping
 }
 
 _edit_section_devices() {
@@ -1913,12 +1918,12 @@ _edit_section_devices() {
       device)
         _edit_list_section devices device_ \
           devices.title devices.menu devices.add_device devices.back \
-          devices.device.prompt _validate_mount err.invalid_mount
+          devices.device.prompt err.invalid_mount
         ;;
       cgroup_rule)
         _edit_list_section devices cgroup_rule_ \
           devices.cgroup.title devices.cgroup.menu devices.add_cgroup devices.back \
-          devices.cgroup.prompt _validate_cgroup_rule err.invalid_cgroup_rule
+          devices.cgroup.prompt err.invalid_cgroup_rule
         ;;
     esac
   done
@@ -1929,7 +1934,7 @@ _edit_section_additional_contexts() {
     additional_contexts.title additional_contexts.menu \
     additional_contexts.add additional_contexts.back \
     additional_contexts.entry.prompt \
-    _validate_additional_context err.invalid_additional_context
+    err.invalid_additional_context
 }
 
 # _edit_logging_keys <section>
@@ -1974,7 +1979,7 @@ _edit_logging_keys() {
         local _new
         _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.driver.prompt)" "${_drv}")" || continue
-        if [[ -n "${_new}" ]] && ! _validate_log_driver "${_new}"; then
+        if ! _schema_validate "${_section}" driver "${_new}"; then
           _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_driver)"
           continue
         fi
@@ -1984,7 +1989,7 @@ _edit_logging_keys() {
         local _new
         _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.max_size.prompt)" "${_ms}")" || continue
-        if [[ -n "${_new}" ]] && ! _validate_log_max_size "${_new}"; then
+        if ! _schema_validate "${_section}" max_size "${_new}"; then
           _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_size)"
           continue
         fi
@@ -1994,7 +1999,7 @@ _edit_logging_keys() {
         local _new
         _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.max_file.prompt)" "${_mf}")" || continue
-        if [[ -n "${_new}" ]] && ! _validate_log_max_file "${_new}"; then
+        if ! _schema_validate "${_section}" max_file "${_new}"; then
           _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_file)"
           continue
         fi
@@ -2012,7 +2017,7 @@ _edit_logging_keys() {
         local _new
         _new="$(_tui_inputbox "${_title}" \
           "$(_tui_msg logging.local_path.prompt)" "${_lp}")" || continue
-        if [[ -n "${_new}" ]] && ! _validate_log_local_path "${_new}"; then
+        if ! _schema_validate "${_section}" local_path "${_new}"; then
           _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_local_path)"
           continue
         fi
