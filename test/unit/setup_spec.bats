@@ -2086,6 +2086,54 @@ EOF
   assert_output --partial "Invalid value"
 }
 
+# ──────────────────────────────────────────────────────────────────
+# #560: setup.sh routes through the shared schema registry, so `set` /
+# `add` now reject the same values the TUI already rejected. These keys
+# were historically free-form in setup.sh (the divergence #560 closes).
+# ──────────────────────────────────────────────────────────────────
+
+@test "set rejects an invalid target_arch (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set build.target_arch sparc --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid build_network (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set build.build_network carrier-pigeon --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid gpu_runtime (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid network name (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set network.name "-bad" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set rejects an invalid device mount (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set devices.device_1 noslash --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "add rejects an invalid capability (#560 schema unification)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main add security.cap_add lowercase --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
 @test "set rejects a malformed dotted key (no dot)" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
