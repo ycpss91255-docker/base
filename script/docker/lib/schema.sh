@@ -115,6 +115,27 @@ _schema_is_section() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _schema_section_keys <section> <outarray>
+#
+# Fills <outarray> with the registered key parts for <section>, derived
+# from SCHEMA_VALIDATOR by canonical-key prefix. A scalar canonical key
+# "<section>.<key>" yields "<key>"; a list key "<section>.<prefix>_"
+# yields "<prefix>_" (trailing underscore kept). Free-form-only sections
+# (image / gui / tmpfs) yield an empty array. Order is unspecified
+# (associative-array iteration) -- callers that need a stable order sort.
+# ════════════════════════════════════════════════════════════════════
+_schema_section_keys() {
+  local _section="${1-}"
+  local -n _ssk_out="${2:?_schema_section_keys: missing out var}"
+  _ssk_out=()
+  local _canon
+  for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
+    [[ "${_canon}" == "${_section}."* ]] && _ssk_out+=("${_canon#"${_section}".}")
+  done
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _schema_canonical_key <section> <key> <out_canon>
 #
 # Resolves (section,key) to its registry canonical key in <out_canon>,
