@@ -149,3 +149,58 @@ setup() {
   assert_line '        FOO: ${FOO}'
   assert_line '        BAR: ${BAR}'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Logging family (hoisted #566): now take the [logging] strings + repo
+# name + base path explicitly instead of closing over them.
+#   _logging_svc_kv <svc> <out_assoc> <global_str> <per_svc_str>
+#   _emit_logging_block <svc> <global_str> <per_svc_str>
+#   _logging_svc_local_path_mount <svc> <out> <name> <base> <global> <per_svc>
+# ════════════════════════════════════════════════════════════════════
+
+@test "_logging_svc_kv: seeds from global then overlays per-service (key-level merge)" {
+  local -A _kv=()
+  _logging_svc_kv test _kv $'driver=json-file\nmax_size=10m' $'test:driver=local'
+  [ "${_kv[driver]}" = "local" ]      # per-svc overlay wins
+  [ "${_kv[max_size]}" = "10m" ]      # global survives where not overridden
+}
+
+@test "_logging_svc_kv: a different service does not pick up another svc overlay" {
+  local -A _kv=()
+  _logging_svc_kv devel _kv $'driver=json-file' $'test:driver=local'
+  [ "${_kv[driver]}" = "json-file" ]
+}
+
+@test "_emit_logging_block: empty global + per-svc emits nothing" {
+  run _emit_logging_block devel "" ""
+  assert_success
+  assert_output ""
+}
+
+@test "_emit_logging_block: driver + rotation maps to compose options block" {
+  run _emit_logging_block devel $'driver=json-file\nmax_size=10m\nmax_file=3\ncompress=true' ""
+  assert_line "    logging:"
+  assert_line "      driver: json-file"
+  assert_line "      options:"
+  assert_line '        max-size: "10m"'
+  assert_line '        max-file: "3"'
+  assert_line '        compress: "true"'
+}
+
+@test "_emit_logging_block: keys off the service name for per-svc overrides" {
+  run _emit_logging_block test $'driver=json-file' $'test:max_size=5m'
+  assert_line "      driver: json-file"
+  assert_line '        max-size: "5m"'
+}
+
+@test "_logging_svc_local_path_mount: empty local_path yields empty mount" {
+  local _m="sentinel"
+  _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase "" ""
+  [ -z "${_m}" ]
+}
+
+@test "_logging_svc_local_path_mount: relative path resolves against base, mounts /var/log/<name>" {
+  local _m=""
+  _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=./logs' ""
+  [ "${_m}" = "/tmp/lpbase/logs:/var/log/myrepo" ]
+}
