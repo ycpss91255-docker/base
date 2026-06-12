@@ -646,6 +646,20 @@ EOF
   assert_failure
 }
 
+@test "_setup_known_section recognises every SCHEMA_SECTIONS member (#561)" {
+  local _s
+  for _s in "${SCHEMA_SECTIONS[@]}"; do
+    _setup_known_section "${_s}"
+  done
+}
+
+@test "_setup_known_section derives from SCHEMA_SECTIONS, not a copy (#561)" {
+  # A section registered only in SCHEMA_SECTIONS must become known
+  # without hand-editing _setup_known_section.
+  SCHEMA_SECTIONS+=(brandnew)
+  _setup_known_section "brandnew"
+}
+
 @test "set logging.driver round-trips via show (#328)" {
   cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.driver journald --base-path "${TEMP_DIR}"
