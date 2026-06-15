@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1774 tests** total (1700 unit + 74 integration).
+Template self-tests: **1778 tests** total (1704 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -111,6 +111,22 @@ registered keys derived from `SCHEMA_VALIDATOR`).
 | `_schema_section_keys returns all logging keys` | keys by prefix (#561) |
 | `_schema_section_keys returns deploy keys incl. legacy alias` | keys incl. runtime alias (#561) |
 | `_schema_section_keys is empty for a free-form-only section (image)` | empty for no-validator section (#561) |
+
+### test/unit/schema_coverage_spec.bats (4)
+
+Registry drift guards (#562, schema epic #559 phase 3): the registry
+must stay internally consistent and in sync with the `setup.conf`
+template, so drift fails CI. The original i18n / `kind` / `default`
+coverage needs a deferred registry i18n-index column and is tracked as a
+separate follow-up; only the guards possible with the current columns
+live here.
+
+| Test | Description |
+|------|-------------|
+| `every SCHEMA_VALIDATOR validator name resolves to a defined function` | no ghost validators (#562) |
+| `SCHEMA_SECTIONS matches the setup.conf template headers in file order` | registry/template drift (#562) |
+| `every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key` | no dead empty-policy entries (#562) |
+| `every registered key is reachable via SCHEMA_SECTIONS` | no key stranded under an unlisted section (#562) |
 
 ### test/unit/setup_spec.bats (371)
 
