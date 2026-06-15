@@ -33,3 +33,40 @@ setup() {
   done
   [ -z "${_missing}" ] || { echo "validators not defined:${_missing}"; false; }
 }
+
+@test "SCHEMA_SECTIONS matches the setup.conf template headers in file order (#562)" {
+  # Registry / template drift guard: the ordered SCHEMA_SECTIONS list must
+  # equal the [section] headers in the shipped template, in file order. A
+  # section added to the template but not the registry (or vice versa)
+  # fails here.
+  local _tpl="/source/config/docker/setup.conf"
+  local -a _hdrs=()
+  local _line
+  while IFS= read -r _line; do
+    _hdrs+=("${_line}")
+  done < <(grep -oE '^\[[a-z_]+\]' "${_tpl}" | tr -d '[]')
+  [ "${SCHEMA_SECTIONS[*]}" = "${_hdrs[*]}" ]
+}
+
+@test "every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key (#562)" {
+  # The empty-value policy table may only reference keys that actually
+  # have a validator -- an orphan SCHEMA_EMPTY entry is dead config.
+  local _k _missing=""
+  for _k in "${!SCHEMA_EMPTY[@]}"; do
+    [[ -v "SCHEMA_VALIDATOR[${_k}]" ]] || _missing+=" ${_k}"
+  done
+  [ -z "${_missing}" ] || { echo "orphan SCHEMA_EMPTY keys:${_missing}"; false; }
+}
+
+@test "every registered key is reachable via SCHEMA_SECTIONS (#562)" {
+  # No validator key may be stranded under a section missing from
+  # SCHEMA_SECTIONS: the count of keys reachable by walking
+  # SCHEMA_SECTIONS + _schema_section_keys must equal the registry size.
+  local _seen=0 _sec
+  for _sec in "${SCHEMA_SECTIONS[@]}"; do
+    local -a _k=()
+    _schema_section_keys "${_sec}" _k
+    _seen=$(( _seen + ${#_k[@]} ))
+  done
+  [ "${_seen}" -eq "${#SCHEMA_VALIDATOR[@]}" ]
+}
