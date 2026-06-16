@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1785 tests** total (1711 unit + 74 integration).
+Template self-tests: **1789 tests** total (1715 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -429,7 +429,7 @@ eight cumulative invariants:
 | `coverage` declared + `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` + runs `ci.sh --coverage` + uploads Codecov (#377) | 3 |
 | `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
 
-### test/unit/release_test_tools_yaml_spec.bats (10)
+### test/unit/release_test_tools_yaml_spec.bats (14)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -457,7 +457,8 @@ which would leave a freshly-pushed `:main` unverified).
 | Triggers on `workflow_dispatch` (existing) | 1 |
 | Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
-| Build step pushes multi-arch (amd64 + arm64) + declares `packages: write` permission | 2 |
+| Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
+| Declares `packages: write` permission | 1 |
 
 ### test/unit/release_worker_yaml_spec.bats (2)
 
