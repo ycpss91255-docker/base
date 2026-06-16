@@ -143,6 +143,33 @@ setup() {
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
+@test "self-test.yaml: integration-e2e drives the container via just, not raw script/*.sh (#579)" {
+  # A3: exercise the documented `just` entry points so a broken
+  # container-ops justfile is caught (post-#573 the user entry is just).
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'just build'
+  assert_output --partial 'just run -d'
+  assert_output --partial 'just exec'
+  assert_output --partial 'just stop'
+  refute_output --partial './script/build.sh'
+  refute_output --partial './script/run.sh'
+  refute_output --partial './script/stop.sh'
+}
+
+@test "self-test.yaml: integration-e2e asserts the runnability contract (#579)" {
+  # A1: the job must ASSERT results, not just run steps. Covers the
+  # five-point contract: configured user (not initial/root), container
+  # still running, wired ENTRYPOINT, usable ~/work mount, and full
+  # teardown (container + project network) on stop.
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'USER_NAME'
+  assert_output --partial '/entrypoint.sh'
+  assert_output --partial '~/work'
+  assert_output --partial '_default'
+}
+
 @test "self-test.yaml: behavioural job declares needs on actionlint AND classify (#317)" {
   run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
