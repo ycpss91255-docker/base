@@ -408,7 +408,21 @@ jobs:
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
 
-      - name: Build test stage (script/build.sh test)
+      - name: Install just (container-ops entry point)
+        # The e2e job drives the runnability contract through the SAME
+        # `just` verbs downstream users invoke (post-#573 the documented
+        # entry is `just`), so a broken script/docker/justfile is caught
+        # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
+        # call ./script/ci/ci.sh directly and need no just. Use the
+        # official installer (vendor-neutral, no third-party action) into
+        # a user-writable bin on PATH.
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | bash -s -- --to "${HOME}/.local/bin"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Build test stage (just build test)
         working-directory: ${{ env.REPO_DIR }}
         env:
           # build.sh skips its internal test-tools:local build when this
@@ -419,29 +433,82 @@ jobs:
           # the dockerfile/Dockerfile.test-tools build.
           TEST_TOOLS_IMAGE: test-tools:local
         run: |
-          ./script/build.sh test
+          just build test
 
-      - name: Build devel stage
+      - name: Build devel stage (just build)
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./script/build.sh
+          just build
 
-      - name: Run container in detach mode and exec into it
+      - name: Run container detached and assert the runnability contract
+        working-directory: ${{ env.REPO_DIR }}
+        # A1 (#579): assert results, don't just run steps. The v0.41.0
+        # user-args bug made `whoami` print `initial` yet the job stayed
+        # green because nothing checked the output.
+        run: |
+          set -euo pipefail
+          # The configured user is host-detected by setup.sh and cached in
+          # .env.generated; read it rather than hardcoding the runner's.
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?USER_NAME missing from .env.generated}"
+          echo "configured USER_NAME=${USER_NAME}"
+
+          just run -d
+          just exec echo "just exec OK from CI"
+
+          # Derive the container name at runtime (compose names it
+          # ${USER_NAME}-${IMAGE_NAME}-<svc>; IMAGE_NAME is the e2e_test
+          # repo dir). Filtering by the deterministic image-name substring
+          # avoids reconstructing the full host-detected name.
+          cname="$(docker ps --filter 'name=e2e_test' --filter 'status=running' \
+                     --format '{{.Names}}' | head -n1)"
+
+          # (2) container did NOT insta-exit (the entrypoint set -u class).
+          if [[ -z "${cname}" ]]; then
+            echo "ERROR: no running e2e_test container after just run -d"
+            docker ps -a
+            exit 1
+          fi
+
+          # (1) the in-container user is the configured one, not the
+          # v0.41.0 'initial' bug nor 'root'.
+          who="$(just exec id -un | tr -d '\r' | tail -n1)"
+          echo "id -un inside container: ${who}"
+          if [[ "${who}" != "${USER_NAME}" ]]; then
+            echo "ERROR: container user '${who}' != configured '${USER_NAME}'"
+            exit 1
+          fi
+
+          # (3) the ENTRYPOINT actually ran -- the wired entrypoint is
+          # /entrypoint.sh (Dockerfile ENTRYPOINT ["/entrypoint.sh"]).
+          path="$(docker inspect -f '{{.Path}}' "${cname}")"
+          echo "container Path: ${path}"
+          if [[ "${path}" != "/entrypoint.sh" ]]; then
+            echo "ERROR: container entrypoint '${path}' != /entrypoint.sh"
+            exit 1
+          fi
+
+          # (4) the ~/work workspace mount is present and writable inside.
+          just exec bash -c 'test -d ~/work && touch ~/work/.e2e_probe && rm -f ~/work/.e2e_probe'
+
+      - name: Stop and assert full teardown (container + network gone)
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./script/run.sh -d
-          # Verify the container is up and reachable via exec.sh
-          ./script/exec.sh echo "exec.sh OK from CI"
-          ./script/exec.sh whoami
-
-      - name: Stop and verify cleanup
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          ./script/stop.sh
-          # No project containers should remain
-          if docker ps --format '{{.Names}}' | grep -q '^e2e_test$'; then
-            echo "ERROR: container still running after stop.sh"
-            docker ps
+          set -euo pipefail
+          just stop
+          # (5a) no project container remains.
+          if docker ps -a --format '{{.Names}}' | grep -q 'e2e_test'; then
+            echo "ERROR: an e2e_test container remains after just stop"
+            docker ps -a
+            exit 1
+          fi
+          # (5b) the compose project's default network is gone. `compose
+          # up` creates ${DOCKER_HUB_USER}-e2e_test_default even under
+          # network_mode: host; `compose down` (run by stop.sh) removes it.
+          if docker network ls --format '{{.Name}}' | grep -q 'e2e_test_default'; then
+            echo "ERROR: an e2e_test project network remains after just stop"
+            docker network ls
             exit 1
           fi
 
