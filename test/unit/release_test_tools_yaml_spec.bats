@@ -98,13 +98,43 @@ setup() {
   assert_output --partial 'steps.tags.outputs.smoke'
 }
 
-# ── Build step (existing, locked) ────────────────────────────────────
+# ── Native-runner matrix + push-by-digest + manifest merge (#587) ─────
 
-@test "release-test-tools.yaml: build step pushes multi-arch (amd64 + arm64)" {
-  run awk '/Build and push multi-arch/{flag=1} flag' "${WF}"
+@test "release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)" {
+  # Each arch builds on its native runner, so the QEMU emulation layer
+  # is gone.
+  run grep -F 'docker/setup-qemu-action' "${WF}"
+  assert_failure
+}
+
+@test "release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)" {
+  run grep -E '^  compute-matrix:' "${WF}"
   assert_success
-  assert_output --partial 'linux/amd64,linux/arm64'
-  assert_output --partial 'push: true'
+  run grep -F 'ubuntu-24.04-arm' "${WF}"
+  assert_success
+  run grep -F 'ubuntu-latest' "${WF}"
+  assert_success
+}
+
+@test "release-test-tools.yaml: build shards run on the matrix runner (#587)" {
+  run grep -F 'runs-on: ${{ matrix.runner }}' "${WF}"
+  assert_success
+}
+
+@test "release-test-tools.yaml: build shards build per-platform and push by digest (#587)" {
+  # A single-arch build per shard pushed BY DIGEST (no tag); the tags
+  # are applied by the merge job's manifest-list create. This is what
+  # keeps the published tag a true multi-arch manifest instead of a
+  # last-shard-wins single-arch overwrite.
+  run grep -F 'platforms: ${{ matrix.platform }}' "${WF}"
+  assert_success
+  run grep -F 'push-by-digest=true' "${WF}"
+  assert_success
+}
+
+@test "release-test-tools.yaml: merge job creates the multi-arch manifest via imagetools (#587)" {
+  run grep -F 'docker buildx imagetools create' "${WF}"
+  assert_success
 }
 
 @test "release-test-tools.yaml: declares packages: write permission for GHCR push" {

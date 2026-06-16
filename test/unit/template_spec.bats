@@ -1258,9 +1258,16 @@ EOF
 }
 
 @test "release-test-tools.yaml builds multi-arch (amd64 + arm64)" {
+  # #587: arches build on their native runners (not one QEMU runner),
+  # then a merge job assembles the manifest list. Assert both native
+  # runners are present rather than the old single combined
+  # `platforms: linux/amd64,linux/arm64` string. Detailed structure is
+  # covered by release_test_tools_yaml_spec.bats.
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
   [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
-  run grep -F 'platforms: linux/amd64,linux/arm64' "${_yaml}"
+  run grep -F 'ubuntu-latest' "${_yaml}"
+  assert_success
+  run grep -F 'ubuntu-24.04-arm' "${_yaml}"
   assert_success
 }
 
