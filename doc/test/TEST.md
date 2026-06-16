@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1778 tests** total (1704 unit + 74 integration).
+Template self-tests: **1780 tests** total (1706 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -458,6 +458,21 @@ which would leave a freshly-pushed `:main` unverified).
 | Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
 | Build step pushes multi-arch (amd64 + arm64) + declares `packages: write` permission | 2 |
+
+### test/unit/release_worker_yaml_spec.bats (2)
+
+Structural assertions for `.github/workflows/release-worker.yaml`'s
+archive step. The user-facing wrappers moved out of the repo root into
+`script/` (symlinks into `.base/`); the archive `cp -r` still listed the
+root names (`build.sh` / `run.sh` / `exec.sh` / `stop.sh` /
+`setup_tui.sh`) as operands, and `cp -r` aborts non-zero on a missing
+operand -- failing the first `v*` tag push of every standard-layout
+downstream. These tests lock the removal (wrappers ship via `script/`).
+
+| Category | Tests |
+|----------|-------|
+| Archive cp list names no removed root wrapper operand (#558) | 1 |
+| Archive cp list keeps the paths that still ship (no over-prune) | 1 |
 
 ### test/unit/multi_distro_build_worker_yaml_spec.bats (16)
 

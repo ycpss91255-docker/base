@@ -1298,13 +1298,16 @@ EOF
 }
 
 @test "release-worker.yaml cp-list still includes Dockerfile + scripts" {
-  # Positive guard: we don't want to accidentally remove too much.
+  # Positive guard: we don't want to accidentally remove too much. The
+  # user-facing wrappers ship via `script/` (symlinks into .base) since
+  # #330, not as root-level operands (#558), so assert `script/` rather
+  # than the removed root `build.sh`.
   local _yaml="/source/.github/workflows/release-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "release-worker.yaml not present in /source"
   run awk '/cp -r/,/"\$\{ARCHIVE_NAME\}\/"/' "${_yaml}"
   assert_success
   assert_output --partial 'Dockerfile'
-  assert_output --partial 'build.sh'
+  assert_output --partial 'script/'
   assert_output --partial '.base/'
 }
 

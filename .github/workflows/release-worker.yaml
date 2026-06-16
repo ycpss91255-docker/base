@@ -34,7 +34,6 @@ jobs:
           # gitignored since v0.9.0; including it here is a latent bug
           # that silently broke `call-release` on any tag push).
           cp -r Dockerfile \
-                build.sh run.sh exec.sh stop.sh setup_tui.sh \
                 script/ .hadolint.yaml test/smoke/ \
                 .base/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
