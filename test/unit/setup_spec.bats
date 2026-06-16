@@ -1560,7 +1560,9 @@ EOF
   mkdir -p "${_parent}/docker_myapp"
   local _result
   detect_ws_path _result "${_parent}/docker_myapp"
-  assert_equal "${_result}" "${_parent}"
+  # No sibling *_ws -> strategy-3 fallback, which now returns base_path
+  # itself (base-based repos keep scaffolding at the repo root).
+  assert_equal "${_result}" "${_parent}/docker_myapp"
 }
 
 @test "detect_ws_path strategy 2: finds _ws component in path" {
@@ -1571,12 +1573,14 @@ EOF
   assert_equal "${_result}" "${_ws}"
 }
 
-@test "detect_ws_path strategy 3: falls back to parent directory" {
+@test "detect_ws_path strategy 3: falls back to base_path itself" {
   local _plain="${TEMP_DIR}/plain/project"
   mkdir -p "${_plain}"
   local _result
   detect_ws_path _result "${_plain}"
-  assert_equal "${_result}" "${TEMP_DIR}/plain"
+  # base-based repos keep the docker scaffolding at the repo root, so the
+  # final fallback resolves to base_path itself, not its parent.
+  assert_equal "${_result}" "${_plain}"
 }
 
 @test "detect_ws_path fails with ERROR when base_path does not exist" {
@@ -5122,7 +5126,7 @@ EOC
 # state machine extracted from _setup_apply into a testable seam. The 4
 # (+empty) branches become direct unit tests instead of being reachable
 # only through a full apply. detect_ws_path is deterministic here: with no
-# *_ws sibling on the fixture path it falls back to dirname(base_path).
+# *_ws sibling on the fixture path it falls back to base_path itself.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_reconcile_workspace_path: portable form detects WS_PATH locally, mount_1 untouched (#569)" {
@@ -5135,8 +5139,8 @@ EOC
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
   _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
-  # detect_ws_path fallback = dirname(base) = TEMP_DIR.
-  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+  # detect_ws_path fallback = base_path itself = ${_base}.
+  assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
   # mount_1 stays the portable form (no rewrite).
   run cat "${_base}/config/docker/setup.conf"
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
@@ -5184,7 +5188,7 @@ EOC
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
   _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
-  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+  assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
   run cat "${_base}/config/docker/setup.conf"
   assert_output --partial "mount_1 ="
 }
@@ -5202,5 +5206,5 @@ EOC
   assert [ -f "${_repo_conf}" ]
   run cat "${_repo_conf}"
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
-  assert_equal "${_ws}" "$(cd "${TEMP_DIR}" && pwd -P)"
+  assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
 }
