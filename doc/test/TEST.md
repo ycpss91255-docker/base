@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1780 tests** total (1706 unit + 74 integration).
+Template self-tests: **1785 tests** total (1711 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1107,7 +1107,7 @@ the host file content and the inherited stdout (preserving
 | `Dockerfile.example commented runtime stage shows _entrypoint_logging.sh COPY example (#368)` | Runtime opt-in scaffold |
 | `_entrypoint_logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | Helper Usage docstring positive + negative regression guards |
 
-### test/unit/bashrc_spec.bats (10)
+### test/unit/bashrc_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -1118,6 +1118,12 @@ the host file content and the inherited stdout (preserving
 | `alias_func is called` | Function call |
 | `color_git_branch is called` | Function call |
 | `color_git_branch sets PS1` | PS1 setting |
+| bashrc.d bootstrap loop (sources `~/.bashrc.d/*.sh`, dir guard, `.gitkeep` present) | drop-in loader (3) |
+| `host-group drop-in exists` | #589 drop-in shipped |
+| `host-group drop-in defines name_host_groups and invokes it only when interactive` | #589 structure |
+| `host-group drop-in uses getent + sudo groupadd` | #589 mechanism |
+| `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
+| `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
 ### test/unit/ci_spec.bats (25)
 
