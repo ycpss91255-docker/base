@@ -803,7 +803,9 @@ detect_image_name() {
 # Workspace detection strategy (in order):
 #   1. If current directory is docker_*, use sibling *_ws (strip prefix)
 #   2. Traverse path upward looking for a *_ws component
-#   3. Fall back to parent directory
+#   3. Fall back to base_path itself (base-based repos keep the docker
+#      scaffolding at the repo root, so the repo root *is* the ws root;
+#      a self-CI checkout at _work/<repo>/<repo> mounts itself, #586)
 #
 # Usage: detect_ws_path <outvar> <base_path>
 # ════════════════════════════════════════════════════════════════════
@@ -841,7 +843,7 @@ detect_ws_path() {
     _check="$(dirname "${_check}")"
   done
 
-  _outvar="$(dirname "${_base_path}")"
+  _outvar="${_base_path}"
 }
 
 # ════════════════════════════════════════════════════════════════════
