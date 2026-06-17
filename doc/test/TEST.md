@@ -402,8 +402,8 @@ eight cumulative invariants:
    is still running (catches the entrypoint `set -u` insta-exit class),
    the wired ENTRYPOINT is `/entrypoint.sh`, the `~/work` mount is
    present and writable, and `just stop` removes both the container and
-   the compose project network. `just` is installed via the official
-   installer (no third-party action).
+   the compose project network. `just` is installed via the
+   `extractions/setup-just` action.
 
    `ci-rollup needs:` now `[actionlint, classify, shellcheck,
    hadolint, bats-unit, bats-integration, integration-e2e,

@@ -413,14 +413,10 @@ jobs:
         # `just` verbs downstream users invoke (post-#573 the documented
         # entry is `just`), so a broken script/docker/justfile is caught
         # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
-        # call ./script/ci/ci.sh directly and need no just. Use the
-        # official installer (vendor-neutral, no third-party action) into
-        # a user-writable bin on PATH.
-        run: |
-          set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-            | bash -s -- --to "${HOME}/.local/bin"
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+        # call ./script/ci/ci.sh directly and need no just. (The official
+        # `just.systems/install.sh` returns 403 from GHA runners, so use
+        # the maintained setup action instead.)
+        uses: extractions/setup-just@v3
 
       - name: Build test stage (just build test)
         working-directory: ${{ env.REPO_DIR }}
