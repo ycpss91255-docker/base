@@ -486,7 +486,13 @@ jobs:
           fi
 
           # (4) the ~/work workspace mount is present and writable inside.
-          just exec bash -c 'test -d ~/work && touch ~/work/.e2e_probe && rm -f ~/work/.e2e_probe'
+          # Use simple per-call argv (not `just exec bash -c '<compound>'`,
+          # whose quoting does not survive just's `{{args}}` splitting) and
+          # an absolute path (the mount lands at /home/${USER_NAME}/work).
+          work="/home/${USER_NAME}/work"
+          just exec test -d "${work}"
+          just exec touch "${work}/.e2e_probe"
+          just exec rm -f "${work}/.e2e_probe"
 
       - name: Stop and assert full teardown (container + network gone)
         working-directory: ${{ env.REPO_DIR }}
