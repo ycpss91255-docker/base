@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1789 tests** total (1715 unit + 74 integration).
+Template self-tests: **1791 tests** total (1717 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -283,7 +283,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/unit/self_test_yaml_spec.bats (52)
+### test/unit/self_test_yaml_spec.bats (54)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 eight cumulative invariants:
@@ -392,6 +392,18 @@ eight cumulative invariants:
      block PR merge. PR-side coverage delta still works because
      Codecov compares the PR head against the latest main coverage
      blob.
+
+9. **#579 integration-e2e runnability gate** — the e2e job drives
+   build / run / exec / stop through the documented `just` entry points
+   (not raw `script/*.sh`, so a broken container-ops justfile is
+   caught) and ASSERTS the runnability contract instead of only running
+   the steps: the in-container user equals the configured `USER_NAME`
+   (catches the v0.41.0 user-args `initial` bug), the detached container
+   is still running (catches the entrypoint `set -u` insta-exit class),
+   the wired ENTRYPOINT is `/entrypoint.sh`, the `~/work` mount is
+   present and writable, and `just stop` removes both the container and
+   the compose project network. `just` is installed via the
+   `extractions/setup-just` action.
 
    `ci-rollup needs:` now `[actionlint, classify, shellcheck,
    hadolint, bats-unit, bats-integration, integration-e2e,
