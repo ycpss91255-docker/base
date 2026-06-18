@@ -324,10 +324,28 @@ jobs:
           fail_ci_if_error: false
 
   integration-e2e:
-    name: Integration E2E (init.sh → build → run → exec → stop)
+    name: Integration E2E (${{ matrix.platform }})
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
-    runs-on: ubuntu-latest
+    # A2 (#603): verify the init.sh -> build -> run -> exec -> stop
+    # runnability contract on BOTH arches via native runners (no QEMU).
+    # Static 2-entry matrix mirroring the platform->runner convention in
+    # build-worker / publish-worker / release-test-tools (#587); a shared
+    # platform->runner single-source is a follow-up in that umbrella.
+    # ci-rollup aggregates the matrixed job through
+    # needs.integration-e2e.result (all shards must succeed), so no
+    # rollup change is needed.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            hardware: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            hardware: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -372,7 +390,7 @@ jobs:
               exit 0
             fi
           fi
-          if docker pull --platform linux/amd64 \
+          if docker pull --platform ${{ matrix.platform }} \
                ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
             docker tag \
               ghcr.io/ycpss91255-docker/test-tools:main \
