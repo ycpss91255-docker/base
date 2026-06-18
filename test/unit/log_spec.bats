@@ -193,6 +193,80 @@ setup() {
   [[ "${out_unset}" == *'"severity_text":"INFO"'* ]]
 }
 
+# ── Startup TTY cache (_LOG_IS_TTY) (#605) ─────────────────────────
+#
+# A later transcript tee on fd1 (#606) makes `test -t 1` false mid-run,
+# which would flip the live terminal to JSON / no-color. _LOG_IS_TTY
+# caches the run's real TTY-ness at startup (return code: 0 = tty,
+# non-zero = not) so the auto-format + color decisions survive the tee.
+# Unset -> live `test -t` fallback (standalone sourcing == pre-#605).
+
+@test "_log_is_tty helper is defined after sourcing (#605)" {
+  run bash -c "source ${LOG_SH}; declare -F _log_is_tty"
+  assert_success
+}
+
+@test "_log_is_tty: cached 0 wins over a non-TTY fd (#605)" {
+  run bash -c "export _LOG_IS_TTY=0; source ${LOG_SH}; _log_is_tty 1"
+  assert_success
+}
+
+@test "_log_is_tty: cached non-zero wins over the live probe (#605)" {
+  run bash -c "export _LOG_IS_TTY=1; source ${LOG_SH}; _log_is_tty 1"
+  assert_failure
+}
+
+@test "_log_is_tty: unset falls back to live test -t (non-TTY pipe -> non-zero) (#605)" {
+  run bash -c "unset _LOG_IS_TTY; source ${LOG_SH}; _log_is_tty 1"
+  assert_failure
+}
+
+@test "auto dispatch: _LOG_IS_TTY=0 forces text even on a non-TTY pipe (#605)" {
+  run bash -c "export _LOG_IS_TTY=0; source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" =~ 'INFO : env_regenerated'$ ]]
+  [[ "${output}" != *'"severity_text"'* ]]
+}
+
+@test "auto dispatch: _LOG_IS_TTY unset preserves live detection (non-TTY -> JSON) (#605)" {
+  run bash -c "unset _LOG_IS_TTY; source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" == *'"severity_text":"INFO"'* ]]
+}
+
+@test "explicit LOG_FORMAT=json ignores _LOG_IS_TTY=0 (cache scoped to auto) (#605)" {
+  run bash -c "export LOG_FORMAT=json _LOG_IS_TTY=0; source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" == *'"severity_text":"INFO"'* ]]
+}
+
+@test "explicit LOG_FORMAT=text ignores _LOG_IS_TTY=1 (cache scoped to auto) (#605)" {
+  run bash -c "export LOG_FORMAT=text _LOG_IS_TTY=1; source ${LOG_SH}; _log_info setup env_regenerated"
+  assert_success
+  [[ "${output}" =~ 'INFO : env_regenerated'$ ]]
+  [[ "${output}" != *'"severity_text"'* ]]
+}
+
+@test "_log_color_enabled honours _LOG_IS_TTY=0 on a non-TTY (#605)" {
+  run bash -c "source ${LOG_SH}; _LOG_IS_TTY=0 _log_color_enabled 1"
+  assert_success
+}
+
+@test "_log_color_enabled with _LOG_IS_TTY=1 stays disabled (#605)" {
+  run bash -c "source ${LOG_SH}; _LOG_IS_TTY=1 _log_color_enabled 1"
+  assert_failure
+}
+
+@test "_log_color_enabled: NO_COLOR wins over _LOG_IS_TTY=0 (#605)" {
+  run bash -c "source ${LOG_SH}; NO_COLOR=1 _LOG_IS_TTY=0 _log_color_enabled 1"
+  assert_failure
+}
+
+@test "_log_color_enabled: FORCE_COLOR wins over _LOG_IS_TTY=1 (#605)" {
+  run bash -c "source ${LOG_SH}; FORCE_COLOR=1 _LOG_IS_TTY=1 _log_color_enabled 1"
+  assert_success
+}
+
 # ── JSON output format (non-TTY auto-detect) ─────────────────────
 
 @test "JSON output contains OTel fields" {
