@@ -40,6 +40,28 @@ teardown() { rm -rf "${TMP_DIR}"; }
   done
 }
 
+@test "_transcript_is_interactive_verb: run/exec/setup_tui yes; full verbs + unknown no (#608)" {
+  for _v in run exec setup_tui; do
+    run _transcript_is_interactive_verb "${_v}"
+    assert_success
+  done
+  for _v in build setup stop prune upgrade "" foo; do
+    run _transcript_is_interactive_verb "${_v}"
+    assert_failure
+  done
+}
+
+@test "_transcript_is_capture_verb: every full + interactive verb captures; unknown does not (#608)" {
+  for _v in build setup stop prune upgrade run exec setup_tui; do
+    run _transcript_is_capture_verb "${_v}"
+    assert_success
+  done
+  for _v in "" foo; do
+    run _transcript_is_capture_verb "${_v}"
+    assert_failure
+  done
+}
+
 # ── filename + meta line ────────────────────────────────────────────
 
 @test "_transcript_filename: <root>/log/<verb>/<ts>-<traceid8>.log (#606)" {
@@ -190,9 +212,69 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert [ ! -d "${TMP_DIR}/log/build" ]
 }
 
-@test "transcript: an interactive verb produces no file in this slice (#606)" {
+# ── #608: interactive verbs (orchestration capture + detach) ────────
+
+@test "transcript: an interactive verb without detach full-captures (the run -d path) (#608)" {
   _run_transcript_harness run
   assert_success
   assert_output --partial "plain stdout line"
-  assert [ ! -d "${TMP_DIR}/log/run" ]
+  local _f
+  _f="$(ls "${TMP_DIR}/log/run/"*.log 2>/dev/null | head -n1)"
+  assert [ -n "${_f}" ]
+  run cat "${_f}"
+  assert_output --partial "plain stdout line"
+}
+
+@test "transcript: _transcript_detach captures orchestration only, not the interactive session (#608)" {
+  run bash -c "
+    export _WRAPPER_VERB=exec FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    printf 'orchestration phase\n'
+    _transcript_detach
+    printf 'interactive session output\n'
+    exit 0
+  "
+  assert_success
+  # both lines still reach the caller's terminal
+  assert_output --partial "orchestration phase"
+  assert_output --partial "interactive session output"
+  local _f
+  _f="$(ls "${TMP_DIR}/log/exec/"*.log 2>/dev/null | head -n1)"
+  assert [ -n "${_f}" ]
+  run cat "${_f}"
+  assert_output --partial "orchestration phase"
+  assert_output --partial "transcript_detached"
+  refute_output --partial "interactive session output"
+}
+
+@test "transcript: _transcript_detach is a no-op when the transcript never began (#608)" {
+  run bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_detach
+    printf 'ok\n'
+  "
+  assert_success
+  assert_output --partial "ok"
+}
+
+# ── wiring guards ───────────────────────────────────────────────────
+
+@test "wiring: the 5 full verbs call _transcript_begin (#606)" {
+  for _w in build stop prune setup; do
+    run grep -qF '_transcript_begin' "/source/script/docker/wrapper/${_w}.sh"
+    assert_success
+  done
+  run grep -qF '_transcript_begin' /source/upgrade.sh
+  assert_success
+}
+
+@test "wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)" {
+  for _w in run exec setup_tui; do
+    run grep -qF '_transcript_begin' "/source/script/docker/wrapper/${_w}.sh"
+    assert_success
+    run grep -qF '_transcript_detach' "/source/script/docker/wrapper/${_w}.sh"
+    assert_success
+  done
 }
