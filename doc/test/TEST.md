@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1791 tests** total (1717 unit + 74 integration).
+Template self-tests: **1802 tests** total (1728 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -486,6 +486,27 @@ downstream. These tests lock the removal (wrappers ship via `script/`).
 |----------|-------|
 | Archive cp list names no removed root wrapper operand (#558) | 1 |
 | Archive cp list keeps the paths that still ship (no over-prune) | 1 |
+
+### test/unit/publish_worker_yaml_spec.bats (11)
+
+Structural assertions for the `.github/workflows/publish-worker.yaml`
+reusable `call-publish` workflow (foundational image repos push their
+Dockerfile target stage to a registry on tag push; downstream app repos
+consume via `FROM ${registry}/${owner}/<image>`). #602: the original
+`publish` job had every matrix shard push the SAME computed tag(s) via
+`push: true` + `tags:`, leaving a last-shard-wins single-arch tag on a
+multi-platform call (no manifest merge). The fix mirrors the #587
+release-test-tools pattern — each shard pushes by digest, uploads its
+digest, and a `merge` job assembles the tagged manifest list via
+`docker buildx imagetools create`. These guards lock that contract.
+
+| Category | Tests |
+|----------|-------|
+| Stays a reusable `workflow_call` workflow; preserves the registry-parameterised inputs | 2 |
+| Native-runner matrix: `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner` | 2 |
+| Push-by-digest per shard (#602): build pushes by digest; no shared same-tag-per-shard push (regression guard); digest exported + uploaded as artifact | 3 |
+| Merge job (#602): downloads digests + creates the manifest via `imagetools`; resolves tags from inputs once; login uses the parameterised registry | 3 |
+| Declares `packages: write` on both push jobs | 1 |
 
 ### test/unit/multi_distro_build_worker_yaml_spec.bats (16)
 
