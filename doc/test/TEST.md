@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1858 tests** total (1777 unit + 81 integration).
+Template self-tests: **1866 tests** total (1785 unit + 81 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -99,6 +99,23 @@ Activation is execution-only (`_transcript_begin` in each verb's
 | End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op | 5 |
 | `_transcript_detach` (#608): no-detach full-captures (run -d path); detach captures orchestration only (`transcript_detached`, not the session); no-op when never begun | 3 |
 | Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui call begin + detach | 2 |
+
+### test/unit/transcript_lnav_spec.bats (8)
+
+Regex-type lnav format for the plain-text wrapper transcript
+(`transcript.lnav-format.json`, #609): parses `<ISO ts> [service] LEVEL:
+msg` lines, coexisting with the JSON `log.lnav-format.json` (`*.jsonl`).
+The CI image has no jq/lnav, so it is checked structurally (grep) +
+functionally (the embedded regex, extracted and JSON-unescaped, must
+match real transcript lines and the 5 levels via `grep -P`).
+
+| Category | Tests |
+|----------|-------|
+| Declares the lnav schema + format key; is a regex format (not json) | 2 |
+| Maps all 5 levels; timestamp/level/body fields + `log/` file-pattern wired | 2 |
+| Regex matches real transcript lines incl. all 5 levels; raw docker line does NOT match | 2 |
+| Every declared sample matches the pattern | 1 |
+| `log.lnav-format.json` (JSON) still coexists unchanged | 1 |
 
 ### test/unit/schema_spec.bats (24)
 
