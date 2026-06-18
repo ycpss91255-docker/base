@@ -1,0 +1,25 @@
+2026-06-18T06:07:39.665394Z [stop] INFO : transcript_started verb=stop trace_id=f747673f349f383f5e03e85373a462e1
+2026-06-18T06:07:39.666346Z [stop] DEBUG: transcript_trace_generated
+Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+
+Stop and remove containers. Default: stop only the default instance.
+
+Options:
+  -h, --help        Show this help
+  -C, --chdir DIR   Operate on the repo at DIR without changing the caller's cwd
+                    (mirrors git -C)
+  --instance NAME   Stop only the named instance
+  -a, --all         Stop ALL instances (default + every named instance)
+  --prune           After stopping, also reclaim orphan networks
+                    (--filter until=10m) and dangling images
+                    (--filter until=24h). For a richer clean (buildx
+                    cache / volumes), use ./prune.sh.
+  --lang LANG       Set message language (default: en)
+  --dry-run         Print the docker commands that would run, but do not execute
+  -v, --verbose     List the containers belonging to this compose project (name
+                    + state) before tearing them down. Gives the stop flow a
+                    real visible signal in parity with build/run/exec, instead
+                    of the previous no-op BUILDKIT_PROGRESS=plain export.
+  -vv, --very-verbose
+                    -v plus bash trace (set -x) on the wrapper itself.
+2026-06-18T06:07:39.682524Z [stop] INFO : transcript_complete exit_code=0 duration=0s

@@ -1,0 +1,6 @@
+2026-06-18T06:31:47.345909Z [setup] INFO : transcript_started verb=setup trace_id=4666674c8a15c872f6659aa1e69d8663
+2026-06-18T06:31:47.347377Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:31:47.579944Z [setup] WARN : [stage:...] section contains a key outside the per-stage allowlist; key ignored: image.rule_1 (stage=headless)
+2026-06-18T06:31:47.590404Z [setup] INFO : .env + compose.yaml updated
+[setup] USER=root (0:0)  GPU=false/auto  GUI=false/auto  IMAGE=tmp-rysqiebh4h  WS=/tmp/tmp.RYsqIeBH4H
+2026-06-18T06:31:47.592977Z [setup] INFO : transcript_complete exit_code=0 duration=0s

@@ -246,6 +246,7 @@ EOF
 }
 
 main() {
+  _transcript_begin  # #606: capture this run's output (no-op if disabled)
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # Issue #222 — without this, `build.sh --help --lang zh-TW` falls
@@ -523,7 +524,9 @@ main() {
 
   if [[ "${CLEAN_TOOLS}" == true ]]; then
     _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
-    trap _cleanup EXIT
+    # #606: register via the transcript-owned atexit registry instead of
+    # `trap ... EXIT`, which would clobber the transcript finalize.
+    _atexit _cleanup
   fi
 
   local _compose_args=()

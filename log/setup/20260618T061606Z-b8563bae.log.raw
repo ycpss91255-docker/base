@@ -1,0 +1,3 @@
+2026-06-18T06:16:06.124000Z [setup] INFO : transcript_started verb=setup trace_id=b8563baee46898ea6f8ddbeba444c0ad
+2026-06-18T06:16:06.129468Z [setup] DEBUG: transcript_trace_generated
+        max-file: "3"

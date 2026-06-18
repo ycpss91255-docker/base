@@ -120,6 +120,15 @@ ci_bats_path_coverage
 ci_mixed_test_layout
 ci_lint_bad_root
 
+# transcript.sh (#606)
+# Only genuine setup FAILURES are emitted via the logger (to stderr,
+# pre-tee). Success meta-events (started / trace / complete / pruned) are
+# written directly into the transcript file, never the terminal, so a run
+# produces no extra on-screen output.
+transcript_dir_create_failed
+transcript_file_unwritable
+transcript_tee_missing
+
 # general
 dry_run_cmd
 summary_line

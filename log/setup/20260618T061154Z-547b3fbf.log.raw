@@ -1,0 +1,3 @@
+2026-06-18T06:11:54.690721Z [setup] INFO : transcript_started verb=setup trace_id=547b3fbfc35f570a27f3a19c03c4403f
+2026-06-18T06:11:54.694519Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:11:55.634801Z [setup] WARN : IMAGE_NAME could not be detected. Using 'unknown'.

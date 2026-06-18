@@ -310,6 +310,37 @@ _validate_log_compress() {
   esac
 }
 
+# _validate_wrapper_transcript <value>
+#
+# [logging] wrapper_transcript (#606): boolean kill switch.
+_validate_wrapper_transcript() {
+  local _v="${1-}"
+  case "${_v}" in
+    true|false) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_wrapper_transcript_keep <value>
+#
+# [logging] wrapper_transcript_keep (#606): per-verb retention count,
+# positive integer >= 1.
+_validate_wrapper_transcript_keep() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
+# _validate_wrapper_transcript_days <value>
+#
+# [logging] wrapper_transcript_days (#606): per-verb retention age in
+# days, positive integer >= 1.
+_validate_wrapper_transcript_days() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
 # _validate_log_local_path <value>
 #
 # Host-side log directory for the [logging] local_path feature

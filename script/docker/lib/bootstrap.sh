@@ -86,6 +86,11 @@ _bootstrap() {
   done
   readonly FILE_PATH
 
+  # #606: expose the verb (wrapper basename) so transcript.sh, sourced
+  # via _lib.sh, can classify it. Only build/setup/stop/prune/upgrade are
+  # captured; run/exec/setup_tui stay uncaptured in this slice.
+  export _WRAPPER_VERB="${_tag}"
+
   # _lib.sh lives at .base/script/docker/lib/_lib.sh in consumer repos,
   # or alongside the wrapper under lib/ when the Dockerfile lint stage
   # COPYs scripts into /lint/ (#406: all libs live under lib/).

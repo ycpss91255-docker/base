@@ -419,6 +419,8 @@ two derived artifacts.
            mount_2..mount_N (extra host mounts; devices via /dev path)
 [logging]  driver (json-file default), max_size, max_file, compress
            local_path (host-side log dir; bind-mounted to /var/log/<repo>)
+           wrapper_transcript (tee verbs to log/<verb>/; default true),
+           wrapper_transcript_keep (20), wrapper_transcript_days (14)
            [logging.<svc>] for per-service key-level override
 ```
 
@@ -554,6 +556,34 @@ bind-mount dependence.
 Troubleshooting: `local_path` set but the host file stays empty →
 check `script/entrypoint.sh` actually contains the source line
 (`grep _entrypoint_logging script/entrypoint.sh`).
+
+### Wrapper transcripts
+
+Separate from the container-app logging above, each non-interactive
+container-ops verb (`just build` / `setup` / `stop` / `prune` /
+`upgrade`) tees its own combined output to a plaintext transcript for
+debugging:
+
+```
+log/<verb>/<UTC-ts>-<traceid8>.log    # ANSI stripped; terminal keeps colour
+log/<verb>/latest.log                 # symlink to the most recent run
+```
+
+The terminal output is unchanged (stdout and stderr stay separate); the
+transcript is a faithful copy with ANSI escapes removed, ending in a
+`transcript_complete exit_code=… duration=…s` line. Retention keeps the
+most recent `wrapper_transcript_keep` (20) per verb and drops anything
+older than `wrapper_transcript_days` (14), stricter wins. Turn it off
+with `[logging] wrapper_transcript = false`. Interactive verbs
+(`run` / `exec` / `setup-tui`) are not captured. `log/` is git- and
+docker-ignored automatically.
+
+```ini
+[logging]
+wrapper_transcript = true   # kill switch (default true)
+wrapper_transcript_keep = 20
+wrapper_transcript_days = 14
+```
 
 ### Interactive TUI
 

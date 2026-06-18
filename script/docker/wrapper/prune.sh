@@ -447,6 +447,7 @@ _run_worktree_orphans_prune() {
 }
 
 main() {
+  _transcript_begin  # #606: capture this run's output (no-op if disabled)
   # Pre-pass for --lang so usage() runs in requested locale even when
   # --help is first. See build.sh for full rationale (#222).
   local _i
