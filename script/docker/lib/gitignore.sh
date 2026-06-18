@@ -28,21 +28,37 @@ coverage/
 EOF
 }
 
-# _sync_gitignore <path>
-#   Append canonical entries that are missing from <path>, preserving
-#   user-defined lines and any pre-existing canonical lines (no
-#   duplicates, no reordering, no removals).
+# _canonical_dockerignore_entries
+#   Print the canonical .dockerignore derived-artifact set, one entry per
+#   line. This is exactly _canonical_gitignore_entries: a derived artifact
+#   not worth committing is not worth shipping in the Docker build context
+#   either, so the two share a single source and never drift. Per-repo
+#   build-context specifics (script/ test/ config/, .git, docs) are
+#   hand-maintained ABOVE the managed block and are never touched by the
+#   sync. New derived artifacts are added in _canonical_gitignore_entries
+#   and propagate here automatically (this is also how #606 will land
+#   `log/` in both files from one edit).
+_canonical_dockerignore_entries() {
+  _canonical_gitignore_entries
+}
+
+# _sync_managed_entries <path> <emitter>
+#   Shared mechanism behind _sync_gitignore / _sync_dockerignore: append
+#   the canonical entries printed by <emitter> that are missing from
+#   <path>, preserving user-defined lines and any pre-existing canonical
+#   lines (no duplicates, no reordering, no removals).
 #
-#   On first sync of a fresh repo the appended block is preceded by a
+#   On first sync of a fresh file the appended block is preceded by a
 #   `# managed by template (do not remove)` comment so future readers
-#   know not to delete the entries. The comment is only added once;
-#   subsequent syncs that need to add a new entry append it without a
-#   second comment.
+#   know not to delete the entries. The comment is added only once;
+#   subsequent syncs that add a new entry append it without a second
+#   comment.
 #
 #   Idempotent: running twice in a row never modifies the file the
 #   second time.
-_sync_gitignore() {
+_sync_managed_entries() {
   local _path="$1"
+  local _emitter="$2"
   local -a _missing=()
   local _entry
 
@@ -51,7 +67,7 @@ _sync_gitignore() {
     if [[ ! -f "${_path}" ]] || ! grep -qxF "${_entry}" "${_path}"; then
       _missing+=("${_entry}")
     fi
-  done < <(_canonical_gitignore_entries)
+  done < <("${_emitter}")
 
   if (( ${#_missing[@]} == 0 )); then
     return 0
@@ -79,6 +95,22 @@ _sync_gitignore() {
   fi
 
   printf '%s\n' "${_missing[@]}" >> "${_path}"
+}
+
+# _sync_gitignore <path>
+#   Append the canonical .gitignore set (the entries from
+#   _canonical_gitignore_entries) that are missing from <path>. See
+#   _sync_managed_entries for the mechanics.
+_sync_gitignore() {
+  _sync_managed_entries "$1" _canonical_gitignore_entries
+}
+
+# _sync_dockerignore <path>
+#   Append the canonical .dockerignore derived-artifact set that is
+#   missing from <path>, preserving the hand-maintained build-context
+#   lines above the managed block. See _sync_managed_entries (#604).
+_sync_dockerignore() {
+  _sync_managed_entries "$1" _canonical_dockerignore_entries
 }
 
 # _sync_logging_gitignore <base_path>
