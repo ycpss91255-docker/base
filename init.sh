@@ -272,6 +272,13 @@ YAML
   _sync_logging_gitignore "${REPO_ROOT}"
   _log "  Created .gitignore"
 
+  # .dockerignore: same derived-artifact set as .gitignore so generated
+  # files (.env / compose.yaml / coverage/ ...) never bloat the Docker
+  # build context. Per-repo build-context lines stay hand-maintained
+  # above the managed block (#604).
+  _sync_dockerignore "${REPO_ROOT}/.dockerignore"
+  _log "  Created .dockerignore"
+
   # doc/
   mkdir -p doc/test doc/changelog
   cat > README.md <<MD
@@ -381,6 +388,9 @@ HOOK
 _sync_existing_gitignore() {
   _sync_gitignore "${REPO_ROOT}/.gitignore"
   _untrack_canonical_in_repo "${REPO_ROOT}"
+  # #604: append-missing the same derived-artifact set into .dockerignore
+  # (created if absent), preserving user build-context lines.
+  _sync_dockerignore "${REPO_ROOT}/.dockerignore"
   # #402 PR-B: rebuild the [logging] local_path managed block from the
   # current setup.conf. Used to live in setup.sh apply (runtime); now
   # tied to init/upgrade lifecycle so the file stays consistent even

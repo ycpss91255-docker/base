@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1805 tests** total (1731 unit + 74 integration).
+Template self-tests: **1822 tests** total (1742 unit + 80 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1433,7 +1433,30 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (42)
+### test/unit/dockerignore_spec.bats (11)
+
+Unit tests for the `.dockerignore` canonical-sync helpers in
+`script/docker/lib/gitignore.sh` (#604). `_canonical_dockerignore_entries`
+delegates to `_canonical_gitignore_entries` (a derived artifact not worth
+committing is not worth shipping in the build context, so the two share a
+single source and never drift); `_sync_dockerignore` + `_sync_gitignore`
+are thin wrappers over the shared `_sync_managed_entries` mechanism.
+
+| Test | Description |
+|------|-------------|
+| `_canonical_dockerignore_entries: emits the derived-artifact set` | Membership |
+| `_canonical_dockerignore_entries: shares the single canonical source with gitignore (no drift)` | Anti-drift invariant |
+| `_canonical_dockerignore_entries: list is stable order` | Deterministic output |
+| `_canonical_dockerignore_entries: does NOT include log/ (owned by #606)` | Scope guard |
+| `_sync_dockerignore: creates the file when missing, with marker + all entries` | Greenfield |
+| `_sync_dockerignore: file with all entries already present is a no-op` | Already-synced |
+| `_sync_dockerignore: appends only missing entries when subset present` | Drift fill-in |
+| `_sync_dockerignore: preserves hand-maintained build-context lines` | User-line preservation |
+| `_sync_dockerignore: idempotent — second run leaves the file unchanged` | Idempotency |
+| `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
+| `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
+
+### test/integration/init_new_repo_spec.bats (44)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1553,7 +1576,7 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (8)
+### test/integration/gitignore_sync_spec.bats (12)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
