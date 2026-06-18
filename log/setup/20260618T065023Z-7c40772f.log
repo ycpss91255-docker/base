@@ -1,14 +1,14 @@
-2026-06-18T06:31:47.900139Z [setup] INFO : transcript_started verb=setup trace_id=0387b241314cf0ecc27081c366d31993
-2026-06-18T06:31:47.901556Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:31:48.091909Z [setup] WARN : device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup.
+2026-06-18T06:50:23.797017Z [setup] INFO : transcript_started verb=setup trace_id=7c40772f83328f579e3fa1b399c3abc5
+2026-06-18T06:50:23.798054Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:50:23.986180Z [setup] WARN : device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup.
 USER_NAME=root
 USER_GROUP=root
 USER_UID=0
 USER_GID=0
 HARDWARE=x86_64
 DOCKER_HUB_USER=root
-IMAGE_NAME=tmp-kemvzq84a3
-WS_PATH=/tmp/tmp.keMVzq84A3
+IMAGE_NAME=tmp-jwqzxtk44h
+WS_PATH=/tmp/tmp.jwqzXTk44H
 APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
 APT_MIRROR_DEBIAN=mirror.twds.com.tw
 TZ=Asia/Taipei
@@ -30,4 +30,4 @@ TARGET_ARCH=
 BUILD_NETWORK=
 SSH_X11=false
 X11_COOKIE_SKIP=0
-2026-06-18T06:31:48.108570Z [setup] INFO : transcript_complete exit_code=0 duration=1s
+2026-06-18T06:50:24.003535Z [setup] INFO : transcript_complete exit_code=0 duration=1s

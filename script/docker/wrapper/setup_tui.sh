@@ -2670,6 +2670,7 @@ _tui_known_subcommand() {
 }
 
 main() {
+  _transcript_begin  # #608: capture pre-launch phase; detach before the TUI
   local _subcmd=""
   # Remember the raw --lang value if sanitize rejects it, so we can
   # surface the warning INSIDE the TUI (the stderr message from
@@ -2730,6 +2731,10 @@ main() {
   # #440: pre-tui hook fires before TUI launches. Skipped under
   # --dry-run.
   _run_pre_hook setup_tui "$@" || exit $?
+
+  # #608: pre-launch phase captured; detach before dialog/whiptail takes
+  # over the terminal (the TUI body + post-commit are not captured).
+  _transcript_detach
 
   if [[ -n "${_subcmd}" ]]; then
     "_edit_section_${_subcmd}"

@@ -231,6 +231,7 @@ EOF
 }
 
 main() {
+  _transcript_begin  # #608: capture orchestration; detach before exec
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # See build.sh's main() for the full rationale (#222).
@@ -390,6 +391,9 @@ ${_hint}"
   # the actual `compose exec`. Skipped under --dry-run.
   _run_pre_hook exec "$@" || exit $?
 
+  # #608: orchestration (incl. the not-running precheck error + pre-hook)
+  # is captured; detach before handing the terminal to the exec session.
+  _transcript_detach
   _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@"
   local _exec_rc=$?
 

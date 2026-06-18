@@ -378,6 +378,7 @@ _normalize_interactive_rc() {
 }
 
 main() {
+  _transcript_begin  # #608: capture orchestration; interactive paths detach
   # #440: keep the wrapper's original argv around so the EXIT trap
   # (which fires asynchronously and can no longer see main's local $@)
   # can forward identical "$@" to the post-run hook.
@@ -672,7 +673,9 @@ ${_parallel}"
   # ... down --remove-orphans" line is visible in the planned-action
   # output (no real teardown happens — _compose honors DRY_RUN).
   if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
-    trap _app_cleanup EXIT
+    # #608: register via the transcript-owned atexit registry instead of
+    # `trap ... EXIT`, which would clobber the transcript finalize.
+    _atexit _app_cleanup
   fi
 
   if [[ "${DETACH}" == true ]]; then
@@ -689,8 +692,11 @@ ${_parallel}"
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-installed `trap _app_cleanup EXIT` above (#386, #440, #465).
+    # centrally-registered `_atexit _app_cleanup` above (#386, #440, #465).
     _compose_dispatch up -d "${TARGET}"
+    # #608: container is up (orchestration captured) -- detach the
+    # transcript before handing the terminal to the interactive session.
+    _transcript_detach
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting (#580).
       _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
@@ -708,10 +714,12 @@ ${_parallel}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting (#580).
       _compose_dispatch up -d "${TARGET}"
+      _transcript_detach  # #608: detach before the interactive exec
       _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
       # Foreground service: a clean Ctrl-C stop ($?=130) is not a failure;
       # normalize it (and 0) to 0 (#580).
+      _transcript_detach  # #608: detach before the foreground attach
       local _rc=0
       _compose_dispatch up "${TARGET}" || _rc=$?
       return "$(_normalize_interactive_rc "${_rc}")"

@@ -575,7 +575,9 @@ transcript is a faithful copy with ANSI escapes removed, ending in a
 most recent `wrapper_transcript_keep` (20) per verb and drops anything
 older than `wrapper_transcript_days` (14), stricter wins. Turn it off
 with `[logging] wrapper_transcript = false`. Interactive verbs
-(`run` / `exec` / `setup-tui`) are not captured. `log/` is git- and
+(`run` attached / `exec` / `setup-tui`) capture only the orchestration
+phase and then detach before the interactive session (`run -d` is
+non-interactive and is captured in full). `log/` is git- and
 docker-ignored automatically.
 
 ```ini

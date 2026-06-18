@@ -1,5 +1,0 @@
-2026-06-18T06:31:47.879001Z [setup] INFO : transcript_started verb=setup trace_id=664d56c5482cc3ea64a6618ac84919a9
-2026-06-18T06:31:47.880159Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:31:48.108350Z [setup] INFO : .env + compose.yaml updated
-[setup] USER=root (0:0)  GPU=false/auto  GUI=false/auto  IMAGE=tmp-opyj6797qg  WS=/tmp/tmp.Opyj6797qG
-2026-06-18T06:31:48.111827Z [setup] INFO : transcript_complete exit_code=0 duration=1s
