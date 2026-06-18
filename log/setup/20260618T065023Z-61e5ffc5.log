@@ -1,4 +1,0 @@
-2026-06-18T06:50:23.652557Z [setup] INFO : transcript_started verb=setup trace_id=61e5ffc5cd67297323a01dc9ad27a563
-2026-06-18T06:50:23.653936Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:50:23.657419Z [setup] ERROR: Invalid value: --gui = bogus (expected auto|force|off)
-2026-06-18T06:50:23.661285Z [setup] INFO : transcript_complete exit_code=2 duration=0s

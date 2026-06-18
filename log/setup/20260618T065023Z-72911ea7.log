@@ -1,4 +1,0 @@
-2026-06-18T06:50:23.303500Z [setup] INFO : transcript_started verb=setup trace_id=72911ea7cdb842ad829810dd066049e3
-2026-06-18T06:50:23.304505Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:50:23.521798Z [setup] ERROR: Dockerfile stage name collides with a template-managed baseline stage; rename it: [stage:sys]
-2026-06-18T06:50:23.525254Z [setup] INFO : transcript_complete exit_code=1 duration=0s

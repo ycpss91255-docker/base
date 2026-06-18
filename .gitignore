@@ -1,6 +1,11 @@
 coverage/
 .env
 multi_run/
+# Wrapper transcripts (#606/#609). base runs its own wrappers during the
+# test suite, which writes transcripts under log/ (any depth, e.g.
+# script/docker/log/). The canonical .gitignore sync targets consumer
+# repos, not base itself, so ignore them here directly.
+log/
 *.swp
 *.swo
 .DS_Store
