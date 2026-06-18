@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1802 tests** total (1728 unit + 74 integration).
+Template self-tests: **1805 tests** total (1731 unit + 74 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -283,7 +283,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/unit/self_test_yaml_spec.bats (54)
+### test/unit/self_test_yaml_spec.bats (57)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 eight cumulative invariants:
@@ -414,6 +414,17 @@ eight cumulative invariants:
    `classify` are hard-mandatory in `ci-rollup`'s verifier (the
    always-running `test` job no longer exists).
 
+10. **#603 native arm64 e2e matrix** — `integration-e2e` runs as a
+    static 2-entry `strategy.matrix` (`linux/amd64` -> `ubuntu-latest`,
+    `linux/arm64` -> `ubuntu-24.04-arm`) with `fail-fast: false`, so the
+    #579 runnability contract is verified on both arches via native
+    runners (no QEMU), mirroring the platform->runner convention of
+    build-worker / publish-worker / release-test-tools (#587). The job
+    `runs-on: ${{ matrix.runner }}` and the Obtain step pulls
+    `test-tools:main` for `${{ matrix.platform }}` (multi-arch post-#587)
+    so the arm64 shard gets the arm64 variant. `ci-rollup` aggregates
+    through `needs.integration-e2e.result` unchanged.
+
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
@@ -428,6 +439,7 @@ eight cumulative invariants:
 | `bats-unit` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #377) | 2 |
 | `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377) | 1 |
 | `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
+| `integration-e2e` native arm64 matrix (#603): amd64+arm64 native-runner matrix with `fail-fast: false`; shards `runs-on: ${{ matrix.runner }}`; Obtain pulls the matrix platform | 3 |
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
