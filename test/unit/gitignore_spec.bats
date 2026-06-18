@@ -42,7 +42,7 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 9 canonical lines (#502, #507)" {
+@test "_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
@@ -55,6 +55,7 @@ setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
+log/
 EXPECTED
 }
 
@@ -108,6 +109,7 @@ setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
+log/
 EOF
   local _before
   _before="$(cat "${_f}")"
