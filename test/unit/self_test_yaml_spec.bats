@@ -170,6 +170,36 @@ setup() {
   assert_output --partial '_default'
 }
 
+@test "self-test.yaml: integration-e2e runs as a native-runner matrix over amd64 + arm64 (#603)" {
+  # A2: verify the runnability contract on BOTH arches via native
+  # runners (no QEMU), mirroring the platform->runner convention in
+  # build-worker / publish-worker / release-test-tools (#587).
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'fail-fast: false'
+  assert_output --partial 'linux/amd64'
+  assert_output --partial 'ubuntu-latest'
+  assert_output --partial 'linux/arm64'
+  assert_output --partial 'ubuntu-24.04-arm'
+}
+
+@test "self-test.yaml: integration-e2e shards run on the matrix runner (#603)" {
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'runs-on: ${{ matrix.runner }}'
+}
+
+@test "self-test.yaml: integration-e2e Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)" {
+  # On the arm64 shard the test-tools:main pull must fetch the arm64
+  # variant (test-tools is multi-arch post-#587); a hardcoded
+  # linux/amd64 would resolve the wrong arch for the downstream
+  # FROM ${TEST_TOOLS_IMAGE} build.
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'docker pull --platform ${{ matrix.platform }}'
+  refute_output --partial 'docker pull --platform linux/amd64'
+}
+
 @test "self-test.yaml: behavioural job declares needs on actionlint AND classify (#317)" {
   run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
