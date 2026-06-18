@@ -21,6 +21,11 @@ _lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${_lib_dir}/i18n.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/log.sh"
+# transcript.sh runs source-time setup (the tee redirect must happen at
+# file scope, not deferred) and is the producer of #605's _LOG_IS_TTY
+# cache, so it sources right after log.sh. #606.
+# shellcheck disable=SC1091
+source "${_lib_dir}/transcript.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/env.sh"
 # shellcheck disable=SC1091

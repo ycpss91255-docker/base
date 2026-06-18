@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1834 tests** total (1754 unit + 80 integration).
+Template self-tests: **1852 tests** total (1771 unit + 81 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -73,6 +73,26 @@ microsecond timestamps, `_log_plain` removed.
 | FORCE_COLOR text: red bold ERROR, yellow WARN, NO_COLOR strips | 3 |
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
+
+### test/unit/transcript_spec.bats (17)
+
+Wrapper transcript capture (#606): tees a non-interactive verb's combined
+output to `log/<verb>/<ts>-<traceid8>.log` (ANSI stripped) with a per-verb
+`latest.log` symlink, an exit-code+duration closing line, retention, and
+an `_atexit` registry that owns the single EXIT trap. Pure helpers are
+unit-tested; the tee + EXIT-finalize is exercised end-to-end by running a
+tiny harness in a subshell. Activation is execution-only (`_transcript_begin`
+in each verb's `main()`), never at source time.
+
+| Category | Tests |
+|----------|-------|
+| `_transcript_is_full_verb`: 5 captured verbs / interactive + unknown not | 2 |
+| `_transcript_filename` path shape; `_transcript_meta_line` lnav-parseable format | 2 |
+| `_transcript_resolve_traceid`: inherits TRACEPARENT trace_id / generates 32-hex | 2 |
+| `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch | 2 |
+| `_atexit`: registered callbacks run LIFO on exit | 1 |
+| `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days | 2 |
+| End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op; interactive verb no file | 6 |
 
 ### test/unit/schema_spec.bats (24)
 
@@ -1577,7 +1597,7 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (12)
+### test/integration/gitignore_sync_spec.bats (13)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone

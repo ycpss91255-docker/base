@@ -61,9 +61,11 @@ teardown() {
   assert_equal "$(_canonical_dockerignore_entries)" "$(_canonical_dockerignore_entries)"
 }
 
-@test "_canonical_dockerignore_entries: does NOT include log/ (owned by #606) (#604)" {
+@test "_canonical_dockerignore_entries: includes log/ via the shared canonical source (#606) (#604)" {
+  # #604 reserved log/ for #606; #606 added it to _canonical_gitignore_entries
+  # and it propagates here through the shared source (proving the delegation).
   run _canonical_dockerignore_entries
-  refute_line "log/"
+  assert_line "log/"
 }
 
 # ════════════════════════════════════════════════════════════════════

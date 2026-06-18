@@ -1,0 +1,6 @@
+2026-06-18T06:05:55.015024Z [setup] INFO : transcript_started verb=setup trace_id=
+2026-06-18T06:05:55.017919Z [setup] INFO : transcript_started verb=setup trace_id=
+2026-06-18T06:05:55.019235Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:05:55.023202Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:05:55.726070Z [setup] INFO : IMAGE_NAME using @default:myfallback
+2026-06-18T06:05:55.759629Z [setup] WARN : IMAGE_NAME could not be detected. Using 'unknown'.

@@ -27,6 +27,9 @@ readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
+# #606: upgrade.sh sources _lib.sh directly (not via _bootstrap), so set
+# the verb here for transcript.sh's classification before the source.
+export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/script/docker/lib/_lib.sh"
 
@@ -487,6 +490,7 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
+  _transcript_begin  # #606: capture this run's output (no-op if disabled)
   case "${1:-}" in
     -h|--help) _usage ;;
   esac

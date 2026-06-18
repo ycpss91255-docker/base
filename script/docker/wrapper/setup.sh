@@ -25,6 +25,9 @@ _SETUP_LIB_DIR="$(cd -- "${_SETUP_SCRIPT_DIR}/../lib" && pwd -P)"
 source "${_SETUP_LIB_DIR}/i18n.sh"
 # shellcheck disable=SC1091
 source "${_SETUP_LIB_DIR}/_tui_conf.sh"
+# #606: setup.sh sources _lib.sh directly (not via _bootstrap), so set the
+# verb here for transcript.sh's classification before the source.
+export _WRAPPER_VERB=setup
 # shellcheck disable=SC1091
 source "${_SETUP_LIB_DIR}/_lib.sh"
 
@@ -5008,6 +5011,7 @@ _setup_deploy() {
 #   subcommands: apply | check-drift | set | show | list | add | remove | reset
 # ════════════════════════════════════════════════════════════════════
 main() {
+  _transcript_begin  # #606: capture this run's output (no-op if disabled)
   local _subcmd=""
   # B-4 BREAKING: no-arg → help (was: silently aliased to apply).
   # Bare flag invocations (`setup.sh --base-path X --lang Y`, no

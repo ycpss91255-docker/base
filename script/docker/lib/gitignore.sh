@@ -25,6 +25,7 @@ setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
+log/
 EOF
 }
 

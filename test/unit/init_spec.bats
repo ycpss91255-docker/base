@@ -34,7 +34,7 @@ setup() {
         "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
   # schema.sh joined the _lib.sh chain in #560; it sources _tui_conf.sh
   # for the validator bodies, so symlink both alongside the rest.
-  for _sl in log env conf conf_logging _tui_conf schema compose config_summary hook; do
+  for _sl in log transcript env conf conf_logging _tui_conf schema compose config_summary hook; do
     ln -s "/source/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done

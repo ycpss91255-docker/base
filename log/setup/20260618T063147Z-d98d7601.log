@@ -1,0 +1,3 @@
+2026-06-18T06:31:47.684557Z [setup] INFO : transcript_started verb=setup trace_id=d98d76017f12d6a5dc106221154b5264
+2026-06-18T06:31:47.685944Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:31:47.692041Z [setup] INFO : transcript_complete exit_code=0 duration=0s

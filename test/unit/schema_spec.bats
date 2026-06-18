@@ -228,8 +228,8 @@ _sorted_keys() {
   [ "$(_sorted_keys build)" = "arg_ network target_arch " ]
 }
 
-@test "_schema_section_keys returns all logging keys (#561)" {
-  [ "$(_sorted_keys logging)" = "compress driver local_path max_file max_size " ]
+@test "_schema_section_keys returns all logging keys (#561, #606)" {
+  [ "$(_sorted_keys logging)" = "compress driver local_path max_file max_size wrapper_transcript wrapper_transcript_days wrapper_transcript_keep " ]
 }
 
 @test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {

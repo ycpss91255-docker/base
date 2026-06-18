@@ -1,0 +1,4 @@
+2026-06-18T06:16:06.707896Z [setup] INFO : transcript_started verb=setup trace_id=ab9e49c238cf51f449d003b06fa9a422
+2026-06-18T06:16:06.713304Z [setup] DEBUG: transcript_trace_generated
+      - LOG_FILE_PATH=/var/log/myrepo/test.log
+      - /tmp/tmp.WrXPVuVgup/./test-logs:/var/log/myrepo

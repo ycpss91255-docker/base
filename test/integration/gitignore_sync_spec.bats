@@ -59,6 +59,14 @@ teardown() {
   assert_success
 }
 
+@test "init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)" {
+  bash .base/init.sh
+  run grep -xF 'log/' "${REPO_DIR}/.gitignore"
+  assert_success
+  run grep -xF 'log/' "${REPO_DIR}/.dockerignore"
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # init.sh existing-repo path: sync + untrack the 15-repo drift case
 # ════════════════════════════════════════════════════════════════════

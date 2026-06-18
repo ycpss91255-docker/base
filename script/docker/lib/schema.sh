@@ -57,6 +57,9 @@ declare -gA SCHEMA_VALIDATOR=(
   [logging.max_file]=_validate_log_max_file
   [logging.compress]=_validate_log_compress
   [logging.local_path]=_validate_log_local_path
+  [logging.wrapper_transcript]=_validate_wrapper_transcript
+  [logging.wrapper_transcript_keep]=_validate_wrapper_transcript_keep
+  [logging.wrapper_transcript_days]=_validate_wrapper_transcript_days
   # ── list keys (numbered suffix normalised to the trailing-_ prefix) ─
   [build.arg_]=_validate_env_kv
   [volumes.mount_]=_validate_mount

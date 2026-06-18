@@ -1,0 +1,32 @@
+2026-06-18T06:31:47.729664Z [setup] INFO : transcript_started verb=setup trace_id=a1a3bdddb18455608aa19b7587e575d2
+2026-06-18T06:31:47.730640Z [setup] DEBUG: transcript_trace_generated
+USER_NAME=root
+USER_GROUP=root
+USER_UID=0
+USER_GID=0
+HARDWARE=x86_64
+DOCKER_HUB_USER=root
+IMAGE_NAME=tmp-fds3cooyez
+WS_PATH=/tmp/tmp.Fds3COOyez
+APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
+APT_MIRROR_DEBIAN=mirror.twds.com.tw
+TZ=Asia/Taipei
+GPU_DETECTED=false
+GPU_MODE=off
+GPU_ENABLED=false
+GPU_COUNT=all
+GPU_CAPABILITIES=gpu
+RUNTIME=auto
+GUI_DETECTED=false
+GUI_MODE=off
+GUI_ENABLED=false
+NETWORK_MODE=host
+IPC_MODE=host
+PID_MODE=private
+PRIVILEGED=false
+NETWORK_NAME=
+TARGET_ARCH=
+BUILD_NETWORK=
+SSH_X11=false
+X11_COOKIE_SKIP=0
+2026-06-18T06:31:47.915056Z [setup] INFO : transcript_complete exit_code=0 duration=0s

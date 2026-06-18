@@ -184,6 +184,7 @@ _down_one() {
 }
 
 main() {
+  _transcript_begin  # #606: capture this run's output (no-op if disabled)
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # See build.sh's main() for the full rationale (#222).

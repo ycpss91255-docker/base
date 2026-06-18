@@ -1,0 +1,7 @@
+2026-06-18T06:22:34.416699Z [setup] INFO : transcript_started verb=setup trace_id=8d4d267ac42b5fbe4e8e8a56f3f2f102
+2026-06-18T06:22:34.418102Z [setup] DEBUG: transcript_trace_generated
+[setup] add [security] cap_add_1 = SYS_ADMIN
+[setup] file: /tmp/tmp.v6MN8B8lX0/config/docker/setup.conf
+[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml
+2026-06-18T06:22:34.633533Z [setup] INFO : .env + compose.yaml updated
+[setup] USER=root (0:0)  GPU=false/auto  GUI=false/auto  IMAGE=tmp-v6mn8b8lx0  WS=/tmp/tmp.v6MN8B8lX0
