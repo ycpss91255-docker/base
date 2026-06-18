@@ -129,6 +129,17 @@ teardown() {
   assert [ -f "${REPO_DIR}/.gitignore" ]
 }
 
+@test "new repo: .dockerignore exists (#604)" {
+  bash .base/init.sh
+  assert [ -f "${REPO_DIR}/.dockerignore" ]
+}
+
+@test "new repo: .dockerignore contains compose.yaml (derived artifact) (#604)" {
+  bash .base/init.sh
+  run grep -x 'compose.yaml' "${REPO_DIR}/.dockerignore"
+  assert_success
+}
+
 @test "new repo: doc/ tree exists with README translations" {
   bash .base/init.sh
   assert [ -f "${REPO_DIR}/README.md" ]

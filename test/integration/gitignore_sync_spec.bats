@@ -43,6 +43,22 @@ teardown() {
   assert_success
 }
 
+@test "init.sh new-repo: .dockerignore contains all canonical derived entries (#604)" {
+  bash .base/init.sh
+  assert [ -f "${REPO_DIR}/.dockerignore" ]
+  local _entry
+  for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+    run grep -xF "${_entry}" "${REPO_DIR}/.dockerignore"
+    assert_success
+  done
+}
+
+@test "init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)" {
+  bash .base/init.sh
+  run grep -F 'managed by template' "${REPO_DIR}/.dockerignore"
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # init.sh existing-repo path: sync + untrack the 15-repo drift case
 # ════════════════════════════════════════════════════════════════════
@@ -139,6 +155,40 @@ EOF
   bash .base/init.sh
   local _second
   _second="$(cat "${REPO_DIR}/.gitignore")"
+
+  assert_equal "${_second}" "${_first}"
+}
+
+@test "init.sh existing-repo: appends missing canonical entries to a user .dockerignore, preserving build-context lines (#604)" {
+  _seed_existing_repo
+  # User-authored .dockerignore with a hand-maintained build-context line
+  # plus one already-present canonical entry.
+  printf '%s\n' 'script/' '.env' > "${REPO_DIR}/.dockerignore"
+  bash .base/init.sh
+
+  # Hand-maintained build-context line preserved
+  run grep -xF 'script/' "${REPO_DIR}/.dockerignore"
+  assert_success
+  # Pre-existing canonical entry not duplicated
+  run grep -c '^\.env$' "${REPO_DIR}/.dockerignore"
+  assert_output "1"
+  # Previously-missing canonical entries appended
+  run grep -xF 'compose.yaml' "${REPO_DIR}/.dockerignore"
+  assert_success
+  run grep -xF 'coverage/' "${REPO_DIR}/.dockerignore"
+  assert_success
+}
+
+@test "init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)" {
+  _seed_existing_repo
+  printf '%s\n' 'script/' > "${REPO_DIR}/.dockerignore"
+  bash .base/init.sh
+  local _first
+  _first="$(cat "${REPO_DIR}/.dockerignore")"
+
+  bash .base/init.sh
+  local _second
+  _second="$(cat "${REPO_DIR}/.dockerignore")"
 
   assert_equal "${_second}" "${_first}"
 }
