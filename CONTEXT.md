@@ -103,6 +103,16 @@ filename correlation id (`log/<verb>/<ts>-<traceid8>.log`).
 _Avoid_: request id, correlation id, span id (the span id is the
 per-operation child).
 
+**Interactive vs non-interactive verb**:
+A container-ops verb classification for transcript capture (#606 / #608).
+*Non-interactive* verbs (build / setup / stop / prune / upgrade) run to
+completion without handing the terminal over, so the transcript captures
+them end-to-end. *Interactive* verbs (run attached / exec / setup-tui)
+hand the terminal to an interactive docker/TUI process; the transcript
+captures only the orchestration phase and then `_transcript_detach`s
+before the session. `run -d` is non-interactive (full capture).
+_Avoid_: foreground/background (orthogonal), TTY verb.
+
 ### Architecture seams
 
 Concepts named by the 2026-06-11 architecture review

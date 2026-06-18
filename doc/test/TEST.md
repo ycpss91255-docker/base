@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1852 tests** total (1771 unit + 81 integration).
+Template self-tests: **1858 tests** total (1777 unit + 81 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -74,25 +74,31 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/transcript_spec.bats (17)
+### test/unit/transcript_spec.bats (23)
 
-Wrapper transcript capture (#606): tees a non-interactive verb's combined
-output to `log/<verb>/<ts>-<traceid8>.log` (ANSI stripped) with a per-verb
-`latest.log` symlink, an exit-code+duration closing line, retention, and
-an `_atexit` registry that owns the single EXIT trap. Pure helpers are
-unit-tested; the tee + EXIT-finalize is exercised end-to-end by running a
-tiny harness in a subshell. Activation is execution-only (`_transcript_begin`
-in each verb's `main()`), never at source time.
+Wrapper transcript capture (#606) + interactive orchestration capture
+(#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
+(ANSI stripped) with a per-verb `latest.log` symlink, an
+exit-code+duration closing line, retention, and an `_atexit` registry
+that owns the single EXIT trap. Interactive verbs (run / exec / setup_tui)
+capture the orchestration phase then `_transcript_detach` before the
+session. Pure helpers are unit-tested; the tee + EXIT-finalize + detach
+are exercised end-to-end by running a tiny harness in a subshell.
+Activation is execution-only (`_transcript_begin` in each verb's
+`main()`), never at source time.
 
 | Category | Tests |
 |----------|-------|
 | `_transcript_is_full_verb`: 5 captured verbs / interactive + unknown not | 2 |
+| `_transcript_is_interactive_verb` + `_transcript_is_capture_verb` classification (#608) | 2 |
 | `_transcript_filename` path shape; `_transcript_meta_line` lnav-parseable format | 2 |
 | `_transcript_resolve_traceid`: inherits TRACEPARENT trace_id / generates 32-hex | 2 |
 | `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch | 2 |
 | `_atexit`: registered callbacks run LIFO on exit | 1 |
 | `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days | 2 |
-| End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op; interactive verb no file | 6 |
+| End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op | 5 |
+| `_transcript_detach` (#608): no-detach full-captures (run -d path); detach captures orchestration only (`transcript_detached`, not the session); no-op when never begun | 3 |
+| Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui call begin + detach | 2 |
 
 ### test/unit/schema_spec.bats (24)
 

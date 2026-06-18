@@ -32,10 +32,14 @@ if [[ -n "${_DOCKER_LIB_TRANSCRIPT_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 
-# Verbs whose full output is captured in this slice. Interactive verbs
-# (run / exec / setup_tui) are intentionally absent -- #608 wires their
-# orchestration-only capture via _transcript_detach.
+# Non-interactive verbs: full output captured end-to-end (no detach).
 _TRANSCRIPT_FULL_VERBS=" build setup stop prune upgrade "
+
+# Interactive verbs (#608): capture the orchestration phase, then the
+# wrapper calls _transcript_detach before handing the terminal to the
+# interactive docker/TUI process so the session itself is not captured.
+# (run -d is non-interactive and never detaches -> full capture.)
+_TRANSCRIPT_INTERACTIVE_VERBS=" run exec setup_tui "
 
 # ── atexit registry (#606 decision A) ───────────────────────────────
 
@@ -80,6 +84,22 @@ _transcript_is_full_verb() {
   local _verb="${1:-}"
   [[ -n "${_verb}" ]] || return 1
   [[ "${_TRANSCRIPT_FULL_VERBS}" == *" ${_verb} "* ]]
+}
+
+# _transcript_is_interactive_verb <verb>
+#   True when <verb> captures orchestration then detaches (#608).
+_transcript_is_interactive_verb() {
+  local _verb="${1:-}"
+  [[ -n "${_verb}" ]] || return 1
+  [[ "${_TRANSCRIPT_INTERACTIVE_VERBS}" == *" ${_verb} "* ]]
+}
+
+# _transcript_is_capture_verb <verb>
+#   True when <verb> is captured at all (full or interactive). Gates
+#   activation in _transcript_begin; the wrapper decides whether/when to
+#   _transcript_detach.
+_transcript_is_capture_verb() {
+  _transcript_is_full_verb "${1:-}" || _transcript_is_interactive_verb "${1:-}"
 }
 
 # _transcript_conf <key> <default>
@@ -215,43 +235,63 @@ _transcript_exit_handler() {
       _end="$(date +%s 2>/dev/null || printf '0')"
       (( _end > 0 )) && _dur=$(( _end - _TRANSCRIPT_START ))
     fi
-
-    # Restore fds first: closes each tee's input pipe so it drains and
-    # exits, then wait on both so the raw capture is complete (not
-    # truncated).
-    exec 1>&"${_TRANSCRIPT_ORIG_OUT}" 2>&"${_TRANSCRIPT_ORIG_ERR}"
-    exec {_TRANSCRIPT_ORIG_OUT}>&- 2>/dev/null || true
-    exec {_TRANSCRIPT_ORIG_ERR}>&- 2>/dev/null || true
-    if [[ -n "${_TRANSCRIPT_TEE_OUT_PID:-}" ]]; then
-      wait "${_TRANSCRIPT_TEE_OUT_PID}" 2>/dev/null || true
-    fi
-    if [[ -n "${_TRANSCRIPT_TEE_ERR_PID:-}" ]]; then
-      wait "${_TRANSCRIPT_TEE_ERR_PID}" 2>/dev/null || true
-    fi
-
-    # Closing line is written directly to the capture (file only -- never
-    # the terminal), ordered last after the tee has drained.
-    _transcript_meta_line "INFO" \
-      "transcript_complete exit_code=${_rc} duration=${_dur}s" \
-      >> "${_TRANSCRIPT_RAW}" 2>/dev/null || true
-
-    # Strip ANSI from the raw capture into the final transcript, then
-    # repoint latest.log and prune. Best-effort throughout.
-    if [[ -f "${_TRANSCRIPT_RAW:-}" ]]; then
-      if _transcript_strip_ansi "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null; then
-        rm -f -- "${_TRANSCRIPT_RAW}" 2>/dev/null
-      else
-        # Strip failed -- keep the raw capture as the transcript.
-        mv -f -- "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null || true
-      fi
-      ln -sfn "$(basename -- "${_TRANSCRIPT_FILE}")" \
-        "$(dirname -- "${_TRANSCRIPT_FILE}")/latest.log" 2>/dev/null || true
-    fi
-    _transcript_prune "$(dirname -- "${_TRANSCRIPT_FILE}")" \
-      "${_TRANSCRIPT_KEEP:-20}" "${_TRANSCRIPT_DAYS:-14}"
-    _TRANSCRIPT_ACTIVE=""
+    _transcript_finalize "transcript_complete exit_code=${_rc} duration=${_dur}s"
   fi
   return "${_rc}"
+}
+
+# _transcript_finalize <closing_msg>
+#   Shared teardown for both the EXIT handler and _transcript_detach:
+#   restore the original fds (closing each tee's input -> EOF), wait both
+#   tees so the raw capture is flushed (not truncated), append <closing_msg>
+#   to the file (file-only, ordered last), strip ANSI into the final
+#   transcript, repoint latest.log, prune, and mark inactive. Best-effort.
+_transcript_finalize() {
+  local _closing="${1:-}"
+  exec 1>&"${_TRANSCRIPT_ORIG_OUT}" 2>&"${_TRANSCRIPT_ORIG_ERR}"
+  exec {_TRANSCRIPT_ORIG_OUT}>&- 2>/dev/null || true
+  exec {_TRANSCRIPT_ORIG_ERR}>&- 2>/dev/null || true
+  if [[ -n "${_TRANSCRIPT_TEE_OUT_PID:-}" ]]; then
+    wait "${_TRANSCRIPT_TEE_OUT_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${_TRANSCRIPT_TEE_ERR_PID:-}" ]]; then
+    wait "${_TRANSCRIPT_TEE_ERR_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${_closing}" ]]; then
+    _transcript_meta_line "INFO" "${_closing}" >> "${_TRANSCRIPT_RAW}" 2>/dev/null || true
+  fi
+  if [[ -f "${_TRANSCRIPT_RAW:-}" ]]; then
+    if _transcript_strip_ansi "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null; then
+      rm -f -- "${_TRANSCRIPT_RAW}" 2>/dev/null
+    else
+      mv -f -- "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null || true
+    fi
+    ln -sfn "$(basename -- "${_TRANSCRIPT_FILE}")" \
+      "$(dirname -- "${_TRANSCRIPT_FILE}")/latest.log" 2>/dev/null || true
+  fi
+  _transcript_prune "$(dirname -- "${_TRANSCRIPT_FILE}")" \
+    "${_TRANSCRIPT_KEEP:-20}" "${_TRANSCRIPT_DAYS:-14}"
+  _TRANSCRIPT_ACTIVE=""
+}
+
+# _transcript_detach
+#   Stop capturing BEFORE an interactive verb (run attached / exec /
+#   setup_tui) hands the terminal to the interactive docker/TUI process,
+#   so the orchestration phase up to this point IS captured but the
+#   interactive session is NOT. Finalizes the transcript early (the run's
+#   exit code is not yet known) with a transcript_detached closing line.
+#   No-op when the transcript is not active (e.g. run -d full-captures and
+#   never detaches, or the feature is disabled). #608.
+_transcript_detach() {
+  [[ -n "${_TRANSCRIPT_ACTIVE:-}" ]] || return 0
+  local _dur=0
+  if [[ -n "${_TRANSCRIPT_START:-}" ]]; then
+    local _end
+    _end="$(date +%s 2>/dev/null || printf '0')"
+    (( _end > 0 )) && _dur=$(( _end - _TRANSCRIPT_START ))
+  fi
+  _transcript_finalize \
+    "transcript_detached duration=${_dur}s (interactive session not captured)"
 }
 
 # ── Source-time setup ───────────────────────────────────────────────
@@ -276,7 +316,7 @@ _transcript_begin() {
   if test -t 1; then _LOG_IS_TTY=0; else _LOG_IS_TTY=1; fi
   export _LOG_IS_TTY
 
-  _transcript_is_full_verb "${_verb}" || return 0
+  _transcript_is_capture_verb "${_verb}" || return 0
   # Kill switch: complete no-op (no file, no terminal output).
   _transcript_enabled || return 0
   command -v tee >/dev/null 2>&1 || {

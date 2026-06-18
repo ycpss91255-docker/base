@@ -1,13 +1,13 @@
-2026-06-18T06:31:47.754781Z [setup] INFO : transcript_started verb=setup trace_id=d11e393f31d16cda7e9d0b36317d7266
-2026-06-18T06:31:47.755814Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:50:23.724584Z [setup] INFO : transcript_started verb=setup trace_id=d04435364dd9262cd84eb9c0c836bd27
+2026-06-18T06:50:23.725991Z [setup] DEBUG: transcript_trace_generated
 USER_NAME=root
 USER_GROUP=root
 USER_UID=0
 USER_GID=0
 HARDWARE=x86_64
 DOCKER_HUB_USER=root
-IMAGE_NAME=tmp-kqf89n6cid
-WS_PATH=/tmp/tmp.kqf89N6ciD
+IMAGE_NAME=tmp-3ypnjpgz1d
+WS_PATH=/tmp/tmp.3YPnjPgz1D
 APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
 APT_MIRROR_DEBIAN=mirror.twds.com.tw
 TZ=Asia/Taipei
@@ -18,8 +18,8 @@ GPU_COUNT=all
 GPU_CAPABILITIES=gpu compute utility graphics
 RUNTIME=auto
 GUI_DETECTED=false
-GUI_MODE=force
-GUI_ENABLED=true
+GUI_MODE=auto
+GUI_ENABLED=false
 NETWORK_MODE=host
 IPC_MODE=host
 PID_MODE=private
@@ -29,4 +29,4 @@ TARGET_ARCH=
 BUILD_NETWORK=
 SSH_X11=false
 X11_COOKIE_SKIP=0
-2026-06-18T06:31:47.947067Z [setup] INFO : transcript_complete exit_code=0 duration=0s
+2026-06-18T06:50:23.909402Z [setup] INFO : transcript_complete exit_code=0 duration=0s

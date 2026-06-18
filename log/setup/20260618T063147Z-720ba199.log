@@ -1,6 +1,0 @@
-2026-06-18T06:31:47.319102Z [setup] INFO : transcript_started verb=setup trace_id=720ba199833eec60ec20545733aace39
-2026-06-18T06:31:47.320149Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:31:47.535457Z [setup] WARN : setup.conf [stage:...] references a stage missing from the Dockerfile; section ignored: [stage:foo]
-2026-06-18T06:31:47.555122Z [setup] INFO : .env + compose.yaml updated
-[setup] USER=root (0:0)  GPU=false/auto  GUI=false/auto  IMAGE=tmp-9zfmotjdqk  WS=/tmp/tmp.9ZfmoTJdQk
-2026-06-18T06:31:47.558446Z [setup] INFO : transcript_complete exit_code=0 duration=0s

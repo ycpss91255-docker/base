@@ -1,0 +1,34 @@
+2026-06-18T06:50:23.762056Z [setup] INFO : transcript_started verb=setup trace_id=5608d70985cf11e2adfc34a641e067f7
+2026-06-18T06:50:23.763101Z [setup] DEBUG: transcript_trace_generated
+2026-06-18T06:50:23.927444Z [setup] WARN : device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup.
+2026-06-18T06:50:23.929275Z [setup] WARN : duplicate target path '/dev': appears in both [devices] (with propagation) and [volumes]. The [devices] entry with propagation takes precedence.
+USER_NAME=root
+USER_GROUP=root
+USER_UID=0
+USER_GID=0
+HARDWARE=x86_64
+DOCKER_HUB_USER=root
+IMAGE_NAME=tmp-7ufvrzqw9o
+WS_PATH=/tmp/tmp.7UFvRZqW9o
+APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
+APT_MIRROR_DEBIAN=mirror.twds.com.tw
+TZ=Asia/Taipei
+GPU_DETECTED=false
+GPU_MODE=auto
+GPU_ENABLED=false
+GPU_COUNT=all
+GPU_CAPABILITIES=gpu compute utility graphics
+RUNTIME=auto
+GUI_DETECTED=false
+GUI_MODE=auto
+GUI_ENABLED=false
+NETWORK_MODE=host
+IPC_MODE=host
+PID_MODE=private
+PRIVILEGED=false
+NETWORK_NAME=
+TARGET_ARCH=
+BUILD_NETWORK=
+SSH_X11=false
+X11_COOKIE_SKIP=0
+2026-06-18T06:50:23.942661Z [setup] INFO : transcript_complete exit_code=0 duration=0s
