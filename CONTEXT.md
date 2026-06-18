@@ -84,6 +84,25 @@ The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
 (re)syncs to ignore derived artifacts (`.env`, `compose.yaml`).
 _Avoid_: ignore block, generated gitignore.
 
+### Logging and observability
+
+**Single-sink dispatch**:
+`log.sh`'s one-rendering-per-record model (#438): each log line is
+rendered once in a single format chosen from the run's startup TTY-ness
+(text when interactive, JSON when piped), routed to stdout (DEBUG / INFO)
+or stderr (WARN / ERROR / FATAL); `LOG_FORMAT=text|json` forces the
+format. The wrapper transcript tee layers over this without a second
+render (ADR-00000007).
+_Avoid_: dual-render, per-sink format, tee logger.
+
+**Run trace id**:
+The W3C-Trace-Context `trace_id` propagated via `TRACEPARENT` and surfaced
+in JSON log records; `_log_with_trace` mints one per run and
+`_log_with_span` inherits it. The wrapper transcript reuses it as the
+filename correlation id (`log/<verb>/<ts>-<traceid8>.log`).
+_Avoid_: request id, correlation id, span id (the span id is the
+per-operation child).
+
 ### Architecture seams
 
 Concepts named by the 2026-06-11 architecture review

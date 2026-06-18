@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1822 tests** total (1742 unit + 80 integration).
+Template self-tests: **1834 tests** total (1754 unit + 80 integration).
 
 > Counted scope is the `just -f justfile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -49,7 +49,7 @@ Template self-tests: **1822 tests** total (1742 unit + 80 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (52)
+### test/unit/log_spec.bats (64)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -62,6 +62,7 @@ microsecond timestamps, `_log_plain` removed.
 | Timestamp: UTC with microsecond precision in both text and JSON | 2 |
 | Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL | 2 |
 | Single-sink tty-detect dispatch (#438): non-TTY auto JSON, `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv | 5 |
+| Startup TTY cache `_LOG_IS_TTY` (#605): helper defined + cached-0/cached-nonzero/unset-fallback; auto-format honours cache + unset-identity; explicit `LOG_FORMAT` bypasses cache; `_log_color_enabled` cache read + NO_COLOR/FORCE_COLOR precedence over cache | 12 |
 | JSON output: OTel fields, custom attributes, severity numbers, per-line structure | 4 |
 | TRACEPARENT in JSON: trace_id/span_id present/absent | 2 |
 | Strict body enforcement (#438): unregistered fatal, registered OK, empty OK, error names body + file | 4 |
