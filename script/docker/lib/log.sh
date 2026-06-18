@@ -7,6 +7,11 @@
 #
 # Single-sink tty-detect dispatch: text when fd is a TTY, JSON when
 # piped/redirected. Override with LOG_FORMAT=auto|text|json.
+# TTY-ness is resolved once at startup via _LOG_IS_TTY (0 = tty,
+# non-zero = not) so a later transcript tee on fd1 (#606) cannot flip
+# the format/color decision; when _LOG_IS_TTY is unset (standalone
+# sourcing, e.g. ci.sh) it falls back to live `test -t <fd>` and behaves
+# exactly as before (ADR-00000007).
 # Unregistered body (not in log-events.txt) is a fatal error.
 #
 # Stream routing (matches OTel severity mapping):
@@ -17,7 +22,8 @@
 #   When set, trace_id and span_id are extracted and included in JSON.
 #   Scoped wrappers: _log_with_trace / _log_with_span.
 #
-# Refs: #423, #438, OTel Logs Data Model, W3C Trace Context.
+# Refs: #423, #438, #605, ADR-00000007, OTel Logs Data Model,
+# W3C Trace Context.
 
 if [[ -n "${_DOCKER_LIB_LOG_SOURCED:-}" ]]; then
   return 0
@@ -95,11 +101,28 @@ _log_emit_json() {
 
 # ── Text output helpers ─────────────────────────────────────────────
 
+# _log_is_tty <fd>
+#   Resolve the fd's TTY-ness, preferring the startup-cached _LOG_IS_TTY
+#   (a shell return code: 0 = the run's controlling stream is a TTY,
+#   non-zero = not). When the cache is set its value wins, so a transcript
+#   tee layered on fd1 later (#606) does not re-flip the format/color
+#   decision mid-run. When unset, fall back to live `test -t <fd>` -- the
+#   historical behaviour, keeping standalone sourcing (ci.sh, a bare
+#   `source log.sh`) byte-identical to pre-#605. The producer that sets
+#   _LOG_IS_TTY=0/1 is the #606 transcript core (see ADR-00000007).
+_log_is_tty() {
+  local fd="${1:?_log_is_tty requires fd}"
+  if [[ -n "${_LOG_IS_TTY:-}" ]]; then
+    return "${_LOG_IS_TTY}"
+  fi
+  test -t "${fd}"
+}
+
 _log_color_enabled() {
   local fd="${1:?_log_color_enabled requires fd}"
   [[ -z "${NO_COLOR:-}" ]] || return 1
   [[ -n "${FORCE_COLOR:-}" ]] && return 0
-  test -t "${fd}"
+  _log_is_tty "${fd}"
 }
 
 _log_text() {
@@ -131,7 +154,10 @@ _log_text() {
 # ── Core dispatch ──────────────────────────────────────────────────
 #
 # Single-sink tty-detect (#438): text when fd is a TTY, JSON when
-# piped/redirected. LOG_FORMAT=auto|text|json overrides detection.
+# piped/redirected. The auto branch resolves TTY-ness via _log_is_tty
+# (cached _LOG_IS_TTY, live `test -t` fallback) per #605 so a transcript
+# tee cannot re-flip it. LOG_FORMAT=auto|text|json overrides detection
+# (explicit text/json never consult the cache).
 # Unregistered body is a fatal error (strict by default).
 
 _log_dispatch() {
@@ -157,7 +183,7 @@ _log_dispatch() {
         "${service}" "${body}" "$@" >&"${fd}"
       ;;
     *)
-      if test -t "${fd}"; then
+      if _log_is_tty "${fd}"; then
         _log_text "${severity_text}" "${fd}" "${service}" "${body}" "$@"
       else
         _log_emit_json "${severity_text}" "${severity_number}" \
