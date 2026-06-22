@@ -238,9 +238,9 @@ teardown() {
 
 @test "Dockerfile.example references CONFIG_SRC=\"config\" (not .base/downstream/config)" {
   # Sanity: the per-repo copy only pays off if Dockerfile points at it.
-  run grep -F 'ARG CONFIG_SRC="config"' /source/dockerfile/Dockerfile.example
+  run grep -F 'ARG CONFIG_SRC="config"' /source/downstream/dockerfile/Dockerfile
   assert_success
-  run grep -F 'ARG CONFIG_SRC=".base/downstream/config"' /source/dockerfile/Dockerfile.example
+  run grep -F 'ARG CONFIG_SRC=".base/downstream/config"' /source/downstream/dockerfile/Dockerfile
   assert_failure
 }
 
@@ -251,7 +251,7 @@ teardown() {
   # remain. Order matters -- if layer 2 came first, layer 1 would
   # overwrite the overrides. Test asserts both lines exist AND the
   # order is correct.
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Both COPY lines exist with --chown / --chmod metadata.
   run grep -E '^COPY --chown=.* .base/downstream/config "\$\{CONFIG_DIR\}"$' "${_df}"
@@ -270,7 +270,7 @@ teardown() {
 }
 
 @test "Dockerfile.example declares ENV HOME before WORKDIR \${HOME}/work (#334)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # WORKDIR is a Docker directive that interpolates build-time ARG /
   # ENV, not shell-time $HOME. Without an explicit ENV HOME, the
@@ -286,7 +286,7 @@ teardown() {
 }
 
 @test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The shell-setup RUN block must mkdir ~/.bashrc.d AND copy
   # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form

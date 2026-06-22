@@ -170,13 +170,13 @@ flowchart LR
 | `justfile.ci` | Template CI 命令入口（`just -f justfile.ci test`、`just -f justfile.ci lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架生成 |
 | `upgrade.sh` | Subtree 版本升级 |
-| `dockerfile/Dockerfile.example` | 新 repo 的多阶段 Dockerfile 模板 |
+| `downstream/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
 ### Dockerfile 分层（约定）
 
-下游 repo 遵循标准多阶段配置，定义于 `dockerfile/Dockerfile.example`。
+下游 repo 遵循标准多阶段配置，定义于 `downstream/dockerfile/Dockerfile`。
 所有阶段共用 `ARG BASE_IMAGE` 指定的基础镜像。
 
 | 阶段 | 父阶段 | 用途 | 是否出货 |
@@ -191,7 +191,7 @@ flowchart LR
 
 说明：
 - 只出货 developer image 的 repo（`env/*`）会跳过 `runtime-base` /
-  `runtime`——该 section 在 `Dockerfile.example` 保持注释状态。
+  `runtime`——该 section 在 `Dockerfile` 保持注释状态。
 - `devel-test` 总是从 `devel` 继承，所以 `test/smoke/<repo>_env.bats` 中的
   runtime assertion 所看到的二进制与文件，就是用户 `docker run ...
   <repo>:devel` 后会看到的内容。
@@ -330,7 +330,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
   - `script/entrypoint.sh`（canonical）
   - 任何 ros / app 启动 helper 等
-- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `dockerfile/Dockerfile.example`，#275）
+- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `downstream/dockerfile/Dockerfile`，#275）
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
@@ -394,7 +394,7 @@ local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
 . /usr/local/lib/base/_entrypoint_logging.sh
 ```
 
-Helper 由 `Dockerfile.example` 的 devel stage COPY 到 image 内稳定路径
+Helper 由 `Dockerfile` 的 devel stage COPY 到 image 内稳定路径
 `/usr/local/lib/base/_entrypoint_logging.sh`（refs #368），所以这条
 source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
 — 不需要 `$USER`，也不依赖 workspace bind mount。
@@ -835,7 +835,7 @@ just -f justfile.ci --list        # 显示 CI 命令
 │       ├── lint_bare_stderr.sh       # Bare stderr lint 检查器
 │       └── lint_mixed_test_layout.sh # 混合工具测试布局验证器
 ├── dockerfile/
-│   ├── Dockerfile.example            # 多阶段模板（sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test]）
+│   ├── Dockerfile            # 多阶段模板（sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test]）
 │   └── Dockerfile.test-tools         # 预构建 lint/test 工具 image
 ├── config/                           # Container 内部 shell / 工具配置
 │   ├── docker/

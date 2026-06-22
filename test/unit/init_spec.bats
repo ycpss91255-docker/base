@@ -45,7 +45,8 @@ setup() {
      "${TMP_REPO}/.base/downstream/script/docker/runtime/entrypoint.sh"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
-  cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'
+  mkdir -p "${TMP_REPO}/.base/downstream/dockerfile"
+  cat > "${TMP_REPO}/.base/downstream/dockerfile/Dockerfile" <<'EOF'
 FROM alpine
 EOF
 

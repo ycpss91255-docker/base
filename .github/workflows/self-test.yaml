@@ -98,7 +98,7 @@ jobs:
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
-                  'dockerfile/Dockerfile.example' \
+                  'downstream/dockerfile/Dockerfile' \
                   'dockerfile/Dockerfile.test-tools' \
                   'downstream/script/docker/wrapper/build.sh' \
                   'downstream/script/docker/wrapper/run.sh' \
@@ -150,7 +150,7 @@ jobs:
       - name: Hadolint — Dockerfile.example
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: dockerfile/Dockerfile.example
+          dockerfile: downstream/dockerfile/Dockerfile
           config: .hadolint.yaml
 
       - name: Hadolint — Dockerfile.test-tools
