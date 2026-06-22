@@ -704,5 +704,10 @@ EOS
   # set -x emits trace lines starting with `+ ` to stderr. After the case
   # branch fires the wrapper continues hitting other lines that all get
   # traced.
+  # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
+  # prefix `+ ` does not reach stderr under coverage; the real -vv
+  # behaviour is covered by the normal (non-kcov) job. Skip the fragile
+  # observation under kcov (#613).
+  [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }

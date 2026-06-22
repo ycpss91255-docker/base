@@ -831,6 +831,11 @@ EOS
 @test "run.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
   run --separate-stderr bash "${SANDBOX}/run.sh" -vv --dry-run
   assert_success
+  # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
+  # prefix `+ ` does not reach stderr under coverage; the real -vv
+  # behaviour is covered by the normal (non-kcov) job. Skip the fragile
+  # observation under kcov (#613).
+  [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }
 
