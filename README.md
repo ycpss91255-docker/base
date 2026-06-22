@@ -587,6 +587,18 @@ wrapper_transcript_keep = 20
 wrapper_transcript_days = 14
 ```
 
+To browse a transcript in [lnav](https://lnav.org) with timestamp
+ordering and level highlighting, load the bundled regex format once:
+
+```bash
+lnav -i .base/script/docker/lib/transcript.lnav-format.json   # one-time install
+lnav log/build/latest.log
+```
+
+It recognizes the `<ISO ts> [service] LEVEL: msg` lines (DEBUG / INFO /
+WARN / ERROR / FATAL); raw docker output falls through as body. It
+coexists with `log.lnav-format.json` (the JSON `*.jsonl` format).
+
 ### Interactive TUI
 
 `./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
@@ -1062,7 +1074,9 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   │   │   ├── _tui_backend.sh       # TUI dialog/whiptail wrapper
 │   │   │   ├── _tui_conf.sh          # TUI INI validators
 │   │   │   ├── log-events.txt        # Log event catalog
-│   │   │   └── log.lnav-format.json  # Lnav format definition
+│   │   │   ├── log.lnav-format.json  # Lnav format (JSON *.jsonl)
+│   │   │   ├── transcript.sh         # Wrapper transcript capture
+│   │   │   └── transcript.lnav-format.json  # Lnav format (transcript)
 │   │   ├── runtime/                  # Runtime in-container scripts
 │   │   │   ├── entrypoint.sh         # Template entrypoint helper
 │   │   │   ├── logging.sh            # Host-side log tee helper

@@ -1,3 +1,0 @@
-2026-06-18T06:07:27.175087Z [setup] INFO : transcript_started verb=setup trace_id=fc3368df4b0dc6a64a6c434bf38055cf
-2026-06-18T06:07:27.182617Z [setup] DEBUG: transcript_trace_generated
-{"timestamp":"2026-06-18T06:07:31.611131Z","severity_text":"WARN","severity_number":13,"body":"conf_runtime_key_deprecated","attributes":{"service.name":"setup","service.lang":"bash","code.filepath":"/source/script/docker/lib/log.sh","code.lineno":200,"thread.id":"25606","display":"[deploy] runtime is renamed to gpu_runtime; the old key still works (permanent alias) but please migrate to gpu_runtime (removal at v1.0.0)"}}

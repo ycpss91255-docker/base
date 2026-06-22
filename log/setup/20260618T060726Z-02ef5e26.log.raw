@@ -1,3 +1,0 @@
-2026-06-18T06:07:26.037809Z [setup] INFO : transcript_started verb=setup trace_id=02ef5e260e2cb030cf011e4325c83c0e
-2026-06-18T06:07:26.042073Z [setup] DEBUG: transcript_trace_generated
-        max-file: "3"

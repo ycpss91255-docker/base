@@ -1,4 +1,0 @@
-2026-06-18T06:50:23.636600Z [setup] INFO : transcript_started verb=setup trace_id=aa8391f25f088693b1413697a5dc8071
-2026-06-18T06:50:23.637692Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:50:23.641172Z [setup] WARN : no per-repo setup.conf — using template defaults for all sections
-2026-06-18T06:50:23.892675Z [setup] INFO : transcript_complete exit_code=0 duration=0s

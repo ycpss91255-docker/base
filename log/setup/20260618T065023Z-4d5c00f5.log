@@ -1,5 +1,0 @@
-2026-06-18T06:50:23.318947Z [setup] INFO : transcript_started verb=setup trace_id=4d5c00f50775fe56e6510ea005e17fb0
-2026-06-18T06:50:23.320204Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:50:23.509267Z [setup] INFO : .env + compose.yaml updated
-[setup] USER=root (0:0)  GPU=false/auto  GUI=false/auto  IMAGE=tmp-5h1mrewobb  WS=/tmp/tmp.5H1mrEWoBB
-2026-06-18T06:50:23.512555Z [setup] INFO : transcript_complete exit_code=0 duration=0s

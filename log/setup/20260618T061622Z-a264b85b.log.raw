@@ -1,3 +1,0 @@
-2026-06-18T06:16:23.008391Z [setup] INFO : transcript_started verb=setup trace_id=a264b85b9d846735f5e8e440106d59d6
-2026-06-18T06:16:23.012366Z [setup] DEBUG: transcript_trace_generated
-2026-06-18T06:16:23.787500Z [setup] INFO : IMAGE_NAME using @default:myfallback
