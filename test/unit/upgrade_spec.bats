@@ -205,10 +205,10 @@ teardown() {
 # return its _pre_head so the test can call _verify_subtree_intact.
 _mk_subtree_repo() {
   local _dir="$1"
-  mkdir -p "${_dir}/.base/script/docker/wrapper"
+  mkdir -p "${_dir}/.base/downstream/script/docker/wrapper"
   echo "v0.9.5" > "${_dir}/.base/.version"
   echo "#!/usr/bin/env bash" > "${_dir}/.base/init.sh"
-  echo "#!/usr/bin/env bash" > "${_dir}/.base/script/docker/wrapper/setup.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/downstream/script/docker/wrapper/setup.sh"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t
   git -C "${_dir}" config user.name t

@@ -21,7 +21,7 @@ _LMTL_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # shellcheck source=script/docker/lib/log.sh
 # shellcheck disable=SC1091
-source "${_LMTL_SELF_DIR}/../docker/lib/log.sh"
+source "${_LMTL_SELF_DIR}/../../downstream/script/docker/lib/log.sh"
 
 # _runner_family <filename> -> echoes the runner family for a test file name,
 # or empty for a non-test file. Extend here when a new runner is adopted.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/wrapper/prune.sh argument handling and target
+# Unit tests for downstream/script/docker/wrapper/prune.sh argument handling and target
 # selection. Mirrors the sandbox/mock strategy from build_sh_spec.bats:
 # a sandbox tree with symlinked prune.sh + a PATH-shimmed `docker` stub
 # that echoes its argv so tests can assert which prune subcommand was
@@ -19,12 +19,12 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker/lib"
+  mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib"
 
-  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/wrapper/prune.sh "${SANDBOX}/prune.sh"
+  cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
+  ln -s /source/downstream/script/docker/wrapper/prune.sh "${SANDBOX}/prune.sh"
 
   # prune.sh doesn't load .env, but a seed file keeps the sandbox layout
   # uniform with stop_sh_spec / exec_sh_spec.
@@ -189,10 +189,10 @@ teardown() {
 
 @test "prune.sh -C <dir> --networks --dry-run is accepted (chdir parity)" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
+  mkdir -p "${ALT}/.base/downstream/script/docker/lib"
+  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
   : > "${ALT}/.env.generated"
   run bash "${SANDBOX}/prune.sh" -C "${ALT}" --networks --dry-run
   assert_success

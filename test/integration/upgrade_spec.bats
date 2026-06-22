@@ -27,10 +27,10 @@ setup() {
 # _seed_template_remote
 #   Build a tiny template layout matching what upgrade.sh's post-flight
 #   checks look for (markers: .base/.version, .base/init.sh,
-#   .base/script/docker/wrapper/setup.sh), wrap two tagged versions around it,
+#   .base/downstream/script/docker/wrapper/setup.sh), wrap two tagged versions around it,
 #   and push to a bare repo we can treat as TEMPLATE_REMOTE.
 _seed_template_remote() {
-  mkdir -p "${TMPL_WORK}/script/docker/wrapper"
+  mkdir -p "${TMPL_WORK}/downstream/script/docker/wrapper"
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t
   git -C "${TMPL_WORK}" config user.name t
@@ -40,22 +40,23 @@ _seed_template_remote() {
   # same code these tests validate.
   echo "v0.9.5" > "${TMPL_WORK}/.version"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/init.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/wrapper/setup.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
   # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
   # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
   # all three surfaces into the fake remote.
-  mkdir -p "${TMPL_WORK}/script/docker/lib"
-  cp /source/script/docker/lib/_lib.sh "${TMPL_WORK}/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${TMPL_WORK}/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
-  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/wrapper/setup.sh" "${TMPL_WORK}/upgrade.sh"
+  mkdir -p "${TMPL_WORK}/downstream/script/docker/lib"
+  cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${TMPL_WORK}/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${TMPL_WORK}/downstream/script/docker/lib/"
+  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"
   git -C "${TMPL_WORK}" tag v0.9.5
 
   # v0.9.7: version bump + a new file (lets tests assert the new payload arrived).
   echo "v0.9.7" > "${TMPL_WORK}/.version"
+  mkdir -p "${TMPL_WORK}/script/docker"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/new_script.sh"
   chmod +x "${TMPL_WORK}/script/docker/new_script.sh"
   git -C "${TMPL_WORK}" add -A
@@ -113,7 +114,7 @@ YAML
   [ "$(cat README.md)" = "DOWNSTREAM" ]
 }
 
-@test "upgrade.sh patches Dockerfile lint stage when missing COPY .base/script/docker/lib /lint/lib (#348)" {
+@test "upgrade.sh patches Dockerfile lint stage when missing COPY .base/downstream/script/docker/lib /lint/lib (#348)" {
   cd "${DOWN_DIR}"
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
@@ -127,7 +128,7 @@ EOF
   assert_success
   assert_output --partial "Dockerfile patched"
 
-  grep -Fq "COPY .base/script/docker/lib /lint/lib" Dockerfile
+  grep -Fq "COPY .base/downstream/script/docker/lib /lint/lib" Dockerfile
   grep -Fq "RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh" Dockerfile
 }
 
@@ -136,7 +137,7 @@ EOF
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/*.sh /lint/
-COPY .base/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/lib /lint/lib
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 EOF
   git add Dockerfile
@@ -144,11 +145,11 @@ EOF
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
   assert_success
-  assert_output --partial "already copies .base/script/docker/lib"
+  assert_output --partial "already copies .base/downstream/script/docker/lib"
   refute_output --partial "Dockerfile patched"
 
   # Single COPY line, no duplicate insertion.
-  [ "$(grep -c 'COPY .base/script/docker/lib /lint/lib' Dockerfile)" = "1" ]
+  [ "$(grep -c 'COPY .base/downstream/script/docker/lib /lint/lib' Dockerfile)" = "1" ]
 }
 
 @test "upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)" {
@@ -166,7 +167,7 @@ EOF
   assert_output --partial "lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor"
   refute_output --partial "Dockerfile patched"
 
-  ! grep -q "COPY .base/script/docker/lib /lint/lib" Dockerfile
+  ! grep -q "COPY .base/downstream/script/docker/lib /lint/lib" Dockerfile
 }
 
 @test "upgrade.sh continues cleanly when no Dockerfile at repo root (#348)" {
@@ -188,11 +189,11 @@ EOF
 @test "upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/*.sh /lint/
-COPY .base/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/lib /lint/lib
 COPY *.sh /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 EOF
@@ -210,11 +211,11 @@ EOF
 @test "upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/*.sh /lint/
-COPY .base/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/lib /lint/lib
 COPY script/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 EOF
@@ -232,12 +233,12 @@ EOF
 @test "upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY *.sh /lint/
 COPY script/*.sh /lint/script/
-COPY .base/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/lib /lint/lib
 RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
 EOF
   git add Dockerfile script/
@@ -413,6 +414,6 @@ STUB
   [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
   [ -f ".base/.version" ]
   [ "$(cat .base/.version)" = "v0.9.5" ]
-  [ -f ".base/script/docker/wrapper/setup.sh" ]
+  [ -f ".base/downstream/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
 }

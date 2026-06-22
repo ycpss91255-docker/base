@@ -84,12 +84,12 @@ graph TB
         scripts[".hadolint.yaml / justfile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例: my_app）"]
-        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
@@ -141,23 +141,23 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `prune.sh` | コンテナ / image / build キャッシュの整理 |
 | `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
-| `script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
-| `script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
-| `script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
-| `script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
-| `script/docker/lib/conf.sh` | INI ファイルパーサ + section マージ |
-| `script/docker/lib/env.sh` | 環境変数のセットアップとデフォルト |
-| `script/docker/lib/gitignore.sh` | Gitignore ファイル管理 |
-| `script/docker/lib/hook.sh` | wrapper 毎の pre/post hook 呼び出し |
-| `script/docker/lib/i18n.sh` | 言語検出とローカライズ（`_detect_lang`、`_LANG`） |
-| `script/docker/lib/log.sh` | 統一されたログ / 出力ユーティリティ |
-| `script/docker/lib/config_summary.sh` | ランタイム設定のサマリ |
-| `script/docker/lib/conf_logging.sh` | ログ設定 helper |
-| `script/docker/lib/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
-| `script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
-| `script/docker/runtime/logging.sh` | host 側ログ tee helper |
-| `script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
+| `downstream/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `downstream/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
+| `downstream/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
+| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
+| `downstream/script/docker/lib/conf.sh` | INI ファイルパーサ + section マージ |
+| `downstream/script/docker/lib/env.sh` | 環境変数のセットアップとデフォルト |
+| `downstream/script/docker/lib/gitignore.sh` | Gitignore ファイル管理 |
+| `downstream/script/docker/lib/hook.sh` | wrapper 毎の pre/post hook 呼び出し |
+| `downstream/script/docker/lib/i18n.sh` | 言語検出とローカライズ（`_detect_lang`、`_LANG`） |
+| `downstream/script/docker/lib/log.sh` | 統一されたログ / 出力ユーティリティ |
+| `downstream/script/docker/lib/config_summary.sh` | ランタイム設定のサマリ |
+| `downstream/script/docker/lib/conf_logging.sh` | ログ設定 helper |
+| `downstream/script/docker/lib/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
+| `downstream/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
+| `downstream/script/docker/runtime/logging.sh` | host 側ログ tee helper |
+| `downstream/script/docker/runtime/smoke.sh` | runtime install-check smoke |
+| `downstream/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
@@ -739,7 +739,7 @@ just upgrade v0.3.0
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 整合性チェック — subtree マーカー（`.base/.version`、
-   `.base/init.sh`、`.base/script/docker/wrapper/setup.sh`）が消えた場合は
+   `.base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）が消えた場合は
    `git reset --hard` で rollback（旧 `git-subtree.sh` の destructive FF
    対策）
 3. `./.base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`

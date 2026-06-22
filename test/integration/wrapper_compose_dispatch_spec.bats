@@ -33,7 +33,7 @@ setup() {
   touch "${REPO_DIR}/Dockerfile"
   local _w
   for _w in build run exec stop; do
-    ln -s ".base/script/docker/wrapper/${_w}.sh" "${REPO_DIR}/${_w}.sh"
+    ln -s ".base/downstream/script/docker/wrapper/${_w}.sh" "${REPO_DIR}/${_w}.sh"
   done
 
   # Seed a per-repo setup.conf from the template so apply renders .env +

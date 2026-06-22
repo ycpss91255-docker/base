@@ -100,14 +100,14 @@ jobs:
                   'compose.yaml' \
                   'dockerfile/Dockerfile.example' \
                   'dockerfile/Dockerfile.test-tools' \
-                  'script/docker/wrapper/build.sh' \
-                  'script/docker/wrapper/run.sh' \
-                  'script/docker/wrapper/exec.sh' \
-                  'script/docker/wrapper/stop.sh' \
-                  'script/docker/wrapper/prune.sh' \
-                  'script/docker/wrapper/setup.sh' \
-                  'script/docker/lib/i18n.sh' \
-                  'script/docker/lib/**' \
+                  'downstream/script/docker/wrapper/build.sh' \
+                  'downstream/script/docker/wrapper/run.sh' \
+                  'downstream/script/docker/wrapper/exec.sh' \
+                  'downstream/script/docker/wrapper/stop.sh' \
+                  'downstream/script/docker/wrapper/prune.sh' \
+                  'downstream/script/docker/wrapper/setup.sh' \
+                  'downstream/script/docker/lib/i18n.sh' \
+                  'downstream/script/docker/lib/**' \
                   'test/behavioural/**' \
                   'init.sh' 'upgrade.sh' \
                   '.github/workflows/**'; then

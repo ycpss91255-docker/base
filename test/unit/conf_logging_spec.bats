@@ -3,7 +3,7 @@
 # Unit tests for the shared [logging] / [logging.<svc>] parsers in
 # lib/conf_logging.sh.
 #
-# Parsers were extracted from script/docker/wrapper/setup.sh during the
+# Parsers were extracted from downstream/script/docker/wrapper/setup.sh during the
 # #402 lifecycle refactor (PR-A) so that lib/gitignore.sh can reuse the
 # same logic without circular sourcing (setup.sh used to own both the
 # parser and the runtime-time gitignore sync; PR-B moves the sync to
@@ -20,9 +20,9 @@ setup() {
   # the second-definition tie-break (mirrors how setup.sh will source
   # the lib once the rewire commit lands in PR-A's later cycle).
   # shellcheck disable=SC1091
-  source /source/script/docker/wrapper/setup.sh
+  source /source/downstream/script/docker/wrapper/setup.sh
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/conf_logging.sh
+  source /source/downstream/script/docker/lib/conf_logging.sh
 
   TEMP_DIR="$(mktemp -d)"
   CONF_FILE="${TEMP_DIR}/setup.conf"

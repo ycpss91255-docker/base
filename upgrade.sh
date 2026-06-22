@@ -31,7 +31,7 @@ readonly VERSION_FILE
 # the verb here for transcript.sh's classification before the source.
 export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/script/docker/lib/_lib.sh"
+source "${SCRIPT_DIR}/downstream/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
@@ -322,7 +322,7 @@ _upgrade() {
 
   # Step 5: patch downstream Dockerfile lint stage for the #284 lib/ split
   # (closes #348). The split lives inside the subtree
-  # (`.base/script/docker/lib/{log,env,conf,compose,config_summary,gitignore}.sh`)
+  # (`.base/downstream/script/docker/lib/{log,env,conf,compose,config_summary,gitignore}.sh`)
   # and propagates via subtree pull, but the downstream Dockerfile's
   # `COPY .base/script/docker/*.sh /lint/` only copies the umbrella loaders —
   # not the lib/ subdirectory the umbrella source-chains into. Every
@@ -334,8 +334,8 @@ _upgrade() {
   local _dockerfile="${REPO_ROOT}/Dockerfile"
   if [[ ! -f "${_dockerfile}" ]]; then
     _log "  no Dockerfile at repo root — skip"
-  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/lib[[:space:]/]' "${_dockerfile}"; then
-    _log "  Dockerfile already copies .base/script/docker/lib — skip (idempotent)"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/downstream/script/docker/lib[[:space:]/]' "${_dockerfile}"; then
+    _log "  Dockerfile already copies .base/downstream/script/docker/lib — skip (idempotent)"
   elif ! grep -qE '^RUN shellcheck -S warning /lint/\*\.sh$' "${_dockerfile}"; then
     # Custom Dockerfile shape (no stock /lint/*.sh shellcheck anchor) —
     # do not force-patch. The user can adopt the COPY + extended shellcheck
@@ -345,10 +345,10 @@ _upgrade() {
   else
     # Insert COPY before the shellcheck anchor and extend the shellcheck
     # invocation to also cover /lint/lib/*.sh.
-    sed -i '/^RUN shellcheck -S warning \/lint\/\*\.sh$/i COPY .base/script/docker/lib /lint/lib' "${_dockerfile}"
+    sed -i '/^RUN shellcheck -S warning \/lint\/\*\.sh$/i COPY .base/downstream/script/docker/lib /lint/lib' "${_dockerfile}"
     sed -i 's|^RUN shellcheck -S warning /lint/\*\.sh$|RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh|' "${_dockerfile}"
     git add "${_dockerfile}"
-    _log "  Dockerfile patched: COPY .base/script/docker/lib /lint/lib + shellcheck extended"
+    _log "  Dockerfile patched: COPY .base/downstream/script/docker/lib /lint/lib + shellcheck extended"
   fi
 
   # Patch downstream Dockerfile for the #330 wrapper consolidation

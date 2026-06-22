@@ -18,31 +18,31 @@ setup() {
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/.base/dockerfile" \
            "${TMP_REPO}/.base/downstream/config" \
-           "${TMP_REPO}/.base/script/docker/lib" \
-           "${TMP_REPO}/.base/script/docker/runtime"
+           "${TMP_REPO}/.base/downstream/script/docker/lib" \
+           "${TMP_REPO}/.base/downstream/script/docker/runtime"
   ln -s /source/init.sh "${TMP_REPO}/.base/init.sh"
   # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
-  ln -s /source/script/docker/lib/gitignore.sh \
-        "${TMP_REPO}/.base/script/docker/lib/gitignore.sh"
+  ln -s /source/downstream/script/docker/lib/gitignore.sh \
+        "${TMP_REPO}/.base/downstream/script/docker/lib/gitignore.sh"
   # init.sh sources _lib.sh on load (#278: routes _log / _error through
   # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
   # (#284), so symlink all three surfaces.
-  ln -s /source/script/docker/lib/_lib.sh \
-        "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
-  ln -s /source/script/docker/lib/i18n.sh \
-        "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
+  ln -s /source/downstream/script/docker/lib/_lib.sh \
+        "${TMP_REPO}/.base/downstream/script/docker/lib/_lib.sh"
+  ln -s /source/downstream/script/docker/lib/i18n.sh \
+        "${TMP_REPO}/.base/downstream/script/docker/lib/i18n.sh"
   # schema.sh joined the _lib.sh chain in #560; it sources _tui_conf.sh
   # for the validator bodies, so symlink both alongside the rest.
   for _sl in log transcript env conf conf_logging _tui_conf schema compose config_summary hook; do
-    ln -s "/source/script/docker/lib/${_sl}.sh" \
-          "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
+    ln -s "/source/downstream/script/docker/lib/${_sl}.sh" \
+          "${TMP_REPO}/.base/downstream/script/docker/lib/${_sl}.sh"
   done
   unset _sl
-  ln -s /source/script/docker/lib/log-events.txt \
-        "${TMP_REPO}/.base/script/docker/lib/log-events.txt"
-  cp /source/script/docker/runtime/entrypoint.sh \
-     "${TMP_REPO}/.base/script/docker/runtime/entrypoint.sh"
+  ln -s /source/downstream/script/docker/lib/log-events.txt \
+        "${TMP_REPO}/.base/downstream/script/docker/lib/log-events.txt"
+  cp /source/downstream/script/docker/runtime/entrypoint.sh \
+     "${TMP_REPO}/.base/downstream/script/docker/runtime/entrypoint.sh"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
   cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'
@@ -51,10 +51,11 @@ EOF
 
   # Stub scripts referenced by _create_symlinks — empty files are fine
   # because symlinks only need a valid target path, not a valid payload.
-  mkdir -p "${TMP_REPO}/.base/script/docker/wrapper"
+  mkdir -p "${TMP_REPO}/.base/downstream/script/docker/wrapper"
   for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
-    : > "${TMP_REPO}/.base/script/docker/wrapper/${_f}"
+    : > "${TMP_REPO}/.base/downstream/script/docker/wrapper/${_f}"
   done
+  mkdir -p "${TMP_REPO}/.base/script/docker"
   : > "${TMP_REPO}/.base/script/docker/justfile"
   : > "${TMP_REPO}/.base/.hadolint.yaml"
 
@@ -220,11 +221,11 @@ REMOTE
 @test "_create_symlinks: places 7 wrapper symlinks under script/ (#330)" {
   _source_init
   _create_symlinks
-  # Seven wrappers under script/ with ../.base/script/docker/wrapper/<name>.sh targets.
+  # Seven wrappers under script/ with ../.base/downstream/script/docker/wrapper/<name>.sh targets.
   for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     assert [ -L "${TMP_REPO}/script/${_f}" ]
     run readlink "${TMP_REPO}/script/${_f}"
-    assert_output "../.base/script/docker/wrapper/${_f}"
+    assert_output "../.base/downstream/script/docker/wrapper/${_f}"
     # And must NOT exist at root.
     assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
@@ -375,13 +376,13 @@ REMOTE
 
 @test "_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)" {
   # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
-  # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/wrapper/build.sh
+  # `_create_symlinks` must wire script/build.sh -> ../.base/downstream/script/docker/wrapper/build.sh
   # (sub-folder link target is relative to the link's directory), and
   # justfile / .hadolint.yaml at root keep the direct .base/ target.
   source "${TMP_REPO}/.base/init.sh"
   _create_symlinks
   run readlink "${TMP_REPO}/script/build.sh"
-  assert_output "../.base/script/docker/wrapper/build.sh"
+  assert_output "../.base/downstream/script/docker/wrapper/build.sh"
   run readlink "${TMP_REPO}/justfile"
   assert_output ".base/script/docker/justfile"
   run readlink "${TMP_REPO}/.hadolint.yaml"

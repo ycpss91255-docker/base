@@ -162,18 +162,18 @@ teardown() {
   bash .base/init.sh
   assert [ -L "${REPO_DIR}/script/build.sh" ]
   run readlink "${REPO_DIR}/script/build.sh"
-  assert_output "../.base/script/docker/wrapper/build.sh"
+  assert_output "../.base/downstream/script/docker/wrapper/build.sh"
   # Root must NOT have build.sh after #330.
   assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
 @test "new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)" {
   bash .base/init.sh
-  # 7 wrappers under script/, each pointing to ../.base/script/docker/wrapper/<name>.sh
+  # 7 wrappers under script/, each pointing to ../.base/downstream/script/docker/wrapper/<name>.sh
   for f in run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     assert [ -L "${REPO_DIR}/script/${f}" ]
     run readlink "${REPO_DIR}/script/${f}"
-    assert_output "../.base/script/docker/wrapper/${f}"
+    assert_output "../.base/downstream/script/docker/wrapper/${f}"
     # And NOT at root.
     assert [ ! -e "${REPO_DIR}/${f}" ]
   done
@@ -309,7 +309,7 @@ teardown() {
   bash .base/init.sh
   local _df="${REPO_DIR}/Dockerfile"
   assert [ -f "${_df}" ]
-  run grep -F 'COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  run grep -F 'COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
   assert_success
 }
 
@@ -334,7 +334,7 @@ teardown() {
   bash .base/init.sh
   assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
   run readlink "${REPO_DIR}/script/setup_tui.sh"
-  assert_output "../.base/script/docker/wrapper/setup_tui.sh"
+  assert_output "../.base/downstream/script/docker/wrapper/setup_tui.sh"
   # Neither old root-level setup_tui.sh nor pre-rename tui.sh.
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
   assert [ ! -e "${REPO_DIR}/setup_tui.sh" ]
@@ -343,7 +343,7 @@ teardown() {
 @test "new repo: init.sh removes stale tui.sh symlink from earlier versions (#330 stale-removal loop)" {
   bash .base/init.sh
   # Simulate a very old upgrade path: legacy tui.sh symlink at root.
-  ln -sf ".base/script/docker/wrapper/setup_tui.sh" "${REPO_DIR}/tui.sh"
+  ln -sf ".base/downstream/script/docker/wrapper/setup_tui.sh" "${REPO_DIR}/tui.sh"
   run bash .base/init.sh
   assert_success
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
@@ -356,7 +356,7 @@ teardown() {
   # an older init.sh would have produced. Re-running the post-#330
   # init.sh must remove all of them and ensure script/ versions exist.
   for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
-    ln -sf ".base/script/docker/wrapper/${f}" "${REPO_DIR}/${f}"
+    ln -sf ".base/downstream/script/docker/wrapper/${f}" "${REPO_DIR}/${f}"
   done
   run bash .base/init.sh
   assert_success
@@ -391,11 +391,11 @@ teardown() {
   assert_success
 }
 
-@test "new repo: setup.sh symlink under script/ → ../.base/script/docker/wrapper/setup.sh" {
+@test "new repo: setup.sh symlink under script/ → ../.base/downstream/script/docker/wrapper/setup.sh" {
   bash .base/init.sh
   assert [ -L "${REPO_DIR}/script/setup.sh" ]
   run readlink "${REPO_DIR}/script/setup.sh"
-  assert_output "../.base/script/docker/wrapper/setup.sh"
+  assert_output "../.base/downstream/script/docker/wrapper/setup.sh"
 }
 
 @test "new repo: setup.sh -h works against the generated symlink" {

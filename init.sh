@@ -33,9 +33,9 @@ TEMPLATE_REL="$(basename "${TEMPLATE_DIR}")"
 readonly TEMPLATE_REL
 
 # shellcheck disable=SC1091
-source "${TEMPLATE_DIR}/script/docker/lib/gitignore.sh"
+source "${TEMPLATE_DIR}/downstream/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
-source "${TEMPLATE_DIR}/script/docker/lib/_lib.sh"
+source "${TEMPLATE_DIR}/downstream/script/docker/lib/_lib.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -57,13 +57,13 @@ _create_symlinks() {
   # #546: the root user entry is the `justfile` (the container-ops
   # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/build.sh" "script/build.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/run.sh" "script/run.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/exec.sh" "script/exec.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/stop.sh" "script/stop.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/prune.sh" "script/prune.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/setup.sh" "script/setup.sh"
-  _symlink "../${TEMPLATE_REL}/script/docker/wrapper/setup_tui.sh" "script/setup_tui.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/build.sh" "script/build.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/run.sh" "script/run.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/exec.sh" "script/exec.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/stop.sh" "script/stop.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/prune.sh" "script/prune.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup.sh" "script/setup.sh"
+  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup_tui.sh" "script/setup_tui.sh"
   # Migration hygiene: drop pre-#330 root *.sh symlinks (now under
   # script/) plus the pre-setup_tui-rename `tui.sh` legacy name. The
   # [[ -L X ]] guard makes the loop idempotent on already-migrated
@@ -196,7 +196,7 @@ _create_new_repo() {
 
   # script/entrypoint.sh
   mkdir -p script
-  cp "${TEMPLATE_DIR}/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
+  cp "${TEMPLATE_DIR}/downstream/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
   chmod +x script/entrypoint.sh
   _log "  Created script/entrypoint.sh"
 
@@ -438,7 +438,7 @@ _gen_setup_conf() {
 # ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
 
 _call_setup() {
-  local _setup="${TEMPLATE_DIR}/script/docker/wrapper/setup.sh"
+  local _setup="${TEMPLATE_DIR}/downstream/script/docker/wrapper/setup.sh"
   if [[ ! -f "${_setup}" ]]; then
     _log "Skipping setup.sh (${_setup} not found)"
     return 0

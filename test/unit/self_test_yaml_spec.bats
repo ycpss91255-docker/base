@@ -81,10 +81,10 @@ setup() {
   assert_output --partial "'compose.yaml'"
   assert_output --partial "'dockerfile/Dockerfile.example'"
   assert_output --partial "'dockerfile/Dockerfile.test-tools'"
-  assert_output --partial "'script/docker/wrapper/build.sh'"
-  assert_output --partial "'script/docker/wrapper/run.sh'"
-  assert_output --partial "'script/docker/wrapper/exec.sh'"
-  assert_output --partial "'script/docker/wrapper/stop.sh'"
+  assert_output --partial "'downstream/script/docker/wrapper/build.sh'"
+  assert_output --partial "'downstream/script/docker/wrapper/run.sh'"
+  assert_output --partial "'downstream/script/docker/wrapper/exec.sh'"
+  assert_output --partial "'downstream/script/docker/wrapper/stop.sh'"
   assert_output --partial "'test/behavioural/**'"
   assert_output --partial "'init.sh' 'upgrade.sh'"
   assert_output --partial "'.github/workflows/**'"
@@ -256,10 +256,10 @@ setup() {
   # must invalidate the behavioural-skip optimization.
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial "'script/docker/wrapper/setup.sh'"
-  assert_output --partial "'script/docker/lib/i18n.sh'"
-  assert_output --partial "'script/docker/lib/**'"
-  assert_output --partial "'script/docker/wrapper/prune.sh'"
+  assert_output --partial "'downstream/script/docker/wrapper/setup.sh'"
+  assert_output --partial "'downstream/script/docker/lib/i18n.sh'"
+  assert_output --partial "'downstream/script/docker/lib/**'"
+  assert_output --partial "'downstream/script/docker/wrapper/prune.sh'"
 }
 
 # ── buildx GHA cache on test-tools builds (#317, #377) ────────────────

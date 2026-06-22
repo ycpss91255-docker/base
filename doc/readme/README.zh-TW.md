@@ -87,7 +87,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 專屬）"]
         main_yaml["main.yaml<br/>→ 呼叫可重用 workflows"]
@@ -139,23 +139,23 @@ flowchart LR
 | `stop.sh` | 停止並移除容器 |
 | `prune.sh` | 清理容器 / image / build cache |
 | `setup_tui.sh` | 互動式 setup.conf 編輯器（dialog / whiptail 前端） |
-| `script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` + `compose.yaml` |
-| `script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
-| `script/docker/lib/bootstrap.sh` | wrapper 共用初始化與參數解析 |
-| `script/docker/lib/compose.sh` | Docker Compose YAML 產生與處理 |
-| `script/docker/lib/conf.sh` | INI 解析器與 section 合併 |
-| `script/docker/lib/conf_logging.sh` | logging 配置 helper |
-| `script/docker/lib/env.sh` | 環境變數設定與預設值 |
-| `script/docker/lib/gitignore.sh` | gitignore 檔案管理 |
-| `script/docker/lib/hook.sh` | 各 wrapper 的 pre/post hook 呼叫 |
-| `script/docker/lib/i18n.sh` | 語言偵測與在地化 |
-| `script/docker/lib/log.sh` | 統一 logging 與輸出工具 |
-| `script/docker/lib/config_summary.sh` | runtime 配置摘要 |
-| `script/docker/lib/_tui_backend.sh` | TUI 使用的 dialog / whiptail 包裝函式 |
-| `script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
-| `script/docker/runtime/logging.sh` | host 端 log tee helper |
-| `script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `script/docker/runtime/entrypoint.sh` | template entrypoint helper |
+| `downstream/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` + `compose.yaml` |
+| `downstream/script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
+| `downstream/script/docker/lib/bootstrap.sh` | wrapper 共用初始化與參數解析 |
+| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML 產生與處理 |
+| `downstream/script/docker/lib/conf.sh` | INI 解析器與 section 合併 |
+| `downstream/script/docker/lib/conf_logging.sh` | logging 配置 helper |
+| `downstream/script/docker/lib/env.sh` | 環境變數設定與預設值 |
+| `downstream/script/docker/lib/gitignore.sh` | gitignore 檔案管理 |
+| `downstream/script/docker/lib/hook.sh` | 各 wrapper 的 pre/post hook 呼叫 |
+| `downstream/script/docker/lib/i18n.sh` | 語言偵測與在地化 |
+| `downstream/script/docker/lib/log.sh` | 統一 logging 與輸出工具 |
+| `downstream/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
+| `downstream/script/docker/lib/_tui_backend.sh` | TUI 使用的 dialog / whiptail 包裝函式 |
+| `downstream/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
+| `downstream/script/docker/runtime/logging.sh` | host 端 log tee helper |
+| `downstream/script/docker/runtime/smoke.sh` | runtime install-check smoke |
+| `downstream/script/docker/runtime/entrypoint.sh` | template entrypoint helper |
 | `script/ci/ci.sh` | CI orchestration（本地 + 遠端） |
 | `script/ci/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
 | `script/ci/lint_mixed_test_layout.sh` | Mixed-tool test layout 驗證 |
@@ -696,7 +696,7 @@ just upgrade v0.3.0
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 完整性檢查 — subtree marker（`.base/.version`、
-   `.base/init.sh`、`.base/script/docker/wrapper/setup.sh`）若不見了會
+   `.base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）若不見了會
    `git reset --hard` rollback（防舊版 `git-subtree.sh` destructive FF）
 3. `./.base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、

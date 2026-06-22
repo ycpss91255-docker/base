@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for .base/script/docker/lib/gitignore.sh.
+# Unit tests for .base/downstream/script/docker/lib/gitignore.sh.
 #
 # Issue #172: init.sh / upgrade.sh need to sync a canonical .gitignore set
 # (.env, .env.bak, compose.yaml, setup.conf.bak, coverage/,
@@ -20,11 +20,11 @@ setup() {
   # _collect_logging -> _parse_ini_section, both shared libs. Source
   # them up front so every test gets the full surface.
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/conf.sh
+  source /source/downstream/script/docker/lib/conf.sh
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/conf_logging.sh
+  source /source/downstream/script/docker/lib/conf_logging.sh
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/gitignore.sh
+  source /source/downstream/script/docker/lib/gitignore.sh
 
   TMP_DIR="$(mktemp -d)"
   # _collect_logging falls back to the template setup.conf when the

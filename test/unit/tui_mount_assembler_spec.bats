@@ -8,7 +8,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  source /source/script/docker/lib/_tui_conf.sh
+  source /source/downstream/script/docker/lib/_tui_conf.sh
 }
 
 # ── #461: _assemble_mount_value ───────────────────────────────────
@@ -47,7 +47,7 @@ setup() {
 # ── #461 TUI picker flow (mocked) ───────────────────────────────────
 
 @test "_prompt_mount_with_picker assembles full mount string from picker steps (#461)" {
-  source /source/script/docker/wrapper/setup_tui.sh
+  source /source/downstream/script/docker/wrapper/setup_tui.sh
   _QFILE="${BATS_TEST_TMPDIR}/q"
   : > "${_QFILE}"
   # Queue 4 responses: host, container, access, propagation
@@ -65,7 +65,7 @@ setup() {
 }
 
 @test "_prompt_mount_with_picker no propagation gives just host:container:access (#461)" {
-  source /source/script/docker/wrapper/setup_tui.sh
+  source /source/downstream/script/docker/wrapper/setup_tui.sh
   _QFILE="${BATS_TEST_TMPDIR}/q"
   : > "${_QFILE}"
   printf '0|/data\n0|/data\n0|ro\n0|none\n' > "${_QFILE}"
@@ -82,7 +82,7 @@ setup() {
 }
 
 @test "_prompt_mount_with_picker no access + no propagation gives just host:container (#461)" {
-  source /source/script/docker/wrapper/setup_tui.sh
+  source /source/downstream/script/docker/wrapper/setup_tui.sh
   _QFILE="${BATS_TEST_TMPDIR}/q"
   : > "${_QFILE}"
   printf '0|/a\n0|/b\n0|none\n0|none\n' > "${_QFILE}"

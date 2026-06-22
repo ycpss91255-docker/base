@@ -14,7 +14,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/hook.sh
+  source /source/downstream/script/docker/lib/hook.sh
 
   TMP_DIR="$(mktemp -d)"
   FILE_PATH="${TMP_DIR}"

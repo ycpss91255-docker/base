@@ -82,12 +82,12 @@ graph TB
         scripts[".hadolint.yaml / justfile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator"]
-        mgmt["script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
@@ -139,23 +139,23 @@ flowchart LR
 | `stop.sh` | 停止并移除容器 |
 | `prune.sh` | 清理容器 / image / 构建缓存 |
 | `setup_tui.sh` | 交互式 setup.conf 编辑器（dialog / whiptail 前端） |
-| `script/docker/wrapper/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
-| `script/docker/lib/_lib.sh` | 核心 wrapper helper（env 加载、compose 调用、project 命名） |
-| `script/docker/lib/bootstrap.sh` | 共用 wrapper 初始化与参数解析 |
-| `script/docker/lib/compose.sh` | Docker Compose YAML 生成与处理 |
-| `script/docker/lib/conf.sh` | INI 解析器与 section 合并器 |
-| `script/docker/lib/conf_logging.sh` | Logging 配置 helper |
-| `script/docker/lib/env.sh` | 环境变量设置与默认值 |
-| `script/docker/lib/gitignore.sh` | Gitignore 文件管理 |
-| `script/docker/lib/hook.sh` | 每个 wrapper 的 pre/post hook 调用 |
-| `script/docker/lib/i18n.sh` | 语言检测与本地化 |
-| `script/docker/lib/log.sh` | 统一日志与输出 helper |
-| `script/docker/lib/config_summary.sh` | runtime 配置摘要 |
-| `script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
-| `script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
-| `script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
-| `script/docker/runtime/logging.sh` | host 端 log tee helper |
-| `script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
+| `downstream/script/docker/wrapper/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
+| `downstream/script/docker/lib/_lib.sh` | 核心 wrapper helper（env 加载、compose 调用、project 命名） |
+| `downstream/script/docker/lib/bootstrap.sh` | 共用 wrapper 初始化与参数解析 |
+| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML 生成与处理 |
+| `downstream/script/docker/lib/conf.sh` | INI 解析器与 section 合并器 |
+| `downstream/script/docker/lib/conf_logging.sh` | Logging 配置 helper |
+| `downstream/script/docker/lib/env.sh` | 环境变量设置与默认值 |
+| `downstream/script/docker/lib/gitignore.sh` | Gitignore 文件管理 |
+| `downstream/script/docker/lib/hook.sh` | 每个 wrapper 的 pre/post hook 调用 |
+| `downstream/script/docker/lib/i18n.sh` | 语言检测与本地化 |
+| `downstream/script/docker/lib/log.sh` | 统一日志与输出 helper |
+| `downstream/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
+| `downstream/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
+| `downstream/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
+| `downstream/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
+| `downstream/script/docker/runtime/logging.sh` | host 端 log tee helper |
+| `downstream/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
 | `script/ci/ci.sh` | CI orchestration（本地 + 远端） |
 | `script/ci/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
 | `script/ci/lint_mixed_test_layout.sh` | 混合工具测试布局验证器 |
@@ -697,7 +697,7 @@ just upgrade v0.3.0
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 完整性检查 — subtree marker（`.base/.version`、
-   `.base/init.sh`、`.base/script/docker/wrapper/setup.sh`）若不见了会
+   `.base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）若不见了会
    `git reset --hard` rollback（防旧版 `git-subtree.sh` destructive FF）
 3. `./.base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、

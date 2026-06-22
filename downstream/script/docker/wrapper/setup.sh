@@ -15,7 +15,7 @@
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-# Resolve the symlink (<repo>/setup.sh → .base/script/docker/setup.sh)
+# Resolve the symlink (<repo>/setup.sh → .base/downstream/script/docker/setup.sh)
 # so sibling sources (i18n.sh / _tui_conf.sh) are located in the
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
@@ -509,7 +509,7 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../downstream/config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
@@ -543,7 +543,7 @@ _setup_conf_handle() {
     return 0
   fi
   _conf_load_merged \
-    "${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf" \
+    "${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf" \
     "${_base}/config/docker/setup.conf" \
     "${_h}"
 }
@@ -895,7 +895,7 @@ _reconcile_workspace_path() {
     fi
     [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
       # Ensure config/docker/ parent dir exists before cp (post-#262
       # path; first-time bootstrap on a fresh repo will not have it).
@@ -1071,7 +1071,7 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../downstream/config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
@@ -1525,7 +1525,7 @@ _resolve_deploy_context() {
   _get_conf_list_sorted _s_k _s_v "cap_drop_"     _cap_drop_arr
   _get_conf_list_sorted _s_k _s_v "security_opt_" _sec_opt_arr
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
@@ -3064,7 +3064,7 @@ YAML
     fi
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
     # + #328 LOG_FILE_PATH when [logging] local_path is set for this svc
-    # (consumed by .base/script/docker/_entrypoint_logging.sh helper to
+    # (consumed by .base/downstream/script/docker/_entrypoint_logging.sh helper to
     # tee container stdout/stderr to the bind-mounted host file).
     # _devel_llp resolved here -- the volumes block emit below reuses
     # this variable, but the env block needs to know about the mount
@@ -3573,7 +3573,7 @@ _setup_check_drift() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -3760,7 +3760,7 @@ _setup_set() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   # Writes target the per-repo override file (setup.conf). Bootstrap
@@ -3854,14 +3854,14 @@ _setup_show() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -3950,13 +3950,13 @@ _setup_list() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -4082,7 +4082,7 @@ _setup_add() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
@@ -4099,7 +4099,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -4259,7 +4259,7 @@ _setup_remove() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
@@ -4376,7 +4376,7 @@ _setup_reset() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
@@ -4386,7 +4386,7 @@ _setup_reset() {
   # overlay is user-owned and intentionally left untouched by reset.
   local _conf="${_base_path}/config/docker/setup.conf"
   local _env="${_base_path}/.env.generated"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../downstream/config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
     _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
@@ -4499,7 +4499,7 @@ _setup_apply() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -4933,7 +4933,7 @@ _setup_deploy() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
   if [[ ! -f "${_base_path}/Dockerfile" ]]; then
     _log_err setup deploy_no_dockerfile "display=[setup] deploy: no Dockerfile at ${_base_path}; cannot build the field image." "path=${_base_path}"

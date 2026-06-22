@@ -8,9 +8,9 @@
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  # shellcheck source=script/docker/lib/conf.sh
+  # shellcheck source=downstream/script/docker/lib/conf.sh
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/conf.sh
+  source /source/downstream/script/docker/lib/conf.sh
   FIX="$(mktemp)"
   cat > "${FIX}" <<'EOF'
 [deploy]

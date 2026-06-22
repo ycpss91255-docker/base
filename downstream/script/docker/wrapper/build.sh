@@ -12,9 +12,9 @@ _bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s'
 for _bootstrap_cand in \
   "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
   "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
-  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  "$(dirname -- "${_bootstrap_self}")/.base/downstream/script/docker/lib/bootstrap.sh"; do
   if [[ -f "${_bootstrap_cand}" ]]; then
-    # shellcheck source=script/docker/lib/bootstrap.sh
+    # shellcheck source=downstream/script/docker/lib/bootstrap.sh
     source "${_bootstrap_cand}"
     break
   fi
@@ -403,7 +403,7 @@ main() {
     RUN_SETUP=true
   fi
 
-  local _setup="${FILE_PATH}/.base/script/docker/wrapper/setup.sh"
+  local _setup="${FILE_PATH}/.base/downstream/script/docker/wrapper/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is

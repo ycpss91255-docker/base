@@ -2,7 +2,7 @@
 #
 # Tests for [logging] / [logging.<svc>] support in generate_compose_yaml
 # and the supporting _collect_logging / _parse_logging_svc_sections
-# parsers in script/docker/wrapper/setup.sh. Closes #310.
+# parsers in downstream/script/docker/wrapper/setup.sh. Closes #310.
 
 bats_require_minimum_version 1.5.0
 
@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/wrapper/setup.sh
+  source /source/downstream/script/docker/wrapper/setup.sh
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
@@ -265,7 +265,7 @@ teardown() {
   # The [logging] section in the template default setup.conf is the
   # primary surface where downstream maintainers learn about the
   # local_path feature + the entrypoint helper. PR #356 originally
-  # pointed at `.base/script/docker/runtime/logging.sh` (the
+  # pointed at `.base/downstream/script/docker/runtime/logging.sh` (the
   # subtree path inside the workspace bind mount), which crashes on
   # build-time smoke ($USER unset) and is wrong on multi-repo
   # workspaces (WS_PATH = workspace parent, not repo root). Path A
@@ -277,7 +277,7 @@ teardown() {
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken pre-#368 path must not reappear.
-  run grep -F '.base/script/docker/runtime/logging.sh' "${_conf}"
+  run grep -F '.base/downstream/script/docker/runtime/logging.sh' "${_conf}"
   assert_failure
 }
 

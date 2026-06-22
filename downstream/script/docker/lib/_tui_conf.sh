@@ -23,7 +23,7 @@ _DOCKER_TUI_CONF_SOURCED=1
 # gets them without depending on _lib.sh's umbrella load order. Mirrors
 # how compose.sh / config_summary.sh pull in their lib deps.
 _tui_conf_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=script/docker/lib/conf.sh
+# shellcheck source=downstream/script/docker/lib/conf.sh
 source "${_tui_conf_dir}/conf.sh"
 unset _tui_conf_dir
 

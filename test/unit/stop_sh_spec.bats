@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/wrapper/stop.sh argument handling and i18n log lines.
+# Unit tests for downstream/script/docker/wrapper/stop.sh argument handling and i18n log lines.
 # Sandbox tree mirrors build_sh_spec.bats. A PATH-shimmed `docker` stub
 # lets tests control `docker ps -a` output so the --all branch can be
 # exercised without a real docker daemon.
@@ -16,13 +16,13 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker/lib"
+  mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib"
 
-  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/wrapper/stop.sh "${SANDBOX}/stop.sh"
+  cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
+  ln -s /source/downstream/script/docker/wrapper/stop.sh "${SANDBOX}/stop.sh"
 
   # Seed .env so _load_env succeeds.
   {
@@ -200,9 +200,9 @@ teardown() {
 @test "stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
+  ln -s /source/downstream/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -212,9 +212,9 @@ teardown() {
 @test "stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
+  ln -s /source/downstream/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -224,9 +224,9 @@ teardown() {
 @test "stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
+  ln -s /source/downstream/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -239,10 +239,10 @@ teardown() {
 
 @test "stop.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
+  mkdir -p "${ALT}/.base/downstream/script/docker/lib"
+  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -259,10 +259,10 @@ teardown() {
 
 @test "stop.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
+  mkdir -p "${ALT}/.base/downstream/script/docker/lib"
+  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"

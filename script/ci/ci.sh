@@ -39,7 +39,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../docker/lib/_lib.sh"
+source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -153,9 +153,9 @@ _install_deps() {
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/downstream/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"

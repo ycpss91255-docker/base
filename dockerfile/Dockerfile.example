@@ -145,7 +145,7 @@ COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # bind-mounted .base/) avoids two failure modes: build-time smoke
 # crashes when $USER is unset, and multi-repo workspaces where
 # WS_PATH is the workspace parent rather than the repo root.
-COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 # Layer 1: .base/downstream/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/downstream/config "${CONFIG_DIR}"
@@ -220,8 +220,8 @@ COPY script/*.sh /lint/
 # definition lives once in i18n.sh.
 # #406: all libs (including _lib.sh, i18n.sh, _tui_conf.sh) now live
 # under lib/. Single COPY preserves the directory structure.
-COPY .base/script/docker/lib /lint/lib
-COPY .base/script/docker/wrapper /lint/wrapper
+COPY .base/downstream/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/wrapper /lint/wrapper
 RUN shellcheck -S warning /lint/wrapper/*.sh /lint/lib/*.sh
 WORKDIR /lint
 RUN hadolint Dockerfile
@@ -359,7 +359,7 @@ RUN bats /smoke_test/
 # # into [logging] local_path tee must repeat the COPY here so
 # # `. /usr/local/lib/base/logging.sh` works in the
 # # runtime image too.
-# COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+# COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 # USER "${USER}"
 # # WORKDIR interpolates only build-time ARG / ENV (not shell $HOME);
 # # see #334 for why the explicit ENV is required.
@@ -410,7 +410,7 @@ RUN bats /smoke_test/
 # # via runtime/smoke.sh (catches missing .so installs that the old
 # # 'whoami && bash --version' default silently passed -- e.g.
 # # libboost_regex.so absent in ros1_bridge#123).
-# COPY .base/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
+# COPY .base/downstream/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
 # ARG RUNTIME_SMOKE_CMD='whoami && bash --version && bash /usr/local/lib/base/smoke.sh'
 # # Inherit USER from runtime (non-root). install-check doesn't need
 # # privilege; if downstream override needs root, prefix with sudo.
