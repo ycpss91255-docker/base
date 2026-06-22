@@ -507,6 +507,11 @@ _mk_subtree_repo() {
 # the `|| true` is caught here, not in CI.
 
 @test "_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)" {
+  # Under kcov, bash instrumentation (set -x/PS4 + BASH_ENV) trips the
+  # inner `set -u` shell with `BASH_SOURCE: unbound variable` before the
+  # harness loads. The set-e/pipefail safety this locks is verified by
+  # the normal (non-kcov) job; skip under coverage (#613).
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov instrumentation perturbs the inner set -u shell (#613)"
   run bash -c "
     set -euo pipefail
     source '${HARNESS}'
