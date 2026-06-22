@@ -191,10 +191,10 @@ teardown() {
   # them. Must be a real directory.
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
-  # Pre-#254 init.sh seeded a FULL copy of .base/config/ here.
+  # Pre-#254 init.sh seeded a FULL copy of .base/downstream/config/ here.
   # Post-#254 (template v0.22.0+) init.sh creates an empty
   # placeholder with just a .gitkeep -- the Dockerfile's layered
-  # COPY chain reads .base/config/ as defaults and <repo>/config/
+  # COPY chain reads .base/downstream/config/ as defaults and <repo>/config/
   # as overrides, so an empty <repo>/config/ means "no overrides,
   # use all template defaults". Downstream adds files only when
   # they want to override a specific template file.
@@ -225,27 +225,27 @@ teardown() {
 }
 
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
-  # An older init.sh created config → .base/config as a symlink.
+  # An older init.sh created config → .base/downstream/config as a symlink.
   # Re-running the post-#254 init.sh on such a repo must replace the
   # symlink with the empty placeholder (mkdir through a symlink
   # would otherwise pollute the subtree target).
-  ln -s .base/config "${REPO_DIR}/config"
+  ln -s .base/downstream/config "${REPO_DIR}/config"
   bash .base/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/.gitkeep" ]
 }
 
-@test "Dockerfile.example references CONFIG_SRC=\"config\" (not .base/config)" {
+@test "Dockerfile.example references CONFIG_SRC=\"config\" (not .base/downstream/config)" {
   # Sanity: the per-repo copy only pays off if Dockerfile points at it.
   run grep -F 'ARG CONFIG_SRC="config"' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F 'ARG CONFIG_SRC=".base/config"' /source/dockerfile/Dockerfile.example
+  run grep -F 'ARG CONFIG_SRC=".base/downstream/config"' /source/dockerfile/Dockerfile.example
   assert_failure
 }
 
-@test "Dockerfile.example has layered config COPY chain (template#254): .base/config first, then config" {
-  # Layered file-level override: layer 1 brings .base/config/
+@test "Dockerfile.example has layered config COPY chain (template#254): .base/downstream/config first, then config" {
+  # Layered file-level override: layer 1 brings .base/downstream/config/
   # defaults, layer 2 overlays <repo>/config/. Files in layer 2
   # override same-path files from layer 1; files only in layer 1
   # remain. Order matters -- if layer 2 came first, layer 1 would
@@ -254,17 +254,17 @@ teardown() {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Both COPY lines exist with --chown / --chmod metadata.
-  run grep -E '^COPY --chown=.* .base/config "\$\{CONFIG_DIR\}"$' "${_df}"
+  run grep -E '^COPY --chown=.* .base/downstream/config "\$\{CONFIG_DIR\}"$' "${_df}"
   assert_success
   run grep -E '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}"
   assert_success
-  # Order: .base/config COPY line number must be LESS than
+  # Order: .base/downstream/config COPY line number must be LESS than
   # config-src COPY line number.
   local _line1 _line2
-  _line1=$(grep -nE '^COPY --chown=.* .base/config "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
+  _line1=$(grep -nE '^COPY --chown=.* .base/downstream/config "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
   _line2=$(grep -nE '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
   [[ "${_line1}" -lt "${_line2}" ]] || {
-    echo "expected .base/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
+    echo "expected .base/downstream/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
     return 1
   }
 }
@@ -290,7 +290,7 @@ teardown() {
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The shell-setup RUN block must mkdir ~/.bashrc.d AND copy
   # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form
-  # tolerates missing source files (.base/config/shell/bashrc.d/
+  # tolerates missing source files (.base/downstream/config/shell/bashrc.d/
   # is empty by default; only an explicit .gitkeep ships).
   run grep -F 'mkdir -p "${HOME}/.bashrc.d"' "${_df}"
   assert_success

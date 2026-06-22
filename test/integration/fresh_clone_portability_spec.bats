@@ -53,7 +53,7 @@ teardown() {
 _seed_stale_setup_conf() {
   local _host="$1"
   mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  cp "${REPO_DIR}/.base/downstream/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
   # shellcheck disable=SC2016  # ${USER_NAME} is a literal in setup.conf
   sed -i "s|^mount_1 =.*|mount_1 = ${_host}:/home/\${USER_NAME}/work|" \
     "${REPO_DIR}/config/docker/setup.conf"
@@ -103,7 +103,7 @@ _seed_stale_setup_conf() {
   # Same shape as above but with a repo whose committed setup.conf
   # already uses the portable form (the happy case after v0.9.4+).
   mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  cp "${REPO_DIR}/.base/downstream/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
   # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
   sed -i 's|^mount_1 =.*|mount_1 = ${WS_PATH}:/home/${USER_NAME}/work|' \
     "${REPO_DIR}/config/docker/setup.conf"

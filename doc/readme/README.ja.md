@@ -752,8 +752,8 @@ just upgrade v0.3.0
 
 per-repo のファイルは上書きされません：`<repo>/setup.conf` はそのまま
 保持され、`<repo>/config/`（bashrc / tmux / terminator …）も触りません
-— 上流の `.base/config/` が前回 pull 以降変わっていれば、
-upgrade.sh が `diff -ruN .base/config config` のヒントを表示するの
+— 上流の `.base/downstream/config/` が前回 pull 以降変わっていれば、
+upgrade.sh が `diff -ruN .base/downstream/config config` のヒントを表示するの
 で、必要に応じて手動で reconcile してください。
 
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh

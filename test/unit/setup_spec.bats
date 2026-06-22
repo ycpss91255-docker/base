@@ -159,9 +159,9 @@ fi'
 @test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
   # #466 F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
-  run grep -E '^device_1 = /dev:/dev$' /source/config/docker/setup.conf
+  run grep -E '^device_1 = /dev:/dev$' /source/downstream/config/docker/setup.conf
   assert_failure
-  run grep -E '^# device_1 = /dev:/dev$' /source/config/docker/setup.conf
+  run grep -E '^# device_1 = /dev:/dev$' /source/downstream/config/docker/setup.conf
   assert_success
 }
 
@@ -184,7 +184,7 @@ EOF
   # compute + utility + graphics out of the box (no need to tick boxes
   # in TUI). Users narrow it down via ./setup_tui.sh deploy if they want
   # a minimal reservation.
-  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/config/docker/setup.conf
+  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/downstream/config/docker/setup.conf
   assert_success
 }
 
@@ -241,7 +241,7 @@ EOF
 }
 
 @test "template setup.conf ships [lifecycle] restart = no (#478)" {
-  run grep -E '^restart = no$' /source/config/docker/setup.conf
+  run grep -E '^restart = no$' /source/downstream/config/docker/setup.conf
   assert_success
 }
 
@@ -331,7 +331,7 @@ EOF
 }
 
 @test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
-  run grep -E '^dri_groups = auto$' /source/config/docker/setup.conf
+  run grep -E '^dri_groups = auto$' /source/downstream/config/docker/setup.conf
   assert_success
 }
 
@@ -394,9 +394,9 @@ EOF
 }
 
 @test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
-  run grep -E '^gpu_runtime = auto$' /source/config/docker/setup.conf
+  run grep -E '^gpu_runtime = auto$' /source/downstream/config/docker/setup.conf
   assert_success
-  run grep -E '^runtime = ' /source/config/docker/setup.conf
+  run grep -E '^runtime = ' /source/downstream/config/docker/setup.conf
   assert_failure
 }
 
@@ -517,7 +517,7 @@ EOF
   # Default template setup.conf has [additional_contexts] section but no
   # entries. Generated compose.yaml must NOT contain `additional_contexts:`
   # so existing repos see zero diff.
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
@@ -661,7 +661,7 @@ EOF
 }
 
 @test "set logging.driver round-trips via show (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.driver journald --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.driver --base-path "${TEMP_DIR}"
@@ -670,7 +670,7 @@ EOF
 }
 
 @test "set logging.compress accepts true/false; rejects others (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.compress true --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.compress maybe --base-path "${TEMP_DIR}"
@@ -679,7 +679,7 @@ EOF
 }
 
 @test "set logging.max_file rejects non-positive integers (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.max_file 5 --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_file 0 --base-path "${TEMP_DIR}"
@@ -691,7 +691,7 @@ EOF
 }
 
 @test "set logging.max_size accepts num+unit; rejects malformed (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.max_size 50m --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_size 1g --base-path "${TEMP_DIR}"
@@ -703,7 +703,7 @@ EOF
 }
 
 @test "set logging.driver rejects whitespace/empty-shape names (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.driver "bad name" --base-path "${TEMP_DIR}"
   assert_failure
   run main set logging.driver "1starts-with-digit" --base-path "${TEMP_DIR}"
@@ -744,7 +744,7 @@ EOF
 }
 
 @test "show logging prints the whole resolved [logging] section (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main show logging --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "driver"
@@ -754,7 +754,7 @@ EOF
 }
 
 @test "set logging.local_path accepts relative path (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.local_path ./logs/ --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -763,7 +763,7 @@ EOF
 }
 
 @test "set logging.local_path accepts absolute path (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.local_path /srv/app-logs --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -772,7 +772,7 @@ EOF
 }
 
 @test "set logging.local_path rejects whitespace-only value (#328)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.local_path "   " --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
@@ -1747,7 +1747,7 @@ EOF
 }
 
 @test "apply --lang zh-TW sets Chinese messages for full run" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -1826,7 +1826,7 @@ EOF
   # (script/docker/../../.. = repo root).
   mkdir -p "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox_repo/.base/script/docker/wrapper" \
-           "${TEMP_DIR}/sandbox_repo/.base/config/docker"
+           "${TEMP_DIR}/sandbox_repo/.base/downstream/config/docker"
   cp /source/script/docker/wrapper/setup.sh \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/wrapper/setup.sh"
   cp /source/script/docker/lib/i18n.sh \
@@ -1839,7 +1839,7 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib/_lib.sh"
   cp /source/script/docker/lib/* \
     "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib/"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/downstream/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/wrapper/setup.sh" apply
   assert_success
@@ -1875,7 +1875,7 @@ EOF
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -1994,7 +1994,7 @@ EOF
   # subcommand dispatch path actually works when the script is executed.
   mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox/.base/script/docker/wrapper" \
-           "${TEMP_DIR}/sandbox/.base/config/docker"
+           "${TEMP_DIR}/sandbox/.base/downstream/config/docker"
   cp /source/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/wrapper/setup.sh"
   cp /source/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/i18n.sh"
   cp /source/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/_tui_conf.sh"
@@ -2002,7 +2002,7 @@ EOF
   # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/_lib.sh"
   cp /source/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/downstream/config/docker/setup.conf"
 
   bash "${TEMP_DIR}/sandbox/.base/script/docker/wrapper/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
@@ -2030,7 +2030,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "set writes a value into an existing section, round-trip via show" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_count all --base-path "${TEMP_DIR}"
   assert_success
   run main show deploy.gpu_count --base-path "${TEMP_DIR}"
@@ -2063,42 +2063,42 @@ EOF
 }
 
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set bogus.key value --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
 }
 
 @test "set rejects an invalid gpu_count value" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid mount string" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid cgroup_rule" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid env_kv" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid port mapping" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
@@ -2111,49 +2111,49 @@ EOF
 # ──────────────────────────────────────────────────────────────────
 
 @test "set rejects an invalid target_arch (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set build.target_arch sparc --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid build network (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid gpu_runtime (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid network_name (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set network.network_name "-bad" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid device mount (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set devices.device_1 noslash --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "add rejects an invalid capability (#560 schema unification)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main add security.cap_add lowercase --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects a malformed dotted key (no dot)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
   assert_failure
 }
@@ -2166,7 +2166,7 @@ EOF
 }
 
 @test "set does NOT regenerate .env (mtime unchanged after set)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Seed .env via apply so it exists.
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
@@ -2236,7 +2236,7 @@ EOF
 }
 
 @test "show rejects an unknown section name" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main show bogus.key --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -2277,7 +2277,7 @@ EOF
 }
 
 @test "list <section> rejects an unknown section" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main list bogus --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -2294,7 +2294,7 @@ EOF
   # is an umbrella that sources lib/*.sh sub-libs post-#284.
   cp /source/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/_lib.sh"
   cp /source/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
   run bash "${TEMP_DIR}/sandbox/.base/script/docker/wrapper/setup.sh" \
     set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
@@ -2539,8 +2539,8 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)" {
-  mkdir -p "${TEMP_DIR}/.base/config/docker"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/.base/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/.base/downstream/config/docker"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/.base/downstream/config/docker/setup.conf"
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 # user-customized
 [network]
@@ -2574,7 +2574,7 @@ EOF
 }
 
 @test "main reset --yes backs up prior .env.generated to .env.generated.bak" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env.generated"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
@@ -2584,7 +2584,7 @@ EOF
 }
 
 @test "main reset --yes does NOT regenerate .env" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   : > "${TEMP_DIR}/.env.generated"
   local _before
   _before="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
@@ -2601,7 +2601,7 @@ EOF
 }
 
 @test "main reset without --yes refuses non-tty (no confirmation possible)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Bats runs without a controlling TTY — without --yes the handler
   # must refuse rather than silently destroy state.
   run main reset --base-path "${TEMP_DIR}"
@@ -2620,7 +2620,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply writes the derived cache to .env.generated (not .env)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   assert [ -f "${TEMP_DIR}/.env.generated" ]
@@ -2629,7 +2629,7 @@ EOF
 }
 
 @test "apply scaffolds a .env workload overlay when absent" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   refute [ -f "${TEMP_DIR}/.env" ]
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -2640,7 +2640,7 @@ EOF
 }
 
 @test "apply does NOT overwrite an existing hand-authored .env overlay" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -2649,7 +2649,7 @@ EOF
 }
 
 @test "apply migrates a legacy .env cache to .env.generated + backs it up" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Pre-#502 layout: .env IS the cache (carries the auto-gen marker) and
   # .env.generated does not exist yet.
   cat > "${TEMP_DIR}/.env" <<'EOF'
@@ -2677,7 +2677,7 @@ EOF
 }
 
 @test "apply emits env_file: - .env on the devel service (#502 overlay)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
@@ -2734,7 +2734,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply dev-binds config/app/ into the devel service when present (#504)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   mkdir -p "${TEMP_DIR}/config/app"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -2743,7 +2743,7 @@ EOF
 }
 
 @test "apply omits the config/app bind when the directory is absent (#504)" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -F '/opt/app/config' "${TEMP_DIR}/compose.yaml"
@@ -2880,7 +2880,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "[build] template defaults ship TW mirrors via arg_N" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -2893,7 +2893,7 @@ EOF
 }
 
 @test "[build] arg_N override replaces TW default when set" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_1 \
     "APT_MIRROR_UBUNTU=archive.ubuntu.com"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_2 \
@@ -2932,7 +2932,7 @@ EOF
   # Dockerfile with `ARG PYTHON_VERSION` can pick up a user-added
   # build arg. Extra args land in .env so compose build.args can
   # reference them.
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_9 \
     "PYTHON_VERSION=3.12"
   run bash -c "
@@ -2945,7 +2945,7 @@ EOF
 }
 
 @test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch arm64
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
@@ -2957,7 +2957,7 @@ EOF
 }
 
 @test "[build] target_arch empty omits TARGET_ARCH from .env" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Explicit empty value (the template's default)
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch ""
   run bash -c "
@@ -2971,7 +2971,7 @@ EOF
 }
 
 @test "[build] network = host writes BUILD_NETWORK to .env" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network host
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
@@ -2983,7 +2983,7 @@ EOF
 }
 
 @test "[build] network empty omits BUILD_NETWORK from .env" {
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network ""
   run bash -c "
     source /source/script/docker/wrapper/setup.sh
@@ -3176,7 +3176,7 @@ EOF
 # expected line appears in compose.yaml or .env. Companion negative
 # tests confirm the corresponding compose / env block is omitted when
 # the key is empty / cleared. Ensures every key documented in
-# .base/config/docker/setup.conf has a setting → output assertion.
+# .base/downstream/config/docker/setup.conf has a setting → output assertion.
 # ════════════════════════════════════════════════════════════════════
 
 # ── [deploy] ─────────────────────────────────────────────────────────

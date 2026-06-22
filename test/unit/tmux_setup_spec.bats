@@ -7,7 +7,7 @@ setup() {
   export HOME="${TEMP_DIR}"
 
   # shellcheck disable=SC1091
-  source /source/config/shell/tmux/setup.sh
+  source /source/downstream/config/shell/tmux/setup.sh
 }
 
 teardown() {
@@ -115,6 +115,6 @@ if [[ "$1" == "clone" ]]; then
   chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-  run bash /source/config/shell/tmux/setup.sh
+  run bash /source/downstream/config/shell/tmux/setup.sh
   assert_success
 }

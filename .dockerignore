@@ -8,7 +8,7 @@
 # never against base's own root. So nothing the root-context build
 # needs is excluded below.
 #
-# We still KEEP the source/template trees (script/, test/, config/,
+# We still KEEP the source/template trees (script/, test/, downstream/config/,
 # .base/, dockerfile/, Dockerfile, .hadolint.yaml, entrypoints) so this
 # stays forward-safe: Dockerfile.example's lint/smoke stages COPY those
 # paths, and the file doubles as the downstream template.

@@ -268,25 +268,25 @@ _upgrade() {
 
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
-  # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/config so we can
+  # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/downstream/config so we can
   # tell the user if their seeded <repo>/config is now out of sync with
   # the upstream baseline. Git tree hashes are stable and cheap (no blob
-  # compare); if HEAD has no ${TEMPLATE_REL}/config yet (initial setup),
+  # compare); if HEAD has no ${TEMPLATE_REL}/downstream/config yet (initial setup),
   # leave _pre_config_hash empty.
   local _pre_config_hash=""
   # --verify: print the resolved hash on success, print nothing on
   # failure. Without it, git's default mode echoes the unresolved ref
   # back to stdout for unknown paths, which would be mistaken for a
   # hash later by _warn_config_drift.
-  _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config" 2>/dev/null || true)"
+  _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config" 2>/dev/null || true)"
 
   # Snapshot pre-pull setup.conf hash too. Path is the post-#262 location
-  # ${TEMPLATE_REL}/config/docker/setup.conf. If the upstream baseline
+  # ${TEMPLATE_REL}/downstream/config/docker/setup.conf. If the upstream baseline
   # changed, the user may want to copy new sections / keys into their
   # per-repo setup.conf override (issue #201's 2-file model makes this a
   # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
-  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config/docker/setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"
@@ -392,7 +392,7 @@ COMMIT
 
   # Post-pull: warn when the upstream config baseline moved so the
   # user can reconcile <repo>/config/ (seeded by init.sh, user-owned
-  # afterwards) against the new .base/config/. Silent when the
+  # afterwards) against the new .base/downstream/config/. Silent when the
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
@@ -412,26 +412,26 @@ COMMIT
 
 # _warn_config_drift <pre_pull_tree_hash>
 #
-# When the upstream ${TEMPLATE_REL}/config/ tree changed during this
+# When the upstream ${TEMPLATE_REL}/downstream/config/ tree changed during this
 # pull, print a WARNING pointing the user at the diff so they can merge
 # into their <repo>/config/ manually. Never fails the upgrade (config is
 # user-owned — we only report, not force).
 _warn_config_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0         # no config in new subtree
   [[ "${_pre}" == "${_post}" ]] && return 0   # unchanged
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/config/ changed upstream since the last pull."
+  _log "WARNING: ${TEMPLATE_REL}/downstream/config/ changed upstream since the last pull."
   _log "         Your <repo>/config/ is user-owned and was NOT updated."
   _log "         Review the diff and port any upstream changes you want:"
   _log ""
-  _log "           diff -ruN ${TEMPLATE_REL}/config config"
+  _log "           diff -ruN ${TEMPLATE_REL}/downstream/config config"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/config/):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/config"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/downstream/config/):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/downstream/config"
   fi
 }
 
@@ -446,19 +446,19 @@ _warn_config_drift() {
 _warn_setup_conf_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config/docker/setup.conf" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/config/docker/setup.conf changed upstream since the last pull."
+  _log "WARNING: ${TEMPLATE_REL}/downstream/config/docker/setup.conf changed upstream since the last pull."
   _log "         Your config/docker/setup.conf is the user override and was NOT updated."
   _log "         Review the diff and copy any new sections / keys you want:"
   _log ""
-  _log "           diff -u ${TEMPLATE_REL}/config/docker/setup.conf config/docker/setup.conf"
+  _log "           diff -u ${TEMPLATE_REL}/downstream/config/docker/setup.conf config/docker/setup.conf"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/config/docker/setup.conf):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/config/docker/setup.conf"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/downstream/config/docker/setup.conf):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/downstream/config/docker/setup.conf"
   fi
 }
 
@@ -473,7 +473,7 @@ Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 Arguments:
   VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
-  --gen-conf    Copy ${TEMPLATE_REL}/config/docker/setup.conf to
+  --gen-conf    Copy ${TEMPLATE_REL}/downstream/config/docker/setup.conf to
                 <repo>/config/docker/setup.conf for per-repo overrides
                 (delegates to init.sh --gen-conf)
   -h, --help    Show this help

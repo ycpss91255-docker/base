@@ -160,8 +160,8 @@ _run_shellcheck() {
   shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
-  shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
+  shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
+  shellcheck -x "${REPO_ROOT}/downstream/config/shell/tmux/setup.sh"
 
   # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
   # the build. Runs in the lint phase so it surfaces on every shellcheck path
@@ -284,9 +284,9 @@ _run_coverage() {
     "${REPO_ROOT}/script/ci/"
     "${REPO_ROOT}/init.sh"
     "${REPO_ROOT}/upgrade.sh"
-    "${REPO_ROOT}/config/shell/bashrc"
-    "${REPO_ROOT}/config/shell/terminator/config"
-    "${REPO_ROOT}/config/shell/tmux/tmux.conf"
+    "${REPO_ROOT}/downstream/config/shell/bashrc"
+    "${REPO_ROOT}/downstream/config/shell/terminator/config"
+    "${REPO_ROOT}/downstream/config/shell/tmux/tmux.conf"
     "${REPO_ROOT}/.github/"
   )
   local _exclude_path

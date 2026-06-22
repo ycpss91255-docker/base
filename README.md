@@ -424,7 +424,7 @@ two derived artifacts.
            [logging.<svc>] for per-service key-level override
 ```
 
-Template default lives at `.base/config/docker/setup.conf`
+Template default lives at `.base/downstream/config/docker/setup.conf`
 (post-v0.25.0); per-repo overrides go at `<repo>/config/docker/setup.conf`.
 Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
@@ -447,7 +447,7 @@ to opt out of mounting a workspace. Edit via:
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./.base/init.sh --gen-conf # plain copy of .base/config/docker/setup.conf
+./.base/init.sh --gen-conf # plain copy of .base/downstream/config/docker/setup.conf
                               # to <repo>/config/docker/setup.conf
 ```
 
@@ -898,8 +898,8 @@ just upgrade v0.3.0
 
 Your per-repo files are never overwritten: `<repo>/config/docker/setup.conf` stays
 as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
-alone — if upstream `.base/config/` moved since the last pull,
-upgrade.sh prints a `diff -ruN .base/config config` hint so you can
+alone — if upstream `.base/downstream/config/` moved since the last pull,
+upgrade.sh prints a `diff -ruN .base/downstream/config config` hint so you can
 reconcile manually.
 
 Don't `git subtree pull` by hand — the integrity check, init.sh

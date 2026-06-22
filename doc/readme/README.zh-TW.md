@@ -708,8 +708,8 @@ just upgrade v0.3.0
 
 per-repo 檔案不會被覆蓋：`<repo>/setup.conf` 保留原樣、
 `<repo>/config/`（bashrc / tmux / terminator …）也不動 — 若上游
-`.base/config/` 自上次 pull 後有變動，upgrade.sh 會印出
-`diff -ruN .base/config config` 提示，由你自行 reconcile。
+`.base/downstream/config/` 自上次 pull 後有變動，upgrade.sh 會印出
+`diff -ruN .base/downstream/config config` 提示，由你自行 reconcile。
 
 不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 步驟
 很容易漏掉。

@@ -709,8 +709,8 @@ just upgrade v0.3.0
 
 per-repo 文件不会被覆盖：`<repo>/setup.conf` 保留原样、
 `<repo>/config/`（bashrc / tmux / terminator …）也不动 — 若上游
-`.base/config/` 自上次 pull 后有变动，upgrade.sh 会打印
-`diff -ruN .base/config config` 提示，由你自行 reconcile。
+`.base/downstream/config/` 自上次 pull 后有变动，upgrade.sh 会打印
+`diff -ruN .base/downstream/config config` 提示，由你自行 reconcile。
 
 不要手动 `git subtree pull` — 完整性检查、init.sh resync、sed 步骤
 容易漏掉。
