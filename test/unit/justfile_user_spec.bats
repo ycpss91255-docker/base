@@ -52,7 +52,13 @@ EOS
 }
 
 teardown() {
-  [ -n "${TMP_REPO:-}" ] && rm -rf "${TMP_REPO}"
+  # Guard with an if-block (not `[ ] && rm`): when setup() skips before
+  # TMP_REPO is set (e.g. `just` absent in the kcov runner image), the
+  # `&&` chain exits non-zero and bats turns the clean skip into a
+  # teardown failure (#613).
+  if [ -n "${TMP_REPO:-}" ]; then
+    rm -rf "${TMP_REPO}"
+  fi
 }
 
 @test "just build forwards positional args to ./script/build.sh" {
