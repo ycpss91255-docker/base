@@ -7,7 +7,7 @@
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  load "/source/test/smoke/test_helper"
+  load "/source/downstream/test/smoke/test_helper"
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
