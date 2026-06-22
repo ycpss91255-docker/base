@@ -630,9 +630,9 @@ _stage_lint_layout() {
 }
 
 @test "Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)" {
-  run grep -F '.base/downstream/script/docker/lib /lint/lib' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/downstream/script/docker/lib /lint/lib' /source/downstream/dockerfile/Dockerfile
   assert_success
-  run grep -F '.base/downstream/script/docker/wrapper /lint/wrapper' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/downstream/script/docker/wrapper /lint/wrapper' /source/downstream/dockerfile/Dockerfile
   assert_success
 }
 
@@ -646,7 +646,7 @@ _stage_lint_layout() {
   # documented path. Path A: COPY the helper into a stable in-image
   # location so downstream entrypoints can source it unconditionally
   # without $USER deref or path arithmetic. Refs #368.
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   run grep -F 'COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
   assert_success
@@ -669,7 +669,7 @@ _stage_lint_layout() {
   # second COPY in the runtime stage. The commented-out scaffold
   # documents it so downstream maintainers see the requirement at
   # the moment they uncomment the runtime block.
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The example line must be commented (leading '# ') so it doesn't
   # accidentally activate in repos that haven't enabled the runtime
@@ -1022,21 +1022,21 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   run grep -E '^ARG TEST_TOOLS_IMAGE="test-tools:local"' "${_df}"
   assert_success
 }
 
 @test "Dockerfile.example FROM \${TEST_TOOLS_IMAGE} AS test-tools-stage" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   run grep -F 'FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage' "${_df}"
   assert_success
 }
 
 @test "Dockerfile.example test stage copies from test-tools-stage, not test-tools:local" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # All COPY --from referring to the test-tools image must now use the
   # named stage alias.
@@ -1086,7 +1086,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The runtime-test block is commented out (opt-in for repos with a
   # runtime stage). The RUN line in the comment must use bash -c so
@@ -1097,7 +1097,7 @@ EOF
 }
 
 @test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Regression guard: bare form word-splits operators / nested quotes.
   run grep -E '^# RUN \$\{RUNTIME_SMOKE_CMD\}$' "${_df}"
@@ -1105,7 +1105,7 @@ EOF
 }
 
 @test "Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Regression guard: sh -c (dash) cannot parse bash-syntax files in
   # `source` / `.` overrides. Blocks all ROS-style smoke commands.
@@ -1115,7 +1115,7 @@ EOF
 }
 
 @test "Dockerfile.example runtime-test does NOT set USER root (DL3002 regression guard)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Hadolint DL3002 fires on `USER root` if it ends up the last USER
   # in the Dockerfile. runtime-test inherits non-root from runtime;
@@ -1145,7 +1145,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "Dockerfile.example top stage-list documents builder stage (#239)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The top-of-file "Stages:" comment is the first thing a user
   # reading the template sees. builder must appear there or the
@@ -1155,7 +1155,7 @@ EOF
 }
 
 @test "Dockerfile.example documents 3 builder/runtime split lessons (#239)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Three explicit lesson markers (text must persist verbatim in
   # the commented-out reference block so the lift from ros1_bridge#60
@@ -1169,7 +1169,7 @@ EOF
 }
 
 @test "Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The concrete commented-out skeleton downstream can uncomment.
   # All three lines must be commented (#-prefixed) so the example
@@ -1200,7 +1200,7 @@ EOF
 }
 
 @test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   run grep -E 'SETUP_DIR|python3-pip|pip/setup|pip install' "${_df}"
   assert_failure
@@ -1219,7 +1219,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "Dockerfile.example declares ENV TZ (matches downstream fleet, #210)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Forwards the build-time ARG TZ value into a runtime env. ENV without
   # an explicit value would inherit the ARG, which is what we want — the
@@ -1230,7 +1230,7 @@ EOF
 }
 
 @test "Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)" {
-  local _df="/source/dockerfile/Dockerfile.example"
+  local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Same value the 17 downstream Dockerfiles use; gettext fallback uses
   # $LANGUAGE in addition to $LANG so unset means the fallback chain

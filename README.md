@@ -177,7 +177,7 @@ See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 | `justfile.ci` | Template CI entry (`just -f justfile.ci test`, `just -f justfile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
-| `dockerfile/Dockerfile.example` | Multi-stage Dockerfile template for new repos |
+| `downstream/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
@@ -211,7 +211,7 @@ Design decisions locked by #291:
 ### Dockerfile stages (convention)
 
 Downstream repos follow a standard multi-stage layout, defined in
-`dockerfile/Dockerfile.example`. All stages share a common base image
+`downstream/dockerfile/Dockerfile`. All stages share a common base image
 parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
@@ -225,7 +225,7 @@ parameterized by `ARG BASE_IMAGE`.
 
 Notes:
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
-  `runtime` — the section stays commented in `Dockerfile.example`.
+  `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside
   `test/smoke/<repo>_env.bats` see the same binaries / files a user would
   find after `docker run ... <repo>:devel`.
@@ -391,7 +391,7 @@ diagnostics pointing at the missing artifact.
 - `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
   - `script/entrypoint.sh` (canonical)
   - any ros / app launch helpers etc.
-- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `dockerfile/Dockerfile.example`, #275)
+- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `downstream/dockerfile/Dockerfile`, #275)
 - `doc/` and `README.md`
 - Repo-specific smoke tests
 
@@ -548,7 +548,7 @@ final `exec` as a one-time migration:
 ```
 
 The helper is COPY'd into the image at the stable in-image path
-`/usr/local/lib/base/_entrypoint_logging.sh` by `Dockerfile.example`'s
+`/usr/local/lib/base/_entrypoint_logging.sh` by `Dockerfile`'s
 devel stage (refs #368), so the source line works at build-time AND
 runtime in every workspace layout — no `$USER` deref, no workspace
 bind-mount dependence.
@@ -1088,7 +1088,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │       ├── lint_bare_stderr.sh       # Bare stderr lint checker
 │       └── lint_mixed_test_layout.sh # Mixed-tool test layout validator
 ├── dockerfile/
-│   ├── Dockerfile.example            # Multi-stage template (sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test])
+│   ├── Dockerfile            # Multi-stage template (sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test])
 │   └── Dockerfile.test-tools         # Pre-built lint/test tools image
 ├── config/                           # Container-internal shell/tool configs
 │   ├── docker/

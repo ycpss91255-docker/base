@@ -171,13 +171,13 @@ flowchart LR
 | `script/ci/ci.sh` | CI パイプライン（ローカル + リモート） |
 | `script/ci/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
 | `script/ci/lint_mixed_test_layout.sh` | mixed-tool テストレイアウトのバリデータ |
-| `dockerfile/Dockerfile.example` | 新 repo のマルチステージ Dockerfile テンプレート |
+| `downstream/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
 ### Dockerfile ステージ（規約）
 
-ダウンストリーム repo は `dockerfile/Dockerfile.example` で定義される標準のマルチステージ構成に従います。
+ダウンストリーム repo は `downstream/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
 すべてのステージは `ARG BASE_IMAGE` で指定されるベース image を共有します。
 
 | ステージ | 親ステージ | 用途 | 出荷 |
@@ -192,7 +192,7 @@ flowchart LR
 
 補足：
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
-  `runtime` をスキップし、該当セクションは `Dockerfile.example` 内で
+  `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。
 - `devel-test` は常に `devel` を継承するため、`test/smoke/<repo>_env.bats` の
   runtime assertion が確認するバイナリやファイルは、ユーザーが
@@ -342,7 +342,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
   - `script/entrypoint.sh`（canonical）
   - ros / アプリ起動 helper 等
-- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dockerfile/Dockerfile.example` 参照、#275）
+- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `downstream/dockerfile/Dockerfile` 参照、#275）
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
@@ -412,7 +412,7 @@ local_path = ./log/   # repo 相対、または /abs/、~/dir/ も可
 . /usr/local/lib/base/_entrypoint_logging.sh
 ```
 
-Helper は `Dockerfile.example` の devel stage によりイメージ内の
+Helper は `Dockerfile` の devel stage によりイメージ内の
 安定パス `/usr/local/lib/base/_entrypoint_logging.sh` にコピーされて
 います（refs #368）。そのため、この source 行は build-time / runtime
 どちらでも、どんな workspace 構成でも動作します — `$USER` 参照や
@@ -879,7 +879,7 @@ just -f justfile.ci --list  # CI ターゲット表示
 │       ├── lint_bare_stderr.sh       # Bare stderr lint checker
 │       └── lint_mixed_test_layout.sh # Mixed-tool test layout validator
 ├── dockerfile/
-│   ├── Dockerfile.example            # Multi-stage template (sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test])
+│   ├── Dockerfile            # Multi-stage template (sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test])
 │   └── Dockerfile.test-tools         # Pre-built lint/test tools image
 ├── config/                           # Container-internal shell/tool configs
 │   ├── docker/

@@ -79,7 +79,7 @@ setup() {
   assert_success
   assert_output --partial "'script/entrypoint.sh'"
   assert_output --partial "'compose.yaml'"
-  assert_output --partial "'dockerfile/Dockerfile.example'"
+  assert_output --partial "'downstream/dockerfile/Dockerfile'"
   assert_output --partial "'dockerfile/Dockerfile.test-tools'"
   assert_output --partial "'downstream/script/docker/wrapper/build.sh'"
   assert_output --partial "'downstream/script/docker/wrapper/run.sh'"
@@ -486,7 +486,7 @@ setup() {
   run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'hadolint/hadolint-action'
-  assert_output --partial 'dockerfile: dockerfile/Dockerfile.example'
+  assert_output --partial 'dockerfile: downstream/dockerfile/Dockerfile'
   assert_output --partial 'dockerfile: dockerfile/Dockerfile.test-tools'
   assert_output --partial 'config: .hadolint.yaml'
 }
