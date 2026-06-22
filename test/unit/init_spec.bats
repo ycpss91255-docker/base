@@ -17,7 +17,7 @@ setup() {
   # init.sh back to the real source keeps all edits in one place.
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/.base/dockerfile" \
-           "${TMP_REPO}/.base/config" \
+           "${TMP_REPO}/.base/downstream/config" \
            "${TMP_REPO}/.base/script/docker/lib" \
            "${TMP_REPO}/.base/script/docker/runtime"
   ln -s /source/init.sh "${TMP_REPO}/.base/init.sh"
@@ -297,8 +297,8 @@ REMOTE
 # ════════════════════════════════════════════════════════════════════
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
-  mkdir -p "${TMP_REPO}/.base/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/downstream/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/downstream/config/docker/setup.conf"
   mkdir -p "${TMP_REPO}/config/docker"
   echo "existing user config" > "${TMP_REPO}/config/docker/setup.conf"
   _source_init
@@ -308,8 +308,8 @@ REMOTE
 }
 
 @test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
-  mkdir -p "${TMP_REPO}/.base/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/downstream/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/downstream/config/docker/setup.conf"
   mkdir -p "${TMP_REPO}/config/docker"
   echo "old user conf" > "${TMP_REPO}/config/docker/setup.conf"
   _source_init
@@ -325,8 +325,8 @@ REMOTE
 }
 
 @test "_gen_setup_conf --force also backs up .env to .env.bak" {
-  mkdir -p "${TMP_REPO}/.base/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/downstream/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/downstream/config/docker/setup.conf"
   mkdir -p "${TMP_REPO}/config/docker"
   echo "user conf" > "${TMP_REPO}/config/docker/setup.conf"
   echo "USER_NAME=existing" > "${TMP_REPO}/.env"
@@ -340,8 +340,8 @@ REMOTE
 
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
-  mkdir -p "${TMP_REPO}/.base/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/downstream/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/downstream/config/docker/setup.conf"
   rm -f "${TMP_REPO}/config/docker/setup.conf" "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"

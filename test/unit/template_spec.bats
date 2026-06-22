@@ -1196,7 +1196,7 @@ EOF
 }
 
 @test "template no longer ships config/pip/ (#261 relocation regression guard)" {
-  [[ ! -e /source/config/pip ]]
+  [[ ! -e /source/downstream/config/pip ]]
 }
 
 @test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {

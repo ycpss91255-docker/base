@@ -272,7 +272,7 @@ teardown() {
   # ships the helper into the image at /usr/local/lib/base/; the
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
-  local _conf="/source/config/docker/setup.conf"
+  local _conf="/source/downstream/config/docker/setup.conf"
   [[ -f "${_conf}" ]] || skip "config/docker/setup.conf not present"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success

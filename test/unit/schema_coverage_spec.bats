@@ -39,7 +39,7 @@ setup() {
   # equal the [section] headers in the shipped template, in file order. A
   # section added to the template but not the registry (or vice versa)
   # fails here.
-  local _tpl="/source/config/docker/setup.conf"
+  local _tpl="/source/downstream/config/docker/setup.conf"
   local -a _hdrs=()
   local _line
   while IFS= read -r _line; do

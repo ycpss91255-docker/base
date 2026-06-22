@@ -100,7 +100,7 @@ _create_symlinks() {
 #
 # On first init (no <repo>/config/), create an empty placeholder
 # directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
-# layered COPY chain (template#254) reads `.base/config/` first
+# layered COPY chain (template#254) reads `.base/downstream/config/` first
 # as the default layer and `<repo>/config/` second as the override
 # overlay; an empty <repo>/config/ means "no overrides, take all
 # template defaults". Downstream adds files under <repo>/config/
@@ -109,7 +109,7 @@ _create_symlinks() {
 # Rationale (compared to the pre-#254 full-copy seed):
 #   * a symlink would make edits spill into the subtree and fight
 #     `git subtree pull`;
-#   * a plain Dockerfile COPY from `.base/config/` alone would
+#   * a plain Dockerfile COPY from `.base/downstream/config/` alone would
 #     deny the user any per-repo override path at all;
 #   * a full-copy seed (pre-#254) gives the user a clean
 #     repo-local editing surface but freezes their config at the
@@ -118,7 +118,7 @@ _create_symlinks() {
 #   * an EMPTY placeholder (post-#254) lets the layered COPY do
 #     the merge at build time. Repos opt into per-file overrides
 #     only when they need them; everything else flows through
-#     from .base/config/ on every build, keeping
+#     from .base/downstream/config/ on every build, keeping
 #     <repo>/config/ small and the override-vs-default contract
 #     visible in `git status` / `git diff`.
 #
@@ -137,7 +137,7 @@ _populate_config() {
   # Stale symlink from an earlier init.sh version — drop it before
   # creating the placeholder. Without rm, `mkdir` would fail if the
   # symlink target is a real dir, or pollute the subtree if it's a
-  # .base/config/ symlink.
+  # .base/downstream/config/ symlink.
   if [[ -L config ]]; then
     rm -f config
   fi
@@ -146,15 +146,15 @@ _populate_config() {
   mkdir -p config
   cat > config/.gitkeep <<'EOF'
 # Placeholder so this directory exists in git. The Dockerfile's
-# layered COPY (template#254) reads .base/config/ first then
+# layered COPY (template#254) reads .base/downstream/config/ first then
 # overlays <repo>/config/ on top. Drop files under <repo>/config/
 # only when you want to override a specific template default
 # (e.g. <repo>/config/shell/bashrc to override template's bashrc,
 # or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
-# Files NOT placed here keep flowing through from .base/config/
+# Files NOT placed here keep flowing through from .base/downstream/config/
 # on every build.
 EOF
-  _log "  Created empty config/ placeholder (.base/config/ is the default layer; <repo>/config/ overlays per-file)"
+  _log "  Created empty config/ placeholder (.base/downstream/config/ is the default layer; <repo>/config/ overlays per-file)"
 }
 
 _detect_template_version() {
@@ -406,7 +406,7 @@ _sync_existing_gitignore() {
 # omitted sections fall back to template.
 
 _gen_setup_conf() {
-  local _src="${TEMPLATE_DIR}/config/docker/setup.conf"
+  local _src="${TEMPLATE_DIR}/downstream/config/docker/setup.conf"
   local _dst="${REPO_ROOT}/config/docker/setup.conf"
   local _force="${1:-false}"
   mkdir -p "${REPO_ROOT}/config/docker"

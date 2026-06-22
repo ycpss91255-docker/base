@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for upgrade.sh, focused on _warn_config_drift — the
-# helper that tells the user when the upstream .base/config/ tree
+# helper that tells the user when the upstream .base/downstream/config/ tree
 # moved during a subtree pull so they can reconcile their per-repo
 # <repo>/config/ copy.
 
@@ -50,7 +50,7 @@ teardown() {
 
 # ── _warn_config_drift logic ────────────────────────────────────────────────
 
-@test "_warn_config_drift silent when no .base/config in HEAD" {
+@test "_warn_config_drift silent when no .base/downstream/config in HEAD" {
   local _git_dir="${TEMP_DIR}/empty"
   mkdir -p "${_git_dir}"
   git -C "${_git_dir}" init -q
@@ -61,18 +61,18 @@ teardown() {
 
 @test "_warn_config_drift silent when pre and post hashes match" {
   local _git_dir="${TEMP_DIR}/same"
-  mkdir -p "${_git_dir}/.base/config"
+  mkdir -p "${_git_dir}/.base/downstream/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "one" > "${_git_dir}/.base/config/bashrc"
+  echo "one" > "${_git_dir}/.base/downstream/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
 
   run bash -c "
     cd '${_git_dir}'
     source '${HARNESS}'
-    _pre=\$(git rev-parse HEAD:.base/config)
+    _pre=\$(git rev-parse HEAD:.base/downstream/config)
     _warn_config_drift \"\${_pre}\"
   "
   assert_success
@@ -81,24 +81,24 @@ teardown() {
 
 @test "_warn_config_drift prints WARNING + diff hint when hashes differ" {
   local _git_dir="${TEMP_DIR}/drift"
-  mkdir -p "${_git_dir}/.base/config"
+  mkdir -p "${_git_dir}/.base/downstream/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "original" > "${_git_dir}/.base/config/bashrc"
+  echo "original" > "${_git_dir}/.base/downstream/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
   local _pre
-  _pre="$(git -C "${_git_dir}" rev-parse HEAD:.base/config)"
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD:.base/downstream/config)"
 
-  echo "updated" > "${_git_dir}/.base/config/bashrc"
+  echo "updated" > "${_git_dir}/.base/downstream/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c2
 
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _warn_config_drift '${_pre}'"
   assert_success
-  assert_output --partial "WARNING: .base/config/ changed"
-  assert_output --partial "diff -ruN .base/config config"
+  assert_output --partial "WARNING: .base/downstream/config/ changed"
+  assert_output --partial "diff -ruN .base/downstream/config config"
   assert_output --partial "git diff ${_pre:0:12}"
 }
 
@@ -122,7 +122,7 @@ teardown() {
   # guard against dropping the snapshot line. Path is parameterised
   # via TEMPLATE_REL post-v0.25.0 so the `.base/` -> `.base/`
   # rename keeps the snapshot working.
-  run grep -F 'HEAD:${TEMPLATE_REL}/config' "${UPGRADE}"
+  run grep -F 'HEAD:${TEMPLATE_REL}/downstream/config' "${UPGRADE}"
   assert_success
 }
 
