@@ -89,7 +89,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -141,23 +141,23 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `prune.sh` | Prune dangling images / build cache for the repo |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
-| `script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
-| `script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
-| `script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
-| `script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
-| `script/docker/lib/conf.sh` | INI file parser and section merger |
-| `script/docker/lib/conf_logging.sh` | Logging configuration helpers |
-| `script/docker/lib/env.sh` | Environment variable setup and defaults |
-| `script/docker/lib/gitignore.sh` | Gitignore file management |
-| `script/docker/lib/hook.sh` | Per-wrapper pre/post hook invocation |
-| `script/docker/lib/i18n.sh` | Language detection and localization (`_detect_lang`, `_LANG`) |
-| `script/docker/lib/log.sh` | Unified logging and output utilities |
-| `script/docker/lib/config_summary.sh` | Summary of runtime configuration |
-| `script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
-| `script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
-| `script/docker/runtime/logging.sh` | Host-side log tee helper |
-| `script/docker/runtime/smoke.sh` | Runtime install-check smoke |
-| `script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `downstream/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `downstream/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
+| `downstream/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
+| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
+| `downstream/script/docker/lib/conf.sh` | INI file parser and section merger |
+| `downstream/script/docker/lib/conf_logging.sh` | Logging configuration helpers |
+| `downstream/script/docker/lib/env.sh` | Environment variable setup and defaults |
+| `downstream/script/docker/lib/gitignore.sh` | Gitignore file management |
+| `downstream/script/docker/lib/hook.sh` | Per-wrapper pre/post hook invocation |
+| `downstream/script/docker/lib/i18n.sh` | Language detection and localization (`_detect_lang`, `_LANG`) |
+| `downstream/script/docker/lib/log.sh` | Unified logging and output utilities |
+| `downstream/script/docker/lib/config_summary.sh` | Summary of runtime configuration |
+| `downstream/script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `downstream/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
+| `downstream/script/docker/runtime/logging.sh` | Host-side log tee helper |
+| `downstream/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
+| `downstream/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
 | `script/ci/ci.sh` | CI orchestration (local + remote) |
 | `script/ci/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `script/ci/lint_mixed_test_layout.sh` | Mixed-tool test layout validator |
@@ -591,7 +591,7 @@ To browse a transcript in [lnav](https://lnav.org) with timestamp
 ordering and level highlighting, load the bundled regex format once:
 
 ```bash
-lnav -i .base/script/docker/lib/transcript.lnav-format.json   # one-time install
+lnav -i .base/downstream/script/docker/lib/transcript.lnav-format.json   # one-time install
 lnav log/build/latest.log
 ```
 
@@ -886,7 +886,7 @@ just upgrade v0.3.0
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull integrity check — `git reset --hard` rollback if subtree
    markers (`.base/.version`, `.base/init.sh`,
-   `.base/script/docker/setup.sh`) are missing (catches the
+   `.base/downstream/script/docker/wrapper/setup.sh`) are missing (catches the
    destructive fast-forward seen on older `git-subtree.sh`)
 3. `./.base/init.sh` re-runs to: resync root symlinks
    (`build.sh` / `run.sh` / `justfile` …), sync `.gitignore` against

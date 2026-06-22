@@ -32,21 +32,21 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
-           "${SANDBOX}/.base/script/docker/wrapper" \
+  mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib" \
+           "${SANDBOX}/.base/downstream/script/docker/wrapper" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
+  cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
+  ln -s /source/downstream/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
   # Mock setup.sh — seeds .env so _load_env succeeds and DOCKER_HUB_USER
   # / IMAGE_NAME are present for the _full_tag computation in build.sh.
-  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -75,7 +75,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"

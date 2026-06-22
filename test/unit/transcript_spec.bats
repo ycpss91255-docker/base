@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/lib/transcript.sh (#606).
+# Unit tests for downstream/script/docker/lib/transcript.sh (#606).
 #
 # The wrapper transcript tees a non-interactive verb's combined output to
 # log/<verb>/<ts>-<traceid8>.log (ANSI stripped) with a per-verb
@@ -14,12 +14,12 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/log.sh
+  source /source/downstream/script/docker/lib/log.sh
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/transcript.sh
+  source /source/downstream/script/docker/lib/transcript.sh
   TMP_DIR="$(mktemp -d)"
-  TRANSCRIPT_SH="/source/script/docker/lib/transcript.sh"
-  LOG_SH="/source/script/docker/lib/log.sh"
+  TRANSCRIPT_SH="/source/downstream/script/docker/lib/transcript.sh"
+  LOG_SH="/source/downstream/script/docker/lib/log.sh"
 }
 
 teardown() { rm -rf "${TMP_DIR}"; }
@@ -263,7 +263,7 @@ _run_transcript_harness() {  # <verb> <extra-env...>
 
 @test "wiring: the 5 full verbs call _transcript_begin (#606)" {
   for _w in build stop prune setup; do
-    run grep -qF '_transcript_begin' "/source/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_begin' "/source/downstream/script/docker/wrapper/${_w}.sh"
     assert_success
   done
   run grep -qF '_transcript_begin' /source/upgrade.sh
@@ -272,9 +272,9 @@ _run_transcript_harness() {  # <verb> <extra-env...>
 
 @test "wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)" {
   for _w in run exec setup_tui; do
-    run grep -qF '_transcript_begin' "/source/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_begin' "/source/downstream/script/docker/wrapper/${_w}.sh"
     assert_success
-    run grep -qF '_transcript_detach' "/source/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_detach' "/source/downstream/script/docker/wrapper/${_w}.sh"
     assert_success
   done
 }

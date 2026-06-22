@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/lib/transcript.lnav-format.json (#609).
+# Unit tests for downstream/script/docker/lib/transcript.lnav-format.json (#609).
 #
 # A regex-type lnav format for the plain-text wrapper transcript
 # (`<ISO ts> [service] LEVEL: msg`, #606), coexisting with the JSON
@@ -13,7 +13,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  FMT="/source/script/docker/lib/transcript.lnav-format.json"
+  FMT="/source/downstream/script/docker/lib/transcript.lnav-format.json"
   [[ -f "${FMT}" ]] || skip "transcript.lnav-format.json not at expected path"
 }
 
@@ -94,6 +94,6 @@ _fmt_pattern() {
 }
 
 @test "log.lnav-format.json (JSON) still coexists unchanged (#609)" {
-  run grep -q '"json": true' /source/script/docker/lib/log.lnav-format.json
+  run grep -q '"json": true' /source/downstream/script/docker/lib/log.lnav-format.json
   assert_success
 }

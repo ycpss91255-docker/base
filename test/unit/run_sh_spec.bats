@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/wrapper/run.sh argument handling and control flow.
+# Unit tests for downstream/script/docker/wrapper/run.sh argument handling and control flow.
 # See build_sh_spec.bats for the sandbox/mock strategy — this file mirrors it
 # and focuses on run.sh-specific branches: --detach, --instance, TARGET
 # routing (devel vs non-devel), already-running guard, and bootstrap/drift.
@@ -16,21 +16,21 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
-           "${SANDBOX}/.base/script/docker/wrapper" \
+  mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib" \
+           "${SANDBOX}/.base/downstream/script/docker/wrapper" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
-  # Symlink (not copy) so kcov attributes coverage to /source/script/docker/wrapper/run.sh.
-  ln -s /source/script/docker/wrapper/run.sh "${SANDBOX}/run.sh"
+  cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
+  # Symlink (not copy) so kcov attributes coverage to /source/downstream/script/docker/wrapper/run.sh.
+  ln -s /source/downstream/script/docker/wrapper/run.sh "${SANDBOX}/run.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
-  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock setup.sh (subprocess-only after #49 Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift baseline)
@@ -62,7 +62,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -156,7 +156,7 @@ teardown() {
   } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
-  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -188,7 +188,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "regenerating"
@@ -257,11 +257,11 @@ EOS
 }
 
 @test "run.sh fails with clear error if setup.sh produced no .env" {
-  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_failure
   assert_output --partial ".env"
@@ -489,9 +489,9 @@ HOOK
 @test "run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
+  ln -s /source/downstream/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -501,9 +501,9 @@ HOOK
 @test "run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
+  ln -s /source/downstream/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -513,9 +513,9 @@ HOOK
 @test "run.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
+  ln -s /source/downstream/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -723,14 +723,14 @@ EOS
   # Replace mock setup.sh with one that logs to a shared timeline.
   EVENT_LOG="${TEMP_DIR}/timeline.log"
   export EVENT_LOG
-  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 case "${1:-}" in
   check-drift) printf '%s\n' "setup-check-drift" >> "${EVENT_LOG}"; exit 0 ;;
   apply)       printf '%s\n' "setup-apply"       >> "${EVENT_LOG}"; exit 0 ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
 
   cat > "${SANDBOX}/build.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -758,12 +758,12 @@ EOS
 
 @test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/script/docker/wrapper"
-  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
-  cp "${SANDBOX}/.base/script/docker/wrapper/setup.sh" "${ALT}/.base/script/docker/wrapper/setup.sh"
-  chmod +x "${ALT}/.base/script/docker/wrapper/setup.sh"
+  mkdir -p "${ALT}/.base/downstream/script/docker/lib" "${ALT}/.base/downstream/script/docker/wrapper"
+  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
+  cp "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" "${ALT}/.base/downstream/script/docker/wrapper/setup.sh"
+  chmod +x "${ALT}/.base/downstream/script/docker/wrapper/setup.sh"
 
   run bash "${SANDBOX}/run.sh" -C "${ALT}" --dry-run --detach
   assert_success
@@ -774,12 +774,12 @@ EOS
 
 @test "run.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/script/docker/wrapper"
-  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
-  cp "${SANDBOX}/.base/script/docker/wrapper/setup.sh" "${ALT}/.base/script/docker/wrapper/setup.sh"
-  chmod +x "${ALT}/.base/script/docker/wrapper/setup.sh"
+  mkdir -p "${ALT}/.base/downstream/script/docker/lib" "${ALT}/.base/downstream/script/docker/wrapper"
+  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
+  cp "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" "${ALT}/.base/downstream/script/docker/wrapper/setup.sh"
+  chmod +x "${ALT}/.base/downstream/script/docker/wrapper/setup.sh"
 
   run bash "${SANDBOX}/run.sh" --chdir "${ALT}" --dry-run --detach
   assert_success

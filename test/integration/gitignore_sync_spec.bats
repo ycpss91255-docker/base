@@ -215,27 +215,28 @@ _seed_upgrade_fixture() {
 
   # Build a "template" snapshot containing the real init.sh + lib + a
   # passthrough setup.sh stub.
-  mkdir -p "${TMPL_WORK}/script/docker/lib"
+  mkdir -p "${TMPL_WORK}/downstream/script/docker/lib"
   echo "v9.0.0" > "${TMPL_WORK}/.version"
   cp /source/init.sh "${TMPL_WORK}/init.sh"
   cp /source/upgrade.sh "${TMPL_WORK}/upgrade.sh"
-  cp /source/script/docker/lib/gitignore.sh "${TMPL_WORK}/script/docker/lib/gitignore.sh"
+  cp /source/downstream/script/docker/lib/gitignore.sh "${TMPL_WORK}/downstream/script/docker/lib/gitignore.sh"
   # init.sh / upgrade.sh source _lib.sh on load (#278: route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
   # sub-libs (#284), so copy all three surfaces.
-  cp /source/script/docker/lib/_lib.sh "${TMPL_WORK}/script/docker/lib/_lib.sh"
-  cp /source/script/docker/lib/i18n.sh "${TMPL_WORK}/script/docker/lib/i18n.sh"
-  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
-  mkdir -p "${TMPL_WORK}/script/docker/wrapper"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/wrapper/setup.sh"
+  cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
+  cp /source/downstream/script/docker/lib/i18n.sh "${TMPL_WORK}/downstream/script/docker/lib/i18n.sh"
+  cp /source/downstream/script/docker/lib/* "${TMPL_WORK}/downstream/script/docker/lib/"
+  mkdir -p "${TMPL_WORK}/downstream/script/docker/wrapper"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh; do
-    : > "${TMPL_WORK}/script/docker/wrapper/${_f}"
+    : > "${TMPL_WORK}/downstream/script/docker/wrapper/${_f}"
   done
+  mkdir -p "${TMPL_WORK}/script/docker"
   : > "${TMPL_WORK}/script/docker/justfile"
   : > "${TMPL_WORK}/.hadolint.yaml"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/upgrade.sh" \
-           "${TMPL_WORK}/script/docker/wrapper/setup.sh"
+           "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
 
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t

@@ -15,7 +15,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/schema.sh
+  source /source/downstream/script/docker/lib/schema.sh
 }
 
 # ════════════════════════════════════════════════════════════════════

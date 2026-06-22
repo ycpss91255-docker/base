@@ -22,7 +22,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/lib/schema.sh
+  source /source/downstream/script/docker/lib/schema.sh
 }
 
 @test "every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)" {

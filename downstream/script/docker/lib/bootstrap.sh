@@ -13,7 +13,7 @@
 # root so ${FILE_PATH}/.base, /config, /.env work):
 #   - <repo>/build.sh                      # pre-#330 root-symlink
 #   - <repo>/script/build.sh               # post-#330 script/ subfolder
-#   - <repo>/.base/script/docker/wrapper/build.sh  # direct
+#   - <repo>/.base/downstream/script/docker/wrapper/build.sh  # direct
 #   - /lint/build.sh  (+ /lint/lib/)       # Dockerfile lint stage (COPY)
 #
 # Locating bootstrap.sh itself: the wrapper resolves its own real path
@@ -91,18 +91,18 @@ _bootstrap() {
   # captured; run/exec/setup_tui stay uncaptured in this slice.
   export _WRAPPER_VERB="${_tag}"
 
-  # _lib.sh lives at .base/script/docker/lib/_lib.sh in consumer repos,
+  # _lib.sh lives at .base/downstream/script/docker/lib/_lib.sh in consumer repos,
   # or alongside the wrapper under lib/ when the Dockerfile lint stage
   # COPYs scripts into /lint/ (#406: all libs live under lib/).
-  if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
+  if [[ -f "${FILE_PATH}/.base/downstream/script/docker/lib/_lib.sh" ]]; then
     # shellcheck disable=SC1091
-    source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
+    source "${FILE_PATH}/.base/downstream/script/docker/lib/_lib.sh"
   elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
     # shellcheck disable=SC1091
     source "${FILE_PATH}/lib/_lib.sh"
   else
     printf '[%s] ERROR: cannot find _lib.sh -- expected one of:\n' "${_tag}" >&2
-    printf '  %s\n' "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
+    printf '  %s\n' "${FILE_PATH}/.base/downstream/script/docker/lib/_lib.sh" >&2
     printf '  %s\n' "${FILE_PATH}/lib/_lib.sh" >&2
     exit 1
   fi

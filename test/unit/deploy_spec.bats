@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Tests for the S6 (#506) deploy-generator primitives in
-# script/docker/wrapper/setup.sh. S6a delivers _emit_docker_run_flags:
+# downstream/script/docker/wrapper/setup.sh. S6a delivers _emit_docker_run_flags:
 # the pure mapping from a resolved docker-flag record (the
 # _resolve_docker_flags S5 output, plus the top-level-only fields
 # devices / caps / security_opt / shm_size / dri_groups / cgroup_rules /
@@ -16,7 +16,7 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # shellcheck disable=SC1091
-  source /source/script/docker/wrapper/setup.sh
+  source /source/downstream/script/docker/wrapper/setup.sh
 }
 
 # Helper: join the emitted argv array into a single space-separated line
