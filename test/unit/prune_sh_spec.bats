@@ -362,7 +362,12 @@ tester/foo-99:devel"
   mkdir -p "${_ws}/worktree"
   _orphans_setup_stub "${_ws}" tester
   export DOCKER_IMAGES_OUTPUT="tester/repo-99:devel"
-  run bash "${SANDBOX}/prune.sh" --worktree-orphans --dry-run
+  # --separate-stderr: the `[dry-run] docker rmi ...` plan is printed to
+  # stdout by _dry_run_cmd, while scan progress (_log_info) goes to stderr.
+  # Asserting the merged stream let a stderr line interleave between the
+  # plan's `[dry-run]` and ` docker rmi` chunks under the parallel suite
+  # (#624). Isolating stdout makes the assertion cross-stream-independent.
+  run --separate-stderr bash "${SANDBOX}/prune.sh" --worktree-orphans --dry-run
   assert_success
   assert_output --partial "[dry-run] docker rmi"
   assert_output --partial "tester/repo-99:devel"

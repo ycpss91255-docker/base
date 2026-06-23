@@ -20,6 +20,11 @@ setup() {
   TMP_DIR="$(mktemp -d)"
   TRANSCRIPT_SH="/source/downstream/script/docker/lib/transcript.sh"
   LOG_SH="/source/downstream/script/docker/lib/log.sh"
+  # The self-test runner exports WRAPPER_TRANSCRIPT=false globally (#622) so
+  # other specs never write a log/ tree into the checkout. This spec is the
+  # one that exercises the conf-based enable logic, so clear the env override
+  # here and let each test set it explicitly.
+  unset WRAPPER_TRANSCRIPT
 }
 
 teardown() { rm -rf "${TMP_DIR}"; }
@@ -105,6 +110,20 @@ teardown() { rm -rf "${TMP_DIR}"; }
   printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/config/docker/setup.conf"
   FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
+}
+
+@test "_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)" {
+  mkdir -p "${TMP_DIR}/config/docker"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/config/docker/setup.conf"
+  WRAPPER_TRANSCRIPT=false FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+}
+
+@test "_transcript_enabled: WRAPPER_TRANSCRIPT=true env wins over conf=false (#622)" {
+  mkdir -p "${TMP_DIR}/config/docker"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/config/docker/setup.conf"
+  WRAPPER_TRANSCRIPT=true FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_success
 }
 
 # ── atexit registry ─────────────────────────────────────────────────
