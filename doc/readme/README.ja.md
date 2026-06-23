@@ -44,7 +44,7 @@ just upgrade-check   # 確認
 just upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-just -f justfile.ci test   # ShellCheck + Bats + Kcov
+just ci test   # ShellCheck + Bats + Kcov
 just                       # 全 recipe 表示
 ```
 
@@ -81,7 +81,7 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 ```mermaid
 graph TB
     subgraph base["base（共有 repo）"]
-        scripts[".hadolint.yaml / justfile.ci / compose.yaml"]
+        scripts[".hadolint.yaml / script/ci/justfile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
@@ -165,7 +165,7 @@ flowchart LR
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile` | Repo コマンドエントリ（`just build`、`just run`、`just stop` 等）の `just <verb>` recipe。引数は `{{args}}` でそのまま wrapper に渡されます（`just build --no-cache test`）。`just` 単独で recipe 一覧を表示。 |
-| `justfile.ci` | Template CI コマンドエントリ（`just -f justfile.ci test`、`just -f justfile.ci lint` 等）。user-facing と CI-facing の分離は意図的。 |
+| `script/ci/justfile.ci` | Template CI コマンドエントリ（`just ci test`、`just ci lint` 等）。user-facing と CI-facing の分離は意図的。 |
 | `init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成 |
 | `upgrade.sh` | Subtree バージョンアップグレード |
 | `script/ci/ci.sh` | CI パイプライン（ローカル + リモート） |
@@ -817,13 +817,13 @@ jobs:
 
 ## ローカルテスト実行
 
-`justfile.ci`（template ルートから）を使用：
+`script/ci/justfile.ci`（template ルートから）を使用：
 ```bash
-just -f justfile.ci test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
-just -f justfile.ci lint        # ShellCheck のみ
-just -f justfile.ci clean       # カバレッジレポート削除
+just ci test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
+just ci lint        # ShellCheck のみ
+just ci clean       # カバレッジレポート削除
 just             # repo recipe 一覧表示
-just -f justfile.ci --list  # CI ターゲット表示
+just ci --list  # CI ターゲット表示
 ```
 
 直接実行：
@@ -949,7 +949,7 @@ just -f justfile.ci --list  # CI ターゲット表示
 │   │   └── wrapper_compose_dispatch_spec.bats
 │   └── behavioural/                  # Runtime integration tests
 │       └── runtime_test_smoke_spec.bats
-├── justfile.ci                       # Template CI entry (just -f justfile.ci test/lint/...)
+├── script/ci/justfile.ci                       # Template CI entry (just ci test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── .dockerignore

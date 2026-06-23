@@ -13,7 +13,7 @@ work at the same level -- redundant tooling whose only effect was a
 second dependency to install and keep in sync.
 
 This amendment reverses that scope. `Makefile.ci` is retired for a
-base-local `justfile.ci`, invoked as `just -f justfile.ci <recipe>`
+base-local `justfile.ci`, invoked as `just ci <recipe>`
 (`just` does not auto-discover a `justfile.ci`, so it never collides
 with the auto-discovered container-ops `justfile`). The two files stay
 deliberately separate -- `justfile.ci` is the template dev / self-test

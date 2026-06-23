@@ -44,7 +44,7 @@ just upgrade-check   # 检查
 just upgrade         # pull + 更新版本文件 + workflow tag
 
 # 运行 CI
-just -f justfile.ci test   # ShellCheck + Bats + Kcov
+just ci test   # ShellCheck + Bats + Kcov
 just                       # 列出所有 recipe
 ```
 
@@ -79,7 +79,7 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 ```mermaid
 graph TB
     subgraph base["base（共用 repo）"]
-        scripts[".hadolint.yaml / justfile.ci / compose.yaml"]
+        scripts[".hadolint.yaml / script/ci/justfile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator"]
         mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
@@ -167,7 +167,7 @@ flowchart LR
 | `test/behavioural/` | Runtime 集成测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `justfile` | Repo 命令入口（`just build`、`just run`、`just stop` 等）。各 verb 是 just recipe，参数透过 `{{args}}` 透传：sub-cmd 与 flag 都直接附在后面，不需要 `--` 分隔符（`just build --no-cache test`）。`just` 无参列出所有 recipe。 |
-| `justfile.ci` | Template CI 命令入口（`just -f justfile.ci test`、`just -f justfile.ci lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
+| `script/ci/justfile.ci` | Template CI 命令入口（`just ci test`、`just ci lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架生成 |
 | `upgrade.sh` | Subtree 版本升级 |
 | `downstream/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
@@ -773,13 +773,13 @@ jobs:
 
 ## 本地运行测试
 
-使用 `justfile.ci`（在 template 根目录）：
+使用 `script/ci/justfile.ci`（在 template 根目录）：
 ```bash
-just -f justfile.ci test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
-just -f justfile.ci lint        # 只运行 ShellCheck
-just -f justfile.ci clean       # 清除覆盖率报告
+just ci test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
+just ci lint        # 只运行 ShellCheck
+just ci clean       # 清除覆盖率报告
 just                            # 显示 repo 命令
-just -f justfile.ci --list        # 显示 CI 命令
+just ci --list        # 显示 CI 命令
 ```
 
 或直接运行：
@@ -905,7 +905,7 @@ just -f justfile.ci --list        # 显示 CI 命令
 │   │   └── wrapper_compose_dispatch_spec.bats
 │   └── behavioural/                  # Runtime 集成测试
 │       └── runtime_test_smoke_spec.bats
-├── justfile.ci                       # Template CI 入口（just -f justfile.ci test/lint/...）
+├── script/ci/justfile.ci                       # Template CI 入口（just ci test/lint/...）
 ├── compose.yaml                      # Docker CI 运行器
 ├── .hadolint.yaml                    # 共用 Hadolint 规则
 ├── .dockerignore

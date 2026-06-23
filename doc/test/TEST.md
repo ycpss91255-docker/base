@@ -2,7 +2,7 @@
 
 Template self-tests: **1866 tests** total (1785 unit + 81 integration).
 
-> Counted scope is the `just -f justfile.ci test` self-test suite —
+> Counted scope is the `just ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
@@ -1673,7 +1673,7 @@ Shared specs that ship with `template/test/smoke/` and run at Dockerfile
 repo and every downstream repo that consumes the template. They assert
 the integrity of the generated `compose.yaml` + the wrapper scripts'
 `-h` / `--help` paths. **Not** part of the 935-test self-test count
-(those run via `just -f justfile.ci test` and never enter the build
+(those run via `just ci test` and never enter the build
 graph).
 
 How they reach downstream repos: each `Dockerfile`'s `test` stage does
