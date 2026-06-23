@@ -1,0 +1,19 @@
+# `just template ...` -- scaffold + manage repo-local command groups
+# (ADR-00000010). The `template` namespace, reached via the consumer entry's
+# `mod? template`.
+
+# Default: bare `just template` prints help (the `default` recipe must come
+# first -- a module otherwise treats the first recipe, `new`, as default and
+# errors because it needs an argument).
+default:
+    @echo "just template new <name>   scaffold a repo-local command group at script/local/<name>/ (then: just <name> <recipe>)"
+
+# Scaffold a new repo-local command group: create script/local/<name>/ from
+# the skeleton and register it in script/local/justfile.local.
+#
+# `cd {{justfile_directory()}}` lands at the repo root (the entry's dir,
+# reliable whether reached via `--working-directory` or a bare invocation;
+# `[no-cd]` / `invocation_directory()` are not, so the scaffolder runs from
+# a known-good cwd) before running new.sh, which writes to ./script/local/.
+new name:
+    @cd {{justfile_directory()}} && script/template/new.sh {{name}}

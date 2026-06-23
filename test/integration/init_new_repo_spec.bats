@@ -243,6 +243,19 @@ teardown() {
   assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
 }
 
+@test "new repo: script/template/ symlinks wired for the template namespace (#633)" {
+  bash .base/init.sh
+  # base-owned (symlinks into the subtree, flow on upgrade): justfile.template
+  # + new.sh + skel/, so `just template new <name>` is available out of the box.
+  assert [ -L "${REPO_DIR}/script/template/justfile.template" ]
+  assert [ -L "${REPO_DIR}/script/template/new.sh" ]
+  assert [ -L "${REPO_DIR}/script/template/skel" ]
+  run readlink "${REPO_DIR}/script/template/justfile.template"
+  assert_output "../../.base/downstream/script/template/justfile.template"
+  run grep -F "mod? template 'script/template/justfile.template'" "${REPO_DIR}/.base/downstream/script/justfile"
+  assert_success
+}
+
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → .base/downstream/config as a symlink.
   # Re-running the post-#254 init.sh on such a repo must replace the

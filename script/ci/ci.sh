@@ -156,6 +156,7 @@ _run_shellcheck() {
   find "${REPO_ROOT}/downstream/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
