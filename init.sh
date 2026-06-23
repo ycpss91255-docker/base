@@ -81,9 +81,16 @@ _create_symlinks() {
       _log "  Removed stale root symlink ${_stale}"
     fi
   done
-  # ADR-00000005: `just` is the user-facing entry. justfile sits at root
-  # with the direct .base/ target. (The Makefile was retired in #546.)
-  _symlink "${TEMPLATE_REL}/script/docker/justfile" "justfile"
+  # ADR-00000005 / ADR-00000010: `just` is the user-facing entry, now
+  # layered. <repo>/justfile -> script/justfile -> .base/downstream/script/justfile
+  # (the entry), which `import`s script/docker/justfile.docker as top-level
+  # docker recipes. Import paths in the entry resolve relative to the repo
+  # root (the symlink location), so the docker module must also be linked
+  # at <repo>/script/docker/justfile.docker. (The Makefile was retired in #546.)
+  mkdir -p script/docker
+  _symlink "script/justfile" "justfile"
+  _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
+  _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
 
   if [[ ! -f .hadolint.yaml ]] \
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/downstream/.hadolint.yaml" \

@@ -830,20 +830,22 @@ template_spec for the `apk add ... just` guard + the release smoke check).
 | `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
 | `bare just lists recipes` | replaces `make help` |
 
-### test/unit/justfile_spec.bats (4)
+### test/unit/justfile_spec.bats (5)
 
-Static content checks for the user-facing `script/docker/justfile`
-(ADR-00000005, #545): `just` replaces the GNU make wrapper, with recipes
+Static content checks for the layered just entry (ADR-00000005 / #545,
+ADR-00000010): the entry `downstream/script/justfile` imports the docker
+recipes `downstream/script/docker/justfile.docker` as top-level verbs,
 forwarding 1:1 to `./script/<name>.sh` via `{{args}}` passthrough (no
 `MAKEOVERRIDES` / `--` / `EXEC_ARGS` workarounds). Asserted by grep, not
 execution -- `just` is not in the test-tools image; downstream installs it.
 
 | Test | Description |
 |------|-------------|
-| `justfile exists` | file present |
-| `declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
-| `recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
-| `default recipe lists recipes (replaces make help)` | `default: @just --list` |
+| `layered entry + docker module exist` | both files present |
+| `docker module declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
+| `docker module recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
+| `docker module has NO default recipe (the entry owns it; avoids import collision)` | duplicate-name guard |
+| `entry imports the docker module + default recipe lists recipes` | `import` + `default: @just --list` |
 
 ### test/unit/compose_emitter_spec.bats (27)
 
@@ -1688,7 +1690,7 @@ so the shared specs and any per-repo `test/smoke/` overlay execute
 together. `display_env.bats` self-skips on headless repos by detecting
 the absence of GUI lines in the generated `compose.yaml`.
 
-### test/smoke/script_help.bats (27)
+### downstream/test/smoke/script_help.bats (27)
 
 Locks the `-h` / `--help` invariants on the four wrapper scripts
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
@@ -1719,7 +1721,7 @@ usage, not English).
 | `build.sh defaults to en for LANG=en_US.UTF-8` | i18n detect — en default |
 | `build.sh SETUP_LANG overrides LANG` | i18n env override |
 
-### test/smoke/display_env.bats (11)
+### downstream/test/smoke/display_env.bats (11)
 
 Asserts the generated `compose.yaml` carries the X11 / Wayland env
 + volume block expected by GUI containers, and that `run.sh` runs the
@@ -1740,7 +1742,7 @@ right `xhost` command per session type. Auto-skipped when the repo's
 | `run.sh calls xhost +local: on X11` | X11 xhost path |
 | `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Fallback path |
 
-### test/smoke/test_helper.bash
+### downstream/test/smoke/test_helper.bash
 
 Not a spec — runtime helper (`assert_compose_has` / `skip_if_headless`
 etc.) loaded by every smoke spec via `load "${BATS_TEST_DIRNAME}/test_helper"`.

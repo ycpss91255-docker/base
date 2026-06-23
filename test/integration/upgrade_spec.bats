@@ -299,7 +299,7 @@ EOF
   # the suite green until test-tools ships with just.
   command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/justfile justfile
+  cp /source/downstream/script/docker/justfile.docker justfile
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
   assert_success
@@ -311,7 +311,7 @@ EOF
 @test "just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)" {
   command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/justfile justfile
+  cp /source/downstream/script/docker/justfile.docker justfile
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
