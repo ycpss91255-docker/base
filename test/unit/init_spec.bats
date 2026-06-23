@@ -58,7 +58,7 @@ EOF
   done
   mkdir -p "${TMP_REPO}/.base/script/docker"
   : > "${TMP_REPO}/.base/script/docker/justfile"
-  : > "${TMP_REPO}/.base/.hadolint.yaml"
+  : > "${TMP_REPO}/.base/downstream/.hadolint.yaml"
 
   cd "${TMP_REPO}"
 }
@@ -387,7 +387,7 @@ REMOTE
   run readlink "${TMP_REPO}/justfile"
   assert_output ".base/script/docker/justfile"
   run readlink "${TMP_REPO}/.hadolint.yaml"
-  assert_output ".base/.hadolint.yaml"
+  assert_output ".base/downstream/.hadolint.yaml"
 }
 
 # ════════════════════════════════════════════════════════════════════

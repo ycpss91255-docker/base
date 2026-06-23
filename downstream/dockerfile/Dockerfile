@@ -234,7 +234,7 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
 # Smoke test (shared from template + repo-specific)
-COPY .base/test/smoke/ /smoke_test/
+COPY .base/downstream/test/smoke/ /smoke_test/
 COPY test/smoke/ /smoke_test/
 
 ARG USER

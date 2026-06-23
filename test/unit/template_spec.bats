@@ -100,15 +100,15 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "test/smoke/test_helper.bash exists" {
-  assert [ -f /source/test/smoke/test_helper.bash ]
+  assert [ -f /source/downstream/test/smoke/test_helper.bash ]
 }
 
 @test "test/smoke/script_help.bats exists" {
-  assert [ -f /source/test/smoke/script_help.bats ]
+  assert [ -f /source/downstream/test/smoke/script_help.bats ]
 }
 
 @test "test/smoke/display_env.bats exists" {
-  assert [ -f /source/test/smoke/display_env.bats ]
+  assert [ -f /source/downstream/test/smoke/display_env.bats ]
 }
 
 @test "test/unit/ directory exists" {

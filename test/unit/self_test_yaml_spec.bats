@@ -488,7 +488,7 @@ setup() {
   assert_output --partial 'hadolint/hadolint-action'
   assert_output --partial 'dockerfile: downstream/dockerfile/Dockerfile'
   assert_output --partial 'dockerfile: dockerfile/Dockerfile.test-tools'
-  assert_output --partial 'config: .hadolint.yaml'
+  assert_output --partial 'config: downstream/.hadolint.yaml'
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-* + integration-e2e + behavioural before publishing a tag (#376 + #377)" {

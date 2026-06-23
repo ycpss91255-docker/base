@@ -86,9 +86,9 @@ _create_symlinks() {
   _symlink "${TEMPLATE_REL}/script/docker/justfile" "justfile"
 
   if [[ ! -f .hadolint.yaml ]] \
-    || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" \
+    || diff -q .hadolint.yaml "${TEMPLATE_REL}/downstream/.hadolint.yaml" \
       >/dev/null 2>&1; then
-    _symlink "${TEMPLATE_REL}/.hadolint.yaml" ".hadolint.yaml"
+    _symlink "${TEMPLATE_REL}/downstream/.hadolint.yaml" ".hadolint.yaml"
   else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
