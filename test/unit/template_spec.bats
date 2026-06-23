@@ -52,11 +52,11 @@ setup() {
 # build-target / upgrade-path checks live in justfile_spec.bats (static)
 # + justfile_user_spec.bats (executable). The base-only CI gate
 # `Makefile.ci` is likewise retired for `justfile.ci`, so the repo
-# carries a single runner (just); `just -f justfile.ci <recipe>` mirrors
+# carries a single runner (just); `just ci <recipe>` mirrors
 # the former `make -f Makefile.ci <target>`.
 
 @test "justfile.ci exists (template CI gate)" {
-  assert [ -f /source/justfile.ci ]
+  assert [ -f /source/script/ci/justfile.ci ]
 }
 
 @test "Makefile.ci no longer exists (retired for justfile.ci)" {
@@ -64,26 +64,26 @@ setup() {
 }
 
 @test "justfile.ci has test recipe" {
-  run grep -E '^test:' /source/justfile.ci
+  run grep -E '^test:' /source/script/ci/justfile.ci
   assert_success
 }
 
 @test "justfile.ci has lint recipe" {
-  run grep -E '^lint:' /source/justfile.ci
+  run grep -E '^lint:' /source/script/ci/justfile.ci
   assert_success
 }
 
 @test "justfile.ci has coverage recipe" {
-  run grep -E '^coverage:' /source/justfile.ci
+  run grep -E '^coverage:' /source/script/ci/justfile.ci
   assert_success
 }
 
 @test "justfile.ci upgrade recipe forwards {{args}} to ./upgrade.sh" {
-  # `just -f justfile.ci upgrade [vX.Y.Z]` is the documented entry point.
+  # `just ci upgrade [vX.Y.Z]` is the documented entry point.
   # The recipe forwards {{args}} to ./upgrade.sh so an empty arg resolves
   # to "latest" and a set arg pins a specific tag -- no VAR=VALUE token,
   # which is the whole point of moving off make.
-  run grep -F './upgrade.sh {{args}}' /source/justfile.ci
+  run grep -F './upgrade.sh {{args}}' /source/script/ci/justfile.ci
   assert_success
 }
 
@@ -91,7 +91,7 @@ setup() {
   # Same wrap as the downstream justfile (regression #175): the runner
   # must not mistake exit 1 (update available) for a real error.
   run grep -E '\./upgrade\.sh --check \|\| \[ \$\? -eq 1 \]' \
-      /source/justfile.ci
+      /source/script/ci/justfile.ci
   assert_success
 }
 

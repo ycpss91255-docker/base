@@ -44,7 +44,7 @@ just upgrade-check   # check
 just upgrade         # pull + update version + workflow tag
 
 # Run CI
-just -f justfile.ci test   # ShellCheck + Bats + Kcov
+just ci test   # ShellCheck + Bats + Kcov
 just                       # show all recipes
 ```
 
@@ -81,7 +81,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ```mermaid
 graph TB
     subgraph base["base (shared repo)"]
-        scripts[".hadolint.yaml / justfile.ci / compose.yaml"]
+        scripts[".hadolint.yaml / script/ci/justfile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
@@ -174,7 +174,7 @@ See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` | Repo entry — `just <verb>` recipes (`just build`, `just run`, `just stop`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just build --no-cache test`); `just` with no recipe lists all recipes. |
-| `justfile.ci` | Template CI entry (`just -f justfile.ci test`, `just -f justfile.ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
+| `script/ci/justfile.ci` | Template CI entry (`just ci test`, `just ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
 | `downstream/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
@@ -1024,13 +1024,13 @@ Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their
 
 ## Running Template Tests
 
-Using `justfile.ci` (from template root):
+Using `script/ci/justfile.ci` (from template root):
 ```bash
-just -f justfile.ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
-just -f justfile.ci lint        # ShellCheck only
-just -f justfile.ci clean       # Remove coverage reports
+just ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
+just ci lint        # ShellCheck only
+just ci clean       # Remove coverage reports
 just                      # Show repo recipes
-just -f justfile.ci --list  # List CI recipes
+just ci --list  # List CI recipes
 ```
 
 Or directly:
@@ -1158,7 +1158,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   │   └── wrapper_compose_dispatch_spec.bats
 │   └── behavioural/                  # Runtime integration tests
 │       └── runtime_test_smoke_spec.bats
-├── justfile.ci                       # Template CI entry (just -f justfile.ci test/lint/...)
+├── script/ci/justfile.ci                       # Template CI entry (just ci test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── .dockerignore
