@@ -101,6 +101,7 @@ _create_symlinks() {
   fi
 
   _populate_config
+  _seed_local
 }
 
 # _populate_config
@@ -162,6 +163,36 @@ _populate_config() {
 # on every build.
 EOF
   _log "  Created empty config/ placeholder (.base/downstream/config/ is the default layer; <repo>/config/ overlays per-file)"
+}
+
+# _seed_local
+#
+# Seed the REPO-OWNED repo-local command-group registry
+# script/local/justfile.local (ADR-00000010). The base entry imports it
+# with `import?` (optional), and `just template new <name>` (#633) appends
+# one `mod?` line per group. Non-clobbering: a real file the repo commits,
+# never overwritten by a subtree upgrade -- so it preserves the repo's own
+# group registrations across upgrades.
+_seed_local() {
+  if [[ -f script/local/justfile.local ]]; then
+    _log "  Keeping existing script/local/justfile.local"
+    return 0
+  fi
+  mkdir -p script/local
+  cat > script/local/justfile.local <<'EOF'
+# Repo-local just command groups (registry). REPO-OWNED: committed by this
+# repo, never clobbered by a base subtree upgrade. The base entry imports
+# this file optionally (`import?`), so an empty registry is fine.
+#
+# Register a group with one `mod?` line (path relative to this file's dir,
+# i.e. script/local/):
+#
+#   mod? deploy 'deploy/justfile.deploy'
+#
+# then `just deploy <recipe>` runs it. Scaffold a new group with
+# `just template new <name>` -- it appends the `mod?` line here for you.
+EOF
+  _log "  Created script/local/justfile.local (repo-local command-group registry)"
 }
 
 _detect_template_version() {
