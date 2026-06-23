@@ -116,21 +116,41 @@ The single-file test mode (previously supported) is preserved as
 `just docker build --stage test-tools`; the test runner invokes it
 internally rather than `build` growing a magic `test` argument.
 
-### 4. Generic tooling, per-repo content, base = origin
+### 4. Generic tooling, per-repo content, single source of truth
 
-The whole `script/<ns>/` tree is **generic tooling with a single origin
-in base**; only repo-specific *content* differs. Therefore:
+The whole `script/<ns>/` tree is **generic tooling with a single source of
+truth**; only repo-specific *content* differs. Therefore:
 
-- base `script/<ns>/` holds the real files (the origin); consumer
-  `script/<ns>/` are **per-sub symlinks** into `.base/downstream/script/<ns>/`,
-  which themselves symlink back to the base origin. (Per-sub, not a single
-  whole-`script/` symlink, so `script/local/` and `script/entrypoint.sh`
-  can stay *inside* `script/` and remain repo-owned -- alignment is kept.)
+- The **real files live in `downstream/script/<ns>/`** (the shipped tree),
+  which is the single source of truth. base-own **`script/<ns>/` symlinks
+  into `downstream/script/<ns>/`** so base uses the very tooling it ships,
+  with no duplicate base-own copy. A consumer's **`script/<ns>/` symlinks
+  into `.base/downstream/script/<ns>/`** -- a **single hop** to the real
+  file. (Per-sub symlinks, not a single whole-`script/` symlink, so
+  `script/local/` and `script/entrypoint.sh` can stay *inside* `script/`
+  and remain repo-owned -- alignment is kept.)
 - **Content is per-repo and never symlinked**: `test/` (specs),
   `config/`, `Dockerfile`, `compose.yaml`. base has its own
   (`test/{unit,integration,behavioural}`, `Dockerfile.test-tools`,
   base `compose.yaml`); a consumer has its own (`test/smoke/`, app
   `Dockerfile`).
+
+**Origin-direction is build-verified (corrected 2026-06-23).** The
+opposite direction -- real files in base `script/<ns>/`, with
+`downstream/script/<ns>/` as a *directory* symlink back -- was tested and
+rejected: it makes the consumer wrapper symlinks (`<repo>/script/build.sh
+-> .base/downstream/script/docker/wrapper/build.sh`) a **two-hop** chain
+(file symlink through a directory symlink), and BuildKit does **not**
+resolve that at `COPY` time. The required lint copy `COPY script/*.sh
+/lint/` then fails with `"/script/build.sh": not found`. (A single
+directory-symlink path such as `COPY .base/downstream/script/docker/lib
+/lint/lib` *does* resolve; only the two-hop chain fails.) Keeping the real
+bytes at the `downstream/` path the consumer references makes every
+consumer symlink single-hop -- the shape already proven in CI -- and
+leaves the consumer Dockerfile COPY paths and the ADR-00000006 Region C
+`upgrade.sh` paths **unchanged**. For docker this is exactly today's
+on-disk layout, so #654 is not a file move but the addition of the
+base-own `script/<ns>` symlinks plus the consumer per-sub symlinks.
 
 ### 5. Generic test runner
 
@@ -171,9 +191,10 @@ completion.
 
 ### 8. `init.sh` / `upgrade.sh` leave the root (amends ADR-00000006)
 
-`init.sh` and `upgrade.sh` move into the `base` namespace's tooling
-(`script/base/`, the origin; shipped via `downstream/script/base/`). They
-back `just base init` / `just base upgrade` / `just base update`.
+`init.sh` and `upgrade.sh` move into the `base` namespace's tooling. Per
+§4 the real files live in `downstream/script/base/` (the shipped source of
+truth) and base-own `script/base/` symlinks into it. They back
+`just base init` / `just base upgrade` / `just base update`.
 
 - **Region A** (ADR-00000006/00000010 froze `.base/init.sh` at root) is
   **superseded**: the bootstrap path becomes
