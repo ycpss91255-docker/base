@@ -122,7 +122,7 @@ jobs:
     # A 30s shellcheck regression now surfaces in ~45s wall time instead
     # of waiting for the full bats suite inside the `test` job. The
     # `test` job passes --bats-only so the shellcheck phase doesn't run
-    # twice; local `just ci test` keeps the full pipeline.
+    # twice; local `just test` keeps the full pipeline.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run ShellCheck
-        run: ./script/ci/ci.sh --shellcheck-only
+        run: ./script/test/test.sh --shellcheck-only
 
   hadolint:
     # Dedicated Hadolint job (#376). Statically lints the two
@@ -235,7 +235,7 @@ jobs:
       - name: Run Bats unit shard ${{ matrix.shard }}
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh --bats-unit-shard ${{ matrix.shard }}
+        run: ./script/test/test.sh --bats-unit-shard ${{ matrix.shard }}
 
   bats-integration:
     # Dedicated job for the 64 integration specs (#377). Pre-#377 these
@@ -294,7 +294,7 @@ jobs:
       - name: Run Bats integration suite
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh --bats-integration
+        run: ./script/test/test.sh --bats-integration
 
   coverage:
     # Kcov coverage now main-push-only (#377). Pre-#377 the test job
@@ -313,7 +313,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run CI with Kcov coverage
-        run: ./script/ci/ci.sh --coverage
+        run: ./script/test/test.sh --coverage
 
       - name: Upload coverage to Codecov
         if: ${{ always() }}
@@ -431,7 +431,7 @@ jobs:
         # `just` verbs downstream users invoke (post-#573 the documented
         # entry is `just`), so a broken script/docker/justfile is caught
         # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
-        # call ./script/ci/ci.sh directly and need no just. (The official
+        # call ./script/test/test.sh directly and need no just. (The official
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
         uses: extractions/setup-just@v3

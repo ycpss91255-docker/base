@@ -6,7 +6,7 @@
 # follow-up issue; today the release flow still lives in
 # .github/workflows/ (self-test.yaml `release` job + release-worker.yaml).
 #
-# `set working-directory` mirrors script/ci/justfile.ci so future recipes
+# `set working-directory` mirrors script/test/justfile.test so future recipes
 # run from the repo root whether reached via the `cd` module or `just -f`.
 set working-directory := '../..'
 

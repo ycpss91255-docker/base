@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/ci/lint_mixed_test_layout.sh (#495 / ADR-00000004).
+# Unit tests for script/test/lint_mixed_test_layout.sh (#495 / ADR-00000004).
 # WARNING-only lint: flags a test/<category>/ directory that mixes test
 # runner families (e.g. .bats + test_*.py) at one level, suggesting the
 # test/<category>/<tool>/ subdir split. Non-blocking: always exits 0.
@@ -8,7 +8,7 @@
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
-  LINT="/source/script/ci/lint_mixed_test_layout.sh"
+  LINT="/source/script/test/lint_mixed_test_layout.sh"
   FAKE_ROOT="$(mktemp -d)"
   mkdir -p "${FAKE_ROOT}/test"
 }

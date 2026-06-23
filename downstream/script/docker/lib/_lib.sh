@@ -3,7 +3,7 @@
 # _lib.sh - Umbrella loader for the sub-libs in script/docker/lib/.
 #
 # Sourced (not executed) by wrapper scripts (build.sh / run.sh / etc.)
-# for the full helper set. Lighter callers (init.sh / upgrade.sh / ci.sh)
+# for the full helper set. Lighter callers (init.sh / upgrade.sh / test.sh)
 # can source only what they need (e.g. log.sh for just `_log_*`).
 #
 # Style: Google Shell Style Guide.

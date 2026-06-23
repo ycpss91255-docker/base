@@ -1,0 +1,54 @@
+# Base / template self-test gate (just). Invoked as `just test` (bare =
+# run the whole self-test) and `just test <recipe>` for sub-actions
+# (`lint` / `coverage` / `behavioural` / ...), via base's own root
+# `justfile`, which `mod?`s this file as the `test` namespace. `just` does
+# not auto-discover this file, so it never collides with the auto-discovered
+# container-ops `justfile` (downstream/script/justfile, symlinked into
+# downstream roots).
+#
+# ADR-00000005: `just` is the single runner. ADR-00000010/00000011: base's
+# own dev/CI entry is the `test` namespace (was `ci`); this file lives under
+# script/test/, the base-own tooling tree, distinct from the shipped
+# downstream/ tree. Per the min->max principle (ADR-00000011 §3) bare
+# `just test` runs everything; options/sub-recipes narrow.
+
+# Recipes run from the repo root (relative `./script`, `docker compose`
+# reading the root compose.yaml, etc.), regardless of whether they are
+# reached via the `test` module or a direct `just -f` (both default cwd to
+# this file's dir otherwise). `../..` is relative to this file's location
+# (script/test/), i.e. the repo root.
+set working-directory := '../..'
+
+# just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
+default:
+    ./script/test/test.sh
+
+# just test lint -> ShellCheck only
+lint:
+    ./script/test/test.sh --lint-only
+
+# just test coverage -> ShellCheck + Bats + Kcov coverage (slow; CI / release)
+coverage:
+    ./script/test/test.sh --coverage
+
+# just test behavioural -> behavioural runtime-test specs (opt-in; host docker.sock)
+behavioural:
+    docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+    TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-behavioural
+
+# just test clean -> remove coverage reports
+clean:
+    rm -rf coverage/
+
+# Base-management recipes (relocate to the `base` namespace in #653).
+# Initialize repo (new or existing)
+init:
+    ./init.sh
+
+# Upgrade template subtree (e.g. just test upgrade v0.30.0; empty = latest)
+upgrade *args:
+    ./upgrade.sh {{args}}
+
+# Check for a newer template version (exit 0 = up-to-date or available; non-1 = error)
+upgrade-check:
+    @./upgrade.sh --check || [ $? -eq 1 ]

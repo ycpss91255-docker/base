@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/ci/ci.sh helper functions.
+# Unit tests for script/test/test.sh helper functions.
 # Only helpers that can be exercised without a full CI run are covered here.
 #
-# NOTE: these tests confine PATH to MOCK_DIR *after* sourcing ci.sh so that
+# NOTE: these tests confine PATH to MOCK_DIR *after* sourcing test.sh so that
 # (a) `command -v bats` inside _install_deps always misses (bats lives in
 #     /usr/bin in the CI container, which MOCK_DIR does not include), and
 # (b) apt-get / git resolve to our mocks instead of the real binaries.
@@ -34,7 +34,7 @@ teardown() {
   mock_cmd "git" 'echo "git should not be called"; exit 1'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _install_deps
   '
@@ -48,7 +48,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _install_deps
   '
@@ -66,7 +66,7 @@ teardown() {
     esac'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _install_deps
   '
@@ -82,7 +82,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _install_deps
   '
@@ -96,7 +96,7 @@ teardown() {
   mock_cmd "git" 'exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _install_deps
   '
@@ -122,7 +122,7 @@ teardown() {
   mock_cmd "git" 'exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     export APT_MIRROR_DEBIAN="mirror.twds.com.tw"
     _install_deps
@@ -139,7 +139,7 @@ teardown() {
   mock_cmd "git" 'exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     export APT_MIRROR_DEBIAN="deb.debian.org"
     _install_deps
@@ -154,7 +154,7 @@ teardown() {
   mock_cmd "git" 'exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     unset APT_MIRROR_DEBIAN
     _install_deps
@@ -182,14 +182,14 @@ teardown() {
   # shellcheck binary (which lives in MOCK_DIR), so this is just a
   # belt-and-braces ensure PATH is honored.
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     _run_shellcheck
   '
   assert_success
 
   assert [ -f "${_log}" ]
   run cat "${_log}"
-  assert_output --partial "script/ci/ci.sh"
+  assert_output --partial "script/test/test.sh"
   assert_output --partial "init.sh"
   assert_output --partial "upgrade.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
@@ -202,7 +202,7 @@ teardown() {
     printf "%s\n" "$*" >> "'"${_log}"'"
     exit 0'
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     _run_shellcheck
   '
   assert_success
@@ -224,11 +224,11 @@ teardown() {
       fi
     done
     exit 0'
-  # Enable -e to mirror real CI invocation (ci.sh sets it when run
+  # Enable -e to mirror real CI invocation (test.sh sets it when run
   # directly; when sourced, the caller owns strict mode).
   run bash -c '
     set -e
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     _run_shellcheck
   '
   assert_failure
@@ -237,7 +237,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
-# Regression guards for #168: default `ci.sh` (no flag) must hit the
+# Regression guards for #168: default `test.sh` (no flag) must hit the
 # alpine `ci` service so the apt-install path is bypassed; `--coverage`
 # must hit the kcov/kcov-based `coverage` service. Mock `docker` so
 # the test captures the chosen service name + COVERAGE env without
@@ -252,7 +252,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _run_via_compose ci 0
   '
@@ -274,7 +274,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _run_via_compose coverage 1
   '
@@ -295,7 +295,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main
   '
@@ -316,7 +316,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _run_tests
   '
@@ -335,7 +335,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     _run_tests
   '
@@ -356,7 +356,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --coverage
   '
@@ -380,7 +380,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --bats-path test/unit/ci_spec.bats
   '
@@ -402,7 +402,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --bats-path test/unit/
   '
@@ -416,7 +416,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --bats-path test/unit/does_not_exist_spec.bats
   '
@@ -430,7 +430,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --bats-path test/behavioural/runtime_test_smoke_spec.bats
   '
@@ -444,7 +444,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --bats-path test/unit/ci_spec.bats --coverage
   '
@@ -460,7 +460,7 @@ teardown() {
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --filter cap_add
   '
@@ -478,7 +478,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     BATS_FILE="test/unit/ci_spec.bats" BATS_FILTER="shard" _run_bats_path
   '
@@ -495,7 +495,7 @@ teardown() {
     exit 0'
 
   run bash -c '
-    source /source/script/ci/ci.sh
+    source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     BATS_FILE="" BATS_FILTER="cap_add" _run_bats_path
   '
