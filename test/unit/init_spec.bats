@@ -56,8 +56,8 @@ EOF
   for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
     : > "${TMP_REPO}/.base/downstream/script/docker/wrapper/${_f}"
   done
-  mkdir -p "${TMP_REPO}/.base/script/docker"
-  : > "${TMP_REPO}/.base/script/docker/justfile"
+  : > "${TMP_REPO}/.base/downstream/script/justfile"
+  : > "${TMP_REPO}/.base/downstream/script/docker/justfile.docker"
   : > "${TMP_REPO}/.base/downstream/.hadolint.yaml"
 
   cd "${TMP_REPO}"
@@ -242,7 +242,7 @@ REMOTE
   # sits at root (like Makefile) so `just <verb>` runs from the repo root.
   assert [ -L "${TMP_REPO}/justfile" ]
   run readlink "${TMP_REPO}/justfile"
-  assert_output ".base/script/docker/justfile"
+  assert_output "script/justfile"
 }
 
 @test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
@@ -385,7 +385,7 @@ REMOTE
   run readlink "${TMP_REPO}/script/build.sh"
   assert_output "../.base/downstream/script/docker/wrapper/build.sh"
   run readlink "${TMP_REPO}/justfile"
-  assert_output ".base/script/docker/justfile"
+  assert_output "script/justfile"
   run readlink "${TMP_REPO}/.hadolint.yaml"
   assert_output ".base/downstream/.hadolint.yaml"
 }

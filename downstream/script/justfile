@@ -1,0 +1,16 @@
+# Consumer container-ops entry (just). The layered entry (ADR-00000010):
+# symlinked into the consumer as <repo>/script/justfile, with
+# <repo>/justfile -> script/justfile, so users run `just <verb> [args...]`
+# from the repo root.
+#
+# Import/mod paths resolve relative to the SYMLINK location (the repo root),
+# not this file's real .base/downstream/ location -- so `script/...` paths
+# below are repo-root-relative. docker recipes are imported TOP-LEVEL
+# (`just build`); repo-local namespaces (ci / cd / template / local) are
+# wired in by later epic slices (#632 local, #633 template, #634 ci/cd).
+
+import 'script/docker/justfile.docker'
+
+# Default: list available recipes (replaces `make help`).
+default:
+    @just --list

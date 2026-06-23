@@ -180,7 +180,7 @@ teardown() {
   # #546: the root user entry is the justfile (Makefile retired).
   assert [ -L "${REPO_DIR}/justfile" ]
   run readlink "${REPO_DIR}/justfile"
-  assert_output ".base/script/docker/justfile"
+  assert_output "script/justfile"
   assert [ ! -e "${REPO_DIR}/Makefile" ]
 }
 

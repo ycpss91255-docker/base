@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Executable tests for the user-facing justfile at
-# .base/script/docker/justfile (symlinked from downstream repo root as
+# downstream/script/justfile (entry) + downstream/script/docker/justfile.docker (symlinked from downstream repo root as
 # `justfile`). ADR-00000005 / #546: `just` replaces the GNU make wrapper.
 # Each recipe is a 1:1 forward to ./script/<name>.sh with `{{args}}`
 # passthrough -- no MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim.
@@ -25,10 +25,16 @@ setup() {
   # shellcheck disable=SC2154
   TMP_REPO="$(mktemp -d)"
   export TMP_REPO
-  mkdir -p "${TMP_REPO}/.base/script/docker" "${TMP_REPO}/script"
+  mkdir -p "${TMP_REPO}/.base/downstream/script/docker" "${TMP_REPO}/script/docker"
 
-  cp /source/script/docker/justfile "${TMP_REPO}/.base/script/docker/justfile"
-  ln -s ".base/script/docker/justfile" "${TMP_REPO}/justfile"
+  # Layered entry chain (ADR-00000010): <repo>/justfile -> script/justfile
+  # -> .base/downstream/script/justfile (entry), which imports
+  # script/docker/justfile.docker (the top-level docker recipes).
+  cp /source/downstream/script/justfile "${TMP_REPO}/.base/downstream/script/justfile"
+  cp /source/downstream/script/docker/justfile.docker "${TMP_REPO}/.base/downstream/script/docker/justfile.docker"
+  ln -s "script/justfile" "${TMP_REPO}/justfile"
+  ln -s "../.base/downstream/script/justfile" "${TMP_REPO}/script/justfile"
+  ln -s "../../.base/downstream/script/docker/justfile.docker" "${TMP_REPO}/script/docker/justfile.docker"
 
   local _name
   for _name in build run exec stop prune setup setup_tui; do
