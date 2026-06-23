@@ -152,41 +152,89 @@ leaves the consumer Dockerfile COPY paths and the ADR-00000006 Region C
 on-disk layout, so #654 is not a file move but the addition of the
 base-own `script/<ns>` symlinks plus the consumer per-sub symlinks.
 
-### 5. Generic test runner
+### 5. Generic test runner: dispatcher + per-tool drivers
 
-`script/test/test.sh` is one runner that adapts to the **content present**
-using the **same** tools everywhere:
+`script/test/` is a dispatcher (`test.sh`) plus one **driver per tool**
+(`drivers/{bats,shellcheck,hadolint,...}.sh`); adding a tool is a new
+driver + a folder, the dispatcher is untouched. The dispatcher adapts to
+the **content present** using the **same** tools everywhere.
 
-- shellcheck over the repo's scripts;
-- host-side bats for `test/unit` + `test/integration` if present;
-- build the Dockerfile `devel-test` stage + run `test/smoke` if present;
-- `test/behavioural` if present; `--coverage` runs kcov.
+The `test/` content is laid out **tool-first** -- `test/<tool>/<category>/`
+for specs, `test/lint/<tool>/` for linters -- which **supersedes
+ADR-00000004** (category-first); see ADR-00000012 for that decision and
+its trade-offs. Detection and execution environment:
 
-base (has unit/integration/behavioural, no app devel-test) runs those;
-a consumer (has smoke + a Dockerfile) builds + smokes. **One runner, the
-content decides.** This is what makes `script/test/` symlinkable like the
-rest.
+- `test/<tool>/<category>/` present -> run that tool's driver. The
+  execution environment depends on the **category**:
+  - `smoke` -> inside the built `*-test` image stage (devel-test /
+    runtime-test) -- it tests the real image;
+  - `unit` / `integration` / `behavioural` -> in the test-tools toolchain
+    container -- it tests scripts/logic.
+- `test/lint/<tool>/` present -> run that linter with its config
+  (shellcheck over repo scripts, hadolint over the Dockerfile).
+- `--coverage` runs kcov; `--file` / `--filter` narrow the specs.
 
-### 6. `--help` and `--lang` at every level
+base (bats unit/integration/behavioural, no app devel-test) runs those in
+the toolchain container; a consumer (smoke + a Dockerfile) builds + smokes
+in-image. **One dispatcher, the per-tool folders decide.** `just test`
+uses the **pinned prebuilt test-tools image** by default and rebuilds it
+locally only when missing or explicitly requested, by internally calling
+`just docker build --stage test-tools` (no rebuild per run).
 
-Every level responds to `--help` and `--lang`:
+### 6. `--help` everywhere; `--lang` for human-facing namespaces only
 
-- entry: `just --list` (bare) / `just --help`;
-- namespace: `just <ns>` (no action) prints localised namespace help;
-  `just <ns> --help` likewise;
-- recipe: `just <ns> <action> --help` / `--lang <code>` forward to the
-  backing script, which owns the localised help/usage (the docker
-  wrappers already do this; `test` / `release` / `base` scripts gain the
-  same `--help` / `--lang` handling).
+`just` (1.52) has no native `--lang` and does not pass a flag to a
+**namespace** (`just docker --help` / `just docker --lang ja` error -- the
+flag is parsed as part of the recipe path, even when the module `default`
+takes `*args`). So "`--lang` flag at every level" is not literally
+achievable; the mechanism is (verified):
+
+- **recipe** (`just docker build`): `--help` and `--lang <code>` are
+  forwarded to the backing script via `{{args}}` and parsed there (the
+  docker wrappers already do this).
+- **namespace** (`just docker`): bare invocation runs the module `default`
+  recipe, which prints help; a flag after the namespace does not work.
+- **entry** (`just`): `just --list` / a localised overview.
+- Language at the namespace/entry level comes from the `SETUP_LANG` /
+  `LANG` **env** (which `i18n.sh _resolve_lang` already honours), not a
+  flag.
+
+**i18n scope -- "anything human-facing".** Localised strings + `--lang`
+apply only to the human-facing namespaces: **`docker`, `base`,
+`template`**. **`test` and `release` are English-only** (machine / CI /
+automation). `--help` exists for every recipe and namespace (English
+baseline) regardless.
+
+The namespace `default` help and all recipe scripts share **one CLI
+runtime lib** -- this is #565's `lib/wrapper.sh` runtime (arg pre-pass,
+`--help` rendering, `_resolve_lang`), extended beyond the docker wrappers
+to the `test`/`release`/`base`/`template` scripts; its lang/i18n portion
+is used only by the human-facing namespaces. **#655 therefore depends on /
+shares #565.**
 
 ### 7. Opt-in completion installer (no host pollution)
 
-Because the distro `just.fish` does not drill into namespaces, base ships
-`just base completions install [--shell bash|zsh|fish]` and
-`just base completions uninstall`. It writes the `clap_complete` dynamic
-completion to the user's per-shell completion dir **only on explicit
-request** and removes it on uninstall -- it never edits the host shell rc
-implicitly. README documents this as a prerequisite for namespace tab
+Because the distro `just.fish` lists only top-level recipes and does not
+drill into namespaces, base ships `just base completions install [--shell
+bash|zsh|fish|all]` and `just base completions uninstall`. It writes the
+**dynamic** `clap_complete` loader (not a static snapshot, so it tracks
+recipes/namespaces and survives upgrades; `just --completions <shell>`
+itself now just emits `eval "$(JUST_COMPLETE=<shell> just)"`). All three
+shells share one engine and drill identically -- `just docker::<tab>` ->
+`build exec run` (verified); display is each shell's standard (bash plain
+list, zsh/fish show recipe descriptions).
+
+Per-shell target (auto-load dir, no rc edit):
+
+- bash: `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/just`
+- fish: `${XDG_CONFIG_HOME:-~/.config}/fish/completions/just.fish`
+- zsh: `~/.local/share/zsh/site-functions/_just`
+
+bash/fish never touch the rc (uninstall removes the file). zsh's
+completion must sit in `fpath`; if the target dir is not in `fpath` the
+installer **prints** the one line to add it and **never edits `.zshrc`**.
+`--shell` defaults to the detected current shell; install/uninstall are
+idempotent. README documents this as the prerequisite for namespace tab
 completion.
 
 ### 8. `init.sh` / `upgrade.sh` leave the root (amends ADR-00000006)
