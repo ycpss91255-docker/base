@@ -44,7 +44,7 @@ just upgrade-check   # check
 just upgrade         # pull + update version + workflow tag
 
 # Run CI
-just ci test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Bats + Kcov
 just                       # show all recipes
 ```
 
@@ -81,7 +81,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ```mermaid
 graph TB
     subgraph base["base (shared repo)"]
-        scripts[".hadolint.yaml / script/ci/justfile.ci / compose.yaml"]
+        scripts[".hadolint.yaml / script/test/justfile.test / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
@@ -122,7 +122,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"script/ci/ci.sh"| ci_container
+    make_test -->|"script/test/test.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -158,9 +158,9 @@ flowchart LR
 | `downstream/script/docker/runtime/logging.sh` | Host-side log tee helper |
 | `downstream/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
 | `downstream/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
-| `script/ci/ci.sh` | CI orchestration (local + remote) |
-| `script/ci/lint_bare_stderr.sh` | Bare stderr lint checker |
-| `script/ci/lint_mixed_test_layout.sh` | Mixed-tool test layout validator |
+| `script/test/test.sh` | CI orchestration (local + remote) |
+| `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
+| `script/test/lint_mixed_test_layout.sh` | Mixed-tool test layout validator |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
 | `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
@@ -174,7 +174,7 @@ See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` | Repo entry — `just <verb>` recipes (`just build`, `just run`, `just stop`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just build --no-cache test`); `just` with no recipe lists all recipes. |
-| `script/ci/justfile.ci` | Template CI entry (`just ci test`, `just ci lint`, etc.). The user-facing vs CI-facing split is intentional. |
+| `script/test/justfile.test` | Template CI entry (`just test`, `just test lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
 | `downstream/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
@@ -1024,19 +1024,19 @@ Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their
 
 ## Running Template Tests
 
-Using `script/ci/justfile.ci` (from template root):
+Using `script/test/justfile.test` (from template root):
 ```bash
-just ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
-just ci lint        # ShellCheck only
-just ci clean       # Remove coverage reports
+just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
+just test lint        # ShellCheck only
+just test clean       # Remove coverage reports
 just                      # Show repo recipes
-just ci --list  # List CI recipes
+just --list  # List CI recipes
 ```
 
 Or directly:
 ```bash
-./script/ci/ci.sh          # Full CI via docker compose
-./script/ci/ci.sh --ci     # Run inside container (used by compose)
+./script/test/test.sh          # Full CI via docker compose
+./script/test/test.sh --ci     # Run inside container (used by compose)
 ```
 
 ## Tests
@@ -1084,7 +1084,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   │   ├── justfile                  # Docker operations entry (just)
 │   │   └── setup.conf                # Template runtime config defaults
 │   └── ci/                           # CI pipeline scripts
-│       ├── ci.sh                     # CI orchestration (local + remote)
+│       ├── test.sh                     # CI orchestration (local + remote)
 │       ├── lint_bare_stderr.sh       # Bare stderr lint checker
 │       └── lint_mixed_test_layout.sh # Mixed-tool test layout validator
 ├── dockerfile/
@@ -1158,7 +1158,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   │   └── wrapper_compose_dispatch_spec.bats
 │   └── behavioural/                  # Runtime integration tests
 │       └── runtime_test_smoke_spec.bats
-├── script/ci/justfile.ci                       # Template CI entry (just ci test/lint/...)
+├── script/test/justfile.test                       # Template CI entry (just test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── .dockerignore

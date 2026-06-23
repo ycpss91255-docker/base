@@ -15,12 +15,12 @@
 #
 # Each @test invokes one `docker buildx build` call (~5-15s amd64,
 # ~30-60s arm64 QEMU). The dedicated buildx builder
-# (template-behavioural, set up by ci.sh _behavioural_setup) isolates
+# (template-behavioural, set up by test.sh _behavioural_setup) isolates
 # the cache from the user's other docker work.
 
 setup_file() {
   if [[ ! -S /var/run/docker.sock ]]; then
-    skip "behavioural test: /var/run/docker.sock not mounted (run via 'just ci test-behavioural')"
+    skip "behavioural test: /var/run/docker.sock not mounted (run via 'just test behavioural')"
   fi
   if ! command -v docker >/dev/null 2>&1; then
     skip "behavioural test: docker CLI not present (test-tools < v0.23.2)"

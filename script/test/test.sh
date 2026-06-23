@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# ci.sh - Run CI pipeline (ShellCheck + Bats [+ Kcov])
+# test.sh - Run CI pipeline (ShellCheck + Bats [+ Kcov])
 #
 # Usage:
-#   ./ci.sh                   # Run ShellCheck + Bats (fast dev loop)
-#   ./ci.sh --ci              # Run inside CI container (called by compose)
-#   ./ci.sh --lint-only       # Run ShellCheck only (via docker compose)
-#   ./ci.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
+#   ./test.sh                   # Run ShellCheck + Bats (fast dev loop)
+#   ./test.sh --ci              # Run inside CI container (called by compose)
+#   ./test.sh --lint-only       # Run ShellCheck only (via docker compose)
+#   ./test.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
 #                             # (used by self-test.yaml's dedicated shellcheck
 #                             # job, #376; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
-#   ./ci.sh --bats-only       # Run Bats only inside compose (skip ShellCheck)
+#   ./test.sh --bats-only       # Run Bats only inside compose (skip ShellCheck)
 #                             # (used by self-test.yaml's bats jobs, #376/#377)
-#   ./ci.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
+#   ./test.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
 #                                  # integration). Used by the bats-unit
 #                                  # matrix in self-test.yaml (#377)
-#   ./ci.sh --bats-integration     # Run integration tests only (skip
+#   ./test.sh --bats-integration     # Run integration tests only (skip
 #                                  # ShellCheck + unit). Used by the
 #                                  # bats-integration job in self-test.yaml
 #                                  # (#377)
-#   ./ci.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
+#   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
 #                             # (push-to-main only via self-test.yaml's
 #                             # coverage job, #377)
-#   ./ci.sh -h, --help        # Show this help
+#   ./test.sh -h, --help        # Show this help
 #
 # Kcov instrumentation wraps every bats command and slows the suite
 # 2-5x, so the default no longer runs it. Run `--coverage` (or
-# `just -f justfile.ci coverage`) when you need the HTML report before
+# `just test coverage`) when you need the HTML report before
 # releasing.
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
@@ -45,7 +45,7 @@ source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./ci.sh [OPTIONS]
+Usage: ./test.sh [OPTIONS]
 
 Run CI pipeline: ShellCheck + Bats [+ Kcov coverage].
 
@@ -86,19 +86,19 @@ Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
 Examples:
-  ./ci.sh                       # Fast: ShellCheck + Bats (no kcov)
-  just -f justfile.ci test      # Same as above
-  ./ci.sh --coverage            # Full: ShellCheck + Bats + Kcov
-  just -f justfile.ci coverage  # Same as above
-  just -f justfile.ci lint      # ShellCheck only
-  ./ci.sh --shellcheck-only     # Direct shellcheck, no compose
-  ./ci.sh --bats-only           # Compose-bats only, skip ShellCheck
-  ./ci.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
-  ./ci.sh --bats-integration    # Compose-bats integration only
-  ./ci.sh --bats-path test/unit/ci_spec.bats          # one spec, fast
-  ./ci.sh --bats-path test/unit/                       # one directory
-  ./ci.sh --bats-path test/unit/ci_spec.bats --filter 'shard'  # + name filter
-  ./ci.sh --filter 'cap_add'    # filter across unit + integration
+  ./test.sh                       # Fast: ShellCheck + Bats (no kcov)
+  just test      # Same as above
+  ./test.sh --coverage            # Full: ShellCheck + Bats + Kcov
+  just test coverage  # Same as above
+  just test lint      # ShellCheck only
+  ./test.sh --shellcheck-only     # Direct shellcheck, no compose
+  ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
+  ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
+  ./test.sh --bats-integration    # Compose-bats integration only
+  ./test.sh --bats-path test/unit/ci_spec.bats          # one spec, fast
+  ./test.sh --bats-path test/unit/                       # one directory
+  ./test.sh --bats-path test/unit/ci_spec.bats --filter 'shard'  # + name filter
+  ./test.sh --filter 'cap_add'    # filter across unit + integration
 EOF
   exit 0
 }
@@ -157,8 +157,8 @@ _run_shellcheck() {
   find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
-  shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
+  shellcheck -x "${REPO_ROOT}/script/test/test.sh"
+  shellcheck -x "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
@@ -166,8 +166,8 @@ _run_shellcheck() {
 
   # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
   # the build. Runs in the lint phase so it surfaces on every shellcheck path
-  # (local just -f justfile.ci test + the dedicated --shellcheck-only GHA job).
-  "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh" "${REPO_ROOT}"
+  # (local just test + the dedicated --shellcheck-only GHA job).
+  "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh" "${REPO_ROOT}"
 }
 
 # ── Bats tests ───────────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ _run_integration_tests() {
 
 _run_tests() {
   # Wrapper retained for the full sequential dev-loop path (local
-  # `just -f justfile.ci test`). Kept so refactors are localised; the CI matrix shard
+  # `just test`). Kept so refactors are localised; the CI matrix shard
   # jobs go through _run_unit_shard / _run_integration_tests directly.
   _run_unit_tests
   _run_integration_tests
@@ -282,7 +282,7 @@ _run_unit_shard() {
 _run_coverage() {
   local _excludes=(
     "${REPO_ROOT}/test/"
-    "${REPO_ROOT}/script/ci/"
+    "${REPO_ROOT}/script/test/"
     "${REPO_ROOT}/init.sh"
     "${REPO_ROOT}/upgrade.sh"
     "${REPO_ROOT}/downstream/config/shell/bashrc"
@@ -322,12 +322,12 @@ _run_via_compose() {
   #
   # BATS_ONLY is forwarded so the inner `--ci` dispatch can skip
   # _run_shellcheck when the dedicated GHA shellcheck job (#376) is
-  # covering it in parallel. Default 0 keeps the local `just -f justfile.ci test`
+  # covering it in parallel. Default 0 keeps the local `just test`
   # path unchanged (full shellcheck + bats).
   #
   # BATS_UNIT_SHARD / BATS_INTEGRATION (#377) route the matrix
   # bats-unit + bats-integration GHA jobs to the right subset inside
-  # the container; empty / 0 keep the local `just -f justfile.ci test` path
+  # the container; empty / 0 keep the local `just test` path
   # unchanged (full unit + integration).
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
@@ -355,7 +355,7 @@ readonly _BEHAVIOURAL_BUILDER="template-behavioural"
 
 _behavioural_setup() {
   [[ -S /var/run/docker.sock ]] \
-    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'just -f justfile.ci test-behavioural' (ci-behavioural service)."
+    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'just test-behavioural' (ci-behavioural service)."
   command -v docker >/dev/null 2>&1 \
     || _die ci_no_docker_cli "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
 
@@ -442,7 +442,7 @@ main() {
     if [[ -n "${bats_path}" ]]; then
       if [[ "${bats_path}" == test/behavioural || "${bats_path}" == test/behavioural/* ]]; then
         _die ci_bats_path_behavioural \
-          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'just -f justfile.ci test-behavioural' (host ci.sh cannot launch it)."
+          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'just test behavioural' (host test.sh cannot launch it)."
       fi
       [[ -e "${REPO_ROOT}/${bats_path}" ]] \
         || _die ci_bats_path_not_found \
@@ -507,7 +507,7 @@ main() {
       #   --bats-only          -> BATS_ONLY=1 (skip _run_shellcheck)
       #   --bats-unit-shard X  -> BATS_ONLY=1 + BATS_UNIT_SHARD=X
       #   --bats-integration   -> BATS_ONLY=1 + BATS_INTEGRATION=1
-      # Local `just -f justfile.ci test` (no flags) keeps the full pipeline.
+      # Local `just test` (no flags) keeps the full pipeline.
       if [[ -n "${bats_unit_shard}" ]]; then
         BATS_ONLY=1 BATS_UNIT_SHARD="${bats_unit_shard}" _run_via_compose ci 0
       elif [[ "${bats_integration}" == "1" ]]; then

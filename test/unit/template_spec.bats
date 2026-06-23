@@ -35,63 +35,67 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Structure: ci.sh and justfile.ci exist
+# Structure: test.sh and justfile.test exist
 # ════════════════════════════════════════════════════════════════════
 
-@test "ci.sh exists and is executable" {
-  assert [ -f /source/script/ci/ci.sh ]
-  assert [ -x /source/script/ci/ci.sh ]
+@test "test.sh exists and is executable" {
+  assert [ -f /source/script/test/test.sh ]
+  assert [ -x /source/script/test/test.sh ]
 }
 
-@test "ci.sh uses set -euo pipefail" {
-  run grep "set -euo pipefail" /source/script/ci/ci.sh
+@test "test.sh uses set -euo pipefail" {
+  run grep "set -euo pipefail" /source/script/test/test.sh
   assert_success
 }
 
 # The container-ops Makefile was retired for `just`; its existence /
 # build-target / upgrade-path checks live in justfile_spec.bats (static)
 # + justfile_user_spec.bats (executable). The base-only CI gate
-# `Makefile.ci` is likewise retired for `justfile.ci`, so the repo
-# carries a single runner (just); `just ci <recipe>` mirrors
+# `Makefile.ci` is likewise retired for `justfile.test`, so the repo
+# carries a single runner (just); `just test <recipe>` mirrors
 # the former `make -f Makefile.ci <target>`.
 
-@test "justfile.ci exists (template CI gate)" {
-  assert [ -f /source/script/ci/justfile.ci ]
+@test "justfile.test exists (template CI gate)" {
+  assert [ -f /source/script/test/justfile.test ]
 }
 
-@test "Makefile.ci no longer exists (retired for justfile.ci)" {
+@test "Makefile.ci no longer exists (retired for justfile.test)" {
   assert [ ! -e /source/Makefile.ci ]
 }
 
-@test "justfile.ci has test recipe" {
-  run grep -E '^test:' /source/script/ci/justfile.ci
+@test "justfile.test default recipe runs the suite (bare just test)" {
+  # min->max (ADR-00000011 #3): bare `just test` runs the whole self-test,
+  # so the namespace default recipe invokes test.sh.
+  run grep -E '^default:' /source/script/test/justfile.test
+  assert_success
+  run grep -F './script/test/test.sh' /source/script/test/justfile.test
   assert_success
 }
 
-@test "justfile.ci has lint recipe" {
-  run grep -E '^lint:' /source/script/ci/justfile.ci
+@test "justfile.test has lint recipe" {
+  run grep -E '^lint:' /source/script/test/justfile.test
   assert_success
 }
 
-@test "justfile.ci has coverage recipe" {
-  run grep -E '^coverage:' /source/script/ci/justfile.ci
+@test "justfile.test has coverage recipe" {
+  run grep -E '^coverage:' /source/script/test/justfile.test
   assert_success
 }
 
-@test "justfile.ci upgrade recipe forwards {{args}} to ./upgrade.sh" {
-  # `just ci upgrade [vX.Y.Z]` is the documented entry point.
+@test "justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh" {
+  # `just test upgrade [vX.Y.Z]` is the documented entry point.
   # The recipe forwards {{args}} to ./upgrade.sh so an empty arg resolves
   # to "latest" and a set arg pins a specific tag -- no VAR=VALUE token,
   # which is the whole point of moving off make.
-  run grep -F './upgrade.sh {{args}}' /source/script/ci/justfile.ci
+  run grep -F './upgrade.sh {{args}}' /source/script/test/justfile.test
   assert_success
 }
 
-@test "justfile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)" {
+@test "justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)" {
   # Same wrap as the downstream justfile (regression #175): the runner
   # must not mistake exit 1 (update available) for a real error.
   run grep -E '\./upgrade\.sh --check \|\| \[ \$\? -eq 1 \]' \
-      /source/script/ci/justfile.ci
+      /source/script/test/justfile.test
   assert_success
 }
 

@@ -105,7 +105,7 @@ init_completed
 init_missing_required_arg
 init_progress
 
-# ci.sh
+# test.sh
 ci_apt_update_failed
 ci_apt_install_failed
 ci_bats_mock_clone_failed

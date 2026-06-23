@@ -44,7 +44,7 @@ just upgrade-check   # 確認
 just upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-just ci test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Bats + Kcov
 just                       # 全 recipe 表示
 ```
 
@@ -81,7 +81,7 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 ```mermaid
 graph TB
     subgraph base["base（共有 repo）"]
-        scripts[".hadolint.yaml / script/ci/justfile.ci / compose.yaml"]
+        scripts[".hadolint.yaml / script/test/justfile.test / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
@@ -122,7 +122,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"script/ci/ci.sh"| ci_container
+    make_test -->|"script/test/test.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -165,12 +165,12 @@ flowchart LR
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile` | Repo コマンドエントリ（`just build`、`just run`、`just stop` 等）の `just <verb>` recipe。引数は `{{args}}` でそのまま wrapper に渡されます（`just build --no-cache test`）。`just` 単独で recipe 一覧を表示。 |
-| `script/ci/justfile.ci` | Template CI コマンドエントリ（`just ci test`、`just ci lint` 等）。user-facing と CI-facing の分離は意図的。 |
+| `script/test/justfile.test` | Template CI コマンドエントリ（`just test`、`just test lint` 等）。user-facing と CI-facing の分離は意図的。 |
 | `init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成 |
 | `upgrade.sh` | Subtree バージョンアップグレード |
-| `script/ci/ci.sh` | CI パイプライン（ローカル + リモート） |
-| `script/ci/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
-| `script/ci/lint_mixed_test_layout.sh` | mixed-tool テストレイアウトのバリデータ |
+| `script/test/test.sh` | CI パイプライン（ローカル + リモート） |
+| `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
+| `script/test/lint_mixed_test_layout.sh` | mixed-tool テストレイアウトのバリデータ |
 | `downstream/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
@@ -817,19 +817,19 @@ jobs:
 
 ## ローカルテスト実行
 
-`script/ci/justfile.ci`（template ルートから）を使用：
+`script/test/justfile.test`（template ルートから）を使用：
 ```bash
-just ci test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
-just ci lint        # ShellCheck のみ
-just ci clean       # カバレッジレポート削除
+just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
+just test lint        # ShellCheck のみ
+just test clean       # カバレッジレポート削除
 just             # repo recipe 一覧表示
-just ci --list  # CI ターゲット表示
+just --list  # CI ターゲット表示
 ```
 
 直接実行：
 ```bash
-./script/ci/ci.sh          # フル CI（docker compose 経由）
-./script/ci/ci.sh --ci     # コンテナ内で実行（compose から呼び出し）
+./script/test/test.sh          # フル CI（docker compose 経由）
+./script/test/test.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 
 ## テスト
@@ -875,7 +875,7 @@ just ci --list  # CI ターゲット表示
 │   │   ├── justfile                  # Docker operations entry (just)
 │   │   └── setup.conf                # Template runtime config defaults
 │   └── ci/                           # CI pipeline scripts
-│       ├── ci.sh                     # CI orchestration (local + remote)
+│       ├── test.sh                     # CI orchestration (local + remote)
 │       ├── lint_bare_stderr.sh       # Bare stderr lint checker
 │       └── lint_mixed_test_layout.sh # Mixed-tool test layout validator
 ├── dockerfile/
@@ -949,7 +949,7 @@ just ci --list  # CI ターゲット表示
 │   │   └── wrapper_compose_dispatch_spec.bats
 │   └── behavioural/                  # Runtime integration tests
 │       └── runtime_test_smoke_spec.bats
-├── script/ci/justfile.ci                       # Template CI entry (just ci test/lint/...)
+├── script/test/justfile.test                       # Template CI entry (just test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── .dockerignore

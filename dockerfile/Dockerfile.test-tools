@@ -52,7 +52,7 @@ RUN apk add --no-cache curl xz && \
 # exposes bats on PATH (the upstream bats/bats:latest puts it there but the
 # symlink is not under /opt/bats so it is not picked up by the COPY above).
 # parallel (#168): bats --jobs N delegates to GNU parallel; without it bats
-# falls back to serial. ci.sh tolerates missing parallel for older images,
+# falls back to serial. test.sh tolerates missing parallel for older images,
 # but baking it in keeps the fast CI loop fast.
 # git + git-subtree + ca-certificates (#168): the test suite
 # (upgrade_spec.bats, init_new_repo_spec.bats,

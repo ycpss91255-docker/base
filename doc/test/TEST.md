@@ -2,7 +2,7 @@
 
 Template self-tests: **1866 tests** total (1785 unit + 81 integration).
 
-> Counted scope is the `just ci test` self-test suite —
+> Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
@@ -409,7 +409,7 @@ eight cumulative invariants:
 7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs
    on plain ubuntu-latest with the pre-installed binary (no buildx,
    no test-tools image, ~30s feedback on a regression) via
-   `ci.sh --shellcheck-only`. `hadolint` uses
+   `test.sh --shellcheck-only`. `hadolint` uses
    `hadolint/hadolint-action@v3.1.0` to lint
    `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools`
    (both template-owned; downstream Dockerfile.example consumers
@@ -424,14 +424,14 @@ eight cumulative invariants:
    three sibling jobs:
    - `bats-unit` (matrix `shard: ['1/2', '2/2']`, `fail-fast: false`):
      each shard runs a round-robin partition of `test/unit/*_spec.bats`
-     via `ci.sh --bats-unit-shard ${{ matrix.shard }}`. Parallel
+     via `test.sh --bats-unit-shard ${{ matrix.shard }}`. Parallel
      execution drops PR wall-time from ~5min to ~2min.
    - `bats-integration`: runs `test/integration/` via
-     `ci.sh --bats-integration`. Pulled out of the unit serial path
+     `test.sh --bats-integration`. Pulled out of the unit serial path
      so each unit shard sees only its share.
    - `coverage`: `if: github.event_name == 'push' && github.ref ==
      'refs/heads/main'` — gated to main pushes only. Runs
-     `ci.sh --coverage` (full kcov pipeline) and uploads to Codecov.
+     `test.sh --coverage` (full kcov pipeline) and uploads to Codecov.
      **NOT in `ci-rollup`'s `needs:`** — coverage failure must not
      block PR merge. PR-side coverage delta still works because
      Codecov compares the PR head against the latest main coverage
@@ -490,11 +490,11 @@ eight cumulative invariants:
 | `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377) | 3 |
 | `ci-rollup` does NOT need `coverage` (#377) | 1 |
 | `ci-rollup` verify step consumes every `needs.<job>.result` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377) | 3 |
-| `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `ci.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
+| `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
-| `bats-unit` declared + `strategy.matrix.shard: ['1/2', '2/2']` + `fail-fast: false` + invokes `ci.sh --bats-unit-shard ${{ matrix.shard }}` (#377) | 3 |
-| `bats-integration` declared + invokes `ci.sh --bats-integration` (#377) | 2 |
-| `coverage` declared + `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` + runs `ci.sh --coverage` + uploads Codecov (#377) | 3 |
+| `bats-unit` declared + `strategy.matrix.shard: ['1/2', '2/2']` + `fail-fast: false` + invokes `test.sh --bats-unit-shard ${{ matrix.shard }}` (#377) | 3 |
+| `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
+| `coverage` declared + `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` + runs `test.sh --coverage` + uploads Codecov (#377) | 3 |
 | `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
 
 ### test/unit/release_test_tools_yaml_spec.bats (14)
@@ -1097,15 +1097,15 @@ the host file content and the inherited stdout (preserving
 | `exec.sh exists and is executable` | File check |
 | `stop.sh exists and is executable` | File check |
 | `setup.sh exists and is executable` | File check |
-| `ci.sh exists and is executable` | File check |
-| `ci.sh uses set -euo pipefail` | Shell convention |
-| `justfile.ci exists (template CI gate)` | File check |
-| `Makefile.ci no longer exists (retired for justfile.ci)` | File absence (single runner) |
-| `justfile.ci has test recipe` | just recipe |
-| `justfile.ci has lint recipe` | just recipe |
-| `justfile.ci has coverage recipe` | just recipe |
-| `justfile.ci upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
-| `justfile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.ci |
+| `test.sh exists and is executable` | File check |
+| `test.sh uses set -euo pipefail` | Shell convention |
+| `justfile.test exists (template CI gate)` | File check |
+| `Makefile.ci no longer exists (retired for justfile.test)` | File absence (single runner) |
+| `justfile.test default recipe runs the suite (bare just test)` | just recipe |
+| `justfile.test has lint recipe` | just recipe |
+| `justfile.test has coverage recipe` | just recipe |
+| `justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
+| `justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.test |
 | `Dockerfile.test-tools no longer installs make (single runner: just)` | dead make dependency removed |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
@@ -1270,7 +1270,7 @@ the host file content and the inherited stdout (preserving
 
 ### test/unit/lint_mixed_test_layout_spec.bats (8)
 
-Covers `script/ci/lint_mixed_test_layout.sh` (#495 / ADR-00000004): the
+Covers `script/test/lint_mixed_test_layout.sh` (#495 / ADR-00000004): the
 WARNING-only lint that flags a `test/<category>/` directory mixing test
 runner families (`.bats` + `test_*.py`) at one level and suggests the
 `test/<category>/<tool>/` subdir split. Asserts the warn / silent cases,
@@ -1675,11 +1675,11 @@ in `template_spec.bats`. Issue #249.
 Excluded from the `1080` self-test total because they require host
 docker access (mounted via the `ci-behavioural` compose service)
 which the default `ci` service does NOT provide. Run with `just
--f justfile.ci test-behavioural` locally, or via the dedicated
+test behavioural` locally, or via the dedicated
 `Behavioural Test` job in `self-test.yaml` on CI. Each test
 invokes one `docker buildx build` (~5-15s amd64, ~30-60s arm64
 QEMU); the dedicated `template-behavioural` buildx builder
-(created/pruned per ci.sh run) isolates the cache from the host's
+(created/pruned per test.sh run) isolates the cache from the host's
 default context.
 
 ### test/behavioural/runtime_test_smoke_spec.bats (5)
@@ -1699,7 +1699,7 @@ Shared specs that ship with `template/test/smoke/` and run at Dockerfile
 repo and every downstream repo that consumes the template. They assert
 the integrity of the generated `compose.yaml` + the wrapper scripts'
 `-h` / `--help` paths. **Not** part of the 935-test self-test count
-(those run via `just ci test` and never enter the build
+(those run via `just test` and never enter the build
 graph).
 
 How they reach downstream repos: each `Dockerfile`'s `test` stage does

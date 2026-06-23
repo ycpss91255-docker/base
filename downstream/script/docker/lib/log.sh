@@ -10,7 +10,7 @@
 # TTY-ness is resolved once at startup via _LOG_IS_TTY (0 = tty,
 # non-zero = not) so a later transcript tee on fd1 (#606) cannot flip
 # the format/color decision; when _LOG_IS_TTY is unset (standalone
-# sourcing, e.g. ci.sh) it falls back to live `test -t <fd>` and behaves
+# sourcing, e.g. test.sh) it falls back to live `test -t <fd>` and behaves
 # exactly as before (ADR-00000007).
 # Unregistered body (not in log-events.txt) is a fatal error.
 #
@@ -107,7 +107,7 @@ _log_emit_json() {
 #   non-zero = not). When the cache is set its value wins, so a transcript
 #   tee layered on fd1 later (#606) does not re-flip the format/color
 #   decision mid-run. When unset, fall back to live `test -t <fd>` -- the
-#   historical behaviour, keeping standalone sourcing (ci.sh, a bare
+#   historical behaviour, keeping standalone sourcing (test.sh, a bare
 #   `source log.sh`) byte-identical to pre-#605. The producer that sets
 #   _LOG_IS_TTY=0/1 is the #606 transcript core (see ADR-00000007).
 _log_is_tty() {

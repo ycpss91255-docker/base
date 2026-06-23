@@ -451,7 +451,7 @@ setup() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: shellcheck job runs ci.sh --shellcheck-only on plain ubuntu-latest (#376)" {
+@test "self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)" {
   # Goal: ~30s feedback on a shellcheck regression. Plain ubuntu-latest
   # ships shellcheck pre-installed so no apt-install / no buildx /
   # no test-tools image is needed — keeps the job cold-startup cost
@@ -459,7 +459,7 @@ setup() {
   run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'
-  assert_output --partial './script/ci/ci.sh --shellcheck-only'
+  assert_output --partial './script/test/test.sh --shellcheck-only'
   # No buildx setup / no docker pull / no compose run in this job.
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
@@ -518,10 +518,10 @@ setup() {
   assert_output --partial "shard: ['1/2', '2/2']"
 }
 
-@test "self-test.yaml: bats-unit invokes ci.sh --bats-unit-shard \${{ matrix.shard }} (#377)" {
+@test "self-test.yaml: bats-unit invokes test.sh --bats-unit-shard \${{ matrix.shard }} (#377)" {
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial './script/ci/ci.sh --bats-unit-shard ${{ matrix.shard }}'
+  assert_output --partial './script/test/test.sh --bats-unit-shard ${{ matrix.shard }}'
 }
 
 @test "self-test.yaml: declares bats-integration job (#377)" {
@@ -529,10 +529,10 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: bats-integration invokes ci.sh --bats-integration (#377)" {
+@test "self-test.yaml: bats-integration invokes test.sh --bats-integration (#377)" {
   run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial './script/ci/ci.sh --bats-integration'
+  assert_output --partial './script/test/test.sh --bats-integration'
 }
 
 @test "self-test.yaml: declares coverage job (#377)" {
@@ -551,12 +551,12 @@ setup() {
   assert_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
 }
 
-@test "self-test.yaml: coverage invokes ci.sh --coverage + uploads to Codecov (#377)" {
+@test "self-test.yaml: coverage invokes test.sh --coverage + uploads to Codecov (#377)" {
   # Codecov upload step migrated here from the old test job. Token
   # source unchanged (\${{ secrets.CODECOV_TOKEN }}).
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial './script/ci/ci.sh --coverage'
+  assert_output --partial './script/test/test.sh --coverage'
   assert_output --partial 'codecov/codecov-action@v6'
   assert_output --partial 'token: ${{ secrets.CODECOV_TOKEN }}'
   assert_output --partial 'directory: ./coverage'

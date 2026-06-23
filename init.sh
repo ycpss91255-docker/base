@@ -72,7 +72,7 @@ _create_symlinks() {
   # Migration hygiene also drops the retired root `Makefile` symlink
   # (#546 / ADR-00000005 phase 2): base no longer ships a container-ops
   # Makefile, so an upgrading repo's stale root symlink must go or it
-  # dangles. (The base-only `justfile.ci` is unrelated -- it is a
+  # dangles. (The base-only `justfile.test` is unrelated -- it is a
   # regular file under `.base/`, never a root symlink.)
   local _stale
   for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh Makefile; do
