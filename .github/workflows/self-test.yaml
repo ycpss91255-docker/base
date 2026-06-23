@@ -151,13 +151,13 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: downstream/dockerfile/Dockerfile
-          config: .hadolint.yaml
+          config: downstream/.hadolint.yaml
 
       - name: Hadolint — Dockerfile.test-tools
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: dockerfile/Dockerfile.test-tools
-          config: .hadolint.yaml
+          config: downstream/.hadolint.yaml
 
   bats-unit:
     # Matrix shard of the unit suite (#377). Replaces the previous
@@ -666,8 +666,8 @@ jobs:
 
           mkdir -p "${ARCHIVE_NAME}"
           cp -r init.sh upgrade.sh \
-                .hadolint.yaml justfile.ci compose.yaml \
-                config/ dockerfile/ test/ script/ doc/ \
+                justfile.ci compose.yaml \
+                downstream/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"
 
