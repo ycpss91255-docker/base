@@ -6,10 +6,18 @@
 # Import/mod paths resolve relative to the SYMLINK location (the repo root),
 # not this file's real .base/downstream/ location -- so `script/...` paths
 # below are repo-root-relative. docker recipes are imported TOP-LEVEL
-# (`just build`); repo-local namespaces (ci / cd / template / local) are
-# wired in by later epic slices (#632 local, #633 template, #634 ci/cd).
+# (`just build`); repo-local command groups come in via the repo-owned
+# registry script/local/justfile.local (each group a `mod?` line ->
+# `just <group> <recipe>`). The ci / cd / template namespaces are wired in
+# by later epic slices (#633 template, #634 ci/cd).
 
 import 'script/docker/justfile.docker'
+
+# Repo-local command groups. script/local/justfile.local is REPO-OWNED
+# (seeded once by init.sh, committed, never clobbered by a subtree upgrade);
+# `import?` keeps a missing/empty registry from erroring. `mod?` lines in it
+# register each group (`just template new <name>` appends them, #633).
+import? 'script/local/justfile.local'
 
 # Default: list available recipes (replaces `make help`).
 default:

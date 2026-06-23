@@ -112,3 +112,15 @@ teardown() {
   assert_output --partial "build"
   assert_output --partial "run"
 }
+
+@test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {
+  # The entry imports script/local/justfile.local (`import?`); a group
+  # registered there with a `mod?` line (path relative to script/local/)
+  # becomes a top-level sub-command `just <group> <recipe>`.
+  mkdir -p "${TMP_REPO}/script/local/greet"
+  printf "mod? greet 'greet/justfile.greet'\n" > "${TMP_REPO}/script/local/justfile.local"
+  printf 'hi:\n    @echo "greet-hi"\n' > "${TMP_REPO}/script/local/greet/justfile.greet"
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" greet hi
+  assert_success
+  assert_output --partial "greet-hi"
+}

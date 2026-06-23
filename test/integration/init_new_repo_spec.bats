@@ -224,6 +224,25 @@ teardown() {
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
 }
 
+@test "new repo: script/local/justfile.local seeded (repo-local command-group registry, #632)" {
+  bash .base/init.sh
+  # Repo-owned (a real file, not a symlink into the subtree) so the repo
+  # commits its own group registrations and a subtree upgrade never clobbers
+  # them. The entry imports it with `import?`.
+  assert [ -f "${REPO_DIR}/script/local/justfile.local" ]
+  assert [ ! -L "${REPO_DIR}/script/local/justfile.local" ]
+  run grep -F "import? 'script/local/justfile.local'" "${REPO_DIR}/.base/downstream/script/justfile"
+  assert_success
+}
+
+@test "new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber, #632)" {
+  mkdir -p "${REPO_DIR}/script/local"
+  printf "mod? deploy 'deploy/justfile.deploy'\n" > "${REPO_DIR}/script/local/justfile.local"
+  bash .base/init.sh
+  run cat "${REPO_DIR}/script/local/justfile.local"
+  assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
+}
+
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → .base/downstream/config as a symlink.
   # Re-running the post-#254 init.sh on such a repo must replace the

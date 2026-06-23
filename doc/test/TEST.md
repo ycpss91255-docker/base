@@ -810,7 +810,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/justfile_user_spec.bats (7)
+### test/unit/justfile_user_spec.bats (8)
 
 Executable tests for the user-facing `script/docker/justfile` (#546 /
 ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
@@ -829,6 +829,7 @@ template_spec for the `apk add ... just` guard + the release smoke check).
 | `just setup-tui forwards to setup_tui.sh` | hyphenated recipe |
 | `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
 | `bare just lists recipes` | replaces `make help` |
+| `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
 
 ### test/unit/justfile_spec.bats (5)
 
@@ -1502,7 +1503,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/integration/init_new_repo_spec.bats (44)
+### test/integration/init_new_repo_spec.bats (46)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1554,6 +1555,8 @@ which has access to a Docker daemon on the host runner.
 | `new repo: compose.yaml ships devices: /dev:/dev by default` | default device mount |
 | `new repo: setup.conf mount_1 is NOT empty after first init` | workspace writeback non-empty |
 | `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
+| `new repo: script/local/justfile.local seeded (repo-local command-group registry)` | #632 — repo-owned registry seeded |
+| `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 
