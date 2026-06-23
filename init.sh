@@ -91,6 +91,13 @@ _create_symlinks() {
   _symlink "script/justfile" "justfile"
   _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
   _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
+  # `template` namespace (#633): `just template new <name>` scaffolds a
+  # repo-local command group. The entry `mod?`s script/template/justfile.template;
+  # new.sh + skel/ are linked alongside (base-owned, flow on upgrade).
+  mkdir -p script/template
+  _symlink "../../${TEMPLATE_REL}/downstream/script/template/justfile.template" "script/template/justfile.template"
+  _symlink "../../${TEMPLATE_REL}/downstream/script/template/new.sh" "script/template/new.sh"
+  _symlink "../../${TEMPLATE_REL}/downstream/script/template/skel" "script/template/skel"
 
   if [[ ! -f .hadolint.yaml ]] \
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/downstream/.hadolint.yaml" \

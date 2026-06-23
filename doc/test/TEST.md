@@ -810,7 +810,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/justfile_user_spec.bats (8)
+### test/unit/justfile_user_spec.bats (10)
 
 Executable tests for the user-facing `script/docker/justfile` (#546 /
 ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
@@ -830,6 +830,26 @@ template_spec for the `apk add ... just` guard + the release smoke check).
 | `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
 | `bare just lists recipes` | replaces `make help` |
 | `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
+| `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
+| `bare just template prints help` | #633 -- module default recipe |
+
+### test/unit/template_new_spec.bats (7)
+
+Unit tests for the repo-local command-group scaffolder
+`downstream/script/template/new.sh` (#633, closes #594). Runs `new.sh`
+directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
++ `<name>.sh` from `skel/` and registers the group in
+`script/local/justfile.local`.
+
+| Test | Description |
+|------|-------------|
+| `new.sh scaffolds script/local/<name>/{justfile.<name>,<name>.sh} from skel` | files created + executable |
+| `new.sh substitutes __NAME__ in the scaffolded files` | placeholder replaced |
+| `new.sh registers the group in script/local/justfile.local (mod? line)` | registry append |
+| `new.sh refuses to clobber an existing group` | safe no-overwrite |
+| `new.sh does not duplicate the registry line on a second distinct group` | one mod? per group |
+| `new.sh rejects an invalid group name` | name validation |
+| `new.sh errors with usage when no name given` | arg guard |
 
 ### test/unit/justfile_spec.bats (5)
 
@@ -1503,7 +1523,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/integration/init_new_repo_spec.bats (46)
+### test/integration/init_new_repo_spec.bats (47)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1557,6 +1577,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
 | `new repo: script/local/justfile.local seeded (repo-local command-group registry)` | #632 — repo-owned registry seeded |
 | `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
+| `new repo: script/template/ symlinks wired for the template namespace` | #633 — justfile.template + new.sh + skel symlinked |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 

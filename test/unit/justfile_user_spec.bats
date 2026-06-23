@@ -36,6 +36,17 @@ setup() {
   ln -s "../.base/downstream/script/justfile" "${TMP_REPO}/script/justfile"
   ln -s "../../.base/downstream/script/docker/justfile.docker" "${TMP_REPO}/script/docker/justfile.docker"
 
+  # `template` namespace (#633): the entry mod?s script/template/justfile.template.
+  mkdir -p "${TMP_REPO}/.base/downstream/script/template/skel" "${TMP_REPO}/script/template"
+  cp /source/downstream/script/template/justfile.template "${TMP_REPO}/.base/downstream/script/template/justfile.template"
+  cp /source/downstream/script/template/new.sh "${TMP_REPO}/.base/downstream/script/template/new.sh"
+  cp /source/downstream/script/template/skel/justfile.skel "${TMP_REPO}/.base/downstream/script/template/skel/justfile.skel"
+  cp /source/downstream/script/template/skel/skel.sh "${TMP_REPO}/.base/downstream/script/template/skel/skel.sh"
+  chmod +x "${TMP_REPO}/.base/downstream/script/template/new.sh"
+  ln -s "../../.base/downstream/script/template/justfile.template" "${TMP_REPO}/script/template/justfile.template"
+  ln -s "../../.base/downstream/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
+  ln -s "../../.base/downstream/script/template/skel" "${TMP_REPO}/script/template/skel"
+
   local _name
   for _name in build run exec stop prune setup setup_tui; do
     cat > "${TMP_REPO}/script/${_name}.sh" <<EOS
@@ -123,4 +134,20 @@ teardown() {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" greet hi
   assert_success
   assert_output --partial "greet-hi"
+}
+
+@test "just template new <name> scaffolds a working repo-local group (#633, closes #594)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template new deploy
+  assert_success
+  assert [ -f "${TMP_REPO}/script/local/deploy/justfile.deploy" ]
+  # the new group is immediately usable as a top-level namespace
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" deploy hello
+  assert_success
+  assert_output --partial "hello from the deploy group"
+}
+
+@test "bare just template prints help (#633)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template
+  assert_success
+  assert_output --partial "just template new"
 }
