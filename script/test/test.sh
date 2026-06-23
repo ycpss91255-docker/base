@@ -38,6 +38,12 @@ readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
+# Disable the wrapper transcript for the whole self-test (#622): specs that
+# run a wrapper main() would otherwise tee a log/ tree into the mounted
+# checkout (FILE_PATH/REPO_ROOT resolve to /source). The env override wins
+# over setup.conf; transcript_spec clears it to exercise the conf logic.
+export WRAPPER_TRANSCRIPT=false
+
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 

@@ -126,9 +126,16 @@ _transcript_conf() {
 }
 
 # _transcript_enabled
-#   True when the wrapper transcript is not switched off via
-#   `[logging] wrapper_transcript` (default true).
+#   True when the wrapper transcript is not switched off. The WRAPPER_TRANSCRIPT
+#   env var wins when set (true/false) -- it lets CI / the self-test suite
+#   disable transcripts without a setup.conf (so wrapper specs never write a
+#   log/ tree into the checkout, #622) and lets a user toggle it ad-hoc.
+#   Otherwise falls back to `[logging] wrapper_transcript` (default true).
 _transcript_enabled() {
+  case "${WRAPPER_TRANSCRIPT:-}" in
+    false) return 1 ;;
+    true)  return 0 ;;
+  esac
   [[ "$(_transcript_conf wrapper_transcript true)" != false ]]
 }
 

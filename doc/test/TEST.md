@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1866 tests** total (1785 unit + 81 integration).
+Template self-tests: **1882 tests** total (1798 unit + 84 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -74,7 +74,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/transcript_spec.bats (23)
+### test/unit/transcript_spec.bats (25)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -93,7 +93,7 @@ Activation is execution-only (`_transcript_begin` in each verb's
 | `_transcript_is_interactive_verb` + `_transcript_is_capture_verb` classification (#608) | 2 |
 | `_transcript_filename` path shape; `_transcript_meta_line` lnav-parseable format | 2 |
 | `_transcript_resolve_traceid`: inherits TRACEPARENT trace_id / generates 32-hex | 2 |
-| `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch | 2 |
+| `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch; `WRAPPER_TRANSCRIPT` env override wins over conf both ways (#622) | 4 |
 | `_atexit`: registered callbacks run LIFO on exit | 1 |
 | `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days | 2 |
 | End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op | 5 |
