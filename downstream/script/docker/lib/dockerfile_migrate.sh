@@ -325,8 +325,69 @@ _migrate_arg_user_detect() {
 
 _migrate_arg_user_apply() {
   local _file="$1"
+  # SC2016: the ${USER_NAME} must be written LITERALLY into the Dockerfile
+  # (Docker, not this shell, resolves the build arg), so single quotes are
+  # intentional.
+  # shellcheck disable=SC2016
   sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
+}
+
+# ── Migration 8 (#579 facet B): nounset-guard the entrypoint ROS source ─────
+#
+# Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
+# unbound AMENT_TRACE_SETUP_FILES the ament setup chain references, so the
+# container exits the instant it starts and `just run` fails. CI never
+# catches this — smoke runs at Dockerfile build time and never starts the
+# container / runs the ENTRYPOINT. Bracket the source with `set +u` before
+# and `set -u` after so unbound vars inside setup.bash do not abort PID 1.
+#
+# Only fires when the entrypoint actually runs under nounset (`set -u` /
+# `set -eu` / `set -euo pipefail`) AND the source is not already guarded by
+# an immediately-preceding `set +u`.
+_migrate_nounset_source_detect() {
+  local _entry
+  _entry="$(_dfm_entrypoint_path "$1")"
+  [[ -f "${_entry}" ]] || return 1
+  grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}" || return 1
+  # An un-guarded source is one whose nearest preceding non-shellcheck-comment
+  # line is NOT `set +u` (a shellcheck directive sits between guard and source
+  # and must be treated as transparent so re-runs stay idempotent).
+  awk '
+    /\/opt\/ros\/.*setup\.bash/ {
+      if (guard != "+u") { found=1 }
+    }
+    /^[[:space:]]*#[[:space:]]*shellcheck/ { next }   # transparent: keep guard
+    /^[[:space:]]*set[[:space:]]+\+u[[:space:]]*$/ { guard="+u"; next }
+    { guard="" }
+    END { exit (found ? 0 : 1) }
+  ' "${_entry}"
+}
+
+_migrate_nounset_source_apply() {
+  local _entry
+  _entry="$(_dfm_entrypoint_path "$1")"
+  local _tmp
+  _tmp="$(mktemp)"
+  # Wrap each un-guarded setup.bash source with `set +u` / `set -u`,
+  # preserving any preceding shellcheck-directive comment line directly above
+  # the source (do not split the directive from its target).
+  awk '
+    /\/opt\/ros\/.*setup\.bash/ && prev !~ /^[[:space:]]*set[[:space:]]+\+u[[:space:]]*$/ {
+      # If the previous emitted line was a shellcheck directive for this
+      # source, the +u must go ABOVE the directive. Re-buffer it.
+      if (held != "") { print "set +u"; print held; held = ""; print; print "set -u"; prev=$0; next }
+      print "set +u"; print; print "set -u"; prev=$0; next
+    }
+    {
+      if (held != "") { print held; held = "" }
+      if ($0 ~ /^[[:space:]]*#[[:space:]]*shellcheck/) { held=$0; prev=$0; next }
+      print; prev=$0
+    }
+    END { if (held != "") print held }
+  ' "${_entry}" > "${_tmp}"
+  mv "${_tmp}" "${_entry}"
+  _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
 # Ordered migration list. Append new {detect, transform} pairs here; the
@@ -339,4 +400,5 @@ _MIGRATIONS=(
   hadolint
   sc1090
   arg_user
+  nounset_source
 )

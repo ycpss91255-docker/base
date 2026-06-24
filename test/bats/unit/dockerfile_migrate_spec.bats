@@ -398,3 +398,63 @@ EOF
   run bash -c "$(_src); _migrate_arg_user_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 8 (#579 facet B): entrypoint nounset-guard the ROS source ─────
+# Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
+# unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
+# `just run` fails (CI never catches it — smoke runs at build time, never
+# starts the container). Bracket the source with `set +u` / `set -u` so the
+# unbound vars inside setup.bash do not abort the entrypoint.
+
+@test "migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "$@"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  # The source line is now wrapped: set +u immediately before, set -u after.
+  run grep -n -E 'set \+u|setup\.bash|set -u' "${TEMP_DIR}/script/entrypoint.sh"
+  assert_output --partial "set +u"
+  # Ordering: +u line precedes the source, -u line follows it.
+  local plus src minus
+  plus="$(grep -n '^set +u' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  src="$(grep -n 'setup.bash' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  minus="$(grep -n '^set -u' "${TEMP_DIR}/script/entrypoint.sh" | tail -1 | cut -d: -f1)"
+  [ "${plus}" -lt "${src}" ]
+  [ "${minus}" -gt "${src}" ]
+}
+
+@test "migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+set +u
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+set -u
+exec "$@"
+EOF
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+@test "migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
