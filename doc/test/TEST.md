@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1889 tests** total (1804 unit + 85 integration).
+Template self-tests: **1915 tests** total (1830 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -828,7 +828,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/justfile_user_spec.bats (13)
+### test/unit/justfile_user_spec.bats (18)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -851,6 +851,11 @@ guard + the release smoke check).
 | `just base init forwards to .base/init.sh` | #653 -- base ns init dispatch |
 | `just base completions forwards to script/base/completions.sh` | #653 -- opt-in completions installer dispatch |
 | `bare just lists namespaces` | replaces `make help`; lists `docker`/`base`/... |
+| `bare just docker lists the docker verbs` | #655 -- namespace help via module default (source_file() --list) |
+| `bare just base lists the base verbs` | #655 -- namespace help via module default |
+| `just docker build --help forwards --help to the backing script` | #655 -- recipe `--help` reaches the script as an arg |
+| `just docker build --lang ja forwards --lang to the backing script` | #655 -- recipe `--lang` forwarded |
+| `just base completions --lang forwards --lang to completions.sh` | #655 -- base ns recipe `--lang` forwarded |
 | `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
 | `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help` | #633 -- module default recipe |
@@ -873,7 +878,7 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh rejects an invalid group name` | name validation |
 | `new.sh errors with usage when no name given` | arg guard |
 
-### test/unit/justfile_spec.bats (9)
+### test/unit/justfile_spec.bats (11)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -893,6 +898,41 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | `docker module owns a default recipe + pins cwd to repo root` | #652 -- mod default + `set working-directory := '../..'` |
 | `entry mods the docker namespace + default recipe lists recipes` | #652 -- `mod? docker` + `default: @just --list` |
 | `entry mods the base namespace` | #652 -- `mod? base` |
+| `test / release namespaces own a default recipe (bare-namespace help)` | #655 -- bare `just test` / `just release` |
+| `test / release namespaces are English-only -- no --lang plumbing` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
+
+### test/unit/help_lang_spec.bats (19)
+
+--help / --lang coverage across the recipe-backing scripts (#655,
+ADR-00000011 §6). Runs each script directly (no `just`): asserts the
+English-baseline usage on `-h`/`--help` (exit 0); the human-facing base /
+template scripts (init / upgrade / completions / new) accept `--lang <code>`
+and honor `SETUP_LANG`/`$LANG` via i18n.sh (validated, non-fatal fallback on a
+bad value); and the machine/CI `test` namespace stays English-only (rejects
+`--lang`). Namespace-level bare help + the `just`-driven forwarding live in
+justfile_user_spec.bats.
+
+| Test | Description |
+|------|-------------|
+| `test.sh --help exits 0 and prints usage` | English baseline usage |
+| `test.sh -h exits 0 and prints usage` | short flag |
+| `init.sh --help exits 0 and prints usage` | base ns usage |
+| `upgrade.sh --help exits 0 and prints usage` | base ns usage |
+| `completions.sh --help exits 0 and prints usage` | base ns usage |
+| `completions.sh -h exits 0 and prints usage` | short flag |
+| `new.sh --help exits 0 and prints usage` | #655 -- new.sh gained -h/--help |
+| `new.sh -h exits 0 and prints usage` | short flag |
+| `init.sh --help advertises --lang` | i18n namespace |
+| `upgrade.sh --help advertises --lang` | i18n namespace |
+| `completions.sh --help advertises --lang` | i18n namespace |
+| `new.sh --help advertises --lang` | i18n namespace |
+| `init.sh accepts a valid --lang without error` | flag stripped before dispatch |
+| `upgrade.sh accepts a valid --lang without error` | flag stripped before dispatch |
+| `completions.sh accepts a valid --lang without error` | flag accepted |
+| `new.sh accepts a valid --lang and still scaffolds` | flag + positional name |
+| `init.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
+| `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
+| `test.sh rejects --lang (test namespace is English-only)` | machine/CI namespace, no i18n |
 
 ### test/unit/completions_spec.bats (11)
 

@@ -38,6 +38,9 @@ setup() {
 
   # `template` namespace (#633): the entry mod?s script/template/justfile.template.
   mkdir -p "${TMP_REPO}/.base/downstream/script/template/skel" "${TMP_REPO}/script/template"
+  # new.sh sources ../docker/lib/i18n.sh for --lang (#655); mirror it.
+  mkdir -p "${TMP_REPO}/.base/downstream/script/docker/lib"
+  cp /source/downstream/script/docker/lib/i18n.sh "${TMP_REPO}/.base/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/template/justfile.template "${TMP_REPO}/.base/downstream/script/template/justfile.template"
   cp /source/downstream/script/template/new.sh "${TMP_REPO}/.base/downstream/script/template/new.sh"
   cp /source/downstream/script/template/skel/justfile.skel "${TMP_REPO}/.base/downstream/script/template/skel/justfile.skel"
@@ -165,6 +168,40 @@ teardown() {
   # docker verbs now live under the `docker` namespace (ADR-00000011), so the
   # entry lists `docker ...` rather than top-level build/run.
   assert_output --partial "docker"
+}
+
+# ── #655: namespace bare help + recipe --help/--lang forwarding ───────────────
+
+@test "bare just docker lists the docker verbs (namespace help, #655)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker
+  assert_success
+  assert_output --partial "build"
+}
+
+@test "bare just base lists the base verbs (namespace help, #655)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base
+  assert_success
+  assert_output --partial "upgrade"
+}
+
+@test "just docker build --help forwards --help to the backing script (#655)" {
+  # The docker recipe is `build *args:` -> ./script/build.sh {{args}}, so
+  # --help reaches the script as an arg (just 1.52 forwards recipe flags).
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build --help
+  assert_success
+  assert_output --partial "build --help"
+}
+
+@test "just docker build --lang ja forwards --lang to the backing script (#655)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build --lang ja
+  assert_success
+  assert_output --partial "build --lang ja"
+}
+
+@test "just base completions --lang forwards --lang to completions.sh (#655)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base completions install --lang zh-TW
+  assert_success
+  assert_output --partial "completions install --lang zh-TW"
 }
 
 @test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {

@@ -15,10 +15,14 @@ setup() {
   # Mirror the shipped template tree so new.sh resolves skel/ relative to
   # itself, then run it with the sandbox as cwd (the [no-cd] recipe's cwd
   # is the repo root in production).
-  mkdir -p "${SANDBOX}/script/template/skel" "${SANDBOX}/script/local"
+  mkdir -p "${SANDBOX}/script/template/skel" "${SANDBOX}/script/local" \
+           "${SANDBOX}/script/docker/lib"
   cp /source/downstream/script/template/new.sh "${SANDBOX}/script/template/new.sh"
   cp /source/downstream/script/template/skel/justfile.skel "${SANDBOX}/script/template/skel/justfile.skel"
   cp /source/downstream/script/template/skel/skel.sh "${SANDBOX}/script/template/skel/skel.sh"
+  # new.sh sources ../docker/lib/i18n.sh for --lang (#655); mirror it so the
+  # source resolves relative to the copied new.sh.
+  cp /source/downstream/script/docker/lib/i18n.sh "${SANDBOX}/script/docker/lib/i18n.sh"
   chmod +x "${SANDBOX}/script/template/new.sh"
 }
 

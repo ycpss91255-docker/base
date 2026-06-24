@@ -194,6 +194,8 @@ teardown() {
   assert_output --partial "upgrade.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
   assert_output --partial "config/shell/tmux/setup.sh"
+  # #655: the base namespace scripts (completions.sh) are shellchecked too.
+  assert_output --partial "downstream/script/base"
 }
 
 @test "_run_shellcheck: picks up every .sh file in script/docker/" {

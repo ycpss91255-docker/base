@@ -163,6 +163,7 @@ _run_shellcheck() {
   find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/downstream/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
 
   # local==CI parity (#565): the consumer Dockerfile devel-test stage lints
   # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x,

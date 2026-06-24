@@ -19,6 +19,17 @@
 
 set -euo pipefail
 
+# i18n.sh provides _resolve_lang / _sanitize_lang (#655). completions.sh is
+# a human-facing `base` namespace recipe, so it accepts --lang and honors
+# SETUP_LANG/$LANG like the docker wrappers, even though its diagnostics are
+# English-only pending the localized pass (#656). Located relative to this
+# script's real path so it resolves through the consumer symlink into
+# .base/downstream/script/base/completions.sh.
+_completions_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+# shellcheck source=downstream/script/docker/lib/i18n.sh
+source "$(dirname -- "${_completions_self}")/../docker/lib/i18n.sh"
+unset _completions_self
+
 # ── messaging ───────────────────────────────────────────────────────────────
 # Diagnostics go to stderr; the zsh fpath hint (something the user may want to
 # capture/eval) goes to stdout.
@@ -42,6 +53,8 @@ into the shell's standard auto-load directory; never edits a shell rc.
   uninstall   remove the completion loader for the selected shell(s)
 
   --shell     bash | zsh | fish | all  (default: detect from $SHELL)
+  --lang      en | zh-TW | zh-CN | ja  (default: auto-detect from
+              SETUP_LANG / $LANG)
   -h, --help  show this help
 EOF
 }
@@ -163,6 +176,8 @@ _do() {
 
 main() {
   local action="" shell=""
+  local _LANG
+  _resolve_lang _LANG
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -173,6 +188,11 @@ main() {
       --shell)
         shell="${2:-}"
         shift 2 || true
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "completions"
+        shift 2
         ;;
       -h | --help)
         _usage

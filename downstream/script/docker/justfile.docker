@@ -29,9 +29,13 @@
 # (verified), so build.sh & friends run from there.
 set working-directory := '../..'
 
+# source_file() (not justfile()) is this module's own file: inside a mod?'d
+# module justfile() resolves to the ROOT entry, so listing it would show the
+# entry's namespaces instead of the docker verbs (#655). source_file() pins
+# --list to THIS module.
 # just docker -> list the docker verbs
 default:
-    @just --justfile '{{justfile()}}' --list
+    @just --justfile '{{source_file()}}' --list
 
 # Build devel image (e.g. just docker build test  |  just docker build --no-cache)
 build *args:

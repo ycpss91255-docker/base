@@ -107,3 +107,21 @@ setup() {
   run grep -F 'just --list' "${ENTRY}"
   assert_success
 }
+
+@test "test / release namespaces own a default recipe (bare-namespace help, #655)" {
+  # Every namespace must respond to a bare invocation (`just test` /
+  # `just release`) with its English-baseline help -- the `default` recipe.
+  run grep -E '^default:' /source/script/test/justfile.test
+  assert_success
+  run grep -E '^default:' /source/script/release/justfile.release
+  assert_success
+}
+
+@test "test / release namespaces are English-only -- no --lang plumbing (#655)" {
+  # ADR-00000011 i18n scope: test / release are machine/CI namespaces, so
+  # they ship no --lang flag (only docker / base / template are localised).
+  run grep -F -- '--lang' /source/script/test/justfile.test
+  assert_failure
+  run grep -F -- '--lang' /source/script/release/justfile.release
+  assert_failure
+}
