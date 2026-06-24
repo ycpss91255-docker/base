@@ -594,15 +594,32 @@ ${_stop}"
       return "$(_normalize_interactive_rc "${_rc}")"
     fi
   else
-    # Other one-shot stages (runtime, test, ...): unified to `compose up`
-    # so the container_name: directive (#215, #322, #335) takes effect.
-    # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
-    # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
+    # Other one-shot stages (runtime, test, ...). Empty CMD_ARGS →
+    # foreground `up`, so the container_name: directive (#215, #322, #335)
+    # takes effect and the Dockerfile CMD runs (#458).
+    #
+    # Non-empty CMD_ARGS → `compose run --rm`, NOT the pre-#679 `up -d` +
+    # `exec` pair (#679). For a one-shot app target whose ENTRYPOINT sets
+    # up the environment (e.g. ROS sourcing) and whose default CMD *is* the
+    # app, `up -d` + `exec` was wrong twice over:
+    #   1. `compose exec` bypasses the ENTRYPOINT (same root cause as the
+    #      interactive-exec gap #88 / #657) → the env the entrypoint
+    #      provides (e.g. ROS on PATH) is absent → `exec: ros2: not found`.
+    #   2. `up -d` already started the default CMD as PID 1, so the exec'd
+    #      command ran *alongside* it (double-launch / device contention)
+    #      instead of replacing it.
+    # `compose run --rm` runs the ENTRYPOINT (env set up) and REPLACES the
+    # default CMD (no double-launch) — the correct override semantics.
+    #
+    # Container-name note: `compose run` ignores `container_name:` and
+    # appends a `-run-<hash>` suffix (the #458 concern). That is acceptable
+    # here: the override container is ephemeral (`--rm`), foreground, and
+    # nobody re-attaches to it by name, so a stable name buys nothing. The
+    # stable-name path (devel join via `up -d` + `exec`) is unchanged.
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting (#580).
-      _compose_project up -d "${TARGET}"
-      _transcript_detach  # #608: detach before the interactive exec
-      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+      _transcript_detach  # #608: detach before the foreground override run
+      _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
     else
       # Foreground service: a clean Ctrl-C stop ($?=130) is not a failure;
       # normalize it (and 0) to 0 (#580).

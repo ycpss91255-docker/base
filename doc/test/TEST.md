@@ -753,7 +753,15 @@ don't collide; positional CMD also stops parsing; usage documents
 the no-CMD foreground paths -- devel attached shell and one-shot stage
 `compose up` -- so a Ctrl-C-cleared line carried out on exit isn't a
 recipe failure, while a genuine non-clean code like 127 still
-propagates and command mode `just run <cmd>` keeps the real exit code).
+propagates and command mode `just run <cmd>` keeps the real exit code),
+and **#679 non-`devel` CMD-override dispatch** (a non-`devel` one-shot
+target WITH a CMD dispatches `compose run --rm <SERVICE> <CMD…>` so the
+ENTRYPOINT runs and the override replaces the default CMD — NOT the
+pre-#679 `up -d` + `exec` pair that bypassed the ENTRYPOINT and
+double-launched the default CMD; the #679 repro shape `-t runtime ros2
+launch …` is asserted; `devel` + CMD still uses `up -d` + `exec`; the
+no-CMD paths are unchanged; #580 exit-code propagation rides the `run`
+path for non-`devel` command mode).
 
 ### test/bats/unit/exec_sh_spec.bats (52)
 
@@ -1259,7 +1267,7 @@ the host file content and the inherited stdout (preserving
 | `run.sh devel branch uses compose exec to enter shell` | up + exec model |
 | `run.sh devel branch installs trap to auto-down on exit` | Auto cleanup |
 | `run.sh _devel_cleanup uses short timeout to avoid 10s grace period` | Fast exit |
-| `run.sh non-devel TARGET still uses compose run --rm` | One-shot stages |
+| `run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)` | One-shot stages: no-CMD up, CMD run --rm |
 | `run.sh devel branch does not use 'compose run --name'` | Old pattern gone |
 | `run.sh refuses when the default container is already running` | collision |
 | `base is single-instance: no --instance flag remains (#600)` | single-instance (no flag) |

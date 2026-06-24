@@ -298,12 +298,16 @@ setup() {
 # wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
 # of grepping the `_app_cleanup` identifier (renamed in #440).
 
-@test "run.sh non-devel TARGET uses compose up (#458)" {
-  # #458: non-devel stages unified to `compose up` so container_name takes
-  # effect. Previously `run --rm` bypassed it with random hash names.
-  run grep -E 'compose run --rm' /source/downstream/script/docker/wrapper/run.sh
-  assert_failure
+@test "run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)" {
+  # #458: non-devel + no CMD uses foreground `compose up` so container_name
+  # takes effect (Dockerfile CMD runs).
   run grep -E 'up "?\$\{TARGET\}"?' /source/downstream/script/docker/wrapper/run.sh
+  assert_success
+  # #679: non-devel + CMD uses `compose run --rm` so the ENTRYPOINT runs
+  # (env/ROS sourced) and the override REPLACES the default CMD. The
+  # pre-#679 `up -d` + `exec` pair bypassed the ENTRYPOINT and
+  # double-launched the default CMD.
+  run grep -E '_compose_project run --rm "\$\{TARGET\}"' /source/downstream/script/docker/wrapper/run.sh
   assert_success
 }
 
