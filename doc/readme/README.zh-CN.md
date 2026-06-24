@@ -31,13 +31,13 @@
 ## TL;DR
 
 ```bash
-# 从零开始的新 repo：init + 首个 commit + subtree + init.sh
+# 从零开始的新 repo：首个 commit + subtree + 一次性 bootstrap
 mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/init.sh
+./.base/downstream/script/base/init.sh
 
 # 升级到最新版
 just base update   # 检查
@@ -68,7 +68,7 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
   完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
-  `./.base/upgrade.sh`）-- 见[快速开始](#快速开始)。
+  `./.base/downstream/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 
 ## 概述
 
@@ -79,22 +79,22 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 ```mermaid
 graph TB
     subgraph base["base（共用 repo）"]
-        scripts[".hadolint.yaml / script/test/justfile.test / compose.yaml"]
-        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
-        config["config/<br/>bashrc / tmux / terminator"]
+        scripts["downstream/.hadolint.yaml<br/>downstream/script/justfile（consumer entry）<br/>downstream/script/docker|base|template/"]
+        smoke["downstream/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["downstream/config/<br/>bashrc / tmux / terminator"]
         mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["justfile → .base/script/docker/justfile<br/>build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
-        dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh"]
+        symlinks["justfile → script/justfile → .base/downstream/script/justfile<br/>script/docker|base|template/ → .base/downstream/script/.../（per-sub symlinks）<br/>script/build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 自有）"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
     end
 
     base -- "git subtree" --> consumer
-    scripts -. "symlink" .-> symlinks
+    scripts -. "per-sub symlink" .-> symlinks
     smoke -. "Dockerfile COPY" .-> repo_test
     workflows -. "@tag 引用" .-> main_yaml
 ```
@@ -104,14 +104,14 @@ graph TB
 ```mermaid
 flowchart LR
     subgraph local["本地"]
-        build_test["./build.sh test"]
-        make_test["just docker build test"]
+        just_test["just test"]
+        just_build["just docker build --stage test-tools"]
     end
 
     subgraph ci_container["CI 容器（ghcr.io/ycpss91255-docker/test-tools:latest）"]
         shellcheck["ShellCheck"]
-        hadolint["Hadolint"]
-        bats["Bats smoke tests"]
+        hadolint["Hadolint（just test lint）"]
+        bats["Bats specs"]
     end
 
     subgraph github["GitHub Actions"]
@@ -119,12 +119,12 @@ flowchart LR
         release_worker["release-worker.yaml<br/>（来自 base）"]
     end
 
-    build_test --> ci_container
-    make_test -->|"script/test/test.sh"| ci_container
+    just_build --> ci_container
+    just_test -->|"script/test/test.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
-    build_worker -->|"docker build test"| ci_container
+    build_worker -->|"docker build（devel-test stage）"| ci_container
     tag["git tag v*"] --> release_worker
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
@@ -156,20 +156,31 @@ flowchart LR
 | `downstream/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
 | `downstream/script/docker/runtime/logging.sh` | host 端 log tee helper |
 | `downstream/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
-| `script/test/test.sh` | CI orchestration（本地 + 远端） |
+| `script/test/test.sh` | base 自测调度器（本地 + container 内） |
+| `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
-| `script/test/lint_mixed_test_layout.sh` | 混合工具测试布局验证器 |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator） |
 | `setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
-| `test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
-| `test/unit/` | Template 自身测试（bats + kcov） |
-| `test/integration/` | Level-1 `init.sh` 集成测试 |
-| `test/behavioural/` | Runtime 集成测试 |
+| `downstream/test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
+| `test/bats/unit/` | base 自测，unit（bats + kcov） |
+| `test/bats/integration/` | base 自测，init/upgrade 端到端 |
+| `test/bats/behavioural/` | base 自测，runtime 行为（opt-in） |
+
+测试内容采用 **tool-first** 布局 — spec 放 `test/<tool>/<category>/`
+（如 `test/bats/unit/`），linter 放 `test/lint/<tool>/` — 加一个工具就
+是新增一个目录，而不是新增一个命令面。见
+[ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
+的 ADR-00000004）。consumer 出货自己的 `test/smoke/`；base 出货自己的
+`test/bats/{unit,integration,behavioural}/`。
+
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
-| `justfile` | Repo 命令入口（`just docker build`、`just docker run`、`just docker stop` 等）。各 verb 是 just recipe，参数透过 `{{args}}` 透传：sub-cmd 与 flag 都直接附在后面，不需要 `--` 分隔符（`just docker build --no-cache test`）。`just` 无参列出所有 recipe。 |
-| `script/test/justfile.test` | Template CI 命令入口（`just test`、`just test lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
-| `init.sh` | 首次初始化 symlinks + 新 repo 骨架生成 |
-| `upgrade.sh` | Subtree 版本升级 |
+| `justfile`（→ `script/justfile`） | Repo 命令入口 — 分层 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。sub-cmd 与 flag 透过 `{{args}}` 直接透传（`just docker build --no-cache --stage test-tools`）；裸 `just` 列出所有 namespace。 |
+| `downstream/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
+| `downstream/script/base/justfile.base` | `base` namespace — 管理 `.base` subtree（`just base init/update/upgrade/completions`）。 |
+| `downstream/script/base/init.sh` | 首次初始化 symlinks + 新 repo 骨架生成（bootstrap：`./.base/downstream/script/base/init.sh`；之后用 `just base init`）。 |
+| `downstream/script/base/upgrade.sh` | Subtree 版本升级（`just base upgrade [vX.Y.Z]`）。 |
+| `script/test/justfile.test` | base 自测入口（`just test`、`just test lint`、`just test coverage` …）。 |
+| `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
 | `downstream/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -356,7 +367,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
-Template default 在 `.base/setup.conf`；per-repo 覆盖放 `<repo>/setup.conf`。
+Template default 在 `.base/downstream/config/docker/setup.conf`；per-repo 覆盖放 `<repo>/config/docker/setup.conf`。
 Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
 template；没写的 section 则吃 template 默认。
 
@@ -368,7 +379,7 @@ template；没写的 section 则吃 template 默认。
 ./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
 ./setup_tui.sh volumes              # 直接跳到指定 section
 ./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
-./.base/init.sh --gen-conf # 单纯复制 .base/setup.conf 到 repo 根目录
+./.base/downstream/script/base/init.sh --gen-conf # 单纯复制 .base/downstream/config/docker/setup.conf 到 <repo>/config/docker/setup.conf
 ```
 
 ### 输出 log 到 host
@@ -431,8 +442,8 @@ Main
 
 `setup.sh` 仅在显式触发时才执行 — 并不会在每次 build / run 都重跑：
 
-- **`./.base/init.sh`** 建完骨架自动运行一次
-- **`just base upgrade` / `./.base/upgrade.sh`** subtree pull 后通过 init.sh
+- **`just base init` / `./.base/downstream/script/base/init.sh`** 建完骨架自动运行一次
+- **`just base upgrade` / `./.base/downstream/script/base/upgrade.sh`** subtree pull 后通过 init.sh
   再跑一次，所以升级总是会用新版 baseline 重新生成 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 用户手动触发重跑；
   有 TTY 时先启动 `setup_tui.sh` 让用户修改 `setup.conf`，无 TTY 时直接调用 `setup.sh`
@@ -664,8 +675,9 @@ git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
 
-# 3. 初始化 symlinks（一个命令搞定）
-./.base/init.sh
+# 3. 初始化 symlinks（一次性 bootstrap；底层会跑 setup.sh）。
+#    之后改用 `just base init`（symlink 后的入口）。
+./.base/downstream/script/base/init.sh
 ```
 
 > `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
@@ -690,16 +702,16 @@ just base upgrade v0.3.0
 # 行手改 .base/.version。
 
 # 没有 just 时的 fallback
-./.base/upgrade.sh v0.3.0
+./.base/downstream/script/base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` 一次完成：
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 完整性检查 — subtree marker（`.base/.version`、
-   `.base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）若不见了会
+   `.base/downstream/script/base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）若不见了会
    `git reset --hard` rollback（防旧版 `git-subtree.sh` destructive FF）
-3. `./.base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
+3. `./.base/downstream/script/base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、
    `git rm --cached` 已经变成 derived artifact 的旧 tracked 文件（`.env`、
    `compose.yaml`、…），最后调用 `setup.sh apply` 重新生成 `.env` +
@@ -773,7 +785,7 @@ jobs:
 
 ## 本地运行测试
 
-使用 `script/test/justfile.test`（在 template 根目录）：
+base 自测入口 `just test`：
 ```bash
 just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
 just test lint        # 只运行 ShellCheck
@@ -795,143 +807,80 @@ just --list        # 显示 CI 命令
 ## 目录结构
 
 ```
-.base/
-├── init.sh                           # 初始化 repo（新建或既有）
-├── upgrade.sh                        # 升级 template subtree 版本
-├── script/
-│   ├── docker/                       # Docker 操作脚本
-│   │   ├── wrapper/                  # 面向用户的 wrapper 脚本
-│   │   │   ├── build.sh
-│   │   │   ├── run.sh
-│   │   │   ├── exec.sh
-│   │   │   ├── stop.sh
-│   │   │   ├── prune.sh
-│   │   │   ├── setup.sh              # .env 生成器
-│   │   │   └── setup_tui.sh          # 交互式 setup 编辑器
-│   │   ├── lib/                      # 共用 helper 模块
-│   │   │   ├── _lib.sh               # 核心 wrapper 库
-│   │   │   ├── bootstrap.sh          # wrapper 初始化
-│   │   │   ├── compose.sh            # Compose 生成
-│   │   │   ├── conf.sh               # INI 解析器
-│   │   │   ├── conf_logging.sh       # Logging 配置
-│   │   │   ├── env.sh                # 环境设置
-│   │   │   ├── gitignore.sh          # Gitignore 管理
-│   │   │   ├── hook.sh               # 每个 wrapper 的 hook
-│   │   │   ├── i18n.sh               # 语言检测
-│   │   │   ├── log.sh                # 日志 helper
-│   │   │   ├── config_summary.sh     # 配置摘要
-│   │   │   ├── _tui_backend.sh       # TUI dialog/whiptail 包装
-│   │   │   ├── _tui_conf.sh          # TUI INI validators
-│   │   │   ├── log-events.txt        # Log 事件目录
-│   │   │   └── log.lnav-format.json  # Lnav 格式定义
-│   │   ├── runtime/                  # Container 内 runtime 脚本
-│   │   │   ├── entrypoint.sh         # Template entrypoint helper
-│   │   │   ├── logging.sh            # host 端 log tee helper
-│   │   │   └── smoke.sh              # Runtime 安装检查 smoke
-│   │   ├── justfile                  # Docker 操作入口（just）
-│   │   └── setup.conf                # Template runtime 配置默认
-│   └── ci/                           # CI pipeline 脚本
-│       ├── test.sh                     # CI orchestration（本地 + 远端）
-│       ├── lint_bare_stderr.sh       # Bare stderr lint 检查器
-│       └── lint_mixed_test_layout.sh # 混合工具测试布局验证器
-├── dockerfile/
-│   ├── Dockerfile            # 多阶段模板（sys / devel-base / devel / devel-test / [runtime-base / runtime / runtime-test]）
-│   └── Dockerfile.test-tools         # 预构建 lint/test 工具 image
-├── config/                           # Container 内部 shell / 工具配置
-│   ├── docker/
-│   │   └── setup.conf                # Runtime 配置（per-repo override mirror: <repo>/config/docker/setup.conf）
-│   └── shell/
-│       ├── bashrc
-│       ├── bashrc.d/                 # 交互式 shell bootstrap drop-ins
-│       │   └── .gitkeep
-│       ├── terminator/
-│       │   ├── setup.sh
-│       │   └── config
-│       └── tmux/
-│           ├── setup.sh
-│           ├── README.adoc
-│           └── tmux.conf
-├── test/
-│   ├── smoke/                        # 共用 smoke 测试 + runtime assertion helpers
-│   │   ├── test_helper.bash          # assert_cmd_installed / _runs / file / dir / owned_by / pip_pkg
-│   │   ├── script_help.bats
-│   │   └── display_env.bats
-│   ├── unit/                         # Template 自身测试（bats + kcov）
-│   │   ├── test_helper.bash
-│   │   ├── bashrc_spec.bats
-│   │   ├── build_sh_spec.bats
-│   │   ├── build_sh_prune_spec.bats
-│   │   ├── build_worker_yaml_spec.bats
-│   │   ├── ci_spec.bats
-│   │   ├── compose_gen_spec.bats
-│   │   ├── compose_logging_spec.bats
-│   │   ├── compose_overlay_spec.bats
-│   │   ├── conf_logging_spec.bats
-│   │   ├── deploy_spec.bats
-│   │   ├── entrypoint_logging_spec.bats
-│   │   ├── exec_sh_spec.bats
-│   │   ├── gitignore_spec.bats
-│   │   ├── hook_spec.bats
-│   │   ├── init_spec.bats
-│   │   ├── lib_spec.bats
-│   │   ├── lint_mixed_test_layout_spec.bats
-│   │   ├── log_spec.bats
-│   │   ├── makefile_user_spec.bats
-│   │   ├── multi_distro_build_worker_yaml_spec.bats
-│   │   ├── prune_sh_spec.bats
-│   │   ├── release_test_tools_yaml_spec.bats
-│   │   ├── run_sh_spec.bats
-│   │   ├── runtime_smoke_spec.bats
-│   │   ├── self_test_yaml_spec.bats
-│   │   ├── setup_spec.bats
-│   │   ├── smoke_helper_spec.bats
-│   │   ├── stop_sh_spec.bats
-│   │   ├── template_spec.bats
-│   │   ├── terminator_config_spec.bats
-│   │   ├── terminator_setup_spec.bats
-│   │   ├── tmux_conf_spec.bats
-│   │   ├── tmux_setup_spec.bats
-│   │   ├── tui_backend_spec.bats
-│   │   ├── tui_flow.bats
-│   │   ├── tui_mount_assembler_spec.bats
-│   │   ├── tui_spec.bats
-│   │   ├── upgrade_spec.bats
-│   │   └── wrapper_lib_lookup_spec.bats
-│   ├── integration/                  # Level-1 init.sh 端到端测试
-│   │   ├── init_new_repo_spec.bats
-│   │   ├── upgrade_spec.bats
-│   │   ├── fresh_clone_portability_spec.bats
-│   │   ├── gitignore_sync_spec.bats
-│   │   └── wrapper_compose_dispatch_spec.bats
-│   └── behavioural/                  # Runtime 集成测试
-│       └── runtime_test_smoke_spec.bats
-├── script/test/justfile.test                       # Template CI 入口（just test/lint/...）
-├── compose.yaml                      # Docker CI 运行器
-├── .hadolint.yaml                    # 共用 Hadolint 规则
-├── .dockerignore
-├── codecov.yml
-├── .github/workflows/
-│   ├── self-test.yaml                # Template CI
-│   ├── build-worker.yaml             # 可重用 build + smoke-test workflow
-│   ├── release-worker.yaml           # 可重用 release（source archive）workflow
-│   ├── publish-worker.yaml           # 可重用 image publish workflow（opt-in）
-│   ├── multi-distro-build-worker.yaml # Multi-distro build workflow
-│   └── release-test-tools.yaml       # Template 自身的 test-tools image release
-├── doc/
-│   ├── readme/                       # README 翻译
-│   │   ├── README.zh-TW.md
-│   │   ├── README.zh-CN.md
-│   │   └── README.ja.md
-│   ├── adr/                          # Architecture Decision Records
-│   │   ├── 00000001-setup-conf-vs-compose.md
-│   │   ├── 00000002-no-latest-tag.md
-│   │   ├── 00000003-env-vs-workload-param-boundary.md
-│   │   └── 00000004-test-category-tool-subdir-layout.md
+.base/                                  # subtree 固定在 consumer 的 <repo>/.base/
+├── .version                            # 锁定的 base release tag
+├── justfile                            # base 自身的自测/release 入口（mods test + release）
+├── compose.yaml                        # base CI runner（test-tools services）
+├── .dockerignore                       # canonical ignore set（同步进 consumers）
+├── .codecov.yaml                       # 覆盖率上传配置
+├── downstream/                         # 出货的工具 + 内容（单一来源）
+│   ├── .hadolint.yaml                  # 共用 Hadolint 规则（symlink 进 consumers）
+│   ├── dockerfile/
+│   │   └── Dockerfile                  # 新 repo 的多阶段 Dockerfile 模板
+│   ├── config/                         # Container 内部 shell/工具配置
+│   │   ├── docker/
+│   │   │   └── setup.conf              # Template runtime 配置默认
+│   │   └── shell/
+│   │       ├── bashrc
+│   │       ├── bashrc.d/               # 交互式 shell bootstrap drop-ins
+│   │       ├── terminator/             # setup.sh + config
+│   │       └── tmux/                   # setup.sh + tmux.conf + README.adoc
+│   ├── script/                         # 通用工具（consumers 逐 sub symlink）
+│   │   ├── justfile                    # Consumer 容器操作入口（mods docker/base/template）
+│   │   ├── docker/                     # `docker` namespace
+│   │   │   ├── justfile.docker         # just docker build/run/exec/stop/prune/setup/setup-tui
+│   │   │   ├── wrapper/                # build.sh / run.sh / exec.sh / stop.sh / prune.sh
+│   │   │   │                           #   / setup.sh / setup_tui.sh
+│   │   │   ├── lib/                    # 共用 helper 模块（_lib / compose / conf / log
+│   │   │   │                           #   / i18n / hook / wrapper / schema / transcript / ...）
+│   │   │   └── runtime/                # Container 内：entrypoint.sh / logging.sh / smoke.sh
+│   │   ├── base/                       # `base` namespace（管理 .base subtree）
+│   │   │   ├── justfile.base           # just base init/update/upgrade/completions
+│   │   │   ├── init.sh                 # 首次 bootstrap + symlink/.gitignore resync
+│   │   │   ├── upgrade.sh              # Subtree 版本升级（向上找到 .base root）
+│   │   │   └── completions.sh          # opt-in shell tab-completion installer
+│   │   └── template/                   # `template` namespace（scaffold repo-local groups）
+│   │       ├── justfile.template       # just template new <name>
+│   │       ├── new.sh
+│   │       └── skel/                   # justfile.skel + skel.sh
+│   └── test/
+│       └── smoke/                      # 共用 smoke 测试 + runtime assertion helpers
+│           ├── test_helper.bash        #   assert_cmd_installed / _runs / file / dir / ...
+│           ├── script_help.bats
+│           └── display_env.bats
+├── script/                             # base 自身的自测/release 工具（不 symlink）
 │   ├── test/
-│   │   └── TEST.md                   # 测试清单与 spec 表
+│   │   ├── justfile.test               # just test / lint / coverage / behavioural
+│   │   ├── test.sh                     # 调度器（本地 + container 内）
+│   │   ├── lint_bare_stderr.sh
+│   │   └── drivers/                    # 每个工具一个 driver：bats.sh / shellcheck.sh / hadolint.sh
+│   └── release/
+│       └── justfile.release            # just release <recipe>
+├── dockerfile/
+│   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
+├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）
+│   └── bats/
+│       ├── unit/                       # 58 个 unit spec + test_helper.bash（bats + kcov）
+│       ├── integration/                # init/upgrade 端到端（5 个 spec）
+│       └── behavioural/                # Runtime 行为（opt-in；runtime_test_smoke_spec.bats）
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       ├── self-test.yaml              # base CI（ShellCheck + Bats + Kcov 覆盖率 gate）
+│       ├── build-worker.yaml           # 可重用 build + smoke-test workflow
+│       ├── release-worker.yaml         # 可重用 release（source archive）workflow
+│       ├── publish-worker.yaml         # 可重用 image publish workflow（opt-in）
+│       ├── multi-distro-build-worker.yaml # Multi-distro build workflow
+│       └── release-test-tools.yaml     # base 自身的 test-tools image release
+├── doc/
+│   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
+│   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
+│   ├── test/
+│   │   └── TEST.md                     # 测试清单与 spec 表
 │   ├── changelog/
-│   │   └── CHANGELOG.md              # 发布记录
+│   │   └── CHANGELOG.md
 │   └── deprecations.md
+├── CONTEXT.md
 ├── .gitignore
 ├── LICENSE
 └── README.md
