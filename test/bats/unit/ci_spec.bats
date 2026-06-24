@@ -517,13 +517,18 @@ teardown() {
 # `source` line.
 # ════════════════════════════════════════════════════════════════════
 
-@test "drivers: bats.sh and shellcheck.sh driver files exist" {
+@test "drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist" {
   assert [ -f /source/script/test/drivers/bats.sh ]
   assert [ -f /source/script/test/drivers/shellcheck.sh ]
+  # #650: hadolint joins the per-tool drivers so it runs in BOTH `just
+  # test` and the CI hadolint job (local==CI single source).
+  assert [ -f /source/script/test/drivers/hadolint.sh ]
 }
 
-@test "drivers: test.sh sources both per-tool drivers" {
+@test "drivers: test.sh sources all per-tool drivers" {
   run grep -F 'source "${SCRIPT_DIR}/drivers/shellcheck.sh"' /source/script/test/test.sh
+  assert_success
+  run grep -F 'source "${SCRIPT_DIR}/drivers/hadolint.sh"' /source/script/test/test.sh
   assert_success
   run grep -F 'source "${SCRIPT_DIR}/drivers/bats.sh"' /source/script/test/test.sh
   assert_success
@@ -550,10 +555,19 @@ teardown() {
   assert_failure
 }
 
+@test "drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)" {
+  run grep -E '^_run_hadolint\(\) \{' /source/script/test/drivers/hadolint.sh
+  assert_success
+  run grep -E '^_run_hadolint\(\) \{' /source/script/test/test.sh
+  assert_failure
+}
+
 @test "drivers: are sourced libraries (no top-level main invocation)" {
   run grep -E '^main "\$@"' /source/script/test/drivers/bats.sh
   assert_failure
   run grep -E '^main "\$@"' /source/script/test/drivers/shellcheck.sh
+  assert_failure
+  run grep -E '^main "\$@"' /source/script/test/drivers/hadolint.sh
   assert_failure
 }
 
@@ -569,4 +583,77 @@ teardown() {
   assert_success
   run cat "${_log}"
   assert_output --partial "script/test/drivers"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_hadolint (#650, ADR-00000011)
+#
+# Single source of truth for the Dockerfiles + config the self-test
+# lints. These guards pin the exact file list + config so the driver
+# can't silently drift from the self-test.yaml hadolint job (which now
+# runs THIS driver, not the hadolint-action).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_hadolint: lints both template-owned Dockerfiles with the shared config" {
+  local _log="${BATS_TEST_TMPDIR}/hadolint.log"
+  mock_cmd "hadolint" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_hadolint
+  '
+  assert_success
+
+  assert [ -f "${_log}" ]
+  run cat "${_log}"
+  # Exactly the two Dockerfiles the CI hadolint job linted, with the
+  # downstream/.hadolint.yaml config (single source of truth).
+  assert_output --partial "--config /source/downstream/.hadolint.yaml"
+  assert_output --partial "downstream/dockerfile/Dockerfile"
+  assert_output --partial "dockerfile/Dockerfile.test-tools"
+}
+
+@test "_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)" {
+  local _log="${BATS_TEST_TMPDIR}/hadolint.log"
+  mock_cmd "hadolint" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_hadolint
+  '
+  assert_success
+  # Two Dockerfiles in the list -> exactly two hadolint invocations.
+  run grep -c -- '--config' "${_log}"
+  assert_output '2'
+}
+
+@test "_run_hadolint: dies with a clear message when hadolint is absent" {
+  # The host has no hadolint binary; the driver must fail loudly pointing
+  # at the test-tools container path, not silently no-op.
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_hadolint
+  '
+  assert_failure
+  assert_output --partial "hadolint not in PATH"
+}
+
+@test "_run_hadolint: exits non-zero when hadolint fails on any Dockerfile" {
+  mock_cmd "hadolint" '
+    for _arg in "$@"; do
+      if [[ "${_arg}" == *"Dockerfile.test-tools" ]]; then
+        printf "DL3000 fake violation\n" >&2
+        exit 1
+      fi
+    done
+    exit 0'
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _run_hadolint
+  '
+  assert_failure
 }

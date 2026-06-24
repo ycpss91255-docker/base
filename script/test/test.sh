@@ -2,13 +2,21 @@
 # test.sh - Run CI pipeline (ShellCheck + Bats [+ Kcov])
 #
 # Usage:
-#   ./test.sh                   # Run ShellCheck + Bats (fast dev loop)
+#   ./test.sh                   # Run ShellCheck + Hadolint + Bats (fast dev loop)
 #   ./test.sh --ci              # Run inside CI container (called by compose)
-#   ./test.sh --lint-only       # Run ShellCheck only (via docker compose)
+#   ./test.sh --lint            # Run all linters (ShellCheck + Hadolint) via
+#                             # docker compose (the ci/test-tools image bakes in
+#                             # hadolint). Narrow with --shellcheck / --hadolint
+#                             # (ADR-00000011 #3 min->max)
+#   ./test.sh --lint --shellcheck  # Only ShellCheck, via compose
+#   ./test.sh --lint --hadolint    # Only Hadolint, via compose
 #   ./test.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
 #                             # (used by self-test.yaml's dedicated shellcheck
 #                             # job, #376; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
+#   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
+#                             # (single source of truth for the self-test.yaml
+#                             # hadolint job; #650, ADR-00000011)
 #   ./test.sh --bats-only       # Run Bats only inside compose (skip ShellCheck)
 #                             # (used by self-test.yaml's bats jobs, #376/#377)
 #   ./test.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
@@ -55,6 +63,8 @@ source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 # test/<tool>/ folder; the dispatcher is untouched (#650, ADR-00000011).
 # shellcheck source=script/test/drivers/shellcheck.sh
 source "${SCRIPT_DIR}/drivers/shellcheck.sh"
+# shellcheck source=script/test/drivers/hadolint.sh
+source "${SCRIPT_DIR}/drivers/hadolint.sh"
 # shellcheck source=script/test/drivers/bats.sh
 source "${SCRIPT_DIR}/drivers/bats.sh"
 
@@ -72,11 +82,19 @@ Options:
                           $BATS_ONLY=1 to skip the ShellCheck phase,
                           $BATS_UNIT_SHARD to run only one matrix shard,
                           $BATS_INTEGRATION=1 to run integration only
-  --lint-only             ShellCheck only (via docker compose)
+  --lint                  All linters (ShellCheck + Hadolint) via docker
+                          compose; the ci/test-tools image bakes in hadolint.
+                          Narrow with --shellcheck / --hadolint (#650)
+  --shellcheck            With --lint: run only ShellCheck (still via compose)
+  --hadolint              With --lint: run only Hadolint (still via compose)
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
                           self-test.yaml's dedicated shellcheck job (#376)
+  --hadolint-only         Hadolint only, directly inside the ci container
+                          (hadolint baked into the test-tools image). Single
+                          source of truth for self-test.yaml's hadolint job
+                          (#650)
   --bats-only             Bats only inside compose (skip ShellCheck) (#376)
   --bats-unit-shard N/T   Run unit shard N of T (skip ShellCheck +
                           integration). Used by the bats-unit matrix in
@@ -98,17 +116,20 @@ Options:
                           (push-to-main only, #377)
   -h, --help              Show this help
 
-Default (no flag): ShellCheck + bats via docker compose, no kcov.
-Kcov wraps every bats command and slows the suite 2-5x, so the
+Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
+kcov. Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
 Examples:
-  ./test.sh                       # Fast: ShellCheck + Bats (no kcov)
+  ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
-  ./test.sh --coverage            # Full: ShellCheck + Bats + Kcov
+  ./test.sh --coverage            # Full: ShellCheck + Hadolint + Bats + Kcov
   just test coverage  # Same as above
-  just test lint      # ShellCheck only
+  just test lint      # All linters (ShellCheck + Hadolint)
+  just test lint --shellcheck     # ShellCheck only
+  just test lint --hadolint       # Hadolint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
+  ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
   ./test.sh --bats-integration    # Compose-bats integration only
@@ -194,6 +215,12 @@ _run_via_compose() {
   # bats-unit + bats-integration GHA jobs to the right subset inside
   # the container; empty / 0 keep the local `just test` path
   # unchanged (full unit + integration).
+  #
+  # LINT_ONLY / LINT_TOOL (#650) route `just test lint [--shellcheck |
+  # --hadolint]` to the lint phase only (skip bats) inside the container:
+  # LINT_ONLY=1 runs the linters and returns; LINT_TOOL narrows to one
+  # ('shellcheck' | 'hadolint'), empty = all. hadolint has no host binary,
+  # so even shellcheck-via-lint runs in-container for behaviour parity.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
   docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
@@ -205,6 +232,8 @@ _run_via_compose() {
     -e BATS_INTEGRATION="${BATS_INTEGRATION:-0}" \
     -e BATS_FILE="${BATS_FILE:-}" \
     -e BATS_FILTER="${BATS_FILTER:-}" \
+    -e LINT_ONLY="${LINT_ONLY:-0}" \
+    -e LINT_TOOL="${LINT_TOOL:-}" \
     "${_service}"
 }
 
@@ -215,6 +244,9 @@ main() {
   local behavioural=0
   local bats_only=0
   local shellcheck_only=0
+  local hadolint_only=0
+  local lint=0
+  local lint_tool=""
   local bats_unit_shard=""
   local bats_integration=0
   local bats_path=""
@@ -224,8 +256,11 @@ main() {
     case "$1" in
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
-      --lint-only) mode="lint"; shift ;;
+      --lint) lint=1; shift ;;
+      --shellcheck) lint_tool="shellcheck"; shift ;;
+      --hadolint) lint_tool="hadolint"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
+      --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
       --bats-integration) bats_integration=1; shift ;;
@@ -237,6 +272,14 @@ main() {
     esac
   done
 
+  # --shellcheck / --hadolint are narrowing flags for --lint; reject them
+  # standalone so a typo (`./test.sh --hadolint`, meaning --hadolint-only)
+  # fails loudly instead of silently no-op'ing.
+  if [[ -n "${lint_tool}" && "${lint}" != "1" ]]; then
+    _die ci_lint_tool_without_lint \
+      "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
+  fi
+
   # --shellcheck-only short-circuits before any mode dispatch. It runs
   # the lint phase directly on the host (no compose, no apt-install).
   # Caller is responsible for having the linter binary in PATH — the
@@ -244,6 +287,28 @@ main() {
   # ubuntu-latest, which ships it pre-installed.
   if [[ "${shellcheck_only}" == "1" ]]; then
     _run_shellcheck
+    return 0
+  fi
+
+  # --hadolint-only short-circuits and runs the linter directly here (no
+  # compose), so hadolint must already be in PATH. It is the in-container
+  # primitive: callers run it from INSIDE the ci/test-tools image (which
+  # bakes hadolint in) -- the self-test.yaml hadolint job invokes it via
+  # `_run_via_compose ci`. _run_hadolint _die's with a clear message if the
+  # binary is missing (e.g. invoked on a bare host).
+  if [[ "${hadolint_only}" == "1" ]]; then
+    _run_hadolint
+    return 0
+  fi
+
+  # `--lint` runs the linters through the ci/test-tools container (it bakes
+  # in hadolint, absent on the host). LINT_ONLY=1 tells the in-container
+  # `--ci` path to run only the lint phase; LINT_TOOL narrows to one linter
+  # (empty = all). Even `--lint --shellcheck` runs in-container so its
+  # behaviour matches bare `just test lint`; the dedicated GHA shellcheck
+  # job uses the host-only `--shellcheck-only` path instead (#650).
+  if [[ "${lint}" == "1" ]]; then
+    LINT_ONLY=1 LINT_TOOL="${lint_tool}" _run_via_compose ci 0
     return 0
   fi
 
@@ -292,9 +357,28 @@ main() {
         _fix_permissions
         return 0
       fi
+      # LINT_ONLY (#650): `just test lint [--shellcheck | --hadolint]`
+      # routes here with LINT_ONLY=1; run the requested linter(s) and skip
+      # bats entirely. LINT_TOOL empty = all linters (shellcheck +
+      # hadolint), matching bare `just test lint`. No _install_deps: the
+      # test-tools image already ships both linters.
+      if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+        case "${LINT_TOOL:-}" in
+          shellcheck) _run_shellcheck ;;
+          hadolint)   _run_hadolint ;;
+          "")         _run_shellcheck; _run_hadolint ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | empty)." ;;
+        esac
+        return 0
+      fi
       _install_deps
+      # Full `just test` lint phase: shellcheck THEN hadolint, so a
+      # Dockerfile regression fails `just test` locally the same way it
+      # fails the CI hadolint job (#650 local==CI). BATS_ONLY=1 (dedicated
+      # GHA shellcheck/hadolint jobs cover lint in parallel) skips both.
       if [[ "${BATS_ONLY:-0}" != "1" ]]; then
         _run_shellcheck
+        _run_hadolint
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         _run_coverage
@@ -309,10 +393,6 @@ main() {
       else
         _run_tests
       fi
-      ;;
-    lint)
-      # ShellCheck only — requires shellcheck installed locally
-      _run_shellcheck
       ;;
     coverage)
       # Full CI + kcov via the kcov/kcov-based `coverage` service.

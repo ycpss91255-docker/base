@@ -73,7 +73,20 @@ setup() {
 }
 
 @test "justfile.test has lint recipe" {
-  run grep -E '^lint:' /source/script/test/justfile.test
+  # #650: lint takes *args so it can forward --shellcheck / --hadolint
+  # narrowing flags (`lint *args:`), so match the recipe name, not `lint:`.
+  run grep -E '^lint( |:|\b)' /source/script/test/justfile.test
+  assert_success
+}
+
+@test "justfile.test lint recipe forwards args + runs all linters by default (#650)" {
+  # `just test lint` (no flag) runs --lint (all linters: shellcheck +
+  # hadolint via the test-tools container); `--shellcheck` / `--hadolint`
+  # narrow. The recipe forwards {{args}} so the narrowing flags reach
+  # test.sh (ADR-00000011 #3 min->max).
+  run grep -E '^lint \*args:' /source/script/test/justfile.test
+  assert_success
+  run grep -F './script/test/test.sh --lint {{args}}' /source/script/test/justfile.test
   assert_success
 }
 

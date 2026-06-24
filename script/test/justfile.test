@@ -23,9 +23,14 @@ set working-directory := '../..'
 default:
     ./script/test/test.sh
 
-# just test lint -> ShellCheck only
-lint:
-    ./script/test/test.sh --lint-only
+# just test lint -> all linters (ShellCheck + Hadolint) via the test-tools
+# container (hadolint has no host binary; the alpine ci image bakes it in).
+# Narrow with `just test lint --shellcheck` / `just test lint --hadolint`
+# (ADR-00000011 #3 min->max). `--shellcheck` runs in-container too so the
+# behaviour matches the bare `lint`; the dedicated GHA shellcheck job uses
+# the host-only `test.sh --shellcheck-only` path instead.
+lint *args:
+    ./script/test/test.sh --lint {{args}}
 
 # just test coverage -> ShellCheck + Bats + Kcov coverage (slow; CI / release)
 coverage:
