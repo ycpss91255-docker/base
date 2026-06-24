@@ -462,3 +462,86 @@ REMOTE
   [[ -x "${TMP_REPO}/script/hooks/pre/build.sh" ]] || { echo "missing pre/build.sh after upgrade"; return 1; }
   [[ -x "${TMP_REPO}/script/hooks/post/setup_tui.sh" ]] || { echo "missing post/setup_tui.sh after upgrade"; return 1; }
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _preflight_just / _bootstrap_just (#607)
+# ════════════════════════════════════════════════════════════════════
+
+# Build a clean bin dir holding symlinks to only the externals the
+# preflight/bootstrap need (no `just`). The CI image ships `just` in
+# /usr/bin alongside coreutils, so trimming PATH to standard dirs cannot
+# hide it; a dedicated dir can. Echoes a PATH value (MOCK_DIR first so any
+# mock_cmd stubs win) for the caller to scope to a single `run`, leaving
+# the test shell's own PATH intact for teardown.
+_nojust_path() {
+  local _clean="${TMP_REPO}/.nojust"
+  mkdir -p "${_clean}"
+  local _cmd _src
+  for _cmd in date cat mkdir env dirname basename grep sed tr head printf \
+              rm chmod ln cp mv test bash sh; do
+    _src="$(command -v "${_cmd}" 2>/dev/null)" || continue
+    ln -sf "${_src}" "${_clean}/${_cmd}"
+  done
+  printf '%s' "${MOCK_DIR}:${_clean}"
+}
+
+@test "_preflight_just: warns and exits 0 when just is absent (#607)" {
+  _source_init
+  PATH="$(_nojust_path)" run _preflight_just
+  assert_success
+  assert_output --partial "WARN"
+  assert_output --partial "just runner not found on PATH"
+}
+
+@test "_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)" {
+  _source_init
+  # JSON format carries the structured event name (text format renders the
+  # display= message only); assert the registered body is wired through.
+  PATH="$(_nojust_path)" LOG_FORMAT=json run _preflight_just
+  assert_success
+  assert_output --partial '"body":"init_just_missing"'
+}
+
+@test "_preflight_just: install hint points at the documented methods (#607)" {
+  _source_init
+  PATH="$(_nojust_path)" run _preflight_just
+  assert_success
+  assert_output --partial "just.systems/install.sh"
+  assert_output --partial "--bootstrap-just"
+}
+
+@test "_preflight_just: silent and exits 0 when just is present (#607)" {
+  _source_init
+  mock_cmd "just" 'exit 0'
+  run _preflight_just
+  assert_success
+  refute_output --partial "init_just_missing"
+  refute_output --partial "just runner not found"
+}
+
+@test "_bootstrap_just: no-op when just is already on PATH (#607)" {
+  _source_init
+  mock_cmd "just" 'exit 0'
+  run _bootstrap_just
+  assert_success
+  assert_output --partial "already installed"
+  refute_output --partial "Bootstrapping just"
+}
+
+@test "_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)" {
+  _source_init
+  # Mock curl + bash (the installer pipeline) into MOCK_DIR so it is
+  # observable without touching the network. mock_cmd writes to MOCK_DIR,
+  # which the no-just PATH puts first.
+  mock_cmd "curl" 'echo "CURL_INVOKED $*"'
+  # Mock bash echoes what it received on stdin (curl output) + its argv so
+  # the whole `curl ... | bash -s -- --to <dir>` pipeline is observable.
+  mock_cmd "bash" 'echo "STDIN: $(cat)"; echo "BASH_INSTALLER $*"'
+  PATH="$(_nojust_path)" HOME="${TMP_REPO}/home" run _bootstrap_just
+  assert_success
+  assert_output --partial "Bootstrapping just"
+  assert_output --partial "CURL_INVOKED"
+  assert_output --partial "install.sh"
+  assert_output --partial "BASH_INSTALLER -s -- --to"
+  [[ -d "${TMP_REPO}/home/.local/bin" ]] || { echo "~/.local/bin not created"; return 1; }
+}

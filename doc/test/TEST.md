@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1915 tests** total (1830 unit + 85 integration).
+Template self-tests: **1923 tests** total (1836 unit + 87 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1375,7 +1375,7 @@ non-directory exit 2, and the `_runner_family` classifier.
 | `exits 2 when given a non-directory root` | usage error |
 | `_runner_family classifies bats / python / other` | classifier unit |
 
-### test/unit/init_spec.bats (29)
+### test/unit/init_spec.bats (35)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -1402,6 +1402,12 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
 | `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
+| `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
+| `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
+| `_preflight_just: install hint points at the documented methods (#607)` | Warning carries install pointer |
+| `_preflight_just: silent and exits 0 when just is present (#607)` | Runner present -> no warning |
+| `_bootstrap_just: no-op when just is already on PATH (#607)` | Opt-in bootstrap skips when installed |
+| `_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)` | Opt-in installer pipeline to ~/.local/bin |
 
 ### test/unit/smoke_helper_spec.bats (19)
 
@@ -1610,7 +1616,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/integration/init_new_repo_spec.bats (48)
+### test/integration/init_new_repo_spec.bats (50)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1666,6 +1672,8 @@ which has access to a Docker daemon on the host runner.
 | `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
 | `new repo: script/template/ symlinks wired for the template namespace` | #633 — justfile.template + new.sh + skel symlinked |
 | `new repo: script/base/ symlink wired for the base namespace` | #652, #653 — justfile.base + completions.sh symlinked; entry mods base |
+| `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
+| `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 

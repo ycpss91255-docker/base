@@ -103,6 +103,8 @@ init_started
 init_completed
 init_missing_required_arg
 init_progress
+init_just_missing
+init_bootstrap_just
 
 # test.sh
 ci_apt_update_failed

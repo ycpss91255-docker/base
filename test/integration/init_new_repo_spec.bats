@@ -533,3 +533,46 @@ teardown() {
   run grep '^mount_1' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# just runner host preflight (#607)
+# ════════════════════════════════════════════════════════════════════
+
+@test "new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)" {
+  # Shadow PATH so `command -v just` misses but coreutils (needed by
+  # setup.sh) stay reachable. A stub bin dir is prepended but holds no
+  # `just`, and the kept PATH dirs (/usr/bin:/bin) carry no `just` on the
+  # CI image, so the preflight reliably fires.
+  local _stub="${TMP_ROOT}/nojust_bin"
+  mkdir -p "${_stub}"
+  # Symlink the externals init.sh + setup.sh need into a clean dir that
+  # holds no `just` (the CI image ships just in /usr/bin alongside
+  # coreutils, so trimming to standard dirs cannot hide it).
+  local _cmd _src
+  for _cmd in bash sh env date cat mkdir rm cp mv ln chmod grep sed awk tr \
+              head tail cut sort uniq wc find dirname basename readlink \
+              git diff touch test printf realpath; do
+    _src="$(command -v "${_cmd}" 2>/dev/null)" || continue
+    ln -sf "${_src}" "${_stub}/${_cmd}"
+  done
+  run env LOG_FORMAT=text PATH="${_stub}" bash .base/init.sh
+  assert_success
+  assert_output --partial "WARN"
+  assert_output --partial "just runner not found on PATH"
+  # Non-fatal: the user-facing justfile entry symlink is still laid down,
+  # so a later `just` install works immediately.
+  assert [ -L "${REPO_DIR}/justfile" ]
+  assert [ -L "${REPO_DIR}/script/build.sh" ]
+}
+
+@test "new repo: init is silent about just when the runner is present (#607)" {
+  # Provide a `just` stub on PATH; the preflight must not warn.
+  local _stub="${TMP_ROOT}/withjust_bin"
+  mkdir -p "${_stub}"
+  printf '#!/bin/bash\nexit 0\n' > "${_stub}/just"
+  chmod +x "${_stub}/just"
+  run env LOG_FORMAT=text PATH="${_stub}:${PATH}" bash .base/init.sh
+  assert_success
+  refute_output --partial "init_just_missing"
+  refute_output --partial "just runner not found on PATH"
+}
