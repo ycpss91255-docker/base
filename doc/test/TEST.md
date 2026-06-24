@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1868 tests** total (1783 unit + 85 integration).
+Template self-tests: **1872 tests** total (1787 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -154,14 +154,15 @@ registered keys derived from `SCHEMA_VALIDATOR`).
 | `_schema_section_keys returns deploy keys incl. legacy alias` | keys incl. runtime alias (#561) |
 | `_schema_section_keys is empty for a free-form-only section (image)` | empty for no-validator section (#561) |
 
-### test/unit/schema_coverage_spec.bats (4)
+### test/unit/schema_coverage_spec.bats (8)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry
 must stay internally consistent and in sync with the `setup.conf`
-template, so drift fails CI. The original i18n / `kind` / `default`
-coverage needs a deferred registry i18n-index column and is tracked as a
-separate follow-up; only the guards possible with the current columns
-live here.
+template, so drift fails CI. The deferred i18n coverage now lands via the
+`SCHEMA_I18N` index column (#591): every registered key maps to a TUI
+message key (or an explicit `""` opt-out for keys with no editor), and
+every mapped key is present in all four locale tables (en / zh-TW /
+zh-CN / ja) -- a missing translation in any locale fails CI.
 
 | Test | Description |
 |------|-------------|
@@ -169,6 +170,10 @@ live here.
 | `SCHEMA_SECTIONS matches the setup.conf template headers in file order` | registry/template drift (#562) |
 | `every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key` | no dead empty-policy entries (#562) |
 | `every registered key is reachable via SCHEMA_SECTIONS` | no key stranded under an unlisted section (#562) |
+| `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry` | i18n-index is complete (#591) |
+| `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key` | no orphan index rows (#591) |
+| `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
+| `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
 ### test/unit/setup_spec.bats (371)
 

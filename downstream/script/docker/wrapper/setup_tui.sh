@@ -1784,6 +1784,13 @@ _edit_list_section() {
   local _entry_key="${7}"
   local _err_key="${8:-}"
 
+  # Resolve the per-entry prompt key through the schema i18n-index (#591)
+  # when this list key is registered, so the menu string is the same key
+  # the coverage spec asserts across all four locales. The literal
+  # _entry_key remains the fallback for free-form list keys with no
+  # registry row (e.g. tmpfs_, security.security_opt_).
+  _entry_key="$(_schema_i18n_key "${_section}" "${_prefix}1" "${_entry_key}")"
+
   while :; do
     local -a _nums=()
     local _k _n _x _found
