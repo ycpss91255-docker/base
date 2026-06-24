@@ -250,6 +250,10 @@ main() {
   # below still handles --lang itself on the canonical path.
   _wrapper_lang_prepass build "$@"
 
+  # RUN_SETUP is set here but consumed by _wrapper_setup_sync (lib/wrapper.sh,
+  # #565): the consumer devel-test stage shellchecks each wrapper without -x,
+  # so in isolation it looks unused -- suppress SC2034 at the source.
+  # shellcheck disable=SC2034
   local RUN_SETUP=false
   local RESET_CONF=false
   local ASSUME_YES=false

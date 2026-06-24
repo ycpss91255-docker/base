@@ -163,6 +163,17 @@ _run_shellcheck() {
   find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
+
+  # local==CI parity (#565): the consumer Dockerfile devel-test stage lints
+  # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x
+  # (the files are COPYed flat into /lint/, so cross-file source-following is
+  # gone). The -x passes above hide cross-file-only findings (e.g. SC2034 on
+  # a var set in a wrapper but read in lib/wrapper.sh) that the consumer's
+  # build then fails on -- a CI-only blind spot. Re-run the exact consumer
+  # invocation here so `just test` catches it before the fanout / e2e job.
+  shellcheck -S warning \
+    "${REPO_ROOT}"/downstream/script/docker/wrapper/*.sh \
+    "${REPO_ROOT}"/downstream/script/docker/lib/*.sh
   shellcheck -x "${REPO_ROOT}/script/test/test.sh"
   shellcheck -x "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
