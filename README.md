@@ -1083,7 +1083,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   └── Dockerfile.test-tools           # Pre-built lint/test tools image (shellcheck/hadolint/bats)
 ├── test/                               # base's OWN specs (tool-first: test/<tool>/<category>/)
 │   └── bats/
-│       ├── unit/                       # 58 unit specs + test_helper.bash (bats + kcov)
+│       ├── unit/                       # 56 unit specs + 2 bash helpers (bats + kcov)
 │       ├── integration/                # init/upgrade end-to-end (5 specs)
 │       └── behavioural/                # Runtime behaviour (opt-in; runtime_test_smoke_spec.bats)
 ├── .github/

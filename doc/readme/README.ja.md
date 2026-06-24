@@ -907,7 +907,7 @@ just --list  # CI ターゲット表示
 │   └── Dockerfile.test-tools           # プリビルド lint/test ツール image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身の spec（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 58 unit spec + test_helper.bash（bats + kcov）
+│       ├── unit/                       # 56 unit spec + 2 個の bash ヘルパ（bats + kcov）
 │       ├── integration/                # init/upgrade の end-to-end（5 spec）
 │       └── behavioural/                # runtime 動作（opt-in；runtime_test_smoke_spec.bats）
 ├── .github/

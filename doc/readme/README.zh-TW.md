@@ -859,7 +859,7 @@ just --list  # 顯示 CI 指令
 │   └── Dockerfile.test-tools           # 預建置 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身 spec（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 58 個 unit spec + test_helper.bash（bats + kcov）
+│       ├── unit/                       # 56 個 unit spec + 2 個 bash helper（bats + kcov）
 │       ├── integration/                # init/upgrade 端對端（5 個 spec）
 │       └── behavioural/                # Runtime 行為（opt-in；runtime_test_smoke_spec.bats）
 ├── .github/

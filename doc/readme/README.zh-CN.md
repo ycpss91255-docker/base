@@ -860,7 +860,7 @@ just --list        # 显示 CI 命令
 │   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 58 个 unit spec + test_helper.bash（bats + kcov）
+│       ├── unit/                       # 56 个 unit spec + 2 个 bash helper（bats + kcov）
 │       ├── integration/                # init/upgrade 端到端（5 个 spec）
 │       └── behavioural/                # Runtime 行为（opt-in；runtime_test_smoke_spec.bats）
 ├── .github/
