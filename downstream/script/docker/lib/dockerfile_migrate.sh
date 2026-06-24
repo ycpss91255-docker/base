@@ -206,6 +206,82 @@ _migrate_logging_rename_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: _entrypoint_logging.sh -> runtime/logging.sh (#567 m4)"
 }
 
+# ── Migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ──────
+#
+# v0.41.0 slimmed .hadolint.yaml (#466) so it no longer ignores a batch of
+# rules the v0.41.0 template Dockerfile already satisfies but older
+# downstream Dockerfiles do not. This migration mechanically heals the same
+# violations the ad-hoc fanout fixed by hand (each sub-fix is idempotent):
+#   DL3007  pin `FROM bats/bats:latest` / `FROM alpine:latest` helper stages
+#   DL3046  `useradd -u`  -> `useradd -l -u`
+#   DL3003  `RUN cd /lint && hadolint ...` -> `WORKDIR /lint` + `RUN hadolint`
+#   DL3042  `pip install -r` -> `pip install --no-cache-dir -r`
+#   DL4006  alpine lint-tools stage gains a `SHELL [ash -o pipefail]`
+#   DL3006  parameterized `FROM ${BASE_IMAGE}` / `${TEST_TOOLS_IMAGE}` gains
+#           an inline `# hadolint ignore=DL3006` (an ARG-driven base image
+#           cannot be explicitly tagged)
+_migrate_hadolint_detect() {
+  local _file="$1"
+  grep -Eq '^FROM (bats/bats|alpine):latest' "${_file}" && return 0
+  grep -Eq 'useradd[[:space:]]+-u[[:space:]]' "${_file}" && return 0
+  grep -Eq '^[[:space:]]*RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint' "${_file}" && return 0
+  grep -Eq 'pip install[[:space:]]+-r' "${_file}" && return 0
+  _dfm_needs_dl4006 "${_file}" && return 0
+  _dfm_needs_dl3006 "${_file}" && return 0
+  return 1
+}
+
+# _dfm_needs_dl4006 <file>
+#   True when an `alpine ... AS lint-tools` stage is present without a
+#   following SHELL ash-pipefail directive.
+_dfm_needs_dl4006() {
+  local _file="$1"
+  grep -Eq '^FROM alpine:[^[:space:]]+ AS lint-tools' "${_file}" \
+    && ! grep -Fq 'SHELL ["/bin/ash", "-o", "pipefail", "-c"]' "${_file}"
+}
+
+# _dfm_needs_dl3006 <file>
+#   True when a parameterized `FROM ${IMAGE}` lacks a preceding inline ignore.
+_dfm_needs_dl3006() {
+  local _file="$1"
+  awk '
+    /^FROM \$\{[A-Za-z_]+\}/ && prev !~ /hadolint ignore=DL3006/ { found=1 }
+    { prev=$0 }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
+}
+
+_migrate_hadolint_apply() {
+  local _file="$1"
+  # DL3007: pin the helper-stage :latest tags.
+  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.21|' "${_file}"
+  # DL3046: useradd -l (idempotent — only adds when not already present).
+  sed -i -E 's|useradd[[:space:]]+-u[[:space:]]|useradd -l -u |' "${_file}"
+  sed -i -E 's|useradd -l[[:space:]]+-l |useradd -l |' "${_file}"
+  # DL3042: pip --no-cache-dir (idempotent).
+  sed -i -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|' "${_file}"
+  sed -i -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|' "${_file}"
+  # DL3003: cd /lint -> WORKDIR /lint + RUN.
+  sed -i -E 's|^([[:space:]]*)RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint[[:space:]]+(.*)$|\1WORKDIR /lint\n\1RUN hadolint \2|' "${_file}"
+
+  # DL4006: SHELL ash-pipefail right after the alpine lint-tools FROM.
+  if _dfm_needs_dl4006 "${_file}"; then
+    sed -i -E '/^FROM alpine:[^[:space:]]+ AS lint-tools/a SHELL ["/bin/ash", "-o", "pipefail", "-c"]' "${_file}"
+  fi
+
+  # DL3006: inline ignore before each unguarded parameterized FROM.
+  if _dfm_needs_dl3006 "${_file}"; then
+    local _tmp
+    _tmp="$(mktemp)"
+    awk '
+      /^FROM \$\{[A-Za-z_]+\}/ && prev !~ /hadolint ignore=DL3006/ { print "# hadolint ignore=DL3006" }
+      { print; prev=$0 }
+    ' "${_file}" > "${_tmp}"
+    mv "${_tmp}" "${_file}"
+  fi
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006 (#567 m5)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -213,4 +289,5 @@ _MIGRATIONS=(
   pip_helper
   explicit_copy
   logging_rename
+  hadolint
 )

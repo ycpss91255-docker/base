@@ -233,3 +233,93 @@ EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
+# v0.41.0 slimmed .hadolint.yaml (#466), no longer ignoring a batch of rules.
+# Heal the mechanical violations the fanout fixed by hand:
+#   DL3007  FROM bats/bats:latest / alpine:latest -> pinned tags
+#   DL3046  useradd -u -> useradd -l -u
+#   DL3003  RUN cd /lint && hadolint -> WORKDIR /lint + RUN hadolint
+#   DL3042  pip install -r -> pip install --no-cache-dir -r
+#   DL4006  alpine lint-tools stage gains SHELL ash -o pipefail
+#   DL3006  parameterized FROM ${BASE_IMAGE} gains an inline ignore
+
+@test "migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM bats/bats:latest AS bats-helper
+FROM alpine:latest AS lint-tools
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Eq '^FROM bats/bats:[0-9]' "${DF}"
+  grep -Eq '^FROM alpine:[0-9]' "${DF}"
+  ! grep -Eq '^FROM (bats/bats|alpine):latest' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3046 adds useradd -l (#567)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -u "${UID}" -g "${GID}" "${USER}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -u "${UID}"' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)" {
+  cat > "${DF}" <<'EOF'
+RUN cd /lint && hadolint Dockerfile
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fxq 'WORKDIR /lint' "${DF}"
+  grep -Fxq 'RUN hadolint Dockerfile' "${DF}"
+  ! grep -q 'cd /lint &&' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3042 adds pip --no-cache-dir (#567)" {
+  cat > "${DF}" <<'EOF'
+RUN pip install -r requirements.txt
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'pip install --no-cache-dir -r requirements.txt' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL4006 adds SHELL pipefail to alpine lint-tools (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM alpine:3.21 AS lint-tools
+RUN curl x | tar y
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'SHELL ["/bin/ash", "-o", "pipefail", "-c"]' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3006 inline ignore before parameterized FROM (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM ${BASE_IMAGE} AS sys
+FROM ${TEST_TOOLS_IMAGE} AS devel-test
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  [ "$(grep -c '# hadolint ignore=DL3006' "${DF}")" = "2" ]
+}
+
+@test "migration 5 (hadolint): DL3006 idempotent — does not double-insert (#567)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE} AS sys
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -c '# hadolint ignore=DL3006' "${DF}")" = "1" ]
+}
+
+@test "migration 5 (hadolint): detect false on a clean Dockerfile (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN echo hi
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_failure
+}
