@@ -36,8 +36,13 @@ setup() {
   done
   run grep -E '^setup-tui \*args:' "${DOCKER_JUSTFILE}"
   assert_success
-  run grep -E '^upgrade \*args:' "${DOCKER_JUSTFILE}"
-  assert_success
+}
+
+@test "docker module no longer carries upgrade/upgrade-check (moved to base ns, #652)" {
+  # upgrade is a .base-management op, not a docker op -- it lives in the
+  # `base` namespace (just base upgrade / just base update), ADR-00000011.
+  run grep -E '^upgrade |^upgrade-check:' "${DOCKER_JUSTFILE}"
+  assert_failure
 }
 
 @test "docker module recipes forward to ./script/<wrapper>.sh with {{args}} (#545)" {
@@ -49,19 +54,41 @@ setup() {
   assert_success
   run grep -F './script/setup_tui.sh {{args}}' "${DOCKER_JUSTFILE}"
   assert_success
-  run grep -F './.base/upgrade.sh {{args}}' "${DOCKER_JUSTFILE}"
+}
+
+@test "base module declares upgrade + update (apt-aligned) forwarding to .base/upgrade.sh (#652, ADR-00000011)" {
+  local _base=/source/downstream/script/base/justfile.base
+  [ -f "${_base}" ]
+  run grep -E '^upgrade \*args:' "${_base}"
+  assert_success
+  run grep -E '^update:' "${_base}"
+  assert_success
+  run grep -F './.base/upgrade.sh {{args}}' "${_base}"
+  assert_success
+  run grep -F './.base/upgrade.sh --check' "${_base}"
   assert_success
 }
 
-@test "docker module has NO default recipe (the entry owns it; avoids import collision)" {
-  run grep -E '^default:' "${DOCKER_JUSTFILE}"
-  assert_failure
+@test "entry mods the base namespace (#652, ADR-00000011)" {
+  run grep -F "mod? base 'script/base/justfile.base'" "${ENTRY}"
+  assert_success
 }
 
-@test "entry imports the docker module + default recipe lists recipes (#545, ADR-00000010)" {
-  # bare `just` should be discoverable -- the entry's default recipe runs
-  # `just --list`; the docker verbs come in via the import.
-  run grep -F "import 'script/docker/justfile.docker'" "${ENTRY}"
+@test "docker module owns a default recipe + pins cwd to repo root (#652, ADR-00000011)" {
+  # As a mod? module (not a top-level import) it owns its own default
+  # (`just docker` lists the verbs); module recipes default cwd to the
+  # module dir, so `set working-directory := '../..'` pins them to the
+  # repo root for the ./script/<wrapper>.sh calls.
+  run grep -E '^default:' "${DOCKER_JUSTFILE}"
+  assert_success
+  run grep -F "set working-directory := '../..'" "${DOCKER_JUSTFILE}"
+  assert_success
+}
+
+@test "entry mods the docker namespace + default recipe lists recipes (#652, ADR-00000011)" {
+  # docker is a namespace (zero special case): `just docker build`, not a
+  # top-level `just build`. bare `just` still lists via the entry default.
+  run grep -F "mod? docker 'script/docker/justfile.docker'" "${ENTRY}"
   assert_success
   run grep -E '^default:' "${ENTRY}"
   assert_success

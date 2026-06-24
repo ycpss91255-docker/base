@@ -256,6 +256,17 @@ teardown() {
   assert_success
 }
 
+@test "new repo: script/base/ symlink wired for the base namespace (#652)" {
+  bash .base/init.sh
+  # base-owned (symlinks into the subtree, flow on upgrade): justfile.base,
+  # so `just base upgrade` / `just base update` are available out of the box.
+  assert [ -L "${REPO_DIR}/script/base/justfile.base" ]
+  run readlink "${REPO_DIR}/script/base/justfile.base"
+  assert_output "../../.base/downstream/script/base/justfile.base"
+  run grep -F "mod? base 'script/base/justfile.base'" "${REPO_DIR}/.base/downstream/script/justfile"
+  assert_success
+}
+
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → .base/downstream/config as a symlink.
   # Re-running the post-#254 init.sh on such a repo must replace the

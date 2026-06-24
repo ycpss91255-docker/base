@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1882 tests** total (1798 unit + 84 integration).
+Template self-tests: **1887 tests** total (1802 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -810,25 +810,27 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/justfile_user_spec.bats (10)
+### test/unit/justfile_user_spec.bats (11)
 
-Executable tests for the user-facing `script/docker/justfile` (#546 /
-ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
-the removed `makefile_user_spec`: sandboxes a repo with the justfile
-symlinked at root + stub `script/*.sh` recorders, and RUNS `just <verb>`
-to assert 1:1 forwarding with `{{args}}` passthrough. Skips when `just`
-is not yet in the test-tools image (pre-release GHCR pull -- see
-template_spec for the `apk add ... just` guard + the release smoke check).
+Executable tests for the user-facing layered entry + namespaces (#546 /
+ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
+Parity with the removed `makefile_user_spec`: sandboxes a repo with the
+entry + module symlink chain at root + stub `script/*.sh` recorders, and
+RUNS `just <ns> <verb>` to assert 1:1 forwarding with `{{args}}`
+passthrough. Skips when `just` is not yet in the test-tools image
+(pre-release GHCR pull -- see template_spec for the `apk add ... just`
+guard + the release smoke check).
 
 | Test | Description |
 |------|-------------|
-| `just build forwards positional args` | `just build test` -> build.sh test |
-| `just build passes flags through verbatim` | no `--` separator needed |
-| `just exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
-| `just run / stop / prune / setup forward` | wrapper dispatch |
-| `just setup-tui forwards to setup_tui.sh` | hyphenated recipe |
-| `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
-| `bare just lists recipes` | replaces `make help` |
+| `just docker build forwards positional args` | `just docker build test` -> build.sh test |
+| `just docker build passes flags through verbatim` | no `--` separator needed |
+| `just docker exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
+| `just docker run / stop / prune / setup forward` | wrapper dispatch |
+| `just docker setup-tui forwards to setup_tui.sh` | hyphenated recipe |
+| `just base upgrade forwards to .base/upgrade.sh` | #652 -- base ns upgrade dispatch |
+| `just base update runs upgrade.sh --check` | #652 -- apt-aligned check |
+| `bare just lists namespaces` | replaces `make help`; lists `docker`/`base`/... |
 | `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
 | `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help` | #633 -- module default recipe |
@@ -851,22 +853,25 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh rejects an invalid group name` | name validation |
 | `new.sh errors with usage when no name given` | arg guard |
 
-### test/unit/justfile_spec.bats (5)
+### test/unit/justfile_spec.bats (8)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
-ADR-00000010): the entry `downstream/script/justfile` imports the docker
-recipes `downstream/script/docker/justfile.docker` as top-level verbs,
-forwarding 1:1 to `./script/<name>.sh` via `{{args}}` passthrough (no
-`MAKEOVERRIDES` / `--` / `EXEC_ARGS` workarounds). Asserted by grep, not
+ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
+top-level import). The entry `downstream/script/justfile` mods the docker
++ base modules; docker verbs forward 1:1 to `./script/<name>.sh` via
+`{{args}}`, base verbs to `./.base/upgrade.sh`. Asserted by grep, not
 execution -- `just` is not in the test-tools image; downstream installs it.
 
 | Test | Description |
 |------|-------------|
 | `layered entry + docker module exist` | both files present |
-| `docker module declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
+| `docker module declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui `*args` |
+| `docker module no longer carries upgrade/upgrade-check (moved to base ns)` | #652 -- upgrade is a .base op |
 | `docker module recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
-| `docker module has NO default recipe (the entry owns it; avoids import collision)` | duplicate-name guard |
-| `entry imports the docker module + default recipe lists recipes` | `import` + `default: @just --list` |
+| `base module declares upgrade + update (apt-aligned) forwarding to .base/upgrade.sh` | #652 / ADR-00000011 |
+| `docker module owns a default recipe + pins cwd to repo root` | #652 -- mod default + `set working-directory := '../..'` |
+| `entry mods the docker namespace + default recipe lists recipes` | #652 -- `mod? docker` + `default: @just --list` |
+| `entry mods the base namespace` | #652 -- `mod? base` |
 
 ### test/unit/compose_emitter_spec.bats (27)
 
@@ -1523,7 +1528,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/integration/init_new_repo_spec.bats (47)
+### test/integration/init_new_repo_spec.bats (48)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -1578,6 +1583,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: script/local/justfile.local seeded (repo-local command-group registry)` | #632 — repo-owned registry seeded |
 | `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
 | `new repo: script/template/ symlinks wired for the template namespace` | #633 — justfile.template + new.sh + skel symlinked |
+| `new repo: script/base/ symlink wired for the base namespace` | #652 — justfile.base symlinked; entry mods base |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 
@@ -1640,8 +1646,8 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
-| `just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
-| `just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
+| `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
+| `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |

@@ -47,6 +47,12 @@ setup() {
   ln -s "../../.base/downstream/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
   ln -s "../../.base/downstream/script/template/skel" "${TMP_REPO}/script/template/skel"
 
+  # `base` namespace (#652): the entry mod?s script/base/justfile.base
+  # (just base upgrade / just base update).
+  mkdir -p "${TMP_REPO}/.base/downstream/script/base" "${TMP_REPO}/script/base"
+  cp /source/downstream/script/base/justfile.base "${TMP_REPO}/.base/downstream/script/base/justfile.base"
+  ln -s "../../.base/downstream/script/base/justfile.base" "${TMP_REPO}/script/base/justfile.base"
+
   local _name
   for _name in build run exec stop prune setup setup_tui; do
     cat > "${TMP_REPO}/script/${_name}.sh" <<EOS
@@ -78,50 +84,57 @@ teardown() {
   fi
 }
 
-@test "just build forwards positional args to ./script/build.sh" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" build test
+@test "just docker build forwards positional args to ./script/build.sh" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build test
   assert_success
   assert_output --partial "build test"
 }
 
-@test "just build passes flags through verbatim (no -- separator needed)" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" build --no-cache test
+@test "just docker build passes flags through verbatim (no -- separator needed)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build --no-cache test
   assert_success
   assert_output --partial "build --no-cache test"
 }
 
-@test "just exec passes = -bearing Kit-style args through (no EXEC_ARGS shim, #469)" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" exec -t cli --/app/k=v
+@test "just docker exec passes = -bearing Kit-style args through (no EXEC_ARGS shim, #469)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker exec -t cli --/app/k=v
   assert_success
   assert_output --partial "exec -t cli --/app/k=v"
 }
 
-@test "just run / stop / prune / setup forward to their wrappers" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" run -d
+@test "just docker run / stop / prune / setup forward to their wrappers" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker run -d
   assert_success
   assert_output --partial "run -d"
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" stop
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker stop
   assert_success
   assert_output --partial "stop"
 }
 
-@test "just setup-tui forwards to ./script/setup_tui.sh" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" setup-tui
+@test "just docker setup-tui forwards to ./script/setup_tui.sh" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker setup-tui
   assert_success
   assert_output --partial "setup_tui"
 }
 
-@test "just upgrade forwards to ./.base/upgrade.sh" {
-  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" upgrade v0.30.0
+@test "just base upgrade forwards to ./.base/upgrade.sh (#652, ADR-00000011)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base upgrade v0.30.0
   assert_success
   assert_output --partial "upgrade v0.30.0"
 }
 
-@test "bare just lists recipes (replaces make help)" {
+@test "just base update runs upgrade.sh --check (apt-aligned, #652)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base update
+  assert_success
+  assert_output --partial "upgrade --check"
+}
+
+@test "bare just lists namespaces (replaces make help)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}"
   assert_success
-  assert_output --partial "build"
-  assert_output --partial "run"
+  # docker verbs now live under the `docker` namespace (ADR-00000011), so the
+  # entry lists `docker ...` rather than top-level build/run.
+  assert_output --partial "docker"
 }
 
 @test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {

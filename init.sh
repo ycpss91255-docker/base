@@ -81,16 +81,19 @@ _create_symlinks() {
       _log "  Removed stale root symlink ${_stale}"
     fi
   done
-  # ADR-00000005 / ADR-00000010: `just` is the user-facing entry, now
-  # layered. <repo>/justfile -> script/justfile -> .base/downstream/script/justfile
-  # (the entry), which `import`s script/docker/justfile.docker as top-level
-  # docker recipes. Import paths in the entry resolve relative to the repo
-  # root (the symlink location), so the docker module must also be linked
-  # at <repo>/script/docker/justfile.docker. (The Makefile was retired in #546.)
-  mkdir -p script/docker
+  # ADR-00000005 / ADR-00000010 / ADR-00000011: `just` is the user-facing
+  # entry, now layered + fully namespaced. <repo>/justfile -> script/justfile
+  # -> .base/downstream/script/justfile (the entry), which `mod?`s the docker
+  # + base namespaces. mod paths in the entry resolve relative to the repo
+  # root (the symlink location), so each module is linked at its
+  # <repo>/script/<ns>/justfile.<ns> path.
+  mkdir -p script/docker script/base
   _symlink "script/justfile" "justfile"
   _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
   _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
+  # `base` namespace (#652): `just base upgrade` / `just base update` manage
+  # the .base subtree (apt-aligned). init + completions land in #653.
+  _symlink "../../${TEMPLATE_REL}/downstream/script/base/justfile.base" "script/base/justfile.base"
   # `template` namespace (#633): `just template new <name>` scaffolds a
   # repo-local command group. The entry `mod?`s script/template/justfile.template;
   # new.sh + skel/ are linked alongside (base-owned, flow on upgrade).

@@ -148,10 +148,10 @@ setup() {
   # container-ops justfile is caught (post-#573 the user entry is just).
   run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'just build'
-  assert_output --partial 'just run -d'
-  assert_output --partial 'just exec'
-  assert_output --partial 'just stop'
+  assert_output --partial 'just docker build'
+  assert_output --partial 'just docker run -d'
+  assert_output --partial 'just docker exec'
+  assert_output --partial 'just docker stop'
   refute_output --partial './script/build.sh'
   refute_output --partial './script/run.sh'
   refute_output --partial './script/stop.sh'

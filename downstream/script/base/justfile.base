@@ -1,0 +1,30 @@
+# Manage the `.base` subtree dependency (just). The `base` module of the
+# layered consumer entry (ADR-00000011): `mod?`'d by downstream/script/justfile
+# (symlinked as <repo>/script/base/justfile.base) so the recipes resolve as
+# the `base` namespace -- `just base upgrade` / `just base update`.
+#
+# Apt-aligned (ADR-00000011): `update` reports whether a newer base tag is
+# available (refresh/check, the former docker `upgrade-check`); `upgrade`
+# applies the subtree pull (the former docker `upgrade`). The actual
+# `init.sh` / `upgrade.sh` scripts still live at the `.base/` root here; the
+# `base` namespace gains the `init` recipe + completions and the scripts
+# relocate to script/base/ in #653.
+#
+# A module recipe's default cwd is this file's own directory; the recipes
+# call ./.base/upgrade.sh at the repo root, so `set working-directory :=
+# '../..'` pins them to the repo root. Reached via the consumer symlink
+# (<repo>/script/base/justfile.base), `../..` resolves to the repo root.
+set working-directory := '../..'
+
+# just base -> list the base-management verbs
+default:
+    @just --justfile '{{justfile()}}' --list
+
+# just base upgrade [vX.Y.Z] -> pull the .base subtree (empty = latest)
+upgrade *args:
+    ./.base/upgrade.sh {{args}}
+
+# just base update -> report whether a newer base tag is available
+# (apt-style; exit 0 = up-to-date or update available, non-1 = real error)
+update:
+    @./.base/upgrade.sh --check || [ $? -eq 1 ]

@@ -40,8 +40,8 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # 最新版にアップグレード
-just upgrade-check   # 確認
-just upgrade         # pull + バージョンファイル + workflow tag 更新
+just base update   # 確認
+just base upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
 just test   # ShellCheck + Bats + Kcov
@@ -107,7 +107,7 @@ graph TB
 flowchart LR
     subgraph local["ローカル"]
         build_test["./build.sh test"]
-        make_test["just build test"]
+        make_test["just docker build test"]
     end
 
     subgraph ci_container["CI コンテナ（ghcr.io/ycpss91255-docker/test-tools:latest）"]
@@ -164,7 +164,7 @@ flowchart LR
 | `test/unit/` | Template 自身のテスト（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
-| `justfile` | Repo コマンドエントリ（`just build`、`just run`、`just stop` 等）の `just <verb>` recipe。引数は `{{args}}` でそのまま wrapper に渡されます（`just build --no-cache test`）。`just` 単独で recipe 一覧を表示。 |
+| `justfile` | Repo コマンドエントリ（`just docker build`、`just docker run`、`just docker stop` 等）の `just <verb>` recipe。引数は `{{args}}` でそのまま wrapper に渡されます（`just docker build --no-cache test`）。`just` 単独で recipe 一覧を表示。 |
 | `script/test/justfile.test` | Template CI コマンドエントリ（`just test`、`just test lint` 等）。user-facing と CI-facing の分離は意図的。 |
 | `init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成 |
 | `upgrade.sh` | Subtree バージョンアップグレード |
@@ -224,13 +224,13 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-just build                            # compose.yaml を再生成、全 stage を build
-just run -t headless                  # headless バリアントを起動
-just run -t gui                       # gui バリアントを起動
-just exec -t headless bash            # running の headless container に exec
+just docker build                            # compose.yaml を再生成、全 stage を build
+just docker run -t headless                  # headless バリアントを起動
+just docker run -t gui                       # gui バリアントを起動
+just docker exec -t headless bash            # running の headless container に exec
 
 # Kit スタイルの `=` 付き引数も just ではそのまま渡せます (#469):
-just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
+just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等価な直接 .sh 呼び出し:
 ./build.sh
@@ -454,7 +454,7 @@ Main
 の度に再実行されることはありません：
 
 - **`./.base/init.sh`** がスケルトン生成後に 1 回自動実行
-- **`just upgrade` / `./.base/upgrade.sh`** が subtree pull の後に
+- **`just base upgrade` / `./.base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
   baseline で `.env` / `compose.yaml` を再生成した状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
@@ -475,9 +475,9 @@ Main
 > で実行したい場合は `--build` フラグを付けてください：
 >
 > ```bash
-> just build test                   # 明示的に lint + smoke を実行
-> just run --build                  # lint + smoke を実行してから compose up
-> just run                          # デフォルト — 高速パス、lint/smoke はスキップ
+> just docker build test                   # 明示的に lint + smoke を実行
+> just docker run --build                  # lint + smoke を実行してから compose up
+> just docker run                          # デフォルト — 高速パス、lint/smoke はスキップ
 > ```
 
 `setup.sh apply` は毎回 `compose.yaml` をゼロから書き直しますが、
@@ -557,7 +557,7 @@ docker load < image.tar
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
-両ファイルは `just upgrade` のたびに再生成されます（init.sh が subtree
+両ファイルは `just base upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
@@ -575,7 +575,7 @@ script/hooks/post/<wrapper>.sh   # main logic 後（run.sh は EXIT trap 内）
 hook framework は箱から出してすぐに使えます。`exit 0` を host-side の処理
 （例: `multiarch/qemu-user-static` の binfmt 登録、mount ディレクトリ作成、
 hardware preflight）に置き換えてください。stub は upgrade に対して
-冪等 — pre-#440 の template でも `just upgrade` 後に scaffolding が
+冪等 — pre-#440 の template でも `just base upgrade` 後に scaffolding が
 補完されます。
 
 **Contract:**
@@ -719,13 +719,13 @@ git subtree add --prefix=.base \
 
 ```bash
 # 新バージョンの確認
-just upgrade-check
+just base update
 
 # 最新にアップグレード（subtree pull + バージョンファイル + workflow tag）
-just upgrade
+just base upgrade
 
 # バージョン指定
-just upgrade v0.3.0
+just base upgrade v0.3.0
 # 指定したバージョンが現在の local pin より古い場合（例：v0.12.0-rc1 から
 # v0.11.0 への巻き戻し）は SemVer §11 に従って暗黙の downgrade として
 # 拒否されます。意図的な rollback の場合は .base/.version を手動編集
@@ -772,7 +772,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、base の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `just upgrade vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、base の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `just base upgrade vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
 ## CI Reusable Workflows
 
