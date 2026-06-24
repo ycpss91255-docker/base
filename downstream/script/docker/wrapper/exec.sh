@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# Shared wrapper preamble (sub-task A): resolve FILE_PATH across the
 # symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
 # and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
 # locator rationale.
@@ -23,14 +23,14 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[exec] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
-# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _bootstrap also sources the wrapper runtime (lib/wrapper.sh) after
 # _lib.sh, so _msg / _wrapper_lang_prepass are in scope below.
 _bootstrap "$@"
 
-# i18n message tables — split by semantic category (#278 PR-2).
+# i18n message tables — split by semantic category (PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
 # are added by the _log_* caller (English-only; level keyword no longer
-# translated — see #283).
+# translated —).
 _msg_errors() {
   case "${_LANG}:${1:?}" in
     # %s expanded by printf -v at the callsite (container name).
@@ -50,7 +50,7 @@ _msg_hints() {
   esac
 }
 
-# _msg dispatcher provided by lib/wrapper.sh (#565).
+# _msg dispatcher provided by lib/wrapper.sh.
 
 usage() {
   case "${_LANG}" in
@@ -219,13 +219,13 @@ EOF
 }
 
 main() {
-  _transcript_begin  # #608: capture orchestration; detach before exec
-  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _transcript_begin  # capture orchestration; detach before exec
+  # shared --lang pre-pass. See lib/wrapper.sh.
   _wrapper_lang_prepass exec "$@"
 
   local TARGET="devel"
   DRY_RUN=false
-  # TTY mode resolution (#382): tracks the user's explicit choice with
+  # TTY mode resolution: tracks the user's explicit choice with
   # last-wins precedence between -T (force no-tty) and -i (force tty).
   # Empty means no explicit choice; auto-detect runs below.
   local _tty_mode=""
@@ -249,7 +249,7 @@ main() {
         shift
         ;;
       -v|--verbose)
-        # BUILDKIT_PROGRESS=plain — symmetry with build/run/stop (#311).
+        # BUILDKIT_PROGRESS=plain — symmetry with build/run/stop.
         # No-op for `docker exec` itself but harmless; useful for grep-
         # based discovery ("does this wrapper take -v? yes") and for the
         # rare case of `exec.sh` triggering a compose build via `--build`
@@ -263,7 +263,7 @@ main() {
         shift
         ;;
       -T|--no-tty)
-        # Force no-TTY (#382). Use for one-shot CMDs the auto-detect
+        # Force no-TTY. Use for one-shot CMDs the auto-detect
         # heuristic doesn't recognise (`whoami`, `ls /foo`,
         # `env BAR=1 bash -c '...'`) so terminal escape sequences
         # (focus-in, bracketed-paste, …) don't echo into output.
@@ -271,7 +271,7 @@ main() {
         shift
         ;;
       -i|--tty)
-        # Force TTY (#382). Use to override the auto-detect heuristic
+        # Force TTY. Use to override the auto-detect heuristic
         # when a `bash -c '...'` invocation actually wants a TTY (rare;
         # e.g. `bash -c 'tput cols'`).
         _tty_mode="tty"
@@ -285,7 +285,7 @@ main() {
       --)
         # Explicit flag/CMD separator, mirroring run.sh. Lets the user
         # send a CMD starting with a dash (e.g. `--version`) without it
-        # being captured by exec.sh's own option parsing. Closes #289.
+        # being captured by exec.sh's own option parsing.
         shift
         break
         ;;
@@ -302,7 +302,7 @@ main() {
     set -- bash
   fi
 
-  # TTY mode resolution (#382, Option 1+2):
+  # TTY mode resolution (Option 1+2):
   # - explicit -T/-i (last-wins via _tty_mode set above) takes priority
   # - else auto-detect: positional CMD `bash|sh|dash|zsh|ash|ksh -c …`
   #   implies one-shot → no-TTY. Covers the 90% case where users wrap
@@ -332,9 +332,9 @@ main() {
   # Container name mirrors compose.yaml's `container_name:`:
   #   - devel:           ${USER_NAME}-${IMAGE_NAME}
   #   - non-devel stage: ${USER_NAME}-${IMAGE_NAME}-${TARGET}
-  # The ${USER_NAME} prefix landed in #322 (multi-user host
+  # The ${USER_NAME} prefix landed in (multi-user host
   # disambiguation); the per-stage ${TARGET} suffix is the convention
-  # auto-emitted for headless / gui / test stages (#215). Refs #335 --
+  # auto-emitted for headless / gui / test stages. --
   # before this fix, the precheck always grepped for the devel-flavoured
   # name and aborted any ./exec.sh -t <non-devel> invocation.
   local _container_name="${USER_NAME}-${IMAGE_NAME}"
@@ -353,17 +353,17 @@ ${_hint}"
     exit 1
   fi
 
-  # #440: pre-exec hook fires after container-running check, before
+  # pre-exec hook fires after container-running check, before
   # the actual `compose exec`. Skipped under --dry-run.
   _run_pre_hook exec "$@" || exit $?
 
-  # #608: orchestration (incl. the not-running precheck error + pre-hook)
+  # orchestration (incl. the not-running precheck error + pre-hook)
   # is captured; detach before handing the terminal to the exec session.
   _transcript_detach
   _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@"
   local _exec_rc=$?
 
-  # #440: post-exec hook fires after exec returns; container is still
+  # post-exec hook fires after exec returns; container is still
   # running so the hook can `docker exec` for final reporting.
   _run_post_hook exec "$@" || exit $?
   return "${_exec_rc}"

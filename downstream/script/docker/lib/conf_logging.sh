@@ -3,7 +3,7 @@
 # conf_logging.sh -- shared parsers for the [logging] / [logging.<svc>]
 # sections of setup.conf.
 #
-# Extracted from script/docker/wrapper/setup.sh during the #402
+# Extracted from script/docker/wrapper/setup.sh during the
 # lifecycle refactor (PR-A). Both setup.sh's compose generator and
 # lib/gitignore.sh's logging-block sync (added in PR-B) read the same
 # values, so the parser belongs in a shared lib rather than ping-pong
@@ -26,9 +26,9 @@ if [[ -n "${_DOCKER_LIB_CONF_LOGGING_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
-# Self-source the conf.sh dependency (#568 Part A): _collect_logging uses
-# _parse_ini_section (in lib/conf.sh since #402; full INI handling
-# consolidated there in #411). Pull it in directly -- idempotent via
+# Self-source the conf.sh dependency (Part A): _collect_logging uses
+# _parse_ini_section (in lib/conf.sh since; full INI handling
+# consolidated there in). Pull it in directly -- idempotent via
 # conf.sh's own double-source guard -- so _lib.sh load order is not
 # load-bearing and a caller sourcing conf_logging.sh alone still works.
 # (_SETUP_SCRIPT_DIR for the template fallback in _collect_logging is a
@@ -42,7 +42,7 @@ unset _conf_logging_dir
 #
 # Emit each service name that has a `[logging.<svc>]` section in <file>
 # (in the order they appear). Mirrors `_parse_stage_sections` but for
-# the per-service logging override namespace (#310).
+# the per-service logging override namespace.
 _parse_logging_svc_sections() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
   local -n _plss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
@@ -98,7 +98,7 @@ _collect_logging() {
   [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
   if (( ${#_g_keys[@]} == 0 )) && [[ -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
     # _SETUP_SCRIPT_DIR is set by setup.sh; init.sh / upgrade.sh call
-    # _collect_logging via _sync_logging_gitignore (#402 PR-B) without
+    # _collect_logging via _sync_logging_gitignore (PR-B) without
     # sourcing setup.sh, so the template-fallback step is skipped in
     # that path. Per-repo setup.conf already covers downstream cases.
     local _tpl="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"

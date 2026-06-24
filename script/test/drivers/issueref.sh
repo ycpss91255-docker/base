@@ -34,7 +34,7 @@
 
 # ── No transient issue refs in code comments ─────────────────────────────────
 
-# In-scope file types (ADR-00000013 / #576). Repo-root-relative roots are
+# In-scope file types (ADR-00000013). Repo-root-relative roots are
 # walked for these extensions; @test description strings are exempt inside
 # .bats files (handled by the comment extractor below).
 readonly _ISSUEREF_ROOTS=(
@@ -53,7 +53,7 @@ readonly _ISSUEREF_TOPLEVEL=(
 # never treated as a comment; @test lines are skipped wholesale; only a
 # bare `#NNN` (not word-prefixed) in the comment portion is flagged.
 # FILENAME is rewritten repo-root-relative via the `relbase` var.
-# shellcheck disable=SC2016  # awk program; $-vars are awk's, not the shell's.
+# shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
 readonly _ISSUEREF_AWK='
   function is_ws(c) { return (c == " " || c == "\t") }
   {
@@ -67,7 +67,16 @@ readonly _ISSUEREF_AWK='
       if (in_d) { if (c == "\"") in_d = 0; prev = c; continue }
       if (c == "\47") { in_s = 1; prev = c; continue }
       if (c == "\"") { in_d = 1; prev = c; continue }
-      if (c == "#") { if (prev == "" || is_ws(prev)) { cstart = i; break } }
+      if (c == "#") {
+        # A comment opener is `#` at start-of-token (prev is SOL or ws). A
+        # `#` immediately followed by a digit is NOT a comment marker -- no
+        # genuine comment opens `#<digit>`; that shape only occurs as a ref
+        # embedded in prose / a heredoc usage body (functional text, not a
+        # code comment). Skip it so such lines are not flagged.
+        if ((prev == "" || is_ws(prev)) && substr(line, i + 1, 1) !~ /[0-9]/) {
+          cstart = i; break
+        }
+      }
       prev = c
     }
     if (cstart < 0) next

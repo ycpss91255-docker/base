@@ -2,7 +2,7 @@
 #
 # Tests for downstream/script/docker/runtime/logging.sh -- the helper sourced
 # from repo entrypoints to tee container stdout/stderr to the host
-# bind-mounted log file when [logging] local_path is set (#328).
+# bind-mounted log file when [logging] local_path is set.
 
 bats_require_minimum_version 1.5.0
 
@@ -16,7 +16,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _entrypoint_logging.sh helper (#328)
+# _entrypoint_logging.sh helper
 # ════════════════════════════════════════════════════════════════════
 
 @test "entrypoint_logging is no-op when LOG_FILE_PATH unset (#328)" {

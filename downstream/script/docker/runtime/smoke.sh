@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# smoke.sh -- runtime image install-check (#430).
+# smoke.sh -- runtime image install-check.
 #
 # Scans a directory for .so files and runs `ldd` on each. Fails if any
 # library has a "not found" dependency, which catches missing runtime

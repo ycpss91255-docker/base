@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1968 tests** total (1883 unit + 85 integration).
+Template self-tests: **1980 tests** total (1895 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1438,6 +1438,23 @@ the host file content and the inherited stdout (preserving
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+
+### test/bats/unit/issueref_lint_spec.bats (12)
+
+| Test | Description |
+|------|-------------|
+| `_run_issueref: flags a bare #NNN in a leading comment` | Leading comment ref detected |
+| `_run_issueref: flags a bare #NNN in a trailing comment` | Trailing comment ref detected |
+| `_run_issueref: flags the (#NNN) paren form in a comment` | Parenthesised ref detected |
+| `_run_issueref: flags refs in .bats helper comments (not @test names)` | Helper comment flagged, @test name kept |
+| `_run_issueref: passes clean on a tree with no comment refs` | Clean tree passes |
+| `_run_issueref: does NOT flag a #NNN inside a string literal` | String-literal ref kept |
+| `_run_issueref: does NOT flag ADR-0000xxxx references` | ADR refs kept |
+| `_run_issueref: does NOT flag DL/SC directive codes or version tags` | DL/SC/version tokens kept |
+| `_run_issueref: does NOT flag word-prefixed cross-repo refs` | Cross-repo refs kept |
+| `_run_issueref: does NOT flag single-digit or 5+-digit numbers` | Out-of-range numbers kept |
+| `_run_issueref: does NOT treat a ${#arr[@]} expansion as a comment` | Parameter expansion kept |
+| `_run_issueref: does NOT flag a #NNN opener in heredoc usage prose` | Heredoc usage prose kept |
 
 ### test/bats/unit/init_spec.bats (35)
 

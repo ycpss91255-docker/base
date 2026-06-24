@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
 # schema_coverage_spec.bats — registry drift guards for lib/schema.sh
-# (#562, schema epic #559 phase 3).
+# (schema epic phase 3).
 #
-# Phase 1 (#560) added the validator registry; phase 2 (#561) added the
+# Phase 1 added the validator registry; phase 2 added the
 # ordered SCHEMA_SECTIONS + accessors. These tests assert the registry
 # stays internally consistent and in sync with the setup.conf template,
 # so schema drift fails CI instead of surfacing as a runtime surprise:
@@ -12,8 +12,8 @@
 #   - every SCHEMA_EMPTY key is a registered validator key,
 #   - every registered key is reachable via SCHEMA_SECTIONS.
 #
-# Phase 3 follow-up (#591) adds the i18n-index column SCHEMA_I18N and the
-# locale-coverage assertion the original #562 scope deferred: every
+# Phase 3 follow-up adds the i18n-index column SCHEMA_I18N and the
+# locale-coverage assertion the original scope deferred: every
 # registered key maps to an i18n key (or an explicit "" opt-out for keys
 # with no TUI editor), and every mapped i18n key is present in all four
 # locale tables (en / zh-TW / zh-CN / ja). A missing translation in any
@@ -29,7 +29,7 @@ setup() {
 }
 
 # Source setup_tui.sh to populate the per-locale _TUI_MSG_* tables. The
-# BASH_SOURCE guard at the bottom of setup_tui.sh keeps main() from
+# BASH_SOURCE guard at the bottom of setup_tui.sh keeps main from
 # running, so this only loads the i18n tables + helpers (mirrors tui_spec).
 _load_locale_tables() {
   # shellcheck disable=SC1091
@@ -105,7 +105,7 @@ _load_locale_tables() {
 }
 
 @test "every SCHEMA_I18N message key exists in all four locale tables (#591)" {
-  # The coverage assertion #562 deferred: resolve each registered key's
+  # The coverage assertion deferred: resolve each registered key's
   # i18n key through SCHEMA_I18N and assert it is present in EN / ZH_TW /
   # ZH_CN / JA. A missing translation in any locale fails CI. Keys mapped
   # to "" (no TUI editor) are skipped — they carry no label to translate.

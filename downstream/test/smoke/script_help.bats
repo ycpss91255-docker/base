@@ -112,12 +112,12 @@ setup() {
   assert_line --partial "用法:"
 }
 
-# -------------------- #222: --help / --lang argument order --------------------
+# ----------------------help / --lang argument order --------------------
 #
 # Pre-pass scans args for --lang before the main parse loop, so the
 # locale set by --lang takes effect even when --help comes first.
 # Without the fix, `<script> --help --lang zh-TW` printed English
-# because usage() exited before --lang was reached. Each pair below
+# because usage exited before --lang was reached. Each pair below
 # asserts that BOTH orderings produce the same localised first line.
 
 @test "build.sh --help --lang zh-TW prints zh-TW usage (#222)" {

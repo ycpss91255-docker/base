@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # upgrade.sh lives deep in the subtree (.base/downstream/script/base/upgrade.sh,
-# relocated in #654, ADR-00000011 §8 / ADR-00000006). Walk up from the
+# relocated in  ADR-00000011 §8 / ADR-00000006). Walk up from the
 # script's own directory to the subtree root -- the directory carrying the
 # subtree markers `.version` + `downstream/` -- so SUBTREE_ROOT is the
 # subtree root regardless of how deep the script is nested. The subtree
@@ -44,7 +44,7 @@ readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
-# #606: upgrade.sh sources _lib.sh directly (not via _bootstrap), so set
+# upgrade.sh sources _lib.sh directly (not via _bootstrap), so set
 # the verb here for transcript.sh's classification before the source.
 export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
@@ -106,7 +106,7 @@ _verify_subtree_intact() {
   local _pre_head="$1"
   local _target_ver="${2:-}"
 
-  # R1+ structural invariant (#477): instead of asserting specific
+  # R1+ structural invariant: instead of asserting specific
   # files exist at hard-coded paths (which broke on the v0.39.0
   # `script/docker/setup.sh` -> `wrapper/setup.sh` reorg), check that
   # the subtree directory exists, is non-empty, and carries a
@@ -114,7 +114,7 @@ _verify_subtree_intact() {
   # the target the caller asked for (catches wrong-tag / wrong-remote
   # cases that pass the structural check but deliver the wrong thing).
   # Sibling path-coupling regions in upgrade.sh are intentionally not
-  # covered here -- tracked in #492.
+  # covered here -- tracked in
   if [[ ! -d "${TEMPLATE_REL}" ]]; then
     _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/' subtree dir missing." "marker=${TEMPLATE_REL}"
     _rollback_subtree_pull "${_pre_head}"
@@ -163,7 +163,7 @@ _get_latest_version() {
   # `head -1` closes stdin after one line, which delivers SIGPIPE to the
   # upstream `grep -oP`. With `pipefail` set, the pipe inherits that
   # non-zero exit. Bash 5.3 (alpine 3.23 — the test-tools image runner
-  # introduced in #168) propagates that failed command-substitution exit
+  # introduced in) propagates that failed command-substitution exit
   # through the caller's `set -e` and silently kills the script before
   # _check's `_log` lines run; bash 5.2 (debian bookworm / kcov-runner)
   # does not. Wrap the pipe with `|| true` so this function unconditionally
@@ -183,7 +183,7 @@ _get_latest_version() {
 # SemVer §11 says a pre-release version has LOWER precedence than the
 # associated normal version (rc1 < final). GNU `sort -V` orders them
 # the OTHER way (final < rc1, treats `-` as "less than empty"), so we
-# can't just delegate. The wrong ordering caused issue #156: once
+# can't just delegate. The wrong ordering causedonce
 # v0.12.0 was published, downstreams still pinned to v0.12.0-rc1
 # would have been told they were "ahead" of stable, hiding the upgrade.
 #
@@ -297,10 +297,10 @@ _upgrade() {
   # hash later by _warn_config_drift.
   _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config" 2>/dev/null || true)"
 
-  # Snapshot pre-pull setup.conf hash too. Path is the post-#262 location
+  # Snapshot pre-pull setup.conf hash too. Path is the location
   # ${TEMPLATE_REL}/downstream/config/docker/setup.conf. If the upstream baseline
   # changed, the user may want to copy new sections / keys into their
-  # per-repo setup.conf override (issue #201's 2-file model makes this a
+  # per-repo setup.conf override ('s 2-file model makes this a
   # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
   _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config/docker/setup.conf" 2>/dev/null || true)"
@@ -317,7 +317,7 @@ _upgrade() {
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
   _log "Step 3/5: re-run init.sh to sync symlinks"
-  # #330: when upgrading from <v0.30.0, init.sh's stale-removal loop
+  # when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
   _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
   "./${TEMPLATE_REL}/downstream/script/base/init.sh"
@@ -338,8 +338,8 @@ _upgrade() {
   fi
 
   # Step 5: heal downstream Dockerfile / entrypoint drift via the declarative
-  # migration list (#567, folds #579 facet B). Each base contract change used
-  # to grow another one-off sed here (the #348 lib-copy split, the #399
+  # migration list (folds facet B). Each base contract change used
+  # to grow another one-off sed here (the lib-copy split, the
   # wrapper-copy move); they have all moved into lib/dockerfile_migrate.sh as
   # an ordered, data-driven {detect, transform} table. upgrade.sh now just
   # sources the lib and calls the dispatcher: each migration auto-applies
@@ -359,7 +359,7 @@ _upgrade() {
 
   # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
   # and `git rm --cached`-ed any tracked-but-now-derived artifacts
-  # (#172). The .gitignore mutation is unstaged; the rm is index-staged.
+  # The .gitignore mutation is unstaged; the rm is index-staged.
   # Stage .gitignore so both land in the same commit.
   if [[ -f "${REPO_ROOT}/.gitignore" ]]; then
     git add "${REPO_ROOT}/.gitignore"
@@ -381,7 +381,7 @@ COMMIT
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
-  # Same pattern for .base/setup.conf: post-#201 the user's per-repo
+  # Same pattern for .base/setup.conf: the user's per-repo
   # setup.conf is the override file (committed, never overwritten by
   # template upgrades). When the upstream .base/setup.conf adds new
   # sections / keys / changes defaults, point the user at the diff so
@@ -422,8 +422,8 @@ _warn_config_drift() {
 
 # _warn_setup_conf_drift <pre_pull_blob_hash>
 #
-# Post-#201 sibling of _warn_config_drift. <repo>/config/docker/setup.conf
-# (post-#262 path) is the user-owned override file; this script never
+# sibling of _warn_config_drift. <repo>/config/docker/setup.conf
+# (path) is the user-owned override file; this script never
 # rewrites it. When the upstream template-side setup.conf changes (new
 # sections, new keys, default tweaks), surface a pointer to the diff so
 # the user can hand-merge any upstream additions they want into their
@@ -478,12 +478,12 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
-  _transcript_begin  # #606: capture this run's output (no-op if disabled)
+  _transcript_begin  # capture this run's output (no-op if disabled)
 
-  # #655: upgrade.sh is a human-facing `base` namespace recipe, so it
+  # upgrade.sh is a human-facing `base` namespace recipe, so it
   # accepts --lang and honors SETUP_LANG/$LANG via i18n.sh (sourced by
   # _lib.sh). Its own messages are English-only pending the localized pass
-  # (#656); --lang is validated here so the flag is accepted, not an error,
+  # --lang is validated here so the flag is accepted, not an error,
   # uniformly with the docker wrappers. Strip --lang <code> from argv
   # before the positional dispatch below.
   local _LANG

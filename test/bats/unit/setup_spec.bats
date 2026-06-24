@@ -137,7 +137,7 @@ fi'
 }
 
 @test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
-  # #466 F2: /dev:/dev is no longer bound by default -- repos that need
+  # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
   run grep -E '^device_1 = /dev:/dev$' /source/downstream/config/docker/setup.conf
   assert_failure
@@ -182,7 +182,7 @@ EOF
   assert_success
 }
 
-# ── #478 [lifecycle] restart policy ─────────────────────────────────────────
+# ── [lifecycle] restart policy ─────────────────────────────────────────
 
 @test "[lifecycle] restart = always emits restart: always under devel (#478)" {
   printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/config/docker/setup.conf"
@@ -248,7 +248,7 @@ EOF
   done
 }
 
-# ── #496 [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
+# ── [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
 
 @test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
@@ -328,7 +328,7 @@ EOF
   assert_output --partial "992"
 }
 
-# ── #481 [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
+# ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
 
 @test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
   printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
@@ -397,7 +397,7 @@ EOF
 }
 
 @test "[security] cap_add opt-in (#466): empty section + slim template emits no cap_add" {
-  # #466 F2: the template no longer ships cap_add_* defaults, so a repo
+  # F2: the template no longer ships cap_add_* defaults, so a repo
   # with an empty [security] section (the omniverse case) falls back to a
   # SLIM template and gets NO cap_add block -- privileges are opt-in, not
   # silently inherited. Repos that need caps declare them explicitly
@@ -419,7 +419,7 @@ EOF
 }
 
 @test "[security] security_opt opt-in (#466): empty section + slim template emits no security_opt" {
-  # #466 F2: template no longer ships security_opt_1 = seccomp:unconfined,
+  # F2: template no longer ships security_opt_1 = seccomp:unconfined,
   # so an empty [security] section yields no security_opt block.
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
@@ -455,7 +455,7 @@ EOF
 
 @test "[security] privileged defaults to false when key absent (#466 opt-in)" {
   # A repo that declares [security] (e.g. for cap_add) but omits the
-  # privileged key must NOT silently get privileged=true. #466 flips the
+  # privileged key must NOT silently get privileged=true. flips the
   # default to false so privilege is opt-in across the board.
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [security]
@@ -541,7 +541,7 @@ EOF
   # Stub a Dockerfile with `AS runtime` so generate_compose_yaml emits
   # the runtime service. Then assert additional_contexts: appears 3 times
   # (once under each of devel / runtime / test). The `test` service comes
-  # from the devel-test stage (#493), so the fixture must declare it.
+  # from the devel-test stage, so the fixture must declare it.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS runtime
@@ -831,7 +831,7 @@ fi'
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _is_ssh_x11 (SSH X11 forwarding detection, #321)
+# _is_ssh_x11 (SSH X11 forwarding detection,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_is_ssh_x11 true when SSH_CONNECTION set + DISPLAY=localhost:N (#321)" {
@@ -876,7 +876,7 @@ fi'
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _setup_ssh_x11_cookie (cookie rewrite via xauth, #321)
+# _setup_ssh_x11_cookie (cookie rewrite via xauth,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)" {
@@ -918,7 +918,7 @@ EOS
     "
   assert_success
   assert_output "${TEMP_DIR}/.docker.xauth"
-  # File was created AND has content (post-#321 hotfix: defensive
+  # File was created AND has content (hotfix: defensive
   # check on empty cookie file).
   assert [ -s "${TEMP_DIR}/.docker.xauth" ]
   # xauth was invoked twice with `-i` (ignore-locks) since the hotfix.
@@ -975,7 +975,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# write_env: SSH X11 XAUTHORITY override (#321)
+# write_env: SSH X11 XAUTHORITY override
 # ════════════════════════════════════════════════════════════════════
 
 @test "write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)" {
@@ -1397,7 +1397,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _resolve_build_network (Jetson build-net auto-detect, issue #102)
+# _resolve_build_network (Jetson build-net auto-detect,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_resolve_build_network auto on Jetson => host" {
@@ -1736,12 +1736,12 @@ EOF
   assert_output --partial "更新完成"
 }
 
-# ── Per-repo setup.conf missing / empty INFO (issue #150) ────────────────
+# ── Per-repo setup.conf missing / empty INFO ────────────────
 # When the per-repo setup.conf is absent, or present but has no section
 # headers, every _load_setup_conf call falls back to the template default.
-# That fallback used to be silent — surfacing one WARN line at apply()
+# That fallback used to be silent — surfacing one WARN line at apply
 # entry tells the user the entire run is template-default driven, without
-# spamming a notice per section (11 sections would be noisy). #186
+# spamming a notice per section (11 sections would be noisy).
 # promoted this from INFO to WARN so the heads-up doesn't scroll past.
 
 @test "apply prints WARN when per-repo setup.conf is missing (#186)" {
@@ -1754,9 +1754,9 @@ EOF
   assert_success
   assert_output --partial "[setup] WARN :"
   assert_output --partial "no per-repo setup.conf"
-  # #186 regression guard: the heads-up must NOT be demoted to INFO
+  # regression guard: the heads-up must NOT be demoted to INFO
   # (where it would scroll past). The env_done line legitimately uses
-  # INFO level post-#290, so scope the refute to the warning's body.
+  # INFO level, so scope the refute to the warning's body.
   refute_output --partial "[setup] INFO: no per-repo setup.conf"
 }
 
@@ -1813,8 +1813,8 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/docker/lib/_tui_conf.sh \
     "${TEMP_DIR}/sandbox_repo/.base/downstream/script/docker/lib/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
-  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  # setup.sh sources _lib.sh for the _log_* helpers; _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs
   cp /source/downstream/script/docker/lib/_lib.sh \
     "${TEMP_DIR}/sandbox_repo/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/* \

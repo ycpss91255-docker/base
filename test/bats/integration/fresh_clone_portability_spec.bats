@@ -65,9 +65,9 @@ _seed_stale_setup_conf() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)" {
-  # Pre-#174 the contributor-A → contributor-B path-leak hinged on
+  # the contributor-A → contributor-B path-leak hinged on
   # setup.conf being tracked: the absolute path travelled through git
-  # and apply had to detect-and-rewrite. After #174 setup.conf is
+  # and apply had to detect-and-rewrite. After setup.conf is
   # gitignored and a derived snapshot, so the leak vector is gone at
   # the source. This test still pre-seeds a stale setup.conf to model
   # a worst-case scenario (e.g. a developer manually checked it in)

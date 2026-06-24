@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# schema.sh — setup.conf validation registry + dispatcher (#560, epic #559).
+# schema.sh — setup.conf validation registry + dispatcher (epic).
 #
 # Single source of truth for "is this <section>.<key> = <value> valid?".
 # Both setup.sh (the `set` / `add` subcommands, via _setup_validate_kv)
@@ -46,7 +46,7 @@ declare -gA SCHEMA_VALIDATOR=(
   # ── scalar keys ──────────────────────────────────────────────────
   [deploy.gpu_count]=_validate_gpu_count
   [deploy.gpu_runtime]=_validate_runtime
-  [deploy.runtime]=_validate_runtime          # legacy alias (#481)
+  [deploy.runtime]=_validate_runtime          # legacy alias
   [resources.shm_size]=_validate_shm_size
   [lifecycle.restart]=_validate_restart
   [build.target_arch]=_validate_target_arch
@@ -73,7 +73,7 @@ declare -gA SCHEMA_VALIDATOR=(
 )
 
 # ════════════════════════════════════════════════════════════════════
-# SCHEMA_SECTIONS — the ordered list of setup.conf sections (#561).
+# SCHEMA_SECTIONS — the ordered list of setup.conf sections.
 #
 # Single source for "which sections exist, in what order" (the order
 # matches the setup.conf template headers). Consumers derive from this
@@ -91,12 +91,12 @@ declare -ga SCHEMA_SECTIONS=(
 )
 
 # ════════════════════════════════════════════════════════════════════
-# SCHEMA_I18N — the i18n-index (#591, deferred from #562 / epic #559).
+# SCHEMA_I18N — the i18n-index (deferred fromepic).
 #
 # Maps each canonical SCHEMA_VALIDATOR key to the i18n message key its
 # TUI editor shows as the key's label/help (the `_tui_msg` key resolved
 # in setup_tui.sh's per-locale _TUI_MSG_* tables). This is the missing
-# link #562 lacked: it makes "every key has a translation in all four
+# link lacked: it makes "every key has a translation in all four
 # locales (en / zh-TW / zh-CN / ja)" mechanically assertable from the
 # registry (see test/bats/unit/schema_coverage_spec.bats).
 #
@@ -109,7 +109,7 @@ declare -ga SCHEMA_SECTIONS=(
 # Empty string ("") is the explicit "no TUI editor" opt-out: a key that
 # is schema-validated (so setup.sh's `set`/`add` gate it) but has no
 # interactive editor, hence no label/help to translate. The transcript
-# knobs (logging.wrapper_transcript*) are config-file / env only (#608),
+# knobs (logging.wrapper_transcript*) are config-file / env only,
 # never surfaced in the menu, so they map to "". Every registered
 # validator key MUST appear here (the coverage spec asserts the index is
 # complete) — opting a key out is a deliberate "" entry, not an omission.
@@ -118,7 +118,7 @@ declare -gA SCHEMA_I18N=(
   # ── scalar keys ──────────────────────────────────────────────────
   [deploy.gpu_count]=deploy.count.prompt
   [deploy.gpu_runtime]=deploy.runtime.prompt
-  [deploy.runtime]=deploy.runtime.prompt        # legacy alias (#481)
+  [deploy.runtime]=deploy.runtime.prompt        # legacy alias
   [resources.shm_size]=resources.shm_size.prompt
   [lifecycle.restart]=lifecycle.restart.prompt
   [build.target_arch]=build.target_arch.prompt
@@ -129,7 +129,7 @@ declare -gA SCHEMA_I18N=(
   [logging.max_file]=logging.max_file.prompt
   [logging.compress]=logging.compress.prompt
   [logging.local_path]=logging.local_path.prompt
-  # Config-file / env only, no TUI editor (#608) -> no label to translate.
+  # Config-file / env only, no TUI editor -> no label to translate.
   [logging.wrapper_transcript]=""
   [logging.wrapper_transcript_keep]=""
   [logging.wrapper_transcript_days]=""
@@ -239,7 +239,7 @@ _schema_canonical_key() {
 # its index value is "" (opted out of a TUI label), or the section/key is
 # unknown, echoes <fallback> (default empty) so callers can keep a literal
 # default. The setup TUI routes its per-key prompt lookups through this so
-# the i18n-index is the single source the coverage spec asserts (#591) and
+# the i18n-index is the single source the coverage spec asserts and
 # the menu strings can't silently drift from it.
 # ════════════════════════════════════════════════════════════════════
 _schema_i18n_key() {

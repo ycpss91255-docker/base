@@ -133,7 +133,7 @@ EOF
 }
 
 @test "_tui_menu never emits --extra-button on dialog even when TUI_EXTRA_LABEL is set (#178)" {
-  # Issue #178 — TUI_EXTRA_LABEL is no longer plumbed through to either
+  # — TUI_EXTRA_LABEL is no longer plumbed through to either
   # backend. setup_tui.sh injects a synthetic `__save` menu entry instead,
   # giving identical UX across dialog / whiptail. _tui_menu must therefore
   # ignore TUI_EXTRA_LABEL completely (used to forward `--extra-button` on
@@ -330,7 +330,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# whiptail flag-spelling compatibility (#136) + Save-button unification (#178)
+# whiptail flag-spelling compatibility + Save-button unification
 #
 # whiptail rejects dialog's --ok-label / --cancel-label spellings (its
 # equivalents are --ok-button / --cancel-button). _tui_run translates
@@ -338,7 +338,7 @@ EOF
 # Jetson arm64) don't abort with `unknown option` on the very first menu.
 #
 # whiptail also has no --extra-button / --extra-label at all (newt
-# library limitation). After #178 dialog stops using them too, so the
+# library limitation). After dialog stops using them too, so the
 # Save & Exit affordance lives in the menu body for both backends; the
 # tests below pin both halves of that contract.
 # ════════════════════════════════════════════════════════════════════
@@ -377,7 +377,7 @@ EOF
   # _tui_msgbox bypasses _tui_run (it has no Cancel button), so it never
   # emits OK/Cancel label flags regardless of backend. The regression
   # guard here is purely that no dialog-spelled flag ever leaks through
-  # to whiptail (which would crash with `unknown option`). #136.
+  # to whiptail (which would crash with `unknown option`).
   _install_stub whiptail
   TUI_BACKEND="whiptail"
   export TUI_OK_LABEL="Enter"
@@ -421,7 +421,7 @@ EOF
 
 @test "_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set" {
   # whiptail has no --extra-button at all (newt limitation). This test
-  # has held since #136 and remains valid after #178.
+  # has held since and remains valid after
   _install_stub whiptail
   TUI_BACKEND="whiptail"
   export TUI_EXTRA_LABEL="Save"

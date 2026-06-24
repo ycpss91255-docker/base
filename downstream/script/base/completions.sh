@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Opt-in shell tab-completion installer for `just` (#653, ADR-00000011).
+# Opt-in shell tab-completion installer for `just` (ADR-00000011).
 #
 # Reached as `just base completions install|uninstall [--shell ...]` via the
 # consumer symlink script/base/completions.sh. It writes the DYNAMIC clap
@@ -19,10 +19,10 @@
 
 set -euo pipefail
 
-# i18n.sh provides _resolve_lang / _sanitize_lang (#655). completions.sh is
+# i18n.sh provides _resolve_lang / _sanitize_lang. completions.sh is
 # a human-facing `base` namespace recipe, so it accepts --lang and honors
 # SETUP_LANG/$LANG like the docker wrappers, even though its diagnostics are
-# English-only pending the localized pass (#656). Located relative to this
+# English-only pending the localized pass. Located relative to this
 # script's real path so it resolves through the consumer symlink into
 # .base/downstream/script/base/completions.sh.
 _completions_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"

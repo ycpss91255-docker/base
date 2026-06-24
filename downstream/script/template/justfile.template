@@ -11,9 +11,9 @@ default:
 # Scaffold a new repo-local command group: create script/local/<name>/ from
 # the skeleton and register it in script/local/justfile.local.
 #
-# `cd {{justfile_directory()}}` lands at the repo root (the entry's dir,
+# `cd {{justfile_directory}}` lands at the repo root (the entry's dir,
 # reliable whether reached via `--working-directory` or a bare invocation;
-# `[no-cd]` / `invocation_directory()` are not, so the scaffolder runs from
+# `[no-cd]` / `invocation_directory` are not, so the scaffolder runs from
 # a known-good cwd) before running new.sh, which writes to ./script/local/.
 new name:
     @cd {{justfile_directory()}} && script/template/new.sh {{name}}

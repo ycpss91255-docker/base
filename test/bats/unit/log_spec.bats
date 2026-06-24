@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# log_spec.bats - Tests for OTel-aligned log.sh (#423, #438).
+# log_spec.bats - Tests for OTel-aligned log.sh.
 # Single-sink tty-detect dispatch: text on TTY, JSON on non-TTY.
 # LOG_FORMAT=auto|text|json override. Strict body enforcement.
 
@@ -104,7 +104,7 @@ setup() {
   [[ "${output}" == *'"display":"Env regenerated OK"'* ]]
 }
 
-# ── Timestamp: UTC + microsecond (#438) ───────────────────────────
+# ── Timestamp: UTC + microsecond ───────────────────────────
 
 @test "text timestamp is UTC with microsecond precision" {
   run bash -c "
@@ -149,7 +149,7 @@ setup() {
   [[ "${stderr}" == *"FATAL"* ]]
 }
 
-# ── Single-sink tty-detect dispatch (#438) ────────────────────────
+# ── Single-sink tty-detect dispatch ────────────────────────
 
 @test "non-TTY stdout emits JSON by default (auto-detect)" {
   run bash -c "source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp"
@@ -193,13 +193,13 @@ setup() {
   [[ "${out_unset}" == *'"severity_text":"INFO"'* ]]
 }
 
-# ── Startup TTY cache (_LOG_IS_TTY) (#605) ─────────────────────────
+# ── Startup TTY cache (_LOG_IS_TTY) ─────────────────────────
 #
-# A later transcript tee on fd1 (#606) makes `test -t 1` false mid-run,
+# A later transcript tee on fd1 makes `test -t 1` false mid-run,
 # which would flip the live terminal to JSON / no-color. _LOG_IS_TTY
 # caches the run's real TTY-ness at startup (return code: 0 = tty,
 # non-zero = not) so the auto-format + color decisions survive the tee.
-# Unset -> live `test -t` fallback (standalone sourcing == pre-#605).
+# Unset -> live `test -t` fallback (standalone sourcing ==).
 
 @test "_log_is_tty helper is defined after sourcing (#605)" {
   run bash -c "source ${LOG_SH}; declare -F _log_is_tty"
@@ -354,7 +354,7 @@ setup() {
   [[ "${output}" != *'"trace_id"'* ]]
 }
 
-# ── Strict body enforcement (#438) ────────────────────────────────
+# ── Strict body enforcement ────────────────────────────────
 
 @test "unregistered body causes fatal exit" {
   run bash -c "source ${LOG_SH}; _log_info setup not_a_real_event"
@@ -449,7 +449,7 @@ setup() {
   [[ "${stderr}" == *"[trace started:"* ]]
 }
 
-# ── _log_plain removed (#438) ─────────────────────────────────────
+# ── _log_plain removed ─────────────────────────────────────
 
 @test "_log_plain is no longer defined" {
   run bash -c "source ${LOG_SH}; declare -F _log_plain"
@@ -534,7 +534,7 @@ setup() {
   assert_success
 }
 
-# ── _dry_run_cmd (#408-B) ──────────────────────────────────────────
+# ── _dry_run_cmd (-B) ──────────────────────────────────────────
 #
 # Unifies the wrapper dry-run dispatch: under DRY_RUN=true it prints the
 # planned command (`[dry-run]` + %q-quoted argv) and does NOT execute;

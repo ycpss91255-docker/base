@@ -12,7 +12,7 @@
 #   _resolve_lang    — resolve the effective language (SETUP_LANG env
 #                      override, else $LANG detection) into a caller var.
 #
-# #568 Part B: sourcing this module no longer sets _LANG as a load-time
+# Part B: sourcing this module no longer sets _LANG as a load-time
 # side-effect. Callers invoke `_resolve_lang _LANG` explicitly (the
 # wrapper preamble lib/bootstrap.sh does this once for build / run / exec
 # / stop / prune; setup.sh and setup_tui.sh do it after sourcing). This
@@ -73,7 +73,7 @@ _sanitize_lang() {
 #
 # Resolve the effective language into the named caller variable: the
 # SETUP_LANG env override wins, else detect from $LANG. Replaces the old
-# module-load-time `_LANG=...` side-effect (#568 Part B) so the choice is
+# module-load-time `_LANG=...` side-effect (Part B) so the choice is
 # an explicit, code-verifiable call rather than a hidden source effect.
 _resolve_lang() {
   local -n _rl_ref="${1:?"${FUNCNAME[0]}: missing outvar name"}"

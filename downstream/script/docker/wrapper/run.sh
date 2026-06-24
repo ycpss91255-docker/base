@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# Shared wrapper preamble (sub-task A): resolve FILE_PATH across the
 # symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
 # and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
 # locator rationale.
@@ -23,15 +23,15 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[run] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
-# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _bootstrap also sources the wrapper runtime (lib/wrapper.sh) after
 # _lib.sh, so _msg / _wrapper_lang_prepass / _wrapper_setup_sync are in
 # scope below.
 _bootstrap "$@"
 
-# i18n message tables — split by semantic category (#278 PR-2).
+# i18n message tables — split by semantic category (PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
 # are added by the _log_* caller (English-only; level keyword no longer
-# translated — see #283).
+# translated —).
 _msg_bootstrap() {
   case "${_LANG}:${1:?}" in
     zh-TW:info)  echo "首次執行 — 初始化中..." ;;
@@ -77,7 +77,7 @@ _msg_hints() {
   esac
 }
 
-# #216 --build flow + #429 first-run auto-delegate messages.
+# --build flow + first-run auto-delegate messages.
 _msg_build() {
   case "${_LANG}:${1:?}" in
     zh-TW:invoking)      echo "正在執行 ./build.sh test（lint + smoke）..." ;;
@@ -95,7 +95,7 @@ _msg_build() {
   esac
 }
 
-# _msg dispatcher provided by lib/wrapper.sh (#565).
+# _msg dispatcher provided by lib/wrapper.sh.
 
 usage() {
   case "${_LANG}" in
@@ -275,14 +275,14 @@ EOF
 # _app_cleanup tears down the project on shell exit so the container
 # and its compose-project default network do not outlive the foreground
 # `./run.sh` session. Installed via `trap ... EXIT` in foreground mode by
-# default (#386); covers normal exit, Ctrl-C, and signal termination.
+# default; covers normal exit, Ctrl-C, and signal termination.
 #
 # Mirrors stop.sh's _down_one teardown: `COMPOSE_PROFILES='*'` activates
-# every profile-gated service (#341) and `--remove-orphans` catches the
+# every profile-gated service and `--remove-orphans` catches the
 # default network plus containers from prior compose.yaml shapes. The
 # leak this prevents: worktree workflows where `git worktree remove`
 # wipes the cwd before `./stop.sh` ever runs, leaving the
-# `<projname>_default` network on the daemon forever (#386).
+# `<projname>_default` network on the daemon forever.
 #
 # `down -t 0` skips the default 10s SIGTERM grace: the user already
 # exited the interactive shell, so there is nothing to drain gracefully —
@@ -300,9 +300,9 @@ EOF
 # still alive at this point so the hook can `docker exec` into it),
 # then tears the project down via `compose down`. Hook failure
 # overrides the wrapper exit code but still lets cleanup run --
-# matches the strict-with-cleanup policy decided for #440.
+# matches the strict-with-cleanup policy decided for
 #
-# Renamed from _compose_cleanup in #440 to reflect that the cleanup
+# Renamed from _compose_cleanup in to reflect that the cleanup
 # scope now covers both the post-hook and compose lifecycle, not
 # just compose. Future expansion (metric flush, log close, etc.)
 # also lands here.
@@ -331,7 +331,7 @@ _app_cleanup() {
 # scary recipe failure on a perfectly normal exit. Any other code (e.g.
 # 127) still propagates so genuine breakage surfaces. With a CMD (command
 # mode, `just run <cmd>`) this is bypassed and the real exit code is
-# propagated for scripting. See #580.
+# propagated for scripting.
 _normalize_interactive_rc() {
   case "${1:?}" in
     0|130) printf '0' ;;
@@ -340,16 +340,16 @@ _normalize_interactive_rc() {
 }
 
 main() {
-  _transcript_begin  # #608: capture orchestration; interactive paths detach
-  # #440: keep the wrapper's original argv around so the EXIT trap
+  _transcript_begin  # capture orchestration; interactive paths detach
+  # keep the wrapper's original argv around so the EXIT trap
   # (which fires asynchronously and can no longer see main's local $@)
   # can forward identical "$@" to the post-run hook.
   ORIG_ARGV=("$@")
 
-  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  # shared --lang pre-pass. See lib/wrapper.sh.
   _wrapper_lang_prepass run "$@"
 
-  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh, #565).
+  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh,).
   # To the consumer devel-test stage's per-file `shellcheck -S warning` (no -x)
   # it looks unused; mark it exported (local -x) so shellcheck treats it as
   # used-externally (silences SC2034 across versions / assignment sites), while
@@ -383,7 +383,7 @@ main() {
         shift
         ;;
       --gui)
-        # #338: per-invocation [gui] mode override forwarded to setup.sh.
+        # per-invocation [gui] mode override forwarded to setup.sh.
         SETUP_FORWARD_ARGS+=(--gui "${2:?--gui requires a value (auto|force|off)}")
         RUN_SETUP=true
         shift 2
@@ -394,13 +394,13 @@ main() {
         shift
         ;;
       --no-x11-cookie)
-        # #338: skip the SSH X11 cookie rewrite for this invocation.
+        # skip the SSH X11 cookie rewrite for this invocation.
         SETUP_FORWARD_ARGS+=(--no-x11-cookie)
         RUN_SETUP=true
         shift
         ;;
       --build)
-        # #216: opt-in lint+smoke pre-build via ./build.sh test before
+        # opt-in lint+smoke pre-build via ./build.sh test before
         # `compose up`. Default path lets compose auto-build (which
         # skips the test stage entirely). Use this flag to get full
         # local CI parity on a fresh clone.
@@ -408,8 +408,8 @@ main() {
         shift
         ;;
       --no-rm)
-        # #386: opt out of the auto compose-down on foreground exit.
-        # Default ON; this flag restores the pre-#386 "container/network
+        # opt out of the auto compose-down on foreground exit.
+        # Default ON; this flag restores the "container/network
         # stays alive after exit" behavior — useful for re-attaching
         # via ./exec.sh later or inspecting logs post-mortem. -d already
         # implies no auto-down (background lifecycle is user-managed).
@@ -422,7 +422,7 @@ main() {
         ;;
       -v|--verbose)
         # BUILDKIT_PROGRESS=plain — verbose docker output. Use when
-        # compose's auto-build appears hung (closes #311).
+        # compose's auto-build appears hung
         export BUILDKIT_PROGRESS=plain
         shift
         ;;
@@ -463,9 +463,9 @@ main() {
     exit 2
   fi
 
-  # #565: shared setup/drift orchestration (build + run). Same lifecycle
+  # shared setup/drift orchestration (build + run). Same lifecycle
   # as build.sh: bootstrap vs drift-regen vs interactive setup, setup.sh
-  # run as a subprocess (avoids the #101 _msg shadow), exit 1 on missing
+  # run as a subprocess (avoids the _msg shadow), exit 1 on missing
   # .env. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
   _wrapper_setup_sync run
 
@@ -478,7 +478,7 @@ main() {
   # Mute with QUIET=1 for piped / CI logs.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
-  # ── #440: pre-run hook (after env prep, before build delegate) ──
+  # ──pre-run hook (after env prep, before build delegate) ──
   # Fires once env validation + drift resolution + config summary are
   # done but BEFORE the image-check / build delegate, so a hook that
   # needs to set up host state required by build (e.g. binfmt
@@ -486,7 +486,7 @@ main() {
   # its work before docker build runs. Skipped under --dry-run.
   _run_pre_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
 
-  # ── #216 / #429: auto-build gate ──
+  # ──auto-build gate ──
   # When the target image is missing locally, delegate to build.sh
   # instead of letting compose auto-build (which silently skips the
   # test stage). This makes the first `just run` equivalent to
@@ -496,11 +496,11 @@ main() {
   #   - --build → invoke ./build.sh test BEFORE compose up (full
   #     local-CI parity). Always runs, even if image is cached.
   #   - default + image absent → auto-delegate to ./build.sh TARGET
-  #     so the image is built via the proper build pipeline (#429).
+  #     so the image is built via the proper build pipeline.
   #   - default + image present → silent (no build needed).
   #
   # Image inspect is per-target so ./run.sh -t headless checks
-  # ${IMAGE_NAME}:headless (per #215 auto-emit naming), not :devel.
+  # ${IMAGE_NAME}:headless (per auto-emit naming), not :devel.
   if [[ "${PRE_BUILD}" == true && "${DRY_RUN}" != true ]]; then
     local _build_sh="${FILE_PATH}/build.sh"
     if [[ -x "${_build_sh}" ]]; then
@@ -529,7 +529,7 @@ main() {
 
   # Container name mirrors compose.yaml's `container_name:`. Includes
   # ${USER_NAME} prefix to disambiguate per-OS-user on shared hosts
-  # (#322). _load_env above already populated USER_NAME from .env.
+  # _load_env above already populated USER_NAME from .env.
   local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}"
 
   # Refuse to start if the target container is already running.
@@ -550,7 +550,7 @@ ${_stop}"
     fi
   fi
 
-  # #386: foreground exit auto-down. Default ON for every foreground
+  # foreground exit auto-down. Default ON for every foreground
   # target (devel + one-shot stages); opt out via --no-rm. The trap
   # tears the project down on shell exit, Ctrl-C, or signal — covers
   # the worktree-removed-before-stop leak case where the cwd that
@@ -560,7 +560,7 @@ ${_stop}"
   # ... down --remove-orphans" line is visible in the planned-action
   # output (no real teardown happens — _compose honors DRY_RUN).
   if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
-    # #608: register via the transcript-owned atexit registry instead of
+    # register via the transcript-owned atexit registry instead of
     # `trap ... EXIT`, which would clobber the transcript finalize.
     _atexit _app_cleanup
   fi
@@ -568,8 +568,8 @@ ${_stop}"
   if [[ "${DETACH}" == true ]]; then
     _compose_project down 2>/dev/null || true
     _compose_project up -d "${TARGET}"
-    # #537: detached installs no foreground EXIT trap, so the post-run hook
-    # (#440) would never fire. Run it directly here -- the container is up,
+    # detached installs no foreground EXIT trap, so the post-run hook
+    # would never fire. Run it directly here -- the container is up,
     # so the hook can `docker exec` / `docker cp` into it. Decoupled from
     # `compose down`: the -d lifecycle is user-managed (no teardown). Hook
     # failure surfaces as a non-zero exit, matching the foreground trap.
@@ -579,31 +579,31 @@ ${_stop}"
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-registered `_atexit _app_cleanup` above (#386, #440).
+    # centrally-registered `_atexit _app_cleanup` above.
     _compose_project up -d "${TARGET}"
-    # #608: container is up (orchestration captured) -- detach the
+    # container is up (orchestration captured) -- detach the
     # transcript before handing the terminal to the interactive session.
     _transcript_detach
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      # Command mode: propagate the real exit code for scripting (#580).
+      # Command mode: propagate the real exit code for scripting.
       _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      # Interactive attached shell: normalize a clean leave to 0 (#580).
+      # Interactive attached shell: normalize a clean leave to 0.
       local _rc=0
       _compose_project exec "${TARGET}" bash || _rc=$?
       return "$(_normalize_interactive_rc "${_rc}")"
     fi
   else
     # Other one-shot stages (runtime, test, ...). Empty CMD_ARGS →
-    # foreground `up`, so the container_name: directive (#215, #322, #335)
-    # takes effect and the Dockerfile CMD runs (#458).
+    # foreground `up`, so the container_name: directive
+    # takes effect and the Dockerfile CMD runs.
     #
-    # Non-empty CMD_ARGS → `compose run --rm`, NOT the pre-#679 `up -d` +
-    # `exec` pair (#679). For a one-shot app target whose ENTRYPOINT sets
+    # Non-empty CMD_ARGS → `compose run --rm`, NOT the `up -d` +
+    # `exec` pair. For a one-shot app target whose ENTRYPOINT sets
     # up the environment (e.g. ROS sourcing) and whose default CMD *is* the
     # app, `up -d` + `exec` was wrong twice over:
     #   1. `compose exec` bypasses the ENTRYPOINT (same root cause as the
-    #      interactive-exec gap #88 / #657) → the env the entrypoint
+    #      interactive-exec gap) → the env the entrypoint
     #      provides (e.g. ROS on PATH) is absent → `exec: ros2: not found`.
     #   2. `up -d` already started the default CMD as PID 1, so the exec'd
     #      command ran *alongside* it (double-launch / device contention)
@@ -612,18 +612,18 @@ ${_stop}"
     # default CMD (no double-launch) — the correct override semantics.
     #
     # Container-name note: `compose run` ignores `container_name:` and
-    # appends a `-run-<hash>` suffix (the #458 concern). That is acceptable
+    # appends a `-run-<hash>` suffix (the concern). That is acceptable
     # here: the override container is ephemeral (`--rm`), foreground, and
     # nobody re-attaches to it by name, so a stable name buys nothing. The
     # stable-name path (devel join via `up -d` + `exec`) is unchanged.
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      # Command mode: propagate the real exit code for scripting (#580).
-      _transcript_detach  # #608: detach before the foreground override run
+      # Command mode: propagate the real exit code for scripting.
+      _transcript_detach  # detach before the foreground override run
       _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
     else
       # Foreground service: a clean Ctrl-C stop ($?=130) is not a failure;
-      # normalize it (and 0) to 0 (#580).
-      _transcript_detach  # #608: detach before the foreground attach
+      # normalize it (and 0) to 0.
+      _transcript_detach  # detach before the foreground attach
       local _rc=0
       _compose_project up "${TARGET}" || _rc=$?
       return "$(_normalize_interactive_rc "${_rc}")"

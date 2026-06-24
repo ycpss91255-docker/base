@@ -5,13 +5,13 @@
 #
 # Locks three cumulative invariants:
 #
-# 1. #305 actionlint gate (original): an `actionlint` job runs
+# 1. actionlint gate (original): an `actionlint` job runs
 #    rhysd/actionlint via Docker against the workflows tree, and the
 #    downstream jobs (test / integration-e2e / behavioural) declare
 #    `needs:` on actionlint so they cannot start until actionlint
 #    passes.
 #
-# 2. #317 P1 classifier + buildx GHA cache: a `classify` job emits
+# 2. P1 classifier + buildx GHA cache: a `classify` job emits
 #    `code_changed` + `behavioural_relevant` outputs based on PR diff
 #    against the doc-only allow-list and behavioural block-list; the
 #    `test` job always runs (required check) but short-circuits to
@@ -19,12 +19,12 @@
 #    via job-level `if:`. All three test-tools image builds use
 #    docker/build-push-action with shared `scope=test-tools` GHA cache.
 #
-# 3. #337 ci-rollup aggregator: a single `ci-rollup` job aggregates
+# 3. ci-rollup aggregator: a single `ci-rollup` job aggregates
 #    [actionlint, classify, test, integration-e2e, behavioural] under
-#    `if: always()`, treating SKIPPED as pass-equivalent for the two
+#    `if: always`, treating SKIPPED as pass-equivalent for the two
 #    conditionally-gated jobs (integration-e2e + behavioural). Branch
-#    protection requires only `ci-rollup`, so sub-jobs (#376
-#    shellcheck/hadolint, #377 bats-unit/bats-integration) can join
+#    protection requires only `ci-rollup`, so sub-jobs
+#    shellcheck/hadolint, bats-unit/bats-integration) can join
 #    its `needs:` without further branch-protection churn.
 
 bats_require_minimum_version 1.5.0
@@ -35,7 +35,7 @@ setup() {
   [[ -f "${WF}" ]] || skip "self-test.yaml not at expected path"
 }
 
-# ── actionlint job declared (#305) ────────────────────────────────────
+# ── actionlint job declared ────────────────────────────────────
 
 @test "self-test.yaml: declares actionlint job" {
   run grep -E '^  actionlint:' "${WF}"
@@ -47,7 +47,7 @@ setup() {
   assert_success
 }
 
-# ── classify job declared with both outputs (#317) ────────────────────
+# ── classify job declared with both outputs ────────────────────
 
 @test "self-test.yaml: declares classify job (#317)" {
   run grep -E '^  classify:' "${WF}"
@@ -124,7 +124,7 @@ setup() {
   assert_output --partial '|| true'
 }
 
-# ── Downstream jobs gate on actionlint + classify (#305 / #317 / #377) ─
+# ── Downstream jobs gate on actionlint + classify ─
 
 @test "self-test.yaml: bats-unit job declares needs on actionlint AND classify (#377)" {
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -146,7 +146,7 @@ setup() {
 
 @test "self-test.yaml: integration-e2e drives the container via just, not raw script/*.sh (#579)" {
   # A3: exercise the documented `just` entry points so a broken
-  # container-ops justfile is caught (post-#573 the user entry is just).
+  # container-ops justfile is caught (the user entry is just).
   run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'just docker build'
@@ -174,7 +174,7 @@ setup() {
 @test "self-test.yaml: integration-e2e runs as a native-runner matrix over amd64 + arm64 (#603)" {
   # A2: verify the runnability contract on BOTH arches via native
   # runners (no QEMU), mirroring the platform->runner convention in
-  # build-worker / publish-worker / release-test-tools (#587).
+  # build-worker / publish-worker / release-test-tools.
   run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'fail-fast: false'
@@ -192,7 +192,7 @@ setup() {
 
 @test "self-test.yaml: integration-e2e Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)" {
   # On the arm64 shard the test-tools:main pull must fetch the arm64
-  # variant (test-tools is multi-arch post-#587); a hardcoded
+  # variant (test-tools is multi-arch); a hardcoded
   # linux/amd64 would resolve the wrong arch for the downstream
   # FROM ${TEST_TOOLS_IMAGE} build.
   run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -207,12 +207,12 @@ setup() {
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
-# ── Conditional gating (#317, #377) ───────────────────────────────────
+# ── Conditional gating ───────────────────────────────────
 
 @test "self-test.yaml: bats-unit job-level if: gates on code_changed (#377)" {
-  # Post-#377 bats-unit replaces the always-running `test` job's
+  # bats-unit replaces the always-running `test` job's
   # short-circuit pattern with a clean job-level skip. ci-rollup's
-  # SKIPPED=pass rule (#337) keeps doc-only PRs merge-able.
+  # SKIPPED=pass rule keeps doc-only PRs merge-able.
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
@@ -225,8 +225,8 @@ setup() {
 }
 
 @test "self-test.yaml: no monolithic `test:` job remains after #377 split" {
-  # Pre-#377 a `test` job ran shellcheck + bats sequentially. #376
-  # peeled shellcheck out, #377 splits the rest into bats-unit
+  # a `test` job ran shellcheck + bats sequentially.
+  # peeled shellcheck out, splits the rest into bats-unit
   # (matrix) + bats-integration. The old job is fully removed.
   run grep -E '^  test:' "${WF}"
   assert_failure
@@ -263,7 +263,7 @@ setup() {
   assert_output --partial "'downstream/script/docker/wrapper/prune.sh'"
 }
 
-# ── buildx GHA cache on test-tools builds (#317, #377) ────────────────
+# ── buildx GHA cache on test-tools builds ────────────────
 
 @test "self-test.yaml: bats-unit job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -289,7 +289,7 @@ setup() {
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
 
-# ── #317 P2: Obtain step + rolling tag fallback ──────────────────────
+# ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-unit job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #377)" {
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -351,8 +351,8 @@ setup() {
 @test "self-test.yaml: Obtain step pre-fetches base ref before diff (#317 P2 + P1 gotcha-2 reuse, #377)" {
   # Same gotcha-2 mitigation as the classify job: fork PRs need an
   # explicit fetch of origin/<base_ref> before `git diff` can resolve
-  # the merge base for `dockerfile/Dockerfile.test-tools`. Post-#377
-  # the `test` job split into bats-unit + bats-integration; #650 gives
+  # the merge base for `dockerfile/Dockerfile.test-tools`.
+  # the `test` job split into bats-unit + bats-integration; gives
   # the hadolint job its own Obtain step too (it now runs the driver
   # inside the test-tools image), so the count is: classify (1) + 5
   # jobs with Obtain steps (hadolint + bats-unit + bats-integration +
@@ -362,7 +362,7 @@ setup() {
   assert_output '6'
 }
 
-# ── ci-rollup aggregator (#337) ───────────────────────────────────────
+# ── ci-rollup aggregator ───────────────────────────────────────
 
 @test "self-test.yaml: declares ci-rollup job (#337)" {
   run grep -E '^  ci-rollup:' "${WF}"
@@ -372,16 +372,16 @@ setup() {
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615)" {
   # The aggregator waits on actionlint + classify + shellcheck +
   # hadolint + bats-unit + bats-integration + coverage + integration-e2e
-  # + behavioural so its result reflects every PR check. #615 (ADR-8)
+  # + behavioural so its result reflects every PR check. (ADR-8)
   # adds `coverage` to the list — it is now a sharded kcov PR gate, not
-  # the #377 main-only metric, so a kcov failure must block PR merge.
+  # the main-only metric, so a kcov failure must block PR merge.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
-  # #377 kept coverage out of the rollup (main-only metric); #615 (ADR-8)
+  # kept coverage out of the rollup (main-only metric); (ADR-8)
   # reverses that — the sharded kcov gate joins the rollup so a kcov
   # failure blocks merge. ci-rollup's SKIPPED=pass rule keeps doc-only
   # PRs merge-able even though coverage is now in `needs:`.
@@ -392,7 +392,7 @@ setup() {
 }
 
 @test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
-  # Without `if: always()` the rollup would skip when any upstream
+  # Without `if: always` the rollup would skip when any upstream
   # need failed, masking the failure as SKIPPED — branch protection
   # treats SKIPPED as missing, so the merge gate would lift falsely.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -417,7 +417,7 @@ setup() {
 }
 
 @test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
-  # Post-#377 every PR-check job has a job-level `if:` gate that may
+  # every PR-check job has a job-level `if:` gate that may
   # cause it to skip on doc-only / non-behavioural PRs (the old
   # always-running `test` job no longer exists). The rollup must
   # collapse SKIPPED into pass for those, otherwise doc-only PRs
@@ -428,7 +428,7 @@ setup() {
 }
 
 @test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)" {
-  # Post-#377 only actionlint + classify are hard-mandatory (the old
+  # only actionlint + classify are hard-mandatory (the old
   # always-running `test` job no longer exists). SKIPPED there
   # indicates a workflow bug, not an intentional gate. Verified
   # indirectly by asserting the success comparison appears.
@@ -437,7 +437,7 @@ setup() {
   assert_output --partial 'success'
 }
 
-# ── shellcheck + hadolint dedicated jobs (#376) ───────────────────────
+# ── shellcheck + hadolint dedicated jobs ───────────────────────
 
 @test "self-test.yaml: declares shellcheck job (#376)" {
   run grep -E '^  shellcheck:' "${WF}"
@@ -481,7 +481,7 @@ setup() {
 }
 
 @test "self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)" {
-  # #650 / ADR-00000011 local==CI single source: the hadolint job no
+  # ADR-00000011 local==CI single source: the hadolint job no
   # longer calls hadolint/hadolint-action with an inline Dockerfile +
   # config list (which would drift from what `just test` lints). It runs
   # the SAME driver (script/test/drivers/hadolint.sh via `test.sh --lint
@@ -498,14 +498,14 @@ setup() {
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-* + integration-e2e + behavioural before publishing a tag (#376 + #377)" {
   # release fires on tag push only, but if any PR-check job fails the
-  # tag should NOT produce a Release. Post-#377 the `test` job is
+  # tag should NOT produce a Release. the `test` job is
   # replaced by `bats-unit` + `bats-integration` in this chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]'
 }
 
-# ── bats-unit + bats-integration + coverage jobs (#377) ───────────────
+# ── bats-unit + bats-integration + coverage jobs ───────────────
 
 @test "self-test.yaml: declares bats-unit job (#377)" {
   run grep -E '^  bats-unit:' "${WF}"
@@ -546,8 +546,8 @@ setup() {
 }
 
 @test "self-test.yaml: coverage now runs on PRs (gated on code_changed), not main-only (#615 amends #377)" {
-  # #377 restricted kcov to push-to-main (the serial 8-12min job was too
-  # expensive for PRs). #615 shards it so a PR shard is in the bats-unit
+  # restricted kcov to push-to-main (the serial 8-12min job was too
+  # expensive for PRs). shards it so a PR shard is in the bats-unit
   # ballpark, and gates it on the same `code_changed` output as the other
   # PR-check jobs so PR coverage data exists for the gate. The old
   # push&&main-only `if:` is gone.

@@ -2,7 +2,7 @@
 #
 # Executable tests for the user-facing justfile at
 # downstream/script/justfile (entry) + downstream/script/docker/justfile.docker (symlinked from downstream repo root as
-# `justfile`). ADR-00000005 / #546: `just` replaces the GNU make wrapper.
+# `justfile`). ADR-00000005`just` replaces the GNU make wrapper.
 # Each recipe is a 1:1 forward to ./script/<name>.sh with `{{args}}`
 # passthrough -- no MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim.
 #
@@ -36,9 +36,9 @@ setup() {
   ln -s "../.base/downstream/script/justfile" "${TMP_REPO}/script/justfile"
   ln -s "../../.base/downstream/script/docker/justfile.docker" "${TMP_REPO}/script/docker/justfile.docker"
 
-  # `template` namespace (#633): the entry mod?s script/template/justfile.template.
+  # `template` namespace: the entry mod?s script/template/justfile.template.
   mkdir -p "${TMP_REPO}/.base/downstream/script/template/skel" "${TMP_REPO}/script/template"
-  # new.sh sources ../docker/lib/i18n.sh for --lang (#655); mirror it.
+  # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it.
   mkdir -p "${TMP_REPO}/.base/downstream/script/docker/lib"
   cp /source/downstream/script/docker/lib/i18n.sh "${TMP_REPO}/.base/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/template/justfile.template "${TMP_REPO}/.base/downstream/script/template/justfile.template"
@@ -50,7 +50,7 @@ setup() {
   ln -s "../../.base/downstream/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
   ln -s "../../.base/downstream/script/template/skel" "${TMP_REPO}/script/template/skel"
 
-  # `base` namespace (#652, #653): the entry mod?s script/base/justfile.base
+  # `base` namespace: the entry mod?s script/base/justfile.base
   # (just base upgrade / update / init / completions).
   mkdir -p "${TMP_REPO}/.base/downstream/script/base" "${TMP_REPO}/script/base"
   cp /source/downstream/script/base/justfile.base "${TMP_REPO}/.base/downstream/script/base/justfile.base"
@@ -66,7 +66,7 @@ EOS
   chmod +x "${TMP_REPO}/.base/downstream/script/base/completions.sh"
   ln -s "../../.base/downstream/script/base/completions.sh" "${TMP_REPO}/script/base/completions.sh"
   # `just base init` forwards to ./.base/downstream/script/base/init.sh
-  # (relocated in #654) -- stub it as a recorder.
+  # (relocated in) -- stub it as a recorder.
   cat > "${TMP_REPO}/.base/downstream/script/base/init.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'init'
@@ -85,7 +85,7 @@ printf '\n'
 EOS
     chmod +x "${TMP_REPO}/script/${_name}.sh"
   done
-  # upgrade wrapper lives under .base/downstream/script/base/ (#654)
+  # upgrade wrapper lives under .base/downstream/script/base/
   cat > "${TMP_REPO}/.base/downstream/script/base/upgrade.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'upgrade'
@@ -96,10 +96,10 @@ EOS
 }
 
 teardown() {
-  # Guard with an if-block (not `[ ] && rm`): when setup() skips before
+  # Guard with an if-block (not `[ ] && rm`): when setup skips before
   # TMP_REPO is set (e.g. `just` absent in the kcov runner image), the
   # `&&` chain exits non-zero and bats turns the clean skip into a
-  # teardown failure (#613).
+  # teardown failure.
   if [ -n "${TMP_REPO:-}" ]; then
     rm -rf "${TMP_REPO}"
   fi
@@ -170,7 +170,7 @@ teardown() {
   assert_output --partial "docker"
 }
 
-# ── #655: namespace bare help + recipe --help/--lang forwarding ───────────────
+# ──namespace bare help + recipe --help/--lang forwarding ───────────────
 
 @test "bare just docker lists the docker verbs (namespace help, #655)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker
@@ -206,7 +206,7 @@ teardown() {
 
 @test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {
   # The entry imports script/local/justfile.local (`import?`); a group
-  # registered there with a `mod?` line (path relative to script/local/)
+  # registered there with a `mod?` line (path relative to script/local)
   # becomes a top-level sub-command `just <group> <recipe>`.
   mkdir -p "${TMP_REPO}/script/local/greet"
   printf "mod? greet 'greet/justfile.greet'\n" > "${TMP_REPO}/script/local/justfile.local"

@@ -22,7 +22,7 @@ setup() {
 
   cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
-  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
   cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
   ln -s /source/downstream/script/docker/wrapper/exec.sh "${SANDBOX}/exec.sh"
 
@@ -138,17 +138,17 @@ teardown() {
 }
 
 @test "exec.sh runs docker compose exec when container is running" {
-  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run
   assert_success
   assert_output --partial "exec"
 }
 
-# ── -t <non-devel> precheck container name (issue #335) ──────────────────────
+# ── -t <non-devel> precheck container name ──────────────────────
 
 @test "exec.sh -t <non-devel>: precheck name suffixes the target stage (#335)" {
-  # Before #335, the precheck always grepped `tester-mockimg` regardless of
+  # Previously the precheck always grepped `tester-mockimg` regardless of
   # -t, so any non-devel target aborted with "not running". After the fix:
   # -t devel    -> tester-mockimg
   # -t headless -> tester-mockimg-headless
@@ -179,10 +179,10 @@ teardown() {
   assert_output --partial "exec"
 }
 
-# ── -- flag/CMD separator (issue #289) ──────────────────────────────────────
+# ── -- flag/CMD separator ──────────────────────────────────────
 
 @test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
-  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
   assert_success
@@ -195,7 +195,7 @@ teardown() {
 @test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
   # The whole point of -- is to send a CMD starting with a dash to the
   # container without exec.sh's own option parser capturing it.
-  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
   assert_success
@@ -205,7 +205,7 @@ teardown() {
 }
 
 @test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
-  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
   assert_success
@@ -214,7 +214,7 @@ teardown() {
 }
 
 @test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
-  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
   assert_success
@@ -228,7 +228,7 @@ teardown() {
   assert_output --partial "--"
 }
 
-# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
+# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
 
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
@@ -335,7 +335,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "exec.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
@@ -362,12 +362,12 @@ teardown() {
   # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
   # prefix `+ ` does not reach stderr under coverage; the real -vv
   # behaviour is covered by the normal (non-kcov) job. Skip the fragile
-  # observation under kcov (#613).
+  # observation under kcov.
   [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }
 
-# ── TTY auto-detect + explicit -T / -i (#382, Option 1+2) ──────────────
+# ── TTY auto-detect + explicit -T / -i (Option 1+2) ──────────────
 #
 # `docker compose exec` defaults to -it; running a one-shot CMD inherits
 # that TTY so container-side bash echoes terminal escape sequences

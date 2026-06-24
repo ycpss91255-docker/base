@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dockerfile_migrate.sh - declarative Dockerfile-migration list (#567).
+# dockerfile_migrate.sh - declarative Dockerfile-migration list.
 #
 # A deep module behind a small interface: `apply_migrations <dockerfile>`
 # iterates an ordered, data-driven list of {detect, transform} migrations
@@ -87,7 +87,7 @@ apply_migrations() {
 # v0.41.0 moved the user-facing wrappers (build/run/exec/stop/prune.sh) out
 # of the flat .base/script/docker/ root into .base/script/docker/wrapper/.
 # Two pre-v0.41.0 lint-stage COPY shapes then resolve to zero files:
-#   A  COPY *.sh /lint/                       (root-anchored, the #399 shape)
+#   A  COPY *.sh /lint/                       (root-anchored, the shape)
 #   B  COPY .base/script/docker/*.sh /lint/   (flat top-level glob)
 # Both heal to the current wrapper-glob shape:
 #   COPY .base/script/docker/wrapper/*.sh /lint/
@@ -140,7 +140,7 @@ _migrate_pip_helper_apply() {
 # statement (handling backslash continuation).
 #
 # The match anchors on a top-level `.base/script/docker/<name>.sh` reference
-# (a bare file directly under docker/) whose COPY destination is the lint
+# (a bare file directly under docker) whose COPY destination is the lint
 # sandbox `/lint/`. The `/lint/` constraint scopes this to the lint-stage
 # redundant COPYs and deliberately spares unrelated runtime helper COPYs
 # (e.g. `_entrypoint_logging.sh` -> /usr/local/lib/base/, healed by
@@ -182,7 +182,7 @@ _migrate_explicit_copy_apply() {
 # ── Migration 4: _entrypoint_logging.sh -> runtime/logging.sh rename ────────
 #
 # The host-log helper was renamed `_entrypoint_logging.sh` -> `logging.sh`
-# and relocated under runtime/ (#368 -> current). Two downstream references
+# and relocated under runtime/ (-> current). Two downstream references
 # break: the Dockerfile COPY of the helper into /usr/local/lib/base/, and
 # the entrypoint's `source /usr/local/lib/base/_entrypoint_logging.sh`. The
 # Dockerfile COPY is healed in place; when a sibling script/entrypoint.sh
@@ -216,7 +216,7 @@ _migrate_logging_rename_apply() {
 
 # ── Migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ──────
 #
-# v0.41.0 slimmed .hadolint.yaml (#466) so it no longer ignores a batch of
+# v0.41.0 slimmed .hadolint.yaml so it no longer ignores a batch of
 # rules the v0.41.0 template Dockerfile already satisfies but older
 # downstream Dockerfiles do not. This migration mechanically heals the same
 # violations the ad-hoc fanout fixed by hand (each sub-fix is idempotent):
@@ -310,7 +310,7 @@ _migrate_sc1090_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
 }
 
-# ── Migration 7 (#579 facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
+# ── Migration 7 (facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
 #
 # v0.41.0 compose/CI pass the build args USER_NAME / USER_GROUP / USER_UID /
 # USER_GID. A downstream Dockerfile still declaring a bare `ARG USER`
@@ -333,7 +333,7 @@ _migrate_arg_user_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
 }
 
-# ── Migration 8 (#579 facet B): nounset-guard the entrypoint ROS source ─────
+# ── Migration 8 (facet B): nounset-guard the entrypoint ROS source ─────
 #
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES the ament setup chain references, so the

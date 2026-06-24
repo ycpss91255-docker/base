@@ -15,7 +15,7 @@ mod? docker 'script/docker/justfile.docker'
 
 # `just base upgrade [vX.Y.Z]` / `just base update` manage the `.base`
 # subtree dependency (apt-aligned; ADR-00000011). init + completions and
-# the script relocation land in #653.
+# the script relocation land in
 mod? base 'script/base/justfile.base'
 
 # `just template new <name>` scaffolds a repo-local command group under
@@ -25,7 +25,7 @@ mod? template 'script/template/justfile.template'
 # Repo-local command groups. script/local/justfile.local is REPO-OWNED
 # (seeded once by init.sh, committed, never clobbered by a subtree upgrade);
 # `import?` keeps a missing/empty registry from erroring. `mod?` lines in it
-# register each group (`just template new <name>` appends them, #633).
+# register each group (`just template new <name>` appends them,).
 import? 'script/local/justfile.local'
 
 # Default: list available recipes (replaces `make help`).

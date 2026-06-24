@@ -22,7 +22,7 @@ setup() {
 
   cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
-  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
   cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/downstream/script/docker/wrapper/run.sh.
   ln -s /source/downstream/script/docker/wrapper/run.sh "${SANDBOX}/run.sh"
@@ -32,7 +32,7 @@ setup() {
 
   cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-# Mock setup.sh (subprocess-only after #49 Phase B-1):
+# Mock setup.sh (subprocess-only after Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift baseline)
 #   - apply (default / explicit / legacy flag-only) → write .env + compose
 set -euo pipefail
@@ -79,7 +79,7 @@ if [[ "$1" == "ps" ]]; then
   cat "${DOCKER_PS_FILE}"
   exit 0
 fi
-# image inspect: drives the #216 soft guard. Env var
+# image inspect: drives the soft guard. Env var
 # DOCKER_IMAGE_PRESENT=true makes the inspect succeed (image present
 # locally), anything else makes it fail (image missing → guard fires).
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
@@ -96,7 +96,7 @@ printf '\n'
 EOS
   chmod +x "${BIN_DIR}/docker"
 
-  # build.sh stub: drives the #216 --build opt-in path. Logs every
+  # build.sh stub: drives the --build opt-in path. Logs every
   # invocation to BUILD_SH_LOG so tests can assert the call (or its
   # absence). Exits 0 to mimic a successful build.
   BUILD_SH_LOG="${TEMP_DIR}/build.log"
@@ -276,8 +276,8 @@ EOS
 }
 
 @test "run.sh -d runs the repo-local post/run hook (#537)" {
-  # #537: detached mode installs no foreground EXIT trap, so the post-run
-  # hook (#440) must be invoked directly after `compose up -d`. Regression
+  # detached mode installs no foreground EXIT trap, so the post-run
+  # hook must be invoked directly after `compose up -d`. Regression
   # guard: the hook fired only in foreground before this fix. NOTE: not
   # --dry-run -- __hook_run no-ops under DRY_RUN, so the hook must run for
   # real (docker is the BIN_DIR stub; DOCKER_IMAGE_PRESENT skips the guard).
@@ -307,9 +307,9 @@ HOOK
 }
 
 @test "run.sh non-devel target without CMD uses 'compose up' foreground (#458)" {
-  # #458: non-devel stages used to use 'compose run --rm' which bypassed
+  # non-devel stages used to use 'compose run --rm' which bypassed
   # container_name. Now unified to 'compose up' so container_name from
-  # #322 / #335 takes effect.
+  # takes effect.
   run bash "${SANDBOX}/run.sh" --dry-run -t test
   assert_success
   refute_output --partial "run --rm test"
@@ -320,9 +320,9 @@ HOOK
 }
 
 @test "run.sh non-devel target WITH CMD uses 'compose run --rm' (#679)" {
-  # #679: non-devel + CMD must run the ENTRYPOINT (env/ROS sourced) AND
+  # non-devel + CMD must run the ENTRYPOINT (env/ROS sourced) AND
   # replace the default CMD (no double-launch / device contention). The
-  # pre-#679 'up -d' + 'exec' path bypassed the ENTRYPOINT and left the
+  # 'up -d' + 'exec' path bypassed the ENTRYPOINT and left the
   # default CMD running as PID 1. `compose run --rm` runs the ENTRYPOINT
   # and replaces the CMD. `up -d` + `exec` stays for devel only.
   run bash "${SANDBOX}/run.sh" --dry-run -t test bash
@@ -342,10 +342,10 @@ HOOK
 }
 
 @test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#679 compose run --rm)" {
-  # #679 repro shape: the documented `just run -t runtime <cmd>` override
+  # repro shape: the documented `just run -t runtime <cmd>` override
   # (e.g. `ros2 launch ...` to lower a camera profile on a USB 2.x link)
   # must go through `compose run --rm` so the ENTRYPOINT sources ROS and
-  # the override REPLACES the default CMD. The pre-#679 `up -d` + `exec`
+  # the override REPLACES the default CMD. The `up -d` + `exec`
   # path bypassed the ENTRYPOINT (no ROS on PATH) and double-launched the
   # default CMD.
   run bash "${SANDBOX}/run.sh" --dry-run -t runtime ros2 launch realsense2_camera rs_launch.py
@@ -355,7 +355,7 @@ HOOK
   refute_output --partial "exec runtime"
 }
 
-# ── #448: -- CMD separator ────────────────────────────────────────────────
+# ──-- CMD separator ────────────────────────────────────────────────
 
 @test "run.sh -- separates CMD from run.sh flags (#448)" {
   run bash "${SANDBOX}/run.sh" --dry-run -t cli -- sdkmanager --target JETSON
@@ -379,7 +379,7 @@ HOOK
   assert_output --partial "--"
 }
 
-# ── #386: foreground exit auto compose-down ────────────────────────────────
+# ──foreground exit auto compose-down ────────────────────────────────
 # trap _compose_cleanup EXIT is installed for any foreground invocation
 # (devel + one-shot stages). It fires on normal exit, Ctrl-C, and signal.
 # Under --dry-run the trap still fires but _compose only prints, never
@@ -394,7 +394,7 @@ HOOK
 }
 
 @test "run.sh foreground non-devel target also installs auto-down trap" {
-  # The pre-#386 trap only covered devel; one-shot stages (runtime / test)
+  # The trap only covered devel; one-shot stages (runtime / test)
   # leaked the project default network because `compose run --rm` removes
   # the container but leaves the network. The central install now covers
   # both paths.
@@ -434,7 +434,7 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   # Simulate a running container matching CONTAINER_NAME=${USER_NAME}-mockimg
-  # (#322: container_name now includes USER_NAME prefix to disambiguate
+  # (container_name now includes USER_NAME prefix to disambiguate
   # per-OS-user on shared hosts).
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
 
@@ -473,7 +473,7 @@ HOOK
   assert_success
 }
 
-# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
+# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
 
 @test "run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
@@ -512,7 +512,7 @@ HOOK
 }
 
 # ── i18n log lines (bootstrap / drift / err_no_env / already-running) ──────
-# Exercises _msg() across all four languages on the log lines run.sh emits
+# Exercises _msg across all four languages on the log lines run.sh emits
 # itself. Usage-text coverage is above.
 
 @test "run.sh --lang zh-TW prints Chinese bootstrap log" {
@@ -545,7 +545,7 @@ HOOK
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  # #322: container_name now includes USER_NAME prefix.
+  # container_name now includes USER_NAME prefix.
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang zh-TW
   assert_failure
@@ -558,7 +558,7 @@ HOOK
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  # #322: container_name now includes USER_NAME prefix.
+  # container_name now includes USER_NAME prefix.
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang ja
   assert_failure
@@ -566,7 +566,7 @@ HOOK
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #216 / #429 — auto-build gate (first-run auto-delegate to build.sh)
+# — auto-build gate (first-run auto-delegate to build.sh)
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh: image present → no build.sh invoked, no INFO printed" {
@@ -796,7 +796,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
@@ -823,13 +823,13 @@ EOS
   # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
   # prefix `+ ` does not reach stderr under coverage; the real -vv
   # behaviour is covered by the normal (non-kcov) job. Skip the fragile
-  # observation under kcov (#613).
+  # observation under kcov.
   [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #580 — interactive / foreground-up exit-code normalization
+# — interactive / foreground-up exit-code normalization
 # ════════════════════════════════════════════════════════════════════
 # A no-CMD foreground session (devel attached shell, or a one-shot stage's
 # foreground `compose up`) carries out the exit status of the LAST command the
@@ -904,7 +904,7 @@ EOS
 }
 
 @test "run.sh: command mode (non-devel WITH CMD) exiting 130 propagates (#580)" {
-  # #679: non-devel + CMD now dispatches via `compose run --rm`, so the
+  # non-devel + CMD now dispatches via `compose run --rm`, so the
   # real exit code rides out on the `run` stub (DOCKER_RUN_RC), not exec.
   _exit_code_fixture
   export DOCKER_RUN_RC=130

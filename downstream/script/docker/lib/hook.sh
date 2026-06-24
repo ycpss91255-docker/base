@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hook.sh -- per-wrapper pre/post hook helpers (#440).
+# hook.sh -- per-wrapper pre/post hook helpers.
 #
 # Each base wrapper (run.sh / build.sh / etc.) calls into this lib at
 # two points:

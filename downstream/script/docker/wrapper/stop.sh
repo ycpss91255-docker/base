@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# Shared wrapper preamble (sub-task A): resolve FILE_PATH across the
 # symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
 # and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
 # locator rationale.
@@ -23,7 +23,7 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[stop] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
-# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _bootstrap also sources the wrapper runtime (lib/wrapper.sh) after
 # _lib.sh, so _wrapper_lang_prepass is in scope below.
 _bootstrap "$@"
 
@@ -120,19 +120,19 @@ EOF
 PASSTHROUGH=()
 
 # _down_project tears down the repo's single compose project. base is
-# single-instance (#600): one fixed-name project per repo.
+# single-instance: one fixed-name project per repo.
 #
 # COMPOSE_PROFILES='*' (compose v2.32+ wildcard) activates every profile in
 # compose.yaml so `compose down` actually visits profile-gated services
-# (#215 auto-emitted headless / gui / test stages). Without this, profile-
+# (auto-emitted headless / gui / test stages). Without this, profile-
 # gated containers are silently skipped and remain running. --remove-orphans
 # additionally catches containers from prior compose.yaml shapes that the
-# current file no longer declares. Refs #341.
+# current file no longer declares.
 #
 # -v / --verbose: list the containers belonging to the compose project
 # before tearing them down. This gives the user a real signal instead of
 # the previous no-op (the BUILDKIT_PROGRESS=plain env had zero effect on
-# `compose down`, see #345).
+# `compose down`,).
 _down_project() {
   _compute_project_name
   if [[ "${VERBOSE:-}" == true ]]; then
@@ -153,8 +153,8 @@ _down_project() {
 }
 
 main() {
-  _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _transcript_begin  # capture this run's output (no-op if disabled)
+  # shared --lang pre-pass. See lib/wrapper.sh.
   _wrapper_lang_prepass stop "$@"
 
   local DO_PRUNE=false
@@ -177,7 +177,7 @@ main() {
         # networks (10m grace, the common "address pool exhausted" fix)
         # and dangling images (24h grace). Volumes + buildx cache are
         # intentionally NOT covered here — use ./prune.sh for those.
-        # Refs issue #319.
+        # Refs
         DO_PRUNE=true
         shift
         ;;
@@ -187,9 +187,9 @@ main() {
         ;;
       -v|--verbose)
         # Print the container list belonging to the compose project
-        # before tearing it down. BUILDKIT_PROGRESS=plain (the old #311
+        # before tearing it down. BUILDKIT_PROGRESS=plain (the old
         # behaviour) had zero effect on `docker compose down`; replaced
-        # with real verbose output. Refs #345.
+        # with real verbose output.
         VERBOSE=true
         export BUILDKIT_PROGRESS=plain
         shift
@@ -216,7 +216,7 @@ main() {
   # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available below.
   _load_env "${FILE_PATH}/.env.generated"
 
-  # #440: pre-stop hook fires after env load, before docker stop.
+  # pre-stop hook fires after env load, before docker stop.
   # Skipped under --dry-run.
   _run_pre_hook stop "$@" || exit $?
 
@@ -224,7 +224,7 @@ main() {
 
   _maybe_prune
 
-  # #440: post-stop hook fires at end of main(), after compose down +
+  # post-stop hook fires at end of main, after compose down +
   # opt-in prune are complete.
   _run_post_hook stop "$@"
 }

@@ -15,16 +15,16 @@
 #                              prompt for confirmation since volumes hold
 #                              user state)
 #
-# Refs issue #319.
+# Refs
 
 set -euo pipefail
 
-# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# Shared wrapper preamble (sub-task A): resolve FILE_PATH across the
 # symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir
 # (accepted for muscle-memory consistency though prune is daemon-wide),
 # and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
 # locator rationale. (Also unifies prune's stale flat `_lib.sh` fallback
-# onto the post-#406 `lib/_lib.sh` path.)
+# onto the `lib/_lib.sh` path.)
 _bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 for _bootstrap_cand in \
   "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
@@ -41,7 +41,7 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[prune] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
-# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _bootstrap also sources the wrapper runtime (lib/wrapper.sh) after
 # _lib.sh, so _msg / _wrapper_lang_prepass are in scope below.
 _bootstrap "$@"
 
@@ -63,7 +63,7 @@ _msg_info() {
   esac
 }
 
-# _msg dispatcher provided by lib/wrapper.sh (#565).
+# _msg dispatcher provided by lib/wrapper.sh.
 
 usage() {
   case "${_LANG}" in
@@ -264,7 +264,7 @@ _run_prune() {
   _dry_run_cmd "${cmd[@]}"
 }
 
-# ── #388 worktree-orphans prune ───────────────────────────────────────────
+# ── worktree-orphans prune ───────────────────────────────────────────
 
 # _ensure_env_loaded sources .env once per invocation if it exists. Used by
 # both _resolve_workspace and _resolve_owner so they share the same loaded
@@ -340,7 +340,7 @@ _matches_repo_filter() {
 # _run_worktree_orphans_prune enumerates tagged docker images and removes
 # the ones whose source worktree dir is gone. Safety gates: only acts on
 # images whose `<owner>/` prefix matches the resolved owner; bare-name
-# and other-user images are skipped. See plan #388 for the algorithm.
+# and other-user images are skipped. See plan for the algorithm.
 _run_worktree_orphans_prune() {
   local _RESOLVED_WORKSPACE _RESOLVED_OWNER
   _resolve_workspace
@@ -445,8 +445,8 @@ _run_worktree_orphans_prune() {
 }
 
 main() {
-  _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _transcript_begin  # capture this run's output (no-op if disabled)
+  # shared --lang pre-pass. See lib/wrapper.sh.
   _wrapper_lang_prepass prune "$@"
 
   local DO_NETWORKS=false
@@ -487,7 +487,7 @@ main() {
         shift
         ;;
       --all)
-        # Excludes --volumes intentionally (see usage / issue #319).
+        # Excludes --volumes intentionally (see usage).
         # Also excludes --worktree-orphans intentionally — that mode
         # requires workspace + filesystem context the daemon-wide
         # bulk prune does not have. Chain explicitly when needed:
@@ -498,7 +498,7 @@ main() {
         shift
         ;;
       --worktree-orphans)
-        # #388: surgically remove tagged images whose source worktree
+        # surgically remove tagged images whose source worktree
         # dir is gone. Always opt-in; safety-gated to the current
         # DOCKER_HUB_USER's images only.
         DO_WORKTREE_ORPHANS=true
@@ -550,7 +550,7 @@ main() {
     exit 2
   fi
 
-  # #440: pre-prune hook fires after arg parsing + target selection,
+  # pre-prune hook fires after arg parsing + target selection,
   # before any docker prune fires. Skipped under --dry-run.
   _run_pre_hook prune "$@" || exit $?
 
@@ -597,7 +597,7 @@ main() {
     _run_worktree_orphans_prune
   fi
 
-  # #440: post-prune hook fires at end of main(), after all prune
+  # post-prune hook fires at end of main, after all prune
   # targets complete.
   _run_post_hook prune "$@"
 }

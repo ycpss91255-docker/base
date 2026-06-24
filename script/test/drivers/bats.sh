@@ -10,7 +10,7 @@
 # Contract: runs INSIDE the ci / coverage container where test.sh invokes
 # it. References ${REPO_ROOT} (a global exported by test.sh) for the spec
 # tree. Function names + behaviour are byte-identical to the pre-split
-# monolith so every call site in test.sh's main() is unchanged.
+# monolith so every call site in test.sh's main is unchanged.
 
 # ── Bats tests ───────────────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ _bats_args_with_label() {
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
-  # images pre-#168), fall back to serial bats — slower but correct.
+  # images), fall back to serial bats — slower but correct.
   local -n _out_args="$1"
   local -n _out_label="$2"
   _out_args=()
@@ -63,7 +63,7 @@ _run_tests() {
 }
 
 _run_bats_path() {
-  # Single-path / filtered inner loop (#523). BATS_FILE (repo-root-relative
+  # Single-path / filtered inner loop. BATS_FILE (repo-root-relative
   # file or directory) and / or BATS_FILTER (bats -f regex) are set by the
   # outer `--bats-path` / `--filter` flags and plumbed in via
   # `_run_via_compose`. With a path, run just that spec / subtree; with only
@@ -83,7 +83,7 @@ _run_bats_path() {
 }
 
 _shard_unit_files() {
-  # Shared shard-partition primitive (#377 unit shards, #615 coverage
+  # Shared shard-partition primitive (unit shards, coverage
   # shards). Echoes the newline-separated subset of
   # test/bats/unit/*_spec.bats for shard <n> of <total>, using the same
   # round-robin over `find ... | sort` so the bats-unit and coverage
@@ -113,10 +113,10 @@ _shard_unit_files() {
 
 _run_unit_shard() {
   # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
-  # bats-unit matrix (#377). Spec accepts `<n>/<total>` where 1<=n<=total.
+  # bats-unit matrix. Spec accepts `<n>/<total>` where 1<=n<=total.
   # Round-robin partition (see _shard_unit_files) so the mapping is stable
   # across runs regardless of which files were added since the last
-  # matrix tuning. Issue #377 notes weight-by-test-count as a deferred
+  # matrix tuning. notes weight-by-test-count as a deferred
   # follow-up; round-robin keeps each shard's count balanced enough at
   # the current 30-ish unit spec scale.
   local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
@@ -140,7 +140,7 @@ _run_coverage() {
   # Run kcov-instrumented bats and write an HTML/cobertura report to
   # ${REPO_ROOT}/coverage. With no argument, runs the FULL suite (unit +
   # integration) — the local `just test coverage` / release path. With a
-  # `<n>/<total>` shard spec (#615), runs kcov over ONLY this shard's
+  # `<n>/<total>` shard spec, runs kcov over ONLY this shard's
   # slice so the GHA `coverage` matrix mirrors the bats-unit matrix:
   #
   #   - unit specs: the SAME round-robin slice _run_unit_shard selects
@@ -200,7 +200,7 @@ _run_coverage() {
     bats "${_targets[@]}"
 }
 
-# ── Behavioural runtime-test specs (#249) ────────────────────────────────────
+# ── Behavioural runtime-test specs ────────────────────────────────────
 #
 # Opt-in path. Requires the ci-behavioural compose service (mounts host
 # /var/run/docker.sock + sets MOUNT_DOCKER_SOCK=1). Drives

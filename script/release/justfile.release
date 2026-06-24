@@ -11,9 +11,9 @@
 # run from the repo root whether reached via the `release` module or `just -f`.
 set working-directory := '../..'
 
-# source_file() (not justfile()) is this module's own file: inside a mod?'d
-# module justfile() resolves to the ROOT entry, so listing it would show the
-# entry's namespaces instead of the release recipes (#655). source_file()
+# source_file (not justfile) is this module's own file: inside a mod?'d
+# module justfile resolves to the ROOT entry, so listing it would show the
+# entry's namespaces instead of the release recipes. source_file
 # pins --list to THIS module.
 # Default: list available recipes
 default:

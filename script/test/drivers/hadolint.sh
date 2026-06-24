@@ -5,7 +5,7 @@
 # Sourced library (no main): test.sh sources this near the top, after
 # _lib.sh, so the _log_* / _die helpers are available. Provides
 # _run_hadolint, the single source of truth for "which Dockerfiles +
-# which config" the self-test lints (#650, ADR-00000011).
+# which config" the self-test lints (ADR-00000011).
 #
 # Contract: runs INSIDE the ci (test-tools) container where test.sh
 # invokes it -- that image bakes in the `hadolint` binary, so this driver
@@ -13,7 +13,7 @@
 # test.sh). Follows drivers/shellcheck.sh conventions (sourced lib, uses
 # ${REPO_ROOT}, _log_* / _die, no main).
 #
-# local==CI parity (#650): self-test.yaml's dedicated hadolint job ran two
+# local==CI parity: self-test.yaml's dedicated hadolint job ran two
 # hadolint/hadolint-action steps over downstream/dockerfile/Dockerfile +
 # dockerfile/Dockerfile.test-tools with config downstream/.hadolint.yaml,
 # but `just test` skipped hadolint entirely -- a Dockerfile change passed

@@ -72,8 +72,8 @@ teardown() {
   # enough for the host file to materialise -- no manual entrypoint.sh
   # edit required.
   #
-  # The source path is the stable in-image path shipped by #368 / PR
-  # #372 (COPY into /usr/local/lib/base/). It deliberately avoids
+  # The source path is the stable in-image path shipped byPR
+  # (COPY into /usr/local/lib/base). It deliberately avoids
   # ${USER} expansion + the workspace bind mount path, both of which
   # the v0.30.0 example mis-used.
   bash .base/downstream/script/base/init.sh
@@ -107,7 +107,7 @@ teardown() {
 }
 
 @test "new repo: main.yaml grants permissions: contents: write" {
-  # Regression for #62: softprops/action-gh-release@v2 (used by
+  # Regression forsoftprops/action-gh-release@v2 (used by
   # release-worker.yaml) needs `contents: write` to create a Release.
   # Reusable workflow permissions intersect with the caller's, and
   # GitHub's default GITHUB_TOKEN is read-only, so this grant must
@@ -163,7 +163,7 @@ teardown() {
   assert [ -L "${REPO_DIR}/script/build.sh" ]
   run readlink "${REPO_DIR}/script/build.sh"
   assert_output "../.base/downstream/script/docker/wrapper/build.sh"
-  # Root must NOT have build.sh after #330.
+  # Root must NOT have build.sh after
   assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
@@ -177,7 +177,7 @@ teardown() {
     # And NOT at root.
     assert [ ! -e "${REPO_DIR}/${f}" ]
   done
-  # #546: the root user entry is the justfile (Makefile retired).
+  # the root user entry is the justfile (Makefile retired).
   assert [ -L "${REPO_DIR}/justfile" ]
   run readlink "${REPO_DIR}/justfile"
   assert_output "script/justfile"
@@ -191,8 +191,8 @@ teardown() {
   # them. Must be a real directory.
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
-  # Pre-#254 init.sh seeded a FULL copy of .base/downstream/config/ here.
-  # Post-#254 (template v0.22.0+) init.sh creates an empty
+  # init.sh seeded a FULL copy of .base/downstream/config/ here.
+  # (template v0.22.0+) init.sh creates an empty
   # placeholder with just a .gitkeep -- the Dockerfile's layered
   # COPY chain reads .base/downstream/config/ as defaults and <repo>/config/
   # as overrides, so an empty <repo>/config/ means "no overrides,
@@ -200,9 +200,9 @@ teardown() {
   # they want to override a specific template file.
   assert [ -f "${REPO_DIR}/config/.gitkeep" ]
   # Confirm no full-tree seed: shell/, pip/, etc. should NOT be
-  # auto-populated. (Existing repos with a pre-#254 full copy still
+  # auto-populated. (Existing repos with a full copy still
   # work via the next test's preserve-existing path.)
-  # Post-#262: config/docker/ is allowed because setup.sh's first-time
+  # config/docker/ is allowed because setup.sh's first-time
   # bootstrap seeds config/docker/setup.conf from the template; nothing
   # else under config/ is auto-populated.
   run find "${REPO_DIR}/config" -mindepth 1 -maxdepth 1 \
@@ -273,7 +273,7 @@ teardown() {
 
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → .base/downstream/config as a symlink.
-  # Re-running the post-#254 init.sh on such a repo must replace the
+  # Re-running the init.sh on such a repo must replace the
   # symlink with the empty placeholder (mkdir through a symlink
   # would otherwise pollute the subtree target).
   ln -s .base/downstream/config "${REPO_DIR}/config"
@@ -399,8 +399,8 @@ teardown() {
 
 @test "new repo: init.sh removes stale root *.sh symlinks (#330 migration)" {
   bash .base/downstream/script/base/init.sh
-  # Simulate a pre-#330 layout by planting the seven root-level symlinks
-  # an older init.sh would have produced. Re-running the post-#330
+  # Simulate a layout by planting the seven root-level symlinks
+  # an older init.sh would have produced. Re-running the
   # init.sh must remove all of them and ensure script/ versions exist.
   for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     ln -sf ".base/downstream/script/docker/wrapper/${f}" "${REPO_DIR}/${f}"
@@ -501,7 +501,7 @@ teardown() {
 }
 
 @test "new repo: compose.yaml omits devices block by default (#466 opt-in)" {
-  # #466 F2: a fresh repo no longer binds /dev:/dev (or any device) by
+  # F2: a fresh repo no longer binds /dev:/dev (or any device) by
   # default -- device access is opt-in. Repos that need it uncomment the
   # template example or add via the TUI / `setup.sh add devices.device`.
   bash .base/downstream/script/base/init.sh
@@ -535,13 +535,13 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# just runner host preflight (#607)
+# just runner host preflight
 # ════════════════════════════════════════════════════════════════════
 
 @test "new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)" {
   # Shadow PATH so `command -v just` misses but coreutils (needed by
   # setup.sh) stay reachable. A stub bin dir is prepended but holds no
-  # `just`, and the kept PATH dirs (/usr/bin:/bin) carry no `just` on the
+  # `just`, and the kept PATH dirs (usr/bin:/bin) carry no `just` on the
   # CI image, so the preflight reliably fires.
   local _stub="${TMP_ROOT}/nojust_bin"
   mkdir -p "${_stub}"

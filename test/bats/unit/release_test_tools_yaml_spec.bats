@@ -12,7 +12,7 @@
 #    the release that downstream consumers pin via
 #    `inputs.test_tools_version` on build-worker / publish-worker.
 #
-# 2. **Main push** (#317 P2) — multi-arch `:main` rolling tag. The
+# 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
 #    skip a from-source rebuild on every PR. The paths filter
 #    restricts the trigger to commits that actually touched
@@ -98,7 +98,7 @@ setup() {
   assert_output --partial 'steps.tags.outputs.smoke'
 }
 
-# ── Native-runner matrix + push-by-digest + manifest merge (#587) ─────
+# ── Native-runner matrix + push-by-digest + manifest merge ─────
 
 @test "release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)" {
   # Each arch builds on its native runner, so the QEMU emulation layer

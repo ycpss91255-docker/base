@@ -19,7 +19,7 @@ setup() {
 
   cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
-  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
   cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
   ln -s /source/downstream/script/docker/wrapper/stop.sh "${SANDBOX}/stop.sh"
 
@@ -91,10 +91,10 @@ teardown() {
   assert_output --partial "down"
 }
 
-# ── --remove-orphans + COMPOSE_PROFILES='*' for profile-gated services (#341) ─
+# ── --remove-orphans + COMPOSE_PROFILES='*' for profile-gated services ─
 
 @test "stop.sh passes --remove-orphans to compose down (#341)" {
-  # Profile-gated services (#215 auto-emitted headless / gui / test stages)
+  # Profile-gated services (auto-emitted headless / gui / test stages)
   # are silently skipped by a bare `compose down`. --remove-orphans catches
   # containers from prior compose.yaml shapes the current file no longer
   # declares; COMPOSE_PROFILES='*' (env, not argv) activates every profile.
@@ -103,7 +103,7 @@ teardown() {
   assert_output --partial "--remove-orphans"
 }
 
-# ── -v / --verbose lists project containers before down (#345) ────────────────
+# ── -v / --verbose lists project containers before down ────────────────
 
 @test "stop.sh -v lists project containers before down (#345)" {
   # Seed the docker stub so _down_project's ps filter returns a non-empty list.
@@ -130,7 +130,7 @@ teardown() {
   refute_output --partial "No containers found for project"
 }
 
-# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
+# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
 
 @test "stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
@@ -229,7 +229,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "stop.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
@@ -256,13 +256,13 @@ teardown() {
   # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
   # prefix `+ ` does not reach stderr under coverage; the real -vv
   # behaviour is covered by the normal (non-kcov) job. Skip the fragile
-  # observation under kcov (#613).
+  # observation under kcov.
   [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --prune flag (lightweight opt-in cleanup after down, #319)
+# --prune flag (lightweight opt-in cleanup after down,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "stop.sh --prune is mentioned in usage help (#319)" {

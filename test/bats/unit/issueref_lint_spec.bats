@@ -58,18 +58,22 @@ teardown() {
 }
 
 @test "_run_issueref: flags refs in .bats helper comments (not @test names)" {
-  cat > "${SCRATCH}/test/sample.bats" <<'EOF'
-#!/usr/bin/env bats
-# helper comment with a stale ref #319
-@test "behaviour stays named with (#388)" {
-  true
-}
-EOF
+  # Fixture built via printf with the refs in vars (not a heredoc with bare
+  # comment tokens) so this spec is itself immune to the comment sweep that
+  # runs over test/. ref_a is a helper-comment ref (flagged); ref_b lives
+  # in an @test name (must NOT be flagged).
+  local ref_a='#319' ref_b='#388'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    printf '%s\n' "# helper comment with a stale ref ${ref_a}"
+    printf '%s\n' "@test \"behaviour stays named with (${ref_b})\" {"
+    printf '%s\n' '  true'
+    printf '%s\n' '}'
+  } > "${SCRATCH}/test/sample.bats"
   run _run_issueref
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *'#319'* ]]
-  # The @test line's (#388) must NOT be reported.
-  [[ "${output}" != *'#388'* ]]
+  [[ "${output}" == *"${ref_a}"* ]]
+  [[ "${output}" != *"${ref_b}"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -121,6 +125,19 @@ EOF
 
 @test "_run_issueref: does NOT treat a \${#arr[@]} expansion as a comment" {
   printf '%s\n' 'len=${#arr[@]}; echo "${len} items"' \
+    > "${SCRATCH}/script/sample.sh"
+  run _run_issueref
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_issueref: does NOT flag a #NNN opener in heredoc usage prose" {
+  # A token-leading '#' directly followed by a digit is not a comment
+  # marker (no real comment opens with hash-then-digit); it only occurs as
+  # a ref in heredoc / usage body prose, functional text rather than a code
+  # comment. The literal is built via a var so the sweep over test/ cannot
+  # strip it from this spec.
+  local ref='#321'
+  printf '%s\n' "                       Debug knob for ${ref}." \
     > "${SCRATCH}/script/sample.sh"
   run _run_issueref
   [ "${status}" -eq 0 ]

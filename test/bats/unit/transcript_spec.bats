@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for downstream/script/docker/lib/transcript.sh (#606).
+# Unit tests for downstream/script/docker/lib/transcript.sh.
 #
 # The wrapper transcript tees a non-interactive verb's combined output to
 # log/<verb>/<ts>-<traceid8>.log (ANSI stripped) with a per-verb
@@ -20,7 +20,7 @@ setup() {
   TMP_DIR="$(mktemp -d)"
   TRANSCRIPT_SH="/source/downstream/script/docker/lib/transcript.sh"
   LOG_SH="/source/downstream/script/docker/lib/log.sh"
-  # The self-test runner exports WRAPPER_TRANSCRIPT=false globally (#622) so
+  # The self-test runner exports WRAPPER_TRANSCRIPT=false globally so
   # other specs never write a log/ tree into the checkout. This spec is the
   # one that exercises the conf-based enable logic, so clear the env override
   # here and let each test set it explicitly.
@@ -231,7 +231,7 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert [ ! -d "${TMP_DIR}/log/build" ]
 }
 
-# ── #608: interactive verbs (orchestration capture + detach) ────────
+# ──interactive verbs (orchestration capture + detach) ────────
 
 @test "transcript: an interactive verb without detach full-captures (the run -d path) (#608)" {
   _run_transcript_harness run

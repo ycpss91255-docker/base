@@ -2,7 +2,7 @@
 #
 # Integration: .gitignore sync via init.sh (new + existing) and upgrade.sh.
 #
-# Issue #172. The lib functions are unit-tested in test/unit/gitignore_spec.bats;
+# The lib functions are unit-tested in test/unit/gitignore_spec.bats;
 # this spec wires them through the user-facing entry points and proves
 # the v0.12.x → v0.12.4 batch upgrade will heal the 15-repo
 # tracked-compose.yaml drift in one shot, no separate sweep required.
@@ -127,7 +127,7 @@ EOF
 }
 
 @test "init.sh existing-repo: setup.conf stays committed across init runs (#201)" {
-  # Post-#201: <repo>/config/docker/setup.conf is the user's committed override.
+  # <repo>/config/docker/setup.conf is the user's committed override.
   # init.sh must NOT untrack it on existing-repo init; .gitignore sync
   # must NOT add it.
   _seed_existing_repo
@@ -214,7 +214,7 @@ _seed_upgrade_fixture() {
   DOWN_DIR="${BATS_TEST_TMPDIR}/downstream"
 
   # Build a "template" snapshot containing the real init.sh + lib + a
-  # passthrough setup.sh stub. Post-#654 init.sh / upgrade.sh live deep at
+  # passthrough setup.sh stub. init.sh / upgrade.sh live deep at
   # downstream/script/base/ and self-locate the subtree root via the
   # `.version` + `downstream/` walk-up markers seeded here.
   mkdir -p "${TMPL_WORK}/downstream/script/docker/lib" \
@@ -223,9 +223,9 @@ _seed_upgrade_fixture() {
   cp /source/downstream/script/base/init.sh "${TMPL_WORK}/downstream/script/base/init.sh"
   cp /source/downstream/script/base/upgrade.sh "${TMPL_WORK}/downstream/script/base/upgrade.sh"
   cp /source/downstream/script/docker/lib/gitignore.sh "${TMPL_WORK}/downstream/script/docker/lib/gitignore.sh"
-  # init.sh / upgrade.sh source _lib.sh on load (#278: route _log / _error
+  # init.sh / upgrade.sh source _lib.sh on load (route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
-  # sub-libs (#284), so copy all three surfaces.
+  # sub-libs, so copy all three surfaces.
   cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh "${TMPL_WORK}/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/docker/lib/* "${TMPL_WORK}/downstream/script/docker/lib/"
@@ -314,7 +314,7 @@ YAML
   # not as a stray uncommitted change. We only assert tracked-side
   # cleanliness — the first init.sh on this fixture also creates new
   # symlinks (build.sh, run.sh, ...) that show up as untracked, which
-  # is expected and orthogonal to #172.
+  # is expected and orthogonal to
   run git -C "${DOWN_DIR}" diff --quiet HEAD
   assert_success
 }

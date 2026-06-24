@@ -16,7 +16,7 @@
 # reading the root compose.yaml, etc.), regardless of whether they are
 # reached via the `test` module or a direct `just -f` (both default cwd to
 # this file's dir otherwise). `../..` is relative to this file's location
-# (script/test/), i.e. the repo root.
+# (script/test), i.e. the repo root.
 set working-directory := '../..'
 
 # just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
@@ -34,7 +34,7 @@ lint *args:
     ./script/test/test.sh --lint {{args}}
 
 # just test coverage -> full Kcov coverage (slow; local / release check).
-# just test coverage 1/4 -> kcov one matrix shard only (#615), the same
+# just test coverage 1/4 -> kcov one matrix shard only, the same
 # slice the CI coverage matrix runs; handy to prove the sharded path
 # locally without the full ~8-12min serial kcov run.
 coverage shard='':
@@ -55,7 +55,7 @@ behavioural:
 clean:
     rm -rf coverage/
 
-# Base-management recipes (relocate to the `base` namespace in #653).
+# Base-management recipes (relocate to the `base` namespace in).
 # Initialize repo (new or existing)
 init:
     ./init.sh

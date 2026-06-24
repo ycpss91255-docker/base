@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 #
-# Regression test for issue #282 — wrapper scripts (build/run/exec/stop)
+# Regression test for — wrapper scripts (build/run/exec/stop)
 # at .base/script/docker/ must locate _lib.sh through the .base/ subtree
 # prefix on fresh clones of post-v0.25.0 downstream repos.
 #
 # Pre-fix the wrappers hard-coded ${FILE_PATH}/template/downstream/script/docker/lib/_lib.sh,
 # which broke fresh-clone local development on every downstream repo that
-# had migrated its subtree from template/ to .base/ (#263). CI stayed green
+# had migrated its subtree from template/ to .base/. CI stayed green
 # because Makefile.ci paths reference .base/... directly; only the
 # user-facing wrapper invocation path was broken.
 #
@@ -29,7 +29,7 @@ setup() {
   mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib"
   cp /source/downstream/script/docker/lib/_lib.sh "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
-  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
   cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
 
   for _w in build.sh run.sh exec.sh stop.sh; do

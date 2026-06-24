@@ -63,8 +63,8 @@ setup() {
 @test "bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh" {
   # Layered config + drop-in pattern: at interactive shell start,
   # source any *.sh under ~/.bashrc.d/ so template-side helpers
-  # (from .base/downstream/config/shell/bashrc.d/) AND downstream-side
-  # helpers (from <repo>/config/shell/bashrc.d/) both get loaded.
+  # (from .base/downstream/config/shell/bashrc.d) AND downstream-side
+  # helpers (from <repo>/config/shell/bashrc.d) both get loaded.
   run grep -qF 'for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh' "${RC}"
   assert_success
   run grep -qF '[[ -r "${_bashrc_d_f}" ]] && source "${_bashrc_d_f}"' "${RC}"
@@ -88,7 +88,7 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Host-group-name drop-in (#589): name the host-injected device GIDs so
+# Host-group-name drop-in: name the host-injected device GIDs so
 # interactive shells stop printing "groups: cannot find name for group
 # ID N". Lives in bashrc.d/ so both `just run` (entrypoint + bashrc) and
 # `just exec` (compose exec + bashrc, bypasses entrypoint) fix the label.

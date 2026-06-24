@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # dockerfile_migrate_spec.bats - unit tests for the declarative
-# Dockerfile-migration list (#567, folds #579 facet B).
+# Dockerfile-migration list (folds facet B).
 #
 # lib/dockerfile_migrate.sh exposes a small interface --
 # `apply_migrations <dockerfile_path>` -- backed by an ordered, data-driven
@@ -60,7 +60,7 @@ _src() {
 # ── migration 1: wrapper COPY shape A/B -> wrapper/*.sh ──────────────────────
 # v0.41.0 moved the user-facing wrappers into .base/script/docker/wrapper/.
 # Two pre-v0.41.0 lint-stage shapes break:
-#   A  COPY *.sh /lint/                       (root-anchored, #399 era)
+#   A  COPY *.sh /lint/                       (root-anchored, era)
 #   B  COPY .base/script/docker/*.sh /lint/   (flat top-level glob)
 # Both heal to the wrapper-glob shape COPY .base/script/docker/wrapper/*.sh.
 
@@ -235,7 +235,7 @@ EOF
 }
 
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
-# v0.41.0 slimmed .hadolint.yaml (#466), no longer ignoring a batch of rules.
+# v0.41.0 slimmed .hadolint.yaml, no longer ignoring a batch of rules.
 # Heal the mechanical violations the fanout fixed by hand:
 #   DL3007  FROM bats/bats:latest / alpine:latest -> pinned tags
 #   DL3046  useradd -u -> useradd -l -u
@@ -363,7 +363,7 @@ EOF
   assert_failure
 }
 
-# ── migration 7 (#579 facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
+# ── migration 7 (facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
 # v0.41.0 compose/CI pass USER_NAME (not USER) as the build arg; a Dockerfile
 # still declaring a bare `ARG USER` builds the default `initial` user, which
 # mismatches the compose /home/${USER_NAME}/work mount. Re-declare the arg to
@@ -399,7 +399,7 @@ EOF
   assert_failure
 }
 
-# ── migration 8 (#579 facet B): entrypoint nounset-guard the ROS source ─────
+# ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
 # `just run` fails (CI never catches it — smoke runs at build time, never

@@ -19,7 +19,7 @@
 #   runtime       - Minimal runtime image (COPY --from=builder install trees), optional
 #   runtime-test  - Runtime install-check + bats smoke (ephemeral, optional)
 #
-# The generalized `-test` stage rule (#647): EVERY `-test` stage is
+# The generalized `-test` stage rule: EVERY `-test` stage is
 #   `FROM <the real stage it tests>` (devel-test FROM devel,
 #   runtime-test FROM runtime) and brings the shared toolchain in via
 #   `COPY --from=test-tools-stage` -- ShellCheck / Hadolint / Bats from
@@ -41,7 +41,7 @@
 #   fine because they are ephemeral and never reach users (they exist
 #   only inside the build/test graph).
 #
-# Adding extra stages (#215): any `FROM <base> AS <stage>` outside the
+# Adding extra stages: any `FROM <base> AS <stage>` outside the
 # baseline blocklist {sys, devel-base, devel, devel-test, runtime-test}
 # is auto-emitted as a compose service that extends `devel` (inherits
 # volumes / network / GPU / GUI / cap_add / additional_contexts) and
@@ -158,13 +158,13 @@ ARG CONFIG_SRC="config"
 #     rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
-# Host-side log tee helper (#328 / #368). Source from
+# Host-side log tee helper. Source from
 # script/entrypoint.sh with a single un-guarded line:
-#   . /usr/local/lib/base/logging.sh
+#   /usr/local/lib/base/logging.sh
 # The helper is a no-op when LOG_FILE_PATH is unset, so the source
 # line is safe to add unconditionally -- repos that haven't opted
 # into [logging] local_path stay unaffected. In-image path (vs the
-# bind-mounted .base/) avoids two failure modes: build-time smoke
+# bind-mounted .base) avoids two failure modes: build-time smoke
 # crashes when $USER is unset, and multi-repo workspaces where
 # WS_PATH is the workspace parent rather than the repo root.
 COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
@@ -181,7 +181,7 @@ USER "${USER}"
 # only, not shell-time $HOME. Without this explicit ENV, the
 # `WORKDIR "${HOME}/work"` below silently collapses to /work (BuildKit
 # emits `WARN: UndefinedVar`) and `docker inspect` reports the wrong
-# WorkingDir. Refs #334.
+# WorkingDir.
 ENV HOME="/home/${USER_NAME}"
 
 # Setup shell, terminator, tmux. The bashrc append picks up the
@@ -230,17 +230,17 @@ COPY --from=test-tools-stage /usr/local/bin/hadolint /usr/local/bin/hadolint
 # Lint: ShellCheck (.sh) + Hadolint (Dockerfile)
 COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
-# Post-#330 the seven user-facing wrappers live under <repo>/script/;
+# the seven user-facing wrappers live under <repo>/script/;
 # pull them in via that directory (BuildKit follows the ../.base/...
 # symlinks since the target sits inside the build context).
 COPY script/*.sh /lint/
 # Helpers sourced by the wrappers. Must sit next to them so
 # build.sh / run.sh / exec.sh / stop.sh / setup.sh can source _lib.sh
 # (which in turn sources i18n.sh); setup.sh also sources _tui_conf.sh.
-# Issue #104: removing these used to be compensated by inline
+# removing these used to be compensated by inline
 # `_detect_lang` fallbacks in every script — now the canonical
 # definition lives once in i18n.sh.
-# #406: all libs (including _lib.sh, i18n.sh, _tui_conf.sh) now live
+# all libs (including _lib.sh, i18n.sh, _tui_conf.sh) now live
 # under lib/. Single COPY preserves the directory structure.
 COPY .base/downstream/script/docker/lib /lint/lib
 COPY .base/downstream/script/docker/wrapper /lint/wrapper
@@ -272,7 +272,7 @@ RUN bats /smoke_test/
 #
 # Three rules, all of which the previous commented-out hint was silent on:
 #
-# 1. `runtime` MUST NOT be `FROM devel`. Pre-#60 ros1_bridge had
+# 1. `runtime` MUST NOT be `FROM devel`. ros1_bridge had
 #    `FROM devel AS runtime` which forced devel to delete its source
 #    trees in the same RUN that built them (otherwise runtime carried
 #    the bloat). Result: devel was unusable for the standard
@@ -375,7 +375,7 @@ RUN bats /smoke_test/
 # COPY --from=builder /build_ws/install /opt/app/install
 #
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
-# # Host-side log tee helper (#328 / #368). Runtime starts from a
+# # Host-side log tee helper. Runtime starts from a
 # # fresh BASE_IMAGE so the devel stage's helper COPY is NOT
 # # inherited -- repos that ship a runtime image and want to opt
 # # into [logging] local_path tee must repeat the COPY here so
@@ -383,7 +383,7 @@ RUN bats /smoke_test/
 # # runtime image too.
 # COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 #
-# # (Optional) Interactive-shell env source for `docker exec` (#657).
+# # (Optional) Interactive-shell env source for `docker exec`.
 # #
 # # The repo env (e.g. ROS `ros2`) has to reach THREE kinds of process
 # # via THREE complementary mechanisms -- this is not a base bug, just
@@ -394,7 +394,7 @@ RUN bats /smoke_test/
 # #      necessary and cannot be replaced by bashrc.
 # #   2. Interactive shells (`just exec -t runtime bash`, i.e.
 # #      `docker exec -it`): bashrc / ~/.bashrc.d/. devel wires this up;
-# #      the minimal runtime does NOT -- this is the gap #657 closes.
+# #      the minimal runtime does NOT -- this is the gap closes.
 # #   3. Non-interactive ad-hoc exec (`docker exec ... ros2 ...`):
 # #      neither the entrypoint (exec bypasses it) nor bashrc
 # #      (non-interactive) applies. This case inherently needs an
@@ -417,7 +417,7 @@ RUN bats /smoke_test/
 # # non-interactive exec are unchanged.
 # USER "${USER}"
 # # WORKDIR interpolates only build-time ARG / ENV (not shell $HOME);
-# # see #334 for why the explicit ENV is required.
+# # for why the explicit ENV is required.
 # ENV HOME="/home/${USER_NAME}"
 # WORKDIR "${HOME}/work"
 # ENTRYPOINT ["/entrypoint.sh"]
@@ -425,7 +425,7 @@ RUN bats /smoke_test/
 
 ############################## runtime-test (optional) ##############################
 # Install-check + bats smoke for the runtime image. Mirrors `FROM devel
-# AS devel-test` -- the generalized `-test` rule (#647): stay
+# AS devel-test` -- the generalized `-test` rule: stay
 # `FROM runtime` (the REAL minimal runtime under test) and `COPY
 # --from=test-tools-stage` the shared toolchain in. Ephemeral,
 # build-only, never pushed. CI builds this target after `target:
@@ -435,7 +435,7 @@ RUN bats /smoke_test/
 # Two smoke styles, both supported (use either or both):
 #   (a) ldd-based install-check via RUNTIME_SMOKE_CMD -- the bare,
 #       dependency-free default; proves the real runtime resolves every
-#       shared library its binaries need (see #430 / the ros1_bridge#123
+#       shared library its binaries need (the ros1_bridge#123
 #       false-green trap in the header).
 #   (b) Bats smoke against the real runtime -- COPY Bats in from
 #       test-tools-stage (exactly as devel-test does) and run a
@@ -447,9 +447,9 @@ RUN bats /smoke_test/
 # Flavour-specific runtime test tooling (e.g. ROS colcon test / ament_*
 # / launch_testing) is the consumer's own job: `apt-get install` it in
 # THIS stage on top of the COPYed common toolchain. base ships only the
-# common toolchain, not a ROS-flavoured test image (#647 scope).
+# common toolchain, not a ROS-flavoured test image (scope).
 #
-# NOTE (build-worker prerequisite, #647): the moment runtime-test does
+# NOTE (build-worker prerequisite,): the moment runtime-test does
 # `COPY --from=test-tools-stage`, the test-tools image enters
 # runtime-test's build graph, so its build must receive the pinned
 # `TEST_TOOLS_IMAGE` build-arg too (not just devel-test). build-worker's
@@ -489,7 +489,7 @@ RUN bats /smoke_test/
 # FROM runtime AS runtime-test
 #
 # # Style (a) -- ldd-based install-check (default, no toolchain needed).
-# # #430: default smoke check includes an ldd-based missing-dep scan
+# #default smoke check includes an ldd-based missing-dep scan
 # # via runtime/smoke.sh (catches missing .so installs that the old
 # # 'whoami && bash --version' default silently passed -- e.g.
 # # libboost_regex.so absent in ros1_bridge#123).

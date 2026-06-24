@@ -5,7 +5,7 @@
 # bats tests.
 #
 # The INI read/write primitives (_load_setup_conf_full, _parse_ini_section,
-# _write_setup_conf, _upsert_conf_value) moved to lib/conf.sh in #411;
+# _write_setup_conf, _upsert_conf_value) moved to lib/conf.sh in;
 # this file sources conf.sh below so callers that pull in only
 # _tui_conf.sh still get them.
 #
@@ -72,7 +72,7 @@ _validate_mount() {
 #
 # Builds the host:container[:mode] string for [devices] device_* and
 # [volumes] mount_* entries. Lets the TUI collect pieces separately
-# (path inputbox + mode picker) and assemble them safely (#461).
+# (path inputbox + mode picker) and assemble them safely.
 _assemble_mount_value() {
   local _host="${1:?_assemble_mount_value requires host}"
   local _container="${2:?_assemble_mount_value requires container}"
@@ -109,7 +109,7 @@ _validate_enum() {
 
 # _validate_restart <value>
 #
-# #478: docker restart policy. One of no / always / unless-stopped /
+# docker restart policy. One of no / always / unless-stopped /
 # on-failure / on-failure:N (N a positive integer). Returns 0 if valid.
 _validate_restart() {
   case "${1-}" in
@@ -247,7 +247,7 @@ _validate_build_network() {
 # Validates [deploy] runtime override. Controls whether setup.sh emits
 # `runtime: nvidia` at service level in compose.yaml (needed on Jetson
 # / csv-mode nvidia-container-toolkit hosts).
-#   auto   — auto-detect Jetson (/etc/nv_tegra_release); emit on match
+#   auto   — auto-detect Jetson (etc/nv_tegra_release); emit on match
 #   nvidia — force emit on all hosts
 #   off    — never emit (Docker default runc)
 #   ""     — treated as off
@@ -312,7 +312,7 @@ _validate_log_compress() {
 
 # _validate_wrapper_transcript <value>
 #
-# [logging] wrapper_transcript (#606): boolean kill switch.
+# [logging] wrapper_transcript: boolean kill switch.
 _validate_wrapper_transcript() {
   local _v="${1-}"
   case "${_v}" in
@@ -323,7 +323,7 @@ _validate_wrapper_transcript() {
 
 # _validate_wrapper_transcript_keep <value>
 #
-# [logging] wrapper_transcript_keep (#606): per-verb retention count,
+# [logging] wrapper_transcript_keep: per-verb retention count,
 # positive integer >= 1.
 _validate_wrapper_transcript_keep() {
   local _v="${1-}"
@@ -333,7 +333,7 @@ _validate_wrapper_transcript_keep() {
 
 # _validate_wrapper_transcript_days <value>
 #
-# [logging] wrapper_transcript_days (#606): per-verb retention age in
+# [logging] wrapper_transcript_days: per-verb retention age in
 # days, positive integer >= 1.
 _validate_wrapper_transcript_days() {
   local _v="${1-}"
@@ -344,7 +344,7 @@ _validate_wrapper_transcript_days() {
 # _validate_log_local_path <value>
 #
 # Host-side log directory for the [logging] local_path feature
-# (#328). Lenient: accepts any non-empty string; the resolver does
+# Lenient: accepts any non-empty string; the resolver does
 # `~`-expansion and relative-to-repo-root normalisation at apply
 # time, and the dir is created with `mkdir -p` if missing then.
 # Reject whitespace-only and embedded-newline values up front --

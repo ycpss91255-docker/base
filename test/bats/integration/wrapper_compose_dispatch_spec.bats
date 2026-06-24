@@ -2,11 +2,11 @@
 #
 # Integration test: wrapper -> compose dispatch, asserted behaviourally
 # via --dry-run output rather than by grepping for the dispatcher's
-# identifier name in the wrapper source (#490).
+# identifier name in the wrapper source.
 #
 # Why behavioural: the old template_spec.bats greps asserted that the
 # literal string `_compose_project` appeared in each wrapper. Every
-# internal rename (#480 `_compose_dispatch` shim, #484 `_app_cleanup`)
+# internal rename (`_compose_dispatch` shim, `_app_cleanup`)
 # forced those greps to be updated in lockstep or CI failed -- and a
 # grep cannot catch a *bypass* (a raw `docker compose ...` added without
 # `-p`, which would silently use the directory basename as the project
@@ -88,7 +88,7 @@ teardown() {
 @test "run.sh foreground --dry-run installs cleanup that downs with --remove-orphans" {
   run bash "${REPO_DIR}/run.sh" --dry-run
   assert_success
-  # The EXIT-trap cleanup is visible in dry-run output (#386/#440): it
+  # The EXIT-trap cleanup is visible in dry-run output: it
   # tears the project down through the same -p dispatcher.
   assert_output --regexp '\[dry-run\] docker compose -p [a-zA-Z0-9._-]+ .* down --remove-orphans -t'
 }

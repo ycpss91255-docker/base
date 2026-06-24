@@ -12,25 +12,25 @@
 #   ./test.sh --lint --hadolint    # Only Hadolint, via compose
 #   ./test.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
 #                             # (used by self-test.yaml's dedicated shellcheck
-#                             # job, #376; plain ubuntu-latest runner with
+#                             # job,; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
 #                             # (single source of truth for the self-test.yaml
-#                             # hadolint job; #650, ADR-00000011)
+#                             # hadolint job;  ADR-00000011)
 #   ./test.sh --bats-only       # Run Bats only inside compose (skip ShellCheck)
-#                             # (used by self-test.yaml's bats jobs, #376/#377)
+#                             # (used by self-test.yaml's bats jobs,)
 #   ./test.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
 #                                  # integration). Used by the bats-unit
-#                                  # matrix in self-test.yaml (#377)
+#                                  # matrix in self-test.yaml
 #   ./test.sh --bats-integration     # Run integration tests only (skip
 #                                  # ShellCheck + unit). Used by the
 #                                  # bats-integration job in self-test.yaml
-#                                  # (#377)
+#                                  #
 #   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
 #                             # (full suite; local `just test coverage`)
 #   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
 #                                  # (skip ShellCheck). Used by the coverage
-#                                  # matrix in self-test.yaml (#615). Codecov
+#                                  # matrix in self-test.yaml. Codecov
 #                                  # merges the per-shard uploads.
 #   ./test.sh -h, --help        # Show this help
 #
@@ -49,8 +49,8 @@ readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
-# Disable the wrapper transcript for the whole self-test (#622): specs that
-# run a wrapper main() would otherwise tee a log/ tree into the mounted
+# Disable the wrapper transcript for the whole self-test: specs that
+# run a wrapper main would otherwise tee a log/ tree into the mounted
 # checkout (FILE_PATH/REPO_ROOT resolve to /source). The env override wins
 # over setup.conf; transcript_spec clears it to exercise the conf logic.
 export WRAPPER_TRANSCRIPT=false
@@ -63,7 +63,7 @@ source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 # libraries under drivers/. Each driver uses _log_* / _die from _lib.sh
 # (sourced above) and references the ${REPO_ROOT} global defined here, so
 # source order is: _lib.sh -> drivers. Adding a tool = a driver + a
-# test/<tool>/ folder; the dispatcher is untouched (#650, ADR-00000011).
+# test/<tool>/ folder; the dispatcher is untouched (ADR-00000011).
 # shellcheck source=script/test/drivers/shellcheck.sh
 source "${SCRIPT_DIR}/drivers/shellcheck.sh"
 # shellcheck source=script/test/drivers/hadolint.sh
@@ -221,16 +221,16 @@ _run_via_compose() {
   #                opt-in APT_MIRROR_DEBIAN rewrite for unreachable mirrors)
   #
   # BATS_ONLY is forwarded so the inner `--ci` dispatch can skip
-  # _run_shellcheck when the dedicated GHA shellcheck job (#376) is
+  # _run_shellcheck when the dedicated GHA shellcheck job is
   # covering it in parallel. Default 0 keeps the local `just test`
   # path unchanged (full shellcheck + bats).
   #
-  # BATS_UNIT_SHARD / BATS_INTEGRATION (#377) route the matrix
+  # BATS_UNIT_SHARD / BATS_INTEGRATION route the matrix
   # bats-unit + bats-integration GHA jobs to the right subset inside
   # the container; empty / 0 keep the local `just test` path
   # unchanged (full unit + integration).
   #
-  # LINT_ONLY / LINT_TOOL (#650) route `just test lint [--shellcheck |
+  # LINT_ONLY / LINT_TOOL route `just test lint [--shellcheck |
   # --hadolint]` to the lint phase only (skip bats) inside the container:
   # LINT_ONLY=1 runs the linters and returns; LINT_TOOL narrows to one
   # ('shellcheck' | 'hadolint'), empty = all. hadolint has no host binary,
@@ -301,7 +301,7 @@ main() {
   # --shellcheck-only short-circuits before any mode dispatch. It runs
   # the lint phase directly on the host (no compose, no apt-install).
   # Caller is responsible for having the linter binary in PATH — the
-  # dedicated self-test.yaml shellcheck job (#376) uses plain
+  # dedicated self-test.yaml shellcheck job uses plain
   # ubuntu-latest, which ships it pre-installed.
   if [[ "${shellcheck_only}" == "1" ]]; then
     _run_shellcheck
@@ -324,13 +324,13 @@ main() {
   # `--ci` path to run only the lint phase; LINT_TOOL narrows to one linter
   # (empty = all). Even `--lint --shellcheck` runs in-container so its
   # behaviour matches bare `just test lint`; the dedicated GHA shellcheck
-  # job uses the host-only `--shellcheck-only` path instead (#650).
+  # job uses the host-only `--shellcheck-only` path instead.
   if [[ "${lint}" == "1" ]]; then
     LINT_ONLY=1 LINT_TOOL="${lint_tool}" _run_via_compose ci 0
     return 0
   fi
 
-  # Single-path / filtered inner loop (#523). `--bats-path <file|dir>` and / or
+  # Single-path / filtered inner loop. `--bats-path <file|dir>` and / or
   # `--filter <regex>` run a named subset via the `ci` container, skipping
   # ShellCheck (BATS_ONLY=1) and kcov so the TDD inner loop stays fast.
   # Validation runs on the host before dispatch; the in-container `--ci`
@@ -360,11 +360,11 @@ main() {
       # (the dev loop is far more frequent than the coverage check).
       # Pass COVERAGE=1 via the outer `--coverage` flag to include it.
       # `--behavioural` swaps the bats invocation to drive
-      # `docker buildx build` against runtime-test fixtures (#249).
+      # `docker buildx build` against runtime-test fixtures.
       # BATS_ONLY=1 (set by `--bats-only` outer flag, plumbed via
       # `_run_via_compose`) skips the ShellCheck phase — the dedicated
-      # self-test.yaml shellcheck job covers it in parallel (#376).
-      # BATS_UNIT_SHARD / BATS_INTEGRATION (#377) route this dispatch
+      # self-test.yaml shellcheck job covers it in parallel.
+      # BATS_UNIT_SHARD / BATS_INTEGRATION route this dispatch
       # to a matrix-shard / integration-only subset; the dedicated GHA
       # bats-unit / bats-integration jobs set these via the outer
       # `--bats-unit-shard` / `--bats-integration` flags so the
@@ -375,7 +375,7 @@ main() {
         _fix_permissions
         return 0
       fi
-      # LINT_ONLY (#650): `just test lint [--shellcheck | --hadolint]`
+      # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
       # routes here with LINT_ONLY=1; run the requested linter(s) and skip
       # bats entirely. LINT_TOOL empty = all linters (shellcheck +
       # hadolint), matching bare `just test lint`. No _install_deps: the
@@ -393,9 +393,9 @@ main() {
       _install_deps
       # Full `just test` lint phase: shellcheck THEN hadolint, so a
       # Dockerfile regression fails `just test` locally the same way it
-      # fails the CI hadolint job (#650 local==CI). BATS_ONLY=1 (dedicated
+      # fails the CI hadolint job (local==CI). BATS_ONLY=1 (dedicated
       # GHA shellcheck/hadolint jobs cover lint in parallel) skips both.
-      # COVERAGE=1 also skips lint (#615): the coverage path runs in the
+      # COVERAGE=1 also skips lint: the coverage path runs in the
       # kcov/kcov debian image, which bakes in NEITHER shellcheck nor
       # hadolint (hadolint especially has no apt package there) — lint is
       # a separate concern measured by the dedicated lint jobs, not the
@@ -406,7 +406,7 @@ main() {
         _run_issueref
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
-        # COVERAGE_SHARD (#615) narrows kcov to one matrix slice; empty =
+        # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
         _run_coverage "${COVERAGE_SHARD:-}"
         _fix_permissions
@@ -426,7 +426,7 @@ main() {
       # runs the full suite; --coverage-shard N/T (coverage_shard set)
       # plumbs COVERAGE_SHARD into the container so _run_coverage kcov's
       # only this matrix slice. The self-test.yaml coverage matrix sets
-      # the latter; local `just test coverage` uses the former (#615).
+      # the latter; local `just test coverage` uses the former.
       if [[ -n "${coverage_shard}" ]]; then
         COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
       else

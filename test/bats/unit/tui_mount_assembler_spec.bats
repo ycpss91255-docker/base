@@ -2,7 +2,7 @@
 #
 # Unit tests for _assemble_mount_value -- pure function that builds the
 # host:container[:mode] string used by [devices] device_* and [volumes]
-# mount_* entries (#461).
+# mount_* entries.
 
 bats_require_minimum_version 1.5.0
 
@@ -11,7 +11,7 @@ setup() {
   source /source/downstream/script/docker/lib/_tui_conf.sh
 }
 
-# ── #461: _assemble_mount_value ───────────────────────────────────
+# ──_assemble_mount_value ───────────────────────────────────
 
 @test "_assemble_mount_value returns host:container when no mode (#461)" {
   run _assemble_mount_value /dev /dev
@@ -44,7 +44,7 @@ setup() {
   assert_output "/a:/b"
 }
 
-# ── #461 TUI picker flow (mocked) ───────────────────────────────────
+# ── TUI picker flow (mocked) ───────────────────────────────────
 
 @test "_prompt_mount_with_picker assembles full mount string from picker steps (#461)" {
   source /source/downstream/script/docker/wrapper/setup_tui.sh

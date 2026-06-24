@@ -8,12 +8,12 @@
 # their Dockerfile target stage to a registry on tag push. Downstream
 # app repos consume the result via `FROM ${registry}/${owner}/<image>`.
 #
-# #602: the original `publish` job was a per-platform matrix where every
+# the original `publish` job was a per-platform matrix where every
 # shard pushed the SAME computed tag(s) via `push: true` + `tags:`. With
 # a 2-platform matrix the second shard's single-arch manifest overwrites
 # the first at the tag — a last-shard-wins single-arch image, not a
 # multi-arch manifest list (despite the docstring claiming otherwise).
-# The fix mirrors the #587 release-test-tools pattern: each shard pushes
+# The fix mirrors the release-test-tools pattern: each shard pushes
 # BY DIGEST (no tag), uploads its digest as an artifact, and a `merge`
 # job assembles the tagged manifest list via
 # `docker buildx imagetools create`. These guards lock that contract.
@@ -40,7 +40,7 @@ setup() {
   done
 }
 
-# ── Native-runner matrix (shared with build/publish/#587 convention) ─
+# ── Native-runner matrix (shared with build/publishconvention) ─
 
 @test "publish-worker.yaml: compute-matrix maps platforms to native runners" {
   run grep -E '^  compute-matrix:' "${WF}"
@@ -56,7 +56,7 @@ setup() {
   assert_success
 }
 
-# ── #602: push-by-digest per shard + manifest merge ──────────────────
+# ──push-by-digest per shard + manifest merge ──────────────────
 
 @test "publish-worker.yaml: build shards push per-platform BY DIGEST (#602)" {
   run grep -F 'platforms: ${{ matrix.platform }}' "${WF}"

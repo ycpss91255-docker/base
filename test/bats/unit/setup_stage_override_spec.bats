@@ -4,7 +4,7 @@ bats_require_minimum_version 1.5.0
 
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
-# _validate_stage_name (#215)
+# _validate_stage_name
 #
 # Returns:
 #   0 — valid stage name (auto-emit as compose service)
@@ -30,7 +30,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 @test "_validate_stage_name rejects baseline collision with exit 2 (HARD ERROR)" {
   # Forward-looking baseline + legacy aliases (kept during v0.21.x
   # transition for backward compat with un-renamed downstream Dockerfiles).
-  # #493 (A1'-b): devel-test is NOT here — it is now an emittable stage
+  # (A1'-b): devel-test is NOT here — it is now an emittable stage
   # (legacy service name `test`); see the dedicated test below.
   for _base in sys devel-base devel runtime-test base test; do
     run _validate_stage_name "${_base}"
@@ -51,7 +51,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _parse_dockerfile_stages (#215)
+# _parse_dockerfile_stages
 #
 # Reads `^FROM\s+\S+\s+AS\s+<stage>` lines from a Dockerfile, dedups,
 # filters out the baseline blocklist {sys, devel-base, devel,
@@ -72,7 +72,7 @@ EOF
 }
 
 @test "_parse_dockerfile_stages: returns nothing for Dockerfile with only new baseline stages (#243)" {
-  # #493 (A1'-b): devel-test is no longer baseline-filtered — it is an
+  # (A1'-b): devel-test is no longer baseline-filtered — it is an
   # emittable stage now, so it is excluded from this "baseline → nothing"
   # fixture and covered by the dedicated test below.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
@@ -166,7 +166,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _compute_dockerfile_hash (#215)
+# _compute_dockerfile_hash
 #
 # sha256 of just the `FROM ... AS <stage>` lines (stage list projection),
 # not the whole Dockerfile. Used by _check_setup_drift to detect when
@@ -258,11 +258,11 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# main apply — auto-emit non-baseline stages (#215)
+# main apply — auto-emit non-baseline stages
 #
 # End-to-end check that stages declared via `FROM ... AS <stage>` in
 # Dockerfile become compose services automatically. Covers the v1
-# acceptance set: existing #108 runtime regression, multi-stage emit,
+# acceptance set: existing runtime regression, multi-stage emit,
 # baseline collision (hard error), reserved tag namespace (hard error),
 # invalid format (WARN + skip but apply still succeeds).
 # ════════════════════════════════════════════════════════════════════
@@ -328,7 +328,7 @@ EOF
   # template's [image] rules — exact value irrelevant; pattern matters)
   run grep -E '^    image: \$\{DOCKER_HUB_USER:-local\}/[a-z0-9_-]+:headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
-  # container_name: ${USER_NAME} prefix (#322 multi-user disambiguation)
+  # container_name: ${USER_NAME} prefix (multi-user disambiguation)
   # + ${IMAGE_NAME}-headless
   run grep -E '^    container_name: \$\{USER_NAME\}-[a-z0-9_-]+-headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
@@ -338,7 +338,7 @@ EOF
 }
 
 @test "auto-emit: no extra stages → only devel + test in compose.yaml" {
-  # #493 (A1'-b): the `test` service is emitted from the devel-test
+  # (A1'-b): the `test` service is emitted from the devel-test
   # baseline stage, so the baseline-only fixture declares it.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
@@ -503,7 +503,7 @@ EOF
 
 @test "auto-emit: drift fires when Dockerfile stage is REMOVED" {
   # Mirrors the add-side drift but for the remove path. Important per
-  # #215 acceptance: stale services must not survive Dockerfile edits
+  # acceptance: stale services must not survive Dockerfile edits
   # that delete a stage.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
@@ -538,7 +538,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Per-stage overrides (#220)
+# Per-stage overrides
 #
 # `[stage:<name>]` sections in <repo>/config/docker/setup.conf override top-level
 # settings on a per-stage basis when a corresponding `FROM ... AS <name>`
@@ -810,12 +810,12 @@ EOF
   [[ "${_lines[1]}" == "/b:/b" ]] || return 1
 }
 
-# ─── Per-stage overrides — compose.yaml emit integration (#220) ────
+# ─── Per-stage overrides — compose.yaml emit integration ────
 
 @test "stage-override: regression — stage with NO overrides keeps extends:devel minimal block" {
   # Zero-diff path: existing 17 downstream repos have setup.conf with
   # no [stage:*] sections. compose.yaml output for emitted stages must
-  # match #215's extends-only shape exactly.
+  # match's extends-only shape exactly.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS base
@@ -843,7 +843,7 @@ EOF
 }
 
 @test "stage-override: gui.mode=off in [stage:headless] strips X11 env+volumes from headless" {
-  # Regression for #220 Isaac validation finding: compose `extends`
+  # Regression for Isaac validation finding: compose `extends`
   # MERGES list fields (not replaces), so emitting a stage's
   # environment / volumes block on top of `extends: devel` ends up
   # APPENDING to devel's X11 entries, not suppressing them. Fix:
@@ -1058,7 +1058,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #493 Bug A (A1'-b) — devel-test gains an override surface
+# Bug A (A1'-b) — devel-test gains an override surface
 #
 # devel-test is promoted out of the baseline blocklist: it now flows
 # through the per-stage inherit-with-override model like any other

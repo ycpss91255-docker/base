@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Tests for the S6 (#506) deploy-generator primitives in
+# Tests for the S6 deploy-generator primitives in
 # downstream/script/docker/wrapper/setup.sh. S6a delivers _emit_docker_run_flags:
 # the pure mapping from a resolved docker-flag record (the
 # _resolve_docker_flags S5 output, plus the top-level-only fields
@@ -225,7 +225,7 @@ _run_line() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _resolve_deploy_context (S6b, #506) — the shared conf-resolution layer
+# _resolve_deploy_context (S6b,) — the shared conf-resolution layer
 # used by both apply and the deploy generator. Loads setup.conf sections
 # and resolves the docker/build scalars + list strings into one record.
 # ════════════════════════════════════════════════════════════════════
@@ -314,7 +314,7 @@ _write_conf() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_deploy_sh (S6b-gen, #506) — writes the self-contained field
+# _generate_deploy_sh (S6b-gen,) — writes the self-contained field
 # launcher by tying _resolve_deploy_context + _resolve_docker_flags +
 # _emit_docker_run_flags together. Generated file is chmod +x and
 # ShellCheck-clean; carries docker-level flags only (no -e / no -v).
@@ -479,7 +479,7 @@ _write_conf() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _bake_config_copy (S4 deploy half) + _generate_deploy_bundle (S6c, #506)
+# _bake_config_copy (S4 deploy half) + _generate_deploy_bundle (S6c,)
 # orchestrator. The bundle orchestration's docker / tar steps run through
 # _dry_run_cmd, so DRY_RUN=true asserts the plan without building.
 # ════════════════════════════════════════════════════════════════════
@@ -578,8 +578,8 @@ DOCK
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _setup_deploy (S6d, #506) — the `setup.sh deploy` subcommand: preview +
-# confirmation + _generate_deploy_bundle. Plus dispatch wiring in main().
+# _setup_deploy (S6d,) — the `setup.sh deploy` subcommand: preview +
+# confirmation + _generate_deploy_bundle. Plus dispatch wiring in main.
 # ════════════════════════════════════════════════════════════════════
 
 _write_deploy_repo() {

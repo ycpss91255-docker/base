@@ -25,7 +25,7 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
 fi
 
 # init.sh lives deep in the subtree (.base/downstream/script/base/init.sh,
-# relocated in #654, ADR-00000011 §8 / ADR-00000006 Region A). Walk up from
+# relocated in  ADR-00000011 §8 / ADR-00000006 Region A). Walk up from
 # the script's own directory to the subtree root -- the directory carrying
 # the subtree markers `.version` + `downstream/` -- so TEMPLATE_DIR is the
 # subtree root regardless of how deep the script is nested. The subtree
@@ -68,9 +68,9 @@ _symlink() {
 
 _create_symlinks() {
   _log "Creating symlinks:"
-  # #330: the seven user-facing wrappers live under script/ now, with
+  # the seven user-facing wrappers live under script/ now, with
   # link targets relative to the link's directory ("../" prefix).
-  # #546: the root user entry is the `justfile` (the container-ops
+  # the root user entry is the `justfile` (the container-ops
   # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
   _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/build.sh" "script/build.sh"
@@ -80,13 +80,13 @@ _create_symlinks() {
   _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/prune.sh" "script/prune.sh"
   _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup.sh" "script/setup.sh"
   _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup_tui.sh" "script/setup_tui.sh"
-  # Migration hygiene: drop pre-#330 root *.sh symlinks (now under
-  # script/) plus the pre-setup_tui-rename `tui.sh` legacy name. The
+  # Migration hygiene: drop root *.sh symlinks (now under
+  # script) plus the pre-setup_tui-rename `tui.sh` legacy name. The
   # [[ -L X ]] guard makes the loop idempotent on already-migrated
   # repos and silent on very old forks that never carried setup.sh /
   # setup_tui.sh at root.
   # Migration hygiene also drops the retired root `Makefile` symlink
-  # (#546 / ADR-00000005 phase 2): base no longer ships a container-ops
+  # (ADR-00000005 phase 2): base no longer ships a container-ops
   # Makefile, so an upgrading repo's stale root symlink must go or it
   # dangles. (The base-only `justfile.test` is unrelated -- it is a
   # regular file under `.base/`, never a root symlink.)
@@ -107,12 +107,12 @@ _create_symlinks() {
   _symlink "script/justfile" "justfile"
   _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
   _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
-  # `base` namespace (#652, #653): `just base upgrade` / `just base update`
+  # `base` namespace: `just base upgrade` / `just base update`
   # manage the .base subtree (apt-aligned); `just base init` re-wires symlinks;
   # `just base completions` installs opt-in shell tab-completion.
   _symlink "../../${TEMPLATE_REL}/downstream/script/base/justfile.base" "script/base/justfile.base"
   _symlink "../../${TEMPLATE_REL}/downstream/script/base/completions.sh" "script/base/completions.sh"
-  # `template` namespace (#633): `just template new <name>` scaffolds a
+  # `template` namespace: `just template new <name>` scaffolds a
   # repo-local command group. The entry `mod?`s script/template/justfile.template;
   # new.sh + skel/ are linked alongside (base-owned, flow on upgrade).
   mkdir -p script/template
@@ -134,7 +134,7 @@ _create_symlinks() {
 
 # _populate_config
 #
-# On first init (no <repo>/config/), create an empty placeholder
+# On first init (no <repo>/config), create an empty placeholder
 # directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
 # layered COPY chain (template#254) reads `.base/downstream/config/` first
 # as the default layer and `<repo>/config/` second as the override
@@ -142,16 +142,16 @@ _create_symlinks() {
 # template defaults". Downstream adds files under <repo>/config/
 # only when they want to override a specific template default.
 #
-# Rationale (compared to the pre-#254 full-copy seed):
+# Rationale (compared to the full-copy seed):
 #   * a symlink would make edits spill into the subtree and fight
 #     `git subtree pull`;
 #   * a plain Dockerfile COPY from `.base/downstream/config/` alone would
 #     deny the user any per-repo override path at all;
-#   * a full-copy seed (pre-#254) gives the user a clean
+#   * a full-copy seed gives the user a clean
 #     repo-local editing surface but freezes their config at the
 #     init-time template version -- subsequent template-side
 #     improvements drift, requiring manual diff/reconcile;
-#   * an EMPTY placeholder (post-#254) lets the layered COPY do
+#   * an EMPTY placeholder lets the layered COPY do
 #     the merge at build time. Repos opt into per-file overrides
 #     only when they need them; everything else flows through
 #     from .base/downstream/config/ on every build, keeping
@@ -161,11 +161,11 @@ _create_symlinks() {
 # Existing repos with a full <repo>/config/ snapshot from a
 # pre-v0.22.0 init keep working unchanged: their copy still
 # overrides every template default at build time, identical to
-# pre-#254 behaviour. They can manually trim files that match
+# behaviour. They can manually trim files that match
 # template default to start receiving template-side improvements.
 _populate_config() {
   # User already has a real config/ — preserve (contains their edits
-  # or pre-#254 full-copy snapshot, both layered correctly).
+  # or full-copy snapshot, both layered correctly).
   if [[ -d config && ! -L config ]]; then
     _log "  Keeping existing config/ directory"
     return 0
@@ -197,7 +197,7 @@ EOF
 #
 # Seed the REPO-OWNED repo-local command-group registry
 # script/local/justfile.local (ADR-00000010). The base entry imports it
-# with `import?` (optional), and `just template new <name>` (#633) appends
+# with `import?` (optional), and `just template new <name>` appends
 # one `mod?` line per group. Non-clobbering: a real file the repo commits,
 # never overwritten by a subtree upgrade -- so it preserves the repo's own
 # group registrations across upgrades.
@@ -213,7 +213,7 @@ _seed_local() {
 # this file optionally (`import?`), so an empty registry is fine.
 #
 # Register a group with one `mod?` line (path relative to this file's dir,
-# i.e. script/local/):
+# i.e. script/local):
 #
 #   mod? deploy 'deploy/justfile.deploy'
 #
@@ -331,7 +331,7 @@ YAML
 
   # .gitignore: source canonical set from lib/gitignore.sh so future
   # template-added derived artifacts propagate via the existing-repo
-  # sync path on next upgrade (#172). #402 PR-B adds the [logging]
+  # sync path on next upgrade. PR-B adds the [logging]
   # local_path managed block here so new repos start with the right
   # entries without waiting for the first setup.sh apply.
   _sync_gitignore "${REPO_ROOT}/.gitignore"
@@ -341,7 +341,7 @@ YAML
   # .dockerignore: same derived-artifact set as .gitignore so generated
   # files (.env / compose.yaml / coverage/ ...) never bloat the Docker
   # build context. Per-repo build-context lines stay hand-maintained
-  # above the managed block (#604).
+  # above the managed block.
   _sync_dockerignore "${REPO_ROOT}/.dockerignore"
   _log "  Created .dockerignore"
 
@@ -395,7 +395,7 @@ MD
 MD
   _log "  Created doc/changelog/CHANGELOG.md"
 
-  # #440: hook scaffolding under script/hooks/{pre,post}/.
+  # hook scaffolding under script/hooks/{pre,post}/.
   _create_hook_stubs
   _log "  Created script/hooks/{pre,post}/ stubs"
 }
@@ -406,8 +406,8 @@ _init_existing_repo() {
   _log "Existing repo detected (Dockerfile found)"
   _create_symlinks
   _sync_existing_gitignore
-  # #440: ensure the pre/post hook scaffolding exists. Idempotent;
-  # already-present stubs are left untouched. Upgrades from pre-#440
+  # ensure the pre/post hook scaffolding exists. Idempotent;
+  # already-present stubs are left untouched. Upgrades from
   # templates pick up the 14 stubs automatically here.
   _create_hook_stubs
 }
@@ -418,7 +418,7 @@ _init_existing_repo() {
 #   existing file (so user-authored hooks survive re-init / upgrade).
 #   All freshly-written stubs land with mode 755 so the
 #   non-executable hard-fail path in lib/hook.sh never trips
-#   spuriously on a fresh init (#440).
+#   spuriously on a fresh init.
 _create_hook_stubs() {
   mkdir -p "${REPO_ROOT}/script/hooks/pre" "${REPO_ROOT}/script/hooks/post"
   local _wrapper _kind _file _verb _abort
@@ -450,14 +450,14 @@ HOOK
 #   On existing-repo init / upgrade, append any canonical entries the
 #   user's .gitignore is missing AND `git rm --cached` any tracked
 #   files that have since become derived artifacts. Heals the 15-repo
-#   drift documented in #172 in one shot — no separate sweep PR needed.
+#   drift, in one shot — no separate sweep PR needed.
 _sync_existing_gitignore() {
   _sync_gitignore "${REPO_ROOT}/.gitignore"
   _untrack_canonical_in_repo "${REPO_ROOT}"
-  # #604: append-missing the same derived-artifact set into .dockerignore
+  # append-missing the same derived-artifact set into .dockerignore
   # (created if absent), preserving user build-context lines.
   _sync_dockerignore "${REPO_ROOT}/.dockerignore"
-  # #402 PR-B: rebuild the [logging] local_path managed block from the
+  # PR-B: rebuild the [logging] local_path managed block from the
   # current setup.conf. Used to live in setup.sh apply (runtime); now
   # tied to init/upgrade lifecycle so the file stays consistent even
   # when setup.conf changed between wrapper invocations.
@@ -517,14 +517,14 @@ _call_setup() {
 
 _error() { _log_err init "$*"; exit 1; }
 
-# ── just runner host preflight (#607) ───────────────────────────────────────
+# ── just runner host preflight ───────────────────────────────────────
 #
 # `just` is the user-facing entry point for every repo this template
 # scaffolds (ADR-00000005 / ADR-00000010 / ADR-00000011): the generated
 # `justfile` symlink forwards `just <ns> <verb>` to script/<verb>.sh. But
 # the runner lives on the HOST, not in the subtree -- vendoring it is
 # rejected (arch-specific binary, --squash injects it into every
-# downstream history, a committed binary never updates; see #607 Notes).
+# downstream history, a committed binary never updates; Notes).
 # So init.sh probes whether `just` is on PATH and, on a miss, emits ONE
 # advisory warning pointing at the install methods. It is deliberately
 # NON-FATAL: the symlinks + wrappers are already laid down, so installing
@@ -590,9 +590,9 @@ _bootstrap_just() {
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
-  # #655: init.sh is a human-facing `base` namespace recipe, so it accepts
+  # init.sh is a human-facing `base` namespace recipe, so it accepts
   # --lang and honors SETUP_LANG/$LANG via i18n.sh (sourced by _lib.sh). Its
-  # own messages are English-only pending the localized pass (#656); --lang
+  # own messages are English-only pending the localized pass; --lang
   # is validated here so the flag is accepted, not an error, uniformly with
   # the docker wrappers. Strip --lang <code> before the positional dispatch.
   local _LANG
@@ -606,7 +606,7 @@ main() {
         _sanitize_lang _LANG "init"
         shift 2
         ;;
-      # #607: opt-in host bootstrap of the `just` runner. Parsed before the
+      # opt-in host bootstrap of the `just` runner. Parsed before the
       # positional dispatch so it composes with the new/existing-repo flow
       # (run the bootstrap first, then init proceeds with `just` present).
       --bootstrap-just)
@@ -669,7 +669,7 @@ EOF
     return 0
   fi
 
-  # #607: opt-in `just` bootstrap runs first so the rest of init proceeds
+  # opt-in `just` bootstrap runs first so the rest of init proceeds
   # with the runner present (and the closing preflight stays quiet).
   if [[ "${_bootstrap_just}" == "true" ]]; then
     _bootstrap_just
@@ -687,7 +687,7 @@ EOF
 
   _call_setup
 
-  # #607: host preflight for the `just` runner. Runs on BOTH the new-repo
+  # host preflight for the `just` runner. Runs on BOTH the new-repo
   # and existing-repo paths (placed in main, after the scaffolding/setup
   # that lays down the justfile symlink). Non-fatal: warns and continues.
   _preflight_just

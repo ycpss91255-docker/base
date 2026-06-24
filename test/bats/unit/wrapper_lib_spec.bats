@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # wrapper_lib_spec.bats - unit tests for the wrapper-runtime module
-# downstream/script/docker/lib/wrapper.sh (#565).
+# downstream/script/docker/lib/wrapper.sh.
 #
 # The runtime hoists the cross-cutting surfaces the 5 docker wrappers
 # (build / run / exec / stop / prune) used to duplicate: the _msg

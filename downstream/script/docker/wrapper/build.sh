@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# Shared wrapper preamble (sub-task A): resolve FILE_PATH across the
 # symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
 # and source _lib.sh -- all in lib/bootstrap.sh. Locate it from this
 # wrapper's real path (readlink -f follows the consumer-repo symlink),
@@ -24,15 +24,15 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[build] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
-# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _bootstrap also sources the wrapper runtime (lib/wrapper.sh) after
 # _lib.sh, so _msg / _wrapper_lang_prepass / _wrapper_setup_sync are in
 # scope below.
 _bootstrap "$@"
 
-# i18n message tables — split by semantic category (#278 PR-2).
+# i18n message tables — split by semantic category (PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
 # are added by the _log_* caller (English-only; level keyword no longer
-# translated — see #283).
+# translated —).
 _msg_bootstrap() {
   case "${_LANG}:${1:?}" in
     zh-TW:info)  echo "首次執行 — 初始化中..." ;;
@@ -64,7 +64,7 @@ _msg_errors() {
   esac
 }
 
-# _msg dispatcher provided by lib/wrapper.sh (#565).
+# _msg dispatcher provided by lib/wrapper.sh.
 
 usage() {
   case "${_LANG}" in
@@ -244,13 +244,13 @@ EOF
 }
 
 main() {
-  _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # #565: shared --lang pre-pass so usage() renders in the requested
-  # locale even when --help precedes --lang (#222). The main parse loop
+  _transcript_begin  # capture this run's output (no-op if disabled)
+  # shared --lang pre-pass so usage renders in the requested
+  # locale even when --help precedes --lang. The main parse loop
   # below still handles --lang itself on the canonical path.
   _wrapper_lang_prepass build "$@"
 
-  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh, #565).
+  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh,).
   # To the consumer devel-test stage's per-file `shellcheck -S warning` (no -x)
   # it looks unused; mark it exported (local -x) so shellcheck treats it as
   # used-externally (silences SC2034 across versions / assignment sites), while
@@ -286,7 +286,7 @@ main() {
         shift
         ;;
       --gui)
-        # #338: per-invocation [gui] mode override. Forwarded into
+        # per-invocation [gui] mode override. Forwarded into
         # setup.sh apply so the resolution short-circuits before
         # _resolve_gui consumes setup.conf.
         SETUP_FORWARD_ARGS+=(--gui "${2:?--gui requires a value (auto|force|off)}")
@@ -299,7 +299,7 @@ main() {
         shift
         ;;
       --no-x11-cookie)
-        # #338: debug knob — skip SSH X11 cookie rewrite. Forces a
+        # debug knob — skip SSH X11 cookie rewrite. Forces a
         # setup rerun so the resolved .env reflects the override.
         SETUP_FORWARD_ARGS+=(--no-x11-cookie)
         RUN_SETUP=true
@@ -314,7 +314,7 @@ main() {
         shift
         ;;
       --no-prune)
-        # #387: opt out of post-build auto-prune of the displaced
+        # opt out of post-build auto-prune of the displaced
         # predecessor image. Default ON; this flag keeps the previous
         # image around for rollback / debug diffing. Never touches the
         # buildx cache (see prune.sh --builder for that).
@@ -334,7 +334,7 @@ main() {
         # build, instead of the collapsed BuildKit progress UI.
         # https://docs.docker.com/build/building/variables/#progress
         # Use when a build appears hung to distinguish "still doing
-        # work" from "waiting on network / something else". Closes #311.
+        # work" from "waiting on network / something else".
         export BUILDKIT_PROGRESS=plain
         shift
         ;;
@@ -354,7 +354,7 @@ main() {
       -t|--target)
         # Alias for the positional [TARGET], matching run.sh's -t.
         # When both forms are passed, last wins — same semantics as
-        # repeating either form alone. Closes #280.
+        # repeating either form alone.
         TARGET="${2:?"-t/--target requires a value (e.g. devel, test, runtime)"}"
         shift 2
         ;;
@@ -394,9 +394,9 @@ main() {
     RUN_SETUP=true
   fi
 
-  # #565: shared setup/drift orchestration (build + run). Decides
+  # shared setup/drift orchestration (build + run). Decides
   # bootstrap vs drift-regen vs interactive setup, runs setup.sh as a
-  # subprocess (avoids the #101 _msg shadow), and exits 1 if no .env was
+  # subprocess (avoids the _msg shadow), and exits 1 if no .env was
   # produced. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
   _wrapper_setup_sync build
 
@@ -417,7 +417,7 @@ main() {
   # build-arg (default `test-tools:local`) and `FROM ${TEST_TOOLS_IMAGE}`
   # for its lint/test stage. If the caller pre-builds or pulls the image
   # outside build.sh (CI workflows do this for cache-share / rolling-tag
-  # reasons, see #317 P2), the internal `docker build` here is wasted
+  # reasons, P2), the internal `docker build` here is wasted
   # work — skip it. The caller is responsible for ensuring the value of
   # TEST_TOOLS_IMAGE resolves to a runnable image (either a locally tagged
   # `test-tools:local` or a registry-addressable tag the docker daemon
@@ -452,7 +452,7 @@ main() {
 
   if [[ "${CLEAN_TOOLS}" == true ]]; then
     _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
-    # #606: register via the transcript-owned atexit registry instead of
+    # register via the transcript-owned atexit registry instead of
     # `trap ... EXIT`, which would clobber the transcript finalize.
     _atexit _cleanup
   fi
@@ -460,7 +460,7 @@ main() {
   local _compose_args=()
   [[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
 
-  # #387: snapshot the existing tag's image ID before the build, so a
+  # snapshot the existing tag's image ID before the build, so a
   # successful rebuild that displaces the tag (`old_id != new_id`) can
   # surgically `docker rmi` the displaced layer set. The check is
   # guarded by:
@@ -471,7 +471,7 @@ main() {
   #   - build failure → `set -e` aborts main before the prune block runs
   #   - `--dry-run` / `--no-prune` → print or skip
   # The buildx cache is intentionally untouched (use `prune.sh --builder`
-  # for that). Tag shape mirrors run.sh's `_full_tag` (#322).
+  # for that). Tag shape mirrors run.sh's `_full_tag`.
   local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${TARGET}"
   local _pre_build_id=""
   if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true ]]; then
@@ -479,7 +479,7 @@ main() {
       "${_full_tag}" 2>/dev/null || true)"
   fi
 
-  # #440: pre-build hook fires after env prep, before docker build.
+  # pre-build hook fires after env prep, before docker build.
   # Skipped under --dry-run.
   _run_pre_hook build "$@" || exit $?
 
@@ -495,7 +495,7 @@ main() {
     printf '[dry-run] docker rmi <old-id-of %s if displaced>\n' "${_full_tag}"
   fi
 
-  # #440: post-build hook fires at end of successful build path.
+  # post-build hook fires at end of successful build path.
   _run_post_hook build "$@"
 }
 

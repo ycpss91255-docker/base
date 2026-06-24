@@ -2,9 +2,9 @@
 #
 # tui_flow.bats — interactive-flow tests for setup_tui.sh.
 #
-# Covers menu navigation (#178 Save & Exit), image rule editor with
-# compaction (#177), generic list-section CRUD, and Cancel / Esc abort
-# paths. Closes #189: lifts setup_tui.sh per-file coverage from 18% to
+# Covers menu navigation (Save & Exit), image rule editor with
+# compaction, generic list-section CRUD, and Cancel / Esc abort
+# paths.lifts setup_tui.sh per-file coverage from 18% to
 # >=70% by exercising the function set the comment in tui_spec.bats
 # already promised would live in this file.
 #
@@ -38,7 +38,7 @@ setup() {
   # mutate state visibly to the parent. Each line: "<exit>|<response>".
   _QFILE="${BATS_TEST_TMPDIR}/tui_queue"
   : > "${_QFILE}"
-  # Post-#262 path: setup.conf lives at config/docker/setup.conf
+  # path: setup.conf lives at config/docker/setup.conf
   mkdir -p "${BATS_TEST_TMPDIR}/config/docker"
 
   # Override the dialog primitives from _tui_backend.sh AFTER sourcing
@@ -138,7 +138,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _render_main_menu / _render_advanced_menu (#178 Save & Exit unification)
+# _render_main_menu / _render_advanced_menu (Save & Exit unification)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_render_main_menu: __save returns 0 (Save & Exit path)" {
@@ -160,7 +160,7 @@ EOF
 }
 
 @test "_render_main_menu: navigates into _edit_section_<choice> then Save" {
-  # Post-#221: image is now a top-level main entry. Click image →
+  # image is now a top-level main entry. Click image →
   # _edit_section_image opens its rule-list menu (back immediately) →
   # main loop pops __save → exit.
   queue "0|image" "0|back" "0|__save"
@@ -205,7 +205,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _edit_image_rule (#177 regression site)
+# _edit_image_rule (regression site)
 #
 # Two-step editor: rule type radiolist → value inputbox (skipped for
 # basename / __remove / __move_*).
@@ -288,7 +288,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _compact_image_rules_after_remove (#177)
+# _compact_image_rules_after_remove
 # ════════════════════════════════════════════════════════════════════
 
 @test "_compact_image_rules_after_remove: shifts higher rules down by one slot" {
@@ -427,7 +427,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _edit_section_additional_contexts — issue #199
+# _edit_section_additional_contexts —
 #
 # Exercises the same _edit_list_section path as environment / volumes
 # but with the context_ prefix and the _validate_additional_context
@@ -494,7 +494,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #560: the TUI validates through the shared schema registry, keyed by
+# the TUI validates through the shared schema registry, keyed by
 # (section, key) — NOT a validator name threaded through the call site.
 # _edit_list_entry must reject an invalid value for a registered key even
 # when no validator argument is passed; the registry is the single source.
@@ -594,7 +594,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Per-stage overrides UI (#220)
+# Per-stage overrides UI
 # ════════════════════════════════════════════════════════════════════
 
 # Helper: stage a Dockerfile with the given non-baseline stages.
@@ -636,7 +636,7 @@ _make_dockerfile_with_stages() {
 }
 
 @test "_list_dockerfile_stages_available: includes devel-test as an editable stage (#493)" {
-  # #493 (A1'-b): devel-test is the override surface for the test
+  # (A1'-b): devel-test is the override surface for the test
   # service, so the per-stage TUI editor must offer it.
   local _df="${BATS_TEST_TMPDIR}/Dockerfile"
   cat > "${_df}" <<'EOF'
@@ -736,7 +736,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #221: Menu restructure — Runtime / Mounts / Features sub-menus
+# Menu restructure — Runtime / Mounts / Features sub-menus
 #
 # Promotes image + build to top-level main, regroups runtime concerns
 # (network/deploy/gui/environment) under Runtime, regroups mount
@@ -828,7 +828,7 @@ EOF
 }
 
 @test "_render_main_menu: bare network/deploy/gui/volumes/environment no longer dispatch from main" {
-  # Post-#221 these live under Runtime / Mounts sub-menus. If a stale
+  # these live under Runtime / Mounts sub-menus. If a stale
   # script keys them, no editor opens (no case branch matches), and
   # the main loop simply continues until __save / Cancel.
   local _net=0 _gui=0 _vol=0
@@ -964,7 +964,7 @@ EOF
   [[ "${_called}" -eq 1 ]]
 }
 
-# Features sub-menu — conditional discoverability (#221 acceptance)
+# Features sub-menu — conditional discoverability (acceptance)
 
 @test "_render_features_menu: __back exits with 0" {
   queue "0|__back"
@@ -998,7 +998,7 @@ EOF
   [[ "${_msgbox}" -eq 1 ]]
 }
 
-# Advanced sub-menu — image/build/devices/tmpfs moved out (#221)
+# Advanced sub-menu — image/build/devices/tmpfs moved out
 
 @test "_render_advanced_menu: image entry no longer dispatches" {
   local _called=0

@@ -9,7 +9,7 @@
 #   ./setup_tui.sh -h | --help     # show help
 #   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
-# On save, setup_tui.sh writes <repo>/setup.conf and exec()s setup.sh to
+# On save, setup_tui.sh writes <repo>/setup.conf and execs setup.sh to
 # regenerate .env + compose.yaml. Cancel / Esc exits 0 without saving.
 #
 # Style: Google Shell Style Guide.
@@ -17,8 +17,8 @@
 set -euo pipefail
 
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
-# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
-# (post-#330), and direct invocation — see build.sh for the heuristic.
+# FILE_PATH detection covers root-symlink, script/-subfolder
+# and direct invocation — see build.sh for the heuristic.
 _FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
@@ -175,7 +175,7 @@ _TUI_MSG_EN[deploy.runtime.prompt]="Docker runtime override (Jetson / csv-mode t
 _TUI_MSG_EN[deploy.runtime.auto]="auto (emit runtime: nvidia on Jetson — /etc/nv_tegra_release)"
 _TUI_MSG_EN[deploy.runtime.nvidia]="nvidia (force emit on all hosts)"
 _TUI_MSG_EN[deploy.runtime.off]="off (no runtime override — Docker default runc)"
-# [deploy] runtime -> gpu_runtime migration suggestion (#517, fast-follow of #481)
+# [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
 _TUI_MSG_EN[deploy.runtime.migrate]=$'Your setup.conf still uses the legacy [deploy] runtime key.\n\nIt was renamed to gpu_runtime in #481 (the old name keeps working as a\npermanent alias). Saving here writes the new gpu_runtime key; you can\nthen remove the old runtime line from setup.conf. This page never edits\nthe legacy key for you.'
 _TUI_MSG_EN[deploy.mig.title]="Deploy — NVIDIA MIG detected"
 _TUI_MSG_EN[deploy.mig.warning]=$'NVIDIA MIG (Multi-Instance GPU) mode is enabled on this host.\n\nDocker\'s deploy `count=N` reservation addresses whole GPUs; it cannot pin a specific MIG slice. To target one slice, leave count as-is and add to the [environment] section:\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\nAvailable GPU / MIG instances:\n%s'
@@ -229,9 +229,9 @@ _TUI_MSG_EN[err.invalid_mount]="Invalid mount format (expected <host>:<container
 _TUI_MSG_EN[err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
 _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
-# [lifecycle] restart policy page (#514, fast-follow of #478)
+# [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_EN[main.lifecycle]="container restart policy"
-# runtime-env info page (#497, info-only: points at the .env workload overlay)
+# runtime-env info page (info-only: points at the .env workload overlay)
 _TUI_MSG_EN[main.envinfo]="workload env (.env) -- how to set"
 _TUI_MSG_EN[envinfo.title]="Workload env (.env)"
 _TUI_MSG_EN[envinfo.info]=$'Volatile per-task env vars (ROS_DOMAIN_ID, LOG_LEVEL, tokens, ...)\nbelong in the gitignored .env overlay -- edit that file directly.\nsetup.sh never touches .env after scaffolding it, and changes take\neffect with `just run` alone: no compose regenerate, no SETUP_CONF_HASH\ndrift, no git churn.\n\nSet-once defaults that rarely change live in [environment] (this menu ->\n"runtime env vars"). They are baked into the field image as ENV and\nemitted into compose; .env overrides them at runtime (.env wins).\n\nThis page is informational -- it does not edit .env.'
@@ -410,7 +410,7 @@ _TUI_MSG_ZH_TW[deploy.runtime.prompt]="Docker runtime 覆寫（Jetson / csv 模�
 _TUI_MSG_ZH_TW[deploy.runtime.auto]="auto（Jetson 自動輸出 runtime: nvidia — /etc/nv_tegra_release）"
 _TUI_MSG_ZH_TW[deploy.runtime.nvidia]="nvidia（所有主機強制輸出）"
 _TUI_MSG_ZH_TW[deploy.runtime.off]="off（不覆寫 — Docker 預設 runc）"
-# [deploy] runtime -> gpu_runtime migration suggestion (#517, fast-follow of #481)
+# [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
 _TUI_MSG_ZH_TW[deploy.runtime.migrate]=$'你的 setup.conf 仍使用舊的 [deploy] runtime key。\n\n#481 已將它更名為 gpu_runtime（舊名仍以永久 alias 形式可用）。在此\n儲存會寫入新的 gpu_runtime key；之後你可自行從 setup.conf 移除舊的\nruntime 那行。本頁不會替你改動舊 key。'
 _TUI_MSG_ZH_TW[deploy.mig.title]="Deploy — 偵測到 NVIDIA MIG"
 _TUI_MSG_ZH_TW[deploy.mig.warning]=$'此主機已啟用 NVIDIA MIG（Multi-Instance GPU）模式。\n\nDocker 的 deploy `count=N` 只能預留整張 GPU，無法指定特定 MIG slice。若要使用單一 slice，請維持 count 不變，並在 [environment] 區塊加入：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\n主機上的 GPU / MIG 實例：\n%s'
@@ -464,9 +464,9 @@ _TUI_MSG_ZH_TW[err.invalid_mount]="掛載格式錯誤（預期 <host>:<container
 _TUI_MSG_ZH_TW[err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
-# [lifecycle] restart policy page (#514, fast-follow of #478)
+# [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_TW[main.lifecycle]="容器重啟策略"
-# runtime-env info page (#497, info-only: points at the .env workload overlay)
+# runtime-env info page (info-only: points at the .env workload overlay)
 _TUI_MSG_ZH_TW[main.envinfo]="workload 環境變數（.env）-- 設定方式"
 _TUI_MSG_ZH_TW[envinfo.title]="Workload 環境變數（.env）"
 _TUI_MSG_ZH_TW[envinfo.info]=$'每個任務會變動的環境變數（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n應寫進 gitignore 的 .env overlay —— 直接編輯該檔。\nsetup.sh 在首次 scaffold 後永不碰 .env，且改動只要 `just run` 即\n生效：不需重生 compose、不會動 SETUP_CONF_HASH、不產生 git 變更。\n\n極少變動的 set-once 預設值放在 [environment]（本選單 ->「執行時期\n環境變數」）。它們會 bake 進 field image 的 ENV 並輸出到 compose；\n執行時 .env 會覆蓋它們（.env 優先）。\n\n本頁僅供說明 —— 不會編輯 .env。'
@@ -643,7 +643,7 @@ _TUI_MSG_ZH_CN[deploy.runtime.prompt]="Docker runtime 覆盖（Jetson / csv 模�
 _TUI_MSG_ZH_CN[deploy.runtime.auto]="auto（Jetson 自动输出 runtime: nvidia — /etc/nv_tegra_release）"
 _TUI_MSG_ZH_CN[deploy.runtime.nvidia]="nvidia（所有主机强制输出）"
 _TUI_MSG_ZH_CN[deploy.runtime.off]="off（不覆盖 — Docker 默认 runc）"
-# [deploy] runtime -> gpu_runtime migration suggestion (#517, fast-follow of #481)
+# [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
 _TUI_MSG_ZH_CN[deploy.runtime.migrate]=$'你的 setup.conf 仍使用旧的 [deploy] runtime key。\n\n#481 已将它更名为 gpu_runtime（旧名仍以永久 alias 形式可用）。在此\n保存会写入新的 gpu_runtime key；之后你可自行从 setup.conf 移除旧的\nruntime 那行。本页不会替你改动旧 key。'
 _TUI_MSG_ZH_CN[deploy.mig.title]="Deploy — 检测到 NVIDIA MIG"
 _TUI_MSG_ZH_CN[deploy.mig.warning]=$'此主机已启用 NVIDIA MIG（Multi-Instance GPU）模式。\n\nDocker 的 deploy `count=N` 只能预留整张 GPU，无法指定特定 MIG slice。若要使用单一 slice，请保持 count 不变，并在 [environment] 区块加入：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\n主机上的 GPU / MIG 实例：\n%s'
@@ -721,9 +721,9 @@ _TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
-# [lifecycle] restart policy page (#514, fast-follow of #478)
+# [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_CN[main.lifecycle]="容器重启策略"
-# runtime-env info page (#497, info-only: points at the .env workload overlay)
+# runtime-env info page (info-only: points at the .env workload overlay)
 _TUI_MSG_ZH_CN[main.envinfo]="workload 环境变量（.env）-- 设置方式"
 _TUI_MSG_ZH_CN[envinfo.title]="Workload 环境变量（.env）"
 _TUI_MSG_ZH_CN[envinfo.info]=$'每个任务会变动的环境变量（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n应写进 gitignore 的 .env overlay —— 直接编辑该文件。\nsetup.sh 在首次 scaffold 后永不碰 .env，且改动只要 `just run` 即\n生效：无需重新生成 compose、不会动 SETUP_CONF_HASH、不产生 git 变更。\n\n极少变动的 set-once 默认值放在 [environment]（本菜单 ->「运行时\n环境变量」）。它们会 bake 进 field image 的 ENV 并输出到 compose；\n运行时 .env 会覆盖它们（.env 优先）。\n\n本页仅供说明 —— 不会编辑 .env。'
@@ -871,7 +871,7 @@ _TUI_MSG_JA[deploy.runtime.prompt]="Docker ランタイムオーバーライド�
 _TUI_MSG_JA[deploy.runtime.auto]="auto（Jetson で自動的に runtime: nvidia を出力 — /etc/nv_tegra_release）"
 _TUI_MSG_JA[deploy.runtime.nvidia]="nvidia（全ホストで強制出力）"
 _TUI_MSG_JA[deploy.runtime.off]="off（オーバーライドなし — Docker 既定の runc）"
-# [deploy] runtime -> gpu_runtime migration suggestion (#517, fast-follow of #481)
+# [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
 _TUI_MSG_JA[deploy.runtime.migrate]=$'setup.conf がまだ旧来の [deploy] runtime キーを使用しています。\n\n#481 で gpu_runtime に改名されました（旧名は恒久エイリアスとして\n動作し続けます）。ここで保存すると新しい gpu_runtime キーを書き込み\nます。その後、setup.conf から旧 runtime 行を手動で削除できます。\nこのページが旧キーを書き換えることはありません。'
 _TUI_MSG_JA[deploy.mig.title]="Deploy — NVIDIA MIG を検出"
 _TUI_MSG_JA[deploy.mig.warning]=$'このホストでは NVIDIA MIG（Multi-Instance GPU）モードが有効です。\n\nDocker の deploy `count=N` は GPU 単位の予約であり、特定の MIG スライスを指定できません。特定スライスを使う場合は count を変更せず、[environment] セクションに次を追加してください：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\nホストで利用可能な GPU / MIG インスタンス：\n%s'
@@ -949,9 +949,9 @@ _TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
-# [lifecycle] restart policy page (#514, fast-follow of #478)
+# [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_JA[main.lifecycle]="コンテナ再起動ポリシー"
-# runtime-env info page (#497, info-only: points at the .env workload overlay)
+# runtime-env info page (info-only: points at the .env workload overlay)
 _TUI_MSG_JA[main.envinfo]="ワークロード環境変数（.env）-- 設定方法"
 _TUI_MSG_JA[envinfo.title]="ワークロード環境変数（.env）"
 _TUI_MSG_JA[envinfo.info]=$'タスクごとに変わる環境変数（ROS_DOMAIN_ID、LOG_LEVEL、token など）\nは gitignore された .env overlay に書きます —— そのファイルを直接編集\nします。setup.sh は scaffold 後 .env に触れず、変更は `just run` だけ\nで反映されます：compose 再生成なし、SETUP_CONF_HASH のdrift なし、\ngit の変更なし。\n\nめったに変わらない set-once 既定値は [environment]（本メニュー ->\n「実行時環境変数」）に置きます。これらは field image に ENV として\nbake され compose にも出力されます。実行時は .env が上書きします\n（.env 優先）。\n\nこのページは情報提供のみ —— .env は編集しません。'
@@ -994,9 +994,9 @@ _tui_init_lang() {
 }
 
 # Source-time default so _tui_msg works even when setup_tui.sh is sourced
-# without going through main() (e.g. bats tests that source + invoke a
-# specific section editor directly). main() re-runs _tui_init_lang after
-# --lang parsing. #568 Part B: i18n.sh no longer seeds _LANG at source
+# without going through main (e.g. bats tests that source + invoke a
+# specific section editor directly). main re-runs _tui_init_lang after
+# --lang parsing. Part B: i18n.sh no longer seeds _LANG at source
 # time, so resolve it explicitly before _tui_init_lang reads it.
 _resolve_lang _LANG
 _TUI_LANG_UPPER="${_TUI_LANG_UPPER:-EN}"
@@ -1314,7 +1314,7 @@ _edit_image_rule() {
 # Drop image.rule_${_n} and shift the values of higher-numbered rules
 # down by one slot, so the user always sees consecutive indices
 # (rule_1 .. rule_M) after a delete and the next "add" allocates
-# max+1 without leaving a gap (#177). Also collapses any pre-existing
+# max+1 without leaving a gap. Also collapses any pre-existing
 # sparse slots above _n as a side effect, since the loop only walks
 # occupied slots in ascending order.
 _compact_image_rules_after_remove() {
@@ -1638,9 +1638,9 @@ _edit_section_deploy() {
   [[ -z "${_v}" ]] && _v="gpu"
   _override_set "deploy.gpu_capabilities" "${_v}"
 
-  # runtime override (Jetson / csv-mode nvidia-container-toolkit). #481
+  # runtime override (Jetson / csv-mode nvidia-container-toolkit).
   # renamed the conf key deploy.runtime -> deploy.gpu_runtime (permanent
-  # legacy alias). #517: if the per-repo setup.conf still carries the
+  # legacy alias).if the per-repo setup.conf still carries the
   # legacy [deploy] runtime key (and no gpu_runtime), SUGGEST renaming it
   # -- never silently rewrite. The read honours both keys; the write uses
   # the canonical gpu_runtime.
@@ -1660,7 +1660,7 @@ _edit_section_deploy() {
   fi
 }
 
-# [lifecycle] restart policy page (#514, fast-follow of #478). Radiolist of
+# [lifecycle] restart policy page (fast-follow of). Radiolist of
 # the 4 docker policies; on-failure adds a two-step optional integer retry
 # count (>=1, empty -> bare on-failure). Validates via _schema_validate
 # (lifecycle.restart); the on-failure:N value is assembled here.
@@ -1711,7 +1711,7 @@ _edit_section_gui() {
   _override_set "gui.mode" "${_v}"
 }
 
-# _prompt_mount_with_picker [initial] — #461 mount mode picker
+# _prompt_mount_with_picker [initial] — mount mode picker
 #
 # Collects host, container, access mode, and propagation mode through
 # inputbox + radiolist primitives, then assembles via the pure
@@ -1784,7 +1784,7 @@ _edit_list_section() {
   local _entry_key="${7}"
   local _err_key="${8:-}"
 
-  # Resolve the per-entry prompt key through the schema i18n-index (#591)
+  # Resolve the per-entry prompt key through the schema i18n-index
   # when this list key is registered, so the menu string is the same key
   # the coverage spec asserts across all four locales. The literal
   # _entry_key remains the fallback for free-form list keys with no
@@ -1873,7 +1873,7 @@ _edit_list_entry() {
       _mark_removed "${_nskey}"
       return 0
     fi
-    # Non-empty: validate through the shared registry (#560), keyed by
+    # Non-empty: validate through the shared registry, keyed by
     # (section, key). Free-form keys (no registry entry) accept any value.
     if _schema_validate "${_section}" "${_prefix}${_n}" "${_v}"; then
       _override_set "${_nskey}" "${_v}"
@@ -2041,7 +2041,7 @@ _edit_section_logging() {
     # Per-service entries cover the three baseline services emitted by
     # _emit_logging_block (devel at line 1804 / test at 2165 in setup.sh;
     # `runtime` shows up when auto-emit picks up `FROM ... AS runtime` per
-    # #215). Editing a per-service section without populating it leaves
+    # ). Editing a per-service section without populating it leaves
     # the global block as-is (compose key-level merge).
     _choice="$(_tui_menu "$(_tui_msg logging.title)" "$(_tui_msg logging.top.menu)" \
       global   "$(_tui_msg logging.top.global)" \
@@ -2060,7 +2060,7 @@ _edit_section_logging() {
 
 # ── Main menu ────────────────────────────────────────────────────────────
 
-# ── Per-stage overrides (#220) ───────────────────────────────────────────
+# ── Per-stage overrides ───────────────────────────────────────────
 
 # _list_dockerfile_stages_available <out_array_var> [<base_path>]
 #
@@ -2084,7 +2084,7 @@ _list_dockerfile_stages_available() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      # #493 (A1'-b): devel-test is offered as an editable stage (the
+      # (A1'-b): devel-test is offered as an editable stage (the
       # `test` service override surface); only the rest of the baseline
       # and the legacy aliases stay hidden.
       sys|devel-base|devel|runtime-test) continue ;;
@@ -2236,7 +2236,7 @@ _edit_stage_gui() {
 #
 # Deploy section: gpu_mode + gpu_count + gpu_capabilities + runtime.
 # Each currently goes through _edit_stage_scalar (free-form input);
-# v1 ships with that for simplicity. Future polish (#221 menu work)
+# v1 ships with that for simplicity. Future polish (menu work)
 # can swap each into a typed editor (radio for gpu_mode, etc.).
 _edit_stage_deploy() {
   local _stage="${1}"
@@ -2402,19 +2402,19 @@ _render_main_menu() {
   export TUI_OK_LABEL TUI_CANCEL_LABEL
   TUI_OK_LABEL="Enter"
   TUI_CANCEL_LABEL="Cancel"
-  # Save & Exit lives in the menu body for both backends (#178).
+  # Save & Exit lives in the menu body for both backends.
   # whiptail has no `--extra-button` equivalent at all (newt limit),
   # and using dialog's `--extra-button` made the same repo render with
   # different button rows on dialog vs whiptail hosts — breaking shared
   # screenshots / docs. Standardizing on a synthetic `__save` entry
   # gives identical layout regardless of backend; the small extra
   # navigation step on dialog is acceptable for the consistency win.
-  # Main menu structure (#221):
+  # Main menu structure:
   #   image / build           — top-level (frequently tweaked when wiring a repo)
   #   runtime / mounts        — sub-menu groupers (lifecycle-stage groupings)
   #   advanced                — power-user sections (security / contexts / per-stage)
   #   features                — discoverability for conditional / power-user features
-  #   Save & Exit             — synthetic entry, see #178 note above
+  #   Save & Exit             — synthetic entry, note above
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
@@ -2443,19 +2443,19 @@ _render_main_menu() {
   done
 }
 
-# Runtime-env info page (#497). Info-only: explains where volatile workload
+# Runtime-env info page. Info-only: explains where volatile workload
 # env vars belong (the gitignored .env overlay, edited by hand) versus the
-# set-once [environment] defaults. The S2 (#502) invariant is that setup.sh
+# set-once [environment] defaults. The S2 invariant is that setup.sh
 # / the TUI never write .env, so this is a guidance msgbox, not an editor.
 _show_runtime_env_info() {
   _tui_msgbox "$(_tui_msg envinfo.title)" "$(_tui_msg envinfo.info)"
 }
 
 _render_runtime_menu() {
-  # Runtime grouper (#221): network / GPU / display / env vars / logging
+  # Runtime grouper: network / GPU / display / env vars / logging
   # — all the things that take effect when the container actually runs.
-  # Logging joined the menu in #328 to close the [logging] UX orphan
-  # left by #310 / #314 (compose-emit shipped without TUI / CLI reach).
+  # Logging joined the menu in to close the [logging] UX orphan
+  # left by (compose-emit shipped without TUI / CLI reach).
   while :; do
     local _choice
     _choice="$(_tui_menu "$(_tui_msg runtime.title)" "$(_tui_msg runtime.menu)" \
@@ -2476,7 +2476,7 @@ _render_runtime_menu() {
 }
 
 _render_mounts_menu() {
-  # Mounts grouper (#221): volumes / devices / tmpfs — host->container
+  # Mounts grouper: volumes / devices / tmpfs — host->container
   # resource bindings.
   while :; do
     local _choice
@@ -2495,7 +2495,7 @@ _render_mounts_menu() {
 # _render_features_menu [base_path]
 #
 # Always-visible discoverability surface for conditional / power-user
-# features (#221 acceptance for the third sub-question of the issue).
+# features (acceptance for the third sub-question of the issue).
 # Each feature row shows current status — "enabled (N ...)" when the
 # preconditions are satisfied, "hidden (...)" when not. Clicking a
 # disabled row pops an msgbox explaining how to enable; clicking an
@@ -2541,7 +2541,7 @@ _render_features_menu() {
 }
 
 _render_advanced_menu() {
-  # Slimmed for #221: image / build promoted to main; devices / tmpfs
+  # Slimmed forimage / build promoted to main; devices / tmpfs
   # moved to Mounts. What's left here is truly advanced — security
   # capabilities, named build contexts, per-stage overrides (still
   # conditional so 17 baseline-only repos see no noise here; Features
@@ -2584,7 +2584,7 @@ _do_reset() {
   # re-bootstraps it from the template baseline + detected workspace.
   rm -f "${FILE_PATH}/config/docker/setup.conf"
   # --quiet so apply's confirmation lines don't double-print after the
-  # TUI's own `[tui] saved` line (#285).
+  # TUI's own `[tui] saved` line.
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
   _TUI_OVR_KEYS=()
@@ -2640,7 +2640,7 @@ _commit_and_setup() {
   # shellcheck disable=SC2059
   printf "[tui] ${_saved_fmt}\n" "${_repo_conf}"
   # --quiet so apply's confirmation lines don't double-print after the
-  # TUI's own `[tui] saved` line (#285).
+  # TUI's own `[tui] saved` line.
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}"
 }
 
@@ -2666,7 +2666,7 @@ _warn_if_lang_rejected() {
 #
 # Returns 0 when <arg> is a valid direct-jump subcommand: any schema
 # section (derived from SCHEMA_SECTIONS so adding a section makes it a
-# valid subcommand automatically, #561) or the `ports` pseudo-section
+# valid subcommand automatically,) or the `ports` pseudo-section
 # (a [network] sub-editor with no section of its own). Used by main's
 # argument parser as the single validity gate for `setup_tui.sh <name>`.
 _tui_known_subcommand() {
@@ -2677,7 +2677,7 @@ _tui_known_subcommand() {
 }
 
 main() {
-  _transcript_begin  # #608: capture pre-launch phase; detach before the TUI
+  _transcript_begin  # capture pre-launch phase; detach before the TUI
   local _subcmd=""
   # Remember the raw --lang value if sanitize rejects it, so we can
   # surface the warning INSIDE the TUI (the stderr message from
@@ -2729,17 +2729,17 @@ main() {
   # opens its menus.
   if [[ ! -f "${_repo_conf}" ]]; then
     # --quiet so apply's confirmation lines don't double-print after the
-  # TUI's own `[tui] saved` line (#285).
+  # TUI's own `[tui] saved` line.
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
       >/dev/null 2>&1 || true
   fi
   _load_current "${_repo_conf}" "${_tpl_conf}"
 
-  # #440: pre-tui hook fires before TUI launches. Skipped under
+  # pre-tui hook fires before TUI launches. Skipped under
   # --dry-run.
   _run_pre_hook setup_tui "$@" || exit $?
 
-  # #608: pre-launch phase captured; detach before dialog/whiptail takes
+  # pre-launch phase captured; detach before dialog/whiptail takes
   # over the terminal (the TUI body + post-commit are not captured).
   _transcript_detach
 
@@ -2755,7 +2755,7 @@ main() {
 
   _commit_and_setup "${_repo_conf}" "${_tpl_conf}"
 
-  # #440: post-tui hook fires after commit (.env / compose.yaml
+  # post-tui hook fires after commit (.env / compose.yaml
   # regenerated by setup.sh apply).
   _run_post_hook setup_tui "$@"
 }
