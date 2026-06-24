@@ -138,3 +138,53 @@ EOF
   run bash -c "$(_src); _migrate_pip_helper_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 3: explicit hand-listed lib/wrapper COPYs ─────────────────────
+# Multi-distro repos (ros_distro / ros2_distro / ros1_bridge) hand-listed the
+# now-moved top-level files in their lint stage, e.g.
+#   COPY .base/script/docker/_lib.sh .base/script/docker/i18n.sh /lint/
+#   COPY .base/script/docker/build.sh .base/script/docker/run.sh ... /lint/
+# These resolve to zero files post-v0.41.0. The stage already pulls
+# 'COPY .base/script/docker/lib /lint/lib' + 'COPY script/*.sh /lint/', so
+# the explicit COPYs are redundant and broken — drop them. Multi-line
+# backslash-continued forms are handled too.
+
+@test "migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/_lib.sh .base/script/docker/i18n.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
+  assert_success
+  ! grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
+  grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
+}
+
+@test "migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/_lib.sh \
+     .base/script/docker/i18n.sh \
+     .base/script/docker/_tui_conf.sh \
+     /lint/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
+  assert_success
+  ! grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
+  ! grep -q '_tui_conf.sh' "${DF}"
+  grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
+}
+
+@test "migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/script/docker/wrapper/*.sh /lint/
+EOF
+  run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}'"
+  assert_failure
+}

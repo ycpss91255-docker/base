@@ -105,9 +105,53 @@ _migrate_pip_helper_apply() {
   _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
 }
 
+# ── Migration 3: explicit hand-listed lib/wrapper COPYs ─────────────────────
+#
+# Multi-distro repos hand-listed the moved top-level files in their lint
+# stage, e.g. `COPY .base/script/docker/_lib.sh .base/script/docker/i18n.sh
+# /lint/` or a backslash-continued block of build/run/exec/stop.sh. All
+# moved under lib/ and wrapper/ in v0.41.0, so these resolve to zero files.
+# The stage already pulls them via the `lib` dir COPY + the wrapper glob, so
+# the explicit COPYs are redundant and broken — delete the whole COPY
+# statement (handling backslash continuation).
+#
+# The match anchors on a top-level `.base/script/docker/<name>.sh` reference
+# (a bare file directly under docker/), which deliberately does NOT match the
+# migration-1 output `.base/script/docker/wrapper/*.sh` (path segment +
+# glob) nor the `.base/script/docker/lib` dir COPY (no `.sh`).
+_migrate_explicit_copy_detect() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*COPY[[:space:]]+.*\.base/script/docker/[A-Za-z_]+\.sh' "${_file}"
+}
+
+_migrate_explicit_copy_apply() {
+  local _file="$1"
+  local _tmp
+  _tmp="$(mktemp)"
+  # awk state machine: when a COPY statement (possibly spanning backslash
+  # continuations) references a top-level .base/script/docker/<name>.sh, drop
+  # every physical line of that statement; otherwise pass through verbatim.
+  awk '
+    /^[[:space:]]*COPY[[:space:]]/ {
+      stmt = $0; buf = $0 ORS; cont = ($0 ~ /\\[[:space:]]*$/)
+      while (cont) {
+        if ((getline nxt) <= 0) { break }
+        stmt = stmt " " nxt; buf = buf nxt ORS
+        cont = (nxt ~ /\\[[:space:]]*$/)
+      }
+      if (stmt ~ /\.base\/script\/docker\/[A-Za-z_]+\.sh/) { next }
+      printf "%s", buf; next
+    }
+    { print }
+  ' "${_file}" > "${_tmp}"
+  mv "${_tmp}" "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: dropped redundant explicit lib/wrapper COPY(s) (#567 m3)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
   wrapper_copy
   pip_helper
+  explicit_copy
 )
