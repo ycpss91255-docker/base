@@ -2637,7 +2637,7 @@ YAML
     _emit_additional_contexts_block "${_additional_contexts_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
@@ -2719,7 +2719,7 @@ YAML
   _emit_user_build_args "${_user_build_args_str}"
   cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
@@ -3004,11 +3004,10 @@ HEADER
     # #472: top-level name: so non-wrapper tools (lazydocker / docker compose
     # ps / IDE panels) resolve the same project name the wrapper pins via -p.
     # Literal vars -> compose interpolates from .env at parse time; matches
-    # lib/compose.sh PROJECT_NAME. INSTANCE_SUFFIX is absent from .env so it
-    # expands empty (base instance) for non-wrapper tools; the wrapper's -p
-    # still wins for per-instance runs (compose precedence: -p > name:).
+    # lib/compose.sh PROJECT_NAME. base is single-instance (#600): one
+    # fixed-name project per repo.
     cat <<'YAML'
-name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+name: ${DOCKER_HUB_USER}-${IMAGE_NAME}
 YAML
     cat <<YAML
 services:
@@ -3034,7 +3033,7 @@ YAML
     _emit_user_build_args "${_user_build_args_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
-    container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
 YAML

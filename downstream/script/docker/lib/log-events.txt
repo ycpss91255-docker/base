@@ -64,7 +64,6 @@ run_build_delegating
 run_rerun_setup
 run_build_invoking
 run_detach_cmd_rejected
-run_instance_overlay
 
 # exec.sh
 exec_not_running

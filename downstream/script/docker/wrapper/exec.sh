@@ -41,15 +41,10 @@ _msg_errors() {
 
 _msg_hints() {
   case "${_LANG}:${1:?}" in
-    # %s expanded at the callsite (instance name).
-    zh-TW:start_instance)  echo "請先以 './run.sh --instance %s' 啟動。" ;;
-    zh-CN:start_instance)  echo "请先以 './run.sh --instance %s' 启动。" ;;
-    ja:start_instance)     echo "まず './run.sh --instance %s' で起動してください。" ;;
-    *:start_instance)      echo "Start it first with './run.sh --instance %s'." ;;
-    zh-TW:start_default)   echo "請先以 './run.sh' 啟動（或使用 './run.sh --instance NAME' 啟動並行實例）。" ;;
-    zh-CN:start_default)   echo "请先以 './run.sh' 启动（或使用 './run.sh --instance NAME' 启动并行实例）。" ;;
-    ja:start_default)      echo "まず './run.sh' で起動してください（または './run.sh --instance NAME' で並列インスタンスを起動）。" ;;
-    *:start_default)       echo "Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one)." ;;
+    zh-TW:start)  echo "請先以 './run.sh' 啟動。" ;;
+    zh-CN:start)  echo "请先以 './run.sh' 启动。" ;;
+    ja:start)     echo "まず './run.sh' で起動してください。" ;;
+    *:start)      echo "Start it first with './run.sh'." ;;
   esac
 }
 
@@ -64,14 +59,13 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 選項:
   -h, --help        顯示此說明
   -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C。
                     須在 CMD 之前指定。
   -t, --target T    服務名稱（預設: devel）
-  --instance NAME   進入命名 instance（預設為 default instance）
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
   -v, --verbose     設定 BUILDKIT_PROGRESS=plain（與其他 wrapper 對齊；docker exec
@@ -104,14 +98,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 选项:
   -h, --help        显示此说明
   -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C。
                     须在 CMD 之前指定。
   -t, --target T    服务名称（默认: devel）
-  --instance NAME   进入命名 instance（默认为 default instance）
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
   -v, --verbose     设置 BUILDKIT_PROGRESS=plain（与其他 wrapper 对齐；docker exec
@@ -144,14 +137,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
+使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
   -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
                     git -C と同様。CMD の前に指定。
   -t, --target T    サービス名（デフォルト: devel）
-  --instance NAME   名前付き instance に入る（デフォルトは default instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
   -v, --verbose     BUILDKIT_PROGRESS=plain を設定（他の wrapper と整合；
@@ -185,14 +177,13 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
+Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 Options:
   -h, --help        Show this help
   -C, --chdir DIR   Operate on the repo at DIR without changing the caller's
                     cwd. Mirrors git -C. Must come before the CMD.
   -t, --target T    Service name (default: devel)
-  --instance NAME   Enter a named instance (default: default instance)
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
   -v, --verbose     Export BUILDKIT_PROGRESS=plain for parity with build/run/stop.
@@ -246,7 +237,6 @@ main() {
   done
 
   local TARGET="devel"
-  local INSTANCE=""
   DRY_RUN=false
   # TTY mode resolution (#382): tracks the user's explicit choice with
   # last-wins precedence between -T (force no-tty) and -i (force tty).
@@ -265,10 +255,6 @@ main() {
         ;;
       -t|--target)
         TARGET="${2:?"--target requires a value"}"
-        shift 2
-        ;;
-      --instance)
-        INSTANCE="${2:?"--instance requires a value"}"
         shift 2
         ;;
       --dry-run)
@@ -350,15 +336,15 @@ main() {
     esac
   fi
 
-  # Load .env.generated, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
+  # Load .env.generated, derive PROJECT_NAME.
   _load_env "${FILE_PATH}/.env.generated"
-  _compute_project_name "${INSTANCE}"
+  _compute_project_name
 
   # Precheck: refuse with a friendly hint if the target container is not
   # running. Skipped under --dry-run since the user is asking what *would* run.
   # Container name mirrors compose.yaml's `container_name:`:
-  #   - devel:           ${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}
-  #   - non-devel stage: ${USER_NAME}-${IMAGE_NAME}-${TARGET}${INSTANCE_SUFFIX}
+  #   - devel:           ${USER_NAME}-${IMAGE_NAME}
+  #   - non-devel stage: ${USER_NAME}-${IMAGE_NAME}-${TARGET}
   # The ${USER_NAME} prefix landed in #322 (multi-user host
   # disambiguation); the per-stage ${TARGET} suffix is the convention
   # auto-emitted for headless / gui / test stages (#215). Refs #335 --
@@ -368,20 +354,13 @@ main() {
   if [[ "${TARGET}" != "devel" ]]; then
     _container_name="${_container_name}-${TARGET}"
   fi
-  _container_name="${_container_name}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
-    # Compose the error + matching hint into a single multi-line _log_err
-    # block (the hint depends on whether INSTANCE was supplied).
+    # Compose the error + start hint into a single multi-line _log_err block.
     local _not_running _hint
     # shellcheck disable=SC2059
     printf -v _not_running "$(_msg errors not_running)" "${_container_name}"
-    if [[ -n "${INSTANCE}" ]]; then
-      # shellcheck disable=SC2059
-      printf -v _hint "$(_msg hints start_instance)" "${INSTANCE}"
-    else
-      _hint="$(_msg hints start_default)"
-    fi
+    _hint="$(_msg hints start)"
     _log_err exec exec_not_running "display=${_not_running}
 ${_hint}"
     exit 1

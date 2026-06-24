@@ -198,7 +198,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}' "${TEMP_DIR}/compose.yaml"
+  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}' "${TEMP_DIR}/compose.yaml"
   assert_success
 }
 
@@ -3954,8 +3954,8 @@ EOF
   run grep -E '^    image: \$\{DOCKER_HUB_USER:-local\}/[a-z0-9_-]+:headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
   # container_name: ${USER_NAME} prefix (#322 multi-user disambiguation)
-  # + ${IMAGE_NAME}-headless + INSTANCE_SUFFIX
-  run grep -E '^    container_name: \$\{USER_NAME\}-[a-z0-9_-]+-headless\$\{INSTANCE_SUFFIX:-\}$' "${TEMP_DIR}/compose.yaml"
+  # + ${IMAGE_NAME}-headless
+  run grep -E '^    container_name: \$\{USER_NAME\}-[a-z0-9_-]+-headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
   # profiles list contains the stage name
   run grep -F '      - headless' "${TEMP_DIR}/compose.yaml"

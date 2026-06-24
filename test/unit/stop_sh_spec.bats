@@ -2,8 +2,7 @@
 #
 # Unit tests for downstream/script/docker/wrapper/stop.sh argument handling and i18n log lines.
 # Sandbox tree mirrors build_sh_spec.bats. A PATH-shimmed `docker` stub
-# lets tests control `docker ps -a` output so the --all branch can be
-# exercised without a real docker daemon.
+# lets tests control `docker ps -a` output without a real docker daemon.
 
 bats_require_minimum_version 1.5.0
 
@@ -86,12 +85,7 @@ teardown() {
   assert_failure
 }
 
-@test "stop.sh --instance requires a value" {
-  run bash "${SANDBOX}/stop.sh" --instance
-  assert_failure
-}
-
-@test "stop.sh default stops default instance via docker compose down" {
+@test "stop.sh stops the single project via docker compose down" {
   run bash "${SANDBOX}/stop.sh" --dry-run
   assert_success
   assert_output --partial "down"
@@ -109,20 +103,10 @@ teardown() {
   assert_output --partial "--remove-orphans"
 }
 
-@test "stop.sh --all also threads --remove-orphans through each down (#341)" {
-  printf 'mockuser-mockimg-foo_default\nmockuser-mockimg-bar_default\n' > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --dry-run --all
-  assert_success
-  # --all calls down once per instance; each invocation must carry the flag.
-  local _count
-  _count="$(printf '%s\n' "${output}" | grep -c -- '--remove-orphans' || true)"
-  [[ "${_count}" -ge 2 ]]
-}
-
 # ── -v / --verbose lists project containers before down (#345) ────────────────
 
 @test "stop.sh -v lists project containers before down (#345)" {
-  # Seed the docker stub so _down_one's ps filter returns a non-empty list.
+  # Seed the docker stub so _down_project's ps filter returns a non-empty list.
   printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
   run bash "${SANDBOX}/stop.sh" -v --dry-run
   assert_success
@@ -144,55 +128,6 @@ teardown() {
   assert_success
   refute_output --partial "Tearing down containers in project"
   refute_output --partial "No containers found for project"
-}
-
-@test "stop.sh --instance foo stops named instance" {
-  run bash "${SANDBOX}/stop.sh" --dry-run --instance foo
-  assert_success
-  assert_output --partial "mockuser-mockimg-foo"
-}
-
-@test "stop.sh --all with no instances prints English no-instances message" {
-  # docker_ps_a.out is empty → mapfile builds a single-element array with
-  # an empty string. Grep filters out lines not starting with the prefix,
-  # leaving an empty list → stop.sh prints the no_instances message.
-  : > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all
-  assert_success
-  assert_output --partial "No instances found"
-}
-
-@test "stop.sh --all --lang zh-TW translates no-instances message" {
-  : > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all --lang zh-TW
-  assert_success
-  assert_output --partial "未找到"
-}
-
-@test "stop.sh --all --lang zh-CN translates no-instances message" {
-  : > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all --lang zh-CN
-  assert_success
-  assert_output --partial "未找到"
-}
-
-@test "stop.sh --all --lang ja translates no-instances message" {
-  : > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all --lang ja
-  assert_success
-  assert_output --partial "見つかりません"
-}
-
-@test "stop.sh --all with multiple projects tears down each one" {
-  {
-    echo "mockuser-mockimg"
-    echo "mockuser-mockimg-foo"
-    echo "mockuser-mockimg-bar"
-  } > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all --dry-run
-  assert_success
-  assert_output --partial "mockuser-mockimg-foo"
-  assert_output --partial "mockuser-mockimg-bar"
 }
 
 # ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
@@ -353,13 +288,8 @@ teardown() {
   refute_output --partial "docker image prune"
 }
 
-@test "stop.sh --all --prune --dry-run prunes even when no instances found (#319)" {
-  # docker_ps_a.out is empty → --all branch finds zero projects → prints
-  # "no instances" message; --prune should still run cleanup so a stale
-  # repo with leftover orphan networks gets reclaimed.
-  : > "${DOCKER_PS_A_FILE}"
-  run bash "${SANDBOX}/stop.sh" --all --prune --dry-run
+@test "stop.sh --prune --dry-run runs prune after compose down (#319)" {
+  run bash "${SANDBOX}/stop.sh" --prune --dry-run
   assert_success
-  assert_output --partial "No instances found"
   assert_output --partial "docker network prune -f --filter until=10m"
 }

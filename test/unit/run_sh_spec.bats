@@ -2,7 +2,7 @@
 #
 # Unit tests for downstream/script/docker/wrapper/run.sh argument handling and control flow.
 # See build_sh_spec.bats for the sandbox/mock strategy — this file mirrors it
-# and focuses on run.sh-specific branches: --detach, --instance, TARGET
+# and focuses on run.sh-specific branches: --detach, TARGET
 # routing (devel vs non-devel), already-running guard, and bootstrap/drift.
 
 bats_require_minimum_version 1.5.0
@@ -420,12 +420,6 @@ HOOK
   assert_output --partial "./exec.sh"
 }
 
-@test "run.sh --instance is appended to project/container name" {
-  run bash "${SANDBOX}/run.sh" --dry-run --instance foo
-  assert_success
-  assert_output --partial "mockuser-mockimg-foo"
-}
-
 @test "run.sh refuses to start when container already running (devel + no -d)" {
   {
     echo "USER_NAME=tester"
@@ -454,18 +448,6 @@ HOOK
   assert_failure
 }
 
-@test "run.sh --instance requires a value" {
-  run bash "${SANDBOX}/run.sh" --instance
-  assert_failure
-}
-
-@test "run.sh --instance with invalid value exits 2 (#408 sub-task C)" {
-  # An invalid --instance value is an argument error -> POSIX usage exit
-  # code 2 (was exit 1 before #408-C). Leading '-' / path chars violate
-  # the ^[a-z0-9][a-z0-9_-]*$ rule.
-  run bash "${SANDBOX}/run.sh" --instance "../evil"
-  [[ "${status}" -eq 2 ]] || { echo "expected exit 2, got ${status}"; return 1; }
-}
 
 @test "run.sh --lang zh-CN prints Simplified Chinese usage text" {
   run bash "${SANDBOX}/run.sh" --lang zh-CN --help
@@ -840,10 +822,6 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #465 — per-instance compose overlay
-# ════════════════════════════════════════════════════════════════════
-
-# ════════════════════════════════════════════════════════════════════
 # #580 — interactive / foreground-up exit-code normalization
 # ════════════════════════════════════════════════════════════════════
 # A no-CMD foreground session (devel attached shell, or a one-shot stage's
@@ -922,45 +900,3 @@ EOS
   run -130 bash "${SANDBOX}/run.sh" -t runtime bash
 }
 
-@test "run.sh --instance NAME with config/instances/NAME.yaml adds overlay -f (#465)" {
-  mkdir -p "${SANDBOX}/config/instances"
-  : > "${SANDBOX}/config/instances/dev1.yaml"
-  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
-  assert_success
-  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
-}
-
-@test "run.sh --instance NAME with config/instances/NAME.env adds overlay --env-file (#465)" {
-  mkdir -p "${SANDBOX}/config/instances"
-  : > "${SANDBOX}/config/instances/dev1.env"
-  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
-  assert_success
-  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
-}
-
-@test "run.sh --instance NAME with BOTH yaml + env attaches both overlays (#465)" {
-  mkdir -p "${SANDBOX}/config/instances"
-  : > "${SANDBOX}/config/instances/dev1.yaml"
-  : > "${SANDBOX}/config/instances/dev1.env"
-  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
-  assert_success
-  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
-  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
-}
-
-@test "run.sh --instance NAME with NO overlay files behaves like plain (#465)" {
-  # No config/instances/ dir at all -- run.sh must not error out, just
-  # fall back to the existing _compose_project flow.
-  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
-  assert_success
-  refute_output --partial "config/instances/dev1.yaml"
-  refute_output --partial "config/instances/dev1.env"
-}
-
-@test "run.sh --instance rejects invalid name (uppercase) before compose call (#465)" {
-  run bash "${SANDBOX}/run.sh" --instance Foo --dry-run
-  assert_failure
-  assert_output --partial "instance name"
-  # Did not proceed to compose invocation
-  refute_output --partial "[dry-run] docker compose"
-}

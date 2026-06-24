@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1904 tests** total (1819 unit + 85 integration).
+Template self-tests: **1865 tests** total (1780 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -12,7 +12,7 @@ Template self-tests: **1904 tests** total (1819 unit + 85 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (45)
+### test/unit/lib_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -27,9 +27,7 @@ Template self-tests: **1904 tests** total (1819 unit + 85 integration).
 | `_lib.sh is idempotent when sourced twice` | Double-source guard |
 | `_load_env exports variables from a .env file` | Env loader works |
 | `_load_env errors when no path is given` | Required arg check |
-| `_compute_project_name with empty instance produces clean PROJECT_NAME` | Default instance |
-| `_compute_project_name with named instance suffixes both` | Named instance |
-| `_compute_project_name exports INSTANCE_SUFFIX so child processes see it` | Export propagation |
+| `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
@@ -671,7 +669,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (71)
+### test/unit/run_sh_spec.bats (63)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -681,8 +679,8 @@ Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on
 missing `.env` / `setup.conf` / `compose.yaml`, drift-check path,
 bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
 when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
-routing, `--instance`, already-running guard, Wayland xhost path,
-`--lang` / `--instance` argument validation, fallback `_detect_lang`
+routing, already-running guard, Wayland xhost path,
+`--lang` argument validation, fallback `_detect_lang`
 branches, **runtime log-line i18n** (bootstrap + already-running
 error translate in all four languages via the local `_msg()` table),
 **#216/#429 auto-build gate** (image present → silent + no build,
@@ -707,7 +705,7 @@ the no-CMD foreground paths -- devel attached shell and one-shot stage
 recipe failure, while a genuine non-clean code like 127 still
 propagates and command mode `just run <cmd>` keeps the real exit code).
 
-### test/unit/exec_sh_spec.bats (53)
+### test/unit/exec_sh_spec.bats (52)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -716,10 +714,10 @@ precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
 pre-seeded so `_load_env` / `_compute_project_name` succeed without a
 bootstrap step.
 
-Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target`
 value validation, English-default not-running error, Chinese /
-Simplified Chinese / Japanese not-running error text, instance-specific
-vs default start hints, `--dry-run` bypassing the guard, compose exec
+Simplified Chinese / Japanese not-running error text, the `./run.sh`
+start hint (en + zh-TW), `--dry-run` bypassing the guard, compose exec
 routing when container is running, **`--` flag/CMD separator** (#289:
 standalone `--` consumed before CMD flows through to `docker compose
 exec`, lets a dash-leading CMD pass through, works after `-t TARGET`
@@ -741,29 +739,26 @@ precedence between `-T` and `-i` in both orders, `-T` + `-t TARGET`
 attaches to the right service, `-T` + `--` separator round-trip,
 `--help` mentions both flag pairs).
 
-### test/unit/stop_sh_spec.bats (34)
+### test/unit/stop_sh_spec.bats (26)
 
-Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
-teardown, and i18n. `docker ps -a` output is PATH-shimmed via
-`${DOCKER_PS_A_FILE}` so tests can seed the project list for the `--all`
-branch.
+Unit tests for `stop.sh` argument parsing, the single-project teardown,
+and i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}`
+so tests can seed the project container list for the verbose listing.
 
-Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--instance` value
-validation, default teardown via `docker compose down`, named-instance
-suffix in project name, `--all` no-instances English message,
-Chinese / Simplified Chinese / Japanese translations of the
-no-instances message, `--all` multi-project teardown loop, fallback
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` value validation, teardown
+via `docker compose down` (base is single-instance, #600), fallback
 `_detect_lang` branches, **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `--very-verbose` flag** (#311: parity across wrappers; flag is a no-op
-for `docker compose down` but `-vv` still enables wrapper trace), and
-**`--prune` flag** (#319: opt-in lightweight cleanup after compose
+for `docker compose down` but `-vv` still enables wrapper trace; the
+verbose path lists the project containers before tearing them down),
+and **`--prune` flag** (#319: opt-in lightweight cleanup after compose
 down — `docker network prune --filter until=10m` + `docker image prune
---filter until=24h`; works alongside `--all` even when no instances
-found; usage help mentions `--prune` with the two grace windows; the
-plain `stop.sh --dry-run` path emits no `docker prune` commands).
+--filter until=24h`; usage help mentions `--prune` with the two grace
+windows; the plain `stop.sh --dry-run` path emits no `docker prune`
+commands).
 
 ### test/unit/prune_sh_spec.bats (36)
 
@@ -1120,7 +1115,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (148)
+### test/unit/template_spec.bats (139)
 
 | Test | Description |
 |------|-------------|
@@ -1175,18 +1170,9 @@ the host file content and the inherited stdout (preserving
 | `run.sh _devel_cleanup uses short timeout to avoid 10s grace period` | Fast exit |
 | `run.sh non-devel TARGET still uses compose run --rm` | One-shot stages |
 | `run.sh devel branch does not use 'compose run --name'` | Old pattern gone |
-| `run.sh supports --instance flag` | --instance |
-| `exec.sh supports --instance flag` | --instance |
-| `stop.sh supports --instance flag` | --instance |
-| `stop.sh supports --all flag` | --all |
-| `run.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
-| `exec.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
-| `stop.sh exports INSTANCE_SUFFIX env var to compose` | env passing |
-| `run.sh refuses when default container already running and no --instance` | collision |
-| `init.sh-generated compose.yaml uses parameterized container_name` | template gen |
-| `run.sh -h shows --instance in help` | help text |
-| `exec.sh -h shows --instance in help` | help text |
-| `stop.sh -h shows --instance in help` | help text |
+| `run.sh refuses when the default container is already running` | collision |
+| `base is single-instance: no --instance flag remains (#600)` | single-instance (no flag) |
+| `base is single-instance: no INSTANCE_SUFFIX remains (#600)` | single-instance (no suffix) |
 | `build.sh supports --dry-run flag` | --dry-run |
 | `run.sh supports --dry-run flag` | --dry-run |
 | `exec.sh supports --dry-run flag` | --dry-run |

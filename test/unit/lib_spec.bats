@@ -102,37 +102,15 @@ EOF
 
 # ── _compute_project_name ───────────────────────────────────────────────────
 
-@test "_compute_project_name with empty instance produces clean PROJECT_NAME" {
+@test "_compute_project_name produces clean PROJECT_NAME (single-instance #600)" {
   run bash -c "
     source ${LIB}
     DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
-    _compute_project_name ''
-    echo \"\${PROJECT_NAME}|\${INSTANCE_SUFFIX}\"
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
   "
   assert_success
-  assert_output "alice-myrepo|"
-}
-
-@test "_compute_project_name with named instance suffixes both" {
-  run bash -c "
-    source ${LIB}
-    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
-    _compute_project_name 'dev2'
-    echo \"\${PROJECT_NAME}|\${INSTANCE_SUFFIX}\"
-  "
-  assert_success
-  assert_output "alice-myrepo-dev2|-dev2"
-}
-
-@test "_compute_project_name exports INSTANCE_SUFFIX so child processes see it" {
-  run bash -c "
-    source ${LIB}
-    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
-    _compute_project_name 'foo'
-    bash -c 'echo \"\${INSTANCE_SUFFIX}\"'
-  "
-  assert_success
-  assert_output "-foo"
+  assert_output "alice-myrepo"
 }
 
 # ── _compose / _compose_project (DRY_RUN path) ──────────────────────────────
