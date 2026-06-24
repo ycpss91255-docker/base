@@ -40,8 +40,8 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # Upgrade to latest
-just upgrade-check   # check
-just upgrade         # pull + update version + workflow tag
+just base update   # check
+just base upgrade         # pull + update version + workflow tag
 
 # Run CI
 just test   # ShellCheck + Bats + Kcov
@@ -107,7 +107,7 @@ graph TB
 flowchart LR
     subgraph local["Local"]
         build_test["./build.sh test"]
-        make_test["just build test"]
+        make_test["just docker build test"]
     end
 
     subgraph ci_container["CI Container (ghcr.io/ycpss91255-docker/test-tools:latest)"]
@@ -173,7 +173,7 @@ segregate by a `<tool>` subdir -- `test/<category>/<tool>/` (e.g.
 See [ADR-00000004](doc/adr/00000004-test-category-tool-subdir-layout.md).
 
 | `.hadolint.yaml` | Shared Hadolint rules |
-| `justfile` | Repo entry — `just <verb>` recipes (`just build`, `just run`, `just stop`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just build --no-cache test`); `just` with no recipe lists all recipes. |
+| `justfile` | Repo entry — `just <verb>` recipes (`just docker build`, `just docker run`, `just docker stop`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just docker build --no-cache test`); `just` with no recipe lists all recipes. |
 | `script/test/justfile.test` | Template CI entry (`just test`, `just test lint`, etc.). The user-facing vs CI-facing split is intentional. |
 | `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
@@ -265,14 +265,14 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-just build                            # regenerates compose.yaml, builds all stages
-just run -t headless                  # runs the headless variant
-just run -t gui                       # runs the gui variant
-just exec -t headless bash            # exec into running headless container
+just docker build                            # regenerates compose.yaml, builds all stages
+just docker run -t headless                  # runs the headless variant
+just docker run -t gui                       # runs the gui variant
+just docker exec -t headless bash            # exec into running headless container
 
 # Kit-style args (containing `=`) pass straight through as recipe
 # arguments — no env-var workaround needed:
-just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
+just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # Equivalent direct .sh invocation:
 ./build.sh
@@ -470,7 +470,7 @@ into a field deployment that ships just the image:
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults that get baked into the runtime image as
 `ENV`. Put per-task env vars in the `.env` overlay instead, so a tweak
-needs only `just run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
+needs only `just docker run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
 drift, no git churn).
 
 > The `.env` overlay, the runtime-stage `ENV` bake, and the generated
@@ -560,7 +560,7 @@ check `script/entrypoint.sh` actually contains the source line
 ### Wrapper transcripts
 
 Separate from the container-app logging above, each non-interactive
-container-ops verb (`just build` / `setup` / `stop` / `prune` /
+container-ops verb (`just docker build` / `setup` / `stop` / `prune` /
 `upgrade`) tees its own combined output to a plaintext transcript for
 debugging:
 
@@ -626,7 +626,7 @@ Main
 every build or launch:
 
 - **`./.base/init.sh`** runs it once after the skeleton lands
-- **`just upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
+- **`just base upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
   `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
@@ -644,9 +644,9 @@ every build or launch:
 > first if you want full local-CI parity in one command:
 >
 > ```bash
-> just build test                   # explicit lint + smoke pass
-> just run --build                  # same, then compose up
-> just run                          # default — fast path, lint/smoke skipped
+> just docker build test                   # explicit lint + smoke pass
+> just docker run --build                  # same, then compose up
+> just docker run                          # default — fast path, lint/smoke skipped
 > ```
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
@@ -704,7 +704,7 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
-configuration. Both files are regenerated on every `just upgrade`
+configuration. Both files are regenerated on every `just base upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
@@ -723,7 +723,7 @@ hook framework is ready out of the box. Replace `exit 0` with your
 own host-side steps (e.g. `multiarch/qemu-user-static` binfmt
 registration, mount-point dir creation, hardware preflight). Stubs
 are idempotent across upgrades — pre-#440 templates pick up the
-scaffolding on the next `just upgrade`.
+scaffolding on the next `just base upgrade`.
 
 **Contract:**
 
@@ -866,13 +866,13 @@ upgrade.sh fails fast with an actionable message instead of half-pulling.
 
 ```bash
 # Check if update available
-just upgrade-check
+just base update
 
 # Upgrade to latest (subtree pull + version file + workflow tag)
-just upgrade
+just base upgrade
 
 # Or pin a specific version
-just upgrade v0.3.0
+just base upgrade v0.3.0
 # Pinning to a version OLDER than the current local pin (e.g. rolling
 # from v0.12.0-rc1 back to v0.11.0) is refused as an implicit downgrade
 # per SemVer §11. Edit .base/.version manually if intentional.
@@ -921,7 +921,7 @@ updates:
 
 Dependabot notices the `uses: ycpss91255-docker/base/...@vX.Y.Z` refs in
 `main.yaml`, compares against the template's latest tag, and files a PR. You
-still run `just upgrade vX.Y.Z` locally to sync the subtree itself —
+still run `just base upgrade vX.Y.Z` locally to sync the subtree itself —
 Dependabot only bumps the workflow refs.
 
 ## CI Reusable Workflows

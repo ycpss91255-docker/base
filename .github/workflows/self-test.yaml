@@ -436,7 +436,7 @@ jobs:
         # the maintained setup action instead.)
         uses: extractions/setup-just@v3
 
-      - name: Build test stage (just build test)
+      - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
         env:
           # build.sh skips its internal test-tools:local build when this
@@ -447,12 +447,12 @@ jobs:
           # the dockerfile/Dockerfile.test-tools build.
           TEST_TOOLS_IMAGE: test-tools:local
         run: |
-          just build test
+          just docker build test
 
-      - name: Build devel stage (just build)
+      - name: Build devel stage (just docker build)
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          just build
+          just docker build
 
       - name: Run container detached and assert the runnability contract
         working-directory: ${{ env.REPO_DIR }}
@@ -468,8 +468,8 @@ jobs:
           : "${USER_NAME:?USER_NAME missing from .env.generated}"
           echo "configured USER_NAME=${USER_NAME}"
 
-          just run -d
-          just exec echo "just exec OK from CI"
+          just docker run -d
+          just docker exec echo "just docker exec OK from CI"
 
           # Derive the container name at runtime (compose names it
           # ${USER_NAME}-${IMAGE_NAME}-<svc>; IMAGE_NAME is the e2e_test
@@ -480,14 +480,14 @@ jobs:
 
           # (2) container did NOT insta-exit (the entrypoint set -u class).
           if [[ -z "${cname}" ]]; then
-            echo "ERROR: no running e2e_test container after just run -d"
+            echo "ERROR: no running e2e_test container after just docker run -d"
             docker ps -a
             exit 1
           fi
 
           # (1) the in-container user is the configured one, not the
           # v0.41.0 'initial' bug nor 'root'.
-          who="$(just exec id -un | tr -d '\r' | tail -n1)"
+          who="$(just docker exec id -un | tr -d '\r' | tail -n1)"
           echo "id -un inside container: ${who}"
           if [[ "${who}" != "${USER_NAME}" ]]; then
             echo "ERROR: container user '${who}' != configured '${USER_NAME}'"
@@ -504,22 +504,22 @@ jobs:
           fi
 
           # (4) the ~/work workspace mount is present and writable inside.
-          # Use simple per-call argv (not `just exec bash -c '<compound>'`,
+          # Use simple per-call argv (not `just docker exec bash -c '<compound>'`,
           # whose quoting does not survive just's `{{args}}` splitting) and
           # an absolute path (the mount lands at /home/${USER_NAME}/work).
           work="/home/${USER_NAME}/work"
-          just exec test -d "${work}"
-          just exec touch "${work}/.e2e_probe"
-          just exec rm -f "${work}/.e2e_probe"
+          just docker exec test -d "${work}"
+          just docker exec touch "${work}/.e2e_probe"
+          just docker exec rm -f "${work}/.e2e_probe"
 
       - name: Stop and assert full teardown (container + network gone)
         working-directory: ${{ env.REPO_DIR }}
         run: |
           set -euo pipefail
-          just stop
+          just docker stop
           # (5a) no project container remains.
           if docker ps -a --format '{{.Names}}' | grep -q 'e2e_test'; then
-            echo "ERROR: an e2e_test container remains after just stop"
+            echo "ERROR: an e2e_test container remains after just docker stop"
             docker ps -a
             exit 1
           fi
@@ -527,7 +527,7 @@ jobs:
           # up` creates ${DOCKER_HUB_USER}-e2e_test_default even under
           # network_mode: host; `compose down` (run by stop.sh) removes it.
           if docker network ls --format '{{.Name}}' | grep -q 'e2e_test_default'; then
-            echo "ERROR: an e2e_test project network remains after just stop"
+            echo "ERROR: an e2e_test project network remains after just docker stop"
             docker network ls
             exit 1
           fi

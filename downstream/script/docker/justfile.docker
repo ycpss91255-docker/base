@@ -1,8 +1,10 @@
 # Container-ops recipes (just). The `docker` module of the layered entry
-# (ADR-00000010): imported by the consumer entry (downstream/script/justfile,
-# symlinked as <repo>/script/justfile, with <repo>/justfile -> script/justfile)
-# so `just build` / `just run` / ... resolve at the repo root as TOP-LEVEL
-# recipes.
+# (ADR-00000010/00000011): `mod?`'d by the consumer entry
+# (downstream/script/justfile, symlinked as <repo>/script/justfile, with
+# <repo>/justfile -> script/justfile) so the verbs resolve as the `docker`
+# namespace at the repo root -- `just docker build` / `just docker run` /
+# ... (ADR-00000011 zero-special-case: docker is a namespace like the rest,
+# no top-level `just build`).
 #
 # ADR-00000005: `just` replaces the GNU make wrapper. Each recipe forwards
 # 1:1 to ./script/<wrapper>.sh with full `{{args}}` passthrough, so
@@ -10,17 +12,28 @@
 # MAKEOVERRIDES guard (#414), no mandatory `--` separator (#448), and no
 # EXEC_ARGS env shim (#469); make's argv quirks simply do not apply.
 #
-#   just build test                 -> ./script/build.sh test
-#   just build --no-cache test      -> ./script/build.sh --no-cache test
-#   just run -d                      -> ./script/run.sh -d
-#   just exec -t bats-src bash       -> ./script/exec.sh -t bats-src bash
-#   EXEC_ARGS-style Kit args pass through directly: just exec -t cli --/app/k=v
+#   just docker build test            -> ./script/build.sh test
+#   just docker build --no-cache test -> ./script/build.sh --no-cache test
+#   just docker run -d                -> ./script/run.sh -d
+#   just docker exec -t bats-src bash -> ./script/exec.sh -t bats-src bash
+#   EXEC_ARGS-style Kit args pass through: just docker exec -t cli --/app/k=v
 #
-# The `default` recipe lives in the entry (downstream/script/justfile), NOT
-# here: `just` treats a duplicate recipe name across an import as a hard
-# error, so this module owns only the verb recipes.
+# As a `mod?` module (not an `import`), this file owns its own `default`
+# recipe -- `just docker` lists the docker verbs; it does not collide with
+# the entry's own `default` (`just`).
 
-# Build devel image (e.g. just build test  |  just build --no-cache)
+# A module recipe's default cwd is this file's own directory, but the verbs
+# call ./script/<wrapper>.sh at the repo root. `set working-directory :=
+# '../..'` pins recipes to the repo root; reached via the consumer symlink
+# (<repo>/script/docker/justfile.docker), `../..` resolves to the repo root
+# (verified), so build.sh & friends run from there.
+set working-directory := '../..'
+
+# just docker -> list the docker verbs
+default:
+    @just --justfile '{{justfile()}}' --list
+
+# Build devel image (e.g. just docker build test  |  just docker build --no-cache)
 build *args:
     ./script/build.sh {{args}}
 
@@ -52,11 +65,3 @@ setup *args:
 # Interactive TUI to edit setup.conf
 setup-tui *args:
     ./script/setup_tui.sh {{args}}
-
-# Upgrade base subtree (e.g. just upgrade v0.30.0)
-upgrade *args:
-    ./.base/upgrade.sh {{args}}
-
-# Check for base updates (exit 0 up-to-date or update available; non-1 is a real error)
-upgrade-check:
-    @./.base/upgrade.sh --check || [ $? -eq 1 ]

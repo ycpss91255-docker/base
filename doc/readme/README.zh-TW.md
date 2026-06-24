@@ -40,8 +40,8 @@ git subtree add --prefix=.base \
 ./.base/init.sh
 
 # 升級到最新版
-just upgrade-check   # 檢查
-just upgrade         # pull + 更新版本檔 + workflow tag
+just base update   # 檢查
+just base upgrade         # pull + 更新版本檔 + workflow tag
 
 # 執行 CI
 just test   # ShellCheck + Bats + Kcov
@@ -105,7 +105,7 @@ graph TB
 flowchart LR
     subgraph local["本地"]
         build_test["./build.sh test"]
-        make_test["just build test"]
+        make_test["just docker build test"]
     end
 
     subgraph ci_container["CI 容器（ghcr.io/ycpss91255-docker/test-tools:latest）"]
@@ -166,7 +166,7 @@ flowchart LR
 | `test/integration/` | Level-1 `init.sh` 整合測試 |
 | `test/behavioural/` | Runtime 整合測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
-| `justfile` | Repo 指令入口（`just build`、`just run`、`just stop` 等 recipe）。Sub-cmd 與 flag 透過 `{{args}}` 直接傳遞，不需要 `--` 分隔符（`just build --no-cache test`）。`just` 無參時列出所有 recipe。 |
+| `justfile` | Repo 指令入口（`just docker build`、`just docker run`、`just docker stop` 等 recipe）。Sub-cmd 與 flag 透過 `{{args}}` 直接傳遞，不需要 `--` 分隔符（`just docker build --no-cache test`）。`just` 無參時列出所有 recipe。 |
 | `script/test/justfile.test` | Template CI 指令入口（`just test`、`just test lint` 等）。user-facing 跟 CI-facing 是刻意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架產生 |
 | `upgrade.sh` | Subtree 版本升級 |
@@ -221,13 +221,13 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-just build                            # 重新產 compose.yaml，build 所有 stages
-just run -t headless                  # 跑 headless 變體
-just run -t gui                       # 跑 gui 變體
-just exec -t headless bash            # 進入 running 的 headless container
+just docker build                            # 重新產 compose.yaml，build 所有 stages
+just docker run -t headless                  # 跑 headless 變體
+just docker run -t gui                       # 跑 gui 變體
+just docker exec -t headless bash            # 進入 running 的 headless container
 
 # Kit 風格的 `=` 參數可直接傳遞：
-just exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
+just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等效直接 .sh 寫法：
 ./build.sh
@@ -431,7 +431,7 @@ Main
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
 - **`./.base/init.sh`** 建完骨架自動跑一次
-- **`just upgrade` / `./.base/upgrade.sh`** subtree pull 後透過 init.sh
+- **`just base upgrade` / `./.base/upgrade.sh`** subtree pull 後透過 init.sh
   再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
@@ -447,9 +447,9 @@ Main
 > 想要一次取得跟 CI 同樣的完整驗證，加 `--build` flag：
 >
 > ```bash
-> just build test                   # 顯式跑 lint + smoke
-> just run --build                  # 跑完 lint + smoke 再 compose up
-> just run                          # 預設 — 快速路徑，跳過 lint/smoke
+> just docker build test                   # 顯式跑 lint + smoke
+> just docker run --build                  # 跑完 lint + smoke 再 compose up
+> just docker run                          # 預設 — 快速路徑，跳過 lint/smoke
 > ```
 
 `setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
@@ -527,7 +527,7 @@ docker load < image.tar
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
-`just upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
+`just base upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
 ### 每個 wrapper 的 pre/post hook（#440）
@@ -544,7 +544,7 @@ script/hooks/post/<wrapper>.sh   # 主邏輯後（run.sh 的話在 EXIT trap 內
 框架 out-of-the-box 直接可用。把 `exit 0` 換成你的 host-side 步驟
 （例如 `multiarch/qemu-user-static` binfmt 註冊、mount 目錄建立、
 硬體預檢）。Stub 對 upgrade 是 idempotent — pre-#440 的 template 跑
-`just upgrade` 後自動補齊 scaffolding。
+`just base upgrade` 後自動補齊 scaffolding。
 
 **Contract：**
 
@@ -677,13 +677,13 @@ fail-fast 帶可操作訊息，避免半套 pull。
 
 ```bash
 # 檢查是否有新版
-just upgrade-check
+just base update
 
 # 升級到最新（subtree pull + 版本檔 + workflow tag）
-just upgrade
+just base upgrade
 
 # 或指定版本
-just upgrade v0.3.0
+just base upgrade v0.3.0
 # 指定的版本若比目前 local 還舊（例如從 v0.12.0-rc1 退回 v0.11.0）會被
 # 視為隱式 downgrade 拒絕（依 SemVer §11）。如果是刻意要 rollback，自
 # 行手改 .base/.version。
@@ -727,7 +727,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 base 最新 tag 後開 PR。subtree 本身仍需在本地跑 `just upgrade vX.Y.Z` — Dependabot 只負責 workflow ref。
+Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 base 最新 tag 後開 PR。subtree 本身仍需在本地跑 `just base upgrade vX.Y.Z` — Dependabot 只負責 workflow ref。
 
 ## CI Reusable Workflows
 

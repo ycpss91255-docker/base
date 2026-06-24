@@ -290,32 +290,43 @@ EOF
   assert_output --partial "Update available"
 }
 
-@test "just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)" {
+# Seed the layered consumer entry + docker module so `just docker
+# upgrade-check` resolves like a real repo. The docker module pins recipes
+# to the repo root via `set working-directory := '../..'` (relative to
+# script/docker/), so the entry must sit at the repo root and the module at
+# script/docker/ -- a bare `cp justfile.docker justfile` would mis-resolve
+# the working-directory. The seeded subtree fixture omits these files.
+_seed_entry() {
+  cp /source/downstream/script/justfile justfile
+  mkdir -p script/docker script/base
+  cp /source/downstream/script/docker/justfile.docker script/docker/justfile.docker
+  cp /source/downstream/script/base/justfile.base script/base/justfile.base
+}
+
+@test "just base update (downstream entry): exit 0 when update available (#175, #546, #652)" {
   # Regression #175: the upgrade-check recipe wraps upgrade.sh so the
   # runner does not mistake exit 1 (update available) for a build failure.
-  # #546 moved the recipe from Makefile -> justfile; copy the justfile here
-  # because the seeded subtree fixture omits it. Skips when `just` is not
-  # yet in the test-tools image (pre-release GHCR pull) -- the guard keeps
-  # the suite green until test-tools ships with just.
+  # Skips when `just` is not yet in the test-tools image (pre-release GHCR
+  # pull) -- the guard keeps the suite green until test-tools ships just.
   command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/downstream/script/docker/justfile.docker justfile
+  _seed_entry
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just base update
   assert_success
   assert_output --partial "Local:  v0.9.5"
   assert_output --partial "Latest: v0.9.7"
   assert_output --partial "Update available"
 }
 
-@test "just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)" {
+@test "just base update (downstream entry): exit 0 when up-to-date (#546)" {
   command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/downstream/script/docker/justfile.docker justfile
+  _seed_entry
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just base update
   assert_success
   assert_output --partial "Already up to date."
 }
