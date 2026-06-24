@@ -800,35 +800,35 @@ _stage_lint_layout() {
   # Post-v0.25.0 the subtree prefix is parameterised (TEMPLATE_REL) so
   # the rename `.base/` -> `.base/` works without code change. Assert
   # the parameterised form rather than the literal `.base/` prefix.
-  run grep -F '${TEMPLATE_REL}/.version' /source/upgrade.sh
+  run grep -F '${TEMPLATE_REL}/.version' /source/downstream/script/base/upgrade.sh
   assert_success
 }
 
 @test "upgrade.sh does not reference legacy VERSION or .template_version" {
   # After the .version rename, upgrade.sh must not mention either
   # legacy filename — no backward-compat fallback is carried.
-  run grep -cE '.base/VERSION|\.template_version' /source/upgrade.sh
+  run grep -cE '.base/VERSION|\.template_version' /source/downstream/script/base/upgrade.sh
   assert_failure
   assert_output "0"
 }
 
 @test "upgrade.sh runs init.sh after subtree pull" {
-  run grep -E 'init\.sh' /source/upgrade.sh
+  run grep -E 'init\.sh' /source/downstream/script/base/upgrade.sh
   assert_success
 }
 
 @test "upgrade.sh supports --gen-conf flag" {
-  run grep -E '\-\-gen-conf' /source/upgrade.sh
+  run grep -E '\-\-gen-conf' /source/downstream/script/base/upgrade.sh
   assert_success
 }
 
 @test "upgrade.sh --gen-conf delegates to init.sh --gen-conf" {
-  run grep -E 'init\.sh.*--gen-conf' /source/upgrade.sh
+  run grep -E 'init\.sh.*--gen-conf' /source/downstream/script/base/upgrade.sh
   assert_success
 }
 
 @test "upgrade.sh --help mentions --gen-conf" {
-  run bash -c "bash /source/upgrade.sh --help 2>&1"
+  run bash -c "bash /source/downstream/script/base/upgrade.sh --help 2>&1"
   assert_success
   assert_output --partial "--gen-conf"
 }
@@ -855,7 +855,7 @@ EOF
   # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
@@ -893,7 +893,7 @@ EOF
   # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
@@ -930,7 +930,7 @@ EOF
   # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"

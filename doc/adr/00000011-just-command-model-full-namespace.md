@@ -152,6 +152,22 @@ leaves the consumer Dockerfile COPY paths and the ADR-00000006 Region C
 on-disk layout, so #654 is not a file move but the addition of the
 base-own `script/<ns>` symlinks plus the consumer per-sub symlinks.
 
+**Amended 2026-06-24 (#654).** The base=origin symlink-unification this
+section describes turned out to be **N/A in practice -- there is no
+duplicated tooling to unify**. Audit of the tree found: the real docker
+files already live single-copy at `downstream/script/docker/`; base-own
+`script/test/` + `script/release/` are base's OWN self-test / skeleton
+tooling (not shipped copies of a downstream original); and the consumer
+entry mods only `downstream/.../template`. So there is no second copy of
+any namespace to collapse into a symlinked origin. What #654 actually did
+was the narrow, real change hiding inside this section's premise: relocate
+`init.sh` + `upgrade.sh` out of the subtree root into
+`downstream/script/base/` (the §8 move), with `upgrade.sh`'s self-location
+rewritten to a walk-up so the `git subtree pull --prefix=` stays `.base`.
+The per-sub symlink wiring for namespaces remains as designed where a
+genuine origin/consumer split exists; it was simply not a
+deduplication.
+
 ### 5. Generic test runner: dispatcher + per-tool drivers
 
 `script/test/` is a dispatcher (`test.sh`) plus one **driver per tool**
@@ -239,10 +255,22 @@ completion.
 
 ### 8. `init.sh` / `upgrade.sh` leave the root (amends ADR-00000006)
 
+**Done 2026-06-24 (#654).**
+
 `init.sh` and `upgrade.sh` move into the `base` namespace's tooling. Per
 §4 the real files live in `downstream/script/base/` (the shipped source of
 truth) and base-own `script/base/` symlinks into it. They back
 `just base init` / `just base upgrade` / `just base update`.
+
+Implementation note: because the scripts no longer sit at the subtree
+root, each rewrote its self-location from `dirname $BASH_SOURCE` to a
+**walk-up** to the subtree root -- the directory carrying the `.version` +
+`downstream/` markers. `upgrade.sh` `basename`s that root for the
+`git subtree pull --prefix=` flag (resolves to `.base`, NOT the script's
+own deep dir `base`); its `_lib.sh` source and the Step-3 `init.sh` call
+were repointed to the deep paths in the same slice. An integration test
+(`upgrade_spec.bats`) drives a real git-subtree fixture and asserts the
+captured `--prefix` is `.base`.
 
 - **Region A** (ADR-00000006/00000010 froze `.base/init.sh` at root) is
   **superseded**: the bootstrap path becomes

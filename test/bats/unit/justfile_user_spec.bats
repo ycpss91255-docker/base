@@ -65,14 +65,15 @@ printf '\n'
 EOS
   chmod +x "${TMP_REPO}/.base/downstream/script/base/completions.sh"
   ln -s "../../.base/downstream/script/base/completions.sh" "${TMP_REPO}/script/base/completions.sh"
-  # `just base init` forwards to ./.base/init.sh -- stub it as a recorder.
-  cat > "${TMP_REPO}/.base/init.sh" <<'EOS'
+  # `just base init` forwards to ./.base/downstream/script/base/init.sh
+  # (relocated in #654) -- stub it as a recorder.
+  cat > "${TMP_REPO}/.base/downstream/script/base/init.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'init'
 for _arg in "$@"; do printf ' %s' "${_arg}"; done
 printf '\n'
 EOS
-  chmod +x "${TMP_REPO}/.base/init.sh"
+  chmod +x "${TMP_REPO}/.base/downstream/script/base/init.sh"
 
   local _name
   for _name in build run exec stop prune setup setup_tui; do
@@ -84,15 +85,14 @@ printf '\n'
 EOS
     chmod +x "${TMP_REPO}/script/${_name}.sh"
   done
-  # upgrade wrapper lives under .base/
-  mkdir -p "${TMP_REPO}/.base"
-  cat > "${TMP_REPO}/.base/upgrade.sh" <<'EOS'
+  # upgrade wrapper lives under .base/downstream/script/base/ (#654)
+  cat > "${TMP_REPO}/.base/downstream/script/base/upgrade.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'upgrade'
 for _arg in "$@"; do printf ' %s' "${_arg}"; done
 printf '\n'
 EOS
-  chmod +x "${TMP_REPO}/.base/upgrade.sh"
+  chmod +x "${TMP_REPO}/.base/downstream/script/base/upgrade.sh"
 }
 
 teardown() {
@@ -138,7 +138,7 @@ teardown() {
   assert_output --partial "setup_tui"
 }
 
-@test "just base upgrade forwards to ./.base/upgrade.sh (#652, ADR-00000011)" {
+@test "just base upgrade forwards to ./.base/downstream/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base upgrade v0.30.0
   assert_success
   assert_output --partial "upgrade v0.30.0"
@@ -150,7 +150,7 @@ teardown() {
   assert_output --partial "upgrade --check"
 }
 
-@test "just base init forwards to ./.base/init.sh (#653, ADR-00000011)" {
+@test "just base init forwards to ./.base/downstream/script/base/init.sh (#653, #654, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base init --force
   assert_success
   assert_output --partial "init --force"

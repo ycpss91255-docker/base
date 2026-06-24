@@ -56,16 +56,16 @@ setup() {
   assert_success
 }
 
-@test "base module declares upgrade + update (apt-aligned) forwarding to .base/upgrade.sh (#652, ADR-00000011)" {
+@test "base module declares upgrade + update (apt-aligned) forwarding to .base/downstream/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
   local _base=/source/downstream/script/base/justfile.base
   [ -f "${_base}" ]
   run grep -E '^upgrade \*args:' "${_base}"
   assert_success
   run grep -E '^update:' "${_base}"
   assert_success
-  run grep -F './.base/upgrade.sh {{args}}' "${_base}"
+  run grep -F './.base/downstream/script/base/upgrade.sh {{args}}' "${_base}"
   assert_success
-  run grep -F './.base/upgrade.sh --check' "${_base}"
+  run grep -F './.base/downstream/script/base/upgrade.sh --check' "${_base}"
   assert_success
 }
 
@@ -75,7 +75,7 @@ setup() {
   assert_success
   run grep -E '^completions ' "${_base}"
   assert_success
-  run grep -F './.base/init.sh {{args}}' "${_base}"
+  run grep -F './.base/downstream/script/base/init.sh {{args}}' "${_base}"
   assert_success
   run grep -F 'script/base/completions.sh {{args}}' "${_base}"
   assert_success

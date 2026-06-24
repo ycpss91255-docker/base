@@ -169,7 +169,7 @@ COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # WS_PATH is the workspace parent rather than the repo root.
 COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 # Layer 1: .base/downstream/config/ defaults (subtree-managed, updates with
-# .base/upgrade.sh).
+# .base/downstream/script/base/upgrade.sh).
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/downstream/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree
 # pull). Files here overlay matching paths from layer 1.

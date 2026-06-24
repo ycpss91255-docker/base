@@ -37,7 +37,7 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
-./.base/init.sh
+./.base/downstream/script/base/init.sh   # one-time bootstrap; thereafter: just base init
 
 # Upgrade to latest
 just base update   # check
@@ -446,7 +446,7 @@ to opt out of mounting a workspace. Edit via:
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./.base/init.sh --gen-conf # plain copy of .base/downstream/config/docker/setup.conf
+./.base/downstream/script/base/init.sh --gen-conf # plain copy of .base/downstream/config/docker/setup.conf
                               # to <repo>/config/docker/setup.conf
 ```
 
@@ -624,8 +624,8 @@ Main
 `setup.sh` runs only when explicitly triggered — it is not re-run on
 every build or launch:
 
-- **`./.base/init.sh`** runs it once after the skeleton lands
-- **`just base upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
+- **`just base init` / `./.base/downstream/script/base/init.sh`** runs it once after the skeleton lands
+- **`just base upgrade` / `./.base/downstream/script/base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
   `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
@@ -861,10 +861,10 @@ just base upgrade v0.3.0
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull integrity check — `git reset --hard` rollback if subtree
-   markers (`.base/.version`, `.base/init.sh`,
+   markers (`.base/.version`, `.base/downstream/script/base/init.sh`,
    `.base/downstream/script/docker/wrapper/setup.sh`) are missing (catches the
    destructive fast-forward seen on older `git-subtree.sh`)
-3. `./.base/init.sh` re-runs to: resync root symlinks
+3. `./.base/downstream/script/base/init.sh` re-runs to: resync root symlinks
    (`build.sh` / `run.sh` / `justfile` …), sync `.gitignore` against
    the canonical entry set, `git rm --cached` any tracked-but-now-derived
    files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to

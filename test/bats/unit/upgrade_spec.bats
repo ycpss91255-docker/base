@@ -9,7 +9,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  UPGRADE="/source/upgrade.sh"
+  UPGRADE="/source/downstream/script/base/upgrade.sh"
 
   # Build a self-contained test harness: a shell script that redefines
   # `_log` / `_error` (avoids pulling in upgrade.sh's top-level `cd
@@ -205,9 +205,10 @@ teardown() {
 # return its _pre_head so the test can call _verify_subtree_intact.
 _mk_subtree_repo() {
   local _dir="$1"
-  mkdir -p "${_dir}/.base/downstream/script/docker/wrapper"
+  mkdir -p "${_dir}/.base/downstream/script/docker/wrapper" \
+           "${_dir}/.base/downstream/script/base"
   echo "v0.9.5" > "${_dir}/.base/.version"
-  echo "#!/usr/bin/env bash" > "${_dir}/.base/init.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/downstream/script/base/init.sh"
   echo "#!/usr/bin/env bash" > "${_dir}/.base/downstream/script/docker/wrapper/setup.sh"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t

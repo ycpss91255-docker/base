@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1938 tests** total (1851 unit + 87 integration).
+Template self-tests: **1939 tests** total (1851 unit + 88 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1740,7 +1740,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (16)
+### test/bats/integration/upgrade_spec.bats (17)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -1770,6 +1770,7 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
+| `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 
 ### test/bats/integration/gitignore_sync_spec.bats (13)
 

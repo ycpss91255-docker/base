@@ -285,7 +285,7 @@ _run_transcript_harness() {  # <verb> <extra-env...>
     run grep -qF '_transcript_begin' "/source/downstream/script/docker/wrapper/${_w}.sh"
     assert_success
   done
-  run grep -qF '_transcript_begin' /source/upgrade.sh
+  run grep -qF '_transcript_begin' /source/downstream/script/base/upgrade.sh
   assert_success
 }
 
