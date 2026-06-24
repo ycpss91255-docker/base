@@ -382,6 +382,39 @@ RUN bats /smoke_test/
 # # `. /usr/local/lib/base/logging.sh` works in the
 # # runtime image too.
 # COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+#
+# # (Optional) Interactive-shell env source for `docker exec` (#657).
+# #
+# # The repo env (e.g. ROS `ros2`) has to reach THREE kinds of process
+# # via THREE complementary mechanisms -- this is not a base bug, just
+# # how the runtime stage is minimal:
+# #   1. PID 1 / the app (`ros2 launch`, exec'd directly, non-interactive):
+# #      only the ENTRYPOINT can source it. A directly-exec'd
+# #      non-interactive process never reads bashrc, so the entrypoint is
+# #      necessary and cannot be replaced by bashrc.
+# #   2. Interactive shells (`just exec -t runtime bash`, i.e.
+# #      `docker exec -it`): bashrc / ~/.bashrc.d/. devel wires this up;
+# #      the minimal runtime does NOT -- this is the gap #657 closes.
+# #   3. Non-interactive ad-hoc exec (`docker exec ... ros2 ...`):
+# #      neither the entrypoint (exec bypasses it) nor bashrc
+# #      (non-interactive) applies. This case inherently needs an
+# #      explicit `source` or a `bash -ic` wrapper; do NOT bake env into
+# #      Dockerfile `ENV` (arch- and python-version-dependent
+# #      LD_LIBRARY_PATH / PYTHONPATH -- fragile; sourcing is canonical,
+# #      as upstream `ros:` images do).
+# #
+# # To give interactive `docker exec` shells the env WITHOUT dragging the
+# # full config/ COPY + bashrc.d machinery into the minimal runtime, drop
+# # one source line into the system-wide /etc/bash.bashrc (read by every
+# # interactive bash). base is ROS-agnostic, so the consumer supplies the
+# # ROS-specific line, e.g.:
+# #   RUN echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> /etc/bash.bashrc
+# # Heavier alternative: replicate devel's ~/.bashrc + ~/.bashrc.d/ wiring
+# # (COPY config/ + the bashrc append loop from the devel stage) so the
+# # SAME per-repo drop-ins (config/shell/bashrc.d/*.sh) apply in runtime
+# # too. Prefer the single-line /etc/bash.bashrc form to keep runtime
+# # minimal. Either way, this is interactive-only: PID 1 and
+# # non-interactive exec are unchanged.
 # USER "${USER}"
 # # WORKDIR interpolates only build-time ARG / ENV (not shell $HOME);
 # # see #334 for why the explicit ENV is required.

@@ -1197,6 +1197,50 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: runtime interactive-shell env source (#657)
+#
+# The minimal runtime stage does NOT inherit devel's ~/.bashrc +
+# ~/.bashrc.d/ wiring, so `docker exec -it <runtime> bash`
+# (`just exec -t runtime bash`) gets none of the repo env (e.g. ROS
+# `ros2`). The runtime block must document, as an OPTIONAL opt-in, the
+# lightweight one-line /etc/bash.bashrc source so interactive exec
+# shells in runtime pick up the env -- WITHOUT dragging the full config/
+# COPY into the minimal runtime, and WITHOUT baking env into Dockerfile
+# ENV. The ROS-specific source line belongs downstream (base is
+# ROS-agnostic). Tests below grep for the documented marker + example
+# line so the pattern can't silently disappear.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example runtime documents 3-process-kinds env rationale (#657)" {
+  local _df="/source/downstream/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The rationale must explain why entrypoint (PID 1) and bashrc
+  # (interactive) are complementary, both needed -- so a future edit
+  # doesn't collapse the runtime gap into a wrong "fix the entrypoint".
+  run grep -F 'Interactive-shell env source for `docker exec` (#657)' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example runtime shows commented /etc/bash.bashrc source example (#657)" {
+  local _df="/source/downstream/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The example must be commented (leading '# ') so the minimal runtime
+  # stays minimal by default -- it is an opt-in snippet, not a mandatory
+  # layer. The ROS source line is the consumer's (base is ROS-agnostic).
+  run grep -E "^# #   RUN echo 'source /opt/ros/\\\$ROS_DISTRO/setup.bash' >> /etc/bash.bashrc$" "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example runtime does NOT bake ROS env into ENV (#657 fragility guard)" {
+  local _df="/source/downstream/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Guard the rejected alternative: no ENV LD_LIBRARY_PATH / PYTHONPATH
+  # baked for ROS (arch- and python-version-dependent -- fragile).
+  run grep -E '^ENV (LD_LIBRARY_PATH|PYTHONPATH)=' "${_df}"
+  assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
 # pip scaffolding removed (#407, reverses #261)
 #
 # dockerfile/setup/ and all pip-related Dockerfile.example patterns

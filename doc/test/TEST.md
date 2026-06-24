@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1865 tests** total (1780 unit + 85 integration).
+Template self-tests: **1868 tests** total (1783 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1115,7 +1115,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (139)
+### test/unit/template_spec.bats (142)
 
 | Test | Description |
 |------|-------------|
@@ -1222,6 +1222,9 @@ the host file content and the inherited stdout (preserving
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example declares ENV TZ (matches downstream fleet, #210)` | runtime $TZ alignment |
 | `Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)` | runtime $LANGUAGE alignment |
+| `Dockerfile.example runtime documents 3-process-kinds env rationale (#657)` | PID 1 / interactive / non-interactive complementary mechanisms |
+| `Dockerfile.example runtime shows commented /etc/bash.bashrc source example (#657)` | opt-in interactive-exec env source, consumer supplies ROS line |
+| `Dockerfile.example runtime does NOT bake ROS env into ENV (#657 fragility guard)` | no ENV LD_LIBRARY_PATH / PYTHONPATH baked |
 | `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
