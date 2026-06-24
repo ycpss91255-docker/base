@@ -319,14 +319,17 @@ HOOK
   assert_output --partial "up test"
 }
 
-@test "run.sh non-devel target WITH CMD uses 'up -d' + 'exec' (#458)" {
-  # #458: when CMD passed, use up -d + exec so container_name is preserved
-  # AND the user's CMD overrides Dockerfile CMD.
+@test "run.sh non-devel target WITH CMD uses 'compose run --rm' (#679)" {
+  # #679: non-devel + CMD must run the ENTRYPOINT (env/ROS sourced) AND
+  # replace the default CMD (no double-launch / device contention). The
+  # pre-#679 'up -d' + 'exec' path bypassed the ENTRYPOINT and left the
+  # default CMD running as PID 1. `compose run --rm` runs the ENTRYPOINT
+  # and replaces the CMD. `up -d` + `exec` stays for devel only.
   run bash "${SANDBOX}/run.sh" --dry-run -t test bash
   assert_success
-  refute_output --partial "run --rm"
-  assert_output --partial "up -d test"
-  assert_output --partial "exec test bash"
+  assert_output --partial "run --rm test bash"
+  refute_output --partial "up -d test"
+  refute_output --partial "exec test bash"
 }
 
 @test "run.sh positional args after options become CMD passthrough (devel)" {
@@ -338,14 +341,18 @@ HOOK
   assert_output --partial "ls /tmp"
 }
 
-@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#458 up -d + exec)" {
-  # #458: non-devel + CMD now uses `up -d` + `exec` instead of `run --rm`
-  # so container_name is preserved.
-  run bash "${SANDBOX}/run.sh" --dry-run -t runtime bash
+@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#679 compose run --rm)" {
+  # #679 repro shape: the documented `just run -t runtime <cmd>` override
+  # (e.g. `ros2 launch ...` to lower a camera profile on a USB 2.x link)
+  # must go through `compose run --rm` so the ENTRYPOINT sources ROS and
+  # the override REPLACES the default CMD. The pre-#679 `up -d` + `exec`
+  # path bypassed the ENTRYPOINT (no ROS on PATH) and double-launched the
+  # default CMD.
+  run bash "${SANDBOX}/run.sh" --dry-run -t runtime ros2 launch realsense2_camera rs_launch.py
   assert_success
-  refute_output --partial "run --rm"
-  assert_output --partial "up -d runtime"
-  assert_output --partial "exec runtime bash"
+  assert_output --partial "run --rm runtime ros2 launch realsense2_camera rs_launch.py"
+  refute_output --partial "up -d runtime"
+  refute_output --partial "exec runtime"
 }
 
 # ── #448: -- CMD separator ────────────────────────────────────────────────
@@ -851,13 +858,15 @@ case "$1" in
   ps) cat "${DOCKER_PS_FILE}"; exit 0 ;;
 esac
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then exit 0; fi
-_has_up=0; _has_d=0; _has_exec=0
+_has_up=0; _has_d=0; _has_exec=0; _has_run=0
 for _a in "$@"; do
   [[ "${_a}" == "up" ]]   && _has_up=1
   [[ "${_a}" == "-d" ]]   && _has_d=1
   [[ "${_a}" == "exec" ]] && _has_exec=1
+  [[ "${_a}" == "run" ]]  && _has_run=1
 done
 (( _has_exec )) && exit "${DOCKER_EXEC_RC:-0}"
+(( _has_run )) && exit "${DOCKER_RUN_RC:-0}"
 (( _has_up && ! _has_d )) && exit "${DOCKER_UP_RC:-0}"
 exit 0
 EOS
@@ -895,8 +904,10 @@ EOS
 }
 
 @test "run.sh: command mode (non-devel WITH CMD) exiting 130 propagates (#580)" {
+  # #679: non-devel + CMD now dispatches via `compose run --rm`, so the
+  # real exit code rides out on the `run` stub (DOCKER_RUN_RC), not exec.
   _exit_code_fixture
-  export DOCKER_EXEC_RC=130
+  export DOCKER_RUN_RC=130
   run -130 bash "${SANDBOX}/run.sh" -t runtime bash
 }
 
