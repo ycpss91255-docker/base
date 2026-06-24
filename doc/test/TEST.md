@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1939 tests** total (1851 unit + 88 integration).
+Template self-tests: **1968 tests** total (1883 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -666,6 +666,33 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_msg` dispatcher: routes `<category> <key>` to `_msg_<category>`, reads global `_LANG`, errors on missing category / key | 4 |
 | `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
 | `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
+
+### test/bats/unit/dockerfile_migrate_spec.bats (32)
+
+Unit tests for the declarative Dockerfile-migration list
+`lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
+small interface — `apply_migrations <dockerfile>` — over an ordered,
+data-driven `_MIGRATIONS` table of `{detect, transform}` units, each
+healing one v0.41.0-fanout Dockerfile/entrypoint breakage. upgrade.sh
+Step 5 sources the lib and calls the dispatcher (replacing the old one-off
+seds). Each migration is driven in isolation via before/after fixtures
+plus the dispatcher's apply / skip / idempotency contract: a detected
+shape auto-applies idempotently, a missing/ambiguous shape is skipped
+(warn, never force-rewrite).
+
+| Test | Description |
+|------|-------------|
+| `apply_migrations is the public dispatcher entry (#567)` | Small interface exists |
+| `apply_migrations skips cleanly when path does not exist (#567)` | No-Dockerfile skip |
+| `_MIGRATIONS is a non-empty ordered list (#567)` | Data-driven table is seeded |
+| migration 1 (wrapper-copy): shape A `COPY *.sh /lint/`, shape B `COPY .base/script/docker/*.sh /lint/` -> `wrapper/*.sh`, idempotent, detect-false | 4 |
+| migration 2 (pip-helper): drop retired `${CONFIG_DIR}/pip/requirements.txt` install line + comment, detect-false | 2 |
+| migration 3 (explicit-copy): drop single-line + backslash-continued explicit top-level `.sh` lint COPYs, detect-false on lib/wrapper dir COPYs | 3 |
+| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name | 3 |
+| migration 5 (hadolint): DL3007 pin tags, DL3046 `useradd -l`, DL3003 `WORKDIR /lint`, DL3042 `--no-cache-dir`, DL4006 alpine SHELL pipefail, DL3006 inline ignore (+idempotent), detect-false on clean | 8 |
+| migration 6 (sc1090): broaden entrypoint `SC1091` -> `SC1090,SC1091`, idempotent, detect-false without entrypoint | 3 |
+| migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
+| migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
 
 ### test/bats/unit/build_sh_spec.bats (51)
 
@@ -1740,7 +1767,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (17)
+### test/bats/integration/upgrade_spec.bats (14)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -1748,21 +1775,20 @@ on a minimal subtree layout) attached to a sandbox downstream repo.
 **Level 1** (no Docker). Exercises the happy path, the pre-flight
 guards, the destructive-FF rollback path added after the Jetson v0.9.7
 incident (stubs `git-subtree pull` via `GIT_EXEC_PATH` to simulate the
-bug and asserts the repo is restored), and the post-#284 Dockerfile
-lint-stage auto-patch that heals downstream Dockerfiles missing the
-`COPY .base/script/docker/lib /lint/lib` line (#348).
+bug and asserts the repo is restored), and Step 5's declarative
+Dockerfile/entrypoint migration pass (#567 / #579) — sourcing
+`lib/dockerfile_migrate.sh` and running `apply_migrations` over the
+repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
+{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`).
 
 | Test | Description |
 |------|-------------|
 | `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
-| `upgrade.sh patches Dockerfile lint stage when missing COPY .base/script/docker/lib /lint/lib (#348)` | Auto-heal post-#284 lib drift on first upgrade |
-| `upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)` | Already-patched Dockerfile is unchanged on re-run |
-| `upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)` | Custom Dockerfile shape opts out of auto-heal |
-| `upgrade.sh continues cleanly when no Dockerfile at repo root (#348)` | Subtree-only repos (no consumer Dockerfile) skip silently |
-| `upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)` | Auto-patch stale root COPY post-#330 |
-| `upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)` | Already-patched COPY skipped |
-| `upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line` | No stale line to patch |
-| `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
+| `upgrade.sh Step 5 announces the migration pass (#567)` | Step 5 runs the declarative migration dispatcher |
+| `upgrade.sh heals a legacy wrapper-COPY Dockerfile via the migration list (#567 m1)` | End-to-end wrapper-copy heal + staged into the upgrade commit |
+| `upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)` | End-to-end entrypoint nounset guard around the ROS setup.bash source |
+| `upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)` | Subtree-only repos (no consumer Dockerfile) skip silently |
+| `upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)` | A second upgrade is a no-op on an already-migrated Dockerfile |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
