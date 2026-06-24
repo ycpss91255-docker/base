@@ -194,7 +194,6 @@ Downstream READMEs link here instead of duplicating the table.
 | `--dry-run` | yes | yes | yes | yes | — |
 | `-s` / `--setup` | yes | yes | — | — | — (target of `--setup`) |
 | `-t` / `--target TARGET` | yes (#280, alias to positional) | yes | yes | — (Q2: stays project-wide) | — |
-| `--instance NAME` | — (build-time concept) | yes | yes | yes | — |
 | `-q` / `--quiet` | — | — | — | — | yes (#285, on mutating subcommands) |
 | `--gui auto\|force\|off` | yes (#338) | yes (#338) | — | — | yes (apply, #338) |
 | `--no-x11-cookie` | yes (#338) | yes (#338) | — | — | yes (apply, #338) |
@@ -759,8 +758,8 @@ same and move on.
 | Name | Format | Namespace | User prefix |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
-| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
 
 - `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
   images on the registry side. Image tags are addressable as
@@ -786,43 +785,20 @@ project-level naming" is true under that single-user-machine
 assumption — both are user-prefixed, just via different vars — not
 literally the same prefix string in the multi-user case.
 
-**`INSTANCE_SUFFIX`** is the fourth dimension, orthogonal to the
-user split. Same OS user wants to run the same repo as multiple
-parallel containers (e.g. two branches side by side): set
-`INSTANCE_SUFFIX=2` and you get `alice-<repo>-2` /
-`alice-<repo>-2`-named project. Empty by default; bumped by the
-`-n / --instance` flag on the wrappers when applicable.
-
-**Per-instance overlays (#465).** When `run.sh --instance NAME` is
-given, `run.sh` also picks up these two optional files as compose
-overlays:
-
-```
-config/instances/<NAME>.yaml   → docker compose -f
-config/instances/<NAME>.env    → docker compose --env-file
-```
-
-Either file may exist alone; missing files are silently skipped. Use
-the yaml for structural overrides (per-instance ports, volumes,
-cache dirs) and the env for pure `${VAR}` overrides shared with
-`compose.yaml`. `NAME` is validated as `^[a-z0-9][a-z0-9_-]*$` for
-path safety.
+base is **single-instance** (#600): one fixed-name container/project
+per repo. Multi-instance orchestration (running the same repo as N
+parallel containers with unique project names and port overrides)
+belongs to the compose layer, mirroring how `docker` has no project
+concept and `docker compose` owns `-p` — base does not do multi at
+all.
 
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
-`claude_code`, default `INSTANCE_SUFFIX` empty:
+`claude_code`:
 
 ```
 image:          alice-hub/claude_code:devel
 container_name: alice-claude_code
 project name:   alice-hub-claude_code
-```
-
-Same OS user, second instance (`INSTANCE_SUFFIX=2`):
-
-```
-image:          alice-hub/claude_code:devel        (unchanged — same image)
-container_name: alice-claude_code-2
-project name:   alice-hub-claude_code-2
 ```
 
 A second OS user `bob` on the same host:

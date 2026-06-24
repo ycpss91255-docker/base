@@ -25,40 +25,17 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
 fi
 _bootstrap "$@"
 
-# i18n message tables — split by semantic category (#278 PR-2).
-# Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
-# are added by the _log_* caller (English-only; level keyword no longer
-# translated — see #283).
-_msg_info() {
-  case "${_LANG}:${1:?}" in
-    # %s expanded at the callsite (image name).
-    zh-TW:no_instances) echo "未找到 %s 的執行中實例" ;;
-    zh-CN:no_instances) echo "未找到 %s 的运行中实例" ;;
-    ja:no_instances)    echo "%s のインスタンスが見つかりません" ;;
-    *:no_instances)     echo "No instances found for %s" ;;
-  esac
-}
-
-# Dispatcher — keeps a single _msg call site shape across the script.
-_msg() {
-  local _category="${1:?_msg requires category}"
-  local _key="${2:?_msg requires key}"
-  "_msg_${_category}" "${_key}"
-}
-
 usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
-停止並移除容器。預設只停止 default instance。
+停止並移除容器。
 
 選項:
   -h, --help        顯示此說明
   -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C
-  --instance NAME   只停止指定的命名 instance
-  -a, --all         停止所有 instance（預設 + 全部命名 instance)
   --prune           stop 完後順手清 orphan networks (--filter until=10m) +
                     dangling images (--filter until=24h)。完整 prune（含
                     buildx cache / volumes）請用 ./prune.sh。
@@ -72,15 +49,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
-停止并移除容器。默认只停止 default instance。
+停止并移除容器。
 
 选项:
   -h, --help        显示此说明
   -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C
-  --instance NAME   只停止指定的命名 instance
-  -a, --all         停止所有 instance（默认 + 全部命名 instance)
   --prune           stop 完后顺手清 orphan networks (--filter until=10m) +
                     dangling images (--filter until=24h)。完整 prune（含
                     buildx cache / volumes）请用 ./prune.sh。
@@ -94,15 +69,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+使用法: ./stop.sh [-h] [-C|--chdir DIR] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
-コンテナを停止・削除します。デフォルトは default instance のみ。
+コンテナを停止・削除します。
 
 オプション:
   -h, --help        このヘルプを表示
   -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）
-  --instance NAME   指定された名前付き instance のみ停止
-  -a, --all         すべての instance を停止（デフォルト + 全名前付き instance）
   --prune           stop 完了後に orphan network (--filter until=10m) と
                     dangling image (--filter until=24h) も整理。完全 prune
                     （buildx cache / volume 含む）は ./prune.sh を使用。
@@ -116,16 +89,14 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+Usage: ./stop.sh [-h] [-C|--chdir DIR] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
-Stop and remove containers. Default: stop only the default instance.
+Stop and remove containers.
 
 Options:
   -h, --help        Show this help
   -C, --chdir DIR   Operate on the repo at DIR without changing the caller's cwd
                     (mirrors git -C)
-  --instance NAME   Stop only the named instance
-  -a, --all         Stop ALL instances (default + every named instance)
   --prune           After stopping, also reclaim orphan networks
                     (--filter until=10m) and dangling images
                     (--filter until=24h). For a richer clean (buildx
@@ -146,8 +117,8 @@ EOF
 
 PASSTHROUGH=()
 
-# _down_one tears down a single instance. _compute_project_name sets and
-# exports INSTANCE_SUFFIX so compose.yaml resolves the matching container_name.
+# _down_project tears down the repo's single compose project. base is
+# single-instance (#600): one fixed-name project per repo.
 #
 # COMPOSE_PROFILES='*' (compose v2.32+ wildcard) activates every profile in
 # compose.yaml so `compose down` actually visits profile-gated services
@@ -160,15 +131,11 @@ PASSTHROUGH=()
 # before tearing them down. This gives the user a real signal instead of
 # the previous no-op (the BUILDKIT_PROGRESS=plain env had zero effect on
 # `compose down`, see #345).
-#
-# Args:
-#   $1: instance name (empty for the default instance)
-_down_one() {
-  local instance="${1}"
-  _compute_project_name "${instance}"
+_down_project() {
+  _compute_project_name
   if [[ "${VERBOSE:-}" == true ]]; then
     local _project_name
-    _project_name="${PROJECT_NAME:-${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX}}"
+    _project_name="${PROJECT_NAME:-${DOCKER_HUB_USER}-${IMAGE_NAME}}"
     local _matches
     _matches="$(docker ps -a \
       --filter "label=com.docker.compose.project=${_project_name}" \
@@ -198,8 +165,6 @@ main() {
     fi
   done
 
-  local INSTANCE=""
-  local ALL_INSTANCES=false
   local DO_PRUNE=false
   DRY_RUN=false
 
@@ -214,14 +179,6 @@ main() {
         # `*)` catch-all below would dump -C / DIR into PASSTHROUGH and
         # docker compose down would reject them.
         shift 2
-        ;;
-      --instance)
-        INSTANCE="${2:?"--instance requires a value"}"
-        shift 2
-        ;;
-      -a|--all)
-        ALL_INSTANCES=true
-        shift
         ;;
       --prune)
         # Opt-in lightweight cleanup after compose down. Reclaims orphan
@@ -271,35 +228,7 @@ main() {
   # Skipped under --dry-run.
   _run_pre_hook stop "$@" || exit $?
 
-  if [[ "${ALL_INSTANCES}" == true ]]; then
-    # Find all docker compose projects whose name starts with our prefix.
-    local _prefix="${DOCKER_HUB_USER}-${IMAGE_NAME}"
-    local _projects
-    mapfile -t _projects < <(
-      docker ps -a --format '{{.Label "com.docker.compose.project"}}' \
-        | sort -u | grep -E "^${_prefix}(\$|-)" || true
-    )
-    if [[ ${#_projects[@]} -eq 0 ]]; then
-      local _no_inst
-      # shellcheck disable=SC2059
-      printf -v _no_inst "$(_msg info no_instances)" "${IMAGE_NAME}"
-      _log_info stop stop_no_containers "display=${_no_inst}"
-      # Still honor --prune even when no instance found, so a stale repo
-      # with orphan networks/images from past runs gets cleaned.
-      _maybe_prune
-      exit 0
-    fi
-    local _proj _suffix
-    for _proj in "${_projects[@]}"; do
-      _suffix="${_proj#"${_prefix}"}"
-      # _suffix is "" or "-name"; _down_one expects bare instance, strip dash.
-      _down_one "${_suffix#-}"
-    done
-  elif [[ -n "${INSTANCE}" ]]; then
-    _down_one "${INSTANCE}"
-  else
-    _down_one ""
-  fi
+  _down_project
 
   _maybe_prune
 

@@ -67,15 +67,10 @@ _msg_errors() {
 
 _msg_hints() {
   case "${_LANG}:${1:?}" in
-    # %s expanded by printf -v at the callsite (optional --instance arg).
-    zh-TW:stop_hint)      echo "請以 './stop.sh%s' 停止" ;;
-    zh-CN:stop_hint)      echo "请以 './stop.sh%s' 停止" ;;
-    ja:stop_hint)         echo "'./stop.sh%s' で停止してください" ;;
-    *:stop_hint)          echo "Either stop it with './stop.sh%s'" ;;
-    zh-TW:parallel_hint)  echo "或使用 './run.sh --instance NAME' 啟動並行實例。" ;;
-    zh-CN:parallel_hint)  echo "或使用 './run.sh --instance NAME' 启动并行实例。" ;;
-    ja:parallel_hint)     echo "または './run.sh --instance NAME' で並列インスタンスを起動してください。" ;;
-    *:parallel_hint)      echo "or start a parallel instance with './run.sh --instance NAME'." ;;
+    zh-TW:stop_hint)      echo "請以 './stop.sh' 停止。" ;;
+    zh-CN:stop_hint)      echo "请以 './stop.sh' 停止。" ;;
+    ja:stop_hint)         echo "'./stop.sh' で停止してください。" ;;
+    *:stop_hint)          echo "Stop it with './stop.sh'." ;;
   esac
 }
 
@@ -110,7 +105,7 @@ usage() {
       cat >&2 <<'EOF'
 用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
               [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
-              [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
+              [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
 選項:
@@ -135,7 +130,6 @@ usage() {
                     卡住時用 — 顯示每個 RUN 步驟即時輸出，不再收斂成單行進度條。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
-  --instance NAME   啟動命名 instance（與預設並行,suffix=-NAME）
   --lang LANG       設定訊息語言（預設: en）
 
 CMD: 啟動容器後要執行的指令，對齊 `docker run <image> [cmd]` 語意：
@@ -150,7 +144,7 @@ EOF
       cat >&2 <<'EOF'
 用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
               [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
-              [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
+              [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
 选项:
@@ -175,7 +169,6 @@ EOF
                     卡住时用 — 显示每个 RUN 步骤实时输出，不再收敛成单行进度条。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
-  --instance NAME   启动命名 instance（与默认并行,suffix=-NAME）
   --lang LANG       设置消息语言（默认: en）
 
 CMD: 启动容器后要执行的指令，对齐 `docker run <image> [cmd]` 语义:
@@ -190,7 +183,7 @@ EOF
       cat >&2 <<'EOF'
 使用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
                [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
-               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
+               [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
 オプション:
@@ -221,7 +214,6 @@ EOF
                     をリアルタイム表示。
   -vv, --very-verbose
                     -v に加え wrapper 自体の bash trace（set -x）。
-  --instance NAME   名前付き instance を起動（デフォルトと並行、suffix=-NAME）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
 
 CMD: コンテナ起動後に実行するコマンド。`docker run <image> [cmd]` セマンティクス:
@@ -236,7 +228,7 @@ EOF
       cat >&2 <<'EOF'
 Usage: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [--no-rm] [-s|--setup]
                [--build] [--dry-run] [-v|--verbose] [-vv|--very-verbose]
-               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
+               [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
 Options:
@@ -267,7 +259,6 @@ Options:
                     single-line progress UI.
   -vv, --very-verbose
                     -v plus bash trace (set -x) on the wrapper itself.
-  --instance NAME   Start a named parallel instance (suffix=-NAME)
   --lang LANG       Set message language (default: en)
 
 CMD: Command to run after the container starts; mirrors `docker run <image> [cmd]`:
@@ -321,41 +312,14 @@ _app_cleanup() {
   local _post_rc=0
   _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || _post_rc=$?
   if [[ "${DRY_RUN:-false}" == true ]]; then
-    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 || true
+    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 || true
   else
-    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 \
+    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 \
       >/dev/null 2>&1 || true
   fi
   if (( _post_rc != 0 )); then
     exit "${_post_rc}"
   fi
-}
-
-# _compose_dispatch <verb> <args>
-#
-# Single dispatch point for compose invocations from run.sh. When
-# INSTANCE is set, routes through _compose_project_with_overlay so
-# config/instances/${INSTANCE}.{yaml,env} are auto-loaded as compose
-# overlays (#465). Otherwise delegates to plain _compose_project.
-#
-# The wrapper silently skips missing overlay files, so callers do not
-# need to pre-check. INSTANCE was already validated by
-# _validate_instance_name in the --instance arm, so the path
-# interpolation is shell-safe.
-_compose_dispatch() {
-  if [[ -z "${INSTANCE:-}" ]]; then
-    _compose_project "$@"
-    return $?
-  fi
-  local _overlay_yaml="${FILE_PATH}/config/instances/${INSTANCE}.yaml"
-  local _overlay_env="${FILE_PATH}/config/instances/${INSTANCE}.env"
-  if [[ "${QUIET:-0}" != 1 ]]; then
-    [[ -f "${_overlay_yaml}" ]] \
-      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_yaml}"
-    [[ -f "${_overlay_env}" ]] \
-      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_env}"
-  fi
-  _compose_project_with_overlay "${_overlay_yaml}" "${_overlay_env}" -- "$@"
 }
 
 # _normalize_interactive_rc <rc>
@@ -402,7 +366,6 @@ main() {
   local NO_RM=false
   local PRE_BUILD=false
   local TARGET="devel"
-  local INSTANCE=""
   local -a CMD_ARGS=()
   local -a SETUP_FORWARD_ARGS=()
   DRY_RUN=false
@@ -474,19 +437,6 @@ main() {
         export BUILDKIT_PROGRESS=plain
         set -x
         shift
-        ;;
-      --instance)
-        INSTANCE="${2:?"--instance requires a value"}"
-        # #465: strict char-class rule so the value can be safely
-        # interpolated into config/instances/${INSTANCE}.{yaml,env}.
-        # Reject path traversal etc. up front rather than relying on
-        # silent file-not-found fall-through.
-        if ! _validate_instance_name "${INSTANCE}"; then
-          # #408 sub-task C: invalid --instance value is an argument
-          # error -> exit 2 (POSIX usage-error convention), not 1.
-          exit 2
-        fi
-        shift 2
         ;;
       --lang)
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
@@ -574,9 +524,9 @@ main() {
     exit 1
   fi
 
-  # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
+  # Load .env, derive PROJECT_NAME.
   _load_env "${FILE_PATH}/.env.generated"
-  _compute_project_name "${INSTANCE}"
+  _compute_project_name
 
   # Pre-run snapshot so the user can see which files + values this
   # invocation resolved to before the container replaces the shell.
@@ -635,30 +585,22 @@ main() {
   # Container name mirrors compose.yaml's `container_name:`. Includes
   # ${USER_NAME} prefix to disambiguate per-OS-user on shared hosts
   # (#322). _load_env above already populated USER_NAME from .env.
-  local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}"
 
-  # Refuse to start if the target container is already running and user did
-  # not explicitly opt into a parallel instance via --instance.
+  # Refuse to start if the target container is already running.
   # (For -d mode, the existing `down` step handles restart, so collision is OK.)
   if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
       && "${DRY_RUN}" != true ]]; then
     if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
-      # Compose the multi-line body once (i18n templates carry %s for
-      # container name + optional instance arg) and emit via _log_err so
-      # the whole block gets the ERROR colour / stderr routing.
-      local _instance_arg=""
-      if [[ -n "${INSTANCE}" ]]; then
-        _instance_arg=" --instance ${INSTANCE}"
-      fi
-      local _already _stop _parallel
+      # Compose the multi-line body once (i18n template carries %s for the
+      # container name) and emit via _log_err so the whole block gets the
+      # ERROR colour / stderr routing.
+      local _already _stop
       # shellcheck disable=SC2059
       printf -v _already "$(_msg errors already_running)" "${CONTAINER_NAME}"
-      # shellcheck disable=SC2059
-      printf -v _stop "$(_msg hints stop_hint)" "${_instance_arg}"
-      _parallel="$(_msg hints parallel_hint)"
+      _stop="$(_msg hints stop_hint)"
       _log_err run run_already_running "display=${_already}
-${_stop}
-${_parallel}"
+${_stop}"
       exit 1
     fi
   fi
@@ -679,8 +621,8 @@ ${_parallel}"
   fi
 
   if [[ "${DETACH}" == true ]]; then
-    _compose_dispatch down 2>/dev/null || true
-    _compose_dispatch up -d "${TARGET}"
+    _compose_project down 2>/dev/null || true
+    _compose_project up -d "${TARGET}"
     # #537: detached installs no foreground EXIT trap, so the post-run hook
     # (#440) would never fire. Run it directly here -- the container is up,
     # so the hook can `docker exec` / `docker cp` into it. Decoupled from
@@ -692,18 +634,18 @@ ${_parallel}"
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-registered `_atexit _app_cleanup` above (#386, #440, #465).
-    _compose_dispatch up -d "${TARGET}"
+    # centrally-registered `_atexit _app_cleanup` above (#386, #440).
+    _compose_project up -d "${TARGET}"
     # #608: container is up (orchestration captured) -- detach the
     # transcript before handing the terminal to the interactive session.
     _transcript_detach
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting (#580).
-      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
     else
       # Interactive attached shell: normalize a clean leave to 0 (#580).
       local _rc=0
-      _compose_dispatch exec "${TARGET}" bash || _rc=$?
+      _compose_project exec "${TARGET}" bash || _rc=$?
       return "$(_normalize_interactive_rc "${_rc}")"
     fi
   else
@@ -713,15 +655,15 @@ ${_parallel}"
     # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting (#580).
-      _compose_dispatch up -d "${TARGET}"
+      _compose_project up -d "${TARGET}"
       _transcript_detach  # #608: detach before the interactive exec
-      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
     else
       # Foreground service: a clean Ctrl-C stop ($?=130) is not a failure;
       # normalize it (and 0) to 0 (#580).
       _transcript_detach  # #608: detach before the foreground attach
       local _rc=0
-      _compose_dispatch up "${TARGET}" || _rc=$?
+      _compose_project up "${TARGET}" || _rc=$?
       return "$(_normalize_interactive_rc "${_rc}")"
     fi
   fi

@@ -93,11 +93,6 @@ teardown() {
   assert_failure
 }
 
-@test "exec.sh --instance requires a value" {
-  run bash "${SANDBOX}/exec.sh" --instance
-  assert_failure
-}
-
 @test "exec.sh fails when container not running (default English)" {
   run bash "${SANDBOX}/exec.sh"
   assert_failure
@@ -122,17 +117,17 @@ teardown() {
   assert_output --partial "実行されていません"
 }
 
-@test "exec.sh prints instance-specific start hint with --instance" {
-  run bash "${SANDBOX}/exec.sh" --instance foo
+@test "exec.sh prints start hint when container not running" {
+  run bash "${SANDBOX}/exec.sh"
   assert_failure
-  assert_output --partial "./run.sh --instance foo"
+  assert_output --partial "./run.sh"
 }
 
-@test "exec.sh --lang zh-TW instance-specific hint translates" {
-  run bash "${SANDBOX}/exec.sh" --lang zh-TW --instance foo
+@test "exec.sh --lang zh-TW start hint translates" {
+  run bash "${SANDBOX}/exec.sh" --lang zh-TW
   assert_failure
   assert_output --partial "請先以"
-  assert_output --partial "./run.sh --instance foo"
+  assert_output --partial "./run.sh"
 }
 
 @test "exec.sh --dry-run bypasses container-running check" {
@@ -170,12 +165,11 @@ teardown() {
   refute_output --partial "tester-mockimg-devel"
 }
 
-@test "exec.sh -t headless --instance foo: precheck name carries both suffixes (#335)" {
-  # Order in compose.yaml: ${USER_NAME}-${IMAGE_NAME}-${TARGET}${INSTANCE_SUFFIX}
-  # INSTANCE_SUFFIX is `-${INSTANCE}` when --instance set.
-  run bash "${SANDBOX}/exec.sh" -t headless --instance foo
+@test "exec.sh -t headless: precheck name carries the stage suffix (#335)" {
+  # Order in compose.yaml: ${USER_NAME}-${IMAGE_NAME}-${TARGET}
+  run bash "${SANDBOX}/exec.sh" -t headless
   assert_failure
-  assert_output --partial "tester-mockimg-headless-foo"
+  assert_output --partial "tester-mockimg-headless"
 }
 
 @test "exec.sh -t <non-devel>: precheck passes when matching container is running (#335)" {
