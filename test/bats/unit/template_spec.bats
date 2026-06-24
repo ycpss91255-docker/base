@@ -115,8 +115,8 @@ setup() {
   assert [ -f /source/downstream/test/smoke/display_env.bats ]
 }
 
-@test "test/unit/ directory exists" {
-  assert [ -d /source/test/unit ]
+@test "test/bats/unit/ directory exists" {
+  assert [ -d /source/test/bats/unit ]
 }
 
 # ════════════════════════════════════════════════════════════════════

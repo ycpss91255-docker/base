@@ -244,7 +244,7 @@ jobs:
           # value, no man dependency.
           docker run --rm "${image}" sh -c 'test -f "$(git --exec-path)/git-subtree"'
           # docker-cli + docker-cli-buildx (#249): consumed by the
-          # behavioural test suite (test/behavioural/*.bats) when run
+          # behavioural test suite (test/bats/behavioural/*.bats) when run
           # via the ci-behavioural compose service. Smoke-check both
           # by version. buildx is exposed as `docker buildx version`,
           # not a standalone binary.

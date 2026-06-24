@@ -22,7 +22,7 @@ services:
       - ./script/test/test.sh --ci
 
   # Behavioural (#249): same image as `ci` but with the host docker
-  # socket mounted so test/behavioural/*.bats can drive
+  # socket mounted so test/bats/behavioural/*.bats can drive
   # `docker buildx build --target runtime-test ...` against synthesized
   # fixtures and assert build pass/fail. Opt-in: never invoked by the
   # default `just test` flow. Local users run via

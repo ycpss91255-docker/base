@@ -37,7 +37,7 @@ jobs:
     #                          behavioural block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
     #                          Dockerfile.test-tools, build/run/exec/stop.sh,
-    #                          init.sh, upgrade.sh, test/behavioural/**,
+    #                          init.sh, upgrade.sh, test/bats/behavioural/**,
     #                          .github/workflows/**)
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
@@ -108,7 +108,7 @@ jobs:
                   'downstream/script/docker/wrapper/setup.sh' \
                   'downstream/script/docker/lib/i18n.sh' \
                   'downstream/script/docker/lib/**' \
-                  'test/behavioural/**' \
+                  'test/bats/behavioural/**' \
                   'init.sh' 'upgrade.sh' \
                   '.github/workflows/**'; then
             echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
@@ -162,7 +162,7 @@ jobs:
   bats-unit:
     # Matrix shard of the unit suite (#377). Replaces the previous
     # monolithic `test` job's unit phase. Round-robin partition over
-    # `find test/unit -name '*_spec.bats' | sort` keeps each shard's
+    # `find test/bats/unit -name '*_spec.bats' | sort` keeps each shard's
     # file count balanced enough at the current ~30 spec scale; weight
     # by test count per spec is deferred (#377 out-of-scope).
     #

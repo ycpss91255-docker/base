@@ -74,9 +74,9 @@ Options:
                           unit). Used by the bats-integration job in
                           self-test.yaml (#377)
   --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
-                          relative, e.g. test/unit/ci_spec.bats) via the ci
+                          relative, e.g. test/bats/unit/ci_spec.bats) via the ci
                           container. Skips ShellCheck + kcov for a fast TDD
-                          inner loop. test/behavioural/ is rejected (needs
+                          inner loop. test/bats/behavioural/ is rejected (needs
                           the ci-behavioural service); cannot combine with
                           --coverage (#523)
   --filter REGEX          Pass a bats -f name filter (within-file single-test
@@ -101,9 +101,9 @@ Examples:
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
   ./test.sh --bats-integration    # Compose-bats integration only
-  ./test.sh --bats-path test/unit/ci_spec.bats          # one spec, fast
-  ./test.sh --bats-path test/unit/                       # one directory
-  ./test.sh --bats-path test/unit/ci_spec.bats --filter 'shard'  # + name filter
+  ./test.sh --bats-path test/bats/unit/ci_spec.bats          # one spec, fast
+  ./test.sh --bats-path test/bats/unit/                       # one directory
+  ./test.sh --bats-path test/bats/unit/ci_spec.bats --filter 'shard'  # + name filter
   ./test.sh --filter 'cap_add'    # filter across unit + integration
 EOF
   exit 0
@@ -182,16 +182,10 @@ _run_shellcheck() {
   shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
   rm -rf "${_lintdir}"
   shellcheck -x "${REPO_ROOT}/script/test/test.sh"
-  shellcheck -x "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/downstream/config/shell/tmux/setup.sh"
-
-  # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
-  # the build. Runs in the lint phase so it surfaces on every shellcheck path
-  # (local just test + the dedicated --shellcheck-only GHA job).
-  "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh" "${REPO_ROOT}"
 }
 
 # ── Bats tests ───────────────────────────────────────────────────────────────
@@ -225,7 +219,7 @@ _run_unit_tests() {
   local _label
   _bats_args_with_label _bats_args _label
   echo "--- Running Bats Unit Tests (${_label}) ---"
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/unit/"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/unit/"
 }
 
 _run_integration_tests() {
@@ -233,7 +227,7 @@ _run_integration_tests() {
   local _label
   _bats_args_with_label _bats_args _label
   echo "--- Running Bats Integration Tests (${_label}) ---"
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/integration/"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/integration/"
 }
 
 _run_tests() {
@@ -260,12 +254,12 @@ _run_bats_path() {
     bats "${_bats_args[@]}" "${REPO_ROOT}/${BATS_FILE}"
   else
     echo "--- Running Bats filtered unit + integration: -f '${BATS_FILTER}' (${_label}) ---"
-    bats "${_bats_args[@]}" "${REPO_ROOT}/test/unit/" "${REPO_ROOT}/test/integration/"
+    bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/"
   fi
 }
 
 _run_unit_shard() {
-  # Run a deterministic subset of test/unit/*_spec.bats for the GHA
+  # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
   # bats-unit matrix (#377). Spec accepts `<n>/<total>` where 1<=n<=total.
   # Round-robin partition over `find ... | sort` so the mapping is stable
   # across runs regardless of which files were added since the last
@@ -283,11 +277,11 @@ _run_unit_shard() {
     _die ci_invalid_shard "Invalid shard spec '${_spec}'. Need 1<=n<=total."
   fi
   local _files
-  _files=$(find "${REPO_ROOT}/test/unit" -maxdepth 1 -name '*_spec.bats' -print \
+  _files=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name '*_spec.bats' -print \
              | sort \
              | awk -v s="${_shard}" -v t="${_total}" 'NR % t == (s - 1) % t')
   if [[ -z "${_files}" ]]; then
-    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/unit/ ?"
+    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
   fi
   local -a _bats_args
   local _label
@@ -322,7 +316,7 @@ _run_coverage() {
     --include-path="${REPO_ROOT}" \
     --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
-    bats "${REPO_ROOT}/test/unit/" "${REPO_ROOT}/test/integration/"
+    bats "${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/"
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
@@ -411,7 +405,7 @@ _run_behavioural() {
     _bats_args=(--jobs "${_jobs}")
   fi
 
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/behavioural/"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/behavioural/"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -464,9 +458,9 @@ main() {
         "--bats-path / --filter cannot combine with --coverage (single-path is the fast no-kcov loop; use --coverage alone for kcov)."
     fi
     if [[ -n "${bats_path}" ]]; then
-      if [[ "${bats_path}" == test/behavioural || "${bats_path}" == test/behavioural/* ]]; then
+      if [[ "${bats_path}" == test/bats/behavioural || "${bats_path}" == test/bats/behavioural/* ]]; then
         _die ci_bats_path_behavioural \
-          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'just test behavioural' (host test.sh cannot launch it)."
+          "test/bats/behavioural/ needs the ci-behavioural service + docker.sock; run 'just test behavioural' (host test.sh cannot launch it)."
       fi
       [[ -e "${REPO_ROOT}/${bats_path}" ]] \
         || _die ci_bats_path_not_found \
