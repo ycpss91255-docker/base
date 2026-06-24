@@ -47,11 +47,29 @@ setup() {
   ln -s "../../.base/downstream/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
   ln -s "../../.base/downstream/script/template/skel" "${TMP_REPO}/script/template/skel"
 
-  # `base` namespace (#652): the entry mod?s script/base/justfile.base
-  # (just base upgrade / just base update).
+  # `base` namespace (#652, #653): the entry mod?s script/base/justfile.base
+  # (just base upgrade / update / init / completions).
   mkdir -p "${TMP_REPO}/.base/downstream/script/base" "${TMP_REPO}/script/base"
   cp /source/downstream/script/base/justfile.base "${TMP_REPO}/.base/downstream/script/base/justfile.base"
   ln -s "../../.base/downstream/script/base/justfile.base" "${TMP_REPO}/script/base/justfile.base"
+  # completions.sh is reached via the consumer symlink script/base/completions.sh;
+  # stub it as a recorder so `just base completions` forwarding is observable.
+  cat > "${TMP_REPO}/.base/downstream/script/base/completions.sh" <<'EOS'
+#!/usr/bin/env bash
+printf 'completions'
+for _arg in "$@"; do printf ' %s' "${_arg}"; done
+printf '\n'
+EOS
+  chmod +x "${TMP_REPO}/.base/downstream/script/base/completions.sh"
+  ln -s "../../.base/downstream/script/base/completions.sh" "${TMP_REPO}/script/base/completions.sh"
+  # `just base init` forwards to ./.base/init.sh -- stub it as a recorder.
+  cat > "${TMP_REPO}/.base/init.sh" <<'EOS'
+#!/usr/bin/env bash
+printf 'init'
+for _arg in "$@"; do printf ' %s' "${_arg}"; done
+printf '\n'
+EOS
+  chmod +x "${TMP_REPO}/.base/init.sh"
 
   local _name
   for _name in build run exec stop prune setup setup_tui; do
@@ -127,6 +145,18 @@ teardown() {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base update
   assert_success
   assert_output --partial "upgrade --check"
+}
+
+@test "just base init forwards to ./.base/init.sh (#653, ADR-00000011)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base init --force
+  assert_success
+  assert_output --partial "init --force"
+}
+
+@test "just base completions forwards to script/base/completions.sh (#653, ADR-00000011)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base completions install --shell bash
+  assert_success
+  assert_output --partial "completions install --shell bash"
 }
 
 @test "bare just lists namespaces (replaces make help)" {

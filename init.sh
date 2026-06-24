@@ -91,9 +91,11 @@ _create_symlinks() {
   _symlink "script/justfile" "justfile"
   _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
   _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
-  # `base` namespace (#652): `just base upgrade` / `just base update` manage
-  # the .base subtree (apt-aligned). init + completions land in #653.
+  # `base` namespace (#652, #653): `just base upgrade` / `just base update`
+  # manage the .base subtree (apt-aligned); `just base init` re-wires symlinks;
+  # `just base completions` installs opt-in shell tab-completion.
   _symlink "../../${TEMPLATE_REL}/downstream/script/base/justfile.base" "script/base/justfile.base"
+  _symlink "../../${TEMPLATE_REL}/downstream/script/base/completions.sh" "script/base/completions.sh"
   # `template` namespace (#633): `just template new <name>` scaffolds a
   # repo-local command group. The entry `mod?`s script/template/justfile.template;
   # new.sh + skel/ are linked alongside (base-owned, flow on upgrade).

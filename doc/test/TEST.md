@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1887 tests** total (1802 unit + 85 integration).
+Template self-tests: **1901 tests** total (1816 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -810,7 +810,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/justfile_user_spec.bats (11)
+### test/unit/justfile_user_spec.bats (13)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -830,6 +830,8 @@ guard + the release smoke check).
 | `just docker setup-tui forwards to setup_tui.sh` | hyphenated recipe |
 | `just base upgrade forwards to .base/upgrade.sh` | #652 -- base ns upgrade dispatch |
 | `just base update runs upgrade.sh --check` | #652 -- apt-aligned check |
+| `just base init forwards to .base/init.sh` | #653 -- base ns init dispatch |
+| `just base completions forwards to script/base/completions.sh` | #653 -- opt-in completions installer dispatch |
 | `bare just lists namespaces` | replaces `make help`; lists `docker`/`base`/... |
 | `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
 | `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
@@ -853,7 +855,7 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh rejects an invalid group name` | name validation |
 | `new.sh errors with usage when no name given` | arg guard |
 
-### test/unit/justfile_spec.bats (8)
+### test/unit/justfile_spec.bats (9)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -869,9 +871,34 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | `docker module no longer carries upgrade/upgrade-check (moved to base ns)` | #652 -- upgrade is a .base op |
 | `docker module recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
 | `base module declares upgrade + update (apt-aligned) forwarding to .base/upgrade.sh` | #652 / ADR-00000011 |
+| `base module declares init + completions recipes` | #653 -- init -> .base/init.sh, completions -> script/base/completions.sh |
 | `docker module owns a default recipe + pins cwd to repo root` | #652 -- mod default + `set working-directory := '../..'` |
 | `entry mods the docker namespace + default recipe lists recipes` | #652 -- `mod? docker` + `default: @just --list` |
 | `entry mods the base namespace` | #652 -- `mod? base` |
+
+### test/unit/completions_spec.bats (11)
+
+Unit tests for the opt-in shell tab-completion installer
+`downstream/script/base/completions.sh` (#653, ADR-00000011), reached as
+`just base completions install|uninstall [--shell ...]`. Sandboxes HOME + the
+XDG dirs to a temp tree and stubs `just` on PATH so `JUST_COMPLETE=<shell> just`
+emits a per-shell marker; asserts the DYNAMIC loader is written to each shell's
+standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
+`$SHELL` detection, and uninstall.
+
+| Test | Description |
+|------|-------------|
+| `install bash writes the dynamic eval-loader file` | exact `eval "$(JUST_COMPLETE=bash just)"` content |
+| `install fish writes the file with the dynamic completer output` | captures `JUST_COMPLETE=fish just` |
+| `install zsh writes _just + prints the fpath hint when dir not on fpath` | `_just` + stdout fpath hint |
+| `uninstall removes the installed file` | removes the loader |
+| `uninstall is idempotent when the file is absent (no error)` | safe no-op |
+| `install --shell all installs all three shells` | bash + fish + zsh |
+| `uninstall --shell all removes all three shells` | bash + fish + zsh removed |
+| `default --shell detects bash from $SHELL basename` | `$SHELL`-driven detection |
+| `default --shell detection errors on an unknown shell` | unknown -> error asking for --shell |
+| `-h / --help exits 0 with usage` | help text |
+| `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
 ### test/unit/compose_emitter_spec.bats (27)
 
@@ -1583,7 +1610,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: script/local/justfile.local seeded (repo-local command-group registry)` | #632 — repo-owned registry seeded |
 | `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
 | `new repo: script/template/ symlinks wired for the template namespace` | #633 — justfile.template + new.sh + skel symlinked |
-| `new repo: script/base/ symlink wired for the base namespace` | #652 — justfile.base symlinked; entry mods base |
+| `new repo: script/base/ symlink wired for the base namespace` | #652, #653 — justfile.base + completions.sh symlinked; entry mods base |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 

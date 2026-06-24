@@ -256,13 +256,17 @@ teardown() {
   assert_success
 }
 
-@test "new repo: script/base/ symlink wired for the base namespace (#652)" {
+@test "new repo: script/base/ symlink wired for the base namespace (#652, #653)" {
   bash .base/init.sh
-  # base-owned (symlinks into the subtree, flow on upgrade): justfile.base,
-  # so `just base upgrade` / `just base update` are available out of the box.
+  # base-owned (symlinks into the subtree, flow on upgrade): justfile.base +
+  # completions.sh, so `just base upgrade` / `update` / `init` / `completions`
+  # are available out of the box.
   assert [ -L "${REPO_DIR}/script/base/justfile.base" ]
   run readlink "${REPO_DIR}/script/base/justfile.base"
   assert_output "../../.base/downstream/script/base/justfile.base"
+  assert [ -L "${REPO_DIR}/script/base/completions.sh" ]
+  run readlink "${REPO_DIR}/script/base/completions.sh"
+  assert_output "../../.base/downstream/script/base/completions.sh"
   run grep -F "mod? base 'script/base/justfile.base'" "${REPO_DIR}/.base/downstream/script/justfile"
   assert_success
 }

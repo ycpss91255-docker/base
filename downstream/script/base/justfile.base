@@ -5,10 +5,12 @@
 #
 # Apt-aligned (ADR-00000011): `update` reports whether a newer base tag is
 # available (refresh/check, the former docker `upgrade-check`); `upgrade`
-# applies the subtree pull (the former docker `upgrade`). The actual
-# `init.sh` / `upgrade.sh` scripts still live at the `.base/` root here; the
-# `base` namespace gains the `init` recipe + completions and the scripts
-# relocate to script/base/ in #653.
+# applies the subtree pull (the former docker `upgrade`); `init` (re-)wires
+# the repo's symlinks + .gitignore; `completions` installs/uninstalls shell
+# tab-completion (opt-in, no host rc edits). The `init.sh` / `upgrade.sh`
+# scripts still live at the `.base/` root here; they relocate to
+# downstream/script/base/ in #654 (with the upgrade.sh self-location +
+# bootstrap-path + ADR-00000006 changes that move belongs with).
 #
 # A module recipe's default cwd is this file's own directory; the recipes
 # call ./.base/upgrade.sh at the repo root, so `set working-directory :=
@@ -28,3 +30,12 @@ upgrade *args:
 # (apt-style; exit 0 = up-to-date or update available, non-1 = real error)
 update:
     @./.base/upgrade.sh --check || [ $? -eq 1 ]
+
+# just base init -> (re-)wire repo symlinks + .gitignore
+init *args:
+    ./.base/init.sh {{args}}
+
+# just base completions install|uninstall [--shell bash|zsh|fish|all]
+#   opt-in shell tab-completion; never edits a shell rc.
+completions *args:
+    script/base/completions.sh {{args}}
