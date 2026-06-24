@@ -371,6 +371,195 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# --coverage-shard: sharded kcov matrix (#615, ADR-00000008)
+#
+# The coverage matrix mirrors bats-unit's shards. _shard_unit_files is
+# the shared round-robin primitive so coverage shard k covers the same
+# unit slice the unit-test matrix runs; _run_coverage <n>/<total> kcov's
+# that slice (+ integration on the last shard). main --coverage-shard
+# plumbs COVERAGE_SHARD into the coverage service.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)" {
+  # The coverage matrix must mirror the unit matrix exactly: both go
+  # through _shard_unit_files, so a given index yields one identical slice.
+  run bash -c '
+    source /source/script/test/test.sh
+    _shard_unit_files 1/4
+  '
+  assert_success
+  # Round-robin NR%4==0 over the sorted spec list: first match is the 4th
+  # spec file; assert it returns at least one real unit spec path.
+  assert_output --partial "test/bats/unit/"
+  assert_output --partial "_spec.bats"
+}
+
+@test "_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)" {
+  # Union of every shard of 4 must equal the full sorted unit spec list,
+  # with no file in two shards (round-robin invariant the merge relies on:
+  # every unit slice runs exactly once across the matrix).
+  run bash -c '
+    source /source/script/test/test.sh
+    all=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name "*_spec.bats" | sort)
+    union=$( { _shard_unit_files 1/4; _shard_unit_files 2/4; \
+               _shard_unit_files 3/4; _shard_unit_files 4/4; } | sort )
+    [[ "${all}" == "${union}" ]] || { echo "MISMATCH"; exit 1; }
+    # disjoint: total line count equals the full list count (no dupes)
+    n_all=$(printf "%s\n" "${all}" | wc -l)
+    n_union=$( { _shard_unit_files 1/4; _shard_unit_files 2/4; \
+                 _shard_unit_files 3/4; _shard_unit_files 4/4; } | wc -l)
+    [[ "${n_all}" -eq "${n_union}" ]] || { echo "DUPES"; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+@test "_shard_unit_files: rejects a malformed shard spec (#615)" {
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _shard_unit_files 5/4
+  '
+  assert_failure
+}
+
+@test "_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)" {
+  # No PATH override: _run_coverage shells out to find/sort/awk via
+  # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
+  # kcov + bats mocks win while the real coreutils stay reachable.
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage 1/4
+  '
+  assert_success
+  assert_output --partial "shard 1/4"
+
+  run cat "${_log}"
+  assert_success
+  # kcov wraps bats over specific shard spec files, not the whole unit dir.
+  assert_output --partial "_spec.bats"
+  refute_output --partial "test/bats/unit/ bats"
+}
+
+@test "_run_coverage: last shard also kcov's the integration suite (#615)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage 4/4
+  '
+  assert_success
+  assert_output --partial "integration suite (last shard)"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "test/bats/integration/"
+}
+
+@test "_run_coverage: non-last shard does NOT kcov the integration suite (#615)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage 1/4
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "test/bats/integration/"
+}
+
+@test "_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage
+  '
+  assert_success
+  assert_output --partial "full suite"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "test/bats/unit/"
+  assert_output --partial "test/bats/integration/"
+}
+
+@test "main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-shard 2/4
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " coverage"
+  assert_output --partial "COVERAGE=1"
+  assert_output --partial "COVERAGE_SHARD=2/4"
+}
+
+@test "main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)" {
+  # The coverage path runs in the kcov/kcov debian image, which bakes in
+  # neither shellcheck nor hadolint. Running the lint phase there would
+  # fail every coverage shard at _run_hadolint. Assert the --ci COVERAGE
+  # path does NOT shell out to either linter.
+  local _sc_log="${BATS_TEST_TMPDIR}/sc.log"
+  local _hd_log="${BATS_TEST_TMPDIR}/hd.log"
+  mock_cmd "shellcheck" 'printf "called\n" >> "'"${_sc_log}"'"; exit 0'
+  mock_cmd "hadolint" 'printf "called\n" >> "'"${_hd_log}"'"; exit 0'
+  mock_cmd "kcov" 'exit 0'
+  mock_cmd "bats" 'exit 0'
+  # bats already present so _install_deps short-circuits (no apt-get).
+
+  run bash -c '
+    source /source/script/test/test.sh
+    COVERAGE=1 COVERAGE_SHARD=1/4 main --ci
+  '
+  assert_success
+  assert [ ! -f "${_sc_log}" ]
+  assert [ ! -f "${_hd_log}" ]
+}
+
+@test "main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)" {
+  # --coverage-shard sets coverage mode, which the single-path guard
+  # rejects (single-path is the fast no-kcov loop).
+  run bash -c '
+    source /source/script/test/test.sh
+    main --coverage-shard 1/4 --bats-path test/bats/unit/ci_spec.bats
+  '
+  assert_failure
+  assert_output --partial "cannot combine with --coverage"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # --bats-path / --filter single-path inner loop (#523)
 # ════════════════════════════════════════════════════════════════════
 

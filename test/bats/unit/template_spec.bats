@@ -91,7 +91,16 @@ setup() {
 }
 
 @test "justfile.test has coverage recipe" {
-  run grep -E '^coverage:' /source/script/test/justfile.test
+  # #615: the recipe takes an optional shard arg (`just test coverage 1/4`)
+  # for the sharded kcov path; bare `just test coverage` still runs the
+  # full suite. Match the recipe header with or without the param.
+  run grep -E "^coverage( shard='')?:" /source/script/test/justfile.test
+  assert_success
+  # bare path still drives the full-suite --coverage flag.
+  run grep -F './script/test/test.sh --coverage' /source/script/test/justfile.test
+  assert_success
+  # shard path drives the new --coverage-shard flag.
+  run grep -F './script/test/test.sh --coverage-shard' /source/script/test/justfile.test
   assert_success
 }
 

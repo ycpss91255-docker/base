@@ -368,27 +368,26 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: ci-rollup needs every sibling PR-check job (#337 + #376 + #377)" {
+@test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615)" {
   # The aggregator waits on actionlint + classify + shellcheck +
-  # hadolint + bats-unit + bats-integration + integration-e2e +
-  # behavioural so its result reflects every PR check. `coverage` is
-  # intentionally NOT in the list — it's a push-to-main metric, not a
-  # PR gate; including it would block PR merges on a coverage hiccup.
+  # hadolint + bats-unit + bats-integration + coverage + integration-e2e
+  # + behavioural so its result reflects every PR check. #615 (ADR-8)
+  # adds `coverage` to the list — it is now a sharded kcov PR gate, not
+  # the #377 main-only metric, so a kcov failure must block PR merge.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]'
 }
 
-@test "self-test.yaml: ci-rollup does NOT need coverage (#377)" {
-  # Coverage is push-to-main-only metric, not a PR gate.
+@test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
+  # #377 kept coverage out of the rollup (main-only metric); #615 (ADR-8)
+  # reverses that — the sharded kcov gate joins the rollup so a kcov
+  # failure blocks merge. ci-rollup's SKIPPED=pass rule keeps doc-only
+  # PRs merge-able even though coverage is now in `needs:`.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  refute_output --partial 'needs.coverage.result'
-  # The `needs:` line itself must not list coverage either. Negative
-  # assertion via partial — the `needs: [...]` line above is the
-  # canonical source.
-  refute_output --partial ', coverage,'
-  refute_output --partial ', coverage]'
+  assert_output --partial 'needs.coverage.result'
+  assert_output --partial ', coverage,'
 }
 
 @test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
@@ -400,7 +399,7 @@ setup() {
   assert_output --partial 'if: always()'
 }
 
-@test "self-test.yaml: ci-rollup verify step consumes every needs result (#337 + #376 + #377)" {
+@test "self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)" {
   # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
   # to translate the parallel job graph into a single pass/fail signal.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -411,6 +410,7 @@ setup() {
   assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.bats-unit.result'
   assert_output --partial 'needs.bats-integration.result'
+  assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.integration-e2e.result'
   assert_output --partial 'needs.behavioural.result'
 }
@@ -544,24 +544,38 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: coverage gates on push to main only — never on PRs or tags (#377)" {
-  # Pre-#377 kcov was wired but never exercised on PRs (the 2-5x
-  # slowdown was too expensive). #377 makes that implicit policy
-  # explicit. Restricting to `push && ref == refs/heads/main` ensures
-  # a tag push (which sets ref to refs/tags/v...) doesn't trigger it
-  # either.
+@test "self-test.yaml: coverage now runs on PRs (gated on code_changed), not main-only (#615 amends #377)" {
+  # #377 restricted kcov to push-to-main (the serial 8-12min job was too
+  # expensive for PRs). #615 shards it so a PR shard is in the bats-unit
+  # ballpark, and gates it on the same `code_changed` output as the other
+  # PR-check jobs so PR coverage data exists for the gate. The old
+  # push&&main-only `if:` is gone.
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
+  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  refute_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
 }
 
-@test "self-test.yaml: coverage invokes test.sh --coverage + uploads to Codecov (#377)" {
-  # Codecov upload step migrated here from the old test job. Token
-  # source unchanged (\${{ secrets.CODECOV_TOKEN }}).
+@test "self-test.yaml: coverage runs as a kcov matrix mirroring bats-unit shards (#615)" {
+  # Sharded kcov: the matrix mirrors bats-unit's 1/4..4/4 round-robin so
+  # each shard kcov's the identical unit slice the unit-test matrix runs;
+  # fail-fast: false so one shard's failure doesn't cancel the rest.
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial './script/test/test.sh --coverage'
+  assert_output --partial 'fail-fast: false'
+  assert_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
+}
+
+@test "self-test.yaml: coverage invokes test.sh --coverage-shard + uploads per-shard to Codecov (#615)" {
+  # The kcov run is now per-shard (--coverage-shard \${{ matrix.shard }});
+  # each shard uploads its partial report under a per-shard flag so
+  # Codecov merges the uploads into one project figure. Token source
+  # unchanged (\${{ secrets.CODECOV_TOKEN }}).
+  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial './script/test/test.sh --coverage-shard ${{ matrix.shard }}'
   assert_output --partial 'codecov/codecov-action@v6'
   assert_output --partial 'token: ${{ secrets.CODECOV_TOKEN }}'
   assert_output --partial 'directory: ./coverage'
+  assert_output --partial 'flags: coverage-shard-'
 }
