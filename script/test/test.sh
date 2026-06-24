@@ -27,8 +27,11 @@
 #                                  # bats-integration job in self-test.yaml
 #                                  # (#377)
 #   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
-#                             # (push-to-main only via self-test.yaml's
-#                             # coverage job, #377)
+#                             # (full suite; local `just test coverage`)
+#   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
+#                                  # (skip ShellCheck). Used by the coverage
+#                                  # matrix in self-test.yaml (#615). Codecov
+#                                  # merges the per-shard uploads.
 #   ./test.sh -h, --help        # Show this help
 #
 # Kcov instrumentation wraps every bats command and slows the suite
@@ -79,6 +82,7 @@ Run CI pipeline: ShellCheck + Bats [+ Kcov coverage].
 Options:
   --ci                    Run directly inside CI container (called by
                           compose); honors $COVERAGE=1 to include kcov,
+                          $COVERAGE_SHARD to kcov one shard of the matrix,
                           $BATS_ONLY=1 to skip the ShellCheck phase,
                           $BATS_UNIT_SHARD to run only one matrix shard,
                           $BATS_INTEGRATION=1 to run integration only
@@ -112,8 +116,14 @@ Options:
                           selection); usable with or without --bats-path.
                           Without a path it filters unit + integration (#523)
   --coverage              Run tests with Kcov coverage (slow; CI / release
-                          check). Used by self-test.yaml's coverage job
-                          (push-to-main only, #377)
+                          check). Full suite (unit + integration). Local
+                          `just test coverage`.
+  --coverage-shard N/T    Run kcov over coverage shard N of T (skip
+                          ShellCheck). Mirrors --bats-unit-shard's
+                          round-robin slice; integration runs on the last
+                          shard. Used by the coverage matrix in
+                          self-test.yaml (#615). Codecov merges the
+                          per-shard uploads into one project figure.
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -227,6 +237,7 @@ _run_via_compose() {
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
+    -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_INTEGRATION="${BATS_INTEGRATION:-0}" \
@@ -251,6 +262,7 @@ main() {
   local bats_integration=0
   local bats_path=""
   local bats_filter=""
+  local coverage_shard=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -267,6 +279,7 @@ main() {
       --bats-path) bats_path="${2:?--bats-path expects <path>}"; shift 2 ;;
       --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
+      --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --behavioural) behavioural=1; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
@@ -376,12 +389,19 @@ main() {
       # Dockerfile regression fails `just test` locally the same way it
       # fails the CI hadolint job (#650 local==CI). BATS_ONLY=1 (dedicated
       # GHA shellcheck/hadolint jobs cover lint in parallel) skips both.
-      if [[ "${BATS_ONLY:-0}" != "1" ]]; then
+      # COVERAGE=1 also skips lint (#615): the coverage path runs in the
+      # kcov/kcov debian image, which bakes in NEITHER shellcheck nor
+      # hadolint (hadolint especially has no apt package there) — lint is
+      # a separate concern measured by the dedicated lint jobs, not the
+      # coverage matrix. Running it here would fail every coverage shard.
+      if [[ "${BATS_ONLY:-0}" != "1" && "${COVERAGE:-0}" != "1" ]]; then
         _run_shellcheck
         _run_hadolint
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
-        _run_coverage
+        # COVERAGE_SHARD (#615) narrows kcov to one matrix slice; empty =
+        # full suite (local `just test coverage` / release path).
+        _run_coverage "${COVERAGE_SHARD:-}"
         _fix_permissions
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
       elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
@@ -395,8 +415,16 @@ main() {
       fi
       ;;
     coverage)
-      # Full CI + kcov via the kcov/kcov-based `coverage` service.
-      _run_via_compose coverage 1
+      # Kcov via the kcov/kcov-based `coverage` service. Bare --coverage
+      # runs the full suite; --coverage-shard N/T (coverage_shard set)
+      # plumbs COVERAGE_SHARD into the container so _run_coverage kcov's
+      # only this matrix slice. The self-test.yaml coverage matrix sets
+      # the latter; local `just test coverage` uses the former (#615).
+      if [[ -n "${coverage_shard}" ]]; then
+        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
+      else
+        _run_via_compose coverage 1
+      fi
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine

@@ -32,9 +32,18 @@ default:
 lint *args:
     ./script/test/test.sh --lint {{args}}
 
-# just test coverage -> ShellCheck + Bats + Kcov coverage (slow; CI / release)
-coverage:
-    ./script/test/test.sh --coverage
+# just test coverage -> full Kcov coverage (slow; local / release check).
+# just test coverage 1/4 -> kcov one matrix shard only (#615), the same
+# slice the CI coverage matrix runs; handy to prove the sharded path
+# locally without the full ~8-12min serial kcov run.
+coverage shard='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n '{{shard}}' ]]; then
+      ./script/test/test.sh --coverage-shard '{{shard}}'
+    else
+      ./script/test/test.sh --coverage
+    fi
 
 # just test behavioural -> behavioural runtime-test specs (opt-in; host docker.sock)
 behavioural:

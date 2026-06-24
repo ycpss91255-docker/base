@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1927 tests** total (1840 unit + 87 integration).
+Template self-tests: **1938 tests** total (1851 unit + 87 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -330,10 +330,10 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (57)
+### test/bats/unit/self_test_yaml_spec.bats (58)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-eight cumulative invariants:
+eleven cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -401,11 +401,12 @@ eight cumulative invariants:
    check and collapses their results into one pass/fail signal that
    branch protection can require. The verifier shell step consumes
    every `${{ needs.<job>.result }}` and applies a 2-tier rule:
-   `actionlint` / `classify` / `test` must be `success`;
-   conditionally-gated jobs (`shellcheck` / `hadolint` /
-   `integration-e2e` / `behavioural`) may be `success` or `skipped`
-   (their job-level `if:` legitimately skips on doc-only / non-
-   behavioural PRs per #317 P1/P3, #376). Adding sub-jobs (#377)
+   `actionlint` / `classify` must be `success`;
+   conditionally-gated jobs (`shellcheck` / `hadolint` / `bats-unit` /
+   `bats-integration` / `coverage` / `integration-e2e` / `behavioural`)
+   may be `success` or `skipped` (their job-level `if:` legitimately
+   skips on doc-only / non-behavioural PRs per #317 P1/P3, #376, #377,
+   #615). Adding sub-jobs (#377)
    to the rollup's `needs:` list becomes a workflow-internal
    change with no branch-protection update required.
 
@@ -432,13 +433,11 @@ eight cumulative invariants:
    - `bats-integration`: runs `test/bats/integration/` via
      `test.sh --bats-integration`. Pulled out of the unit serial path
      so each unit shard sees only its share.
-   - `coverage`: `if: github.event_name == 'push' && github.ref ==
-     'refs/heads/main'` — gated to main pushes only. Runs
-     `test.sh --coverage` (full kcov pipeline) and uploads to Codecov.
-     **NOT in `ci-rollup`'s `needs:`** — coverage failure must not
-     block PR merge. PR-side coverage delta still works because
-     Codecov compares the PR head against the latest main coverage
-     blob.
+   - `coverage`: #377 gated it to main pushes only and kept it out of
+     `ci-rollup`'s `needs:` (a non-gating metric). **Superseded by #615
+     (invariant 11): coverage is now a sharded kcov PR gate in the
+     rollup.** The #377-era posture (main-only `if:`, "NOT in ci-rollup
+     needs") is no longer asserted here.
 
 9. **#579 integration-e2e runnability gate** — the e2e job drives
    build / run / exec / stop through the documented `just` entry points
@@ -452,9 +451,9 @@ eight cumulative invariants:
    the compose project network. `just` is installed via the
    `extractions/setup-just` action.
 
-   `ci-rollup needs:` now `[actionlint, classify, shellcheck,
-   hadolint, bats-unit, bats-integration, integration-e2e,
-   behavioural]` (8 jobs) — every PR-check job. `release needs:`
+   `ci-rollup needs:` is `[actionlint, classify, shellcheck,
+   hadolint, bats-unit, bats-integration, coverage, integration-e2e,
+   behavioural]` (9 jobs post-#615) — every PR-check job. `release needs:`
    updates from `[shellcheck, hadolint, test, integration-e2e,
    behavioural]` → `[shellcheck, hadolint, bats-unit, bats-integration,
    integration-e2e, behavioural]`. Post-#377 only `actionlint` +
@@ -471,6 +470,23 @@ eight cumulative invariants:
     `test-tools:main` for `${{ matrix.platform }}` (multi-arch post-#587)
     so the arm64 shard gets the arm64 variant. `ci-rollup` aggregates
     through `needs.integration-e2e.result` unchanged.
+
+11. **#615 sharded kcov + coverage as an enforced PR gate (amends #377,
+    ADR-00000008)** — `coverage` is no longer the #377 main-only metric.
+    It now (a) runs as a kcov `strategy.matrix` (`shard: ['1/4', '2/4',
+    '3/4', '4/4']`, `fail-fast: false`) MIRRORING the `bats-unit` matrix
+    via `test.sh --coverage-shard ${{ matrix.shard }}` — each shard kcov's
+    the same round-robin unit slice the unit-test matrix runs (integration
+    on the last shard) and uploads its partial report under a per-shard
+    `flags: coverage-shard-<index>` so Codecov merges the uploads into one
+    project figure; (b) gates on `needs.classify.outputs.code_changed ==
+    'true'` so it runs on PRs (not just main push); and (c) joins
+    `ci-rollup`'s `needs:` (now 9 jobs) + the verifier consumes
+    `needs.coverage.result` (SKIPPED-as-pass for doc-only PRs), so a kcov
+    failure blocks PR merge. A coverage regression below the
+    `.codecov.yaml` `project` threshold is enforced as a required
+    `codecov/project` branch-protection status. The old `if: push && ref
+    == refs/heads/main` and the "NOT in ci-rollup needs" posture are gone.
 
 | Category | Tests |
 |----------|-------|
@@ -490,14 +506,14 @@ eight cumulative invariants:
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377) | 3 |
-| `ci-rollup` does NOT need `coverage` (#377) | 1 |
-| `ci-rollup` verify step consumes every `needs.<job>.result` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377) | 3 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615) | 3 |
+| `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
+| `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
 | `bats-unit` declared + `strategy.matrix.shard: ['1/2', '2/2']` + `fail-fast: false` + invokes `test.sh --bats-unit-shard ${{ matrix.shard }}` (#377) | 3 |
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
-| `coverage` declared + `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` + runs `test.sh --coverage` + uploads Codecov (#377) | 3 |
+| `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + kcov `matrix.shard: ['1/4'..'4/4']` mirroring bats-unit + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + per-shard `flags:` Codecov upload (#615) | 4 |
 | `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (14)
@@ -1326,7 +1342,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (36)
+### test/bats/unit/ci_spec.bats (46)
 
 | Test | Description |
 |------|-------------|
@@ -1366,6 +1382,16 @@ the host file content and the inherited stdout (preserving
 | `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 exactly two invocations |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
+| `_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)` | #615 coverage matrix mirrors unit matrix |
+| `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 round-robin invariant (each slice runs once) |
+| `_shard_unit_files: rejects a malformed shard spec (#615)` | #615 shard-spec validation |
+| `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
+| `_run_coverage: last shard also kcov's the integration suite (#615)` | #615 integration on last shard |
+| `_run_coverage: non-last shard does NOT kcov the integration suite (#615)` | #615 no integration duplication |
+| `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
+| `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
+| `main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)` | #615 coverage path skips lint |
+| `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
 
 ### test/bats/unit/init_spec.bats (35)
 

@@ -2,17 +2,32 @@ coverage:
   status:
     project:
       default:
-        # Total project coverage must not drop. Allow a small wiggle for noise.
+        # ENFORCED PR gate (#615, ADR-00000008; amends #377). Total project
+        # coverage must not drop by more than `threshold` versus the base.
+        # `informational: false` makes the codecov/project status fail (red
+        # commit status) on a regression, so when added as a required
+        # branch-protection check it BLOCKS merge — not just a comment.
+        # `target: auto` compares against the PR base; 1% absorbs kcov line-
+        # hit noise (the #613 kcov env fixes removed the spurious failures
+        # that previously made this path red).
         target: auto
         threshold: 1%
+        informational: false
     patch:
       default:
-        # Patch coverage is reported but never blocks merges. Many bash
-        # branches (case ;; arms, /lint fallback blocks, child-bash guards)
-        # are intentionally not exercised by tests, and refactor PRs that
-        # only move covered code around would otherwise be blocked. The
-        # project-level status above still guards against regressions.
-        informational: true
+        # Patch (new-code) coverage handling, decided explicitly (#615): a
+        # diff-scoped gate with `target: auto` rather than a fixed % so it
+        # tracks the project rate instead of demanding e.g. 80% on every PR.
+        # Many bash branches (case ;; arms, /lint fallback blocks, child-
+        # bash guards) are intentionally not exercised, and a hard fixed
+        # target would make refactor PRs flaky — the exact #613-class
+        # brittleness this gate must avoid. `threshold: 1%` + `auto` keeps
+        # the patch status honest (new code should not be markedly less
+        # covered than the project) without false reds; `informational:
+        # false` lets it gate once wired into branch protection.
+        target: auto
+        threshold: 1%
+        informational: false
 
 ignore:
   - "test/**/*"

@@ -337,23 +337,35 @@ jobs:
         run: ./script/test/test.sh --bats-integration
 
   coverage:
-    # Kcov coverage now main-push-only (#377). Pre-#377 the test job
-    # always ran the Codecov upload step but never with COVERAGE=1 on
-    # PRs (kcov 2-5x slowdown was too expensive), so PR runs produced
-    # no coverage data and the badge only updated post-merge via the
-    # main-push self-test run. This makes that implicit policy explicit:
-    # coverage runs ONLY on push to main (not on PRs, not on tags),
-    # and is NOT in ci-rollup's `needs:` so a coverage hiccup never
-    # blocks a PR merge.
+    # Sharded kcov coverage, now an ENFORCED PR gate (#615, ADR-00000008;
+    # amends #377). #377 left this path fully serial (~8-12 min single
+    # kcov job) and sidestepped the cost by making it main-push-only +
+    # non-gating. #615 reverses that: the kcov run is split into a matrix
+    # of shards that MIRROR the bats-unit matrix (identical round-robin
+    # slice per index via _shard_unit_files), so per-shard wall-time is in
+    # the bats-unit ballpark (~one shard, parallel with bats-unit). It now
+    # runs on PRs too, and joins ci-rollup's `needs:` so a kcov failure OR
+    # a coverage drop below the .codecov.yaml project threshold blocks
+    # merge. Each shard uploads its partial report under a per-shard flag;
+    # Codecov merges the uploads into one project figure ("Found N
+    # coverage files to report"). The matrix rollup folds every shard's
+    # result into needs.coverage.result, so ci-rollup sees one signal.
     needs: [actionlint, classify]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Run CI with Kcov coverage
-        run: ./script/test/test.sh --coverage
+      - name: Run kcov coverage shard ${{ matrix.shard }}
+        # The coverage service is kcov/kcov (debian); _install_deps opt-in
+        # rewrites the apt mirror when APT_MIRROR_DEBIAN is set (default
+        # deb.debian.org keeps the GHA runner on the upstream mirror).
+        run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
 
       - name: Upload coverage to Codecov
         if: ${{ always() }}
@@ -361,6 +373,13 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./coverage
+          # Per-shard flag so Codecov keeps the uploads distinct and merges
+          # them for the commit. fail_ci_if_error stays false: an upload
+          # transport hiccup must not fail the shard (the merge tolerates a
+          # missing shard); the MERGE gate is enforced by the codecov/project
+          # status (.codecov.yaml) joined into ci-rollup via branch
+          # protection, not by this step.
+          flags: coverage-shard-${{ strategy.job-index }}
           fail_ci_if_error: false
 
   integration-e2e:
@@ -646,15 +665,18 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-unit /
-    # bats-integration / integration-e2e / behavioural) carry job-level
-    # `if:` so they SKIP on doc-only / non-behavioural PRs (#317 P1/P3,
-    # #376, #377); the rollup collapses SKIPPED into pass for those,
-    # otherwise doc-only PRs cannot merge.
+    # bats-integration / coverage / integration-e2e / behavioural) carry
+    # job-level `if:` so they SKIP on doc-only / non-behavioural PRs (#317
+    # P1/P3, #376, #377, #615); the rollup collapses SKIPPED into pass for
+    # those, otherwise doc-only PRs cannot merge.
     #
-    # `coverage` is intentionally NOT in `needs:` — it's a metric job
-    # gated on push-to-main, not a PR gate; a coverage hiccup must not
-    # block PR merge.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
+    # `coverage` is now IN `needs:` (#615, ADR-00000008; amends #377). It
+    # is a sharded kcov PR gate: a kcov test failure fails the matrix and
+    # this rollup; a coverage regression below the .codecov.yaml project
+    # threshold is enforced separately via the codecov/project status as a
+    # required branch-protection check. The matrix folds into
+    # needs.coverage.result, so the rollup sees one signal.
+    needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -666,6 +688,7 @@ jobs:
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_UNIT_RESULT: ${{ needs.bats-unit.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
           INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
           BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
         run: |
@@ -676,6 +699,7 @@ jobs:
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-unit:        ${BATS_UNIT_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
+          echo "coverage:         ${COVERAGE_RESULT}"
           echo "integration-e2e:  ${INTEGRATION_RESULT}"
           echo "behavioural:      ${BEHAVIOURAL_RESULT}"
           fail=0
@@ -684,6 +708,7 @@ jobs:
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_UNIT_RESULT}" "${BATS_INTEGRATION_RESULT}" \
+                   "${COVERAGE_RESULT}" \
                    "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done

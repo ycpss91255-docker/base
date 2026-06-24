@@ -82,15 +82,16 @@ _run_bats_path() {
   fi
 }
 
-_run_unit_shard() {
-  # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
-  # bats-unit matrix (#377). Spec accepts `<n>/<total>` where 1<=n<=total.
-  # Round-robin partition over `find ... | sort` so the mapping is stable
-  # across runs regardless of which files were added since the last
-  # matrix tuning. Issue #377 notes weight-by-test-count as a deferred
-  # follow-up; round-robin keeps each shard's count balanced enough at
-  # the current 30-ish unit spec scale.
-  local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
+_shard_unit_files() {
+  # Shared shard-partition primitive (#377 unit shards, #615 coverage
+  # shards). Echoes the newline-separated subset of
+  # test/bats/unit/*_spec.bats for shard <n> of <total>, using the same
+  # round-robin over `find ... | sort` so the bats-unit and coverage
+  # matrices select IDENTICAL slices for a given shard index — the
+  # coverage matrix is a kcov-instrumented mirror of the unit matrix.
+  # _die's on a malformed spec or an empty match. Inputs:
+  #   $1 = shard spec `<n>/<total>` (1<=n<=total)
+  local _spec="${1:?BUG: _shard_unit_files expects <n>/<total>}"
   if [[ "${_spec}" != */* ]]; then
     _die ci_invalid_shard "Invalid shard spec '${_spec}'. Expected <n>/<total> (e.g. 1/2)."
   fi
@@ -107,6 +108,20 @@ _run_unit_shard() {
   if [[ -z "${_files}" ]]; then
     _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
   fi
+  printf '%s\n' "${_files}"
+}
+
+_run_unit_shard() {
+  # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
+  # bats-unit matrix (#377). Spec accepts `<n>/<total>` where 1<=n<=total.
+  # Round-robin partition (see _shard_unit_files) so the mapping is stable
+  # across runs regardless of which files were added since the last
+  # matrix tuning. Issue #377 notes weight-by-test-count as a deferred
+  # follow-up; round-robin keeps each shard's count balanced enough at
+  # the current 30-ish unit spec scale.
+  local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
+  local _files
+  _files="$(_shard_unit_files "${_spec}")"
   local -a _bats_args
   local _label
   _bats_args_with_label _bats_args _label
@@ -122,6 +137,27 @@ _run_unit_shard() {
 # ── Kcov coverage ────────────────────────────────────────────────────────────
 
 _run_coverage() {
+  # Run kcov-instrumented bats and write an HTML/cobertura report to
+  # ${REPO_ROOT}/coverage. With no argument, runs the FULL suite (unit +
+  # integration) — the local `just test coverage` / release path. With a
+  # `<n>/<total>` shard spec (#615), runs kcov over ONLY this shard's
+  # slice so the GHA `coverage` matrix mirrors the bats-unit matrix:
+  #
+  #   - unit specs: the SAME round-robin slice _run_unit_shard selects
+  #     (via _shard_unit_files), so shard k covers the identical unit code
+  #     the unit-test matrix exercises.
+  #   - integration specs: run ONLY on the LAST shard (n == total) rather
+  #     than every shard, so the 87 integration specs aren't kcov'd T
+  #     times (wasted minutes + duplicated lines). Codecov merges the per-
+  #     shard uploads back into one project figure, so where a slice runs
+  #     doesn't matter to the merged total — only that every slice runs
+  #     exactly once across the matrix.
+  #
+  # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it;
+  # Codecov natively merges multiple uploads for a commit ("Found N
+  # coverage files to report").
+  local _shard_spec="${1:-}"
+
   local _excludes=(
     "${REPO_ROOT}/test/"
     "${REPO_ROOT}/script/test/"
@@ -135,12 +171,33 @@ _run_coverage() {
   local _exclude_path
   _exclude_path="$(IFS=,; printf '%s' "${_excludes[*]}")"
 
-  echo "--- Running Tests with Kcov Coverage ---"
+  local -a _targets=()
+  if [[ -z "${_shard_spec}" ]]; then
+    echo "--- Running Tests with Kcov Coverage (full suite) ---"
+    _targets=("${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/")
+  else
+    # _shard_unit_files _die's on a malformed / empty shard spec.
+    local _files
+    _files="$(_shard_unit_files "${_shard_spec}")"
+    local _total="${_shard_spec#*/}"
+    local _shard="${_shard_spec%/*}"
+    echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}) ---"
+    # Word-split intentional: one shard file per target entry.
+    # shellcheck disable=SC2206
+    _targets=(${_files})
+    if (( _shard == _total )); then
+      echo "  + integration suite (last shard)"
+      _targets+=("${REPO_ROOT}/test/bats/integration/")
+    fi
+    # Word-split intentional: print one line per shard target.
+    printf '  cov-shard:%s\n' "${_targets[@]}"
+  fi
+
   kcov \
     --include-path="${REPO_ROOT}" \
     --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
-    bats "${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/"
+    bats "${_targets[@]}"
 }
 
 # ── Behavioural runtime-test specs (#249) ────────────────────────────────────
