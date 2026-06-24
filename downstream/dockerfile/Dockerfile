@@ -17,7 +17,29 @@
 #   devel-test    - Lint + bats smoke test (ephemeral, discarded after build)
 #   runtime-base  - Minimal runtime base (sudo + tini + ldd-driven libs), optional
 #   runtime       - Minimal runtime image (COPY --from=builder install trees), optional
-#   runtime-test  - Runtime install-check smoke (ephemeral, optional)
+#   runtime-test  - Runtime install-check + bats smoke (ephemeral, optional)
+#
+# The generalized `-test` stage rule (#647): EVERY `-test` stage is
+#   `FROM <the real stage it tests>` (devel-test FROM devel,
+#   runtime-test FROM runtime) and brings the shared toolchain in via
+#   `COPY --from=test-tools-stage` -- ShellCheck / Hadolint / Bats from
+#   the pre-built, version-pinned, multi-arch test-tools image. Do NOT
+#   make any `-test` stage `FROM ${TEST_TOOLS_IMAGE}`: a `-test` stage
+#   must inherit the REAL environment of the artifact under test, then
+#   layer the tools on top. The inverse (real artifacts copied onto the
+#   fat tools base) silently masks the very bugs `-test` exists to catch
+#   -- runtime-test's `ldd` scan would resolve missing `.so`s against
+#   the tools base and report a false green while the shipped runtime is
+#   still broken (ros1_bridge#123). See the runtime-test block below.
+#
+#   Flavour-specific test tooling (e.g. ROS: colcon test / ament_* /
+#   launch_testing) is the CONSUMER's responsibility, installed in its
+#   own `-test` stage on top of the COPYed common toolchain -- base
+#   ships only the common toolchain, no flavoured test image.
+#
+#   `-test` stages may be heavier than the stages they test; that is
+#   fine because they are ephemeral and never reach users (they exist
+#   only inside the build/test graph).
 #
 # Adding extra stages (#215): any `FROM <base> AS <stage>` outside the
 # baseline blocklist {sys, devel-base, devel, devel-test, runtime-test}
@@ -369,10 +391,37 @@ RUN bats /smoke_test/
 # CMD ["bash"]
 
 ############################## runtime-test (optional) ##############################
-# Install-check smoke for the runtime image. Mirrors `FROM devel AS
-# devel-test` -- ephemeral stage, build-only, never pushed. CI builds
-# this target after `target: runtime`; build failure surfaces a smoke
-# failure visibly in the GHA log.
+# Install-check + bats smoke for the runtime image. Mirrors `FROM devel
+# AS devel-test` -- the generalized `-test` rule (#647): stay
+# `FROM runtime` (the REAL minimal runtime under test) and `COPY
+# --from=test-tools-stage` the shared toolchain in. Ephemeral,
+# build-only, never pushed. CI builds this target after `target:
+# runtime`; build failure surfaces a smoke failure visibly in the GHA
+# log.
+#
+# Two smoke styles, both supported (use either or both):
+#   (a) ldd-based install-check via RUNTIME_SMOKE_CMD -- the bare,
+#       dependency-free default; proves the real runtime resolves every
+#       shared library its binaries need (see #430 / the ros1_bridge#123
+#       false-green trap in the header).
+#   (b) Bats smoke against the real runtime -- COPY Bats in from
+#       test-tools-stage (exactly as devel-test does) and run a
+#       runtime-specific .bats suite. Lets the runtime image assert real
+#       behaviour (entrypoint, installed CLIs, library resolution) with
+#       the same harness devel-test uses, while still running INSIDE the
+#       genuine minimal runtime.
+#
+# Flavour-specific runtime test tooling (e.g. ROS colcon test / ament_*
+# / launch_testing) is the consumer's own job: `apt-get install` it in
+# THIS stage on top of the COPYed common toolchain. base ships only the
+# common toolchain, not a ROS-flavoured test image (#647 scope).
+#
+# NOTE (build-worker prerequisite, #647): the moment runtime-test does
+# `COPY --from=test-tools-stage`, the test-tools image enters
+# runtime-test's build graph, so its build must receive the pinned
+# `TEST_TOOLS_IMAGE` build-arg too (not just devel-test). build-worker's
+# "Build runtime-test stage" step forwards it; a local `./build.sh`
+# falls back to the `test-tools:local` default.
 #
 # Default smoke command is generic install-check (USER set + bash on
 # PATH). Override per repo via `build_args: RUNTIME_SMOKE_CMD=<command>`
@@ -406,7 +455,8 @@ RUN bats /smoke_test/
 #
 # FROM runtime AS runtime-test
 #
-# # #430: default smoke check now includes an ldd-based missing-dep scan
+# # Style (a) -- ldd-based install-check (default, no toolchain needed).
+# # #430: default smoke check includes an ldd-based missing-dep scan
 # # via runtime/smoke.sh (catches missing .so installs that the old
 # # 'whoami && bash --version' default silently passed -- e.g.
 # # libboost_regex.so absent in ros1_bridge#123).
@@ -415,3 +465,33 @@ RUN bats /smoke_test/
 # # Inherit USER from runtime (non-root). install-check doesn't need
 # # privilege; if downstream override needs root, prefix with sudo.
 # RUN bash -c "${RUNTIME_SMOKE_CMD}"
+#
+# # Style (b) -- Bats smoke against the real runtime (opt-in). Same
+# # generalized pattern as devel-test: COPY Bats in from the pre-built
+# # test-tools image (NO re-download / re-install -- the cached
+# # multi-arch image devel-test already uses), then run a
+# # runtime-specific suite INSIDE the genuine minimal runtime. Requires
+# # the TEST_TOOLS_IMAGE build-arg to reach this stage's build (see the
+# # build-worker prerequisite note above).
+# #
+# # Stay non-root (inherit from runtime, so hadolint DL3002 is happy and
+# # the smoke runs as the real user). `COPY --from` already runs as root
+# # regardless of the current USER; the few writes into system paths use
+# # the runtime image's passwordless sudo rather than a `USER root`
+# # switch (which would have to be undone before the final RUN).
+# COPY --from=test-tools-stage /opt/bats /opt/bats
+# COPY --from=test-tools-stage /usr/lib/bats /usr/lib/bats
+# RUN sudo ln -sf /opt/bats/bin/bats /usr/local/bin/bats
+# ENV BATS_LIB_PATH="/usr/lib/bats"
+# # Runtime-specific bats suite (e.g. assert installed CLIs resolve,
+# # entrypoint exits 0 on --help, ldd clean). Keep it CLI-only -- no GUI
+# # binaries that init QApplication / OGRE.
+# COPY test/smoke/ /smoke_test/
+# # Flavour-specific runtime test deps are the consumer's job -- install
+# # them HERE on top of the common toolchain, e.g. for ROS:
+# #   RUN sudo apt-get update && \
+# #       sudo apt-get install -y --no-install-recommends \
+# #           python3-colcon-common-extensions \
+# #           && \
+# #       sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+# RUN bats /smoke_test/

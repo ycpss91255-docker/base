@@ -519,6 +519,7 @@ jobs:
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
