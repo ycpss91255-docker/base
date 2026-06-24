@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1901 tests** total (1816 unit + 85 integration).
+Template self-tests: **1904 tests** total (1819 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1120,7 +1120,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (145)
+### test/unit/template_spec.bats (148)
 
 | Test | Description |
 |------|-------------|
@@ -1228,9 +1228,12 @@ the host file content and the inherited stdout (preserving
 | `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
 | `build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs` | build-arg wiring |
+| `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
+| `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
+| `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example declares ENV TZ (matches downstream fleet, #210)` | runtime $TZ alignment |
 | `Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)` | runtime $LANGUAGE alignment |
 | `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |

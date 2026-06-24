@@ -1042,14 +1042,64 @@ EOF
 @test "Dockerfile.example test stage copies from test-tools-stage, not test-tools:local" {
   local _df="/source/downstream/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  # All COPY --from referring to the test-tools image must now use the
-  # named stage alias.
-  run grep -c 'COPY --from=test-tools-stage' "${_df}"
-  # 4 copies expected: shellcheck, hadolint, /opt/bats, /usr/lib/bats
+  # All ACTIVE COPY --from referring to the test-tools image must use
+  # the named stage alias. Count only uncommented lines -- #647 added a
+  # commented-out runtime-test Bats COPY example (style (b)) which would
+  # otherwise inflate the count.
+  run grep -cE '^COPY --from=test-tools-stage' "${_df}"
+  # 4 active copies expected (all in devel-test): shellcheck, hadolint,
+  # /opt/bats, /usr/lib/bats.
   assert_output "4"
   # Legacy tag reference must be gone:
   run grep -c 'COPY --from=test-tools:local' "${_df}"
   assert_output "0"
+}
+
+# ── #647: generalized -test toolchain pattern ────────────────────────
+
+@test "Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)" {
+  local _df="/source/downstream/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The generalized rule (#647): runtime-test gains an opt-in Bats smoke
+  # via the SAME COPY --from=test-tools-stage devel-test uses, staying
+  # FROM runtime. The example must be commented (leading '# ') so it
+  # doesn't activate in repos that haven't opted in.
+  run grep -E '^# COPY --from=test-tools-stage /opt/bats /opt/bats$' "${_df}"
+  assert_success
+  run grep -E '^# COPY --from=test-tools-stage /usr/lib/bats /usr/lib/bats$' "${_df}"
+  assert_success
+  # Anti-pattern guard: NO -test stage may be FROM ${TEST_TOOLS_IMAGE};
+  # only the test-tools-stage alias itself is (one line).
+  run grep -cE '^FROM \$\{TEST_TOOLS_IMAGE\}' "${_df}"
+  assert_output "1"
+}
+
+@test "Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)" {
+  local _df="/source/downstream/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The header must state the generalized rule and the anti-pattern.
+  run grep -F 'Do NOT' "${_df}"
+  assert_success
+  run grep -F 'make any `-test` stage `FROM ${TEST_TOOLS_IMAGE}`' "${_df}"
+  assert_success
+  # -test stages may be heavier than shipped stages (never reach users).
+  run grep -F 'never reach users' "${_df}"
+  assert_success
+  # Flavour tooling is the consumer's responsibility, not a base image.
+  run grep -F "CONSUMER's responsibility" "${_df}"
+  assert_success
+}
+
+@test "build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)" {
+  # When runtime-test does COPY --from=test-tools-stage, test-tools
+  # enters its build graph, so its build must receive the pinned
+  # TEST_TOOLS_IMAGE just like devel-test (else FROM ${TEST_TOOLS_IMAGE}
+  # falls back to test-tools:local and CI fails with pull-access-denied).
+  local _wf="/source/.github/workflows/build-worker.yaml"
+  [[ -f "${_wf}" ]] || skip "build-worker.yaml not present in /source"
+  # Two forwards expected: devel-test and runtime-test build steps.
+  run grep -cE '^            TEST_TOOLS_IMAGE=ghcr\.io/ycpss91255-docker/test-tools:\$\{\{ inputs\.test_tools_version \}\}$' "${_wf}"
+  assert_output "2"
 }
 
 # ════════════════════════════════════════════════════════════════════
