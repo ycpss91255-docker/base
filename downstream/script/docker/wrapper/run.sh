@@ -349,11 +349,12 @@ main() {
   # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
   _wrapper_lang_prepass run "$@"
 
-  # RUN_SETUP is set here but consumed by _wrapper_setup_sync (lib/wrapper.sh,
-  # #565): the consumer devel-test stage shellchecks each wrapper without -x,
-  # so in isolation it looks unused -- suppress SC2034 at the source.
-  # shellcheck disable=SC2034
-  local RUN_SETUP=false
+  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh, #565).
+  # To the consumer devel-test stage's per-file `shellcheck -S warning` (no -x)
+  # it looks unused; mark it exported (local -x) so shellcheck treats it as
+  # used-externally (silences SC2034 across versions / assignment sites), while
+  # the in-process sourced runtime still reads it.
+  local -x RUN_SETUP=false
   local DETACH=false
   local NO_RM=false
   local PRE_BUILD=false
