@@ -69,6 +69,18 @@ setup() {
   assert_success
 }
 
+@test "base module declares init + completions recipes (#653, ADR-00000011)" {
+  local _base=/source/downstream/script/base/justfile.base
+  run grep -E '^init ' "${_base}"
+  assert_success
+  run grep -E '^completions ' "${_base}"
+  assert_success
+  run grep -F './.base/init.sh {{args}}' "${_base}"
+  assert_success
+  run grep -F 'script/base/completions.sh {{args}}' "${_base}"
+  assert_success
+}
+
 @test "entry mods the base namespace (#652, ADR-00000011)" {
   run grep -F "mod? base 'script/base/justfile.base'" "${ENTRY}"
   assert_success
