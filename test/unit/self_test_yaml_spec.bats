@@ -507,7 +507,7 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: bats-unit declares strategy.matrix.shard with 1/2 + 2/2 + fail-fast: false (#377)" {
+@test "self-test.yaml: bats-unit declares strategy.matrix.shard with 1/4..4/4 + fail-fast: false (#377)" {
   # Default N=2 per the issue body. Each shard runs in parallel; the
   # matrix rollup propagates to needs.bats-unit.result. fail-fast: false
   # so a shard 1 failure doesn't cancel shard 2 (the maintainer wants
@@ -515,7 +515,7 @@ setup() {
   run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'fail-fast: false'
-  assert_output --partial "shard: ['1/2', '2/2']"
+  assert_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
 }
 
 @test "self-test.yaml: bats-unit invokes test.sh --bats-unit-shard \${{ matrix.shard }} (#377)" {
