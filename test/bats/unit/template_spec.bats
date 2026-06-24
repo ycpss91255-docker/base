@@ -1249,7 +1249,7 @@ EOF
   # The rationale must explain why entrypoint (PID 1) and bashrc
   # (interactive) are complementary, both needed -- so a future edit
   # doesn't collapse the runtime gap into a wrong "fix the entrypoint".
-  run grep -F 'Interactive-shell env source for `docker exec` (#657)' "${_df}"
+  run grep -F 'Interactive-shell env source for `docker exec`' "${_df}"
   assert_success
 }
 

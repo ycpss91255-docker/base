@@ -160,7 +160,7 @@ ARG CONFIG_SRC="config"
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Host-side log tee helper. Source from
 # script/entrypoint.sh with a single un-guarded line:
-#   /usr/local/lib/base/logging.sh
+#   . /usr/local/lib/base/logging.sh
 # The helper is a no-op when LOG_FILE_PATH is unset, so the source
 # line is safe to add unconditionally -- repos that haven't opted
 # into [logging] local_path stay unaffected. In-image path (vs the

@@ -40,7 +40,7 @@
 #   #!/usr/bin/env bash
 #   set -euo pipefail
 #   # shellcheck source=/dev/null
-#   /usr/local/lib/base/logging.sh
+#   . /usr/local/lib/base/logging.sh
 #   exec "$@"
 #
 # Why the in-image path (supersedes the PR example that
