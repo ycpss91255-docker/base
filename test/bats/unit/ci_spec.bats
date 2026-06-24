@@ -507,3 +507,66 @@ teardown() {
   assert_output --partial "test/bats/integration/"
   assert_output --partial "-f cap_add"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Dispatcher + per-tool driver structure (#650, ADR-00000011 #5)
+#
+# test.sh is the dispatcher; the per-tool execution lives in sourced
+# driver libraries under script/test/drivers/. These guards pin the
+# split so a future refactor can't silently re-inline a tool or drop a
+# `source` line.
+# ════════════════════════════════════════════════════════════════════
+
+@test "drivers: bats.sh and shellcheck.sh driver files exist" {
+  assert [ -f /source/script/test/drivers/bats.sh ]
+  assert [ -f /source/script/test/drivers/shellcheck.sh ]
+}
+
+@test "drivers: test.sh sources both per-tool drivers" {
+  run grep -F 'source "${SCRIPT_DIR}/drivers/shellcheck.sh"' /source/script/test/test.sh
+  assert_success
+  run grep -F 'source "${SCRIPT_DIR}/drivers/bats.sh"' /source/script/test/test.sh
+  assert_success
+}
+
+@test "drivers: the bats runners live in drivers/bats.sh, not test.sh" {
+  # Each runner must be defined once (in the driver), and NOT re-inlined
+  # back into the dispatcher.
+  local _fn
+  for _fn in _run_unit_tests _run_integration_tests _run_unit_shard \
+             _run_bats_path _run_behavioural _run_coverage \
+             _bats_args_with_label; do
+    run grep -E "^${_fn}\(\) \{" /source/script/test/drivers/bats.sh
+    assert_success
+    run grep -E "^${_fn}\(\) \{" /source/script/test/test.sh
+    assert_failure
+  done
+}
+
+@test "drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh" {
+  run grep -E '^_run_shellcheck\(\) \{' /source/script/test/drivers/shellcheck.sh
+  assert_success
+  run grep -E '^_run_shellcheck\(\) \{' /source/script/test/test.sh
+  assert_failure
+}
+
+@test "drivers: are sourced libraries (no top-level main invocation)" {
+  run grep -E '^main "\$@"' /source/script/test/drivers/bats.sh
+  assert_failure
+  run grep -E '^main "\$@"' /source/script/test/drivers/shellcheck.sh
+  assert_failure
+}
+
+@test "drivers: _run_shellcheck also lints the driver files themselves" {
+  local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
+  mock_cmd "shellcheck" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_shellcheck
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "script/test/drivers"
+}
