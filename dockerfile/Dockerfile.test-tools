@@ -72,7 +72,7 @@ RUN apk add --no-cache curl xz && \
 # available) as success. `just` is the single runner (the Makefile / make
 # are retired), so install it explicitly — alpine provides no `just`.
 # docker-cli + docker-cli-buildx (#249): the behavioural test suite
-# (test/behavioural/*.bats) drives `docker buildx build --target
+# (test/bats/behavioural/*.bats) drives `docker buildx build --target
 # runtime-test ...` against synthesized fixtures to assert the runtime
 # smoke gate actually gates. Only active when the ci-behavioural
 # compose service is invoked (it mounts the host docker.sock); the

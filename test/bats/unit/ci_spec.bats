@@ -384,14 +384,14 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/unit/ci_spec.bats
+    main --bats-path test/bats/unit/ci_spec.bats
   '
   assert_success
 
   run cat "${_log}"
   assert_success
   assert_output --partial " ci"
-  assert_output --partial "BATS_FILE=test/unit/ci_spec.bats"
+  assert_output --partial "BATS_FILE=test/bats/unit/ci_spec.bats"
   assert_output --partial "BATS_ONLY=1"
   refute_output --partial "COVERAGE=1"
 }
@@ -406,11 +406,11 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/unit/
+    main --bats-path test/bats/unit/
   '
   assert_success
   run cat "${_log}"
-  assert_output --partial "BATS_FILE=test/unit/"
+  assert_output --partial "BATS_FILE=test/bats/unit/"
 }
 
 @test "main --bats-path: non-existent path dies with ci_bats_path_not_found" {
@@ -420,21 +420,21 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/unit/does_not_exist_spec.bats
+    main --bats-path test/bats/unit/does_not_exist_spec.bats
   '
   assert_failure
   assert_output --partial "No such spec file or directory"
   refute_output --partial "docker should not be called"
 }
 
-@test "main --bats-path: test/behavioural/ path dies with a clear hint" {
+@test "main --bats-path: test/bats/behavioural/ path dies with a clear hint" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/behavioural/runtime_test_smoke_spec.bats
+    main --bats-path test/bats/behavioural/runtime_test_smoke_spec.bats
   '
   assert_failure
   assert_output --partial "ci-behavioural"
@@ -448,7 +448,7 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/unit/ci_spec.bats --coverage
+    main --bats-path test/bats/unit/ci_spec.bats --coverage
   '
   assert_failure
   assert_output --partial "cannot combine with --coverage"
@@ -482,11 +482,11 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    BATS_FILE="test/unit/ci_spec.bats" BATS_FILTER="shard" _run_bats_path
+    BATS_FILE="test/bats/unit/ci_spec.bats" BATS_FILTER="shard" _run_bats_path
   '
   assert_success
   run cat "${_log}"
-  assert_output --partial "test/unit/ci_spec.bats"
+  assert_output --partial "test/bats/unit/ci_spec.bats"
   assert_output --partial "-f shard"
 }
 
@@ -503,7 +503,7 @@ teardown() {
   '
   assert_success
   run cat "${_log}"
-  assert_output --partial "test/unit/"
-  assert_output --partial "test/integration/"
+  assert_output --partial "test/bats/unit/"
+  assert_output --partial "test/bats/integration/"
   assert_output --partial "-f cap_add"
 }

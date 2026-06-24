@@ -98,7 +98,7 @@ declare -ga SCHEMA_SECTIONS=(
 # in setup_tui.sh's per-locale _TUI_MSG_* tables). This is the missing
 # link #562 lacked: it makes "every key has a translation in all four
 # locales (en / zh-TW / zh-CN / ja)" mechanically assertable from the
-# registry (see test/unit/schema_coverage_spec.bats).
+# registry (see test/bats/unit/schema_coverage_spec.bats).
 #
 # Keying mirrors SCHEMA_VALIDATOR exactly (scalar "<section>.<key>", list
 # "<section>.<prefix>_"). For scalar keys the value is the editor's
