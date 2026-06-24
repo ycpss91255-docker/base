@@ -23,10 +23,11 @@ set working-directory := '../..'
 default:
     ./script/test/test.sh
 
-# just test lint -> all linters (ShellCheck + Hadolint) via the test-tools
-# container (hadolint has no host binary; the alpine ci image bakes it in).
-# Narrow with `just test lint --shellcheck` / `just test lint --hadolint`
-# (ADR-00000011 #3 min->max). `--shellcheck` runs in-container too so the
+# just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
+# lint) via the test-tools container (hadolint has no host binary; the
+# alpine ci image bakes it in). Narrow with `just test lint --shellcheck`
+# / `just test lint --hadolint` / `just test lint --issueref`
+# (ADR-00000011 sec.3 min->max). `--shellcheck` runs in-container too so the
 # behaviour matches the bare `lint`; the dedicated GHA shellcheck job uses
 # the host-only `test.sh --shellcheck-only` path instead.
 lint *args:

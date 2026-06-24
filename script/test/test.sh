@@ -70,6 +70,8 @@ source "${SCRIPT_DIR}/drivers/shellcheck.sh"
 source "${SCRIPT_DIR}/drivers/hadolint.sh"
 # shellcheck source=script/test/drivers/bats.sh
 source "${SCRIPT_DIR}/drivers/bats.sh"
+# shellcheck source=script/test/drivers/issueref.sh
+source "${SCRIPT_DIR}/drivers/issueref.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +93,8 @@ Options:
                           Narrow with --shellcheck / --hadolint (#650)
   --shellcheck            With --lint: run only ShellCheck (still via compose)
   --hadolint              With --lint: run only Hadolint (still via compose)
+  --issueref              With --lint: run only the issue-ref comment lint
+                          (no transient #NNN in code comments; ADR-00000013)
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -271,6 +275,7 @@ main() {
       --lint) lint=1; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
+      --issueref) lint_tool="issueref"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -379,8 +384,9 @@ main() {
         case "${LINT_TOOL:-}" in
           shellcheck) _run_shellcheck ;;
           hadolint)   _run_hadolint ;;
-          "")         _run_shellcheck; _run_hadolint ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | empty)." ;;
+          issueref)   _run_issueref ;;
+          "")         _run_shellcheck; _run_hadolint; _run_issueref ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | empty)." ;;
         esac
         return 0
       fi
@@ -397,6 +403,7 @@ main() {
       if [[ "${BATS_ONLY:-0}" != "1" && "${COVERAGE:-0}" != "1" ]]; then
         _run_shellcheck
         _run_hadolint
+        _run_issueref
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD (#615) narrows kcov to one matrix slice; empty =
