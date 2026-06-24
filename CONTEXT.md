@@ -144,8 +144,9 @@ _Avoid_: compose generator (that is the whole `generate_compose_yaml`).
 
 **Dockerfile-migration list**:
 The declarative ordered `{detect, transform}` migration table in
-`lib/dockerfile_migrate.sh` that `upgrade.sh` iterates to heal downstream
-Dockerfiles, replacing the ad-hoc Step-5 seds (#567, planned).
+`lib/dockerfile_migrate.sh` that `upgrade.sh` Step 5 iterates (via the
+`apply_migrations` dispatcher) to heal downstream Dockerfiles + entrypoints,
+replacing the ad-hoc Step-5 seds (#567, folds #579 facet B).
 _Avoid_: upgrade seds, Dockerfile patcher.
 
 ## Relationships

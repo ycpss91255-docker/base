@@ -337,57 +337,25 @@ _upgrade() {
     git add "${main_yaml}"
   fi
 
-  # Step 5: patch downstream Dockerfile lint stage for the #284 lib/ split
-  # (closes #348). The split lives inside the subtree
-  # (`.base/downstream/script/docker/lib/{log,env,conf,compose,config_summary,gitignore}.sh`)
-  # and propagates via subtree pull, but the downstream Dockerfile's
-  # `COPY .base/script/docker/*.sh /lint/` only copies the umbrella loaders —
-  # not the lib/ subdirectory the umbrella source-chains into. Every
-  # post-#284 fanout has tripped the same `/lint/lib/log.sh: No such file
-  # or directory` failure on 12 of 13 downstream repos until manually
-  # patched. This step auto-heals each downstream Dockerfile on first
-  # upgrade so the next fanout is clean.
-  _log "Step 5/5: patch Dockerfile lint stage for lib/ split (#284 / #348)"
+  # Step 5: heal downstream Dockerfile / entrypoint drift via the declarative
+  # migration list (#567, folds #579 facet B). Each base contract change used
+  # to grow another one-off sed here (the #348 lib-copy split, the #399
+  # wrapper-copy move); they have all moved into lib/dockerfile_migrate.sh as
+  # an ordered, data-driven {detect, transform} table. upgrade.sh now just
+  # sources the lib and calls the dispatcher: each migration auto-applies
+  # (idempotently) where its shape is detected and SKIPs (warn, never
+  # force-rewrite) where structure is missing or ambiguous. Adding the next
+  # fanout breakage is a new {detect, transform} pair in the lib, not another
+  # branch here.
+  _log "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
   local _dockerfile="${REPO_ROOT}/Dockerfile"
-  if [[ ! -f "${_dockerfile}" ]]; then
-    _log "  no Dockerfile at repo root — skip"
-  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/downstream/script/docker/lib[[:space:]/]' "${_dockerfile}"; then
-    _log "  Dockerfile already copies .base/downstream/script/docker/lib — skip (idempotent)"
-  elif ! grep -qE '^RUN shellcheck -S warning /lint/\*\.sh$' "${_dockerfile}"; then
-    # Custom Dockerfile shape (no stock /lint/*.sh shellcheck anchor) —
-    # do not force-patch. The user can adopt the COPY + extended shellcheck
-    # invocation manually, or upgrade.sh will re-detect on the next run
-    # once they normalize.
-    _log "  Dockerfile lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor — skip (custom shape)"
-  else
-    # Insert COPY before the shellcheck anchor and extend the shellcheck
-    # invocation to also cover /lint/lib/*.sh.
-    sed -i '/^RUN shellcheck -S warning \/lint\/\*\.sh$/i COPY .base/downstream/script/docker/lib /lint/lib' "${_dockerfile}"
-    sed -i 's|^RUN shellcheck -S warning /lint/\*\.sh$|RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh|' "${_dockerfile}"
-    git add "${_dockerfile}"
-    _log "  Dockerfile patched: COPY .base/downstream/script/docker/lib /lint/lib + shellcheck extended"
-  fi
-
-  # Patch downstream Dockerfile for the #330 wrapper consolidation
-  # (closes #399). v0.31.0+ moves user-facing wrappers from the repo
-  # root into a script/ subfolder. init.sh (Step 3 above) migrates the
-  # symlinks, but the Dockerfile's `COPY *.sh /lint/` directive is
-  # still anchored at root — which is now empty, so the COPY grabs zero
-  # files and the smoke tests that depend on `/lint/build.sh` etc. all
-  # fail. This step auto-heals by rewriting the COPY to
-  # `COPY script/*.sh /lint/`. Idempotent: already-patched → skip.
-  # Modelled on the Step 5 / #348 precedent above.
-  if [[ ! -f "${_dockerfile}" ]]; then
-    _log "  no Dockerfile at repo root — skip (#399 wrapper-copy patch)"
-  elif grep -qE '^[[:space:]]*COPY[[:space:]]+script/\*\.sh[[:space:]]+/lint/?[[:space:]]*$' "${_dockerfile}"; then
-    _log "  Dockerfile already uses COPY script/*.sh /lint/ — skip (#399 idempotent)"
-  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
-    sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY script/*.sh /lint/|' "${_dockerfile}"
-    git add "${_dockerfile}"
-    _log "  Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
-  else
-    _log "  Dockerfile has no COPY *.sh /lint/ line — skip (#399)"
-  fi
+  # shellcheck disable=SC1091
+  source "${SUBTREE_ROOT}/downstream/script/docker/lib/dockerfile_migrate.sh"
+  apply_migrations "${_dockerfile}"
+  # Stage any files the migrations rewrote (Dockerfile + the sibling
+  # entrypoint, when present) so they land in the same commit below.
+  [[ -f "${_dockerfile}" ]] && git add "${_dockerfile}"
+  [[ -f "${REPO_ROOT}/script/entrypoint.sh" ]] && git add "${REPO_ROOT}/script/entrypoint.sh"
 
   # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
   # and `git rm --cached`-ed any tracked-but-now-derived artifacts

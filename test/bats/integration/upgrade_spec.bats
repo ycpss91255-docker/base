@@ -123,158 +123,83 @@ YAML
   [ "$(cat README.md)" = "DOWNSTREAM" ]
 }
 
-@test "upgrade.sh patches Dockerfile lint stage when missing COPY .base/downstream/script/docker/lib /lint/lib (#348)" {
+# ── Step 5: declarative Dockerfile/entrypoint migrations (#567 / #579) ───────
+# upgrade.sh Step 5 sources lib/dockerfile_migrate.sh and runs the
+# apply_migrations dispatcher over the repo-root Dockerfile (and its sibling
+# script/entrypoint.sh). These drive the real upgrade.sh end-to-end against
+# the fake remote, confirming the migrations run, stage their changes, and
+# stay idempotent.
+
+@test "upgrade.sh Step 5 announces the migration pass (#567)" {
+  cd "${DOWN_DIR}"
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
+}
+
+@test "upgrade.sh heals a legacy wrapper-COPY Dockerfile via the migration list (#567 m1)" {
   cd "${DOWN_DIR}"
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
+COPY *.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   git add Dockerfile
-  git commit -q -m "add Dockerfile"
+  git commit -q -m "add Dockerfile (legacy wrapper COPY)"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
-  assert_output --partial "Dockerfile patched"
-
-  grep -Fq "COPY .base/downstream/script/docker/lib /lint/lib" Dockerfile
-  grep -Fq "RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh" Dockerfile
+  grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" Dockerfile
+  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
+  # The rewritten Dockerfile is staged into the upgrade's commit.
+  git diff --cached --quiet
 }
 
-@test "upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)" {
+@test "upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)" {
   cd "${DOWN_DIR}"
-  cat > Dockerfile <<'EOF'
-FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
-COPY .base/downstream/script/docker/lib /lint/lib
-RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+  : > Dockerfile  # presence-only; the dispatcher runs against the entrypoint
+  mkdir -p script
+  cat > script/entrypoint.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "$@"
 EOF
-  git add Dockerfile
-  git commit -q -m "add Dockerfile (already patched)"
+  git add Dockerfile script/entrypoint.sh
+  git commit -q -m "add Dockerfile + nounset-unsafe entrypoint"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
-  assert_output --partial "already copies .base/downstream/script/docker/lib"
-  refute_output --partial "Dockerfile patched"
-
-  # Single COPY line, no duplicate insertion.
-  [ "$(grep -c 'COPY .base/downstream/script/docker/lib /lint/lib' Dockerfile)" = "1" ]
+  grep -Fxq "set +u" script/entrypoint.sh
+  grep -Fxq "set -u" script/entrypoint.sh
 }
 
-@test "upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)" {
-  cd "${DOWN_DIR}"
-  cat > Dockerfile <<'EOF'
-FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
-RUN echo "custom Dockerfile lint setup"
-EOF
-  git add Dockerfile
-  git commit -q -m "add custom Dockerfile"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
-  assert_success
-  assert_output --partial "lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor"
-  refute_output --partial "Dockerfile patched"
-
-  ! grep -q "COPY .base/downstream/script/docker/lib /lint/lib" Dockerfile
-}
-
-@test "upgrade.sh continues cleanly when no Dockerfile at repo root (#348)" {
+@test "upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)" {
   cd "${DOWN_DIR}"
   # Default _seed_downstream_repo fixture leaves no Dockerfile at root —
-  # exercise the early-return branch.
+  # exercise the dispatcher's no-Dockerfile skip branch.
   [ ! -f Dockerfile ]
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
-  assert_output --partial "no Dockerfile at repo root"
+  assert_output --partial "no Dockerfile"
 }
 
-# ── #399: auto-patch COPY *.sh /lint/ → COPY script/*.sh /lint/ ────────
-# Sibling of the #348 tests above. v0.31.0+ moves wrappers from root to
-# script/; init.sh migrates symlinks but the Dockerfile's COPY is
-# user-owned. upgrade.sh now self-heals it.
-
-@test "upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)" {
-  cd "${DOWN_DIR}"
-  mkdir -p script
-  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
-  cat > Dockerfile <<'EOF'
-FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
-COPY .base/downstream/script/docker/lib /lint/lib
-COPY *.sh /lint/
-RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
-EOF
-  git add Dockerfile script/
-  git commit -q -m "add Dockerfile (pre-#330 COPY *.sh)"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
-  assert_success
-  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
-
-  grep -Fq "COPY script/*.sh /lint/" Dockerfile
-  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
-}
-
-@test "upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)" {
-  cd "${DOWN_DIR}"
-  mkdir -p script
-  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
-  cat > Dockerfile <<'EOF'
-FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
-COPY .base/downstream/script/docker/lib /lint/lib
-COPY script/*.sh /lint/
-RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
-EOF
-  git add Dockerfile script/
-  git commit -q -m "add Dockerfile (already post-#330)"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
-  assert_success
-  assert_output --partial "skip (#399 idempotent)"
-  refute_output --partial "Dockerfile patched"
-
-  [ "$(grep -c 'COPY script/\*\.sh /lint/' Dockerfile)" = "1" ]
-}
-
-@test "upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)" {
-  cd "${DOWN_DIR}"
-  mkdir -p script
-  ln -sf ../.base/downstream/script/docker/wrapper/build.sh script/build.sh
-  cat > Dockerfile <<'EOF'
-FROM busybox AS lint
-COPY *.sh /lint/
-COPY script/*.sh /lint/script/
-COPY .base/downstream/script/docker/lib /lint/lib
-RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
-EOF
-  git add Dockerfile script/
-  git commit -q -m "add Dockerfile (stale root + script/ subdest)"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
-  assert_success
-  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
-
-  grep -qE '^COPY script/\*\.sh /lint/$' Dockerfile
-  grep -q 'COPY script/\*\.sh /lint/script/' Dockerfile
-}
-
-@test "upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line" {
+@test "upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)" {
   cd "${DOWN_DIR}"
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/wrapper/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   git add Dockerfile
-  git commit -q -m "add Dockerfile (no wrapper COPY)"
+  git commit -q -m "add Dockerfile (already migrated)"
+  cp Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.orig"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
-  assert_output --partial "has no COPY *.sh /lint/ line"
-  refute_output --partial "Dockerfile patched: COPY *.sh"
+  diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.orig"
 }
 
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
