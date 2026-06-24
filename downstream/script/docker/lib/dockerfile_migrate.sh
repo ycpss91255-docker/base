@@ -37,6 +37,14 @@ _DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED=1
 
 # ── Internal helpers ────────────────────────────────────────────────────────
 
+# _dfm_entrypoint_path <dockerfile>
+#   Resolve the conventional sibling entrypoint (script/entrypoint.sh) next
+#   to a repo-root Dockerfile. Echoes the path (whether or not it exists).
+_dfm_entrypoint_path() {
+  local _file="$1"
+  printf '%s/script/entrypoint.sh' "$(dirname -- "${_file}")"
+}
+
 # _dfm_join_copy_statements <file>
 #   Emit the file with backslash-continued lines folded into single logical
 #   lines, so a detect grep can reason about a whole COPY statement (multi-
@@ -198,7 +206,7 @@ _migrate_logging_rename_apply() {
   # Dockerfile sits at the repo root; the entrypoint is the conventional
   # script/entrypoint.sh.
   local _entry
-  _entry="$(dirname -- "${_file}")/script/entrypoint.sh"
+  _entry="$(_dfm_entrypoint_path "${_file}")"
   if [[ -f "${_entry}" ]] && grep -q '_entrypoint_logging\.sh' "${_entry}"; then
     sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_entry}"
     _log_info upgrade upgrade_started "display=  entrypoint patched: _entrypoint_logging.sh -> logging.sh source (#567 m4)"
@@ -282,6 +290,26 @@ _migrate_hadolint_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006 (#567 m5)"
 }
 
+# ── Migration 6: noetic entrypoint SC1090 directive ─────────────────────────
+#
+# The noetic sensor entrypoints `source "/opt/ros/${ROS_DISTRO}/setup.bash"`
+# with a stale `# shellcheck disable=SC1091` directive. The non-constant
+# path triggers SC1090 (not SC1091), so the slimmed v0.41.0 lint stage fails.
+# Broaden the directive to `SC1090,SC1091` on the sibling entrypoint.
+_migrate_sc1090_detect() {
+  local _entry
+  _entry="$(_dfm_entrypoint_path "$1")"
+  [[ -f "${_entry}" ]] || return 1
+  grep -Eq '^[[:space:]]*#[[:space:]]*shellcheck disable=SC1091[[:space:]]*$' "${_entry}"
+}
+
+_migrate_sc1090_apply() {
+  local _entry
+  _entry="$(_dfm_entrypoint_path "$1")"
+  sed -i -E 's|^([[:space:]]*#[[:space:]]*shellcheck disable=)SC1091([[:space:]]*)$|\1SC1090,SC1091\2|' "${_entry}"
+  _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -290,4 +318,5 @@ _MIGRATIONS=(
   explicit_copy
   logging_rename
   hadolint
+  sc1090
 )

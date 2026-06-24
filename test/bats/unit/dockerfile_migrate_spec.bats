@@ -323,3 +323,42 @@ EOF
   run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 6: noetic entrypoint SC1090 directive ─────────────────────────
+# The noetic sensor entrypoints `source "/opt/ros/${ROS_DISTRO}/setup.bash"`
+# with a stale `# shellcheck disable=SC1091` directive; the non-constant path
+# triggers SC1090 (not SC1091), failing the v0.41.0 lint stage. Broaden the
+# directive to SC1090,SC1091 on the sibling script/entrypoint.sh.
+
+@test "migration 6 (sc1090): broadens the entrypoint directive to SC1090,SC1091 (#567)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"  # presence-only; the dispatcher needs a Dockerfile to run
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq '# shellcheck disable=SC1090,SC1091' "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+@test "migration 6 (sc1090): idempotent when already SC1090,SC1091 (#567)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+EOF
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+@test "migration 6 (sc1090): detect false when no sibling entrypoint (#567)" {
+  : > "${DF}"
+  run bash -c "$(_src); _migrate_sc1090_detect '${DF}'"
+  assert_failure
+}
