@@ -175,57 +175,68 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### test/bats/unit/setup_spec.bats (371)
+### setup.sh unit specs (371, split by concern)
 
-Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
-(`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
-section merging (`_load_setup_conf` with replace strategy), image_name
-rule engine via `[image] rules`,
-resolvers (`_resolve_gpu`, `_resolve_gui`), workspace path detection,
-conf hash computation, drift detection, `write_env` (now including
-runtime values + SETUP_* metadata), the `main()` CLI, and workspace
-writeback (first-time bootstrap / user-edit respect / opt-out).
+The setup.sh unit suite was split from a single 371-test
+`setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
+#677) so the CI bats-unit + coverage round-robin — which shards BY FILE
+— can balance the per-shard floor. All five share one
+`setup_spec_helper.bash` (common `setup()` / `teardown()`); behaviour
+and total test count are unchanged.
 
-| Category | Tests |
-|----------|-------|
-| `detect_user_info` / `detect_hardware` / `detect_docker_hub_user` / `detect_gpu` / `detect_gui` | 11 |
-| `_is_ssh_x11` / `_setup_ssh_x11_cookie` (#321: 6 detection cases + cookie rewrite via stubbed xauth + warn on missing xauth + write_env XAUTHORITY override on/off) | 10 |
-| `_parse_ini_section` (section isolation, comments, trim, missing, dotted-section non-absorption, dotted section read, dup/reopened order) | 9 |
-| `_ini_tokenize` (per-entry owning section + header dedup, dotted keys verbatim) | 2 |
-| `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
-| `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
-| `_resolve_gpu` / `_resolve_gui` | 7 |
-| `detect_image_name` (template default, per-repo rules, @default, order) | 7 |
-| `detect_ws_path` (strategies 1/2/3 + missing base_path) | 5 |
-| `_reconcile_workspace_path` (#569: portable form, absolute-exists, stale-warn-rewrite, empty mount_1, first-time bootstrap) | 5 |
-| `_compute_conf_hash` | 2 |
-| `write_env` (all fields + SETUP_* metadata) | 1 |
-| `_check_setup_drift` (no-op, silent, conf drift, GPU drift) | 4 |
-| `main` (unknown arg, --base-path / --lang missing value) | 3 |
-| Subcommand dispatch (#49 Phase B-1: apply default / explicit, unknown subcmd, check-drift no-op / clean / drift / bad flag, end-to-end subprocess) | 9 |
-| Subcommand `set` / `show` / `list` (#49 Phase B-2: round-trip, validators reject gpu_count / mount / cgroup / env_kv / port, no .env regen, missing key/section, unknown section, list dump, end-to-end subprocess) | 22 |
-| Subcommand `add` / `remove` (#49 Phase B-3: empty-slot reuse, max+1 after gap, bootstrap on missing setup.conf, validator rejection, remove by key, remove by value, missing key, comment preservation, round-trip) | 17 |
-| Subcommand `reset` + BREAKING no-arg → help (#49 Phase B-4: --yes write, .bak archives, no .env regen, non-tty refusal, unknown flag, first-time bootstrap, no-arg prints help, legacy flag-only errors) | 8 |
-| `_msg` / `_detect_lang` i18n | 6 |
-| `[build]` apt_mirror (empty fallback, override) | 2 |
-| Workspace writeback (first-time, respect user edit, opt-out) | 3 |
-| Per-repo setup.conf missing / empty WARN (#150 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
-| Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
-| `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
-| Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/pid/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 28 |
-| `_validate_stage_name` (#215: format / baseline / reserved exit codes; #493: accepts devel-test as emittable) | 5 |
-| `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection; #493: devel-test promoted out of baseline) | 7 |
-| `_compute_dockerfile_hash` (#215: stable / add / remove / non-FROM-AS edits / missing) | 5 |
-| `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
-| Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
-| Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error; #493: `[stage:devel-test]` GPU control surface on the test service) | 8 |
-| #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
-| #328 `[logging]` CLI orphan fix (`_setup_known_section` recognises `logging` + `logging.<svc>`; rightmost-dot spec parsing for `logging.<svc>.<key>`; `set/show/remove` round-trip on global + per-service keys; validators surface as `Invalid value` errors; whole-section `show logging` lists all 4 keys; per-service editing reaches devel / test / runtime through CLI subcommands) | 9 |
-| #338 apply CLI flags (`--gui auto|force|off` per-invocation override via print-resolved diff vs setup.conf; `--gui=force` short-form; invalid `--gui bogus` rejected; `--print-resolved` dumps key=value without writing `.env` / `compose.yaml`; `--no-x11-cookie` sets `X11_COOKIE_SKIP=1` in the dump; default `X11_COOKIE_SKIP=0`; `SETUP_GUI` env var overrides setup.conf when no CLI flag; CLI `--gui` wins over `SETUP_GUI` env var) | 9 |
-| #502 A2 file roles (`apply` writes the `.env.generated` cache, scaffolds the `.env` workload overlay when absent, never overwrites an existing overlay, `_scaffold_env_overlay` idempotent, legacy `.env` cache migrated to `.env.generated` + backed up, devel service emits `env_file: - .env`) | 6 |
-| #503 `_generate_runtime_dockerfile` ENV-bake primitive (injects `ENV` after `FROM ... AS runtime`, expands cross-refs, returns 1 with no runtime stage / empty `[environment]`) | 4 |
-| #504 `config/app/` dev bind-mount (`apply` binds `./config/app:/opt/app/config` when the dir is present, omits it when absent) | 2 |
-| #561 `_setup_known_section` derives from `SCHEMA_SECTIONS` (recognises every registered section; a section registered only in `SCHEMA_SECTIONS` becomes known without a parallel edit) | 2 |
+#### test/bats/unit/setup_spec.bats (145)
+
+Core detection (user / hardware / docker / GPU / GUI), SSH X11
+forwarding (`_is_ssh_x11` / `_setup_ssh_x11_cookie`, #321), the INI
+parser (`_parse_ini_section` + shared core `_ini_tokenize`), setup.conf
+merging (`_load_setup_conf` replace strategy), `_get_conf_value` /
+`_get_conf_list_sorted`, resolvers (`_resolve_gpu` / `_resolve_gui` /
+`_resolve_runtime` / `_resolve_build_network`), `detect_image_name`
+rule engine, `detect_ws_path`, `_compute_conf_hash`, `write_env`,
+`_check_setup_drift`, the `main --lang` / error paths, plus the
+template-shipped defaults for `[lifecycle]` restart (#478), `[deploy]`
+`dri_groups` (#496) and `gpu_runtime` alias (#481),
+`[additional_contexts]` (#199), `[logging]` CLI (#328),
+`_setup_known_section` / `SCHEMA_SECTIONS` (#561), and `[security]`
+opt-in (#466).
+
+#### test/bats/unit/setup_subcommand_spec.bats (64)
+
+The git-style subcommand dispatcher and its mutating verbs (#49):
+dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
+`remove` (Phase B-3), and `reset` + BREAKING no-arg → help (Phase B-4)
+— round-trips, validators, no-`.env`-regen, comment preservation, and
+end-to-end subprocess cases.
+
+#### test/bats/unit/setup_emit_spec.bats (75)
+
+`apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
+workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
+`config/app/` dev bind-mount (#504), `_rule_basename` /
+`detect_image_name` sanitization, i18n (`_msg` / `_detect_lang`),
+`[build]` `arg_N`, `_get_conf_list_sorted` empty-skip, workspace
+writeback, `--quiet` confirmation lines (#285), `--gui` /
+`--no-x11-cookie` / `--print-resolved` apply flags (#338), `#450`
+propagation + duplicate-target guards, S7 `runtime.env` retirement
+(#507), and `_reconcile_workspace_path` (#569).
+
+#### test/bats/unit/setup_section_validate_spec.bats (29)
+
+Per-section setup.conf parameter end-to-end coverage (#202): one key per
+test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
+`[gui]`, `[network]`, `[resources]`, `[environment]`, `[tmpfs]`,
+`[devices]`, `[volumes] mount_2..N`, and `[security]` privileged, with
+companion negatives for cleared keys.
+
+#### test/bats/unit/setup_stage_override_spec.bats (58)
+
+The per-stage override engine: `_validate_stage_name` (#215),
+`_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main apply`
+auto-emit of non-baseline stages (#215), and per-stage overrides #220
+(`_parse_stage_sections` / `_load_stage_overrides` /
+`_validate_stage_override_key` / `_resolve_stage_scalar` /
+`_resolve_stage_list` + compose-emit integration, incl. #493
+`devel-test` override surface).
 
 ### test/bats/unit/tui_spec.bats (124)
 
