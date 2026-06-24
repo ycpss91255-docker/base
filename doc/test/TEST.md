@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1915 tests** total (1828 unit + 87 integration).
+Template self-tests: **1921 tests** total (1834 unit + 87 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1325,7 +1325,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (25)
+### test/bats/unit/ci_spec.bats (31)
 
 | Test | Description |
 |------|-------------|
@@ -1354,6 +1354,12 @@ the host file content and the inherited stdout (preserving
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
+| `drivers: bats.sh and shellcheck.sh driver files exist` | #650 driver files present |
+| `drivers: test.sh sources both per-tool drivers` | #650 dispatcher sources drivers |
+| `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
+| `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
+| `drivers: are sourced libraries (no top-level main invocation)` | #650 driver is a library |
+| `drivers: _run_shellcheck also lints the driver files themselves` | #650 driver self-shellcheck |
 
 ### test/bats/unit/init_spec.bats (35)
 

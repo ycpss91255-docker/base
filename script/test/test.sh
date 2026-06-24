@@ -47,6 +47,17 @@ export WRAPPER_TRANSCRIPT=false
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
 
+# Per-tool drivers. test.sh is the dispatcher (arg parsing, mode dispatch,
+# CI-container setup); the per-tool execution lives in sourced driver
+# libraries under drivers/. Each driver uses _log_* / _die from _lib.sh
+# (sourced above) and references the ${REPO_ROOT} global defined here, so
+# source order is: _lib.sh -> drivers. Adding a tool = a driver + a
+# test/<tool>/ folder; the dispatcher is untouched (#650, ADR-00000011).
+# shellcheck source=script/test/drivers/shellcheck.sh
+source "${SCRIPT_DIR}/drivers/shellcheck.sh"
+# shellcheck source=script/test/drivers/bats.sh
+source "${SCRIPT_DIR}/drivers/bats.sh"
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -155,170 +166,6 @@ _install_deps() {
     || _die ci_bats_mock_clone_failed "git clone bats-mock failed. Check network / GitHub access."
 }
 
-# ── ShellCheck ───────────────────────────────────────────────────────────────
-
-_run_shellcheck() {
-  echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/downstream/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
-
-  # local==CI parity (#565): the consumer Dockerfile devel-test stage lints
-  # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x,
-  # after COPYing them FLAT into /lint/{wrapper,lib} -- so cross-file
-  # source-following is gone. The -x passes above hide cross-file-only
-  # findings (e.g. SC2034 on a var set in a wrapper but read in
-  # lib/wrapper.sh), and even a no-x pass in the real tree resolves source=
-  # directives differently than the flat copy. Reproduce the EXACT consumer
-  # invocation -- flat layout + no -x -- so `just test` catches this class
-  # before the integration-e2e job / the downstream fanout does.
-  local _lintdir
-  _lintdir="$(mktemp -d)"
-  mkdir -p "${_lintdir}/wrapper" "${_lintdir}/lib"
-  cp "${REPO_ROOT}"/downstream/script/docker/wrapper/*.sh "${_lintdir}/wrapper/"
-  cp "${REPO_ROOT}"/downstream/script/docker/lib/*.sh "${_lintdir}/lib/"
-  shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
-  rm -rf "${_lintdir}"
-  shellcheck -x "${REPO_ROOT}/script/test/test.sh"
-  shellcheck -x "${REPO_ROOT}/init.sh"
-  shellcheck -x "${REPO_ROOT}/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
-  shellcheck -x "${REPO_ROOT}/downstream/config/shell/tmux/setup.sh"
-}
-
-# ── Bats tests ───────────────────────────────────────────────────────────────
-
-_bats_args_with_label() {
-  # Shared helper: populate the caller-supplied array name with the
-  # `--jobs N` argument when GNU parallel is available, and set the
-  # caller-supplied label var. Reused by every _run_*_tests function so
-  # parallelism + fallback messaging stay in one place. Inputs:
-  #   $1 = name of array var (e.g. _bats_args)
-  #   $2 = name of label string var (e.g. _label)
-  # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
-  # there's no shared filesystem state between tests — safe to run
-  # concurrently. When parallel is missing (earlier alpine test-tools
-  # images pre-#168), fall back to serial bats — slower but correct.
-  local -n _out_args="$1"
-  local -n _out_label="$2"
-  _out_args=()
-  if command -v parallel >/dev/null 2>&1; then
-    local _jobs
-    _jobs="$(nproc 2>/dev/null || echo 4)"
-    _out_args=(--jobs "${_jobs}")
-    _out_label="jobs=${_jobs}"
-  else
-    _out_label="serial; parallel not in PATH"
-  fi
-}
-
-_run_unit_tests() {
-  local -a _bats_args
-  local _label
-  _bats_args_with_label _bats_args _label
-  echo "--- Running Bats Unit Tests (${_label}) ---"
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/unit/"
-}
-
-_run_integration_tests() {
-  local -a _bats_args
-  local _label
-  _bats_args_with_label _bats_args _label
-  echo "--- Running Bats Integration Tests (${_label}) ---"
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/integration/"
-}
-
-_run_tests() {
-  # Wrapper retained for the full sequential dev-loop path (local
-  # `just test`). Kept so refactors are localised; the CI matrix shard
-  # jobs go through _run_unit_shard / _run_integration_tests directly.
-  _run_unit_tests
-  _run_integration_tests
-}
-
-_run_bats_path() {
-  # Single-path / filtered inner loop (#523). BATS_FILE (repo-root-relative
-  # file or directory) and / or BATS_FILTER (bats -f regex) are set by the
-  # outer `--bats-path` / `--filter` flags and plumbed in via
-  # `_run_via_compose`. With a path, run just that spec / subtree; with only
-  # a filter, apply -f across unit + integration. ShellCheck is skipped
-  # (BATS_ONLY=1) and kcov is off so the loop stays fast.
-  local -a _bats_args
-  local _label
-  _bats_args_with_label _bats_args _label
-  [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
-  if [[ -n "${BATS_FILE:-}" ]]; then
-    echo "--- Running Bats single path: ${BATS_FILE} (${_label}) ---"
-    bats "${_bats_args[@]}" "${REPO_ROOT}/${BATS_FILE}"
-  else
-    echo "--- Running Bats filtered unit + integration: -f '${BATS_FILTER}' (${_label}) ---"
-    bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/"
-  fi
-}
-
-_run_unit_shard() {
-  # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
-  # bats-unit matrix (#377). Spec accepts `<n>/<total>` where 1<=n<=total.
-  # Round-robin partition over `find ... | sort` so the mapping is stable
-  # across runs regardless of which files were added since the last
-  # matrix tuning. Issue #377 notes weight-by-test-count as a deferred
-  # follow-up; round-robin keeps each shard's count balanced enough at
-  # the current 30-ish unit spec scale.
-  local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
-  if [[ "${_spec}" != */* ]]; then
-    _die ci_invalid_shard "Invalid shard spec '${_spec}'. Expected <n>/<total> (e.g. 1/2)."
-  fi
-  local _shard="${_spec%/*}"
-  local _total="${_spec#*/}"
-  if ! [[ "${_shard}" =~ ^[0-9]+$ && "${_total}" =~ ^[0-9]+$ ]] \
-       || (( _shard < 1 || _shard > _total )); then
-    _die ci_invalid_shard "Invalid shard spec '${_spec}'. Need 1<=n<=total."
-  fi
-  local _files
-  _files=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name '*_spec.bats' -print \
-             | sort \
-             | awk -v s="${_shard}" -v t="${_total}" 'NR % t == (s - 1) % t')
-  if [[ -z "${_files}" ]]; then
-    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
-  fi
-  local -a _bats_args
-  local _label
-  _bats_args_with_label _bats_args _label
-  echo "--- Running Bats Unit Shard ${_spec} (${_label}) ---"
-  # Word-split intentional: print one line per shard file.
-  # shellcheck disable=SC2086
-  printf '  shard:%s\n' ${_files}
-  # Word-split intentional: bats accepts multiple file args.
-  # shellcheck disable=SC2086
-  bats "${_bats_args[@]}" ${_files}
-}
-
-# ── Kcov coverage ────────────────────────────────────────────────────────────
-
-_run_coverage() {
-  local _excludes=(
-    "${REPO_ROOT}/test/"
-    "${REPO_ROOT}/script/test/"
-    "${REPO_ROOT}/init.sh"
-    "${REPO_ROOT}/upgrade.sh"
-    "${REPO_ROOT}/downstream/config/shell/bashrc"
-    "${REPO_ROOT}/downstream/config/shell/terminator/config"
-    "${REPO_ROOT}/downstream/config/shell/tmux/tmux.conf"
-    "${REPO_ROOT}/.github/"
-  )
-  local _exclude_path
-  _exclude_path="$(IFS=,; printf '%s' "${_excludes[*]}")"
-
-  echo "--- Running Tests with Kcov Coverage ---"
-  kcov \
-    --include-path="${REPO_ROOT}" \
-    --exclude-path="${_exclude_path}" \
-    "${REPO_ROOT}/coverage" \
-    bats "${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/"
-}
-
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -359,53 +206,6 @@ _run_via_compose() {
     -e BATS_FILE="${BATS_FILE:-}" \
     -e BATS_FILTER="${BATS_FILTER:-}" \
     "${_service}"
-}
-
-# ── Behavioural runtime-test specs (#249) ────────────────────────────────────
-#
-# Opt-in path. Requires the ci-behavioural compose service (mounts host
-# /var/run/docker.sock + sets MOUNT_DOCKER_SOCK=1). Drives
-# `docker buildx build --target runtime-test` against synthesized
-# fixtures so the runtime smoke gate is actually exercised end-to-end,
-# not just static-grep asserted.
-
-readonly _BEHAVIOURAL_BUILDER="template-behavioural"
-
-_behavioural_setup() {
-  [[ -S /var/run/docker.sock ]] \
-    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'just test-behavioural' (ci-behavioural service)."
-  command -v docker >/dev/null 2>&1 \
-    || _die ci_no_docker_cli "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
-
-  # Dedicated buildx builder isolates the cache from the host's default
-  # context, so prune at the end only touches our cache (not the user's
-  # other docker work). `--use` switches active builder for this process.
-  if ! docker buildx inspect "${_BEHAVIOURAL_BUILDER}" >/dev/null 2>&1; then
-    docker buildx create --name "${_BEHAVIOURAL_BUILDER}" --driver docker-container --bootstrap >/dev/null
-  fi
-  docker buildx use "${_BEHAVIOURAL_BUILDER}"
-}
-
-_behavioural_teardown() {
-  # Prune only the dedicated builder's cache. Leaves the host's default
-  # context untouched so the user's other docker workflows aren't
-  # disturbed. `|| true` because builder may already be gone if
-  # something earlier aborted partway through.
-  docker buildx prune --builder "${_BEHAVIOURAL_BUILDER}" -af >/dev/null 2>&1 || true
-}
-
-_run_behavioural() {
-  _behavioural_setup
-  trap _behavioural_teardown EXIT
-
-  local -a _bats_args=()
-  local _jobs
-  _jobs="$(nproc 2>/dev/null || echo 1)"
-  if command -v parallel >/dev/null 2>&1; then
-    _bats_args=(--jobs "${_jobs}")
-  fi
-
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/behavioural/"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
