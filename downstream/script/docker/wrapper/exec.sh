@@ -23,6 +23,8 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[exec] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _lib.sh, so _msg / _wrapper_lang_prepass are in scope below.
 _bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
@@ -48,12 +50,7 @@ _msg_hints() {
   esac
 }
 
-# Dispatcher — keeps a single _msg call site shape across the script.
-_msg() {
-  local _category="${1:?_msg requires category}"
-  local _key="${2:?_msg requires key}"
-  "_msg_${_category}" "${_key}"
-}
+# _msg dispatcher provided by lib/wrapper.sh (#565).
 
 usage() {
   case "${_LANG}" in
@@ -223,18 +220,8 @@ EOF
 
 main() {
   _transcript_begin  # #608: capture orchestration; detach before exec
-  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
-  # runs in the requested locale even when --help is the first arg.
-  # See build.sh's main() for the full rationale (#222).
-  local _i
-  for (( _i=1; _i<=$#; _i++ )); do
-    if [[ "${!_i}" == "--lang" ]]; then
-      local _next=$((_i+1))
-      _LANG="${!_next:-}"
-      _sanitize_lang _LANG "exec"
-      break
-    fi
-  done
+  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _wrapper_lang_prepass exec "$@"
 
   local TARGET="devel"
   DRY_RUN=false

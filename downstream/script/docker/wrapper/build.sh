@@ -24,6 +24,9 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[build] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _lib.sh, so _msg / _wrapper_lang_prepass / _wrapper_setup_sync are in
+# scope below.
 _bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
@@ -61,12 +64,7 @@ _msg_errors() {
   esac
 }
 
-# Dispatcher — keeps a single _msg call site shape across the script.
-_msg() {
-  local _category="${1:?_msg requires category}"
-  local _key="${2:?_msg requires key}"
-  "_msg_${_category}" "${_key}"
-}
+# _msg dispatcher provided by lib/wrapper.sh (#565).
 
 usage() {
   case "${_LANG}" in
@@ -247,24 +245,17 @@ EOF
 
 main() {
   _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
-  # runs in the requested locale even when --help is the first arg.
-  # Issue #222 — without this, `build.sh --help --lang zh-TW` falls
-  # through usage() before the main loop reaches --lang and prints
-  # the default-locale usage. The main parse loop below stays
-  # unchanged so --lang's other side-effects (validation, error on
-  # missing value) still run on the canonical path.
-  local _i
-  for (( _i=1; _i<=$#; _i++ )); do
-    if [[ "${!_i}" == "--lang" ]]; then
-      local _next=$((_i+1))
-      _LANG="${!_next:-}"
-      _sanitize_lang _LANG "build"
-      break
-    fi
-  done
+  # #565: shared --lang pre-pass so usage() renders in the requested
+  # locale even when --help precedes --lang (#222). The main parse loop
+  # below still handles --lang itself on the canonical path.
+  _wrapper_lang_prepass build "$@"
 
-  local RUN_SETUP=false
+  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh, #565).
+  # To the consumer devel-test stage's per-file `shellcheck -S warning` (no -x)
+  # it looks unused; mark it exported (local -x) so shellcheck treats it as
+  # used-externally (silences SC2034 across versions / assignment sites), while
+  # the in-process sourced runtime still reads it.
+  local -x RUN_SETUP=false
   local RESET_CONF=false
   local ASSUME_YES=false
   local NO_CACHE=false
@@ -403,74 +394,11 @@ main() {
     RUN_SETUP=true
   fi
 
-  local _setup="${FILE_PATH}/.base/downstream/script/docker/wrapper/setup.sh"
-  local _tui="${FILE_PATH}/setup_tui.sh"
-
-  # _run_interactive: prefer setup_tui.sh when an interactive TTY is
-  # present and the symlink is executable; otherwise fall back to
-  # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
-  #
-  # #338: when the user passes --gui / --no-x11-cookie on build.sh,
-  # those flags are accumulated in SETUP_FORWARD_ARGS and threaded
-  # into the setup.sh apply invocation here. The TTY/TUI branch is
-  # skipped under SETUP_FORWARD_ARGS (per-invocation overrides
-  # short-circuit through CLI, not through TUI Save).
-  _run_interactive() {
-    if (( ${#SETUP_FORWARD_ARGS[@]} > 0 )); then
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
-        "${SETUP_FORWARD_ARGS[@]}"
-    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
-      "${_tui}" --lang "${_LANG}"
-    else
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-    fi
-  }
-
-  # Decide whether to run setup.sh / setup_tui.sh:
-  #   - --setup flag                         → interactive (TUI on TTY, else setup.sh)
-  #   - missing .env / setup.conf / compose.yaml → non-interactive bootstrap
-  #   - otherwise                            → drift-check only
-  #
-  # Bootstrap MUST stay non-interactive: compose.yaml is gitignored
-  # since v0.9.0, so every fresh clone hits the bootstrap path. If we
-  # dispatched through _run_interactive, a TTY user who cancelled the
-  # TUI (Esc / Ctrl+C) would end up with no .env and the next step
-  # would die inside _load_env with a cryptic "No such file" error.
-  # Direct setup.sh guarantees .env + compose.yaml are generated.
-  if [[ "${RUN_SETUP}" == true ]]; then
-    _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env.generated" ]] \
-      || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
-      || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info build build_bootstrap "display=$(_msg bootstrap info)"
-    "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-  else
-    # Drift-check path. When setup.conf / GPU / GUI / USER_UID changed
-    # since .env was last generated (e.g. after `git pull` or a manual
-    # edit) we regenerate .env + compose.yaml automatically — they are
-    # derived artifacts with no user-owned data to preserve, so
-    # re-running setup.sh is always safe and saves the user from having
-    # to remember `./build.sh --setup`.
-    #
-    # Subprocess invocation (instead of `source`) keeps setup.sh's
-    # internal helpers from leaking into build.sh's namespace. Closes
-    # the class of bug behind #101 — sourcing setup.sh used to shadow
-    # build.sh's _msg() and silently blank out drift_regen / err_no_env
-    # status lines.
-    if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info build build_drift_regen "display=$(_msg drift regen)"
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-    fi
-  fi
-
-  # Defensive: setup above should always produce .env. If it didn't
-  # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
-  # a useful error instead of letting _load_env fail on a missing file.
-  if [[ ! -f "${FILE_PATH}/.env.generated" ]]; then
-    _log_err  build build_no_env "display=$(_msg errors no_env)"
-    _log_info build build_rerun_setup "display=$(_msg errors rerun_setup)"
-    exit 1
-  fi
+  # #565: shared setup/drift orchestration (build + run). Decides
+  # bootstrap vs drift-regen vs interactive setup, runs setup.sh as a
+  # subprocess (avoids the #101 _msg shadow), and exits 1 if no .env was
+  # produced. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
+  _wrapper_setup_sync build
 
   # Load .env for project name
   _load_env "${FILE_PATH}/.env.generated"

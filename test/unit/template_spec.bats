@@ -139,13 +139,20 @@ setup() {
 # Path reference: scripts call .base/downstream/script/docker/wrapper/setup.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "build.sh references .base/downstream/script/docker/wrapper/setup.sh" {
-  run grep ".base/downstream/script/docker/wrapper/setup.sh" /source/downstream/script/docker/wrapper/build.sh
+# #565: the setup.sh reference moved out of build.sh / run.sh into the
+# shared setup/drift orchestration in lib/wrapper.sh (_wrapper_setup_sync),
+# which build.sh and run.sh both call. Assert the reference lives at its
+# new home; the per-wrapper behaviour is proven by the setup-sync unit
+# specs (wrapper_lib_spec.bats) and the dispatch integration spec.
+@test "lib/wrapper.sh references .base/downstream/script/docker/wrapper/setup.sh (#565)" {
+  run grep ".base/downstream/script/docker/wrapper/setup.sh" /source/downstream/script/docker/lib/wrapper.sh
   assert_success
 }
 
-@test "run.sh references .base/downstream/script/docker/wrapper/setup.sh" {
-  run grep ".base/downstream/script/docker/wrapper/setup.sh" /source/downstream/script/docker/wrapper/run.sh
+@test "build.sh + run.sh route setup/drift through _wrapper_setup_sync (#565)" {
+  run grep -E '_wrapper_setup_sync (build|run)' /source/downstream/script/docker/wrapper/build.sh
+  assert_success
+  run grep -E '_wrapper_setup_sync (build|run)' /source/downstream/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -744,16 +751,12 @@ _stage_lint_layout() {
   assert_output "0"
 }
 
-@test "build.sh uses subprocess check-drift (#49 Phase B-1)" {
-  # Positive guard: build.sh must invoke setup.sh via subprocess with
-  # the new check-drift subcommand instead of sourcing it.
-  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/downstream/script/docker/wrapper/build.sh
-  assert_success
-  refute_output "0"
-}
-
-@test "run.sh uses subprocess check-drift (#49 Phase B-1)" {
-  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/downstream/script/docker/wrapper/run.sh
+# #565: the subprocess check-drift invocation moved into the shared
+# _wrapper_setup_sync (lib/wrapper.sh), which build.sh + run.sh both call.
+# Positive guard: it must invoke setup.sh via subprocess with the
+# check-drift subcommand instead of sourcing it.
+@test "lib/wrapper.sh uses subprocess check-drift (#49 Phase B-1, #565)" {
+  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/downstream/script/docker/lib/wrapper.sh
   assert_success
   refute_output "0"
 }

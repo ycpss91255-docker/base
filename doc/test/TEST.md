@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1872 tests** total (1787 unit + 85 integration).
+Template self-tests: **1889 tests** total (1804 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -622,6 +622,24 @@ the 1D inputs are gone).
 | `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
 | `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
 
+### test/unit/wrapper_lib_spec.bats (18)
+
+Unit tests for the wrapper-runtime module `lib/wrapper.sh` (#565), which
+hoists the cross-cutting surfaces the 5 docker wrappers (build / run /
+exec / stop / prune) used to duplicate: the `_msg` dispatcher, the
+`--lang` pre-pass, and the build/run setup/drift orchestration. Each
+helper is sourced directly (not through a wrapper) so the branches run in
+isolation; a minimal sandbox with a mock `setup.sh` drives the
+orchestration end-to-end without docker.
+
+Covers (with the "called from each of the 5 wrappers" parameterisation):
+
+| Group | Cases |
+| --- | --- |
+| `_msg` dispatcher: routes `<category> <key>` to `_msg_<category>`, reads global `_LANG`, errors on missing category / key | 4 |
+| `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
+| `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
+
 ### test/unit/build_sh_spec.bats (51)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
@@ -1120,7 +1138,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (142)
+### test/unit/template_spec.bats (141)
 
 | Test | Description |
 |------|-------------|

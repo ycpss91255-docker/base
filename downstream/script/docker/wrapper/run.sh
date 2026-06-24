@@ -23,6 +23,9 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[run] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _lib.sh, so _msg / _wrapper_lang_prepass / _wrapper_setup_sync are in
+# scope below.
 _bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
@@ -92,12 +95,7 @@ _msg_build() {
   esac
 }
 
-# Dispatcher — keeps a single _msg call site shape across the script.
-_msg() {
-  local _category="${1:?_msg requires category}"
-  local _key="${2:?_msg requires key}"
-  "_msg_${_category}" "${_key}"
-}
+# _msg dispatcher provided by lib/wrapper.sh (#565).
 
 usage() {
   case "${_LANG}" in
@@ -348,20 +346,15 @@ main() {
   # can forward identical "$@" to the post-run hook.
   ORIG_ARGV=("$@")
 
-  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
-  # runs in the requested locale even when --help is the first arg.
-  # See build.sh's main() for the full rationale (#222).
-  local _i
-  for (( _i=1; _i<=$#; _i++ )); do
-    if [[ "${!_i}" == "--lang" ]]; then
-      local _next=$((_i+1))
-      _LANG="${!_next:-}"
-      _sanitize_lang _LANG "run"
-      break
-    fi
-  done
+  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _wrapper_lang_prepass run "$@"
 
-  local RUN_SETUP=false
+  # RUN_SETUP is set here but read by _wrapper_setup_sync (lib/wrapper.sh, #565).
+  # To the consumer devel-test stage's per-file `shellcheck -S warning` (no -x)
+  # it looks unused; mark it exported (local -x) so shellcheck treats it as
+  # used-externally (silences SC2034 across versions / assignment sites), while
+  # the in-process sourced runtime still reads it.
+  local -x RUN_SETUP=false
   local DETACH=false
   local NO_RM=false
   local PRE_BUILD=false
@@ -470,59 +463,11 @@ main() {
     exit 2
   fi
 
-  local _setup="${FILE_PATH}/.base/downstream/script/docker/wrapper/setup.sh"
-  local _tui="${FILE_PATH}/setup_tui.sh"
-
-  # _run_interactive: prefer setup_tui.sh when an interactive TTY is
-  # present and the symlink is executable; otherwise fall back to
-  # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
-  #
-  # #338: per-invocation overrides (--gui / --no-x11-cookie) populate
-  # SETUP_FORWARD_ARGS and short-circuit through setup.sh instead of
-  # the TUI -- TUI Save writes the values to setup.conf permanently
-  # which is the wrong semantics for a debug knob.
-  _run_interactive() {
-    if (( ${#SETUP_FORWARD_ARGS[@]} > 0 )); then
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
-        "${SETUP_FORWARD_ARGS[@]}"
-    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
-      "${_tui}" --lang "${_LANG}"
-    else
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-    fi
-  }
-
-  # Decide whether to run setup.sh / setup_tui.sh:
-  #   - --setup flag                         → interactive (TUI on TTY, else setup.sh)
-  #   - missing .env / setup.conf / compose.yaml → non-interactive bootstrap
-  #   - otherwise                            → drift-check only
-  #
-  # Bootstrap stays non-interactive (see build.sh for the full rationale):
-  # compose.yaml is gitignored since v0.9.0, every fresh clone lands here,
-  # and dispatching through the TUI would leave cancelled sessions
-  # without a .env.
-  if [[ "${RUN_SETUP}" == true ]]; then
-    _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env.generated" ]] \
-      || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
-      || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info run run_bootstrap "display=$(_msg bootstrap info)"
-    "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-  else
-    # Drift → auto-regen via subprocess (see build.sh for the full
-    # rationale; subprocess avoids the #101 _msg shadow class).
-    if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info run run_drift_regen "display=$(_msg drift regen)"
-      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
-    fi
-  fi
-
-  # Defensive: bootstrap must leave .env in place. See build.sh.
-  if [[ ! -f "${FILE_PATH}/.env.generated" ]]; then
-    _log_err  run run_no_env "display=$(_msg errors no_env)"
-    _log_info run run_rerun_setup "display=$(_msg errors rerun_setup)"
-    exit 1
-  fi
+  # #565: shared setup/drift orchestration (build + run). Same lifecycle
+  # as build.sh: bootstrap vs drift-regen vs interactive setup, setup.sh
+  # run as a subprocess (avoids the #101 _msg shadow), exit 1 on missing
+  # .env. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
+  _wrapper_setup_sync run
 
   # Load .env, derive PROJECT_NAME.
   _load_env "${FILE_PATH}/.env.generated"

@@ -29,16 +29,30 @@ _DOCKER_LIB_BOOTSTRAP_SOURCED=1
 # _bootstrap <wrapper args...>
 #
 # Resolves and `readonly`-locks the global FILE_PATH, applies the
-# `-C/--chdir` override, then sources _lib.sh. MUST be called as
-# `_bootstrap "$@"` from the wrapper's file scope so BASH_SOURCE[1] is
-# the wrapper (used for FILE_PATH detection + the error tag) and "$@"
-# carries the wrapper's args (for the -C/--chdir pre-scan).
+# `-C/--chdir` override, then sources _lib.sh + the #565 wrapper runtime.
+# Call as `_bootstrap "$@"` from the wrapper's file scope. The wrapper's
+# own BASH_SOURCE frame (used for FILE_PATH detection + the error tag) is
+# located by skipping this file's own frames, so the resolution does not
+# break if _bootstrap is ever reached through an extra call layer.
 #
 # Exit codes: `-C/--chdir` argument errors exit 2 (usage error); a
 # missing _lib.sh exits 1 (runtime/install error). (#408 sub-task C.)
 _bootstrap() {
+  # Find the caller wrapper's source: the first BASH_SOURCE frame above
+  # this one that is not bootstrap.sh itself (robust against an extra
+  # call layer between the wrapper and _bootstrap).
+  local _self="${BASH_SOURCE[0]}"
+  local _caller="" _frame
+  for _frame in "${BASH_SOURCE[@]:1}"; do
+    if [[ "${_frame}" != "${_self}" ]]; then
+      _caller="${_frame}"
+      break
+    fi
+  done
+  : "${_caller:=${BASH_SOURCE[1]}}"
+
   local _tag
-  _tag="$(basename -- "${BASH_SOURCE[1]}" .sh)"
+  _tag="$(basename -- "${_caller}" .sh)"
 
   # FILE_PATH default: derive the repo root from the wrapper's
   # invocation directory. If that dir has a .base/ sibling we are at the
@@ -46,7 +60,7 @@ _bootstrap() {
   # if a sibling lib/_lib.sh exists we are in a direct/.base layout one
   # level above lib/; otherwise fall back to the invocation dir (/lint).
   local _invoke_dir
-  _invoke_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[1]}")" && pwd -P)"
+  _invoke_dir="$(cd -- "$(dirname -- "${_caller}")" && pwd -P)"
   if [[ -d "${_invoke_dir}/.base" ]]; then
     FILE_PATH="${_invoke_dir}"
   elif [[ -d "${_invoke_dir}/../.base" ]]; then
@@ -112,4 +126,17 @@ _bootstrap() {
   # _msg works during arg parsing; a later --lang flag overrides it via
   # _sanitize_lang. _LANG is global (no `local` declared in this function).
   _resolve_lang _LANG
+
+  # #565: pull in the wrapper-runtime module (shared _msg dispatcher,
+  # --lang pre-pass, setup/drift orchestration). It lives alongside this
+  # file under lib/, so resolve it from BASH_SOURCE[0] (this bootstrap.sh)
+  # rather than re-deriving from the wrapper layout. Sourced last so the
+  # full _lib.sh helper set (_log_*, _load_env, _compose_project, ...) it
+  # builds on is already in scope.
+  local _wrapper_lib
+  _wrapper_lib="$(dirname -- "${BASH_SOURCE[0]}")/wrapper.sh"
+  if [[ -f "${_wrapper_lib}" ]]; then
+    # shellcheck source=downstream/script/docker/lib/wrapper.sh
+    source "${_wrapper_lib}"
+  fi
 }

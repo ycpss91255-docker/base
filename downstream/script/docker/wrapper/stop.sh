@@ -23,6 +23,8 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[stop] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _lib.sh, so _wrapper_lang_prepass is in scope below.
 _bootstrap "$@"
 
 usage() {
@@ -152,18 +154,8 @@ _down_project() {
 
 main() {
   _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
-  # runs in the requested locale even when --help is the first arg.
-  # See build.sh's main() for the full rationale (#222).
-  local _i
-  for (( _i=1; _i<=$#; _i++ )); do
-    if [[ "${!_i}" == "--lang" ]]; then
-      local _next=$((_i+1))
-      _LANG="${!_next:-}"
-      _sanitize_lang _LANG "stop"
-      break
-    fi
-  done
+  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _wrapper_lang_prepass stop "$@"
 
   local DO_PRUNE=false
   DRY_RUN=false

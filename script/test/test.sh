@@ -163,6 +163,23 @@ _run_shellcheck() {
   find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
+
+  # local==CI parity (#565): the consumer Dockerfile devel-test stage lints
+  # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x,
+  # after COPYing them FLAT into /lint/{wrapper,lib} -- so cross-file
+  # source-following is gone. The -x passes above hide cross-file-only
+  # findings (e.g. SC2034 on a var set in a wrapper but read in
+  # lib/wrapper.sh), and even a no-x pass in the real tree resolves source=
+  # directives differently than the flat copy. Reproduce the EXACT consumer
+  # invocation -- flat layout + no -x -- so `just test` catches this class
+  # before the integration-e2e job / the downstream fanout does.
+  local _lintdir
+  _lintdir="$(mktemp -d)"
+  mkdir -p "${_lintdir}/wrapper" "${_lintdir}/lib"
+  cp "${REPO_ROOT}"/downstream/script/docker/wrapper/*.sh "${_lintdir}/wrapper/"
+  cp "${REPO_ROOT}"/downstream/script/docker/lib/*.sh "${_lintdir}/lib/"
+  shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
+  rm -rf "${_lintdir}"
   shellcheck -x "${REPO_ROOT}/script/test/test.sh"
   shellcheck -x "${REPO_ROOT}/script/test/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
