@@ -58,7 +58,33 @@ apply_migrations() {
   done
 }
 
+# ── Migration 1: wrapper COPY shape A/B -> wrapper/*.sh ─────────────────────
+#
+# v0.41.0 moved the user-facing wrappers (build/run/exec/stop/prune.sh) out
+# of the flat .base/script/docker/ root into .base/script/docker/wrapper/.
+# Two pre-v0.41.0 lint-stage COPY shapes then resolve to zero files:
+#   A  COPY *.sh /lint/                       (root-anchored, the #399 shape)
+#   B  COPY .base/script/docker/*.sh /lint/   (flat top-level glob)
+# Both heal to the current wrapper-glob shape:
+#   COPY .base/script/docker/wrapper/*.sh /lint/
+# Idempotent: a Dockerfile already on the wrapper/ shape is not detected.
+_migrate_wrapper_copy_detect() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${_file}" \
+    || grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${_file}"
+}
+
+_migrate_wrapper_copy_apply() {
+  local _file="$1"
+  # Shape A: root-anchored glob.
+  sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|' "${_file}"
+  # Shape B: flat top-level .base glob.
+  sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|' "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: wrapper COPY -> .base/script/docker/wrapper/*.sh (#567 m1)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
+  wrapper_copy
 )

@@ -50,3 +50,61 @@ _src() {
   assert_success
   assert_output --partial "no Dockerfile"
 }
+
+@test "_MIGRATIONS is a non-empty ordered list (#567)" {
+  run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
+  assert_success
+  [ "${#lines[@]}" -ge 1 ]
+}
+
+# ── migration 1: wrapper COPY shape A/B -> wrapper/*.sh ──────────────────────
+# v0.41.0 moved the user-facing wrappers into .base/script/docker/wrapper/.
+# Two pre-v0.41.0 lint-stage shapes break:
+#   A  COPY *.sh /lint/                       (root-anchored, #399 era)
+#   B  COPY .base/script/docker/*.sh /lint/   (flat top-level glob)
+# Both heal to the wrapper-glob shape COPY .base/script/docker/wrapper/*.sh.
+
+@test "migration 1 (wrapper-copy): rewrites shape A 'COPY *.sh /lint/' (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY *.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}' && _migrate_wrapper_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" "${DF}"
+  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${DF}"
+}
+
+@test "migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}' && _migrate_wrapper_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" "${DF}"
+  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${DF}"
+}
+
+@test "migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/wrapper/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${DF}" "${DF}.orig"
+}
+
+@test "migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/wrapper/*.sh /lint/
+EOF
+  run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}'"
+  assert_failure
+}
