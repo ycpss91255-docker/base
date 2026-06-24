@@ -1,0 +1,16 @@
+# base self-release / publish tooling (`just release <recipe>`). SKELETON.
+#
+# ADR-00000010 lays this namespace as part of the base/downstream split
+# (test and release are kept as separate namespaces, not a merged one);
+# ADR-00000011 renames it `cd` -> `release` (action-named). The actual
+# release / publish pipeline recipes are deferred to a follow-up issue;
+# today the release flow still lives in .github/workflows/ (self-test.yaml
+# `release` job + release-worker.yaml).
+#
+# `set working-directory` mirrors script/test/justfile.test so future recipes
+# run from the repo root whether reached via the `release` module or `just -f`.
+set working-directory := '../..'
+
+# Default: list available recipes.
+default:
+    @just --justfile '{{justfile()}}' --list
