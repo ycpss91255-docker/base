@@ -852,7 +852,8 @@ EOF
   # We do this by extracting and running the sed commands from upgrade.sh.
   local _seds
   # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
+  # lives in lib/dockerfile_migrate.sh, #567); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
   _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
@@ -890,7 +891,8 @@ jobs:
 EOF
   local _seds
   # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
+  # lives in lib/dockerfile_migrate.sh, #567); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
   _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
@@ -927,7 +929,8 @@ jobs:
 EOF
   local _seds
   # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
+  # lives in lib/dockerfile_migrate.sh, #567); the substitution
   # below only knows how to fill in main_yaml + target_ver, so feeding it
   # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
   _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/downstream/script/base/upgrade.sh)"
