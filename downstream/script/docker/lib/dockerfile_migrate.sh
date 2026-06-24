@@ -83,8 +83,31 @@ _migrate_wrapper_copy_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: wrapper COPY -> .base/script/docker/wrapper/*.sh (#567 m1)"
 }
 
+# ── Migration 2: retired .base/dockerfile/setup pip helper ──────────────────
+#
+# v0.41.0 retired the .base/dockerfile/setup pip flow. The downstream RUN
+#   RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir \
+#       -r "${CONFIG_DIR}"/pip/requirements.txt
+# (optionally preceded by a "# Setup pip packages" comment) only ever
+# installed base's empty placeholder, so it is a no-op once the helper is
+# gone — and a hard failure if CONFIG_DIR/pip/requirements.txt is absent.
+# Drop both lines; a repo with a real requirements file re-adds an explicit
+# pip step pointing at its own path.
+_migrate_pip_helper_detect() {
+  local _file="$1"
+  grep -qE 'pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt' "${_file}"
+}
+
+_migrate_pip_helper_apply() {
+  local _file="$1"
+  sed -i -E '/pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*\/pip\/requirements\.txt/d' "${_file}"
+  sed -i '/^# Setup pip packages$/d' "${_file}"
+  _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
   wrapper_copy
+  pip_helper
 )

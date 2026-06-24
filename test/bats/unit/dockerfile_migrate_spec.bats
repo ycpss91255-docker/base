@@ -108,3 +108,33 @@ EOF
   run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 2: retired .base/dockerfile/setup pip helper ──────────────────
+# v0.41.0 retired the .base/dockerfile/setup pip flow. The downstream line
+#   RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+# (+ a preceding "# Setup pip packages" comment) installed base's empty
+# placeholder — a no-op once the helper is gone. Drop both lines; the user
+# re-adds an explicit pip step if they have a real requirements file.
+
+@test "migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  ! grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
+  ! grep -q '# Setup pip packages' "${DF}"
+  grep -Fq "RUN echo done" "${DF}"
+}
+
+@test "migration 2 (pip-helper): idempotent — no pip line means detect false (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN echo done
+EOF
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}'"
+  assert_failure
+}
