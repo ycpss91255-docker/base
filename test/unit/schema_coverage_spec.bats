@@ -12,9 +12,12 @@
 #   - every SCHEMA_EMPTY key is a registered validator key,
 #   - every registered key is reachable via SCHEMA_SECTIONS.
 #
-# The i18n / kind / default coverage from the original #562 scope needs a
-# registry i18n-index column that the epic deferred (a future follow-up);
-# it is tracked separately and not asserted here.
+# Phase 3 follow-up (#591) adds the i18n-index column SCHEMA_I18N and the
+# locale-coverage assertion the original #562 scope deferred: every
+# registered key maps to an i18n key (or an explicit "" opt-out for keys
+# with no TUI editor), and every mapped i18n key is present in all four
+# locale tables (en / zh-TW / zh-CN / ja). A missing translation in any
+# locale, or a new validator key without an index entry, fails CI here.
 
 bats_require_minimum_version 1.5.0
 
@@ -23,6 +26,14 @@ setup() {
 
   # shellcheck disable=SC1091
   source /source/downstream/script/docker/lib/schema.sh
+}
+
+# Source setup_tui.sh to populate the per-locale _TUI_MSG_* tables. The
+# BASH_SOURCE guard at the bottom of setup_tui.sh keeps main() from
+# running, so this only loads the i18n tables + helpers (mirrors tui_spec).
+_load_locale_tables() {
+  # shellcheck disable=SC1091
+  source /source/downstream/script/docker/wrapper/setup_tui.sh
 }
 
 @test "every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)" {
@@ -69,4 +80,79 @@ setup() {
     _seen=$(( _seen + ${#_k[@]} ))
   done
   [ "${_seen}" -eq "${#SCHEMA_VALIDATOR[@]}" ]
+}
+
+@test "every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)" {
+  # The i18n-index must be complete: every registered validator key needs
+  # an SCHEMA_I18N row (a message key, or an explicit "" opt-out for keys
+  # with no TUI editor). A new validator key added without an index entry
+  # fails here, forcing the author to decide its i18n mapping.
+  local _canon _missing=""
+  for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
+    [[ -v "SCHEMA_I18N[${_canon}]" ]] || _missing+=" ${_canon}"
+  done
+  [ -z "${_missing}" ] || { echo "validator keys missing SCHEMA_I18N entry:${_missing}"; false; }
+}
+
+@test "every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)" {
+  # No orphan index rows: an SCHEMA_I18N entry pointing at a key with no
+  # validator is dead config (mirrors the SCHEMA_EMPTY orphan guard).
+  local _k _missing=""
+  for _k in "${!SCHEMA_I18N[@]}"; do
+    [[ -v "SCHEMA_VALIDATOR[${_k}]" ]] || _missing+=" ${_k}"
+  done
+  [ -z "${_missing}" ] || { echo "orphan SCHEMA_I18N keys:${_missing}"; false; }
+}
+
+@test "every SCHEMA_I18N message key exists in all four locale tables (#591)" {
+  # The coverage assertion #562 deferred: resolve each registered key's
+  # i18n key through SCHEMA_I18N and assert it is present in EN / ZH_TW /
+  # ZH_CN / JA. A missing translation in any locale fails CI. Keys mapped
+  # to "" (no TUI editor) are skipped — they carry no label to translate.
+  _load_locale_tables
+
+  local -n _t_en=_TUI_MSG_EN
+  local -n _t_tw=_TUI_MSG_ZH_TW
+  local -n _t_cn=_TUI_MSG_ZH_CN
+  local -n _t_ja=_TUI_MSG_JA
+
+  local _canon _msg _missing=""
+  for _canon in "${!SCHEMA_I18N[@]}"; do
+    _msg="${SCHEMA_I18N[${_canon}]}"
+    [[ -z "${_msg}" ]] && continue   # explicit no-editor opt-out
+    [[ -v "_t_en[${_msg}]" ]] || _missing+=" en:${_canon}->${_msg}"
+    [[ -v "_t_tw[${_msg}]" ]] || _missing+=" zh-TW:${_canon}->${_msg}"
+    [[ -v "_t_cn[${_msg}]" ]] || _missing+=" zh-CN:${_canon}->${_msg}"
+    [[ -v "_t_ja[${_msg}]" ]] || _missing+=" ja:${_canon}->${_msg}"
+  done
+  [ -z "${_missing}" ] || { echo "i18n keys missing from a locale:${_missing}"; false; }
+}
+
+@test "_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)" {
+  # The accessor the TUI routes through. Scalar + numbered-list keys resolve
+  # to their indexed message key; a free-form key (no registry row) returns
+  # the supplied fallback so callers keep their literal default.
+  run _schema_i18n_key resources shm_size
+  assert_success
+  assert_output "resources.shm_size.prompt"
+
+  # Numbered list suffix normalises to the registered prefix.
+  run _schema_i18n_key network port_3
+  assert_success
+  assert_output "ports.entry.prompt"
+
+  # Per-service logging section folds onto the [logging] key set.
+  run _schema_i18n_key logging.devel driver
+  assert_success
+  assert_output "logging.driver.prompt"
+
+  # Free-form (unregistered) key -> fallback echoed verbatim.
+  run _schema_i18n_key tmpfs tmpfs_1 tmpfs.entry.prompt
+  assert_success
+  assert_output "tmpfs.entry.prompt"
+
+  # No-editor opt-out ("" index value) -> fallback, not the empty string.
+  run _schema_i18n_key logging wrapper_transcript fallback.key
+  assert_success
+  assert_output "fallback.key"
 }

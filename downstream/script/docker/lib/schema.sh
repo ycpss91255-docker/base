@@ -90,6 +90,61 @@ declare -ga SCHEMA_SECTIONS=(
   environment tmpfs devices volumes additional_contexts logging
 )
 
+# ════════════════════════════════════════════════════════════════════
+# SCHEMA_I18N — the i18n-index (#591, deferred from #562 / epic #559).
+#
+# Maps each canonical SCHEMA_VALIDATOR key to the i18n message key its
+# TUI editor shows as the key's label/help (the `_tui_msg` key resolved
+# in setup_tui.sh's per-locale _TUI_MSG_* tables). This is the missing
+# link #562 lacked: it makes "every key has a translation in all four
+# locales (en / zh-TW / zh-CN / ja)" mechanically assertable from the
+# registry (see test/unit/schema_coverage_spec.bats).
+#
+# Keying mirrors SCHEMA_VALIDATOR exactly (scalar "<section>.<key>", list
+# "<section>.<prefix>_"). For scalar keys the value is the editor's
+# `.prompt` message key; for list keys it is the per-entry prompt key
+# passed to _edit_list_section. The mapped message key must exist in ALL
+# FOUR locale tables — the coverage spec fails on a gap.
+#
+# Empty string ("") is the explicit "no TUI editor" opt-out: a key that
+# is schema-validated (so setup.sh's `set`/`add` gate it) but has no
+# interactive editor, hence no label/help to translate. The transcript
+# knobs (logging.wrapper_transcript*) are config-file / env only (#608),
+# never surfaced in the menu, so they map to "". Every registered
+# validator key MUST appear here (the coverage spec asserts the index is
+# complete) — opting a key out is a deliberate "" entry, not an omission.
+# ════════════════════════════════════════════════════════════════════
+declare -gA SCHEMA_I18N=(
+  # ── scalar keys ──────────────────────────────────────────────────
+  [deploy.gpu_count]=deploy.count.prompt
+  [deploy.gpu_runtime]=deploy.runtime.prompt
+  [deploy.runtime]=deploy.runtime.prompt        # legacy alias (#481)
+  [resources.shm_size]=resources.shm_size.prompt
+  [lifecycle.restart]=lifecycle.restart.prompt
+  [build.target_arch]=build.target_arch.prompt
+  [build.network]=build.network.prompt
+  [network.network_name]=network.name.prompt
+  [logging.driver]=logging.driver.prompt
+  [logging.max_size]=logging.max_size.prompt
+  [logging.max_file]=logging.max_file.prompt
+  [logging.compress]=logging.compress.prompt
+  [logging.local_path]=logging.local_path.prompt
+  # Config-file / env only, no TUI editor (#608) -> no label to translate.
+  [logging.wrapper_transcript]=""
+  [logging.wrapper_transcript_keep]=""
+  [logging.wrapper_transcript_days]=""
+  # ── list keys (per-entry prompt shown by _edit_list_section) ───────
+  [build.arg_]=build.arg.prompt
+  [volumes.mount_]=volumes.edit.prompt
+  [devices.device_]=devices.device.prompt
+  [devices.cgroup_rule_]=devices.cgroup.prompt
+  [environment.env_]=environment.entry.prompt
+  [network.port_]=ports.entry.prompt
+  [additional_contexts.context_]=additional_contexts.entry.prompt
+  [security.cap_add_]=security.cap_add.prompt
+  [security.cap_drop_]=security.cap_drop.prompt
+)
+
 # SCHEMA_EMPTY records the per-key empty-value policy. Default (a key
 # absent from this map) is "allow": an empty value clears the key and is
 # always accepted. The exception is keys whose validator rejects empty by
@@ -171,6 +226,35 @@ _schema_canonical_key() {
 
   _sck_out=""
   return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_i18n_key <section> <key> [<fallback>]
+#
+# Resolves (section,key) to its SCHEMA_I18N message key (the TUI
+# label/help key). Normalises the same way _schema_canonical_key does
+# (per-service logging sections, numbered list suffix), so port_3 and
+# port_ both resolve to the network.port_ entry. Returns the mapped
+# message key on stdout. When the key is free-form (no registry entry),
+# its index value is "" (opted out of a TUI label), or the section/key is
+# unknown, echoes <fallback> (default empty) so callers can keep a literal
+# default. The setup TUI routes its per-key prompt lookups through this so
+# the i18n-index is the single source the coverage spec asserts (#591) and
+# the menu strings can't silently drift from it.
+# ════════════════════════════════════════════════════════════════════
+_schema_i18n_key() {
+  local _section="${1-}"
+  local _key="${2-}"
+  local _fallback="${3-}"
+
+  local _canon
+  _schema_canonical_key "${_section}" "${_key}" _canon
+
+  if [[ -n "${_canon}" && -n "${SCHEMA_I18N[${_canon}]:-}" ]]; then
+    printf '%s' "${SCHEMA_I18N[${_canon}]}"
+    return 0
+  fi
+  printf '%s' "${_fallback}"
 }
 
 # ════════════════════════════════════════════════════════════════════
