@@ -18,9 +18,13 @@
 # (<repo>/script/base/justfile.base), `../..` resolves to the repo root.
 set working-directory := '../..'
 
+# source_file() (not justfile()) is this module's own file: inside a mod?'d
+# module justfile() resolves to the ROOT entry, so listing it would show the
+# entry's namespaces instead of the base verbs (#655). source_file() pins
+# --list to THIS module.
 # just base -> list the base-management verbs
 default:
-    @just --justfile '{{justfile()}}' --list
+    @just --justfile '{{source_file()}}' --list
 
 # just base upgrade [vX.Y.Z] -> pull the .base subtree (empty = latest)
 upgrade *args:

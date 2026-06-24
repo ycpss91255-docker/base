@@ -12,8 +12,56 @@
 # through the consumer's symlink into .base/downstream/script/template/.
 set -euo pipefail
 
+# i18n.sh provides _resolve_lang / _sanitize_lang (#655). new.sh is a
+# human-facing template-namespace script, so it accepts --lang and honors
+# SETUP_LANG/$LANG like the docker wrappers, even though its (few) strings
+# are still English-only pending the localized-message pass (#656). Located
+# relative to this script's real path so it resolves through the consumer
+# symlink into .base/downstream/script/template/new.sh.
+_new_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+# shellcheck source=downstream/script/docker/lib/i18n.sh
+source "$(dirname -- "${_new_self}")/../docker/lib/i18n.sh"
+unset _new_self
+
+_usage() {
+  cat >&2 <<'EOF'
+Usage: just template new <name> [--lang <en|zh-TW|zh-CN|ja>]
+
+Scaffold a repo-local just command group: create script/local/<name>/ from
+the skeleton and register it in script/local/justfile.local. After it runs,
+`just <name> <recipe>` works.
+
+Arguments:
+  <name>         group name (must match ^[a-z][a-z0-9_-]*$)
+
+Options:
+  --lang LANG    Message language (en|zh-TW|zh-CN|ja; default: auto-detect
+                 from SETUP_LANG / $LANG)
+  -h, --help     Show this help
+EOF
+  exit 0
+}
+
 main() {
-  local name="${1:-}"
+  local _LANG
+  _resolve_lang _LANG
+
+  local name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help) _usage ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "template new"
+        shift 2
+        ;;
+      *)
+        name="$1"
+        shift
+        ;;
+    esac
+  done
+
   if [[ -z "${name}" ]]; then
     printf 'usage: just template new <name>\n' >&2
     return 2

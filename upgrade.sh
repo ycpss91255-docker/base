@@ -476,6 +476,8 @@ Arguments:
   --gen-conf    Copy ${TEMPLATE_REL}/downstream/config/docker/setup.conf to
                 <repo>/config/docker/setup.conf for per-repo overrides
                 (delegates to init.sh --gen-conf)
+  --lang LANG   Message language (en|zh-TW|zh-CN|ja; default: auto-detect
+                from SETUP_LANG / \$LANG)
   -h, --help    Show this help
 
 Examples:
@@ -491,6 +493,28 @@ EOF
 
 main() {
   _transcript_begin  # #606: capture this run's output (no-op if disabled)
+
+  # #655: upgrade.sh is a human-facing `base` namespace recipe, so it
+  # accepts --lang and honors SETUP_LANG/$LANG via i18n.sh (sourced by
+  # _lib.sh). Its own messages are English-only pending the localized pass
+  # (#656); --lang is validated here so the flag is accepted, not an error,
+  # uniformly with the docker wrappers. Strip --lang <code> from argv
+  # before the positional dispatch below.
+  local _LANG
+  _resolve_lang _LANG
+  local -a _args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "upgrade"
+        shift 2
+        ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  set -- "${_args[@]+"${_args[@]}"}"
+
   case "${1:-}" in
     -h|--help) _usage ;;
   esac

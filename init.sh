@@ -504,9 +504,29 @@ _error() { _log_err init "$*"; exit 1; }
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
+  # #655: init.sh is a human-facing `base` namespace recipe, so it accepts
+  # --lang and honors SETUP_LANG/$LANG via i18n.sh (sourced by _lib.sh). Its
+  # own messages are English-only pending the localized pass (#656); --lang
+  # is validated here so the flag is accepted, not an error, uniformly with
+  # the docker wrappers. Strip --lang <code> before the positional dispatch.
+  local _LANG
+  _resolve_lang _LANG
+  local -a _args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "init"
+        shift 2
+        ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  set -- "${_args[@]+"${_args[@]}"}"
+
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
-Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]]
+Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--lang <en|zh-TW|zh-CN|ja>]
 
 Initialize a repo with the template subtree. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
