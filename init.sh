@@ -501,6 +501,76 @@ _call_setup() {
 
 _error() { _log_err init "$*"; exit 1; }
 
+# ── just runner host preflight (#607) ───────────────────────────────────────
+#
+# `just` is the user-facing entry point for every repo this template
+# scaffolds (ADR-00000005 / ADR-00000010 / ADR-00000011): the generated
+# `justfile` symlink forwards `just <ns> <verb>` to script/<verb>.sh. But
+# the runner lives on the HOST, not in the subtree -- vendoring it is
+# rejected (arch-specific binary, --squash injects it into every
+# downstream history, a committed binary never updates; see #607 Notes).
+# So init.sh probes whether `just` is on PATH and, on a miss, emits ONE
+# advisory warning pointing at the install methods. It is deliberately
+# NON-FATAL: the symlinks + wrappers are already laid down, so installing
+# `just` later makes the repo work immediately, and each recipe has a raw
+# `./script/<verb>.sh` fallback in the meantime. Idempotent (a pure
+# command-presence probe with no side effects), so it is safe on both the
+# new-repo and existing-repo init paths.
+
+_just_install_hint() {
+  # Single source of truth for the install pointer, mirroring README
+  # "Prerequisites". Terse on purpose: the README carries the full method
+  # list, this is just enough to unblock the user at the moment it matters.
+  cat <<'EOF'
+  just is NOT auto-installed by init.sh. Install it on the host, e.g.:
+    apt install just      # Debian 13+ / Ubuntu 24.04+
+    brew install just     # macOS / Linuxbrew
+    cargo install just    # from crates.io
+    # or the official prebuilt-binary installer:
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
+    # or let init bootstrap it for you (opt-in): ./.base/init.sh --bootstrap-just
+  See README "Prerequisites" or https://github.com/casey/just#installation.
+EOF
+}
+
+_preflight_just() {
+  if command -v just >/dev/null 2>&1; then
+    return 0
+  fi
+  # One clear warning carried on a single WARN event. The display= body
+  # is a leading line plus the install hint so the whole advisory rides
+  # one log record rather than fragmenting across several.
+  _log_warn init init_just_missing \
+    "display=just runner not found on PATH -- the repo's \`just <ns> <verb>\` commands will not run until it is installed.
+$(_just_install_hint)"
+}
+
+# _bootstrap_just
+#
+# Opt-in only (--bootstrap-just). Runs the OFFICIAL prebuilt-binary
+# installer into ~/.local/bin exactly as documented in README; never
+# invoked without the flag. Prints a PATH reminder when ~/.local/bin is
+# absent from PATH so the freshly installed binary is actually reachable.
+_bootstrap_just() {
+  if command -v just >/dev/null 2>&1; then
+    _log "just is already installed ($(command -v just)); nothing to bootstrap"
+    return 0
+  fi
+  local _bindir="${HOME}/.local/bin"
+  _log_warn init init_bootstrap_just \
+    "display=Bootstrapping just via the official installer into ${_bindir} (opt-in)."
+  mkdir -p "${_bindir}"
+  if ! curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+      | bash -s -- --to "${_bindir}"; then
+    _error "just bootstrap failed -- install manually (see README Prerequisites)"
+  fi
+  _log "Installed just to ${_bindir}"
+  case ":${PATH}:" in
+    *":${_bindir}:"*) : ;;
+    *) _log "  NOTE: ${_bindir} is not on PATH -- add it (e.g. in ~/.bashrc) to use \`just\`" ;;
+  esac
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
@@ -511,6 +581,7 @@ main() {
   # the docker wrappers. Strip --lang <code> before the positional dispatch.
   local _LANG
   _resolve_lang _LANG
+  local _bootstrap_just=false
   local -a _args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -519,6 +590,13 @@ main() {
         _sanitize_lang _LANG "init"
         shift 2
         ;;
+      # #607: opt-in host bootstrap of the `just` runner. Parsed before the
+      # positional dispatch so it composes with the new/existing-repo flow
+      # (run the bootstrap first, then init proceeds with `just` present).
+      --bootstrap-just)
+        _bootstrap_just=true
+        shift
+        ;;
       *) _args+=("$1"); shift ;;
     esac
   done
@@ -526,7 +604,7 @@ main() {
 
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
-Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--lang <en|zh-TW|zh-CN|ja>]
+Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--bootstrap-just] [--lang <en|zh-TW|zh-CN|ja>]
 
 Initialize a repo with the template subtree. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
@@ -549,6 +627,15 @@ Options:
   --force            With --gen-conf: overwrite existing setup.conf,
                      backing up the previous setup.conf to setup.conf.bak
                      and .env to .env.bak first.
+  --bootstrap-just   Opt-in: install the `just` runner via the official
+                     prebuilt-binary installer into ~/.local/bin before
+                     init proceeds. Without this flag, a missing `just`
+                     only triggers a non-fatal warning (never auto-
+                     installed). No-op when `just` is already on PATH.
+
+By default init prints a one-line warning when `just` is not on PATH
+(`just` is the user-facing entry point, ADR-00000005); init still
+completes so installing `just` later makes the repo work immediately.
 
 Run from the repo root after:
   git subtree add --prefix=<subtree-prefix> \
@@ -566,6 +653,12 @@ EOF
     return 0
   fi
 
+  # #607: opt-in `just` bootstrap runs first so the rest of init proceeds
+  # with the runner present (and the closing preflight stays quiet).
+  if [[ "${_bootstrap_just}" == "true" ]]; then
+    _bootstrap_just
+  fi
+
   local template_version=""
   template_version="$(_detect_template_version)"
 
@@ -577,6 +670,11 @@ EOF
   fi
 
   _call_setup
+
+  # #607: host preflight for the `just` runner. Runs on BOTH the new-repo
+  # and existing-repo paths (placed in main, after the scaffolding/setup
+  # that lays down the justfile symlink). Non-fatal: warns and continues.
+  _preflight_just
 
   _log ""
   _log "Done!"
