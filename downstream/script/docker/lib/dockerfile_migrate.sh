@@ -35,6 +35,22 @@ if [[ -n "${_DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED=1
 
+# ── Internal helpers ────────────────────────────────────────────────────────
+
+# _dfm_join_copy_statements <file>
+#   Emit the file with backslash-continued lines folded into single logical
+#   lines, so a detect grep can reason about a whole COPY statement (multi-
+#   distro repos hand-list moved files across continuation lines).
+_dfm_join_copy_statements() {
+  local _file="$1"
+  awk '
+    { line = line $0 }
+    /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, " ", line); next }
+    { print line; line = "" }
+    END { if (line != "") print line }
+  ' "${_file}"
+}
+
 # ── Dispatcher ──────────────────────────────────────────────────────────────
 
 # apply_migrations <dockerfile_path>
@@ -116,12 +132,18 @@ _migrate_pip_helper_apply() {
 # statement (handling backslash continuation).
 #
 # The match anchors on a top-level `.base/script/docker/<name>.sh` reference
-# (a bare file directly under docker/), which deliberately does NOT match the
-# migration-1 output `.base/script/docker/wrapper/*.sh` (path segment +
-# glob) nor the `.base/script/docker/lib` dir COPY (no `.sh`).
+# (a bare file directly under docker/) whose COPY destination is the lint
+# sandbox `/lint/`. The `/lint/` constraint scopes this to the lint-stage
+# redundant COPYs and deliberately spares unrelated runtime helper COPYs
+# (e.g. `_entrypoint_logging.sh` -> /usr/local/lib/base/, healed by
+# migration 4). It also does NOT match migration-1's output
+# `.base/script/docker/wrapper/*.sh` (path segment + glob) nor the
+# `.base/script/docker/lib` dir COPY (no `.sh`).
 _migrate_explicit_copy_detect() {
   local _file="$1"
-  grep -qE '^[[:space:]]*COPY[[:space:]]+.*\.base/script/docker/[A-Za-z_]+\.sh' "${_file}"
+  local _stmt
+  _stmt="$(_dfm_join_copy_statements "${_file}")"
+  grep -qE 'COPY[[:space:]]+.*\.base/script/docker/[A-Za-z_]+\.sh.*[[:space:]]/lint/' <<<"${_stmt}"
 }
 
 _migrate_explicit_copy_apply() {
@@ -129,8 +151,9 @@ _migrate_explicit_copy_apply() {
   local _tmp
   _tmp="$(mktemp)"
   # awk state machine: when a COPY statement (possibly spanning backslash
-  # continuations) references a top-level .base/script/docker/<name>.sh, drop
-  # every physical line of that statement; otherwise pass through verbatim.
+  # continuations) references a top-level .base/script/docker/<name>.sh AND
+  # targets the /lint/ sandbox, drop every physical line of that statement;
+  # otherwise pass through verbatim.
   awk '
     /^[[:space:]]*COPY[[:space:]]/ {
       stmt = $0; buf = $0 ORS; cont = ($0 ~ /\\[[:space:]]*$/)
@@ -139,7 +162,7 @@ _migrate_explicit_copy_apply() {
         stmt = stmt " " nxt; buf = buf nxt ORS
         cont = (nxt ~ /\\[[:space:]]*$/)
       }
-      if (stmt ~ /\.base\/script\/docker\/[A-Za-z_]+\.sh/) { next }
+      if (stmt ~ /\.base\/script\/docker\/[A-Za-z_]+\.sh/ && stmt ~ /[[:space:]]\/lint\//) { next }
       printf "%s", buf; next
     }
     { print }
@@ -148,10 +171,46 @@ _migrate_explicit_copy_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: dropped redundant explicit lib/wrapper COPY(s) (#567 m3)"
 }
 
+# ── Migration 4: _entrypoint_logging.sh -> runtime/logging.sh rename ────────
+#
+# The host-log helper was renamed `_entrypoint_logging.sh` -> `logging.sh`
+# and relocated under runtime/ (#368 -> current). Two downstream references
+# break: the Dockerfile COPY of the helper into /usr/local/lib/base/, and
+# the entrypoint's `source /usr/local/lib/base/_entrypoint_logging.sh`. The
+# Dockerfile COPY is healed in place; when a sibling script/entrypoint.sh
+# exists next to the Dockerfile, its source line is healed too (the helper's
+# baked path /usr/local/lib/base/_entrypoint_logging.sh -> .../logging.sh).
+_migrate_logging_rename_detect() {
+  local _file="$1"
+  grep -q '_entrypoint_logging\.sh' "${_file}"
+}
+
+_migrate_logging_rename_apply() {
+  local _file="$1"
+  # Dockerfile COPY: old flat helper path -> new runtime/ path, both src and
+  # the baked dest filename.
+  sed -i -E \
+    's|\.base/(downstream/)?script/docker/(runtime/)?_entrypoint_logging\.sh|.base/downstream/script/docker/runtime/logging.sh|g' \
+    "${_file}"
+  sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_file}"
+
+  # Heal the sibling entrypoint's baked source path, if present. The
+  # Dockerfile sits at the repo root; the entrypoint is the conventional
+  # script/entrypoint.sh.
+  local _entry
+  _entry="$(dirname -- "${_file}")/script/entrypoint.sh"
+  if [[ -f "${_entry}" ]] && grep -q '_entrypoint_logging\.sh' "${_entry}"; then
+    sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_entry}"
+    _log_info upgrade upgrade_started "display=  entrypoint patched: _entrypoint_logging.sh -> logging.sh source (#567 m4)"
+  fi
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: _entrypoint_logging.sh -> runtime/logging.sh (#567 m4)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
   wrapper_copy
   pip_helper
   explicit_copy
+  logging_rename
 )

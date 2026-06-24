@@ -188,3 +188,48 @@ EOF
   run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 4: _entrypoint_logging.sh -> runtime/logging.sh rename ─────────
+# The host-log helper was renamed _entrypoint_logging.sh -> logging.sh and
+# relocated under runtime/. Two references break in a downstream:
+#   - the Dockerfile COPY of the helper into /usr/local/lib/base/
+#   - the entrypoint that sources /usr/local/lib/base/_entrypoint_logging.sh
+# Migration heals the COPY in the Dockerfile AND (when a sibling
+# script/entrypoint.sh exists) its source line.
+
+@test "migration 4 (logging-rename): rewrites the Dockerfile COPY to runtime/logging.sh (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh
+EOF
+  run bash -c "$(_src); _migrate_logging_rename_detect '${DF}' && _migrate_logging_rename_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+  ! grep -q '_entrypoint_logging.sh' "${DF}"
+}
+
+@test "migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)" {
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+exec "$@"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq ". /usr/local/lib/base/logging.sh" "${TEMP_DIR}/script/entrypoint.sh"
+  ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+@test "migration 4 (logging-rename): detect false when already on new name (#567)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); _migrate_logging_rename_detect '${DF}'"
+  assert_failure
+}
