@@ -120,6 +120,9 @@ ci_bats_path_behavioural
 ci_bats_path_coverage
 ci_mixed_test_layout
 ci_lint_bad_root
+ci_no_hadolint
+ci_lint_tool_without_lint
+ci_unknown_lint_tool
 
 # transcript.sh (#606)
 # Only genuine setup FAILURES are emitted via the logger (to stderr,

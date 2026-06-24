@@ -351,12 +351,14 @@ setup() {
   # Same gotcha-2 mitigation as the classify job: fork PRs need an
   # explicit fetch of origin/<base_ref> before `git diff` can resolve
   # the merge base for `dockerfile/Dockerfile.test-tools`. Post-#377
-  # the `test` job split into bats-unit + bats-integration so the
-  # occurrence count grows: classify (1) + 4 jobs with Obtain steps
-  # (bats-unit + bats-integration + integration-e2e + behavioural).
+  # the `test` job split into bats-unit + bats-integration; #650 gives
+  # the hadolint job its own Obtain step too (it now runs the driver
+  # inside the test-tools image), so the count is: classify (1) + 5
+  # jobs with Obtain steps (hadolint + bats-unit + bats-integration +
+  # integration-e2e + behavioural).
   run grep -c 'git fetch origin' "${WF}"
   assert_success
-  assert_output '5'
+  assert_output '6'
 }
 
 # ── ci-rollup aggregator (#337) ───────────────────────────────────────
@@ -477,18 +479,20 @@ setup() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: hadolint lints both template-owned Dockerfiles (#376)" {
-  # template owns Dockerfile.example (the new-repo scaffold copied by
-  # init.sh) + Dockerfile.test-tools (the alpine test image consumed by
-  # downstream Dockerfile.example `FROM ${TEST_TOOLS_IMAGE}`). A
-  # regression to either should surface here before downstream CI
-  # fans out.
+@test "self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)" {
+  # #650 / ADR-00000011 local==CI single source: the hadolint job no
+  # longer calls hadolint/hadolint-action with an inline Dockerfile +
+  # config list (which would drift from what `just test` lints). It runs
+  # the SAME driver (script/test/drivers/hadolint.sh via `test.sh --lint
+  # --hadolint`) inside the test-tools image, so the Dockerfile list +
+  # config live in ONE place (the driver) for both local + CI.
   run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'hadolint/hadolint-action'
-  assert_output --partial 'dockerfile: downstream/dockerfile/Dockerfile'
-  assert_output --partial 'dockerfile: dockerfile/Dockerfile.test-tools'
-  assert_output --partial 'config: downstream/.hadolint.yaml'
+  assert_output --partial './script/test/test.sh --lint --hadolint'
+  # The driver image (test-tools) is obtained like the bats jobs.
+  assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
+  # The inline action + its file/config args are gone (driver owns them).
+  refute_output --partial 'hadolint/hadolint-action'
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-* + integration-e2e + behavioural before publishing a tag (#376 + #377)" {
