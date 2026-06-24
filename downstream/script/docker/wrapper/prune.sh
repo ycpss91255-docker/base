@@ -41,6 +41,8 @@ if ! declare -F _bootstrap >/dev/null 2>&1; then
   printf '[prune] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+# _bootstrap also sources the #565 wrapper runtime (lib/wrapper.sh) after
+# _lib.sh, so _msg / _wrapper_lang_prepass are in scope below.
 _bootstrap "$@"
 
 # i18n message tables — split by category, same pattern as build/run/stop.
@@ -61,11 +63,7 @@ _msg_info() {
   esac
 }
 
-_msg() {
-  local _category="${1:?_msg requires category}"
-  local _key="${2:?_msg requires key}"
-  "_msg_${_category}" "${_key}"
-}
+# _msg dispatcher provided by lib/wrapper.sh (#565).
 
 usage() {
   case "${_LANG}" in
@@ -448,17 +446,8 @@ _run_worktree_orphans_prune() {
 
 main() {
   _transcript_begin  # #606: capture this run's output (no-op if disabled)
-  # Pre-pass for --lang so usage() runs in requested locale even when
-  # --help is first. See build.sh for full rationale (#222).
-  local _i
-  for (( _i=1; _i<=$#; _i++ )); do
-    if [[ "${!_i}" == "--lang" ]]; then
-      local _next=$((_i+1))
-      _LANG="${!_next:-}"
-      _sanitize_lang _LANG "prune"
-      break
-    fi
-  done
+  # #565: shared --lang pre-pass (#222). See lib/wrapper.sh.
+  _wrapper_lang_prepass prune "$@"
 
   local DO_NETWORKS=false
   local DO_IMAGES=false
