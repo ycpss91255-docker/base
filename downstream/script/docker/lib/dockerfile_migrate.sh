@@ -310,6 +310,25 @@ _migrate_sc1090_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
 }
 
+# ── Migration 7 (#579 facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
+#
+# v0.41.0 compose/CI pass the build args USER_NAME / USER_GROUP / USER_UID /
+# USER_GID. A downstream Dockerfile still declaring a bare `ARG USER`
+# receives no value, so the image builds the default `initial` user and its
+# /home/initial home — mismatching the compose `/home/${USER_NAME}/work`
+# bind mount. Re-declare the arg to default from USER_NAME so the existing
+# user-creation block (which references ${USER}) keeps working unchanged.
+_migrate_arg_user_detect() {
+  local _file="$1"
+  grep -Eq '^[[:space:]]*ARG[[:space:]]+USER[[:space:]]*$' "${_file}"
+}
+
+_migrate_arg_user_apply() {
+  local _file="$1"
+  sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -319,4 +338,5 @@ _MIGRATIONS=(
   logging_rename
   hadolint
   sc1090
+  arg_user
 )

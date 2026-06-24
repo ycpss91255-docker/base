@@ -362,3 +362,39 @@ EOF
   run bash -c "$(_src); _migrate_sc1090_detect '${DF}'"
   assert_failure
 }
+
+# ── migration 7 (#579 facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
+# v0.41.0 compose/CI pass USER_NAME (not USER) as the build arg; a Dockerfile
+# still declaring a bare `ARG USER` builds the default `initial` user, which
+# mismatches the compose /home/${USER_NAME}/work mount. Re-declare the arg to
+# default from USER_NAME so the existing user-creation block keeps working.
+
+@test "migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER
+RUN useradd "${USER}"
+EOF
+  run bash -c "$(_src); _migrate_arg_user_detect '${DF}' && _migrate_arg_user_apply '${DF}'"
+  assert_success
+  grep -Fxq 'ARG USER="${USER_NAME}"' "${DF}"
+}
+
+@test "migration 7 (arg-user): idempotent — already defaulted is not detected (#579)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER="${USER_NAME}"
+EOF
+  run bash -c "$(_src); _migrate_arg_user_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration 7 (arg-user): does not touch an unrelated ARG (#579)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USERLAND
+ARG USER_NAME
+EOF
+  run bash -c "$(_src); _migrate_arg_user_detect '${DF}'"
+  assert_failure
+}
