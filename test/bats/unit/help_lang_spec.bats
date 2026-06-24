@@ -17,8 +17,8 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # /source is the mounted repo root in the ci container.
   TEST_SH="/source/script/test/test.sh"
-  INIT_SH="/source/init.sh"
-  UPGRADE_SH="/source/upgrade.sh"
+  INIT_SH="/source/downstream/script/base/init.sh"
+  UPGRADE_SH="/source/downstream/script/base/upgrade.sh"
   COMPLETIONS_SH="/source/downstream/script/base/completions.sh"
   NEW_SH="/source/downstream/script/template/new.sh"
 }

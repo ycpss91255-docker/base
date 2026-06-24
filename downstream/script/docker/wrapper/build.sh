@@ -389,7 +389,7 @@ main() {
         esac
       fi
     fi
-    _dry_run_cmd bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
+    _dry_run_cmd bash "${FILE_PATH}/.base/downstream/script/base/init.sh" --gen-conf --force
     # Force a fresh setup.sh run so .env + compose.yaml follow the new conf.
     RUN_SETUP=true
   fi

@@ -3,7 +3,7 @@
 # Unit tests for init.sh helpers. Complements the Level-1 integration test
 # in test/integration/init_new_repo_spec.bats — which already covers
 # end-to-end init.sh runs — by exercising individual helpers against
-# edge cases that are hard to trigger from a real `bash .base/init.sh`
+# edge cases that are hard to trigger from a real `bash .base/downstream/script/base/init.sh`
 # invocation (e.g. network-down version detection, main.yaml @ref
 # fallback, _create_version_file with no argument).
 
@@ -14,13 +14,20 @@ setup() {
 
   # Mimic the integration-test layout so `init.sh` resolves TEMPLATE_DIR /
   # REPO_ROOT to a writable temp tree instead of /source. Symlinking
-  # init.sh back to the real source keeps all edits in one place.
+  # init.sh back to the real source keeps all edits in one place. Post-#654
+  # init.sh lives deep at downstream/script/base/init.sh and self-locates
+  # the subtree root by walking up to the dir carrying `.version` +
+  # `downstream/`, so seed both markers at .base/ and symlink at the deep
+  # path; the walk-up still resolves TEMPLATE_DIR=.base, TEMPLATE_REL=.base.
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/.base/dockerfile" \
            "${TMP_REPO}/.base/downstream/config" \
+           "${TMP_REPO}/.base/downstream/script/base" \
            "${TMP_REPO}/.base/downstream/script/docker/lib" \
            "${TMP_REPO}/.base/downstream/script/docker/runtime"
-  ln -s /source/init.sh "${TMP_REPO}/.base/init.sh"
+  echo "v0.0.0-test" > "${TMP_REPO}/.base/.version"
+  ln -s /source/downstream/script/base/init.sh \
+        "${TMP_REPO}/.base/downstream/script/base/init.sh"
   # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
   ln -s /source/downstream/script/docker/lib/gitignore.sh \
@@ -73,7 +80,7 @@ teardown() {
 # pattern via `run` is awkward — we wrap in a helper.
 _source_init() {
   # shellcheck disable=SC1091
-  source "${TMP_REPO}/.base/init.sh"
+  source "${TMP_REPO}/.base/downstream/script/base/init.sh"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -95,6 +102,10 @@ REMOTE
     fi
     exit 0'
   _source_init
+  # The walk-up marker .version (seeded in setup) doubles as
+  # _detect_template_version's cache; remove it now that TEMPLATE_DIR is
+  # resolved so this test exercises the git-ls-remote fallback path.
+  rm -f "${TMP_REPO}/.base/.version"
   local result
   result="$(_detect_template_version)"
   assert_equal "${result}" "v0.7.2"
@@ -103,6 +114,7 @@ REMOTE
 @test "_detect_template_version: returns empty when git ls-remote fails" {
   mock_cmd "git" 'exit 128'
   _source_init
+  rm -f "${TMP_REPO}/.base/.version"  # exercise the no-cache fallback path
   local result
   result="$(_detect_template_version)"
   assert_equal "${result}" ""
@@ -119,6 +131,7 @@ REMOTE
     fi
     exit 0'
   _source_init
+  rm -f "${TMP_REPO}/.base/.version"  # exercise the no-cache fallback path
   local result
   result="$(_detect_template_version)"
   assert_equal "${result}" ""
@@ -139,6 +152,7 @@ REMOTE
     fi
     exit 0'
   _source_init
+  rm -f "${TMP_REPO}/.base/.version"  # exercise the no-cache fallback path
   local result
   result="$(_detect_template_version)"
   assert_equal "${result}" "v0.7.0"
@@ -371,7 +385,7 @@ REMOTE
   # Post-#263 the subtree always lives at `.base/`; re-sourcing init.sh
   # from that location must consistently derive TEMPLATE_REL = ".base"
   # so downstream symlinks point through the new prefix.
-  source "${TMP_REPO}/.base/init.sh"
+  source "${TMP_REPO}/.base/downstream/script/base/init.sh"
   assert_equal "${TEMPLATE_REL}" ".base"
 }
 
@@ -380,7 +394,7 @@ REMOTE
   # `_create_symlinks` must wire script/build.sh -> ../.base/downstream/script/docker/wrapper/build.sh
   # (sub-folder link target is relative to the link's directory), and
   # justfile / .hadolint.yaml at root keep the direct .base/ target.
-  source "${TMP_REPO}/.base/init.sh"
+  source "${TMP_REPO}/.base/downstream/script/base/init.sh"
   _create_symlinks
   run readlink "${TMP_REPO}/script/build.sh"
   assert_output "../.base/downstream/script/docker/wrapper/build.sh"

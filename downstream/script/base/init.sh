@@ -8,9 +8,12 @@
 #   git commit --allow-empty -m "chore: initial commit"
 #   git subtree add --prefix=.base \
 #       https://github.com/ycpss91255-docker/base.git main --squash
-#   ./.base/init.sh
+#   ./.base/downstream/script/base/init.sh
 #
 # (Substitute `git@github.com:...` for SSH if you have a key configured.)
+#
+# Steady-state users call `just base init`; the raw path above is only the
+# one-time bootstrap before `just` is wired up.
 #
 # Auto-detects:
 #   - Has Dockerfile → existing repo: create symlinks
@@ -21,14 +24,27 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-TEMPLATE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# init.sh lives deep in the subtree (.base/downstream/script/base/init.sh,
+# relocated in #654, ADR-00000011 §8 / ADR-00000006 Region A). Walk up from
+# the script's own directory to the subtree root -- the directory carrying
+# the subtree markers `.version` + `downstream/` -- so TEMPLATE_DIR is the
+# subtree root regardless of how deep the script is nested. The subtree
+# prefix is its basename, used DIRECTLY as the symlink-target prefix below,
+# so a downstream rename still works without code changes.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+TEMPLATE_DIR="${SCRIPT_DIR}"
+while [[ "${TEMPLATE_DIR}" != "/" ]]; do
+  [[ -f "${TEMPLATE_DIR}/.version" && -d "${TEMPLATE_DIR}/downstream" ]] && break
+  TEMPLATE_DIR="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
+done
+[[ -f "${TEMPLATE_DIR}/.version" ]] || {
+  echo "init.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
+  exit 1
+}
 readonly TEMPLATE_DIR
 REPO_ROOT="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
-# Subtree prefix is whatever directory init.sh lives in (now standardised
-# to .base/ post-#263), so a downstream rename works without code changes:
-# re-run ./<new-prefix>/init.sh and all generated symlinks point through
-# the new prefix.
 TEMPLATE_REL="$(basename "${TEMPLATE_DIR}")"
 readonly TEMPLATE_REL
 
@@ -528,7 +544,7 @@ _just_install_hint() {
     cargo install just    # from crates.io
     # or the official prebuilt-binary installer:
     curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
-    # or let init bootstrap it for you (opt-in): ./.base/init.sh --bootstrap-just
+    # or let init bootstrap it for you (opt-in): just base init --bootstrap-just
   See README "Prerequisites" or https://github.com/casey/just#installation.
 EOF
 }

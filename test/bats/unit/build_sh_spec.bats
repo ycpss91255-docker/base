@@ -591,7 +591,7 @@ EOS
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
-  assert_output --partial ".base/init.sh --gen-conf --force"
+  assert_output --partial ".base/downstream/script/base/init.sh --gen-conf --force"
 }
 
 @test "build.sh --reset-conf is mentioned in usage help" {

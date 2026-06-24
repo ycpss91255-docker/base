@@ -37,8 +37,8 @@ jobs:
     #                          behavioural block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
     #                          Dockerfile.test-tools, build/run/exec/stop.sh,
-    #                          init.sh, upgrade.sh, test/bats/behavioural/**,
-    #                          .github/workflows/**)
+    #                          downstream/script/base/{init,upgrade}.sh,
+    #                          test/bats/behavioural/**, .github/workflows/**)
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
     # See issue #317 for the full design and path-list rationale.
@@ -109,7 +109,8 @@ jobs:
                   'downstream/script/docker/lib/i18n.sh' \
                   'downstream/script/docker/lib/**' \
                   'test/bats/behavioural/**' \
-                  'init.sh' 'upgrade.sh' \
+                  'downstream/script/base/init.sh' \
+                  'downstream/script/base/upgrade.sh' \
                   '.github/workflows/**'; then
             echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
           else
@@ -472,7 +473,7 @@ jobs:
           cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/.base/"
 
           cd "${REPO_DIR}"
-          bash .base/init.sh
+          bash .base/downstream/script/base/init.sh
 
           # Sanity: verify symlinks resolve and core files exist.
           # Post-#330: wrappers live under script/; #546: the root user
@@ -730,8 +731,9 @@ jobs:
           ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          cp -r init.sh upgrade.sh \
-                justfile compose.yaml \
+          # init.sh / upgrade.sh now live under downstream/script/base/
+          # (#654), already covered by the downstream/ entry below.
+          cp -r justfile compose.yaml \
                 downstream/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"

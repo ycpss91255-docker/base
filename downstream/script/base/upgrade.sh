@@ -2,26 +2,43 @@
 # upgrade.sh - Upgrade template subtree to the latest version
 #
 # Run from the repo root:
-#   ./.base/upgrade.sh              # upgrade to latest tag
-#   ./.base/upgrade.sh v0.3.0       # upgrade to specific version
-#   ./.base/upgrade.sh --check      # check if update available
+#   ./.base/downstream/script/base/upgrade.sh              # latest tag
+#   ./.base/downstream/script/base/upgrade.sh v0.3.0       # specific version
+#   ./.base/downstream/script/base/upgrade.sh --check      # check only
+#
+# Steady-state users call `just base upgrade [vX.Y.Z]`; the raw path above
+# is only for environments without `just`.
 
 set -euo pipefail
 
+# upgrade.sh lives deep in the subtree (.base/downstream/script/base/upgrade.sh,
+# relocated in #654, ADR-00000011 §8 / ADR-00000006). Walk up from the
+# script's own directory to the subtree root -- the directory carrying the
+# subtree markers `.version` + `downstream/` -- so SUBTREE_ROOT is the
+# subtree root regardless of how deep the script is nested. The subtree
+# prefix is its basename, used DIRECTLY as the subtree-pull --prefix= flag
+# and every filesystem reference, so a downstream rename still works
+# without code changes.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
+SUBTREE_ROOT="${SCRIPT_DIR}"
+while [[ "${SUBTREE_ROOT}" != "/" ]]; do
+  [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/downstream" ]] && break
+  SUBTREE_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
+done
+[[ -f "${SUBTREE_ROOT}/.version" ]] || {
+  echo "upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
+  exit 1
+}
+readonly SUBTREE_ROOT
+REPO_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
 readonly REPO_ROOT
-# Subtree prefix is the directory upgrade.sh lives in (now standardised
-# to .base/ post-#263), picked up automatically: every filesystem
-# reference, the subtree-pull --prefix= flag, and integrity marker uses
-# the same prefix the script was invoked through.
-TEMPLATE_REL="$(basename "${SCRIPT_DIR}")"
+TEMPLATE_REL="$(basename "${SUBTREE_ROOT}")"
 readonly TEMPLATE_REL
 # Default to HTTPS so users without an SSH key (fresh clone, CI runner,
-# first-time contributor) can `./${TEMPLATE_REL}/upgrade.sh` out of the
-# box. Export TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed
-# for private forks, or when the user prefers agent-based auth).
+# first-time contributor) can run upgrade.sh out of the box. Export
+# TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed for private
+# forks, or when the user prefers agent-based auth).
 TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/base.git}"
 readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
@@ -31,7 +48,7 @@ readonly VERSION_FILE
 # the verb here for transcript.sh's classification before the source.
 export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/downstream/script/docker/lib/_lib.sh"
+source "${SUBTREE_ROOT}/downstream/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
@@ -303,7 +320,7 @@ _upgrade() {
   # #330: when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
   _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
-  "./${TEMPLATE_REL}/init.sh"
+  "./${TEMPLATE_REL}/downstream/script/base/init.sh"
 
   # Step 4: update main.yaml @tag references
   _log "Step 4/5: update workflow @tag references"
@@ -466,7 +483,8 @@ _warn_setup_conf_drift() {
 
 _usage() {
   cat >&2 <<EOF
-Usage: ./${TEMPLATE_REL}/upgrade.sh [VERSION|--check|--gen-conf]
+Usage: ./${TEMPLATE_REL}/downstream/script/base/upgrade.sh [VERSION|--check|--gen-conf]
+       (or, preferred: just base upgrade [VERSION])
 
 Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 
@@ -481,10 +499,10 @@ Arguments:
   -h, --help    Show this help
 
 Examples:
-  ./${TEMPLATE_REL}/upgrade.sh               # upgrade to latest
-  ./${TEMPLATE_REL}/upgrade.sh v0.5.0        # upgrade to specific version
-  ./${TEMPLATE_REL}/upgrade.sh --check       # check only
-  ./${TEMPLATE_REL}/upgrade.sh --gen-conf    # copy setup.conf override
+  just base upgrade                                          # upgrade to latest
+  just base upgrade v0.5.0                                   # specific version
+  just base update                                           # check only
+  ./${TEMPLATE_REL}/downstream/script/base/upgrade.sh        # raw: latest
 EOF
   exit 0
 }
@@ -524,7 +542,7 @@ main() {
 
   case "${1:-}" in
     --check) _check ;;
-    --gen-conf) "./${TEMPLATE_REL}/init.sh" --gen-conf ;;
+    --gen-conf) "./${TEMPLATE_REL}/downstream/script/base/init.sh" --gen-conf ;;
     v*)
       _upgrade "$1"
       ;;

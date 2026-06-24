@@ -86,7 +86,8 @@ setup() {
   assert_output --partial "'downstream/script/docker/wrapper/exec.sh'"
   assert_output --partial "'downstream/script/docker/wrapper/stop.sh'"
   assert_output --partial "'test/bats/behavioural/**'"
-  assert_output --partial "'init.sh' 'upgrade.sh'"
+  assert_output --partial "'downstream/script/base/init.sh'"
+  assert_output --partial "'downstream/script/base/upgrade.sh'"
   assert_output --partial "'.github/workflows/**'"
 }
 

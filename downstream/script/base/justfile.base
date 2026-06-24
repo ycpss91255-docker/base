@@ -8,14 +8,15 @@
 # applies the subtree pull (the former docker `upgrade`); `init` (re-)wires
 # the repo's symlinks + .gitignore; `completions` installs/uninstalls shell
 # tab-completion (opt-in, no host rc edits). The `init.sh` / `upgrade.sh`
-# scripts still live at the `.base/` root here; they relocate to
-# downstream/script/base/ in #654 (with the upgrade.sh self-location +
-# bootstrap-path + ADR-00000006 changes that move belongs with).
+# scripts live under `.base/downstream/script/base/` (relocated in #654,
+# ADR-00000011 §8 / ADR-00000006); they self-locate the subtree root via a
+# walk-up, so the deep invocation path is the only change here.
 #
 # A module recipe's default cwd is this file's own directory; the recipes
-# call ./.base/upgrade.sh at the repo root, so `set working-directory :=
-# '../..'` pins them to the repo root. Reached via the consumer symlink
-# (<repo>/script/base/justfile.base), `../..` resolves to the repo root.
+# call ./.base/downstream/script/base/<script> at the repo root, so
+# `set working-directory := '../..'` pins them to the repo root. Reached via
+# the consumer symlink (<repo>/script/base/justfile.base), `../..` resolves
+# to the repo root.
 set working-directory := '../..'
 
 # source_file() (not justfile()) is this module's own file: inside a mod?'d
@@ -28,16 +29,16 @@ default:
 
 # just base upgrade [vX.Y.Z] -> pull the .base subtree (empty = latest)
 upgrade *args:
-    ./.base/upgrade.sh {{args}}
+    ./.base/downstream/script/base/upgrade.sh {{args}}
 
 # just base update -> report whether a newer base tag is available
 # (apt-style; exit 0 = up-to-date or update available, non-1 = real error)
 update:
-    @./.base/upgrade.sh --check || [ $? -eq 1 ]
+    @./.base/downstream/script/base/upgrade.sh --check || [ $? -eq 1 ]
 
 # just base init -> (re-)wire repo symlinks + .gitignore
 init *args:
-    ./.base/init.sh {{args}}
+    ./.base/downstream/script/base/init.sh {{args}}
 
 # just base completions install|uninstall [--shell bash|zsh|fish|all]
 #   opt-in shell tab-completion; never edits a shell rc.

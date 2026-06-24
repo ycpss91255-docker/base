@@ -161,8 +161,8 @@ _run_coverage() {
   local _excludes=(
     "${REPO_ROOT}/test/"
     "${REPO_ROOT}/script/test/"
-    "${REPO_ROOT}/init.sh"
-    "${REPO_ROOT}/upgrade.sh"
+    "${REPO_ROOT}/downstream/script/base/init.sh"
+    "${REPO_ROOT}/downstream/script/base/upgrade.sh"
     "${REPO_ROOT}/downstream/config/shell/bashrc"
     "${REPO_ROOT}/downstream/config/shell/terminator/config"
     "${REPO_ROOT}/downstream/config/shell/tmux/tmux.conf"

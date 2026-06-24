@@ -2,6 +2,11 @@
 
 - **Date:** 2026-06-08
 - **Status:** Accepted
+- **Amended:** 2026-06-24 by #654 / ADR-00000011 §8 -- Region A's frozen
+  `.base/init.sh` root path is superseded. `init.sh` and `upgrade.sh` now
+  live deep at `.base/downstream/script/base/` and self-locate the subtree
+  root via a walk-up (see the Region A note below); the lockstep discipline
+  this ADR mandates is what governed that move.
 
 ## Context
 
@@ -31,6 +36,22 @@ reorg that touches its paths:
   (the rollback path only fires from `_verify_subtree_intact` in Step 2).
   The repo is left half-upgraded: subtree pulled, but symlinks /
   `main.yaml` `@tag` / `.gitignore` not resynced.
+
+  > **Amended 2026-06-24 (#654, ADR-00000011 §8).** `init.sh` was
+  > relocated out of the subtree root to
+  > `.base/downstream/script/base/init.sh` (with `upgrade.sh` alongside).
+  > Per this ADR's lockstep discipline the move was done in one slice that
+  > also updated Step 3's call to
+  > `"./${TEMPLATE_REL}/downstream/script/base/init.sh"` (both the resync
+  > and `--gen-conf` invocations). Critically, `upgrade.sh` no longer
+  > derives `TEMPLATE_REL` from its own directory's basename (which is now
+  > `base`, the wrong prefix): it **walks up** from its location to the
+  > subtree root -- the dir carrying the `.version` + `downstream/` markers
+  > -- and `basename`s THAT (`.base`), so the `git subtree pull --prefix=`
+  > flag and every interior path stay correct regardless of nesting depth.
+  > The new self-location walk-up IS the contract that replaces the frozen
+  > `.base/init.sh` root path; an integration test asserts the resolved
+  > `--prefix` is the subtree basename, not `base`.
 
 - **Region B -- `config/` drift detection.** The pre-pull snapshot
   (`HEAD:${TEMPLATE_REL}/config` and
@@ -67,7 +88,10 @@ are part of the contract `upgrade.sh` depends on, and **must not be moved
 or renamed without updating `upgrade.sh` in the same change** (and
 re-checking #492's trigger checklist):
 
-- `.base/init.sh` -- invoked directly by Region A.
+- `.base/init.sh` -- invoked directly by Region A. *(Superseded
+  2026-06-24 by #654: now `.base/downstream/script/base/init.sh`, located
+  via `upgrade.sh`'s walk-up to the subtree root rather than frozen at the
+  root; see the Region A amendment above.)*
 - `.base/config/` and `.base/config/docker/setup.conf` -- hashed by
   Region B's drift detection.
 - `.base/script/docker/lib/` and the `.base/script/docker/*.sh` umbrella

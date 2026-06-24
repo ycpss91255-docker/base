@@ -2,7 +2,7 @@
 #
 # Integration test: init.sh creating a brand-new repo from scratch.
 #
-# Verifies that running `./.base/init.sh` in an empty directory produces
+# Verifies that running `./.base/downstream/script/base/init.sh` in an empty directory produces
 # a complete, internally-consistent repo skeleton (Dockerfile, compose.yaml,
 # symlinks, .env.example, doc tree, .github/workflows, etc.).
 #
@@ -37,30 +37,30 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "init.sh detects empty dir and creates new repo skeleton" {
-  run bash .base/init.sh
+  run bash .base/downstream/script/base/init.sh
   assert_success
   assert_output --partial "Done"
 }
 
 @test "new repo: Dockerfile is copied from template" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/Dockerfile" ]
 }
 
 @test "new repo: compose.yaml exists and references the repo name" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep "${REPO_NAME}" "${REPO_DIR}/compose.yaml"
   assert_success
 }
 
 @test "new repo: .env.example is NOT generated (image name via setup.conf rules)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   [[ ! -f "${REPO_DIR}/.env.example" ]]
 }
 
 @test "new repo: script/entrypoint.sh exists and is executable" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/script/entrypoint.sh" ]
 }
 
@@ -76,7 +76,7 @@ teardown() {
   # #372 (COPY into /usr/local/lib/base/). It deliberately avoids
   # ${USER} expansion + the workspace bind mount path, both of which
   # the v0.30.0 example mis-used.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   local _entry="${REPO_DIR}/script/entrypoint.sh"
   assert [ -f "${_entry}" ]
   # Source line — must be the in-image path.
@@ -93,12 +93,12 @@ teardown() {
 }
 
 @test "new repo: smoke test skeleton exists for the repo" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/test/smoke/${REPO_NAME}_env.bats" ]
 }
 
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/.github/workflows/main.yaml" ]
   # Accept semver tag or "main" branch fallback (when offline / no tags)
   run grep -E 'build-worker\.yaml@(v[0-9]+\.[0-9]+\.[0-9]+|main)' \
@@ -114,7 +114,7 @@ teardown() {
   # live in the caller's (i.e. new repo's) main.yaml. Without it,
   # the first downstream tag push fails with HTTP 403 from the
   # action-gh-release step (ros1_bridge v1.5.0 release surfaced this).
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   assert [ -f "${_yaml}" ]
   # Must have a top-level `permissions:` block declaring contents: write.
@@ -125,23 +125,23 @@ teardown() {
 }
 
 @test "new repo: .gitignore exists" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/.gitignore" ]
 }
 
 @test "new repo: .dockerignore exists (#604)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/.dockerignore" ]
 }
 
 @test "new repo: .dockerignore contains compose.yaml (derived artifact) (#604)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run grep -x 'compose.yaml' "${REPO_DIR}/.dockerignore"
   assert_success
 }
 
 @test "new repo: doc/ tree exists with README translations" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/README.md" ]
   assert [ -f "${REPO_DIR}/doc/README.zh-TW.md" ]
   assert [ -f "${REPO_DIR}/doc/README.zh-CN.md" ]
@@ -149,17 +149,17 @@ teardown() {
 }
 
 @test "new repo: doc/test/TEST.md exists" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/doc/test/TEST.md" ]
 }
 
 @test "new repo: doc/changelog/CHANGELOG.md exists" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/doc/changelog/CHANGELOG.md" ]
 }
 
 @test "new repo: build.sh symlink lives under script/, not root (#330)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -L "${REPO_DIR}/script/build.sh" ]
   run readlink "${REPO_DIR}/script/build.sh"
   assert_output "../.base/downstream/script/docker/wrapper/build.sh"
@@ -168,7 +168,7 @@ teardown() {
 }
 
 @test "new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # 7 wrappers under script/, each pointing to ../.base/downstream/script/docker/wrapper/<name>.sh
   for f in run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     assert [ -L "${REPO_DIR}/script/${f}" ]
@@ -185,7 +185,7 @@ teardown() {
 }
 
 @test "new repo: config/ is an empty placeholder (template#254 layered override)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # Must NOT be a symlink — edits should stay in the user's own
   # repo, not leak into the subtree where subtree pulls would fight
   # them. Must be a real directory.
@@ -218,14 +218,14 @@ teardown() {
   # init.sh must not overwrite it.
   mkdir -p "${REPO_DIR}/config/custom"
   echo "user-override" > "${REPO_DIR}/config/custom/marker"
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
 }
 
 @test "new repo: script/local/justfile.local seeded (repo-local command-group registry, #632)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # Repo-owned (a real file, not a symlink into the subtree) so the repo
   # commits its own group registrations and a subtree upgrade never clobbers
   # them. The entry imports it with `import?`.
@@ -238,13 +238,13 @@ teardown() {
 @test "new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber, #632)" {
   mkdir -p "${REPO_DIR}/script/local"
   printf "mod? deploy 'deploy/justfile.deploy'\n" > "${REPO_DIR}/script/local/justfile.local"
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run cat "${REPO_DIR}/script/local/justfile.local"
   assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
 }
 
 @test "new repo: script/template/ symlinks wired for the template namespace (#633)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # base-owned (symlinks into the subtree, flow on upgrade): justfile.template
   # + new.sh + skel/, so `just template new <name>` is available out of the box.
   assert [ -L "${REPO_DIR}/script/template/justfile.template" ]
@@ -257,7 +257,7 @@ teardown() {
 }
 
 @test "new repo: script/base/ symlink wired for the base namespace (#652, #653)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # base-owned (symlinks into the subtree, flow on upgrade): justfile.base +
   # completions.sh, so `just base upgrade` / `update` / `init` / `completions`
   # are available out of the box.
@@ -277,7 +277,7 @@ teardown() {
   # symlink with the empty placeholder (mkdir through a symlink
   # would otherwise pollute the subtree target).
   ln -s .base/downstream/config "${REPO_DIR}/config"
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/.gitkeep" ]
@@ -353,7 +353,7 @@ teardown() {
   # one-liner -- no $USER deref, no WS_PATH dependence, works at
   # build-time smoke AND runtime on multi-repo workspaces. Pin the
   # COPY here so init.sh seeding regressions are caught.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   local _df="${REPO_DIR}/Dockerfile"
   assert [ -f "${_df}" ]
   run grep -F 'COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
@@ -361,7 +361,7 @@ teardown() {
 }
 
 @test "new repo: .base/.version exists (no legacy VERSION / .template_version)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/.base/.version" ]
   assert [ ! -f "${REPO_DIR}/.base/VERSION" ]
   assert [ ! -f "${REPO_DIR}/.template_version" ]
@@ -371,14 +371,14 @@ teardown() {
 }
 
 @test "new repo: re-running init.sh on the result is idempotent" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # Second run should hit _init_existing_repo (Dockerfile exists)
-  run bash .base/init.sh
+  run bash .base/downstream/script/base/init.sh
   assert_success
 }
 
 @test "new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
   run readlink "${REPO_DIR}/script/setup_tui.sh"
   assert_output "../.base/downstream/script/docker/wrapper/setup_tui.sh"
@@ -388,24 +388,24 @@ teardown() {
 }
 
 @test "new repo: init.sh removes stale tui.sh symlink from earlier versions (#330 stale-removal loop)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # Simulate a very old upgrade path: legacy tui.sh symlink at root.
   ln -sf ".base/downstream/script/docker/wrapper/setup_tui.sh" "${REPO_DIR}/tui.sh"
-  run bash .base/init.sh
+  run bash .base/downstream/script/base/init.sh
   assert_success
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
   assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
 }
 
 @test "new repo: init.sh removes stale root *.sh symlinks (#330 migration)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   # Simulate a pre-#330 layout by planting the seven root-level symlinks
   # an older init.sh would have produced. Re-running the post-#330
   # init.sh must remove all of them and ensure script/ versions exist.
   for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     ln -sf ".base/downstream/script/docker/wrapper/${f}" "${REPO_DIR}/${f}"
   done
-  run bash .base/init.sh
+  run bash .base/downstream/script/base/init.sh
   assert_success
   for f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     assert [ ! -e "${REPO_DIR}/${f}" ]
@@ -414,39 +414,39 @@ teardown() {
 }
 
 @test "new repo: build.sh -h works against the generated symlink" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run bash "${REPO_DIR}/script/build.sh" -h
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "new repo: run.sh -h works against the generated symlink" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run bash "${REPO_DIR}/script/run.sh" -h
   assert_success
 }
 
 @test "new repo: exec.sh -h works against the generated symlink" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run bash "${REPO_DIR}/script/exec.sh" -h
   assert_success
 }
 
 @test "new repo: stop.sh -h works against the generated symlink" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run bash "${REPO_DIR}/script/stop.sh" -h
   assert_success
 }
 
 @test "new repo: setup.sh symlink under script/ → ../.base/downstream/script/docker/wrapper/setup.sh" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -L "${REPO_DIR}/script/setup.sh" ]
   run readlink "${REPO_DIR}/script/setup.sh"
   assert_output "../.base/downstream/script/docker/wrapper/setup.sh"
 }
 
 @test "new repo: setup.sh -h works against the generated symlink" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run bash "${REPO_DIR}/script/setup.sh" -h
   assert_success
   assert_output --partial "Usage"
@@ -459,9 +459,9 @@ teardown() {
 @test "init.sh --gen-conf copies setup.conf to repo root" {
   # init.sh auto-creates setup.conf via workspace writeback; remove it first
   # to exercise the --gen-conf copy path directly.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   rm -f "${REPO_DIR}/config/docker/setup.conf"
-  bash .base/init.sh --gen-conf
+  bash .base/downstream/script/base/init.sh --gen-conf
   assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
   # Sanity: copied file contains the full section schema
   run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/config/docker/setup.conf"
@@ -471,8 +471,8 @@ teardown() {
 @test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
   # init.sh auto-creates <repo>/config/docker/setup.conf via setup.sh workspace writeback,
   # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
-  bash .base/init.sh
-  run bash .base/init.sh --gen-conf
+  bash .base/downstream/script/base/init.sh
+  run bash .base/downstream/script/base/init.sh --gen-conf
   assert_failure
   assert_output --partial "already exists"
 }
@@ -482,19 +482,19 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "new repo: .gitignore contains compose.yaml (derived artifact)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run grep -x 'compose.yaml' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
 @test "new repo: .gitignore contains .env (derived artifact)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run grep -x '.env' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
 @test "new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)" {
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run head -n 1 "${REPO_DIR}/compose.yaml"
   assert_output --partial "AUTO-GENERATED"
@@ -504,7 +504,7 @@ teardown() {
   # #466 F2: a fresh repo no longer binds /dev:/dev (or any device) by
   # default -- device access is opt-in. Repos that need it uncomment the
   # template example or add via the TUI / `setup.sh add devices.device`.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep -E '^    devices:$' "${REPO_DIR}/compose.yaml"
   assert_failure
@@ -516,7 +516,7 @@ teardown() {
   # Regression: fresh repo previously produced an empty [volumes] mount_1
   # which made the TUI volumes menu appear blank on first open. First-init
   # must write the detected workspace path into mount_1.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   run grep -E '^mount_1 = .+$' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
   # Must NOT be exactly `mount_1 =` (empty value)
@@ -528,7 +528,7 @@ teardown() {
   # setup.sh on first run (no <repo>/config/docker/setup.conf) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
   # setup.conf became the source of truth for WS_PATH.
-  bash .base/init.sh
+  bash .base/downstream/script/base/init.sh
   assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
   run grep '^mount_1' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
@@ -555,7 +555,7 @@ teardown() {
     _src="$(command -v "${_cmd}" 2>/dev/null)" || continue
     ln -sf "${_src}" "${_stub}/${_cmd}"
   done
-  run env LOG_FORMAT=text PATH="${_stub}" bash .base/init.sh
+  run env LOG_FORMAT=text PATH="${_stub}" bash .base/downstream/script/base/init.sh
   assert_success
   assert_output --partial "WARN"
   assert_output --partial "just runner not found on PATH"
@@ -571,7 +571,7 @@ teardown() {
   mkdir -p "${_stub}"
   printf '#!/bin/bash\nexit 0\n' > "${_stub}/just"
   chmod +x "${_stub}/just"
-  run env LOG_FORMAT=text PATH="${_stub}:${PATH}" bash .base/init.sh
+  run env LOG_FORMAT=text PATH="${_stub}:${PATH}" bash .base/downstream/script/base/init.sh
   assert_success
   refute_output --partial "init_just_missing"
   refute_output --partial "just runner not found on PATH"

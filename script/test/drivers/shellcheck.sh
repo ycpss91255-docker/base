@@ -43,8 +43,8 @@ _run_shellcheck() {
   # test.sh); shellcheck them with -x so source-following resolves the
   # _lib.sh / _log_* references the same way test.sh sees them.
   find "${REPO_ROOT}/script/test/drivers" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  shellcheck -x "${REPO_ROOT}/init.sh"
-  shellcheck -x "${REPO_ROOT}/upgrade.sh"
+  shellcheck -x "${REPO_ROOT}/downstream/script/base/init.sh"
+  shellcheck -x "${REPO_ROOT}/downstream/script/base/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/downstream/config/shell/tmux/setup.sh"
 }

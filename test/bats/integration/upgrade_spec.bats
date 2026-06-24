@@ -12,7 +12,7 @@ bats_require_minimum_version 1.5.0
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
-  UPGRADE="/source/upgrade.sh"
+  UPGRADE="/source/downstream/script/base/upgrade.sh"
 
   TMPL_WORK="${BATS_TEST_TMPDIR}/template_work"
   TMPL_BARE="${BATS_TEST_TMPDIR}/template.git"
@@ -26,22 +26,29 @@ setup() {
 
 # _seed_template_remote
 #   Build a tiny template layout matching what upgrade.sh's post-flight
-#   checks look for (markers: .base/.version, .base/init.sh,
-#   .base/downstream/script/docker/wrapper/setup.sh), wrap two tagged versions around it,
-#   and push to a bare repo we can treat as TEMPLATE_REMOTE.
+#   checks look for (markers: .base/.version,
+#   .base/downstream/script/base/init.sh,
+#   .base/downstream/script/docker/wrapper/setup.sh), wrap two tagged
+#   versions around it, and push to a bare repo we can treat as
+#   TEMPLATE_REMOTE. Post-#654 init.sh / upgrade.sh live deep at
+#   downstream/script/base/ and self-locate the subtree root by walking
+#   up to the dir carrying `.version` + `downstream/`.
 _seed_template_remote() {
-  mkdir -p "${TMPL_WORK}/downstream/script/docker/wrapper"
+  mkdir -p "${TMPL_WORK}/downstream/script/docker/wrapper" \
+           "${TMPL_WORK}/downstream/script/base"
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t
   git -C "${TMPL_WORK}" config user.name t
 
   # v0.9.5: baseline subtree content. Use the real upgrade.sh under test so
-  # the downstream repo (which invokes ./.base/upgrade.sh) runs the
-  # same code these tests validate.
+  # the downstream repo (which invokes
+  # ./.base/downstream/script/base/upgrade.sh) runs the same code these
+  # tests validate. .version + downstream/ at the subtree root are the
+  # walk-up markers upgrade.sh self-locates from.
   echo "v0.9.5" > "${TMPL_WORK}/.version"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/init.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/base/init.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
-  cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
+  cp "${UPGRADE}" "${TMPL_WORK}/downstream/script/base/upgrade.sh"
   # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
   # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
   # all three surfaces into the fake remote.
@@ -49,7 +56,9 @@ _seed_template_remote() {
   cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh "${TMPL_WORK}/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/docker/lib/* "${TMPL_WORK}/downstream/script/docker/lib/"
-  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh" "${TMPL_WORK}/upgrade.sh"
+  chmod +x "${TMPL_WORK}/downstream/script/base/init.sh" \
+           "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh" \
+           "${TMPL_WORK}/downstream/script/base/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"
   git -C "${TMPL_WORK}" tag v0.9.5
@@ -98,7 +107,7 @@ YAML
 @test "upgrade.sh v0.9.7: bumps .base/.version, pulls new content, updates main.yaml" {
   cd "${DOWN_DIR}"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Upgrading: v0.9.5 → v0.9.7"
   assert_output --partial "Done! Upgraded to v0.9.7"
@@ -124,7 +133,7 @@ EOF
   git add Dockerfile
   git commit -q -m "add Dockerfile"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Dockerfile patched"
 
@@ -143,7 +152,7 @@ EOF
   git add Dockerfile
   git commit -q -m "add Dockerfile (already patched)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "already copies .base/downstream/script/docker/lib"
   refute_output --partial "Dockerfile patched"
@@ -162,7 +171,7 @@ EOF
   git add Dockerfile
   git commit -q -m "add custom Dockerfile"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor"
   refute_output --partial "Dockerfile patched"
@@ -176,7 +185,7 @@ EOF
   # exercise the early-return branch.
   [ ! -f Dockerfile ]
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "no Dockerfile at repo root"
 }
@@ -200,7 +209,7 @@ EOF
   git add Dockerfile script/
   git commit -q -m "add Dockerfile (pre-#330 COPY *.sh)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
 
@@ -222,7 +231,7 @@ EOF
   git add Dockerfile script/
   git commit -q -m "add Dockerfile (already post-#330)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "skip (#399 idempotent)"
   refute_output --partial "Dockerfile patched"
@@ -244,7 +253,7 @@ EOF
   git add Dockerfile script/
   git commit -q -m "add Dockerfile (stale root + script/ subdest)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
 
@@ -262,7 +271,7 @@ EOF
   git add Dockerfile
   git commit -q -m "add Dockerfile (no wrapper COPY)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "has no COPY *.sh /lint/ line"
   refute_output --partial "Dockerfile patched: COPY *.sh"
@@ -271,9 +280,9 @@ EOF
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 
-  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
+  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7 >/dev/null
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Already at v0.9.7"
   [ "$(cat .base/.version)" = "v0.9.7" ]
@@ -282,7 +291,7 @@ EOF
 @test "upgrade.sh --check reports update available from v0.9.5 → v0.9.7" {
   cd "${DOWN_DIR}"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh --check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh --check
   # _check exits 1 when an update is available (documented contract).
   assert_failure
   assert_output --partial "Local:  v0.9.5"
@@ -324,7 +333,7 @@ _seed_entry() {
   cd "${DOWN_DIR}"
   _seed_entry
 
-  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
+  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7 >/dev/null
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just base update
   assert_success
@@ -344,7 +353,7 @@ _seed_entry() {
       HOME="${BATS_TEST_TMPDIR}" \
       GIT_CONFIG_GLOBAL=/dev/null \
       GIT_CONFIG_SYSTEM=/dev/null \
-      ./.base/upgrade.sh v0.9.7
+      ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_failure
   assert_output --partial "git identity not configured"
   # Pre-flight aborted before subtree pull ran.
@@ -355,7 +364,7 @@ _seed_entry() {
   cd "${DOWN_DIR}"
   touch .git/MERGE_HEAD
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/downstream/script/base/upgrade.sh v0.9.7
   assert_failure
   assert_output --partial "MERGE_HEAD present"
   [ "$(cat .base/.version)" = "v0.9.5" ]
@@ -409,7 +418,7 @@ STUB
 
   run env GIT_EXEC_PATH="${_stub_dir}" \
       TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./.base/upgrade.sh v0.9.7
+      ./.base/downstream/script/base/upgrade.sh v0.9.7
 
   assert_failure
   assert_output --partial "integrity check failed"
@@ -427,4 +436,60 @@ STUB
   [ "$(cat .base/.version)" = "v0.9.5" ]
   [ -f ".base/downstream/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
+}
+
+# ── #654: walk-up self-location resolves --prefix to the subtree basename ─────
+#
+# Regression guard for the relocation: upgrade.sh moved deep to
+# .base/downstream/script/base/upgrade.sh and now derives the subtree
+# prefix by WALKING UP to the dir carrying `.version` + `downstream/`
+# (SUBTREE_ROOT), then `basename`-ing it. The danger is deriving the
+# prefix from the script's OWN deep directory (`base`) instead of the
+# subtree root (`.base`), which would make `git subtree pull
+# --prefix=base` corrupt the repo. Capture the actual --prefix the
+# relocated script passes and assert it is the subtree basename `.base`,
+# then let the real git-subtree run so we also confirm a clean upgrade
+# (no stray base/ dir at repo root).
+@test "upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base" {
+  cd "${DOWN_DIR}"
+
+  # Wrap `git` on PATH: intercept `git subtree pull`, record its --prefix=
+  # argument, then delegate the FULL invocation to the real git binary so
+  # the upgrade lands normally. (A `git` PATH-shim is used rather than the
+  # rollback test's GIT_EXEC_PATH git-subtree stub because the real
+  # git-subtree re-invokes `git subtree` internally and must still resolve
+  # the distro git-subtree -- the wrapper keeps GIT_EXEC_PATH intact.)
+  local _real_git
+  _real_git="$(command -v git)"
+  local _stub_dir="${BATS_TEST_TMPDIR}/prefix_capture_bin"
+  local _prefix_log="${BATS_TEST_TMPDIR}/captured_prefix.txt"
+  mkdir -p "${_stub_dir}"
+  cat > "${_stub_dir}/git" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "subtree" && "\$2" == "pull" ]]; then
+  for _a in "\$@"; do
+    case "\${_a}" in
+      --prefix=*) printf '%s\n' "\${_a#--prefix=}" > "${_prefix_log}" ;;
+    esac
+  done
+fi
+exec "${_real_git}" "\$@"
+STUB
+  chmod +x "${_stub_dir}/git"
+
+  run env PATH="${_stub_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/downstream/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Done! Upgraded to v0.9.7"
+
+  # The load-bearing assertion: prefix is the subtree basename .base.
+  [ -f "${_prefix_log}" ]
+  assert_equal "$(cat "${_prefix_log}")" ".base"
+
+  # And the real pull landed cleanly: version bumped, no stray base/ dir
+  # at the repo root, payload under .base/.
+  [ "$(cat .base/.version)" = "v0.9.7" ]
+  [ ! -e "base" ]
+  [ -f ".base/script/docker/new_script.sh" ]
 }
