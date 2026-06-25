@@ -187,6 +187,22 @@ EOF
   assert_output "1"
 }
 
+@test "_sync_gitignore: documented constraint -- CRLF entries are not matched (LF-only) (#692)" {
+  # _sync_managed_entries decides presence with `grep -qxF` (exact whole-LF-line
+  # match). A .gitignore saved with CRLF stores `.env\r`, which is NOT equal to
+  # `.env`, so the canonical entry is treated as missing and re-appended -- the
+  # file then carries both `.env\r` and `.env`. This pins that documented
+  # LF-only constraint (downstream .gitignore must use LF); a future CRLF
+  # normalisation would flip this to a single-entry assertion.
+  local _f="${TMP_DIR}/.gitignore"
+  printf '.env\r\ncompose.yaml\r\n' > "${_f}"
+  _sync_gitignore "${_f}"
+  # The CRLF-terminated `.env\r` is preserved AND a fresh LF `.env` is appended.
+  run grep -c '^\.env$' "${_f}"
+  assert_output "1"
+  assert [ "$(grep -c $'\.env\r$' "${_f}")" -eq 1 ]
+}
+
 @test "_sync_gitignore: ends with newline so future appends start on their own line" {
   local _f="${TMP_DIR}/.gitignore"
   printf 'something' > "${_f}"   # NO trailing newline
@@ -355,6 +371,34 @@ CONF
   _first="$(cat "${TMP_DIR}/.gitignore")"
   _sync_logging_gitignore "${TMP_DIR}"
   [[ "$(cat "${TMP_DIR}/.gitignore")" == "${_first}" ]]
+}
+
+@test "_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)" {
+  # The filter strips only absolute (/*) and ~ paths; any other relative
+  # value is wrapped as /<value>/. A `..`-escaping value therefore produces
+  # the (meaningless-as-an-anchor) pattern /../escape/. This pins the current
+  # behaviour; a future input-validation pass would skip/reject it instead.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ../escape/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/../escape/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)" {
+  # A value with a space is wrapped as /my logs/ (a literal-space pattern).
+  # Pins the current behaviour; a future sanitiser would reject or quote it.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = my logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/my logs/" "${TMP_DIR}/.gitignore"
+  assert_success
 }
 
 @test "_sync_logging_gitignore collects from both global + per-svc (#402, ex-#328)" {
