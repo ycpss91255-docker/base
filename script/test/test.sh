@@ -159,48 +159,6 @@ EOF
 
 _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; exit 1; }
 
-_install_deps() {
-  command -v bats >/dev/null 2>&1 && return 0
-
-  # Rewrite sources.list to use APT_MIRROR_DEBIAN before apt-get update.
-  # Default deb.debian.org is unreachable on some networks (regional outage,
-  # ISP routing, captive portals) while the configured mirror responds. The
-  # env var is plumbed through by compose.yaml; only rewrite when it actually
-  # differs from the default so unaffected networks keep using the upstream.
-  local _mirror="${APT_MIRROR_DEBIAN:-deb.debian.org}"
-  if [[ "${_mirror}" != "deb.debian.org" ]]; then
-    [[ -f /etc/apt/sources.list ]] \
-      && sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list
-    if compgen -G '/etc/apt/sources.list.d/*.list' >/dev/null; then
-      sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list.d/*.list
-    fi
-    if compgen -G '/etc/apt/sources.list.d/*.sources' >/dev/null; then
-      sed -i "s|deb.debian.org|${_mirror}|g" /etc/apt/sources.list.d/*.sources
-    fi
-  fi
-
-  apt-get update -qq \
-    || _die ci_apt_update_failed "apt-get update failed. Check network / apt mirror reachability."
-
-  # The kcov/coverage image is debian-based and ships none of the bats
-  # toolchain, so install it here; `parallel` shards the bats run. The
-  # downstream-justfile integration test (`just upgrade-check`)
-  # self-skips when `just` is absent -- it runs against the test-tools
-  # image (which bundles just), not this kcov image -- so no make/just
-  # runner is needed in this debian environment.
-  apt-get install -y --no-install-recommends \
-      bats bats-support bats-assert \
-      shellcheck git ca-certificates \
-      parallel \
-    || _die ci_apt_install_failed "apt-get install failed for bats/shellcheck deps."
-
-  # bats-mock is distro-packaged on newer distros but missing on bookworm,
-  # so we always pin to upstream v1.2.5 for reproducibility.
-  git clone --depth 1 -b v1.2.5 \
-      https://github.com/jasonkarns/bats-mock /usr/lib/bats/bats-mock \
-    || _die ci_bats_mock_clone_failed "git clone bats-mock failed. Check network / GitHub access."
-}
-
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -217,8 +175,9 @@ _run_via_compose() {
   # Service is the first arg so the caller picks the runner image:
   #   `ci`       — alpine test-tools (bats/shellcheck/hadolint baked in,
   #                no apt-install on each run; fast dev loop)
-  #   `coverage` — kcov/kcov (debian; needs apt-install via _install_deps,
-  #                opt-in APT_MIRROR_DEBIAN rewrite for unreachable mirrors)
+  #   `coverage` — the SAME alpine test-tools image as `ci`, with kcov
+  #                source-built in. No apt-install, no APT_MIRROR_DEBIAN;
+  #                the only difference is COVERAGE=1.
   #
   # BATS_ONLY is forwarded so the inner `--ci` dispatch can skip
   # _run_shellcheck when the dedicated GHA shellcheck job is
@@ -370,7 +329,6 @@ main() {
       # `--bats-unit-shard` / `--bats-integration` flags so the
       # in-container path matches the local dev path.
       if [[ "${behavioural}" == "1" ]]; then
-        _install_deps
         _run_behavioural
         _fix_permissions
         return 0
@@ -378,8 +336,9 @@ main() {
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
       # routes here with LINT_ONLY=1; run the requested linter(s) and skip
       # bats entirely. LINT_TOOL empty = all linters (shellcheck +
-      # hadolint), matching bare `just test lint`. No _install_deps: the
-      # test-tools image already ships both linters.
+      # hadolint), matching bare `just test lint`. The test-tools image
+      # already ships every tool (bats / shellcheck / hadolint / kcov), so
+      # nothing is installed at runtime on any path.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then
         case "${LINT_TOOL:-}" in
           shellcheck) _run_shellcheck ;;
@@ -390,16 +349,15 @@ main() {
         esac
         return 0
       fi
-      _install_deps
       # Full `just test` lint phase: shellcheck THEN hadolint, so a
       # Dockerfile regression fails `just test` locally the same way it
       # fails the CI hadolint job (local==CI). BATS_ONLY=1 (dedicated
       # GHA shellcheck/hadolint jobs cover lint in parallel) skips both.
-      # COVERAGE=1 also skips lint: the coverage path runs in the
-      # kcov/kcov debian image, which bakes in NEITHER shellcheck nor
-      # hadolint (hadolint especially has no apt package there) — lint is
-      # a separate concern measured by the dedicated lint jobs, not the
-      # coverage matrix. Running it here would fail every coverage shard.
+      # COVERAGE=1 also skips lint: lint is a separate concern measured by
+      # the dedicated lint jobs, not the coverage matrix — running it once
+      # per coverage shard would be wasted work (the coverage shards now
+      # share the test-tools image, which DOES ship both linters, so this
+      # is a deliberate skip, not a missing-binary workaround).
       if [[ "${BATS_ONLY:-0}" != "1" && "${COVERAGE:-0}" != "1" ]]; then
         _run_shellcheck
         _run_hadolint

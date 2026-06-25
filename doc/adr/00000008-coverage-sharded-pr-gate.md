@@ -46,13 +46,20 @@ integration specs run on the **last shard only** (not every shard), so
 no slice is kcov'd more than once.
 
 Plumbing: a new `test.sh --coverage-shard N/T` flag sets coverage mode
-and forwards `COVERAGE_SHARD` into the kcov/kcov container, where
+and forwards `COVERAGE_SHARD` into the coverage container, where
 `_run_coverage <n>/<total>` wraps kcov over that slice. Bare
 `test.sh --coverage` (and `just test coverage`) keeps the full-suite path
 for local / release use; `just test coverage 1/4` runs a single shard
 locally. The coverage path also **skips the lint phase** unconditionally
-(the kcov/kcov debian image bakes in neither shellcheck nor hadolint;
-lint is measured by the dedicated lint jobs).
+(lint is measured by the dedicated lint jobs, so running it once per
+coverage shard would be wasted work).
+
+> Amendment (#686): the coverage container is no longer the upstream
+> `kcov/kcov` Debian image — kcov is now source-built into the shared
+> Alpine `test-tools` image, so the coverage matrix runs on the same
+> pre-baked image as `bats-unit` (no per-shard apt-install). This is an
+> environment change only; the sharded-matrix + `codecov/project` gate
+> MECHANISM this ADR records is unchanged.
 
 Per-shard wall-time lands in the `bats-unit` ballpark (~one shard,
 ~170s) and runs in parallel with `bats-unit`, so the added PR
