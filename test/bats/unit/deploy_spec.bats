@@ -330,7 +330,7 @@ _write_conf() {
   assert_output --partial "/usr/bin/env bash"
   assert_output --partial "set -euo pipefail"
   # %q-quoted default (no outer double-quotes); a clean name needs no
-  # escaping so it reads as the bare token (#688).
+  # escaping so it reads as the bare token.
   assert_output --partial 'IMAGE=${DEPLOY_IMAGE:-local/myrepo:runtime}'
   assert_output --partial 'CONTAINER_NAME=${DEPLOY_CONTAINER_NAME:-myrepo-field}'
   assert_output --partial "exec docker run"

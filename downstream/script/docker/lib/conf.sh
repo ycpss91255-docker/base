@@ -520,7 +520,7 @@ _upsert_conf_value() {
   # scalar validators are line-anchored (`.*$` matches up to a newline)
   # so a newline-bearing value can pass validation upstream; refuse it
   # here at the writer sink so every caller (set / add / TUI / WS_PATH)
-  # is protected. (#688)
+  # is protected.
   if [[ "${_key}" == *$'\n'* || "${_value}" == *$'\n'* ]]; then
     printf "[_upsert_conf_value] refusing newline-bearing key/value\n" >&2
     return 1

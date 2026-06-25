@@ -1269,7 +1269,7 @@ _generate_runtime_dockerfile() {
         # `$` would trigger Dockerfile ENV expansion / shell command
         # substitution (`$(id)`) at build time instead of landing
         # literally. Escape backslash first, then `"` and `$`, so the
-        # configured value is baked verbatim. (#688)
+        # configured value is baked verbatim.
         _v="${_v//\\/\\\\}"
         _v="${_v//\"/\\\"}"
         _v="${_v//\$/\\\$}"
@@ -1977,7 +1977,7 @@ _generate_deploy_sh() {
   # `$(...)`, or backtick lands as a single literal token in the generated
   # launcher instead of breaking the assignment or command-substituting at
   # field run time. This mirrors the per-flag %q protection below; the seam
-  # used to inline these as a bare heredoc default expansion. (#688)
+  # used to inline these as a bare heredoc default expansion.
   local _image_ref_q _container_name_q
   printf -v _image_ref_q '%q' "${_image_ref}"
   printf -v _container_name_q '%q' "${_container_name}"
@@ -3788,7 +3788,7 @@ _setup_set() {
     : > "${_conf}"
   fi
 
-  # Propagate writer refusal (e.g. newline-bearing value, #688) instead
+  # Propagate writer refusal (e.g. a newline-bearing value) instead
   # of printing a misleading success message over a no-op / partial write.
   if ! _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"; then
     _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_key}" "section=${_section}" "key=${_key}"
