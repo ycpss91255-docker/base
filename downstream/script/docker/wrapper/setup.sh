@@ -2318,6 +2318,11 @@ _emit_runtime_line() {
 _emit_restart_line() {
   local _restart="${1-no}"
   [[ "${_restart}" == "no" ]] && return 0
+  # apply does no schema revalidation, so a hand-edited setup.conf can feed
+  # a malformed policy here. Drop anything _validate_restart rejects rather
+  # than emit an invalid `restart:` that breaks `docker compose up` with a
+  # cryptic error (apply-time trust-boundary guard).
+  _validate_restart "${_restart}" || return 0
   case "${_restart}" in
     on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
     *)            printf '    restart: %s\n'   "${_restart}" ;;

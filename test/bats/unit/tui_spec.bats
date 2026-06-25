@@ -106,6 +106,55 @@ teardown() {
   [ "${status}" -ne 0 ]
 }
 
+@test "_validate_mount rejects embedded newline (YAML injection) (#687)" {
+  # A 2-part value whose container side carries a newline would otherwise
+  # pass the colon-split check and inject arbitrary YAML into compose
+  # volumes:. Mirrors the _validate_log_local_path newline guard.
+  run _validate_mount $'/host:/cont\nfoo: bar'
+  [ "${status}" -ne 0 ]
+  run _validate_mount $'/host:/cont\n      privileged: true'
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _validate_restart — direct coverage (previously only exercised
+# indirectly via _edit_section_lifecycle happy paths)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_restart accepts the four bare policies + on-failure:N (#687)" {
+  _validate_restart "no"
+  _validate_restart "always"
+  _validate_restart "unless-stopped"
+  _validate_restart "on-failure"
+  _validate_restart "on-failure:5"
+}
+
+@test "_validate_restart rejects on-failure:0 (docker forbids zero retries) (#687)" {
+  run _validate_restart "on-failure:0"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_restart rejects leading-zero retry count on-failure:01 (#687)" {
+  run _validate_restart "on-failure:01"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_restart rejects malformed on-failure values (#687)" {
+  run _validate_restart "on-failure:"
+  [ "${status}" -ne 0 ]
+  run _validate_restart "on-failure:-1"
+  [ "${status}" -ne 0 ]
+  run _validate_restart "on-failure:x"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_restart rejects an unknown bare policy (#687)" {
+  run _validate_restart "sometimes"
+  [ "${status}" -ne 0 ]
+  run _validate_restart ""
+  [ "${status}" -ne 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _validate_shm_size
 # ════════════════════════════════════════════════════════════════════
@@ -186,6 +235,14 @@ teardown() {
   run _validate_env_kv "=value"
   [ "${status}" -ne 0 ]
   run _validate_env_kv ""
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_env_kv rejects embedded newline (YAML injection) (#687)" {
+  # `.*` in the shape regex matches a single line, so a newline in the
+  # value would inject an extra compose environment: entry. Mirrors the
+  # _validate_log_local_path newline guard.
+  run _validate_env_kv $'FOO=a\nBAR=injected'
   [ "${status}" -ne 0 ]
 }
 

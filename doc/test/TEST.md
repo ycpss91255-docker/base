@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1982 tests** total (1897 unit + 85 integration).
+Template self-tests: **1995 tests** total (1910 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -115,7 +115,7 @@ match real transcript lines and the 5 levels via `grep -P`).
 | Every declared sample matches the pattern | 1 |
 | `log.lnav-format.json` (JSON) still coexists unchanged | 1 |
 
-### test/bats/unit/schema_spec.bats (24)
+### test/bats/unit/schema_spec.bats (26)
 
 Covers the setup.conf validation registry (`lib/schema.sh`, #560): the
 single `_schema_validate <section> <key> <value>` gate that both
@@ -220,7 +220,7 @@ writeback, `--quiet` confirmation lines (#285), `--gui` /
 propagation + duplicate-target guards, S7 `runtime.env` retirement
 (#507), and `_reconcile_workspace_path` (#569).
 
-#### test/bats/unit/setup_section_validate_spec.bats (29)
+#### test/bats/unit/setup_section_validate_spec.bats (32)
 
 Per-section setup.conf parameter end-to-end coverage (#202): one key per
 test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
@@ -238,7 +238,7 @@ auto-emit of non-baseline stages (#215), and per-stage overrides #220
 `_resolve_stage_list` + compose-emit integration, incl. #493
 `devel-test` override surface).
 
-### test/bats/unit/tui_spec.bats (124)
+### test/bats/unit/tui_spec.bats (131)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string

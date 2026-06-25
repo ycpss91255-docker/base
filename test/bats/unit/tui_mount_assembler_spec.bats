@@ -44,6 +44,21 @@ setup() {
   assert_output "/a:/b"
 }
 
+@test "_assemble_mount_value space-bearing path is rejected by _validate_mount (#687)" {
+  # A space-bearing host path round-trips through the assembler into
+  # `/my data:/work`, which word-splits in `docker run -v /my data:/work`
+  # and corrupts the compose volumes list. The validator must reject it so
+  # the bad value never reaches an emitter.
+  local _result
+  _result="$(_assemble_mount_value '/my data' /work)"
+  [ "${_result}" = "/my data:/work" ]
+  run _validate_mount "${_result}"
+  assert_failure
+  # Either side of the colon, and the container side, are all guarded.
+  run _validate_mount "/host:/my data"
+  assert_failure
+}
+
 # ── TUI picker flow (mocked) ───────────────────────────────────
 
 @test "_prompt_mount_with_picker assembles full mount string from picker steps (#461)" {

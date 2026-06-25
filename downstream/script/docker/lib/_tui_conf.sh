@@ -42,6 +42,11 @@ unset _tui_conf_dir
 _validate_mount() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 1
+  # Reject whitespace (space / tab / newline): a newline injects an extra
+  # YAML line into the compose volumes:/devices: list, and a space makes
+  # the `docker run -v <host>:<cont>` argv word-split into two tokens.
+  # Mirrors the _validate_log_local_path newline guard.
+  [[ "${_v}" =~ [[:space:]] ]] && return 1
 
   local -a _parts=()
   IFS=':' read -ra _parts <<< "${_v}"
@@ -169,6 +174,10 @@ _validate_cgroup_rule() {
 _validate_env_kv() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 1
+  # Reject embedded newlines: bash regex `.*` matches any single line, so
+  # a real newline in the value would pass the shape check yet inject an
+  # extra YAML line into compose environment: (mirrors local_path guard).
+  [[ "${_v}" == *$'\n'* ]] && return 1
   [[ "${_v}" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]] && return 0
   return 1
 }
@@ -184,6 +193,10 @@ _validate_env_kv() {
 _validate_additional_context() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 1
+  # Reject embedded newlines: the free-form <value> half is otherwise
+  # unconstrained, so a newline would inject an extra YAML line into
+  # compose additional_contexts: (mirrors local_path guard).
+  [[ "${_v}" == *$'\n'* ]] && return 1
   [[ "${_v}" != *"="* ]] && return 1
   local _name="${_v%%=*}"
   local _val="${_v#*=}"
