@@ -352,6 +352,10 @@ STUB
 }
 
 @test "_transcript_begin: tee-missing degrades to no-op + WARN (#691)" {
+  # The tee-less PATH stub perturbs the kcov coverage wrapper (which itself
+  # shells out through PATH), not the helper; the degrade path is covered by
+  # the plain bats-unit run. Skip only under coverage.
+  [ "${COVERAGE:-0}" = 1 ] && skip "tee-less PATH stub perturbs the kcov wrapper (#613)"
   # Build a stub PATH that has every external _transcript_begin reaches
   # BEFORE the tee check (mkdir, date) but NOT tee, so `command -v tee`
   # fails and the begin must warn-and-continue.

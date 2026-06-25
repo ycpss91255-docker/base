@@ -132,6 +132,10 @@ EOF
 }
 
 @test "_load_env aborts under set -euo pipefail when the file does not exist (#689)" {
+  # kcov instrumentation perturbs the inner set -u shell (BASH_SOURCE comes
+  # back unbound), masking the real "No such file" diagnostic; the abort
+  # behaviour is covered by the plain bats-unit run. Skip only under coverage.
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov perturbs the inner set -u shell (#613)"
   # The path is provided but the file is gone -- the race the wrapper's
   # no_env guard is meant to prevent, and which run.sh would hit at
   # `_load_env "${FILE_PATH}/.env.generated"`. _load_env sources $1 with
