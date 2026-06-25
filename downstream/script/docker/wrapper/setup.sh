@@ -1264,6 +1264,15 @@ _generate_runtime_dockerfile() {
         [[ -z "${_kv}" || "${_kv}" != *=* ]] && continue
         _k="${_kv%%=*}"
         _v="${_kv#*=}"
+        # The value is baked into a double-quoted `ENV K="<v>"` line. A
+        # raw `"` would unbalance the quotes (`ENV MSG="say "hi""`) and a
+        # `$` would trigger Dockerfile ENV expansion / shell command
+        # substitution (`$(id)`) at build time instead of landing
+        # literally. Escape backslash first, then `"` and `$`, so the
+        # configured value is baked verbatim.
+        _v="${_v//\\/\\\\}"
+        _v="${_v//\"/\\\"}"
+        _v="${_v//\$/\\\$}"
         printf 'ENV %s="%s"\n' "${_k}" "${_v}" >> "${_tmp}"
       done
     fi
@@ -1964,6 +1973,15 @@ _generate_deploy_sh() {
   local -a _argv=()
   _emit_docker_run_flags _flags _argv
 
+  # %q-quote the IMAGE / CONTAINER_NAME defaults so a name bearing a `"`,
+  # `$(...)`, or backtick lands as a single literal token in the generated
+  # launcher instead of breaking the assignment or command-substituting at
+  # field run time. This mirrors the per-flag %q protection below; the seam
+  # used to inline these as a bare heredoc default expansion.
+  local _image_ref_q _container_name_q
+  printf -v _image_ref_q '%q' "${_image_ref}"
+  printf -v _container_name_q '%q' "${_container_name}"
+
   # Emit deploy.sh. Runtime-expanded vars / backticks are escaped so they
   # land literally in the generated script; per-arg %q quoting keeps each
   # flag a single, safely-quoted token.
@@ -1984,8 +2002,8 @@ _generate_deploy_sh() {
 # on a different field machine.
 set -euo pipefail
 
-IMAGE="\${DEPLOY_IMAGE:-${_image_ref}}"
-CONTAINER_NAME="\${DEPLOY_CONTAINER_NAME:-${_container_name}}"
+IMAGE=\${DEPLOY_IMAGE:-${_image_ref_q}}
+CONTAINER_NAME=\${DEPLOY_CONTAINER_NAME:-${_container_name_q}}
 
 exec docker run \\
   --detach \\
@@ -3775,7 +3793,12 @@ _setup_set() {
     : > "${_conf}"
   fi
 
-  _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"
+  # Propagate writer refusal (e.g. a newline-bearing value) instead
+  # of printing a misleading success message over a no-op / partial write.
+  if ! _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"; then
+    _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_key}" "section=${_section}" "key=${_key}"
+    return 2
+  fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
@@ -4152,7 +4175,10 @@ _setup_add() {
     return 2
   fi
 
-  _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"
+  if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"; then
+    _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key}" "section=${_section}" "key=${_new_key}"
+    return 2
+  fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"

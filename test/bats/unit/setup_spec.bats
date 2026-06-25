@@ -953,6 +953,35 @@ EOS
   assert_output --partial "XAUTHORITY left at host value"
 }
 
+@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)" {
+  # Distinct from the 0-byte branch: here the nlist|sed|nmerge pipeline
+  # itself exits non-zero (the `xauth_rewrite_failed` middle branch). A
+  # regression that swallowed this failure would silently emit a bogus
+  # XAUTHORITY into .env, so the function must surface it: return 1 and
+  # warn "cookie rewrite failed".
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+# nlist succeeds (emits a line so the pipe has data); nmerge fails.
+case "$*" in
+  *nmerge*) cat >/dev/null 2>&1 || true; exit 1 ;;
+  *nlist*)  echo "localhost:10  MIT-MAGIC-COOKIE-1  deadbeef"; exit 0 ;;
+  *)        exit 0 ;;
+esac
+EOS
+  chmod +x "${_bin}/xauth"
+
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/downstream/script/docker/wrapper/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_failure
+  assert_output --partial "cookie rewrite failed"
+  assert_output --partial "XAUTHORITY left at host value"
+}
+
 @test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
   # Shadow the `command` builtin with a function that returns 1 for
   # `command -v xauth` and passes everything else through to the real

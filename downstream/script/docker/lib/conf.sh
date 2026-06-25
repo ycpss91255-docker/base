@@ -514,6 +514,18 @@ _upsert_conf_value() {
 
   [[ -f "${_file}" ]] || { printf "[_upsert_conf_value] file missing: %s\n" "${_file}" >&2; return 1; }
 
+  # A value (or key) bearing a newline would be written by the
+  # `printf '%s = %s\n'` lines below as multiple physical lines, leaving
+  # an orphan, un-keyed line that corrupts the INI on the next read. The
+  # scalar validators are line-anchored (`.*$` matches up to a newline)
+  # so a newline-bearing value can pass validation upstream; refuse it
+  # here at the writer sink so every caller (set / add / TUI / WS_PATH)
+  # is protected.
+  if [[ "${_key}" == *$'\n'* || "${_value}" == *$'\n'* ]]; then
+    printf "[_upsert_conf_value] refusing newline-bearing key/value\n" >&2
+    return 1
+  fi
+
   local _tmp
   _tmp="$(mktemp "${_file}.XXXXXX")"
 

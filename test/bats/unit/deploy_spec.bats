@@ -329,8 +329,10 @@ _write_conf() {
   run cat "${_out}"
   assert_output --partial "/usr/bin/env bash"
   assert_output --partial "set -euo pipefail"
-  assert_output --partial 'IMAGE="${DEPLOY_IMAGE:-local/myrepo:runtime}"'
-  assert_output --partial 'CONTAINER_NAME="${DEPLOY_CONTAINER_NAME:-myrepo-field}"'
+  # %q-quoted default (no outer double-quotes); a clean name needs no
+  # escaping so it reads as the bare token.
+  assert_output --partial 'IMAGE=${DEPLOY_IMAGE:-local/myrepo:runtime}'
+  assert_output --partial 'CONTAINER_NAME=${DEPLOY_CONTAINER_NAME:-myrepo-field}'
   assert_output --partial "exec docker run"
   assert_output --partial '"${IMAGE}"'
   assert_output --partial '"$@"'
@@ -475,6 +477,33 @@ _write_conf() {
   SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
   run shellcheck "${_out}"
   assert_success
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_sh: image_ref / container_name with metachars stay ShellCheck-clean + literal (#688)" {
+  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
+  local _out="${_d}/deploy.sh"
+  # The docker-run flags are %q-quoted, but IMAGE / CONTAINER_NAME were
+  # inlined into the heredoc as a bare default expansion -- a `"` breaks
+  # the generated assignment and a `$(...)` would command-substitute at
+  # field run time. Feed both metachar shapes and assert the launcher is
+  # still ShellCheck-clean and the names survive literally.
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh \
+    "${_d}" "runtime" 'img$(id)' 'na"me' "${_out}"
+  run shellcheck "${_out}"
+  assert_success
+  # The names resolve at field run time to the exact literal strings (no
+  # command substitution, no broken quote). Evaluate just the IMAGE /
+  # CONTAINER_NAME assignment lines in a clean shell and echo them back.
+  run bash -c "
+    eval \"\$(grep -E '^(IMAGE|CONTAINER_NAME)=' '${_out}')\"
+    printf '%s\n%s\n' \"\${IMAGE}\" \"\${CONTAINER_NAME}\"
+  "
+  assert_success
+  assert_line --index 0 'img$(id)'
+  assert_line --index 1 'na"me'
   rm -rf "${_d}"
 }
 
