@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1980 tests** total (1895 unit + 85 integration).
+Template self-tests: **1982 tests** total (1897 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1439,7 +1439,7 @@ the host file content and the inherited stdout (preserving
 | `main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
 
-### test/bats/unit/issueref_lint_spec.bats (12)
+### test/bats/unit/issueref_lint_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
@@ -1455,6 +1455,8 @@ the host file content and the inherited stdout (preserving
 | `_run_issueref: does NOT flag single-digit or 5+-digit numbers` | Out-of-range numbers kept |
 | `_run_issueref: does NOT treat a ${#arr[@]} expansion as a comment` | Parameter expansion kept |
 | `_run_issueref: does NOT flag a #NNN opener in heredoc usage prose` | Heredoc usage prose kept |
+| `_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine` | Detection parity across busybox-awk / mawk / gawk |
+| `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
 ### test/bats/unit/init_spec.bats (35)
 

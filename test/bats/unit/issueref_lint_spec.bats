@@ -142,3 +142,77 @@ teardown() {
   run _run_issueref
   [ "${status}" -eq 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _ISSUEREF_AWK: cross-engine portability (busybox-awk / mawk / gawk)
+# ════════════════════════════════════════════════════════════════════
+#
+# The driver runs under busybox awk in the alpine test-tools image but
+# under mawk in the kcov/kcov debian coverage shard. Debian's mawk 1.3.4
+# match() does not extend chained `?` repeats greedily, so an earlier
+# `#[0-9][0-9]?...` form silently no-op'd 3-4 digit refs ONLY under that
+# mawk -- a kcov-only failure invisible to the alpine `just test` loop.
+# These tests run the _ISSUEREF_AWK program directly under EVERY awk
+# engine present in the image (the Dockerfile.test-tools final stage
+# installs mawk + gawk alongside busybox awk for exactly this), asserting
+# identical detection so a portability regression fails the FAST local
+# loop. This is the first of a two-layer local==CI gate; the alpine mawk
+# build happens to be greedy, so the Debian-mawk-specific greediness bug
+# is additionally gated by running the real kcov path locally with
+# `just test coverage 2/4` (the shard carrying this spec). The engine
+# list adapts: an engine absent from the host is skipped, never a hard
+# failure (keeps the spec runnable on a bare workstation).
+
+# Detect available awk engines once. busybox awk is invoked as
+# `busybox awk`; mawk / gawk as themselves when on PATH.
+_issueref_engines() {
+  command -v busybox >/dev/null 2>&1 && echo "busybox awk"
+  command -v mawk    >/dev/null 2>&1 && echo "mawk"
+  command -v gawk    >/dev/null 2>&1 && echo "gawk"
+}
+
+@test "_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine" {
+  local fixture="${SCRATCH}/script/sample.sh"
+  printf '%s\n' '# rationale for the gate #440' > "${fixture}"
+  local found=0 engine out
+  while IFS= read -r engine; do
+    [[ -z "${engine}" ]] && continue
+    found=1
+    out="$(${engine} -v relbase="${SCRATCH}/" "${_ISSUEREF_AWK}" "${fixture}")"
+    echo "engine=${engine} out=[${out}]"
+    [[ "${out}" == *'#440'* ]] || {
+      echo "FAIL: ${engine} did not flag #440"
+      return 1
+    }
+  done < <(_issueref_engines)
+  [[ "${found}" -eq 1 ]]
+}
+
+@test "_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine" {
+  local fixture="${SCRATCH}/script/sample.sh"
+  # One line per exemption: string-literal ref, ADR ref, DL/SC + version,
+  # word-prefixed cross-repo ref, single-digit + 5-digit, \${#arr} expansion.
+  # Each is built so the comment portion carries no bare 2-4 digit #NNN.
+  local -a keep=(
+    'echo "patched (#567 m7)"   # plain comment, no ref'
+    '# layered consumer entry (ADR-00000011)'
+    '# hadolint DL3007 / shellcheck SC1090, since v0.41.0'
+    '# layered COPY chain (template#254), see harness#53'
+    '# step #1 of the loop; PID #12345 placeholder'
+    'len=${#arr[@]}; echo "${len} items"'
+  )
+  local found=0 engine out line
+  while IFS= read -r engine; do
+    [[ -z "${engine}" ]] && continue
+    found=1
+    for line in "${keep[@]}"; do
+      printf '%s\n' "${line}" > "${fixture}"
+      out="$(${engine} -v relbase="${SCRATCH}/" "${_ISSUEREF_AWK}" "${fixture}")"
+      [[ -z "${out}" ]] || {
+        echo "FAIL: ${engine} flagged a must-keep line: [${line}] -> [${out}]"
+        return 1
+      }
+    done
+  done < <(_issueref_engines)
+  [[ "${found}" -eq 1 ]]
+}

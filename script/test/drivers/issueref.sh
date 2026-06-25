@@ -82,19 +82,28 @@ readonly _ISSUEREF_AWK='
     if (cstart < 0) next
     comment = substr(line, cstart)
     m = comment
-    while (match(m, /#[0-9][0-9]?[0-9]?[0-9]?/)) {
+    # `#[0-9]+` (greedy `+`, not the chained `[0-9]?` repeats) so the match
+    # captures EVERY consecutive digit. The chained-optional form behaved
+    # differently under mawk, whose match() does not extend the `?` repeats
+    # greedily -- it capped RLENGTH at a hash plus two digits, so a three-
+    # or four-digit ref matched only its first two digits with the trailing
+    # digit left in `after`, silently exempting it (issue refs went
+    # undetected under the kcov debian/mawk shard while busybox-awk / gawk
+    # flagged them). With `+` the digit run is whole and the count is exact
+    # across busybox-awk, mawk, and gawk; the 2-4 digit window is enforced
+    # by length(digits).
+    while (match(m, /#[0-9]+/)) {
       hashpos = RSTART
       before = (hashpos > 1) ? substr(m, hashpos - 1, 1) : "#"
       if (before !~ /[A-Za-z0-9_]/) {
-        after = substr(m, hashpos + RLENGTH, 1)
         digits = substr(m, hashpos + 1, RLENGTH - 1)
-        if (length(digits) >= 2 && after !~ /[0-9]/) {
+        if (length(digits) >= 2 && length(digits) <= 4) {
           rel = FILENAME; sub(relbase, "", rel)
           printf "%s:%d: %s\n", rel, FNR, line
           next
         }
       }
-      m = substr(m, hashpos + 1)
+      m = substr(m, hashpos + RLENGTH)
     }
   }
 '
