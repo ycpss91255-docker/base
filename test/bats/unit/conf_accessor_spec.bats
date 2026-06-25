@@ -311,3 +311,79 @@ EOF
   assert_output "${_orig}"
   rm -f "${_tpl}" "${_dst}"
 }
+
+# ── Atomic-mv failure guards for the INI writers ───────────────────────────
+#
+# The full rewrite goes to a sibling temp; the final `mv tmp dst` is what
+# makes it visible. A failed mv (e.g. dst on a read-only mount) must NOT
+# leave the orphan temp behind silently AND must surface a clear error,
+# while the original file stays untouched. Stub `mv` to fail.
+
+@test "_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)" {
+  # Skipped under kcov: overrides `mv` with a failing shell function to
+  # simulate a read-only destination; kcov's instrumentation perturbs
+  # that stub path.
+  [ "${COVERAGE:-0}" = 1 ] && skip "mv-failure stub is kcov-fragile (#613)"
+
+  local _f
+  _f="$(mktemp)"
+  cat > "${_f}" <<'EOF'
+[volumes]
+mount_1 = /a:/b
+EOF
+  local _orig
+  _orig="$(cat "${_f}")"
+
+  run bash -c "
+    source /source/downstream/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    mv() { return 1; }
+    _upsert_conf_value '${_f}' volumes mount_1 /c:/d
+  "
+  assert_failure
+  assert_output --partial "could not replace"
+  # The original file must survive completely unchanged.
+  run cat "${_f}"
+  assert_output "${_orig}"
+  # No orphan temp left next to the destination.
+  run bash -c "ls '${_f}'.* 2>/dev/null | wc -l"
+  assert_output "0"
+  rm -f "${_f}"
+}
+
+@test "_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)" {
+  # Skipped under kcov: overrides `mv` with a failing shell function to
+  # simulate a read-only destination.
+  [ "${COVERAGE:-0}" = 1 ] && skip "mv-failure stub is kcov-fragile (#613)"
+
+  local _tpl _dst
+  _tpl="$(mktemp)"
+  _dst="$(mktemp)"
+  cat > "${_tpl}" <<'EOF'
+[deploy]
+gpu_runtime = auto
+EOF
+  cat > "${_dst}" <<'EOF'
+[deploy]
+gpu_runtime = nvidia
+EOF
+  local _orig
+  _orig="$(cat "${_dst}")"
+
+  run bash -c "
+    source /source/downstream/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    mv() { return 1; }
+    declare -a _sections=() _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+  "
+  assert_failure
+  assert_output --partial "could not replace"
+  # The destination must survive completely unchanged.
+  run cat "${_dst}"
+  assert_output "${_orig}"
+  # No orphan temp left next to the destination.
+  run bash -c "ls '${_dst}'.* 2>/dev/null | wc -l"
+  assert_output "0"
+  rm -f "${_tpl}" "${_dst}"
+}

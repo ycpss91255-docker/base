@@ -510,8 +510,13 @@ _write_setup_conf() {
 
   # Atomically replace _dst only after the full rewrite succeeded. A
   # failed mv (e.g. _dst on a read-only mount) is surfaced rather than
-  # leaving a stray temp file silently behind.
-  mv "${_out}" "${_dst}"
+  # leaving a stray temp file silently behind: remove the orphan temp,
+  # log an actionable error, and bail with the original _dst untouched.
+  mv "${_out}" "${_dst}" || {
+    rm -f "${_out}"
+    _log_err conf conf_write_mv_failed "display=_write_setup_conf: could not replace ${_dst}; destination left unchanged" "file=${_dst}"
+    return 1
+  }
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -598,5 +603,12 @@ _upsert_conf_value() {
     printf '\n[%s]\n%s = %s\n' "${_section}" "${_key}" "${_value}" >> "${_tmp}"
   fi
 
-  mv "${_tmp}" "${_file}"
+  # Atomically replace _file only after the rewrite succeeded. A failed
+  # mv (e.g. _file on a read-only mount) removes the orphan temp, logs an
+  # actionable error, and bails with the original _file untouched.
+  mv "${_tmp}" "${_file}" || {
+    rm -f "${_tmp}"
+    _log_err conf conf_upsert_mv_failed "display=_upsert_conf_value: could not replace ${_file}; original left unchanged" "file=${_file}"
+    return 1
+  }
 }
