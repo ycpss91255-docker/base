@@ -1025,7 +1025,9 @@ Or directly:
 
 ## Tests
 
-See [TEST.md](doc/test/TEST.md) for details.
+See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
+[unit](doc/test/unit.md) / [integration](doc/test/integration.md) /
+[behavioural](doc/test/behavioural.md) / [smoke](doc/test/smoke.md)).
 
 ## Directory Structure
 
@@ -1099,7 +1101,11 @@ See [TEST.md](doc/test/TEST.md) for details.
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000012)
 │   ├── test/
-│   │   └── TEST.md                     # Test catalog and spec tables
+│   │   ├── TEST.md                     # Test index (grand total + per-type links)
+│   │   ├── unit.md                     # Unit spec catalog
+│   │   ├── integration.md             # Integration spec catalog
+│   │   ├── behavioural.md             # Behavioural spec catalog
+│   │   └── smoke.md                   # Smoke spec catalog
 │   ├── changelog/
 │   │   └── CHANGELOG.md
 │   └── deprecations.md

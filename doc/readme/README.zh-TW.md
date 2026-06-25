@@ -801,7 +801,9 @@ just --list  # 顯示 CI 指令
 
 ## 測試
 
-詳見 [TEST.md](../test/TEST.md)。
+詳見 [TEST.md](../test/TEST.md) 測試索引（各類型清單：
+[unit](../test/unit.md) / [integration](../test/integration.md) /
+[behavioural](../test/behavioural.md) / [smoke](../test/smoke.md)）。
 
 ## 目錄結構
 
@@ -875,7 +877,11 @@ just --list  # 顯示 CI 指令
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
 │   ├── test/
-│   │   └── TEST.md                     # 測試清單與 spec 表
+│   │   ├── TEST.md                     # 測試索引（總計 + 各類型連結）
+│   │   ├── unit.md                     # 單元測試清單
+│   │   ├── integration.md             # 整合測試清單
+│   │   ├── behavioural.md             # 行為測試清單
+│   │   └── smoke.md                   # smoke 測試清單
 │   ├── changelog/
 │   │   └── CHANGELOG.md
 │   └── deprecations.md

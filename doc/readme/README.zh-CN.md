@@ -802,7 +802,9 @@ just --list        # 显示 CI 命令
 
 ## 测试
 
-详见 [TEST.md](../test/TEST.md)。
+详见 [TEST.md](../test/TEST.md) 测试索引（各类型清单：
+[unit](../test/unit.md) / [integration](../test/integration.md) /
+[behavioural](../test/behavioural.md) / [smoke](../test/smoke.md)）。
 
 ## 目录结构
 
@@ -876,7 +878,11 @@ just --list        # 显示 CI 命令
 │   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
 │   ├── test/
-│   │   └── TEST.md                     # 测试清单与 spec 表
+│   │   ├── TEST.md                     # 测试索引（总计 + 各类型链接）
+│   │   ├── unit.md                     # 单元测试清单
+│   │   ├── integration.md             # 集成测试清单
+│   │   ├── behavioural.md             # 行为测试清单
+│   │   └── smoke.md                   # smoke 测试清单
 │   ├── changelog/
 │   │   └── CHANGELOG.md
 │   └── deprecations.md
