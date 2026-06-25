@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2062 tests** total (1977 unit + 85 integration).
+Template self-tests: **2068 tests** total (1983 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -181,7 +181,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh unit specs (378, split by concern)
+### setup.sh unit specs (385, split by concern)
 
 The setup.sh unit suite was split from a single 371-test
 `setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
