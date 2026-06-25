@@ -1264,6 +1264,15 @@ _generate_runtime_dockerfile() {
         [[ -z "${_kv}" || "${_kv}" != *=* ]] && continue
         _k="${_kv%%=*}"
         _v="${_kv#*=}"
+        # The value is baked into a double-quoted `ENV K="<v>"` line. A
+        # raw `"` would unbalance the quotes (`ENV MSG="say "hi""`) and a
+        # `$` would trigger Dockerfile ENV expansion / shell command
+        # substitution (`$(id)`) at build time instead of landing
+        # literally. Escape backslash first, then `"` and `$`, so the
+        # configured value is baked verbatim. (#688)
+        _v="${_v//\\/\\\\}"
+        _v="${_v//\"/\\\"}"
+        _v="${_v//\$/\\\$}"
         printf 'ENV %s="%s"\n' "${_k}" "${_v}" >> "${_tmp}"
       done
     fi
