@@ -59,7 +59,8 @@ __hook_run() {
     return 0
   fi
   if [[ ! -x "${_hook}" ]]; then
-    printf '[hook] ERROR: %s exists but is not executable; chmod +x to enable\n' "${_hook}" >&2
+    _log_err hook hook_not_executable \
+      "display=${_hook} exists but is not executable; chmod +x to enable"
     return 1
   fi
   "${_hook}" "$@"
