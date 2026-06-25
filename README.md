@@ -1,7 +1,6 @@
 # base
 
 [![CI](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -1037,7 +1036,6 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
 ├── justfile                            # base's OWN self-test/release entry (mods test + release)
 ├── compose.yaml                        # base CI runner (test-tools services)
 ├── .dockerignore                       # Canonical ignore set (synced into consumers)
-├── .codecov.yaml                       # Coverage upload config
 ├── downstream/                         # SHIPPED tooling + content (single source of truth)
 │   ├── .hadolint.yaml                  # Shared Hadolint rules (symlinked into consumers)
 │   ├── dockerfile/

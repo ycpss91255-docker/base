@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **1998 tests**.
+Unit specs under `test/bats/unit/`: **2012 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -364,7 +364,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (63)
+### test/bats/unit/self_test_yaml_spec.bats (65)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -511,16 +511,24 @@ thirteen cumulative invariants:
     '3/4', '4/4']`, `fail-fast: false`) MIRRORING the `bats-unit` matrix
     via `test.sh --coverage-shard ${{ matrix.shard }}` — each shard kcov's
     the same round-robin unit slice the unit-test matrix runs (integration
-    on the last shard) and uploads its partial report under a per-shard
-    `flags: coverage-shard-<index>` so Codecov merges the uploads into one
-    project figure; (b) gates on `needs.classify.outputs.code_changed ==
+    on the last shard); (b) gates on `needs.classify.outputs.code_changed ==
     'true'` so it runs on PRs (not just main push); and (c) joins
-    `ci-rollup`'s `needs:` (now 9 jobs) + the verifier consumes
+    `ci-rollup`'s `needs:` + the verifier consumes
     `needs.coverage.result` (SKIPPED-as-pass for doc-only PRs), so a kcov
-    failure blocks PR merge. A coverage regression below the
-    `.codecov.yaml` `project` threshold is enforced as a required
-    `codecov/project` branch-protection status. The old `if: push && ref
+    failure blocks PR merge. The old `if: push && ref
     == refs/heads/main` and the "NOT in ci-rollup needs" posture are gone.
+
+    > #710 self-hosted amendment: the per-shard external-SaaS upload + the
+    > SaaS `project` branch-protection status are REMOVED (the repo moves to
+    > a GitLab where that SaaS is unavailable and uploading coverage leaks
+    > data). Each shard instead uploads its kcov report as a CI ARTIFACT
+    > (`actions/upload-artifact`, keyed by `strategy.job-index`); a new
+    > `coverage-gate` job downloads every shard artifact and runs
+    > `script/test/drivers/coverage_gate.sh`, which MERGES the per-shard
+    > cobertura reports into one line-weighted project rate and fails below
+    > `COVERAGE_MIN`. `coverage-gate` joins `ci-rollup`'s `needs:`, so the
+    > floor gates merge with no external SaaS. The gate script is asserted
+    > in `coverage_gate_spec.bats`.
 
 12. **#697 probe-and-rebuild against a stale / racing `:main`** — the
     `release-test-tools` workflow republishes `:main` on a
@@ -582,14 +590,15 @@ thirteen cumulative invariants:
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615 + #677) | 3 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
-| `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677) | 3 |
+| `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + `coverage-gate` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
 | `bats-fragile` declared + is a single job (no shard matrix) + invokes `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677) | 4 |
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
-| `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']` (greedy weight-balanced) + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + per-shard `flags:` Codecov upload (#615 + #677) | 4 |
+| `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']` (greedy weight-balanced) + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 + #710) | 4 |
+| Self-hosted coverage (#710): NO codecov reference anywhere in the workflow + a `coverage-gate` job downloads the shard artifacts and runs `coverage_gate.sh` | 2 |
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
@@ -1614,7 +1623,7 @@ the host file content and the inherited stdout (preserving
 | `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/lint_bare_stderr_spec.bats (5)
+### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
 Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
 goes through lib/log.sh helpers" lint. The lint takes the repo root as
@@ -1630,6 +1639,7 @@ scan actually walks the populated `downstream/script/docker` tree.
 | `exits 0 on a clean tree (no bare stderr) (#692)` | clean fixture passes silently |
 | `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
+| `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
 ### test/bats/unit/init_spec.bats (40)
@@ -1915,4 +1925,28 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: idempotent — second run leaves the file unchanged` | Idempotency |
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
+
+### test/bats/unit/coverage_gate_spec.bats (11)
+
+Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
+self-hosted, CI-agnostic coverage-floor gate that replaces the removed
+Codecov merge+status path. The gate MERGES the per-shard kcov cobertura
+reports into ONE line-weighted project rate (summing covered/valid lines
+across shards, NOT averaging the per-shard rates) and exits non-zero when
+the merged rate is below `COVERAGE_MIN`. Driven against controlled
+cobertura fixtures so the spec is independent of any live kcov run.
+
+| Test | Description |
+|------|-------------|
+| `coverage_gate: passes when merged rate >= COVERAGE_MIN` | Floor pass |
+| `coverage_gate: passes at exactly the floor (boundary)` | Boundary (==) pass |
+| `coverage_gate: fails when merged rate < COVERAGE_MIN` | Floor fail (non-zero exit) |
+| `coverage_gate: merges shards by summing covered/valid, not averaging` | Line-weighted merge (unequal denominators) |
+| `coverage_gate: four shards merge into one weighted total` | 4-shard merge total |
+| `coverage_gate: errors when no report files are given` | No-args error |
+| `coverage_gate: errors when a named report file is missing` | Missing-file error |
+| `coverage_gate: errors when total valid lines is zero (empty report)` | Empty-report error |
+| `coverage_gate: errors on a report missing the line counters` | Malformed-report error |
+| `coverage_gate: default COVERAGE_MIN does not false-fail at ~52.9%` | Built-in default does not false-fail |
+| `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 
