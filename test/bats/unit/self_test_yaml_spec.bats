@@ -348,6 +348,57 @@ setup() {
   assert_output --partial 'build_local=false'
 }
 
+# ── Probe-and-rebuild against a stale / racing :main ────────────
+
+@test "self-test.yaml: bats-unit Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+  # release-test-tools republishes :main on a Dockerfile.test-tools change
+  # concurrently with this run, so a freshly-baked tool (kcov) can be
+  # absent from the :main we just pulled. After the pull+tag, the obtain
+  # step must PROBE for the required tools (kcov at minimum) and, on a
+  # miss, fall back to building locally (build_local=true) instead of
+  # running the suite against a stale image.
+  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'REQUIRED_TOOLS'
+  assert_output --partial 'kcov'
+  assert_output --partial 'command -v ${_tool}'
+  assert_output --partial 'docker run --rm test-tools:local'
+}
+
+@test "self-test.yaml: coverage Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+  # The coverage shards are the ones that actually race (kcov-not-found
+  # fast-fail). Same probe-and-rebuild guard as bats-unit so a stale
+  # :main self-corrects to a local rebuild.
+  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'REQUIRED_TOOLS'
+  assert_output --partial 'kcov'
+  assert_output --partial 'command -v ${_tool}'
+  assert_output --partial 'docker run --rm test-tools:local'
+}
+
+@test "self-test.yaml: probe REQUIRED_TOOLS list is easy to extend with the tools each run needs (#697)" {
+  # The probe drives off a single REQUIRED_TOOLS list so a new baked
+  # tool is covered by adding one word, not editing loop logic. kcov is
+  # the racing one; bats / shellcheck / hadolint are also asserted.
+  run grep 'REQUIRED_TOOLS=' "${WF}"
+  assert_success
+  assert_output --partial 'kcov'
+  assert_output --partial 'bats'
+  assert_output --partial 'shellcheck'
+  assert_output --partial 'hadolint'
+}
+
+@test "self-test.yaml: every :main-pulling Obtain step carries the probe-and-rebuild guard (#697)" {
+  # All five build_local-pattern obtain steps (hadolint, bats-unit,
+  # bats-integration, coverage, behavioural) pull the same :main tag and
+  # so race identically; each must probe + rebuild on a miss. One
+  # REQUIRED_TOOLS line per such job.
+  run grep -c 'REQUIRED_TOOLS=' "${WF}"
+  assert_success
+  assert_output '5'
+}
+
 @test "self-test.yaml: Obtain step pre-fetches base ref before diff (#317 P2 + P1 gotcha-2 reuse, #377)" {
   # Same gotcha-2 mitigation as the classify job: fork PRs need an
   # explicit fetch of origin/<base_ref> before `git diff` can resolve

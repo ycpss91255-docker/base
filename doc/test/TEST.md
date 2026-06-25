@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2072 tests** total (1987 unit + 85 integration).
+Template self-tests: **2076 tests** total (1991 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -347,10 +347,10 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (58)
+### test/bats/unit/self_test_yaml_spec.bats (62)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-eleven cumulative invariants:
+twelve cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -505,6 +505,26 @@ eleven cumulative invariants:
     `codecov/project` branch-protection status. The old `if: push && ref
     == refs/heads/main` and the "NOT in ci-rollup needs" posture are gone.
 
+12. **#697 probe-and-rebuild against a stale / racing `:main`** — the
+    `release-test-tools` workflow republishes `:main` on a
+    `dockerfile/Dockerfile.test-tools` change CONCURRENTLY with this
+    workflow, so an Obtain step that `docker pull`s `:main` can fetch a
+    pre-new-tool image (e.g. pre-kcov) while the republish is mid-flight,
+    fast-failing the coverage shards with `kcov: command not found`. After
+    the pull + `docker tag`, every `:main`-pulling Obtain step now PROBES
+    the image for the tools this run needs via a single, easy-to-extend
+    `REQUIRED_TOOLS="kcov bats shellcheck hadolint"` list (`docker run
+    --rm test-tools:local sh -c 'command -v <tool>'`); on any miss it
+    emits `build_local=true` so the existing buildx Build step rebuilds
+    from `dockerfile/Dockerfile.test-tools`. This makes the Obtain path
+    self-correcting against a stale / old / racing `:main` regardless of
+    cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3
+    (pull failed -> build) intact. Applied to all five `build_local`-pattern
+    obtain steps (`hadolint`, `bats-unit`, `bats-integration`, `coverage`,
+    `behavioural`) since they pull the same tag and race identically;
+    `bats-unit` + `coverage` (the kcov-racing shards) are asserted
+    per-job, plus a count assertion that all five carry the guard.
+
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
@@ -532,6 +552,7 @@ eleven cumulative invariants:
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
 | `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + kcov `matrix.shard: ['1/4'..'4/4']` mirroring bats-unit + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + per-shard `flags:` Codecov upload (#615) | 4 |
 | `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
+| Probe-and-rebuild against a stale/racing `:main`: `bats-unit` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (14)
 
