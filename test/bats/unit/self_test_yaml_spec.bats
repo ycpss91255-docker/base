@@ -354,12 +354,14 @@ setup() {
   # the merge base for `dockerfile/Dockerfile.test-tools`.
   # the `test` job split into bats-unit + bats-integration; gives
   # the hadolint job its own Obtain step too (it now runs the driver
-  # inside the test-tools image), so the count is: classify (1) + 5
-  # jobs with Obtain steps (hadolint + bats-unit + bats-integration +
-  # integration-e2e + behavioural).
+  # inside the test-tools image). The coverage job also gained an Obtain
+  # step now that kcov is baked into the shared test-tools image (it no
+  # longer runs on the debian kcov/kcov service). So the count is:
+  # classify (1) + 6 jobs with Obtain steps (hadolint + bats-unit +
+  # bats-integration + coverage + integration-e2e + behavioural).
   run grep -c 'git fetch origin' "${WF}"
   assert_success
-  assert_output '6'
+  assert_output '7'
 }
 
 # ── ci-rollup aggregator ───────────────────────────────────────

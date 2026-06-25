@@ -474,11 +474,42 @@ EOF
   assert_success
 }
 
-@test "Dockerfile.test-tools no longer installs make (single runner: just)" {
+@test "Dockerfile.test-tools source-builds kcov in a builder stage (#686)" {
+  # kcov is not packaged in any alpine repo, so it is compiled from source
+  # in a discardable builder stage and COPY'd into the final image. This
+  # lets the coverage matrix run on the same one-pull test-tools image as
+  # the rest of the suite (no debian kcov/kcov, no per-shard apt-install).
+  run grep -E '^FROM alpine:\$\{ALPINE_VERSION\} AS kcov-builder' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools COPYs the kcov binary into the final image (#686)" {
+  run grep -E '^COPY --from=kcov-builder .*kcov' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)" {
+  # The source-built kcov binary links against these runtime libs; without
+  # them it fails to load (verified via ldd in the spike). Pin them so
+  # a refactor that drops one surfaces as a test failure, not a runtime
+  # crash on the first coverage shard.
+  run grep -E '^[[:space:]]+libstdc\+\+ libcurl libdw libelf zlib libgcc' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools no longer installs make into the final image (single runner: just)" {
   # make was retired with Makefile.ci; the integration tests now exercise
   # the downstream justfile (`just upgrade-check`), so the dead make
-  # dependency must not creep back into the image.
-  run grep -E 'apk add .*\bmake\b' /source/dockerfile/Dockerfile.test-tools
+  # dependency must not creep back into the FINAL image. The kcov-builder
+  # stage legitimately apk-adds make to compile kcov, but that
+  # stage is discarded — only its /usr/local/bin/kcov is COPY'd out — so
+  # scope this guard to the final-stage apk add line (the one that also
+  # installs bash + parallel), not the whole file.
+  run grep -E 'apk add .*\bbash\b.*\bmake\b|apk add .*\bmake\b.*\bbash\b' \
+    /source/dockerfile/Dockerfile.test-tools
   assert_failure
 }
 
