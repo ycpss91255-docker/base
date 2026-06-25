@@ -711,3 +711,36 @@ EOS
   [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Pre-build hook abort (#690)
+#
+# build.sh guards its main work with `_run_pre_hook build "$@" || exit $?`
+# (after env prep, before `_compose_project build`). A failing pre-hook
+# must abort the wrapper with the hook's rc AND must NOT run docker build.
+# The `|| exit $?` idiom is fragile under set -e + ||-chaining, so a
+# regression that drops/reorders it would leave the build running after a
+# pre-hook said 'do not proceed' — locked here. Real mode (the hook
+# no-ops under --dry-run).
+@test "build.sh aborts on a failing pre-build hook and skips docker build (#690)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/compose.yaml"
+  mkdir -p "${SANDBOX}/script/hooks/pre"
+  cat > "${SANDBOX}/script/hooks/pre/build.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "PRE_BUILD_HOOK_FIRED"
+exit 7
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/pre/build.sh"
+  run -7 bash "${SANDBOX}/build.sh" test
+  assert_output --partial "PRE_BUILD_HOOK_FIRED"
+  # The docker build must never have run. The docker stub tees every
+  # invocation to DOCKER_LOG; assert no `docker compose build` reached it.
+  refute_output --partial "docker compose"
+  assert [ ! -s "${DOCKER_LOG}" ] || ! grep -q 'compose .* build' "${DOCKER_LOG}"
+}

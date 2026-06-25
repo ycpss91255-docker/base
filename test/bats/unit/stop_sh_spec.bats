@@ -293,3 +293,26 @@ teardown() {
   assert_success
   assert_output --partial "docker network prune -f --filter until=10m"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Pre-stop hook abort (#690)
+#
+# stop.sh guards its teardown with `_run_pre_hook stop "$@" || exit $?`
+# (after env load, before `_down_project` → `docker compose down`). A
+# failing pre-hook must abort with the hook's rc AND must NOT run
+# compose down. Locked here so a refactor that drops/reorders the
+# `|| exit $?` cannot silently tear the project down after a pre-hook
+# said 'do not proceed'. Real mode (the hook no-ops under --dry-run).
+@test "stop.sh aborts on a failing pre-stop hook and skips compose down (#690)" {
+  mkdir -p "${SANDBOX}/script/hooks/pre"
+  cat > "${SANDBOX}/script/hooks/pre/stop.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "PRE_STOP_HOOK_FIRED"
+exit 7
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/pre/stop.sh"
+  run -7 bash "${SANDBOX}/stop.sh"
+  assert_output --partial "PRE_STOP_HOOK_FIRED"
+  refute_output --partial "docker compose"
+  refute_output --partial "down --remove-orphans"
+}

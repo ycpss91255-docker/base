@@ -911,3 +911,90 @@ EOS
   run -130 bash "${SANDBOX}/run.sh" -t runtime bash
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Pre-run hook abort + foreground post-run hook exit override (#690)
+# ════════════════════════════════════════════════════════════════════
+
+# Installs a real-mode fixture with .env/setup.conf/compose present and
+# the target image cached, so run.sh skips bootstrap + the build delegate
+# and proceeds straight to the pre-run hook / compose lifecycle. Distinct
+# from _exit_code_fixture: keeps the default BIN_DIR/docker stub (which
+# echoes argv so we can grep for `up` / `down`).
+_hook_fixture() {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
+  export DOCKER_IMAGE_PRESENT=true
+}
+
+@test "run.sh aborts on a failing pre-run hook and skips compose up (#690)" {
+  # run.sh: `_run_pre_hook run "$@" || exit $?` fires after env prep,
+  # BEFORE the build delegate and `_compose_project up`. A pre-hook that
+  # exits 7 must abort the wrapper (status 7) and no `compose up` may run.
+  # Locked so a refactor dropping/reordering the `|| exit $?` cannot start
+  # the container after a pre-hook said 'do not proceed'.
+  _hook_fixture
+  mkdir -p "${SANDBOX}/script/hooks/pre"
+  cat > "${SANDBOX}/script/hooks/pre/run.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "PRE_RUN_HOOK_FIRED"
+exit 7
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/pre/run.sh"
+  run -7 bash "${SANDBOX}/run.sh" -t test
+  assert_output --partial "PRE_RUN_HOOK_FIRED"
+  refute_output --partial "compose up"
+}
+
+@test "run.sh foreground post-run hook failure overrides exit while teardown still runs (#690)" {
+  # run.sh's EXIT-trap _app_cleanup captures a failing post-run hook's rc
+  # and overrides the wrapper exit (`exit "${_post_rc}"`) while STILL
+  # running `compose down --remove-orphans`. The existing post-hook test
+  # is the --detach path; this covers the foreground (devel) path where
+  # the override lives in the atexit cleanup. A post/run hook that exits 9
+  # → wrapper exits 9 AND `down --remove-orphans` still appears.
+  _hook_fixture
+  # _app_cleanup redirects the real-mode `compose down` to /dev/null, so
+  # the teardown is invisible in $output. Record it to a file instead:
+  # the stub appends every `down` invocation to DOCKER_DOWN_LOG before the
+  # caller's redirection takes effect.
+  DOCKER_DOWN_LOG="${TEMP_DIR}/down.log"
+  export DOCKER_DOWN_LOG
+  : > "${DOCKER_DOWN_LOG}"
+  cat > "${BIN_DIR}/docker" <<'EOS'
+#!/usr/bin/env bash
+case "$1" in
+  ps) cat "${DOCKER_PS_FILE}"; exit 0 ;;
+esac
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then exit 0; fi
+for _a in "$@"; do
+  [[ "${_a}" == "down" ]] && printf 'down %s\n' "$*" >> "${DOCKER_DOWN_LOG}"
+done
+printf 'docker'
+printf ' %q' "$@"
+printf '\n'
+exit 0
+EOS
+  chmod +x "${BIN_DIR}/docker"
+  mkdir -p "${SANDBOX}/script/hooks/post"
+  cat > "${SANDBOX}/script/hooks/post/run.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "POST_RUN_HOOK_FIRED"
+exit 9
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/post/run.sh"
+  # Foreground devel command-mode so the session returns and the atexit
+  # cleanup (post-hook + teardown) fires. CMD keeps it non-interactive.
+  run -9 bash "${SANDBOX}/run.sh" -- true
+  assert_output --partial "POST_RUN_HOOK_FIRED"
+  # Teardown ran despite the override: `compose down --remove-orphans`
+  # reached the docker stub (recorded even though its stdout is silenced).
+  assert [ -s "${DOCKER_DOWN_LOG}" ]
+  run cat "${DOCKER_DOWN_LOG}"
+  assert_output --partial "down --remove-orphans"
+}
+
