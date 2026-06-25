@@ -300,7 +300,7 @@ space-bearing path rejection (#687).
 | `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
 | `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
 
-### test/bats/unit/tui_flow.bats (105)
+### test/bats/unit/tui_flow_spec.bats (105)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
