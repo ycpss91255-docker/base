@@ -229,32 +229,29 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --coverage-shard: sharded kcov matrix (ADR-00000008)
+# --coverage-shard: sharded kcov matrix (ADR-00000008, weight-balanced)
 #
-# The coverage matrix mirrors bats-unit's shards. _shard_unit_files is
-# the shared round-robin primitive so coverage shard k covers the same
-# unit slice the unit-test matrix runs; _run_coverage <n>/<total> kcov's
-# that slice (+ integration on the last shard). main --coverage-shard
-# plumbs COVERAGE_SHARD into the coverage service.
+# Coverage is the primary unit gate. _shard_unit_files is the partition
+# primitive: greedy weight-balanced bin-packing by per-spec @test count
+# (heaviest-first into the lightest shard) so the slowest shard's load
+# approaches total/N. _run_coverage <n>/<total> kcov's that slice (+
+# integration on the last shard). main --coverage-shard plumbs
+# COVERAGE_SHARD into the coverage service.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)" {
-  # The coverage matrix must mirror the unit matrix exactly: both go
-  # through _shard_unit_files, so a given index yields one identical slice.
+@test "_shard_unit_files: a single shard returns real unit spec paths (#615)" {
   run bash -c '
     source /source/script/test/test.sh
     _shard_unit_files 1/4
   '
   assert_success
-  # Round-robin NR%4==0 over the sorted spec list: first match is the 4th
-  # spec file; assert it returns at least one real unit spec path.
   assert_output --partial "test/bats/unit/"
   assert_output --partial "_spec.bats"
 }
 
 @test "_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)" {
   # Union of every shard of 4 must equal the full sorted unit spec list,
-  # with no file in two shards (round-robin invariant the merge relies on:
+  # with no file in two shards (the invariant the Codecov merge relies on:
   # every unit slice runs exactly once across the matrix).
   run bash -c '
     source /source/script/test/test.sh
@@ -271,6 +268,35 @@ teardown() {
   '
   assert_success
   assert_output --partial "OK"
+}
+
+@test "_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)" {
+  # The round-robin floor dumped the heaviest specs into one shard (~2x the
+  # others). The greedy bin-packing must keep every shard's @test load
+  # within a sane factor of the average (total/4); assert the heaviest
+  # shard is at most ~1.5x the average so a single big spec can't pin it.
+  run bash -c '
+    source /source/script/test/test.sh
+    total=$(grep -rhcE "^@test" "${REPO_ROOT}"/test/bats/unit/*_spec.bats | paste -sd+ | bc)
+    avg=$(( total / 4 ))
+    max=0
+    for s in 1 2 3 4; do
+      load=0
+      while IFS= read -r f; do
+        [[ -n "${f}" ]] || continue
+        c=$(grep -cE "^@test" "${f}")
+        load=$(( load + c ))
+      done < <(_shard_unit_files "${s}/4")
+      echo "shard ${s}/4 load=${load}"
+      (( load > max )) && max=${load}
+    done
+    echo "avg=${avg} max=${max}"
+    # heaviest shard must be < 1.5 * avg (round-robin floor was ~2x)
+    (( max * 2 < avg * 3 )) || { echo "IMBALANCED"; exit 1; }
+    echo BALANCED
+  '
+  assert_success
+  assert_output --partial "BALANCED"
 }
 
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
@@ -448,6 +474,115 @@ teardown() {
   '
   assert_failure
   assert_output --partial "cannot combine with --coverage"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --bats-fragile: the kcov-fragile unit specs run in plain mode
+#
+# The coverage matrix is the primary unit gate but SKIPS the kcov-fragile
+# tests (guarded by `[ "${COVERAGE:-0}" = 1 ] && skip`). The bats-fragile
+# job runs exactly those spec files in plain mode so no unit test goes
+# unrun. _fragile_unit_files computes the set at runtime (grep for the skip
+# guard) so it self-maintains; these guards pin the contract.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)" {
+  # The runtime-computed set must equal an independent grep for the
+  # line-anchored skip guard — a NEW fragile-skip in a 10th file is picked
+  # up automatically. The anchor (leading whitespace + literal bracket)
+  # excludes comments that merely mention the guard.
+  run bash -c '
+    source /source/script/test/test.sh
+    want=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
+    got=$(_fragile_unit_files | sort)
+    [[ "${want}" == "${got}" ]] || { echo "MISMATCH"; printf "want:\n%s\ngot:\n%s\n" "${want}" "${got}"; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+@test "_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)" {
+  # Coverage skips a test only in files in the fragile set; this asserts
+  # the inverse direction too — there is NO file containing a kcov-skip
+  # guard that is missing from _fragile_unit_files. Together with the
+  # coverage partition this proves every unit test runs SOMEWHERE.
+  run bash -c '
+    source /source/script/test/test.sh
+    fragile=$(_fragile_unit_files | sort)
+    while IFS= read -r f; do
+      [[ -n "${f}" ]] || continue
+      printf "%s\n" "${fragile}" | grep -qxF "${f}" \
+        || { echo "MISSING: ${f}"; exit 1; }
+    done < <(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+@test "_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_bats_fragile
+  '
+  assert_success
+  assert_output --partial "kcov-fragile"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "_spec.bats"
+  # The whole-unit-dir target must NOT be passed (that is coverage's job).
+  refute_output --partial "test/bats/unit/ "
+}
+
+@test "_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)" {
+  # The fragile tests are precisely the ones coverage skips; running them
+  # here in PLAIN mode (COVERAGE != 1) is the whole point. Run with
+  # COVERAGE explicitly unset in the child shell and assert the runner
+  # never turns it into 1.
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "COVERAGE=[%s]\n" "${COVERAGE:-unset}" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    unset COVERAGE
+    source /source/script/test/test.sh
+    _run_bats_fragile
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "COVERAGE=[unset]"
+  refute_output --partial "COVERAGE=[1]"
+}
+
+@test "main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-fragile
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " ci"
+  assert_output --partial "BATS_FRAGILE=1"
+  assert_output --partial "BATS_ONLY=1"
+  assert_output --partial "COVERAGE=0"
+  refute_output --partial "COVERAGE=1"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -658,7 +793,7 @@ teardown() {
   # back into the dispatcher.
   local _fn
   for _fn in _run_unit_tests _run_integration_tests _run_unit_shard \
-             _run_bats_path _run_behavioural _run_coverage \
+             _run_bats_fragile _run_bats_path _run_behavioural _run_coverage \
              _bats_args_with_label; do
     run grep -E "^${_fn}\(\) \{" /source/script/test/drivers/bats.sh
     assert_success
