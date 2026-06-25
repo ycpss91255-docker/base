@@ -219,14 +219,15 @@ _run_coverage() {
   #     the unit-test matrix exercises.
   #   - integration specs: run ONLY on the LAST shard (n == total) rather
   #     than every shard, so the 87 integration specs aren't kcov'd T
-  #     times (wasted minutes + duplicated lines). Codecov merges the per-
-  #     shard uploads back into one project figure, so where a slice runs
-  #     doesn't matter to the merged total — only that every slice runs
-  #     exactly once across the matrix.
+  #     times (wasted minutes + duplicated lines). The self-hosted
+  #     coverage-gate merges the per-shard cobertura reports back into one
+  #     line-weighted project figure, so where a slice runs doesn't matter
+  #     to the merged total — only that every slice runs exactly once
+  #     across the matrix.
   #
-  # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it;
-  # Codecov natively merges multiple uploads for a commit ("Found N
-  # coverage files to report").
+  # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it
+  # as a CI artifact; coverage_gate.sh sums covered/valid lines across all
+  # shards' cobertura.xml into one project rate (no external SaaS).
   local _shard_spec="${1:-}"
 
   local _excludes=(

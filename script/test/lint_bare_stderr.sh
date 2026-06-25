@@ -23,6 +23,12 @@ _is_excluded_file() {
     downstream/script/docker/lib/_tui_backend.sh) return 0 ;;
     downstream/script/docker/lib/_tui_conf.sh) return 0 ;;
     downstream/script/docker/wrapper/setup_tui.sh) return 0 ;;
+    # Deliberately standalone, log.sh-free CI tool: the coverage-floor
+    # gate runs as a bare `bash coverage_gate.sh ...` under both GitHub
+    # Actions and (after the move) GitLab CI, so it must NOT depend on
+    # lib/log.sh being sourced. Its diagnostics go straight to stderr --
+    # the same rationale class as the pre-sourcing bootstrap allowlist.
+    script/test/drivers/coverage_gate.sh) return 0 ;;
   esac
   return 1
 }
