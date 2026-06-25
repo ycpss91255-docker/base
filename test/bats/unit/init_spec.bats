@@ -354,6 +354,18 @@ REMOTE
   assert_output "USER_NAME=existing"
 }
 
+@test "_gen_setup_conf errors when the template setup.conf is absent (#692)" {
+  # A broken/partial subtree has no template setup.conf -- the exact
+  # scenario --gen-conf is meant to diagnose. _gen_setup_conf must fail
+  # loudly rather than copy a non-existent source.
+  rm -f "${TMP_REPO}/.base/downstream/config/docker/setup.conf"
+  rm -f "${TMP_REPO}/config/docker/setup.conf"
+  _source_init
+  run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial "Template setup.conf not found"
+}
+
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
   mkdir -p "${TMP_REPO}/.base/downstream/config/docker"
@@ -558,4 +570,52 @@ _nojust_path() {
   assert_output --partial "install.sh"
   assert_output --partial "BASH_INSTALLER -s -- --to"
   [[ -d "${TMP_REPO}/home/.local/bin" ]] || { echo "~/.local/bin not created"; return 1; }
+}
+
+@test "_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)" {
+  _source_init
+  # The curl|bash installer pipeline returns non-zero (network down,
+  # broken installer). _bootstrap_just must _error out, not silently
+  # claim success. Mock bash (the pipeline tail) to fail.
+  mock_cmd "curl" 'echo "CURL_INVOKED $*"'
+  mock_cmd "bash" 'cat >/dev/null; exit 1'
+  PATH="$(_nojust_path)" HOME="${TMP_REPO}/home" run _bootstrap_just
+  assert_failure
+  assert_output --partial "just bootstrap failed"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _call_setup
+# ════════════════════════════════════════════════════════════════════
+
+@test "_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)" {
+  _source_init
+  # A failing setup.sh must degrade to a WARNING, never abort init/upgrade.
+  cat > "${TMP_REPO}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+  run _call_setup
+  assert_success
+  assert_output --partial "setup.sh exited non-zero"
+}
+
+@test "_call_setup: skips with a notice when setup.sh is absent (#692)" {
+  _source_init
+  rm -f "${TMP_REPO}/.base/downstream/script/docker/wrapper/setup.sh"
+  run _call_setup
+  assert_success
+  assert_output --partial "Skipping setup.sh"
+}
+
+@test "_call_setup: returns 0 on a setup.sh that succeeds (#692)" {
+  _source_init
+  cat > "${TMP_REPO}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  run _call_setup
+  assert_success
+  refute_output --partial "exited non-zero"
+  refute_output --partial "Skipping setup.sh"
 }
