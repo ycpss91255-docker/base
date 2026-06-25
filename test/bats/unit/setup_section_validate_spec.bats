@@ -588,3 +588,55 @@ EOF
   assert_output --partial '- "Q=a\"b\\c"'
 }
 
+@test "[network] apply does not emit a literal network_mode: line for a bogus hand-edited mode (#698)" {
+  # apply does no schema revalidation, so a hand-edited [stage:*]
+  # network.mode bypasses the set-path validator. A bogus value must be
+  # dropped (fall back to the env-var ref) rather than emit a malformed
+  # literal `network_mode: bogus` that breaks `docker compose up`.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+
+[stage:headless]
+network.mode = bogus: value
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c 'network_mode: bogus' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
+@test "[network] apply does not emit a literal ipc:/pid: line for a bogus hand-edited mode (#698)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+ipc = host
+pid = private
+
+[stage:headless]
+network.ipc = bogus: value
+network.pid = bogus: value
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    { grep -c 'ipc: bogus' '${TEMP_DIR}/compose.yaml' || true; } | head -1
+  "
+  assert_output "0"
+}
+

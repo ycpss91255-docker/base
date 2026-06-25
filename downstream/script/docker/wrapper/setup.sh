@@ -2778,15 +2778,22 @@ YAML
   else
     echo "    privileged: \${PRIVILEGED}"
   fi
-  # ipc: literal when stage overrides; else env-var ref.
-  if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
+  # ipc: literal when stage overrides; else env-var ref. apply does no
+  # schema revalidation, so a hand-edited [stage:*] override can feed a
+  # bogus mode here -- drop anything _validate_ipc_mode rejects back to the
+  # env-var ref rather than emit a malformed literal (apply-time guard,
+  # mirrors _emit_restart_line).
+  if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]] \
+     && _validate_ipc_mode "${_eff_ipc_mode}"; then
     echo "    ipc: ${_eff_ipc_mode}"
   else
     echo "    ipc: \${IPC_MODE}"
   fi
   # pid: only emitted for "host" — Docker rejects "private" as literal.
+  # Same apply-time guard: a bogus stage override drops to the env-var ref.
   if [[ "${_eff_pid_mode}" == "host" ]]; then
-    if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+    if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]] \
+       && _validate_pid_mode "${_eff_pid_mode}"; then
       echo "    pid: ${_eff_pid_mode}"
     else
       echo "    pid: \${PID_MODE}"
@@ -2812,7 +2819,10 @@ YAML
     networks:
       - ${_eff_net_name}
 YAML
-  elif [[ "${_eff_net_mode}" != "${_net_mode}" ]]; then
+  elif [[ "${_eff_net_mode}" != "${_net_mode}" ]] \
+       && _validate_network_mode "${_eff_net_mode}"; then
+    # apply-time guard: a bogus hand-edited [stage:*] network.mode drops
+    # to the env-var ref rather than emit a malformed literal.
     echo "    network_mode: ${_eff_net_mode}"
   else
     echo "    network_mode: \${NETWORK_MODE}"

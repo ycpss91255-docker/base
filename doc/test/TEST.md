@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2055 tests** total (1970 unit + 85 integration).
+Template self-tests: **2062 tests** total (1977 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -214,7 +214,7 @@ dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
 — round-trips, validators, no-`.env`-regen, comment preservation, and
 end-to-end subprocess cases.
 
-#### test/bats/unit/setup_emit_spec.bats (77)
+#### test/bats/unit/setup_emit_spec.bats (78)
 
 `apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
 workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
@@ -226,7 +226,7 @@ writeback, `--quiet` confirmation lines (#285), `--gui` /
 propagation + duplicate-target guards, S7 `runtime.env` retirement
 (#507), and `_reconcile_workspace_path` (#569).
 
-#### test/bats/unit/setup_section_validate_spec.bats (32)
+#### test/bats/unit/setup_section_validate_spec.bats (38)
 
 Per-section setup.conf parameter end-to-end coverage (#202): one key per
 test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
