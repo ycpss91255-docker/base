@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2068 tests** total (1983 unit + 85 integration).
+Template self-tests: **2072 tests** total (1987 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -700,7 +700,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
 | migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
 
-### test/bats/unit/build_sh_spec.bats (52)
+### test/bats/unit/build_sh_spec.bats (53)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -866,7 +866,7 @@ commands), and **#690 pre-stop hook abort** (a failing
 `script/hooks/pre/stop.sh` aborts with the hook's rc before
 `compose down` runs).
 
-### test/bats/unit/prune_sh_spec.bats (40)
+### test/bats/unit/prune_sh_spec.bats (41)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`
@@ -882,7 +882,8 @@ exit-2, individual `--networks` / `--images` / `--builder` /
 output omits `--filter`), **`--all` aggregator** (network + image +
 builder; volumes intentionally excluded), **`--until <dur>` override**
 across all selected targets, **volume confirmation prompt** (`n`
-aborts with exit-1 + i18n "aborted" message; `-y` skips the prompt;
+aborts with exit-1 + i18n "aborted" message; closed-stdin EOF aborts
+cleanly with no set-e crash (#702); `-y` skips the prompt;
 zh-TW prompt body asserts), `-C` / `--chdir` parity (accepted but
 no-op for daemon-wide prune; value-required + directory guards),
 usage help mentions every flag family, and **#388 `--worktree-orphans`
@@ -1709,7 +1710,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (13)
+### test/bats/unit/conf_accessor_spec.bats (15)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
@@ -1732,6 +1733,8 @@ contracts on hand-edited / malformed setup.conf:
 | `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
 | `_upsert_conf_value leaves the original file intact when mktemp fails (#700)` | Guarded mktemp -> no clobber/truncate on temp-create failure |
 | `_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)` | Temp+atomic-mv -> no in-place truncate data-loss window |
+| `_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + original unchanged |
+| `_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + destination unchanged |
 
 ### test/bats/unit/gitignore_spec.bats (29)
 
