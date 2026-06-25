@@ -19,7 +19,9 @@ conf_unknown_subcmd
 conf_unknown_arg
 conf_upsert_file_missing
 conf_upsert_newline_rejected
+conf_upsert_mv_failed
 conf_upsert_tmp_failed
+conf_write_mv_failed
 conf_write_tmp_failed
 stage_baseline_collision
 stage_reserved_tag

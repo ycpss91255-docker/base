@@ -163,6 +163,18 @@ teardown() {
   assert_output --partial "Aborted volume prune"
 }
 
+@test "prune.sh --volumes without -y on closed stdin aborts cleanly, no set-e crash (#702, #700)" {
+  # EOF path: with no -y and a closed stdin, `read` returns non-zero on
+  # EOF. Pre-fix, the bare `read _reply` under `set -e` aborted the
+  # script at the read line BEFORE the case could map empty->abort, so a
+  # piped/CI invocation died with NO 'Aborted volume prune' diagnostic.
+  # Post-fix, EOF maps to an empty reply which the default case treats as
+  # an explicit (safe) abort.
+  run bash "${SANDBOX}/prune.sh" --volumes </dev/null
+  assert_failure 1
+  assert_output --partial "Aborted volume prune"
+}
+
 @test "prune.sh --volumes -y skips the prompt (dry-run for safety)" {
   run bash "${SANDBOX}/prune.sh" --volumes -y --dry-run
   assert_success
@@ -431,9 +443,10 @@ EOS
 # branch (prune.sh _run_worktree_orphans_prune) was never exercised:
 # the confirm-'y' delete path, the abort-on-non-'y' refuse path, and
 # the closed-stdin/EOF behaviour under `set -e`. Mirrors the --volumes
-# prompt pair (abort-on-'n' + -y-skip) for the MORE destructive image
-# removal. The volumes prompt already proved the pattern at the top of
-# this file.
+# prompt set (abort-on-'n' + closed-stdin EOF + -y-skip) for the MORE
+# destructive image removal. The volumes prompt carries its own EOF
+# spec at the top of this file; both bare-read sites are guarded with
+# `read -r _reply || _reply=""`.
 
 @test "prune.sh --worktree-orphans without -y confirms 'y' and removes the image (#699)" {
   # Confirm path: a piped 'y' must reach the destructive docker rmi loop.
