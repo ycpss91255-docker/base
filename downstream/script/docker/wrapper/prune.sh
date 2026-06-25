@@ -428,7 +428,12 @@ _run_worktree_orphans_prune() {
   if [[ "${ASSUME_YES}" != true && "${DRY_RUN}" != true ]]; then
     printf '[prune] remove %d image(s)? [y/N] ' "${#_candidates[@]}" >&2
     local _reply
-    read -r _reply
+    # `read` returns non-zero on EOF (closed/non-tty stdin without -y).
+    # Under `set -e` a bare `read` would abort the script HERE, before the
+    # case below can map an empty reply to abort -- a piped/CI invocation
+    # would die with no 'aborted' diagnostic. Map EOF to an empty reply so
+    # the default case treats it as an explicit (safe) abort.
+    read -r _reply || _reply=""
     case "${_reply}" in
       y|Y|yes|YES) ;;
       *)

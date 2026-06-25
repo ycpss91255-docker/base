@@ -112,6 +112,13 @@ _assert_schema() {
   _assert_schema deploy gpu_runtime "nvidia" ok
   _assert_schema deploy runtime "auto" ok
   _assert_schema network network_name "my_net" ok
+  _assert_schema network mode "host" ok
+  _assert_schema network mode "container:db" ok
+  _assert_schema network ipc "shareable" ok
+  _assert_schema network ipc "container:db" ok
+  _assert_schema network pid "host" ok
+  _assert_schema network pid "private" ok
+  _assert_schema network pid "container:db" ok
   _assert_schema logging max_size "10m" ok
   _assert_schema logging max_file "3" ok
   _assert_schema logging compress "true" ok
@@ -134,6 +141,12 @@ _assert_schema() {
   _assert_schema deploy gpu_runtime "podman" fail
   _assert_schema deploy runtime "podman" fail
   _assert_schema network network_name "-bad" fail
+  _assert_schema network mode "foo: bar" fail
+  _assert_schema network mode "bogus" fail
+  _assert_schema network ipc "bogus" fail
+  _assert_schema network ipc "bridge" fail
+  _assert_schema network pid "shareable" fail
+  _assert_schema network pid "bogus" fail
   _assert_schema logging max_size "10petabytes" fail
   _assert_schema logging max_file "0" fail
   _assert_schema logging compress "maybe" fail
@@ -184,6 +197,9 @@ _assert_schema() {
   _assert_schema build target_arch "" ok
   _assert_schema build arg_1 "" ok
   _assert_schema network network_name "" ok
+  _assert_schema network mode "" ok
+  _assert_schema network ipc "" ok
+  _assert_schema network pid "" ok
   _assert_schema volumes mount_1 "" ok
   _assert_schema devices device_1 "" ok
   _assert_schema environment env_1 "" ok

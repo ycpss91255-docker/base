@@ -216,6 +216,49 @@ _validate_network_name() {
   return 1
 }
 
+# _validate_network_mode <value>
+#
+# Docker `network_mode` / compose `network_mode:`. One of host / bridge /
+# none, or container:<name> to join another container's network namespace.
+# Empty is accepted upstream as "clear" (inherit / env-var ref).
+_validate_network_mode() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  case "${_v}" in
+    host|bridge|none) return 0 ;;
+    container:?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_ipc_mode <value>
+#
+# Docker `ipc:` namespace mode. One of host / private / shareable / none,
+# or container:<name> to share another container's IPC namespace.
+_validate_ipc_mode() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  case "${_v}" in
+    host|private|shareable|none) return 0 ;;
+    container:?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_pid_mode <value>
+#
+# Docker `pid:` namespace mode. One of host / private, or container:<name>
+# to share another container's PID namespace.
+_validate_pid_mode() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  case "${_v}" in
+    host|private) return 0 ;;
+    container:?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # _validate_capability <value>
 #
 # Linux capability names (used in cap_add / cap_drop) are all-uppercase

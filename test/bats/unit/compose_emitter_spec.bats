@@ -273,7 +273,7 @@ _mk_ctx() {
   assert_line "      target: headless"
   assert_line "    privileged: true"
   assert_line "    ipc: private"
-  assert_line "      - HEADLESS=1"
+  assert_line '      - "HEADLESS=1"'
   assert_line "      - ./hl:/data"
   assert_line "    profiles:"
   assert_line "      - headless"

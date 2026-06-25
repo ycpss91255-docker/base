@@ -237,3 +237,77 @@ EOF
   assert_equal "${out[2]}" c
   rm -f "${_f}"
 }
+
+# ── Destructive-failure guards for the INI writers ─────────────────────────
+#
+# Both writers must fail SAFELY: a failed temp-file creation (read-only
+# dir / no inodes) or a mid-write error must never clobber or truncate
+# the user's existing setup.conf. conf.sh references _log_err but does
+# not define it (it is provided by the umbrella _lib.sh loader in
+# production), so these tests stub it locally to capture the diagnostic.
+
+@test "_upsert_conf_value leaves the original file intact when mktemp fails (#700)" {
+  # Skipped under kcov: the test overrides `mktemp` with a failing shell
+  # function inside the sourced shell to simulate a no-inodes / read-only
+  # temp-file creation; kcov's instrumentation perturbs that path.
+  [ "${COVERAGE:-0}" = 1 ] && skip "mktemp-failure stub is kcov-fragile (#613)"
+
+  local _f
+  _f="$(mktemp)"
+  cat > "${_f}" <<'EOF'
+[volumes]
+mount_1 = /a:/b
+EOF
+  local _orig
+  _orig="$(cat "${_f}")"
+
+  # Force the writer's internal `mktemp "${_file}.XXXXXX"` to fail without
+  # touching the real filesystem. The bare `mktemp -d`-style fixture call
+  # above already ran, so override only for the writer invocation.
+  run bash -c "
+    source /source/downstream/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    mktemp() { return 1; }
+    _upsert_conf_value '${_f}' volumes mount_1 /c:/d
+  "
+  assert_failure
+  assert_output --partial "cannot create temp file"
+  # The original file must survive completely unchanged (not truncated).
+  run cat "${_f}"
+  assert_output "${_orig}"
+  rm -f "${_f}"
+}
+
+@test "_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)" {
+  # Skipped under kcov: overrides `mktemp` with a failing shell function
+  # to simulate temp-file-creation failure.
+  [ "${COVERAGE:-0}" = 1 ] && skip "mktemp-failure stub is kcov-fragile (#613)"
+
+  local _tpl _dst
+  _tpl="$(mktemp)"
+  _dst="$(mktemp)"
+  cat > "${_tpl}" <<'EOF'
+[deploy]
+gpu_runtime = auto
+EOF
+  cat > "${_dst}" <<'EOF'
+[deploy]
+gpu_runtime = nvidia
+EOF
+  local _orig
+  _orig="$(cat "${_dst}")"
+
+  run bash -c "
+    source /source/downstream/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    mktemp() { return 1; }
+    declare -a _sections=() _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+  "
+  assert_failure
+  assert_output --partial "cannot create temp file"
+  # The destination must NOT be truncated by an in-place `: > dst`.
+  run cat "${_dst}"
+  assert_output "${_orig}"
+  rm -f "${_tpl}" "${_dst}"
+}

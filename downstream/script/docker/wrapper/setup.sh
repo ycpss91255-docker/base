@@ -2186,6 +2186,26 @@ _expand_env_cross_refs() {
   done <<< "${_input}"
 }
 
+# _yaml_dq <value> <outvar>
+#
+# Wraps <value> as a YAML double-quoted scalar in <outvar>, escaping the
+# two characters that a YAML double-quoted scalar treats specially: the
+# backslash (\) and the double-quote ("). This keeps a validator-accepted
+# environment value that carries YAML-structural characters -- a colon-
+# space ("a: b" -> mapping), a leading flow indicator (* & [ { !), or an
+# inline " #" comment -- from being mis-parsed when emitted as a
+# compose.yaml `environment:` list item. The compose env sink was the
+# asymmetric, unprotected one: the Dockerfile baked-ENV sink and deploy.sh
+# already harden the same accepted-value class.
+_yaml_dq() {
+  local _in="$1"
+  local -n _yaml_dq_out="$2"
+  # Order matters: escape backslashes first, then double-quotes.
+  _in="${_in//\\/\\\\}"
+  _in="${_in//\"/\\\"}"
+  _yaml_dq_out="\"${_in}\""
+}
+
 # _write_runtime_env was retired in S7: runtime.env is
 # superseded by the S3 baked ENV (in-container) + .env.generated/.env
 # (host-side helpers source these instead).
@@ -2758,15 +2778,22 @@ YAML
   else
     echo "    privileged: \${PRIVILEGED}"
   fi
-  # ipc: literal when stage overrides; else env-var ref.
-  if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
+  # ipc: literal when stage overrides; else env-var ref. apply does no
+  # schema revalidation, so a hand-edited [stage:*] override can feed a
+  # bogus mode here -- drop anything _validate_ipc_mode rejects back to the
+  # env-var ref rather than emit a malformed literal (apply-time guard,
+  # mirrors _emit_restart_line).
+  if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]] \
+     && _validate_ipc_mode "${_eff_ipc_mode}"; then
     echo "    ipc: ${_eff_ipc_mode}"
   else
     echo "    ipc: \${IPC_MODE}"
   fi
   # pid: only emitted for "host" — Docker rejects "private" as literal.
+  # Same apply-time guard: a bogus stage override drops to the env-var ref.
   if [[ "${_eff_pid_mode}" == "host" ]]; then
-    if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+    if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]] \
+       && _validate_pid_mode "${_eff_pid_mode}"; then
       echo "    pid: ${_eff_pid_mode}"
     else
       echo "    pid: \${PID_MODE}"
@@ -2792,7 +2819,10 @@ YAML
     networks:
       - ${_eff_net_name}
 YAML
-  elif [[ "${_eff_net_mode}" != "${_net_mode}" ]]; then
+  elif [[ "${_eff_net_mode}" != "${_net_mode}" ]] \
+       && _validate_network_mode "${_eff_net_mode}"; then
+    # apply-time guard: a bogus hand-edited [stage:*] network.mode drops
+    # to the env-var ref rather than emit a malformed literal.
     echo "    network_mode: ${_eff_net_mode}"
   else
     echo "    network_mode: \${NETWORK_MODE}"
@@ -2814,10 +2844,13 @@ YAML
 YAML
     fi
     if [[ -n "${_eff_environment}" ]]; then
-      local _ev
+      local _ev _ev_dq
       while IFS= read -r _ev; do
         [[ -z "${_ev}" ]] && continue
-        echo "      - ${_ev}"
+        # Quote each entry as a YAML double-quoted scalar (see the devel
+        # env block) so structural chars in the value can't be re-parsed.
+        _yaml_dq "${_ev}" _ev_dq
+        echo "      - ${_ev_dq}"
       done <<< "${_eff_environment}"
     fi
     [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
@@ -3112,10 +3145,15 @@ YAML
         # entries --).
         local -a _env_expanded=()
         _expand_env_cross_refs "${_env_str}" _env_expanded
-        local _ev
+        local _ev _ev_dq
         for _ev in "${_env_expanded[@]}"; do
           [[ -z "${_ev}" ]] && continue
-          echo "      - ${_ev}"
+          # Quote each entry as a YAML double-quoted scalar so a
+          # structural ": ", a leading flow indicator, or an inline " #"
+          # in the value survives the parse as one string (mirrors the
+          # ports/cgroup quoting; the asymmetric env sink).
+          _yaml_dq "${_ev}" _ev_dq
+          echo "      - ${_ev_dq}"
         done
       fi
       [[ -n "${_devel_log_file}" ]] && echo "      - LOG_FILE_PATH=${_devel_log_file}"

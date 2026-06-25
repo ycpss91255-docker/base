@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2055 tests** total (1970 unit + 85 integration).
+Template self-tests: **2068 tests** total (1983 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -181,7 +181,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh unit specs (378, split by concern)
+### setup.sh unit specs (385, split by concern)
 
 The setup.sh unit suite was split from a single 371-test
 `setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
@@ -214,7 +214,7 @@ dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
 — round-trips, validators, no-`.env`-regen, comment preservation, and
 end-to-end subprocess cases.
 
-#### test/bats/unit/setup_emit_spec.bats (77)
+#### test/bats/unit/setup_emit_spec.bats (78)
 
 `apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
 workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
@@ -226,7 +226,7 @@ writeback, `--quiet` confirmation lines (#285), `--gui` /
 propagation + duplicate-target guards, S7 `runtime.env` retirement
 (#507), and `_reconcile_workspace_path` (#569).
 
-#### test/bats/unit/setup_section_validate_spec.bats (32)
+#### test/bats/unit/setup_section_validate_spec.bats (38)
 
 Per-section setup.conf parameter end-to-end coverage (#202): one key per
 test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
@@ -866,7 +866,7 @@ commands), and **#690 pre-stop hook abort** (a failing
 `script/hooks/pre/stop.sh` aborts with the hook's rc before
 `compose down` runs).
 
-### test/bats/unit/prune_sh_spec.bats (37)
+### test/bats/unit/prune_sh_spec.bats (40)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`
@@ -898,6 +898,18 @@ log). Plus `--repo` filter, `--dry-run` plan-only output, `-y` skip
 prompt, missing `--workspace` + empty `.env` → exit 2, `--workspace`
 flag wins over `.env` `WS_PATH`, `--owner` flag wins over `.env`
 `DOCKER_HUB_USER`, and `--help` mentions all four new flags.
+
+Plus the **`--worktree-orphans` interactive confirmation gate (#699)**
+— the destructive `docker rmi` loop only reaches its prompt when
+neither `-y` nor `--dry-run` is given, a branch the cases above never
+exercised. Three cases mirror the `--volumes` prompt pair for the more
+destructive image removal: piped `y` confirms and the candidate lands
+in `DOCKER_RMI_LOG`; piped `n` aborts with exit-1 + "aborted by user"
+and an empty `DOCKER_RMI_LOG`; closed stdin (`</dev/null`, no `-y`)
+aborts cleanly with the same diagnostic instead of dying on a `set -e`
+`read` EOF — prune.sh maps `read` EOF to an empty reply
+(`read -r _reply || _reply=""`) so the default case treats it as an
+explicit abort.
 
 Regression guard for **issue #282** — the four user-facing wrappers
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
@@ -1633,7 +1645,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/upgrade_spec.bats (38)
+### test/bats/unit/upgrade_spec.bats (39)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -1675,6 +1687,7 @@ must not be reported as "needing downgrade").
 | `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
 | `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
 | `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
+| `_rollback_subtree_pull surfaces a failed reset instead of falsely reporting 'restored' (#700)` | Failed-reset escalation (no false 'restored' message) |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
 | `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
@@ -1696,7 +1709,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (11)
+### test/bats/unit/conf_accessor_spec.bats (13)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
@@ -1717,6 +1730,8 @@ contracts on hand-edited / malformed setup.conf:
 | `_conf_sections: section header with internal whitespace is NOT trimmed ([ deploy ] != deploy) (#689)` | Interior spaces kept in captured name |
 | `_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)` | No header match -> keys lost, no crash |
 | `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
+| `_upsert_conf_value leaves the original file intact when mktemp fails (#700)` | Guarded mktemp -> no clobber/truncate on temp-create failure |
+| `_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)` | Temp+atomic-mv -> no in-place truncate data-loss window |
 
 ### test/bats/unit/gitignore_spec.bats (29)
 

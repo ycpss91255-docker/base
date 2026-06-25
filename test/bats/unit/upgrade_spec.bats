@@ -323,6 +323,28 @@ _mk_subtree_repo() {
   assert_output --partial "v0.8.0"
 }
 
+@test "_rollback_subtree_pull surfaces a failed reset instead of falsely reporting 'restored' (#700)" {
+  # The rollback exists to rescue a tree the destructive subtree FF
+  # already mangled. If the rescue `git reset --hard` itself fails
+  # (corrupt / gc'd / bogus pre_head), the old `|| true` swallowed the
+  # failure and still printed 'repo restored to pre-upgrade state' -- a
+  # reassuring lie over a still-broken tree. Drive it with an
+  # unresolvable pre_head and assert the failure is surfaced, not masked.
+  local _git_dir="${TEMP_DIR}/rollback_failed_reset"
+  _mk_subtree_repo "${_git_dir}"
+
+  run bash -c "
+    cd '${_git_dir}'
+    source '${HARNESS}'
+    _rollback_subtree_pull 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+  "
+  assert_failure
+  # A distinct, honest failure message -- NOT the success-implying line.
+  assert_output --partial "rollback FAILED"
+  assert_output --partial "manual recovery required"
+  refute_output --partial "restored to pre-upgrade state"
+}
+
 # ── upgrade.sh structural invariants (safety guards) ───────────────────────
 
 @test "upgrade.sh calls _require_git_identity before subtree pull" {

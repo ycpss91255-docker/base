@@ -133,6 +133,20 @@ EOF
   assert_output 'ENV X="\$(id)"'
 }
 
+@test "_yaml_dq wraps a value as a double-quoted scalar, escaping \\ then \" (#698)" {
+  # The compose environment: sink routes each entry through _yaml_dq so a
+  # value with YAML-structural chars survives the parse as one string. The
+  # escape order is backslash first, then double-quote (so an embedded \"
+  # is not double-escaped).
+  local _out=""
+  _yaml_dq 'MSG=a: b' _out
+  [ "${_out}" = '"MSG=a: b"' ]
+  _yaml_dq 'Q=a"b\c' _out
+  [ "${_out}" = '"Q=a\"b\\c"' ]
+  _yaml_dq 'GLOB=*' _out
+  [ "${_out}" = '"GLOB=*"' ]
+}
+
 @test "_generate_runtime_dockerfile returns 1 when no runtime stage" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS sys\nFROM sys AS devel\n' > "${_df}"
