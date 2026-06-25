@@ -12,10 +12,10 @@
 # through the consumer's symlink into .base/downstream/script/template/.
 set -euo pipefail
 
-# i18n.sh provides _resolve_lang / _sanitize_lang (#655). new.sh is a
+# i18n.sh provides _resolve_lang / _sanitize_lang. new.sh is a
 # human-facing template-namespace script, so it accepts --lang and honors
 # SETUP_LANG/$LANG like the docker wrappers, even though its (few) strings
-# are still English-only pending the localized-message pass (#656). Located
+# are still English-only pending the localized-message pass. Located
 # relative to this script's real path so it resolves through the consumer
 # symlink into .base/downstream/script/template/new.sh.
 _new_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"

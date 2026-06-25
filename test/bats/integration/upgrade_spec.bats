@@ -30,7 +30,7 @@ setup() {
 #   .base/downstream/script/base/init.sh,
 #   .base/downstream/script/docker/wrapper/setup.sh), wrap two tagged
 #   versions around it, and push to a bare repo we can treat as
-#   TEMPLATE_REMOTE. Post-#654 init.sh / upgrade.sh live deep at
+#   TEMPLATE_REMOTE. init.sh / upgrade.sh live deep at
 #   downstream/script/base/ and self-locate the subtree root by walking
 #   up to the dir carrying `.version` + `downstream/`.
 _seed_template_remote() {
@@ -49,8 +49,8 @@ _seed_template_remote() {
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/base/init.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/downstream/script/base/upgrade.sh"
-  # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
-  # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
+  # upgrade.sh sources _lib.sh on load (_log / _error wrap _log_*).
+  # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs, so copy
   # all three surfaces into the fake remote.
   mkdir -p "${TMPL_WORK}/downstream/script/docker/lib"
   cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
@@ -123,7 +123,7 @@ YAML
   [ "$(cat README.md)" = "DOWNSTREAM" ]
 }
 
-# ── Step 5: declarative Dockerfile/entrypoint migrations (#567 / #579) ───────
+# ── Step 5: declarative Dockerfile/entrypoint migrations ───────
 # upgrade.sh Step 5 sources lib/dockerfile_migrate.sh and runs the
 # apply_migrations dispatcher over the repo-root Dockerfile (and its sibling
 # script/entrypoint.sh). These drive the real upgrade.sh end-to-end against
@@ -227,7 +227,7 @@ EOF
 # Seed the layered consumer entry + docker module so `just docker
 # upgrade-check` resolves like a real repo. The docker module pins recipes
 # to the repo root via `set working-directory := '../..'` (relative to
-# script/docker/), so the entry must sit at the repo root and the module at
+# script/docker), so the entry must sit at the repo root and the module at
 # script/docker/ -- a bare `cp justfile.docker justfile` would mis-resolve
 # the working-directory. The seeded subtree fixture omits these files.
 _seed_entry() {
@@ -238,7 +238,7 @@ _seed_entry() {
 }
 
 @test "just base update (downstream entry): exit 0 when update available (#175, #546, #652)" {
-  # Regression #175: the upgrade-check recipe wraps upgrade.sh so the
+  # Regressionthe upgrade-check recipe wraps upgrade.sh so the
   # runner does not mistake exit 1 (update available) for a build failure.
   # Skips when `just` is not yet in the test-tools image (pre-release GHCR
   # pull) -- the guard keeps the suite green until test-tools ships just.
@@ -302,7 +302,7 @@ _seed_entry() {
 
   # Install a git-subtree stub that simulates the Jetson v0.9.7 failure
   # mode: fetches the tag, then hard-resets HEAD to FETCH_HEAD (which
-  # has template content at REPO ROOT, not under .base/). The
+  # has template content at REPO ROOT, not under .base). The
   # resulting working tree loses .base/.version and template-prefixed
   # files.
   #
@@ -347,7 +347,7 @@ STUB
 
   assert_failure
   assert_output --partial "integrity check failed"
-  # R1+ (#477) detects destructive FF via subtree dir missing, ahead of the
+  # R1+ detects destructive FF via subtree dir missing, ahead of the
   # later .version / version-mismatch checks. The legacy assertion against
   # ".base/.version" missing was specific to the pre-R1+ marker list.
   assert_output --partial "subtree dir missing"
@@ -363,7 +363,7 @@ STUB
   [ -f "README.md" ]
 }
 
-# ── #654: walk-up self-location resolves --prefix to the subtree basename ─────
+# ──walk-up self-location resolves --prefix to the subtree basename ─────
 #
 # Regression guard for the relocation: upgrade.sh moved deep to
 # .base/downstream/script/base/upgrade.sh and now derives the subtree

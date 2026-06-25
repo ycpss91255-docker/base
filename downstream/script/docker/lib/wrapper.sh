@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# wrapper.sh - cohesive runtime for the 5 docker wrappers (#565).
+# wrapper.sh - cohesive runtime for the 5 docker wrappers.
 #
 # The five container-op wrappers (build / run / exec / stop / prune) used
 # to repeat ~250 lines of preamble: the bootstrap-locator guard, the
@@ -21,7 +21,7 @@
 #
 # ADR-00000011: this runtime is the intended home for the shared CLI lib
 # (--help / --lang) the test / release / base / template scripts will
-# adopt later (#655 / #656). For #565 it is scoped to the 5 docker
+# adopt later. For it is scoped to the 5 docker
 # wrappers only; the helpers are written to be reusable but nothing
 # outside the docker wrappers is pulled in here yet.
 
@@ -34,9 +34,9 @@ _DOCKER_LIB_WRAPPER_SOURCED=1
 # ── _msg dispatcher ───────────────────────────────────────────────────
 #
 # Every wrapper that emits i18n strings declares its own per-category
-# tables `_msg_<category>()` (e.g. `_msg_bootstrap`, `_msg_errors`).
+# tables `_msg_<category>` (e.g. `_msg_bootstrap`, `_msg_errors`).
 # This dispatcher keeps a single `_msg <category> <key>` call-site shape
-# across all wrappers; it was byte-identical in all 5 before #565.
+# across all wrappers; it was byte-identical in all 5 before
 #
 # Resolves to `_msg_<category> <key>`; the table function reads the
 # global _LANG. A wrapper that defines no message tables (e.g. a future
@@ -52,12 +52,12 @@ _msg() {
 # _wrapper_lang_prepass <verb> "$@"
 #
 # Scans the wrapper's argv for `--lang <value>` and seeds the global
-# _LANG before the main parse loop runs, so usage() (which exits via
+# _LANG before the main parse loop runs, so usage (which exits via
 # -h/--help) renders in the requested locale even when --help precedes
-# --lang on the command line (#222). The canonical main parse loop still
+# --lang on the command line. The canonical main parse loop still
 # handles --lang itself (validation, error-on-missing-value) on the
 # normal path; this pre-pass only front-loads the locale for the early
-# usage() exit.
+# usage exit.
 #
 # bootstrap.sh already ran `_resolve_lang _LANG` (SETUP_LANG / $LANG
 # detection) so _LANG holds a valid default before this is called; a
@@ -95,10 +95,10 @@ _wrapper_lang_prepass() {
 #   FILE_PATH            repo root (readonly, set by _bootstrap)
 #   _LANG                resolved locale
 #   RUN_SETUP            "true" forces an interactive (TUI/setup.sh) run
-#   SETUP_FORWARD_ARGS   array; #338 per-invocation overrides forwarded
+#   SETUP_FORWARD_ARGS   array; per-invocation overrides forwarded
 #                        into setup.sh apply (short-circuits the TUI)
 #
-# Phase decision (unchanged from the pre-#565 build/run inline blocks):
+# Phase decision (unchanged from the build/run inline blocks):
 #   - RUN_SETUP=true                          -> interactive run
 #   - missing .env / setup.conf / compose.yaml -> non-interactive bootstrap
 #   - otherwise                                -> drift-check, regen on drift
@@ -110,7 +110,7 @@ _wrapper_lang_prepass() {
 #
 # Drift regen runs setup.sh as a SUBPROCESS (not `source`) so setup.sh's
 # internal helpers never leak into the wrapper's namespace -- this closes
-# the #101 class where sourcing setup.sh shadowed the wrapper's _msg()
+# the class where sourcing setup.sh shadowed the wrapper's _msg
 # and silently blanked out the drift_regen / no_env status lines.
 #
 # On a missing .env after setup, emits the no_env / rerun_setup error
@@ -122,7 +122,7 @@ _wrapper_setup_sync() {
   local _setup="${_file_path}/.base/downstream/script/docker/wrapper/setup.sh"
   local _tui="${_file_path}/setup_tui.sh"
 
-  # #338 per-invocation overrides. Defensive copy so an unset
+  # per-invocation overrides. Defensive copy so an unset
   # SETUP_FORWARD_ARGS (a future caller that skips the override surface)
   # degrades to an empty array under `set -u` instead of aborting.
   local -a _forward_args=()
@@ -131,7 +131,7 @@ _wrapper_setup_sync() {
   fi
 
   # _run_interactive: prefer setup_tui.sh on an interactive TTY when the
-  # symlink is executable; otherwise non-interactive setup.sh. #338
+  # symlink is executable; otherwise non-interactive setup.sh.
   # per-invocation overrides (--gui / --no-x11-cookie) accumulate in
   # SETUP_FORWARD_ARGS and short-circuit through setup.sh apply -- the
   # TUI Save would persist them to setup.conf, the wrong semantics for a
@@ -158,7 +158,7 @@ _wrapper_setup_sync() {
     # Drift-check path. Derived artifacts (.env + compose.yaml) carry no
     # user-owned data, so regenerating on drift is always safe and saves
     # the user from remembering `--setup`. Subprocess invocation avoids
-    # the #101 _msg shadow class.
+    # the _msg shadow class.
     if ! "${_setup}" check-drift --base-path "${_file_path}" --lang "${_lang}"; then
       _log_info "${_verb}" "${_verb}_drift_regen" "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"

@@ -5,7 +5,7 @@
 # Provides _load_env which sources a .env file under allexport so every
 # assignment becomes an exported variable visible to `docker compose`.
 #
-# Split out from _lib.sh in #284.
+# Split out from _lib.sh in
 
 # Guard against double-sourcing.
 if [[ -n "${_DOCKER_LIB_ENV_SOURCED:-}" ]]; then

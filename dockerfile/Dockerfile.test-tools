@@ -78,7 +78,13 @@ RUN apk add --no-cache curl xz && \
 # compose service is invoked (it mounts the host docker.sock); the
 # default `ci` service ignores docker even when CLI is present.
 FROM alpine:${ALPINE_VERSION}
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx
+# mawk + gawk alongside the default busybox awk so the issueref awk
+# program is exercised under all three engines by its portability unit
+# test (issueref_lint_spec.bats). This closes the local==CI blind spot
+# where the kcov debian/mawk coverage shard caught a mawk-only regression
+# in the issueref match() greediness that the alpine/busybox `just test`
+# loop could not see.
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx mawk gawk
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats

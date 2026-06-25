@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bootstrap.sh - shared wrapper preamble (#408 sub-task A).
+# bootstrap.sh - shared wrapper preamble (sub-task A).
 #
 # Every user-facing wrapper (build / run / exec / stop / prune /
 # setup_tui) used to open with the same ~37-line dance: resolve
@@ -11,10 +11,10 @@
 #
 # Invocation layouts covered (FILE_PATH must always resolve to the repo
 # root so ${FILE_PATH}/.base, /config, /.env work):
-#   - <repo>/build.sh                      # pre-#330 root-symlink
-#   - <repo>/script/build.sh               # post-#330 script/ subfolder
+#   - <repo>/build.sh                      # root-symlink
+#   - <repo>/script/build.sh               # script/ subfolder
 #   - <repo>/.base/downstream/script/docker/wrapper/build.sh  # direct
-#   - /lint/build.sh  (+ /lint/lib/)       # Dockerfile lint stage (COPY)
+#   - /lint/build.sh  (+ /lint/lib)       # Dockerfile lint stage (COPY)
 #
 # Locating bootstrap.sh itself: the wrapper resolves its own real path
 # (readlink -f follows the consumer-repo symlink) and tries the
@@ -29,14 +29,14 @@ _DOCKER_LIB_BOOTSTRAP_SOURCED=1
 # _bootstrap <wrapper args...>
 #
 # Resolves and `readonly`-locks the global FILE_PATH, applies the
-# `-C/--chdir` override, then sources _lib.sh + the #565 wrapper runtime.
+# `-C/--chdir` override, then sources _lib.sh + the wrapper runtime.
 # Call as `_bootstrap "$@"` from the wrapper's file scope. The wrapper's
 # own BASH_SOURCE frame (used for FILE_PATH detection + the error tag) is
 # located by skipping this file's own frames, so the resolution does not
 # break if _bootstrap is ever reached through an extra call layer.
 #
 # Exit codes: `-C/--chdir` argument errors exit 2 (usage error); a
-# missing _lib.sh exits 1 (runtime/install error). (#408 sub-task C.)
+# missing _lib.sh exits 1 (runtime/install error). (sub-task C.)
 _bootstrap() {
   # Find the caller wrapper's source: the first BASH_SOURCE frame above
   # this one that is not bootstrap.sh itself (robust against an extra
@@ -58,7 +58,7 @@ _bootstrap() {
   # invocation directory. If that dir has a .base/ sibling we are at the
   # root; if its parent does we are one level deeper (script/ subfolder);
   # if a sibling lib/_lib.sh exists we are in a direct/.base layout one
-  # level above lib/; otherwise fall back to the invocation dir (/lint).
+  # level above lib/; otherwise fall back to the invocation dir (lint).
   local _invoke_dir
   _invoke_dir="$(cd -- "$(dirname -- "${_caller}")" && pwd -P)"
   if [[ -d "${_invoke_dir}/.base" ]]; then
@@ -100,14 +100,14 @@ _bootstrap() {
   done
   readonly FILE_PATH
 
-  # #606: expose the verb (wrapper basename) so transcript.sh, sourced
+  # expose the verb (wrapper basename) so transcript.sh, sourced
   # via _lib.sh, can classify it. Only build/setup/stop/prune/upgrade are
   # captured; run/exec/setup_tui stay uncaptured in this slice.
   export _WRAPPER_VERB="${_tag}"
 
   # _lib.sh lives at .base/downstream/script/docker/lib/_lib.sh in consumer repos,
   # or alongside the wrapper under lib/ when the Dockerfile lint stage
-  # COPYs scripts into /lint/ (#406: all libs live under lib/).
+  # COPYs scripts into /lint/ (all libs live under lib).
   if [[ -f "${FILE_PATH}/.base/downstream/script/docker/lib/_lib.sh" ]]; then
     # shellcheck disable=SC1091
     source "${FILE_PATH}/.base/downstream/script/docker/lib/_lib.sh"
@@ -121,13 +121,13 @@ _bootstrap() {
     exit 1
   fi
 
-  # #568 Part B: i18n.sh no longer seeds _LANG at source time. Resolve it
+  # Part B: i18n.sh no longer seeds _LANG at source time. Resolve it
   # once here (SETUP_LANG override else $LANG detection) so every wrapper's
   # _msg works during arg parsing; a later --lang flag overrides it via
   # _sanitize_lang. _LANG is global (no `local` declared in this function).
   _resolve_lang _LANG
 
-  # #565: pull in the wrapper-runtime module (shared _msg dispatcher,
+  # pull in the wrapper-runtime module (shared _msg dispatcher,
   # --lang pre-pass, setup/drift orchestration). It lives alongside this
   # file under lib/, so resolve it from BASH_SOURCE[0] (this bootstrap.sh)
   # rather than re-deriving from the wrapper layout. Sourced last so the

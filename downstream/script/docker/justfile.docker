@@ -9,8 +9,8 @@
 # ADR-00000005: `just` replaces the GNU make wrapper. Each recipe forwards
 # 1:1 to ./script/<wrapper>.sh with full `{{args}}` passthrough, so
 # docker-native flags / sub-commands reach the script verbatim -- no
-# MAKEOVERRIDES guard (#414), no mandatory `--` separator (#448), and no
-# EXEC_ARGS env shim (#469); make's argv quirks simply do not apply.
+# MAKEOVERRIDES guard, no mandatory `--` separator, and no
+# EXEC_ARGS env shim; make's argv quirks simply do not apply.
 #
 #   just docker build test            -> ./script/build.sh test
 #   just docker build --no-cache test -> ./script/build.sh --no-cache test
@@ -29,9 +29,9 @@
 # (verified), so build.sh & friends run from there.
 set working-directory := '../..'
 
-# source_file() (not justfile()) is this module's own file: inside a mod?'d
-# module justfile() resolves to the ROOT entry, so listing it would show the
-# entry's namespaces instead of the docker verbs (#655). source_file() pins
+# source_file (not justfile) is this module's own file: inside a mod?'d
+# module justfile resolves to the ROOT entry, so listing it would show the
+# entry's namespaces instead of the docker verbs. source_file pins
 # --list to THIS module.
 # just docker -> list the docker verbs
 default:

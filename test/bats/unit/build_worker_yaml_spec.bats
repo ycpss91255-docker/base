@@ -6,7 +6,7 @@
 # Reusable workflows can't be unit-tested by exec'ing them, but their
 # structural invariants (which inputs exist, which `with:` keys
 # forward into docker/build-push-action) are still grep-able. These
-# tests lock the #195 changes — `context_path` / `dockerfile_path`
+# tests lock the changes — `context_path` / `dockerfile_path`
 # inputs and the corresponding `context:` / `file:` lines in the 3
 # build steps — so a future refactor that drops one of them lights up
 # CI red instead of silently breaking nested-Dockerfile downstreams.
@@ -19,7 +19,7 @@ setup() {
   [[ -f "${WF}" ]] || skip "build-worker.yaml not at expected path"
 }
 
-# ── Inputs declared (#195) ────────────────────────────────────────────
+# ── Inputs declared ────────────────────────────────────────────
 
 @test "build-worker.yaml: declares context_path input with default '.'" {
   run grep -A 3 '^      context_path:' "${WF}"
@@ -37,14 +37,14 @@ setup() {
   assert_output --partial 'default: ""'
 }
 
-# ── Build steps forward both inputs (#195) ────────────────────────────
+# ── Build steps forward both inputs ────────────────────────────
 
 @test "build-worker.yaml: 4 build steps all reference inputs.context_path (#243 added runtime-test)" {
-  # Four `docker/build-push-action` calls after #243:
+  # Four `docker/build-push-action` calls after
   # devel-test / devel / runtime-test / runtime stages. Each must read
   # context from the new input; `context: .` would silently work for
   # repo-root-Dockerfile callers but break the nested-Dockerfile use
-  # case the #195 issue body documented.
+  # case the issue body documented.
   run grep -c 'context: ${{ inputs.context_path }}' "${WF}"
   assert_success
   assert_output "4"
@@ -62,7 +62,7 @@ setup() {
 
 @test "build-worker.yaml: no leftover hardcoded 'context: .' lines" {
   # Catches partial-refactor regressions where one of the 3 stages
-  # gets reverted by accident. The post-#195 file should have ZERO
+  # gets reverted by accident. The file should have ZERO
   # `context: .` literals — every reference reads from the input.
   run grep -c '^          context: \.$' "${WF}"
   [ "${status}" -ne 0 ] || [ "${output}" = "0" ]
@@ -81,7 +81,7 @@ setup() {
 @test "build-worker.yaml: defaults preserve repo-root-Dockerfile behavior" {
   # Both inputs default such that an existing caller passing only
   # `image_name:` still resolves to context=. and file=./Dockerfile —
-  # what every pre-#195 downstream main.yaml expects. Asserts the
+  # what every downstream main.yaml expects. Asserts the
   # combination, not just each default in isolation.
   local _ctx _df
   _ctx="$(grep -A 3 '^      context_path:' "${WF}" | grep 'default:' | head -1)"
@@ -90,10 +90,10 @@ setup() {
   [[ "${_df}" == *'""'* ]]
 }
 
-# ── User build-args alignment with Dockerfile.example (#198) ──────────
+# ── User build-args alignment with Dockerfile.example ──────────
 
 @test "build-worker.yaml: 4 build steps pass USER_NAME=ci (long form, matching Dockerfile.example sys stage)" {
-  # Pre-#198 the workflow passed `USER=ci` (short form) which the
+  # the workflow passed `USER=ci` (short form) which the
   # Dockerfile only sees in the devel stage; the sys-stage useradd
   # reads USER_NAME and stuck on the default "user". The container
   # then USER-switched to "ci" with no /etc/passwd entry, exploding
@@ -130,12 +130,12 @@ setup() {
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
 
-# ── build_contexts input forwards to docker/build-push-action (#207) ──
+# ── build_contexts input forwards to docker/build-push-action ──
 
 @test "build-worker.yaml: declares build_contexts input with empty default" {
-  # #199 added compose's `additional_contexts:` for local builds, but
+  # added compose's `additional_contexts:` for local builds, but
   # CI invokes `docker/build-push-action` directly (bypassing compose),
-  # so the named contexts never reached BuildKit. #207 adds the input
+  # so the named contexts never reached BuildKit. adds the input
   # the workflow needs to forward them to the action's `build-contexts:`
   # field. Default is empty so existing callers see zero diff.
   run grep -A 3 '^      build_contexts:' "${WF}"
@@ -146,7 +146,7 @@ setup() {
 }
 
 @test "build-worker.yaml: 4 build steps forward inputs.build_contexts to docker/build-push-action build-contexts:" {
-  # Four docker/build-push-action calls after #243 (devel-test / devel
+  # Four docker/build-push-action calls after (devel-test / devel
   # / runtime-test / runtime). Each must forward the input so named
   # contexts work end-to-end in CI.
   run grep -c '^          build-contexts: \${{ inputs.build_contexts }}$' "${WF}"
@@ -154,10 +154,10 @@ setup() {
   assert_output "4"
 }
 
-# ── #243: stage rename + runtime-test smoke step ──────────────────────
+# ──stage rename + runtime-test smoke step ──────────────────────
 
 @test "build-worker.yaml: devel-test build step uses target: devel-test (renamed from target: test)" {
-  # Pre-#243 the test stage was named `test`; renamed to `devel-test`
+  # the test stage was named `test`; renamed to `devel-test`
   # for symmetry with the new `runtime-test` stage. The literal target
   # line must reflect the new name.
   run grep -E '^          target: devel-test$' "${WF}"
@@ -188,13 +188,13 @@ setup() {
   # The combined safety net: with empty default + per-step plumbing,
   # callers that don't pass build_contexts get an empty action input,
   # which docker/build-push-action treats as "no extra contexts" — the
-  # exact pre-#207 behaviour.
+  # exact behaviour.
   local _bc
   _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_bc}" == *'""'* ]]
 }
 
-# ── #272: GHA buildx cache (per-(repo, variant, arch)) ────────────────
+# ──GHA buildx cache (per-(repo, variant, arch)) ────────────────
 
 @test "build-worker.yaml: declares cache_variant input with empty default (#272)" {
   # New optional input for repos that call build-worker.yaml multiple
@@ -213,7 +213,7 @@ setup() {
   # `${image_name}[-${cache_variant}]-${hardware}` once; per-target
   # suffix (`-devel-test-cache`, `-devel-cache`, `-runtime-test-cache`,
   # `-runtime-cache`) is appended at the use site. See the b1 mitigation
-  # of #378 for why the shape changed from a single shared `<base>-cache`
+  # of for why the shape changed from a single shared `<base>-cache`
   # scope to 4 per-target scopes.
   run grep -E '^        id: cache$' "${WF}"
   assert_success
@@ -222,10 +222,10 @@ setup() {
 }
 
 @test "build-worker.yaml: 4 build steps use per-target cache scopes (#378 b1)" {
-  # Pre-#378 all 4 build steps shared `${steps.cache.outputs.key}` so a
+  # all 4 build steps shared `${steps.cache.outputs.key}` so a
   # late-stage COPY in devel cascaded the manifest pointer in the
   # shared scope, invalidating runtime / runtime-test caches on the
-  # next PR. Post-#378 each target has its own scope; one scope's
+  # next PR. each target has its own scope; one scope's
   # manifest update no longer affects the others.
   for _target in devel-test devel runtime-test runtime; do
     run grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
@@ -247,7 +247,7 @@ setup() {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). The 10 GB GHA quota tradeoff is
   # accepted; LRU eviction is expected to keep hot paths cached. With
-  # per-target scopes (#378 b1) the total storage roughly 4x grows; LRU
+  # per-target scopes (b1) the total storage roughly 4x grows; LRU
   # still keeps hot paths.
   run grep -cE '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }}-(devel-test|devel|runtime-test|runtime)-cache,mode=max$' "${WF}"
   assert_success
@@ -257,14 +257,14 @@ setup() {
 @test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
   # Single-distro repos (agent/* + ros1_bridge-${distro} pattern) leave
   # cache_variant unset; the scope key reduces to
-  # ${image_name}-${hardware}-<target>-cache (#378 b1), which is still
+  # ${image_name}-${hardware}-<target>-cache (b1), which is still
   # per-(repo, arch) and now also per-target.
   local _cv
   _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_cv}" == *'""'* ]]
 }
 
-# ── #273 Phase 1: doc-only PR fast-pass ────────────────────────────────
+# ── Phase 1: doc-only PR fast-pass ────────────────────────────────
 
 @test "build-worker.yaml: declares path-filter job (#273)" {
   # New job runs the doc-only classifier; outputs code_changed
@@ -341,7 +341,7 @@ setup() {
   assert_success
 }
 
-# ── #470: opt-in free_disk_space for large BASE_IMAGE repos ───────────
+# ──opt-in free_disk_space for large BASE_IMAGE repos ───────────
 
 @test "build-worker.yaml: declares free_disk_space input as boolean default false (#470)" {
   # Opt-in step that pre-clears ~30 GB of pre-installed runner tooling

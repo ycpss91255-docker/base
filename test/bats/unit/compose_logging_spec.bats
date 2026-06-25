@@ -2,7 +2,7 @@
 #
 # Tests for [logging] / [logging.<svc>] support in generate_compose_yaml
 # and the supporting _collect_logging / _parse_logging_svc_sections
-# parsers in downstream/script/docker/wrapper/setup.sh. Closes #310.
+# parsers in downstream/script/docker/wrapper/setup.sh.
 
 bats_require_minimum_version 1.5.0
 
@@ -15,7 +15,7 @@ setup() {
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
   CONF_FILE="${TEMP_DIR}/setup.conf"
-  # #493 (A1'-b): the `test` service is emitted from the devel-test
+  # (A1'-b): the `test` service is emitted from the devel-test
   # baseline stage via the per-stage loop, so generate_compose_yaml
   # needs a Dockerfile declaring it for the test service (and its
   # logging) to appear. Tests that need extra stages overwrite this.
@@ -71,7 +71,7 @@ teardown() {
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "" "" "" "${_global}" ""
-  # #493 (A1'-b): the test service is now a normal extends:devel stage.
+  # (A1'-b): the test service is now a normal extends:devel stage.
   # A global [logging] block (no per-svc divergence) is emitted once on
   # devel; the test service inherits it through `extends: devel` rather
   # than duplicating the block.
@@ -146,10 +146,10 @@ teardown() {
 
 # _parse_logging_svc_sections / _collect_logging parser tests moved
 # to test/unit/conf_logging_spec.bats when the implementations were
-# extracted to lib/conf_logging.sh in #402 (PR-A).
+# extracted to lib/conf_logging.sh in (PR-A).
 
 # ════════════════════════════════════════════════════════════════════
-# generate_compose_yaml: [logging] local_path bind mount + LOG_FILE_PATH (#328)
+# generate_compose_yaml: [logging] local_path bind mount + LOG_FILE_PATH
 # ════════════════════════════════════════════════════════════════════
 
 @test "local_path on global emits volumes mount + LOG_FILE_PATH env for devel (#328)" {
@@ -239,7 +239,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _logging_svc_local_path_mount helper (#328)
+# _logging_svc_local_path_mount helper
 # ════════════════════════════════════════════════════════════════════
 #
 # `_logging_svc_local_path_mount` lives inside generate_compose_yaml as
@@ -250,21 +250,21 @@ teardown() {
 # these end-to-end assertions cover the same resolution branches
 # (relative / absolute / per-svc / empty fall-through).
 
-# _sync_logging_local_paths_gitignore (#328) + prune behaviour (#390)
+# _sync_logging_local_paths_gitignore + prune behaviour
 # tests moved to test/unit/gitignore_spec.bats when the implementation
 # was relocated to lib/gitignore.sh and renamed _sync_logging_gitignore
-# in #402 (PR-B). The new tests stage a setup.conf and call the
+# in (PR-B). The new tests stage a setup.conf and call the
 # single-arg form, exercising the full _collect_logging -> sync flow
 # rather than mocking the resolved strings.
 
 # ════════════════════════════════════════════════════════════════════
-# setup.conf [logging] section: in-image helper path reference (#368)
+# setup.conf [logging] section: in-image helper path reference
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)" {
   # The [logging] section in the template default setup.conf is the
   # primary surface where downstream maintainers learn about the
-  # local_path feature + the entrypoint helper. PR #356 originally
+  # local_path feature + the entrypoint helper. PR originally
   # pointed at `.base/downstream/script/docker/runtime/logging.sh` (the
   # subtree path inside the workspace bind mount), which crashes on
   # build-time smoke ($USER unset) and is wrong on multi-repo
@@ -276,24 +276,24 @@ teardown() {
   [[ -f "${_conf}" ]] || skip "config/docker/setup.conf not present"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
-  # Negative guard: the broken pre-#368 path must not reappear.
+  # Negative guard: the broken path must not reappear.
   run grep -F '.base/downstream/script/docker/runtime/logging.sh' "${_conf}"
   assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml: per-stage LOG_FILE_PATH on extends:devel
-# stages (#367)
+# stages
 # ════════════════════════════════════════════════════════════════════
 
 @test "generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)" {
   # Without this fix, the zero-diff `extends: service: devel` branch
   # (the minimal-shape emit for stages with no [stage:<name>] override,
-  # #215) only emits build / image / container_name / profiles. The
+  # ) only emits build / image / container_name / profiles. The
   # extends merge then inherits devel's LOG_FILE_PATH=devel.log into
   # every extending service, so `./run.sh -d runtime` ends up tee'ing
   # the runtime container's stdout to logs/devel.log -- breaking the
-  # "one file per service" guarantee the original PR #356 framing
+  # "one file per service" guarantee the original PR framing
   # promised. Fix is Option A: emit per-service LOG_FILE_PATH +
   # volume mount uniformly on every service block; compose's extends
   # merge concatenates environment arrays and last-wins resolution at
@@ -338,7 +338,7 @@ EOF
     "" "" "" "" "" "" "" "" "" "${_global}" ""
   # The bind mount string ends with `:/var/log/myrepo`. Expect at
   # least 3 emits in compose.yaml: devel + test + runtime (the
-  # runtime emit is the regression guard -- pre-#367 only devel +
+  # runtime emit is the regression guard -- only devel +
   # test had it). The exact host-path prefix depends on _setup_base
   # resolution of `./logs/` so anchor on the in-container target.
   local _occurrences
@@ -354,7 +354,7 @@ EOF
 
 @test "generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)" {
   # Back-compat: stages with no overrides AND no local_path stay on
-  # the byte-for-byte pre-#220 minimal-shape emit. Specifically the
+  # the byte-for-byte minimal-shape emit. Specifically the
   # runtime block must NOT acquire an environment / volumes line --
   # the original v0.30.0 zero-diff promise must hold.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'

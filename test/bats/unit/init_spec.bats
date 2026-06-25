@@ -14,7 +14,7 @@ setup() {
 
   # Mimic the integration-test layout so `init.sh` resolves TEMPLATE_DIR /
   # REPO_ROOT to a writable temp tree instead of /source. Symlinking
-  # init.sh back to the real source keeps all edits in one place. Post-#654
+  # init.sh back to the real source keeps all edits in one place.
   # init.sh lives deep at downstream/script/base/init.sh and self-locates
   # the subtree root by walking up to the dir carrying `.version` +
   # `downstream/`, so seed both markers at .base/ and symlink at the deep
@@ -28,18 +28,18 @@ setup() {
   echo "v0.0.0-test" > "${TMP_REPO}/.base/.version"
   ln -s /source/downstream/script/base/init.sh \
         "${TMP_REPO}/.base/downstream/script/base/init.sh"
-  # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
+  # init.sh sources lib/gitignore.sh on load. Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
   ln -s /source/downstream/script/docker/lib/gitignore.sh \
         "${TMP_REPO}/.base/downstream/script/docker/lib/gitignore.sh"
-  # init.sh sources _lib.sh on load (#278: routes _log / _error through
+  # init.sh sources _lib.sh on load (routes _log / _error through
   # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
-  # (#284), so symlink all three surfaces.
+  # so symlink all three surfaces.
   ln -s /source/downstream/script/docker/lib/_lib.sh \
         "${TMP_REPO}/.base/downstream/script/docker/lib/_lib.sh"
   ln -s /source/downstream/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/downstream/script/docker/lib/i18n.sh"
-  # schema.sh joined the _lib.sh chain in #560; it sources _tui_conf.sh
+  # schema.sh joined the _lib.sh chain in; it sources _tui_conf.sh
   # for the validator bodies, so symlink both alongside the rest.
   for _sl in log transcript env conf conf_logging _tui_conf schema compose config_summary hook; do
     ln -s "/source/downstream/script/docker/lib/${_sl}.sh" \
@@ -244,7 +244,7 @@ REMOTE
     # And must NOT exist at root.
     assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
-  # #546: the root user entry is the justfile, not a Makefile.
+  # the root user entry is the justfile, not a Makefile.
   assert [ -L "${TMP_REPO}/justfile" ]
   assert [ ! -e "${TMP_REPO}/Makefile" ]
 }
@@ -273,7 +273,7 @@ REMOTE
 
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
   # Pretend an earlier run left a regular file where the symlink should go.
-  # Post-#330 the symlinks live under script/, so the stale-replacement
+  # the symlinks live under script/, so the stale-replacement
   # logic in _symlink runs against script/build.sh, not root build.sh.
   mkdir -p "${TMP_REPO}/script"
   echo "stale" > "${TMP_REPO}/script/build.sh"
@@ -284,7 +284,7 @@ REMOTE
 
 @test "_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)" {
   # Plant the seven root-level symlinks an older init.sh would have made;
-  # the post-#330 loop must drop them all so the user-facing entry is the
+  # the loop must drop them all so the user-facing entry is the
   # `script/` subfolder + root `Makefile`.
   for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     ln -sf ".base/script/docker/${_f}" "${TMP_REPO}/${_f}"
@@ -309,7 +309,7 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _gen_setup_conf --force (reset path, issue #124 / #60)
+# _gen_setup_conf --force (reset path,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
@@ -367,12 +367,12 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# TEMPLATE_REL subtree-prefix auto-detection (#262 / #263 prep)
+# TEMPLATE_REL subtree-prefix auto-detection (prep)
 # ════════════════════════════════════════════════════════════════════
 #
 # init.sh derives TEMPLATE_REL from `basename ${TEMPLATE_DIR}` (which is
 # itself `dirname BASH_SOURCE[0]`). The conventional prefix is `.base/`
-# but a downstream rename (e.g. `.base/`, planned for #263 fanout) is
+# but a downstream rename (e.g. `.base/`, planned for fanout) is
 # picked up without code changes: the symlink targets and gen-conf paths
 # follow whatever directory init.sh lives in.
 
@@ -382,7 +382,7 @@ REMOTE
 }
 
 @test "TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable" {
-  # Post-#263 the subtree always lives at `.base/`; re-sourcing init.sh
+  # the subtree always lives at `.base/`; re-sourcing init.sh
   # from that location must consistently derive TEMPLATE_REL = ".base"
   # so downstream symlinks point through the new prefix.
   source "${TMP_REPO}/.base/downstream/script/base/init.sh"
@@ -418,7 +418,7 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #440: _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
+# _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)" {
@@ -469,7 +469,7 @@ REMOTE
 
 @test "_init_existing_repo: creates missing hook stubs on upgrade (#440)" {
   _source_init
-  # Simulate an existing repo on pre-#440 template — no hooks/ dir yet
+  # Simulate an existing repo on template — no hooks/ dir yet
   [[ ! -d "${TMP_REPO}/script/hooks" ]] || rm -rf "${TMP_REPO}/script/hooks"
   : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
   _init_existing_repo
@@ -478,7 +478,7 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _preflight_just / _bootstrap_just (#607)
+# _preflight_just / _bootstrap_just
 # ════════════════════════════════════════════════════════════════════
 
 # Build a clean bin dir holding symlinks to only the externals the

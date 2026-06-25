@@ -4,7 +4,7 @@
 # lib/conf_logging.sh.
 #
 # Parsers were extracted from downstream/script/docker/wrapper/setup.sh during the
-# #402 lifecycle refactor (PR-A) so that lib/gitignore.sh can reuse the
+# lifecycle refactor (PR-A) so that lib/gitignore.sh can reuse the
 # same logic without circular sourcing (setup.sh used to own both the
 # parser and the runtime-time gitignore sync; PR-B moves the sync to
 # init.sh while keeping the parser as a shared primitive).

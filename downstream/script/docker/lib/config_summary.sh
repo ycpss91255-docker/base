@@ -14,9 +14,9 @@
 #
 # Caller must `_load_env` first so the .env-derived variables are in scope.
 #
-# Split out from _lib.sh in #284. _lib_msg stays alongside the printer
-# (its single consumer) per the issue body's "defer until #283 lands"
-# guidance — now that #283 has landed, there's no other i18n surface
+# Split out from _lib.sh. _lib_msg stays alongside the printer
+# (its single consumer) per the issue body's "defer until it lands"
+# guidance — now that it has landed, there's no other i18n surface
 # pulling _lib_msg the other way.
 
 # Guard against double-sourcing.
@@ -207,7 +207,7 @@ _print_config_summary() {
     # / comments-only / whitespace-only), every section silently falls
     # back to template defaults. Surface a parallel hint to the
     # missing-conf branch so users on build.sh's drift-check rebuild
-    # path see the heads-up too (closes #157).
+    # path see the heads-up too
     if ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_conf}"; then
       # shellcheck disable=SC2059  # format string is intentional (i18n table owns no %s)
       printf "[%s]   $(_lib_msg conf_empty)\n" "${_tag}"

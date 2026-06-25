@@ -250,3 +250,10 @@ jobs:
           # not a standalone binary.
           docker run --rm "${image}" docker --version
           docker run --rm "${image}" docker buildx version
+          # mawk + gawk (#576): added alongside busybox awk so the issueref
+          # awk program's portability unit test exercises all three engines
+          # in the alpine `just test` loop (closes the kcov debian/mawk
+          # blind spot). mawk reports its version on stderr and exits non-
+          # zero for -W version, so probe presence via the binary path.
+          docker run --rm "${image}" sh -c 'command -v mawk'
+          docker run --rm "${image}" gawk --version

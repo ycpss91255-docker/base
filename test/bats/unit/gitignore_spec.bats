@@ -2,7 +2,7 @@
 #
 # Unit tests for .base/downstream/script/docker/lib/gitignore.sh.
 #
-# Issue #172: init.sh / upgrade.sh need to sync a canonical .gitignore set
+# init.sh / upgrade.sh need to sync a canonical .gitignore set
 # (.env, .env.bak, compose.yaml, setup.conf.bak, coverage/,
 # .Dockerfile.generated). The lib has three responsibilities:
 #   1. Emit the canonical list (single source of truth).
@@ -16,7 +16,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  # _sync_logging_gitignore (added in #402 PR-B) reads setup.conf via
+  # _sync_logging_gitignore (added in PR-B) reads setup.conf via
   # _collect_logging -> _parse_ini_section, both shared libs. Source
   # them up front so every test gets the full surface.
   # shellcheck disable=SC1091
@@ -122,7 +122,7 @@ EOF
 
 @test "_sync_gitignore: appends only missing entries when subset already present" {
   local _f="${TMP_DIR}/.gitignore"
-  # Pre-existing partial set (the 15-repo state at the time #172 was filed)
+  # Pre-existing partial set (the 15-repo state at the time was filed)
   cat > "${_f}" <<'EOF'
 .env
 .claude/
@@ -275,7 +275,7 @@ _init_repo_with_tracked() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _sync_logging_gitignore (#402 PR-B)
+# _sync_logging_gitignore (PR-B)
 #
 # Same managed-block behaviour as the old setup.sh-time
 # _sync_logging_local_paths_gitignore, but now reads setup.conf
@@ -296,10 +296,10 @@ CONF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _sync_logging_gitignore: relative path appending + filter (#402, ex-#328)
+# _sync_logging_gitignore: relative path appending + filter
 #
 # Migrated from compose_logging_spec.bats when the implementation
-# moved out of setup.sh in #402 (PR-B). Each test stages setup.conf
+# moved out of setup.sh in (PR-B). Each test stages setup.conf
 # instead of passing the resolved strings, exercising the full
 # _collect_logging -> sync flow.
 # ════════════════════════════════════════════════════════════════════
@@ -389,7 +389,7 @@ CONF
 }
 
 # ────────────────────────────────────────────────────────────────────
-# Prune behaviour (#402, ex-#390): managed-block re-emit + isolation
+# Prune behaviour : managed-block re-emit + isolation
 # ────────────────────────────────────────────────────────────────────
 
 @test "_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)" {

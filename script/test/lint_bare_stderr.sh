@@ -2,7 +2,7 @@
 #
 # lint_bare_stderr.sh - Flag bare printf/echo >&2 outside _log_* helpers.
 #
-# P4 of #423: enforce that all stderr output goes through lib/log.sh
+# P4 ofenforce that all stderr output goes through lib/log.sh
 # helpers. Scans script/docker/**/*.sh and script/test/**/*.sh for lines
 # that write to fd 2 without using _log_err / _log_warn / _log_fatal /
 # _log_info / _log_debug / _die.

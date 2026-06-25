@@ -6,7 +6,7 @@
 # user can reach those device nodes. Those GIDs have no NAME inside the
 # container image, so every interactive shell -- `just run` (entrypoint
 # then bashrc) AND `just exec` (compose exec then bashrc, bypassing the
-# entrypoint) -- emits a cosmetic getgrgid() warning. Device access
+# entrypoint) -- emits a cosmetic getgrgid warning. Device access
 # already works (membership is by GID); only the label is missing. Give
 # each nameless GID a placeholder `hostgrp<gid>` via passwordless sudo.
 # This deliberately does NOT touch the compose `group_add` device-access

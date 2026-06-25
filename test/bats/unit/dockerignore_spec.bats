@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
 # Unit tests for the .dockerignore canonical-sync helpers in
-# .base/downstream/script/docker/lib/gitignore.sh (#604).
+# .base/downstream/script/docker/lib/gitignore.sh.
 #
-# Mirrors the .gitignore canonical-sync pattern (#172): downstream repos
+# Mirrors the .gitignore canonical-sync pattern: downstream repos
 # accumulate derived artifacts (.env / compose.yaml / coverage/ ...) that
 # should not be shipped in the Docker build context any more than they
 # should be committed. base had no .dockerignore sync at all (the file
@@ -62,7 +62,7 @@ teardown() {
 }
 
 @test "_canonical_dockerignore_entries: includes log/ via the shared canonical source (#606) (#604)" {
-  # #604 reserved log/ for #606; #606 added it to _canonical_gitignore_entries
+  # reserved log/ for; added it to _canonical_gitignore_entries
   # and it propagates here through the shared source (proving the delegation).
   run _canonical_dockerignore_entries
   assert_line "log/"

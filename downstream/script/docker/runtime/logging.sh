@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# logging.sh -- host-side log tee helper for #328 local_path.
+# logging.sh -- host-side log tee helper for local_path.
 #
 # Source this from a repo's `script/entrypoint.sh` so container stdout/
 # stderr is duplicated to the host-side file mounted via the [logging]
@@ -43,7 +43,7 @@
 #   . /usr/local/lib/base/logging.sh
 #   exec "$@"
 #
-# Why the in-image path (#368, supersedes the PR #356 example that
+# Why the in-image path (supersedes the PR example that
 # tried to source the helper through the workspace bind mount via
 # the entrypoint user's `$HOME` and the `.base/` subtree):
 #   - `USER` is unset in the Dockerfile test stage (no login env),

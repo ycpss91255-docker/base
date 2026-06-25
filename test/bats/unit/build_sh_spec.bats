@@ -29,7 +29,7 @@ setup() {
 
   cp /source/downstream/script/docker/lib/_lib.sh     "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/i18n.sh     "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
-  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
   cp /source/downstream/script/docker/lib/*    "${SANDBOX}/.base/downstream/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/downstream/script/docker/wrapper/build.sh.
   ln -s /source/downstream/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
@@ -40,7 +40,7 @@ setup() {
 
   cat > "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
-# Mock setup.sh (subprocess-only after #49 Phase B-1):
+# Mock setup.sh (subprocess-only after Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift in this baseline)
 #   - apply (default / explicit / legacy flag-only) → write .env + compose
 set -euo pipefail
@@ -409,7 +409,7 @@ EOS
 }
 
 # ── /lint/-layout _detect_lang (flat dir: build.sh + _lib.sh + i18n.sh) ────
-# After #104 the inline fallback is gone; scripts in the Dockerfile test
+# After the inline fallback is gone; scripts in the Dockerfile test
 # stage rely on _lib.sh + i18n.sh copied alongside. These tests exercise
 # that layout by symlinking build.sh (for kcov) and copying the helpers.
 
@@ -483,7 +483,7 @@ EOS
 }
 
 # ── i18n log lines (bootstrap / drift / err_no_env) ────────────────────────
-# These exercise _msg() for every language on every log line that build.sh
+# These exercise _msg for every language on every log line that build.sh
 # emits directly. Usage-text coverage lives above; these assert that the
 # *runtime* messages (not just --help) translate end-to-end.
 
@@ -561,7 +561,7 @@ EOS
   chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang zh-TW --dry-run
   assert_failure
-  # Level keyword is now English-only (#283); zh-TW body still localised.
+  # Level keyword is now English-only; zh-TW body still localised.
   assert_output --partial "[build] ERROR:"
   assert_output --partial "setup 未產生 .env.generated"
 }
@@ -574,13 +574,13 @@ EOS
   chmod +x "${SANDBOX}/.base/downstream/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/build.sh" --lang ja --dry-run
   assert_failure
-  # Level keyword is now English-only (#283); ja body still localised.
+  # Level keyword is now English-only; ja body still localised.
   assert_output --partial "[build] ERROR:"
   assert_output --partial "setup が .env.generated を生成"
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --reset-conf flag (issue #60 / #124)
+# --reset-conf flag
 # ════════════════════════════════════════════════════════════════════
 
 @test "build.sh --reset-conf --yes --dry-run prints init.sh --gen-conf --force cmd" {
@@ -677,7 +677,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "build.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
@@ -707,7 +707,7 @@ EOS
   # kcov instruments bash (set -x/PS4), so the wrapper's `-vv` trace
   # prefix `+ ` does not reach stderr under coverage; the real -vv
   # behaviour is covered by the normal (non-kcov) job. Skip the fragile
-  # observation under kcov (#613).
+  # observation under kcov.
   [ "${COVERAGE:-0}" = 1 ] && skip "set -x trace not observable under kcov instrumentation (#613)"
   [[ "${stderr}" == *"+ "* ]]
 }

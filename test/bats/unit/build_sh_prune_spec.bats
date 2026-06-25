@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for build.sh's #387 post-build prune-predecessor logic.
+# Unit tests for build.sh's post-build prune-predecessor logic.
 # Separate spec so the docker stub can be tailored to image-inspect /
 # images-filter / rmi semantics without bloating build_sh_spec.bats's
 # default stub (which only logs args).
@@ -135,7 +135,7 @@ teardown() {
   rm -rf "${TEMP_DIR}"
 }
 
-# ── #387 prune-predecessor cases ──────────────────────────────────────────
+# ── prune-predecessor cases ──────────────────────────────────────────
 
 @test "build.sh first build (no prior image) skips prune" {
   # Pre-build inspect returns exit 1 (tag absent) → _pre_build_id empty

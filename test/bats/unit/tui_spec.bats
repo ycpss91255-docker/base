@@ -15,7 +15,7 @@ setup() {
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
-  # Post-#262 path: setup.conf lives at config/docker/setup.conf
+  # path: setup.conf lives at config/docker/setup.conf
   mkdir -p "${TEMP_DIR}/config/docker"
 }
 
@@ -64,7 +64,7 @@ teardown() {
   [ "${status}" -ne 0 ]
 }
 
-# ── #450 mount propagation modes ──────────────────────────────────
+# ── mount propagation modes ──────────────────────────────────
 
 @test "_validate_mount accepts propagation mode rslave (#450)" {
   _validate_mount "/dev:/dev:rslave"
@@ -369,7 +369,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _validate_log_* — [logging] section validators (#328)
+# _validate_log_* — [logging] section validators
 # ════════════════════════════════════════════════════════════════════
 
 @test "_validate_log_driver accepts registered + plugin-shaped names (#328)" {
@@ -466,7 +466,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 #
 # The stderr warning from _sanitize_lang gets eaten by curses once
-# dialog/whiptail takes over the terminal. main() captures the bad
+# dialog/whiptail takes over the terminal. main captures the bad
 # input and hands it to this helper, which opens a visible msgbox
 # before entering the main menu.
 #
@@ -693,7 +693,7 @@ EOF
 }
 
 @test "_write_setup_conf: dst == tpl (same file) keeps content non-empty (#187 regression)" {
-  # Issue #187: setup_tui's `_commit_and_setup` passes `_repo_conf` for
+  # setup_tui's `_commit_and_setup` passes `_repo_conf` for
   # both dst and tpl when the per-repo file already exists. The function
   # used to truncate `_dst` BEFORE reading from `_tpl`, so when both
   # pointed at the same file the read got an empty file and the write
@@ -1117,7 +1117,7 @@ fi'
 
 @test "_edit_section_deploy shows MIG msgbox when host has MIG enabled" {
   # Source setup_tui.sh to get _edit_section_deploy + i18n tables. The
-  # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main() from
+  # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main from
   # running on source.
   # shellcheck disable=SC1091
   source /source/downstream/script/docker/wrapper/setup_tui.sh
@@ -1347,7 +1347,7 @@ _b_swap_setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _edit_image_rule __remove — index compaction (#177)
+# _edit_image_rule __remove — index compaction
 #
 # Removing rule_n must shift rule_(n+1) .. rule_max down by one, so
 # the user always sees consecutive indices and the next "add"
@@ -1432,7 +1432,7 @@ _b_remove_setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Per-stage [stage:NAME] section round-trip (#220)
+# Per-stage [stage:NAME] section round-trip
 #
 # `_load_setup_conf_full` already namespaces all keys as
 # `<section>.<key>`, so reading `[stage:headless] gui.mode = off`
@@ -1440,7 +1440,7 @@ _b_remove_setup() {
 # section name "stage:headless" is opaque to the parser).
 #
 # `_write_setup_conf` historically only handled overrides for
-# sections present in the template. #220 needs it to emit NEW
+# sections present in the template. needs it to emit NEW
 # `[stage:NAME]` sections too, since template's setup.conf doesn't
 # carry per-repo stage overrides.
 # ════════════════════════════════════════════════════════════════════
@@ -1596,7 +1596,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _edit_section_lifecycle — [lifecycle] restart TUI page (#514)
+# _edit_section_lifecycle — [lifecycle] restart TUI page
 # ════════════════════════════════════════════════════════════════════
 
 _lc_setup_tui() {
@@ -1658,7 +1658,7 @@ _lc_setup_tui() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _edit_section_deploy — legacy runtime -> gpu_runtime migration (#517)
+# _edit_section_deploy — legacy runtime -> gpu_runtime migration
 # ════════════════════════════════════════════════════════════════════
 
 # Drive _edit_section_deploy through to the runtime block: mode auto (not

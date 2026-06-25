@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/gitignore.sh - Canonical .gitignore entries + sync/untrack helpers.
 #
-# Issue #172: every release cycle adds new derived artifacts (compose.yaml,
+# every release cycle adds new derived artifacts (compose.yaml,
 # .env.bak, coverage/, ...). Without sync, downstream repos accumulate
 # drift and end up tracking files they shouldn't. This lib is the single
 # source of truth, sourced by init.sh (new-repo + existing-repo paths)
@@ -38,7 +38,7 @@ EOF
 #   build-context specifics (script/ test/ config/, .git, docs) are
 #   hand-maintained ABOVE the managed block and are never touched by the
 #   sync. New derived artifacts are added in _canonical_gitignore_entries
-#   and propagate here automatically (this is also how #606 will land
+#   and propagate here automatically (this is also how will land
 #   `log/` in both files from one edit).
 _canonical_dockerignore_entries() {
   _canonical_gitignore_entries
@@ -110,7 +110,7 @@ _sync_gitignore() {
 # _sync_dockerignore <path>
 #   Append the canonical .dockerignore derived-artifact set that is
 #   missing from <path>, preserving the hand-maintained build-context
-#   lines above the managed block. See _sync_managed_entries (#604).
+#   lines above the managed block. See _sync_managed_entries.
 _sync_dockerignore() {
   _sync_managed_entries "$1" _canonical_dockerignore_entries
 }
@@ -127,12 +127,12 @@ _sync_dockerignore() {
 # following lines that look like a gitignore dir entry (`/<path>/`);
 # the first non-matching line ends the block. On each sync we rewrite
 # the block to exactly the current desired entries, which prunes
-# stale entries left over from prior local_path values (#390). The
+# stale entries left over from prior local_path values. The
 # marker comment itself is dropped when the block ends up empty so a
 # sync with no logging local_path leaves no trace. Lines outside the
 # managed block are user-owned and never touched.
 #
-# Moved from script/docker/wrapper/setup.sh's apply path in #402
+# Moved from script/docker/wrapper/setup.sh's apply path in
 # (PR-B). The runtime sync used to fire on every setup.sh apply call;
 # the new lifecycle ties .gitignore updates to init.sh / upgrade.sh
 # so the file stays consistent across template versions without
@@ -250,7 +250,7 @@ _sync_logging_gitignore() {
 #   stops being tracked, so the next commit drops it from history's
 #   active set and `setup.sh`'s regen no longer pollutes `git status`.
 #
-#   Heals the 15-repo drift documented in #172 (compose.yaml tracked
+#   Heals the 15-repo drift documented in (compose.yaml tracked
 #   despite being a v0.9.0+ derived artifact) without requiring a
 #   separate per-repo PR.
 #

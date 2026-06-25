@@ -40,7 +40,7 @@ setup() {
 }
 
 @test "compose.yaml mounts XAUTHORITY volume" {
-  # #582: the cookie's host path (XAUTHORITY) is the mount source; the
+  # the cookie's host path (XAUTHORITY) is the mount source; the
   # target is the fixed neutral /tmp/.docker.xauth so Docker does not
   # materialize a HOME-polluting ~/workspace tree from the deep host path.
   [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"

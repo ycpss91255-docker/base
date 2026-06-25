@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for the conf.sh opaque accessor interface (#564).
+# Unit tests for the conf.sh opaque accessor interface.
 #
 # The accessor verbs (_conf_load / _conf_get / _conf_list / _conf_sections)
 # hide conf.sh's internal parallel-array + namespacing representation: callers

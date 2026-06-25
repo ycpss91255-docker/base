@@ -4,7 +4,7 @@ bats_require_minimum_version 1.5.0
 
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
-# .env.generated cache + .env workload overlay (A2 file roles, #502)
+# .env.generated cache + .env workload overlay (A2 file roles,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply writes the derived cache to .env.generated (not .env)" {
@@ -38,7 +38,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 
 @test "apply migrates a legacy .env cache to .env.generated + backs it up" {
   cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  # Pre-#502 layout: .env IS the cache (carries the auto-gen marker) and
+  # layout: .env IS the cache (carries the auto-gen marker) and
   # .env.generated does not exist yet.
   cat > "${TEMP_DIR}/.env" <<'EOF'
 IMAGE_NAME=legacycache
@@ -74,7 +74,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# .Dockerfile.generated: [environment] baked as runtime-stage ENV (S3, #503)
+# .Dockerfile.generated: [environment] baked as runtime-stage ENV (S3,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "_generate_runtime_dockerfile injects ENV after FROM ... AS runtime" {
@@ -118,7 +118,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# config/app/ structured app-config dev bind-mount (S4, #504)
+# config/app/ structured app-config dev bind-mount (S4,)
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply dev-binds config/app/ into the devel service when present (#504)" {
@@ -445,7 +445,7 @@ EOF
   mkdir -p "${_repo}" "${_pin}"
   bash -c "source /source/downstream/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
-  # #174: user pins go into the override file (.local), not the
+  # user pins go into the override file (.local), not the
   # materialized snapshot.
   cat > "${_repo}/config/docker/setup.conf" <<EOF
 [volumes]
@@ -466,9 +466,9 @@ EOF
 }
 
 @test "workspace second-run: stale setup.conf path is harmlessly overwritten (#174)" {
-  # Pre-#174 setup.conf was tracked → cross-machine clones inherited
+  # setup.conf was tracked → cross-machine clones inherited
   # alice's absolute path on bob's checkout, forcing setup.sh to
-  # detect-and-rewrite. Post-#174 setup.conf is gitignored + a derived
+  # detect-and-rewrite. setup.conf is gitignored + a derived
   # snapshot, so the only way a "stale" path lands is a manual edit
   # between applies. Apply now silently regenerates setup.conf from
   # template + .local (which contain the portable form) — no warning
@@ -492,11 +492,11 @@ EOF
 }
 
 @test "fresh bootstrap: empty dir + main apply emits workspace mount in compose.yaml (#201 regression)" {
-  # Pre-#201 bug: bootstrap wrote mount_1 to <repo>/config/docker/setup.conf, then
+  # bug: bootstrap wrote mount_1 to <repo>/config/docker/setup.conf, then
   # immediately reloaded via _load_setup_conf which only consulted
   # setup.conf.local (empty) + template (empty mount_1). The just-written
   # value was lost and compose.yaml omitted the workspace mount.
-  # Post-#201 (2-file model): bootstrap writes to <repo>/config/docker/setup.conf and
+  # (2-file model): bootstrap writes to <repo>/config/docker/setup.conf and
   # _load_setup_conf reads from the same file, so the reload picks up
   # the freshly-written mount_1.
   local _repo="${TEMP_DIR}/fresh"
@@ -558,7 +558,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #285 — --quiet flag + success confirmation output
+# — --quiet flag + success confirmation output
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.sh set: prints 3-line confirmation by default" {
@@ -685,7 +685,7 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #338: setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
+# setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
@@ -856,7 +856,7 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #450 P2: propagation + non-privileged guard
+# P2: propagation + non-privileged guard
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply warns when device propagation used without privileged (#450 P2)" {
@@ -893,7 +893,7 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #450 P4: duplicate device/volume target path detection
+# P4: duplicate device/volume target path detection
 # ════════════════════════════════════════════════════════════════════
 
 @test "apply warns when device and volume have same target path (#450 P4)" {
@@ -929,7 +929,7 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# S7 (#507): runtime.env retired. apply no longer emits it; [environment]
+# S7: runtime.env retired. apply no longer emits it; [environment]
 # still reaches compose.yaml (and is baked as ENV for the field via S3).
 # ════════════════════════════════════════════════════════════════════
 
@@ -960,7 +960,7 @@ EOC
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _reconcile_workspace_path (#569) — the WS_PATH / mount_1 reconciliation
+# _reconcile_workspace_path — the WS_PATH / mount_1 reconciliation
 # state machine extracted from _setup_apply into a testable seam. The 4
 # (+empty) branches become direct unit tests instead of being reachable
 # only through a full apply. detect_ws_path is deterministic here: with no

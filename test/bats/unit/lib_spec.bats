@@ -14,7 +14,7 @@ setup() {
 
 # ── _detect_lang / _LANG ────────────────────────────────────────────────────
 
-# #568 Part B: i18n.sh no longer sets _LANG as a module-load side-effect;
+# Part B: i18n.sh no longer sets _LANG as a module-load side-effect;
 # callers resolve it explicitly via _resolve_lang. These assert the new
 # contract -- the function maps LANG / SETUP_LANG to the canonical code.
 
@@ -62,7 +62,7 @@ setup() {
   assert_output "UNSET"
 }
 
-# ── lib self-sourcing (load order not load-bearing, #568 Part A) ─────────────
+# ── lib self-sourcing (load order not load-bearing, Part A) ─────────────
 
 @test "conf_logging.sh self-sources its conf.sh dependency in isolation (#568)" {
   # Sourcing conf_logging.sh alone (no _lib.sh / conf.sh first) must still

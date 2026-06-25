@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# transcript.sh - wrapper transcript capture (#606).
+# transcript.sh - wrapper transcript capture.
 #
 # For non-interactive container-ops verbs (build / setup / stop / prune /
 # upgrade) this tees the wrapper's combined stdout+stderr to a plaintext
@@ -8,15 +8,15 @@
 # maintains a per-verb `latest.log` symlink, and on exit appends the exit
 # code + duration. Interactive verbs (run / exec / setup-tui) are NOT
 # captured in this slice -- they produce no file (the orchestration-only
-# `_transcript_detach` is #608).
+# `_transcript_detach` is).
 #
-# Sourced by _lib.sh AFTER log.sh (it is the producer of the #605
+# Sourced by _lib.sh AFTER log.sh (it is the producer of the
 # `_LOG_IS_TTY` cache: it freezes the run's real TTY-ness before the tee
 # rewraps fd1, so log.sh keeps emitting colour text to the terminal while
 # the file gets a stripped copy -- see ADR-00000007) and after conf.sh
 # (it reads the `[logging] wrapper_transcript*` keys from setup.conf).
 #
-# EXIT ownership (#606 decision A): transcript.sh installs the single
+# EXIT ownership (decision A): transcript.sh installs the single
 # process EXIT trap and exposes `_atexit <fn>` for wrappers to register
 # cleanups, instead of each wrapper calling `trap ... EXIT` (which would
 # clobber the transcript finalize). The handler runs registered cleanups
@@ -25,7 +25,7 @@
 # Failure-safe: if the log dir cannot be created or `tee` is unavailable,
 # it WARNs and no-ops without blocking the wrapper.
 #
-# Refs: #606, #438, #605, ADR-00000007.
+# Refs:    ADR-00000007.
 
 if [[ -n "${_DOCKER_LIB_TRANSCRIPT_SOURCED:-}" ]]; then
   return 0
@@ -35,13 +35,13 @@ _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 # Non-interactive verbs: full output captured end-to-end (no detach).
 _TRANSCRIPT_FULL_VERBS=" build setup stop prune upgrade "
 
-# Interactive verbs (#608): capture the orchestration phase, then the
+# Interactive verbs: capture the orchestration phase, then the
 # wrapper calls _transcript_detach before handing the terminal to the
 # interactive docker/TUI process so the session itself is not captured.
 # (run -d is non-interactive and never detaches -> full capture.)
 _TRANSCRIPT_INTERACTIVE_VERBS=" run exec setup_tui "
 
-# ── atexit registry (#606 decision A) ───────────────────────────────
+# ── atexit registry (decision A) ───────────────────────────────
 
 # _transcript_install_trap
 #   Install the single process EXIT trap once. Called on demand -- by
@@ -87,7 +87,7 @@ _transcript_is_full_verb() {
 }
 
 # _transcript_is_interactive_verb <verb>
-#   True when <verb> captures orchestration then detaches (#608).
+#   True when <verb> captures orchestration then detaches.
 _transcript_is_interactive_verb() {
   local _verb="${1:-}"
   [[ -n "${_verb}" ]] || return 1
@@ -129,7 +129,7 @@ _transcript_conf() {
 #   True when the wrapper transcript is not switched off. The WRAPPER_TRANSCRIPT
 #   env var wins when set (true/false) -- it lets CI / the self-test suite
 #   disable transcripts without a setup.conf (so wrapper specs never write a
-#   log/ tree into the checkout, #622) and lets a user toggle it ad-hoc.
+#   log/ tree into the checkout,) and lets a user toggle it ad-hoc.
 #   Otherwise falls back to `[logging] wrapper_transcript` (default true).
 _transcript_enabled() {
   case "${WRAPPER_TRANSCRIPT:-}" in
@@ -169,7 +169,7 @@ _transcript_filename() {
 
 # _transcript_meta_line <level> <msg>
 #   Format a transcript meta line as `<ISO ts> [<verb>] <LEVEL>: <msg>`
-#   so #609's lnav format parses it like a real log line. Meta lines are
+#   so's lnav format parses it like a real log line. Meta lines are
 #   written to the transcript FILE only -- never the terminal -- so a run
 #   produces no extra on-screen output and existing wrapper output stays
 #   byte-identical. (Genuine setup FAILURES still WARN to stderr.)
@@ -288,7 +288,7 @@ _transcript_finalize() {
 #   interactive session is NOT. Finalizes the transcript early (the run's
 #   exit code is not yet known) with a transcript_detached closing line.
 #   No-op when the transcript is not active (e.g. run -d full-captures and
-#   never detaches, or the feature is disabled). #608.
+#   never detaches, or the feature is disabled).
 _transcript_detach() {
   [[ -n "${_TRANSCRIPT_ACTIVE:-}" ]] || return 0
   local _dur=0
@@ -305,19 +305,19 @@ _transcript_detach() {
 
 # _transcript_begin
 #   Activate the tee when the verb is a full-capture verb and the feature
-#   is enabled. Caches _LOG_IS_TTY before rewrapping fd1 (#605), opens the
+#   is enabled. Caches _LOG_IS_TTY before rewrapping fd1, opens the
 #   raw capture, and redirects fd1+fd2 through a single `tee`. Any failure
 #   leaves the transcript inactive (WARN + no-op); the wrapper runs on.
 #
 #   Called EXPLICITLY as the first line of each non-interactive verb's
-#   main() -- NOT at _lib.sh source time -- so a unit spec that merely
+#   main -- NOT at _lib.sh source time -- so a unit spec that merely
 #   sources a wrapper (to test its functions, without calling main) never
 #   activates the tee in the bats shell.
 _transcript_begin() {
   local _verb="${_WRAPPER_VERB:-}"
 
   # Freeze the real TTY-ness now, before any tee rewraps fd1, so log.sh's
-  # auto format/colour (#605) follows the terminal, not the pipe. Use an
+  # auto format/colour follows the terminal, not the pipe. Use an
   # `if` so the non-TTY `test -t` (exit 1) does not trip the caller's
   # `set -e` at source time.
   if test -t 1; then _LOG_IS_TTY=0; else _LOG_IS_TTY=1; fi
@@ -378,7 +378,7 @@ _transcript_begin() {
 }
 
 # Activation is NOT done at source time. Each non-interactive verb's
-# main() calls `_transcript_begin` as its first statement; the EXIT trap
+# main calls `_transcript_begin` as its first statement; the EXIT trap
 # is installed on demand from there (or by _atexit). This keeps merely
 # sourcing _lib.sh (a unit spec, or a wrapper sourced to test its
 # functions) free of any tee redirect or EXIT-trap clobbering.

@@ -194,7 +194,7 @@ teardown() {
   assert_output --partial "upgrade.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
   assert_output --partial "config/shell/tmux/setup.sh"
-  # #655: the base namespace scripts (completions.sh) are shellchecked too.
+  # the base namespace scripts (completions.sh) are shellchecked too.
   assert_output --partial "downstream/script/base"
 }
 
@@ -239,7 +239,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
-# Regression guards for #168: default `test.sh` (no flag) must hit the
+# Regression guards fordefault `test.sh` (no flag) must hit the
 # alpine `ci` service so the apt-install path is bypassed; `--coverage`
 # must hit the kcov/kcov-based `coverage` service. Mock `docker` so
 # the test captures the chosen service name + COVERAGE env without
@@ -371,7 +371,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --coverage-shard: sharded kcov matrix (#615, ADR-00000008)
+# --coverage-shard: sharded kcov matrix (ADR-00000008)
 #
 # The coverage matrix mirrors bats-unit's shards. _shard_unit_files is
 # the shared round-robin primitive so coverage shard k covers the same
@@ -560,7 +560,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --bats-path / --filter single-path inner loop (#523)
+# --bats-path / --filter single-path inner loop
 # ════════════════════════════════════════════════════════════════════
 
 @test "main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1" {
@@ -698,7 +698,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Dispatcher + per-tool driver structure (#650, ADR-00000011 #5)
+# Dispatcher + per-tool driver structure (ADR-00000011 #5)
 #
 # test.sh is the dispatcher; the per-tool execution lives in sourced
 # driver libraries under script/test/drivers/. These guards pin the
@@ -709,7 +709,7 @@ teardown() {
 @test "drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist" {
   assert [ -f /source/script/test/drivers/bats.sh ]
   assert [ -f /source/script/test/drivers/shellcheck.sh ]
-  # #650: hadolint joins the per-tool drivers so it runs in BOTH `just
+  # hadolint joins the per-tool drivers so it runs in BOTH `just
   # test` and the CI hadolint job (local==CI single source).
   assert [ -f /source/script/test/drivers/hadolint.sh ]
 }
@@ -775,7 +775,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _run_hadolint (#650, ADR-00000011)
+# _run_hadolint (ADR-00000011)
 #
 # Single source of truth for the Dockerfiles + config the self-test
 # lints. These guards pin the exact file list + config so the driver

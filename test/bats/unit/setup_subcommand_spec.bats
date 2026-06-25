@@ -4,10 +4,10 @@ bats_require_minimum_version 1.5.0
 
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
-# Subcommand dispatch (#49 Phase B-1)
+# Subcommand dispatch (Phase B-1)
 #
 # setup.sh grew a git-style subcommand dispatcher so build.sh / run.sh
-# stop sourcing it (which historically caused #101's _msg shadow bug).
+# stop sourcing it (which historically caused's _msg shadow bug).
 # Subcommands wired in B-1: `apply` (default) + `check-drift`. Legacy
 # flag-only invocation (`setup.sh --base-path X --lang Y`) still maps
 # to apply for backward compat.
@@ -155,8 +155,8 @@ EOF
   cp /source/downstream/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh"
   cp /source/downstream/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
-  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  # setup.sh sources _lib.sh for the _log_* helpers; _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs
   cp /source/downstream/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/"
   cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/downstream/config/docker/setup.conf"
@@ -164,7 +164,7 @@ EOF
   bash "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
-  # #174: drift hash covers template + setup.conf. Mutating .local
+  # drift hash covers template + setup.conf. Mutating .local
   # after apply triggers detection.
   cat > "${TEMP_DIR}/sandbox/config/docker/setup.conf" <<'EOF'
 [gpu]
@@ -178,7 +178,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Subcommand: set / show / list (#49 Phase B-2)
+# Subcommand: set / show / list (Phase B-2)
 #
 # `setup.sh set <section>.<key> <value>` writes to setup.conf via
 # `_upsert_conf_value` (no .env regen — `apply` is the explicit gate).
@@ -262,9 +262,9 @@ EOF
 }
 
 # ──────────────────────────────────────────────────────────────────
-# #560: setup.sh routes through the shared schema registry, so `set` /
+# setup.sh routes through the shared schema registry, so `set` /
 # `add` now reject the same values the TUI already rejected. These keys
-# were historically free-form in setup.sh (the divergence #560 closes).
+# were historically free-form in setup.sh (the divergence closes).
 # ──────────────────────────────────────────────────────────────────
 
 @test "set rejects an invalid target_arch (#560 schema unification)" {
@@ -378,8 +378,8 @@ EOF
 }
 
 @test "show falls back to template baseline when section absent in .local (#174)" {
-  # Pre-#174 this test asserted that show fails when the requested
-  # section is missing from the per-repo file. After #174, show reads
+  # this test asserted that show fails when the requested
+  # section is missing from the per-repo file. Now show reads
   # the merged view (template ← .local), so the template baseline
   # always provides the section even when .local omits it. Switching
   # the assertion: show succeeds and surfaces the template's keys.
@@ -447,8 +447,8 @@ EOF
   cp /source/downstream/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh"
   cp /source/downstream/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/i18n.sh"
   cp /source/downstream/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_tui_conf.sh"
-  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
-  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  # setup.sh sources _lib.sh for the _log_* helpers; _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs
   cp /source/downstream/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_lib.sh"
   cp /source/downstream/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/"
   cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
@@ -464,7 +464,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Subcommand: add / remove (#49 Phase B-3)
+# Subcommand: add / remove (Phase B-3)
 #
 # `setup.sh add <section>.<list> <value>` finds the next `<list>_N`
 # (max+1) and writes via `_upsert_conf_value`.
@@ -633,7 +633,7 @@ mode = host
 EOF
   run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  # #174: remove modifies setup.conf in-place; comments and
+  # remove modifies setup.conf in-place; comments and
   # untouched keys survive the rewrite.
   run cat "${TEMP_DIR}/config/docker/setup.conf"
   assert_output --partial "Top-of-file comment"
@@ -684,7 +684,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Subcommand: reset (#49 Phase B-4)
+# Subcommand: reset (Phase B-4)
 #
 # `setup.sh reset [--yes]` overwrites <base-path>/config/docker/setup.conf with the
 # template default. Existing setup.conf → setup.conf.bak; existing

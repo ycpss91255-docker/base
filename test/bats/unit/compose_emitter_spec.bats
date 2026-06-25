@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
 # Tests for the per-service compose emitter and its shared leaf-emitter
-# sub-seams, extracted to top level from generate_compose_yaml (#566).
+# sub-seams, extracted to top level from generate_compose_yaml.
 #
-# Before #566 these emitters were nested closures inside
+# Before these emitters were nested closures inside
 # generate_compose_yaml, only reachable by running the whole ~900-line
 # function and grepping its YAML output. Hoisting them to top level lets
 # each one be exercised in isolation: build the inputs, call the emitter,
@@ -151,7 +151,7 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Logging family (hoisted #566): now take the [logging] strings + repo
+# Logging family (hoisted): now take the [logging] strings + repo
 # name + base path explicitly instead of closing over them.
 #   _logging_svc_kv <svc> <out_assoc> <global_str> <per_svc_str>
 #   _emit_logging_block <svc> <global_str> <per_svc_str>
@@ -214,7 +214,7 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 # _emit_stage_service <ctx> <resolved> <svc> <emit_stage> <has_overrides>
 #
-# The per-service emitter (#566): consumes a resolved-stage value (the
+# The per-service emitter: consumes a resolved-stage value (the
 # _dflags_eff record from _resolve_docker_flags) plus a shared static
 # context, and emits a single service YAML fragment. Replaces the inline
 # per-stage loop body of generate_compose_yaml. Tested here in isolation

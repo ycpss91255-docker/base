@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for downstream/script/docker/runtime/smoke.sh -- the runtime-test
-# smoke check that catches missing shared library dependencies (#430).
+# smoke check that catches missing shared library dependencies.
 
 bats_require_minimum_version 1.5.0
 
@@ -16,7 +16,7 @@ teardown() {
   rm -rf "${SCAN_ROOT}"
 }
 
-# ── #430: ldd-based missing-dep detection ──────────────────────────
+# ──ldd-based missing-dep detection ──────────────────────────
 
 @test "smoke.sh exits non-zero when a .so has 'not found' dep (#430)" {
   # Create a fake .so file and a stub `ldd` that reports a missing dep.

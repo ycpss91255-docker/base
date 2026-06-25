@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 #
-# --help / --lang coverage across the backing scripts (#655, ADR-00000011 §6).
+# --help / --lang coverage across the backing scripts (ADR-00000011 §6).
 #
-# The locked mechanism (the #655 grill comment): every recipe-backing script
+# The locked mechanism (the grill comment): every recipe-backing script
 # prints an English-baseline usage on -h/--help and exits 0; the human-facing
 # namespaces (docker / base / template) additionally accept --lang <code> and
 # honor SETUP_LANG / $LANG via i18n.sh; the machine/CI namespaces (test /

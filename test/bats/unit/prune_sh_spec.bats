@@ -6,7 +6,7 @@
 # that echoes its argv so tests can assert which prune subcommand was
 # invoked with which flags.
 #
-# Refs issue #319.
+# Refs
 
 bats_require_minimum_version 1.5.0
 
@@ -226,7 +226,7 @@ teardown() {
   assert_output --partial "-y"
 }
 
-# ── #388 --worktree-orphans: surgical removal of removed-worktree images ──
+# ── --worktree-orphans: surgical removal of removed-worktree images ──
 #
 # Strategy mirrors build_sh_prune_spec.bats: a per-test docker stub keyed
 # on env vars overrides the default arg-echo stub. The orphan flow uses
@@ -366,7 +366,7 @@ tester/foo-99:devel"
   # stdout by _dry_run_cmd, while scan progress (_log_info) goes to stderr.
   # Asserting the merged stream let a stderr line interleave between the
   # plan's `[dry-run]` and ` docker rmi` chunks under the parallel suite
-  # (#624). Isolating stdout makes the assertion cross-stream-independent.
+  # Isolating stdout makes the assertion cross-stream-independent.
   run --separate-stderr bash "${SANDBOX}/prune.sh" --worktree-orphans --dry-run
   assert_success
   assert_output --partial "[dry-run] docker rmi"

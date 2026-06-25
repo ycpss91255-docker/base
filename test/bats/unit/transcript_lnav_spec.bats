@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
-# Unit tests for downstream/script/docker/lib/transcript.lnav-format.json (#609).
+# Unit tests for downstream/script/docker/lib/transcript.lnav-format.json.
 #
 # A regex-type lnav format for the plain-text wrapper transcript
-# (`<ISO ts> [service] LEVEL: msg`, #606), coexisting with the JSON
+# (`<ISO ts> [service] LEVEL: msg`,), coexisting with the JSON
 # log.lnav-format.json (*.jsonl). The CI image has no jq/lnav, so the
 # format is checked structurally (grep) + functionally: the embedded
 # regex (extracted + JSON-unescaped) must match real transcript lines and

@@ -12,8 +12,8 @@
 #
 # Sourced via _lib.sh (the umbrella loader) and directly by
 # config_summary.sh and _tui_conf.sh. _parse_ini_section moved here
-# from setup.sh in #402 (PR-B); the full-file tokenizer + the writers
-# moved here from _tui_conf.sh in #411 so every INI read/write path
+# from setup.sh in (PR-B); the full-file tokenizer + the writers
+# moved here from _tui_conf.sh in so every INI read/write path
 # shares one module instead of the core CLI reaching into the TUI lib.
 
 # Guard against double-sourcing.
@@ -185,7 +185,7 @@ _parse_ini_section() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Opaque accessor interface (#564)
+# Opaque accessor interface
 # ════════════════════════════════════════════════════════════════════
 #
 # Callers load a file once into a named handle and query it by
@@ -377,7 +377,7 @@ _write_setup_conf() {
   # Silence unused-nameref warning; the declaration is part of the API.
   : "${_wsc_sections[*]:-}"
 
-  # #187: setup_tui's `_commit_and_setup` passes the same path for dst
+  # setup_tui's `_commit_and_setup` passes the same path for dst
   # and tpl when the per-repo file already exists. Truncating dst before
   # reading from tpl (the original `: > "${_dst}"` followed by `done <
   # "${_tpl}"`) collapses the read to zero lines under that aliasing and
@@ -447,7 +447,7 @@ _write_setup_conf() {
 
   # Append NEW sections — overrides whose `<section>.<key>` namespace
   # references a section never seen in the template. Per-stage
-  # `[stage:NAME]` sections (#220) are the typical case: template's
+  # `[stage:NAME]` sections are the typical case: template's
   # setup.conf carries no per-repo stage overrides, so the first time
   # a user adds `[stage:headless]` via TUI Save the section is brand
   # new and would otherwise be silently dropped here.

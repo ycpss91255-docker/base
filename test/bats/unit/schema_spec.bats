@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # schema_spec.bats — unit tests for the setup.conf validation registry
-# (lib/schema.sh, #560, epic #559).
+# (lib/schema.sh, epic).
 #
 # `_schema_validate <section> <key> <value>` is the single validation
 # gate routed through by BOTH setup.sh (set/add) and the TUI. The
@@ -88,7 +88,7 @@ setup() {
 # the TUI validated but setup.sh historically accepted (target_arch /
 # build_network / gpu_runtime / runtime alias / network.name /
 # devices.device_ / security.cap_add_ / cap_drop_) are now rejected by
-# BOTH paths — the divergence #560 closes.
+# BOTH paths — the divergence closes.
 # ════════════════════════════════════════════════════════════════════
 
 # Helper: assert _schema_validate verdict for one row.
@@ -166,7 +166,7 @@ _assert_schema() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# SCHEMA_SECTIONS — ordered section list (#561, epic #559)
+# SCHEMA_SECTIONS — ordered section list (epic)
 #
 # Single source for "which sections exist, in what order". setup.sh's
 # _setup_known_section and the TUI dispatch derive from it so adding a
@@ -179,7 +179,7 @@ _assert_schema() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _schema_is_section — SCHEMA_SECTIONS membership predicate (#561)
+# _schema_is_section — SCHEMA_SECTIONS membership predicate
 # ════════════════════════════════════════════════════════════════════
 
 @test "_schema_is_section accepts a registered section with typed keys (#561)" {
@@ -212,7 +212,7 @@ _assert_schema() {
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_section_keys <section> <outarray> — registered keys per
-# section, derived from SCHEMA_VALIDATOR by canonical-key prefix (#561).
+# section, derived from SCHEMA_VALIDATOR by canonical-key prefix.
 # Order is unspecified (assoc-array iteration), so tests sort.
 # ════════════════════════════════════════════════════════════════════
 

@@ -82,7 +82,7 @@ _tui_run() {
   #   whiptail uses --ok-button / --cancel-button (rejects --*-label)
   # Translate the spelling here so callers stay backend-agnostic and
   # whiptail-only hosts (Ubuntu 22.04 minimal, Jetson arm64) don't abort
-  # with `--ok-label: unknown option` on the very first menu (#136).
+  # with `--ok-label: unknown option` on the very first menu.
   local _ok_flag="--ok-label" _cancel_flag="--cancel-label"
   if [[ "${TUI_BACKEND}" == "whiptail" ]]; then
     _ok_flag="--ok-button"
@@ -125,7 +125,7 @@ _tui_inputbox() {
 #
 # Note: the legacy `TUI_EXTRA_LABEL` hook (which forwarded
 # `--extra-button --extra-label` on dialog and produced exit 3) was
-# removed in #178. dialog supported it; whiptail did not (newt has no
+# removed in dialog supported it; whiptail did not (newt has no
 # third button at all). The UX divergence broke shared screenshots and
 # docs, so callers now inject a synthetic menu entry (e.g. `__save`)
 # instead, giving identical layout across backends.

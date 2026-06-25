@@ -24,7 +24,7 @@ setup() {
 # top-level derivation never runs — the tests pin the conventional
 # subtree prefix to make the assertions deterministic.
 TEMPLATE_REL=".base"
-# Stub the _log_* helpers (#278). Real upgrade.sh sources _lib.sh and
+# Stub the _log_* helpers. Real upgrade.sh sources _lib.sh and
 # routes _log / _error through _log_info / _log_err; this harness
 # extracts function bodies via sed so we re-stub the surface those
 # bodies call.
@@ -339,7 +339,7 @@ _mk_subtree_repo() {
   local _pull_line _verify_line
   _pull_line="$(grep -n 'git subtree pull' "${UPGRADE}" | head -1 | cut -d: -f1)"
   # Caller must pass both _pre_head AND target_ver so the wrong-tag
-  # detector (#477 R1+) is armed in production, not just in tests.
+  # detector (R1+) is armed in production, not just in tests.
   _verify_line="$(grep -n '_verify_subtree_intact "\${_pre_head}" "\${target_ver}"' "${UPGRADE}" | head -1 | cut -d: -f1)"
   [ -n "${_pull_line}" ]
   [ -n "${_verify_line}" ]
@@ -421,7 +421,7 @@ _mk_subtree_repo() {
 # _check exits 0 when there's nothing to do (already current, or local
 # is ahead of latest stable — typical for prerelease testers) and 1
 # only when a real upgrade is available. This is the regression at the
-# heart of issue #156: previously _check used `==` and reported any
+# heart ofpreviously _check used `==` and reported any
 # mismatch (including "running rc1, latest stable is older v0.11.0")
 # as "needing downgrade" with exit 1.
 
@@ -450,7 +450,7 @@ _mk_subtree_repo() {
 }
 
 @test "_check: prerelease ahead of latest stable exits 0 (issue #156 case)" {
-  # Scenario from issue #156: user's downstream pinned to v0.12.0-rc1
+  # Scenario fromuser's downstream pinned to v0.12.0-rc1
   # while the org's latest stable tag is still v0.11.0. _check should
   # NOT advise a downgrade — it should say the local is ahead.
   run bash -c "
@@ -495,13 +495,13 @@ _mk_subtree_repo() {
 
 # ── _get_latest_version: errexit / pipefail safety ──────────────────────────
 #
-# Bash 5.3 (alpine 3.23 — the test-tools image runner from #168)
+# Bash 5.3 (alpine 3.23 — the test-tools image runner from)
 # propagates non-zero command-substitution exits through the caller's
 # `set -e`; bash 5.2 (debian bookworm — the previous kcov/kcov runner)
 # does not. The pipe inside _get_latest_version uses `head -1` which
 # closes stdin after one line, SIGPIPE'ing the upstream `grep -oP`;
 # with `pipefail` set, the pipe inherits that non-zero exit. Without
-# the `|| true` workaround, alpine consumers saw integration test #41
+# the `|| true` workaround, alpine consumers saw integration test
 # (`upgrade.sh --check`) silently fail with empty output (~80% of
 # runs) — script died at `latest_ver=$(...)` before the first _log
 # line. Lock the workaround in place so a future refactor that drops
@@ -511,7 +511,7 @@ _mk_subtree_repo() {
   # Under kcov, bash instrumentation (set -x/PS4 + BASH_ENV) trips the
   # inner `set -u` shell with `BASH_SOURCE: unbound variable` before the
   # harness loads. The set-e/pipefail safety this locks is verified by
-  # the normal (non-kcov) job; skip under coverage (#613).
+  # the normal (non-kcov) job; skip under coverage.
   [ "${COVERAGE:-0}" = 1 ] && skip "kcov instrumentation perturbs the inner set -u shell (#613)"
   run bash -c "
     set -euo pipefail

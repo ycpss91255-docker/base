@@ -4,7 +4,7 @@ bats_require_minimum_version 1.5.0
 
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
-# Per-section setup.conf parameter end-to-end coverage (#202)
+# Per-section setup.conf parameter end-to-end coverage
 #
 # Each test sets a single key in <repo>/config/docker/setup.conf and asserts the
 # expected line appears in compose.yaml or .env. Companion negative

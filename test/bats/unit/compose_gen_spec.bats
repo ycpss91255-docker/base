@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Tests for generate_compose_yaml() in downstream/script/docker/wrapper/setup.sh.
+# Tests for generate_compose_yaml in downstream/script/docker/wrapper/setup.sh.
 # Verifies conditional emission of GPU deploy block, GUI env/volumes,
 # extra volumes list, and baseline structural elements.
 
@@ -14,7 +14,7 @@ setup() {
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
-  # #493 (A1'-b): the `test` service is emitted from the `devel-test`
+  # (A1'-b): the `test` service is emitted from the `devel-test`
   # baseline stage via the per-stage loop, so generate_compose_yaml now
   # needs a Dockerfile that declares it. Ship a minimal baseline so the
   # default (no custom Dockerfile) path still produces devel + test.
@@ -76,7 +76,7 @@ teardown() {
   assert_output "1"
 }
 
-# ── #482 top-level volumes: (Option A / D-Strict) ───────────────────────────
+# ── top-level volumes: (Option A / D-Strict) ───────────────────────────
 
 @test "generate_compose_yaml named volume mount emits top-level volumes: stub (#482)" {
   local _extras=('my_state:/srv/state')
@@ -240,7 +240,7 @@ teardown() {
   assert_success
 }
 
-# ── #450 device propagation → volumes long-form ──────────────────────
+# ── device propagation → volumes long-form ──────────────────────
 
 @test "generate_compose_yaml: device with propagation emits to volumes long-form (#450 P1)" {
   local _extras=()
@@ -613,12 +613,12 @@ CONF
 
 @test "generate_compose_yaml emits TARGETARCH build arg on devel (test inherits via extends, #493)" {
   local _extras=()
-  # Positional args up to #21 are optional (defaults via ${N:-}); pos #22 is target_arch.
+  # Positional args up to are optional (defaults via ${N:-}); pos is target_arch.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "arm64"
-  # #493 (A1'-b): the test service is now an extends:devel stage with no
+  # (A1'-b): the test service is now an extends:devel stage with no
   # override, so it does not re-emit its own build.args — it inherits
   # devel's TARGETARCH at compose-merge time. The line appears once.
   run grep -cF 'TARGETARCH: ${TARGET_ARCH}' "${COMPOSE_OUT}"
@@ -637,12 +637,12 @@ CONF
 
 @test "generate_compose_yaml emits build.network on devel (test inherits via extends, #493)" {
   local _extras=()
-  # Pos #23 is build_network.
+  # Pos is build_network.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "host"
-  # #493 (A1'-b): test is an extends:devel stage with no override, so the
+  # (A1'-b): test is an extends:devel stage with no override, so the
   # build.network line is emitted once on devel and inherited by test.
   run grep -cE '^      network: host$' "${COMPOSE_OUT}"
   assert_success
@@ -874,7 +874,7 @@ CONF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Runtime service auto-emission (issue #108)
+# Runtime service auto-emission
 # ════════════════════════════════════════════════════════════════════
 #
 # When the sibling Dockerfile declares `FROM <base> AS runtime`, setup.sh
@@ -938,7 +938,7 @@ DOCK
   # image tag is :runtime (not :devel)
   run grep -E '^    image:.*:runtime$' "${COMPOSE_OUT}"
   assert_success
-  # container_name: ${USER_NAME} prefix (#322 multi-user disambiguation)
+  # container_name: ${USER_NAME} prefix (multi-user disambiguation)
   # + -runtime stage suffix
   run grep -F 'container_name: ${USER_NAME}-myrepo-runtime' "${COMPOSE_OUT}"
   assert_success
@@ -1003,7 +1003,7 @@ DOCK
   assert_output "0"
 }
 
-# ── #450 P3: per-stage device propagation redirect ───────────────
+# ── P3: per-stage device propagation redirect ───────────────
 
 @test "generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
@@ -1023,13 +1023,13 @@ DOCK
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _resolve_docker_flags — single per-stage flag-resolution layer (#505)
+# _resolve_docker_flags — single per-stage flag-resolution layer
 #
 # Resolves one stage's effective docker flags from its [stage:*]
 # overrides (already filtered to the allowlist) layered over the parent
 # (devel / top-level) already-resolved values. The ONE resolution layer
 # both the compose renderer (generate_compose_yaml per-stage loop) and
-# the deploy renderer (S6 #506, runtime stage) call, so the two never
+# the deploy renderer (S6  runtime stage) call, so the two never
 # drift. Modes (gui/gpu) inherit the parent's resolved boolean unless
 # the stage forces off/force — no per-stage hardware re-detection.
 # ════════════════════════════════════════════════════════════════════
@@ -1109,7 +1109,7 @@ DOCK
 }
 
 @test "_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)" {
-  # Pre-existing per-stage precedence preserved byte-for-byte by the #505
+  # Pre-existing per-stage precedence preserved byte-for-byte by the
   # refactor: when BOTH keys appear under [stage:*], deploy.gpu_runtime is
   # resolved first (with the parent as fallback), then the legacy
   # deploy.runtime is resolved with that result as ITS fallback -- so a
@@ -1169,7 +1169,7 @@ DOCK
 }
 
 @test "generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)" {
-  # Full-file golden master guarding the #505 refactor: the per-stage
+  # Full-file golden master guarding the refactor: the per-stage
   # resolution now flows through the single _resolve_docker_flags layer.
   # The fixture exercises a [stage:headless] override hitting every
   # branch -- gui off, gpu off, ipc override (shm emit), privileged

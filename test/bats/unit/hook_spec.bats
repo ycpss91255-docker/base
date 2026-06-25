@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for lib/hook.sh — wrapper pre/post hook helpers (#440).
+# Unit tests for lib/hook.sh — wrapper pre/post hook helpers.
 #
 # The helper looks for executable scripts under
 # ${FILE_PATH}/script/hooks/{pre,post}/<wrapper>.sh and runs them with

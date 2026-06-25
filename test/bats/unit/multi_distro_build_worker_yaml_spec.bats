@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 #
 # multi_distro_build_worker_yaml_spec.bats — structural assertions for
-# `.github/workflows/multi-distro-build-worker.yaml` (#325 B-1 dispatcher
-# extended to N-D matrix-mode via #344).
+# `.github/workflows/multi-distro-build-worker.yaml` (B-1 dispatcher
+# extended to N-D matrix-mode via).
 #
 # The dispatcher is a two-job reusable workflow on top of
 # build-worker.yaml:
@@ -19,7 +19,7 @@
 #    per-shard `image_name` as `<image_name>-<matrix.name>` so GHCR tags
 #    disambiguate across cells. Per-cell
 #    `cache_variant: ${{ matrix.name }}` so buildx GHA cache shards by
-#    cell name (matches #272's per-variant scope pattern).
+#    cell name (matches's per-variant scope pattern).
 #
 # 3. `ci-passed` — rollup aggregating the matrix result for branch
 #    protection. Matches the existing rollup naming used by
@@ -27,7 +27,7 @@
 #    table, so downstream branch-protection contexts don't change when
 #    adopting this dispatcher.
 #
-# BREAKING since v0.32.0 (#344): the 1D inputs `pr_distros` /
+# BREAKING since v0.32.0: the 1D inputs `pr_distros` /
 # `tag_distros` / `distro_input_name` / `extra_build_args` are removed;
 # callers must use `pr_matrix` / `tag_matrix` (full JSON include-shape)
 # instead.
@@ -123,7 +123,7 @@ setup() {
 @test "multi-distro-build-worker.yaml: call-build derives per-shard image_name as <image_name>-<matrix.name> (hyphen, #344)" {
   # Hyphen separator chosen to match the existing org pattern (e.g.
   # app/ros1_bridge's pre-dispatcher main.yaml shipped
-  # `ros1_bridge-${distro}`). #339 v0.29.1 fix carried over.
+  # `ros1_bridge-${distro}`). v0.29.1 fix carried over.
   run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'image_name: ${{ inputs.image_name }}-${{ matrix.name }}'
