@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1977 tests** total (1892 unit + 85 integration).
+Template self-tests: **2055 tests** total (1970 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -12,7 +12,7 @@ Template self-tests: **1977 tests** total (1892 unit + 85 integration).
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (43)
+### test/bats/unit/lib_spec.bats (45)
 
 | Test | Description |
 |------|-------------|
@@ -26,6 +26,8 @@ Template self-tests: **1977 tests** total (1892 unit + 85 integration).
 | `conf_logging.sh self-sources its conf.sh dependency in isolation (#568)` | Self-sourcing (load order not load-bearing) |
 | `_lib.sh is idempotent when sourced twice` | Double-source guard |
 | `_load_env exports variables from a .env file` | Env loader works |
+| `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
+| `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_load_env errors when no path is given` | Required arg check |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
@@ -47,7 +49,7 @@ Template self-tests: **1977 tests** total (1892 unit + 85 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/bats/unit/log_spec.bats (64)
+### test/bats/unit/log_spec.bats (69)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -61,6 +63,7 @@ microsecond timestamps, `_log_plain` removed.
 | Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL | 2 |
 | Single-sink tty-detect dispatch (#438): non-TTY auto JSON, `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv | 5 |
 | Startup TTY cache `_LOG_IS_TTY` (#605): helper defined + cached-0/cached-nonzero/unset-fallback; auto-format honours cache + unset-identity; explicit `LOG_FORMAT` bypasses cache; `_log_color_enabled` cache read + NO_COLOR/FORCE_COLOR precedence over cache | 12 |
+| JSON escaping (`_log_json_escape`, #691): quote / lone-backslash double / newline+tab+CR / substitution order; live `_log_info` attr value with quote+backslash+tab stays well-formed | 5 |
 | JSON output: OTel fields, custom attributes, severity numbers, per-line structure | 4 |
 | TRACEPARENT in JSON: trace_id/span_id present/absent | 2 |
 | Strict body enforcement (#438): unregistered fatal, registered OK, empty OK, error names body + file | 4 |
@@ -72,7 +75,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/bats/unit/transcript_spec.bats (25)
+### test/bats/unit/transcript_spec.bats (31)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -94,6 +97,9 @@ Activation is execution-only (`_transcript_begin` in each verb's
 | `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch; `WRAPPER_TRANSCRIPT` env override wins over conf both ways (#622) | 4 |
 | `_atexit`: registered callbacks run LIFO on exit | 1 |
 | `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days | 2 |
+| `_transcript_prune` keep=0 wipes all + read-side guard rejects hand-edited `wrapper_transcript_keep=0` (falls back to 20) (#691) | 2 |
+| Degrade-to-no-op failure branches (#691): mkdir-fail / raw-file-unwritable / tee-missing each WARN + return 0, wrapper continues | 3 |
+| Non-zero wrapper exit recorded (`transcript_complete exit_code=7`) AND propagated to caller (#691) | 1 |
 | End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op | 5 |
 | `_transcript_detach` (#608): no-detach full-captures (run -d path); detach captures orchestration only (`transcript_detached`, not the session); no-op when never begun | 3 |
 | Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui call begin + detach | 2 |
@@ -115,7 +121,7 @@ match real transcript lines and the 5 levels via `grep -P`).
 | Every declared sample matches the pattern | 1 |
 | `log.lnav-format.json` (JSON) still coexists unchanged | 1 |
 
-### test/bats/unit/schema_spec.bats (24)
+### test/bats/unit/schema_spec.bats (26)
 
 Covers the setup.conf validation registry (`lib/schema.sh`, #560): the
 single `_schema_validate <section> <key> <value>` gate that both
@@ -175,7 +181,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh unit specs (371, split by concern)
+### setup.sh unit specs (378, split by concern)
 
 The setup.sh unit suite was split from a single 371-test
 `setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
@@ -184,7 +190,7 @@ The setup.sh unit suite was split from a single 371-test
 `setup_spec_helper.bash` (common `setup()` / `teardown()`); behaviour
 and total test count are unchanged.
 
-#### test/bats/unit/setup_spec.bats (145)
+#### test/bats/unit/setup_spec.bats (146)
 
 Core detection (user / hardware / docker / GPU / GUI), SSH X11
 forwarding (`_is_ssh_x11` / `_setup_ssh_x11_cookie`, #321), the INI
@@ -200,7 +206,7 @@ template-shipped defaults for `[lifecycle]` restart (#478), `[deploy]`
 `_setup_known_section` / `SCHEMA_SECTIONS` (#561), and `[security]`
 opt-in (#466).
 
-#### test/bats/unit/setup_subcommand_spec.bats (64)
+#### test/bats/unit/setup_subcommand_spec.bats (65)
 
 The git-style subcommand dispatcher and its mutating verbs (#49):
 dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
@@ -208,7 +214,7 @@ dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
 — round-trips, validators, no-`.env`-regen, comment preservation, and
 end-to-end subprocess cases.
 
-#### test/bats/unit/setup_emit_spec.bats (75)
+#### test/bats/unit/setup_emit_spec.bats (77)
 
 `apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
 workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
@@ -220,7 +226,7 @@ writeback, `--quiet` confirmation lines (#285), `--gui` /
 propagation + duplicate-target guards, S7 `runtime.env` retirement
 (#507), and `_reconcile_workspace_path` (#569).
 
-#### test/bats/unit/setup_section_validate_spec.bats (29)
+#### test/bats/unit/setup_section_validate_spec.bats (32)
 
 Per-section setup.conf parameter end-to-end coverage (#202): one key per
 test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
@@ -238,7 +244,7 @@ auto-emit of non-baseline stages (#215), and per-stage overrides #220
 `_resolve_stage_list` + compose-emit integration, incl. #493
 `devel-test` override surface).
 
-### test/bats/unit/tui_spec.bats (124)
+### test/bats/unit/tui_spec.bats (131)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -667,7 +673,7 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
 | `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (32)
+### test/bats/unit/dockerfile_migrate_spec.bats (33)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -688,13 +694,13 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | migration 1 (wrapper-copy): shape A `COPY *.sh /lint/`, shape B `COPY .base/script/docker/*.sh /lint/` -> `wrapper/*.sh`, idempotent, detect-false | 4 |
 | migration 2 (pip-helper): drop retired `${CONFIG_DIR}/pip/requirements.txt` install line + comment, detect-false | 2 |
 | migration 3 (explicit-copy): drop single-line + backslash-continued explicit top-level `.sh` lint COPYs, detect-false on lib/wrapper dir COPYs | 3 |
-| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name | 3 |
+| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name, heal a stale entrypoint when the Dockerfile is already migrated (#692) | 4 |
 | migration 5 (hadolint): DL3007 pin tags, DL3046 `useradd -l`, DL3003 `WORKDIR /lint`, DL3042 `--no-cache-dir`, DL4006 alpine SHELL pipefail, DL3006 inline ignore (+idempotent), detect-false on clean | 8 |
 | migration 6 (sc1090): broaden entrypoint `SC1091` -> `SC1090,SC1091`, idempotent, detect-false without entrypoint | 3 |
 | migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
 | migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
 
-### test/bats/unit/build_sh_spec.bats (51)
+### test/bats/unit/build_sh_spec.bats (52)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -720,7 +726,10 @@ long form, value-required and directory-existence guards, usage help
 mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
 (#311: exports `BUILDKIT_PROGRESS=plain` so a hung `docker build`'s RUN
 step output is visible; `-vv` adds `set -x` on the wrapper itself;
-usage help mentions all four spellings).
+usage help mentions all four spellings), and **#690 pre-build hook
+abort** (a failing `script/hooks/pre/build.sh` makes the wrapper exit
+the hook's rc via `_run_pre_hook build "$@" || exit $?` AND `docker
+compose build` never runs).
 
 ### test/bats/unit/build_sh_prune_spec.bats (7)
 
@@ -746,7 +755,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (63)
+### test/bats/unit/run_sh_spec.bats (65)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -788,9 +797,15 @@ pre-#679 `up -d` + `exec` pair that bypassed the ENTRYPOINT and
 double-launched the default CMD; the #679 repro shape `-t runtime ros2
 launch …` is asserted; `devel` + CMD still uses `up -d` + `exec`; the
 no-CMD paths are unchanged; #580 exit-code propagation rides the `run`
-path for non-`devel` command mode).
+path for non-`devel` command mode), and **#690 pre-run hook abort +
+foreground post-run hook exit override** (a failing
+`script/hooks/pre/run.sh` aborts the wrapper with the hook's rc before
+the build delegate / `compose up`; in the foreground path a failing
+`script/hooks/post/run.sh` makes `_app_cleanup` override the wrapper
+exit with the hook's rc while `compose down --remove-orphans` still
+runs).
 
-### test/bats/unit/exec_sh_spec.bats (52)
+### test/bats/unit/exec_sh_spec.bats (57)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -822,9 +837,13 @@ interactive binary default (TTY), 4 shell flavours with `-c` auto-add
 forces no-TTY, explicit `-i`/`--tty` overrides heuristic, last-wins
 precedence between `-T` and `-i` in both orders, `-T` + `-t TARGET`
 attaches to the right service, `-T` + `--` separator round-trip,
-`--help` mentions both flag pairs).
+`--help` mentions both flag pairs), and **#690 exit-code forwarding +
+pre/post hook error paths** (the container command's exit code is
+forwarded unchanged via `return "${_exec_rc}"` — 42 / 0 / 7 cases; a
+failing post-exec hook overrides the forwarded rc via `|| exit $?`; a
+failing pre-exec hook aborts before `compose exec` runs).
 
-### test/bats/unit/stop_sh_spec.bats (26)
+### test/bats/unit/stop_sh_spec.bats (27)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown,
 and i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}`
@@ -843,9 +862,11 @@ and **`--prune` flag** (#319: opt-in lightweight cleanup after compose
 down — `docker network prune --filter until=10m` + `docker image prune
 --filter until=24h`; usage help mentions `--prune` with the two grace
 windows; the plain `stop.sh --dry-run` path emits no `docker prune`
-commands).
+commands), and **#690 pre-stop hook abort** (a failing
+`script/hooks/pre/stop.sh` aborts with the hook's rc before
+`compose down` runs).
 
-### test/bats/unit/prune_sh_spec.bats (36)
+### test/bats/unit/prune_sh_spec.bats (37)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`
@@ -996,7 +1017,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (11)
+### test/bats/unit/completions_spec.bats (13)
 
 Unit tests for the opt-in shell tab-completion installer
 `downstream/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1017,6 +1038,8 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `uninstall --shell all removes all three shells` | bash + fish + zsh removed |
 | `default --shell detects bash from $SHELL basename` | `$SHELL`-driven detection |
 | `default --shell detection errors on an unknown shell` | unknown -> error asking for --shell |
+| `unknown argument is a usage error (exit 2), distinct from detection error (#692)` | exit 2 vs exit 1 |
+| `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
@@ -1115,7 +1138,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
 
-### test/bats/unit/deploy_spec.bats (48)
+### test/bats/unit/deploy_spec.bats (49)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
@@ -1221,7 +1244,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
 | `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
 
-### test/bats/unit/entrypoint_logging_spec.bats (6)
+### test/bats/unit/entrypoint_logging_spec.bats (8)
 
 Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
 downstream repos source from their `script/entrypoint.sh` so
@@ -1237,7 +1260,9 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging tees stdout to LOG_FILE_PATH when set (#328)` | Happy path |
 | `entrypoint_logging truncates LOG_FILE_PATH on each run (#328)` | Fresh container = fresh log |
 | `entrypoint_logging creates parent dir if missing (#328)` | mkdir -p safety net |
-| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
+| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback (truncate-fail branch) |
+| `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
+| `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
 ### test/bats/unit/template_spec.bats (145)
@@ -1391,7 +1416,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (38)
+### test/bats/unit/ci_spec.bats (46)
 
 | Test | Description |
 |------|-------------|
@@ -1410,6 +1435,9 @@ the host file content and the inherited stdout (preserving
 | `main --bats-path: test/bats/behavioural/ path dies with a clear hint` | #523 behavioural guard |
 | `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
+| `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
+| `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
+| `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
@@ -1425,7 +1453,10 @@ the host file content and the inherited stdout (preserving
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
 | `_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)` | #615 coverage matrix mirrors unit matrix |
 | `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 round-robin invariant (each slice runs once) |
-| `_shard_unit_files: rejects a malformed shard spec (#615)` | #615 shard-spec validation |
+| `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
+| `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
+| `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
+| `_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)` | #692 empty-slice guard |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: last shard also kcov's the integration suite (#615)` | #615 integration on last shard |
 | `_run_coverage: non-last shard does NOT kcov the integration suite (#615)` | #615 no integration duplication |
@@ -1433,14 +1464,18 @@ the host file content and the inherited stdout (preserving
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 behavioural socket guard |
+| `_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 behavioural docker-CLI guard |
 
-### test/bats/unit/issueref_lint_spec.bats (14)
+### test/bats/unit/issueref_lint_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
 | `_run_issueref: flags a bare #NNN in a leading comment` | Leading comment ref detected |
 | `_run_issueref: flags a bare #NNN in a trailing comment` | Trailing comment ref detected |
 | `_run_issueref: flags the (#NNN) paren form in a comment` | Parenthesised ref detected |
+| `_run_issueref: flags a bare 2-digit ref (lower accept boundary) (#692)` | #692 2-digit lower bound flagged |
+| `_run_issueref: flags a bare 4-digit ref (upper accept boundary) (#692)` | #692 4-digit upper bound flagged |
 | `_run_issueref: flags refs in .bats helper comments (not @test names)` | Helper comment flagged, @test name kept |
 | `_run_issueref: passes clean on a tree with no comment refs` | Clean tree passes |
 | `_run_issueref: does NOT flag a #NNN inside a string literal` | String-literal ref kept |
@@ -1451,9 +1486,28 @@ the host file content and the inherited stdout (preserving
 | `_run_issueref: does NOT treat a ${#arr[@]} expansion as a comment` | Parameter expansion kept |
 | `_run_issueref: does NOT flag a #NNN opener in heredoc usage prose` | Heredoc usage prose kept |
 | `_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine` | Detection parity across busybox-awk / mawk / gawk |
+| `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/init_spec.bats (35)
+### test/bats/unit/lint_bare_stderr_spec.bats (5)
+
+Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
+goes through lib/log.sh helpers" lint. The lint takes the repo root as
+`$1`, so the spec drives it against synthesized fixture trees laid out
+like the real repo (sources under `downstream/script/docker/**`, tests
+under `script/test/**`). A real-repo-root clean-tree case guards against
+the path-drift bug (an empty find root passing vacuously) by proving the
+scan actually walks the populated `downstream/script/docker` tree.
+
+| Test | Description |
+|------|-------------|
+| `flags a bare 'printf ... >&2' under downstream/script/docker (#692)` | exit 1 + violation line on the correct tree |
+| `exits 0 on a clean tree (no bare stderr) (#692)` | clean fixture passes silently |
+| `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
+| `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
+| `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
+
+### test/bats/unit/init_spec.bats (40)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -1486,6 +1540,11 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_preflight_just: silent and exits 0 when just is present (#607)` | Runner present -> no warning |
 | `_bootstrap_just: no-op when just is already on PATH (#607)` | Opt-in bootstrap skips when installed |
 | `_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)` | Opt-in installer pipeline to ~/.local/bin |
+| `_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)` | #692 installer-failure _error path |
+| `_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)` | #692 warn-on-failure degrade |
+| `_call_setup: skips with a notice when setup.sh is absent (#692)` | #692 skip-when-absent branch |
+| `_call_setup: returns 0 on a setup.sh that succeeds (#692)` | #692 happy path no-noise |
+| `_gen_setup_conf errors when the template setup.conf is absent (#692)` | #692 missing-template _error |
 
 ### test/bats/unit/smoke_helper_spec.bats (19)
 
@@ -1637,7 +1696,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (5)
+### test/bats/unit/conf_accessor_spec.bats (11)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
@@ -1647,7 +1706,19 @@ merge into a handle, and `_conf_list_sorted` returns `prefix_N` values in numeri
 order (skipping empties) -- all without callers touching the internal
 parallel-array representation or the `<section>.<key>` namespacing rule.
 
-### test/bats/unit/gitignore_spec.bats (26)
+Dirty-input + error-path coverage (#689) pins the parser/accessor
+contracts on hand-edited / malformed setup.conf:
+
+| Test | Description |
+|------|-------------|
+| `_conf_get: duplicate key within a section -- last occurrence wins (#689)` | Override semantics (merge + re-save) |
+| `_conf_list: a section reopened later in the file keeps entries from both occurrences (#689)` | Reopened section appends; header deduped |
+| `_conf_get: inline '#' comment text is KEPT in the value (no inline-comment support) (#689)` | Trailing `# ...` is literal (only leading-# stripped) |
+| `_conf_sections: section header with internal whitespace is NOT trimmed ([ deploy ] != deploy) (#689)` | Interior spaces kept in captured name |
+| `_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)` | No header match -> keys lost, no crash |
+| `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
+
+### test/bats/unit/gitignore_spec.bats (29)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -1664,6 +1735,9 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: idempotent — second invocation produces no further changes` | Idempotency |
 | `_sync_gitignore: no duplicate canonical lines after re-run` | No-dup invariant |
 | `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
+| `_sync_gitignore: documented constraint -- CRLF entries are not matched (LF-only) (#692)` | #692 LF-only presence-match constraint |
+| `_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)` | #692 `..` path wrapped as-is |
+| `_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)` | #692 space path wrapped as-is |
 | `_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml` | 15-repo drift fix |
 | `_untrack_canonical_in_repo: leaves untracked files alone` | Scope guard |
 | `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |

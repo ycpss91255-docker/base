@@ -147,6 +147,37 @@ _assert_schema() {
   _assert_schema security cap_drop_1 "has space" fail
 }
 
+# Embedded-newline values must be rejected by every value-bearing
+# validator, mirroring the [logging] local_path guard above (line ~140).
+# A real newline in any of these flows verbatim into compose.yaml's
+# environment: / additional_contexts: / volumes: / devices: lists, where
+# it injects an extra YAML line (a setup.conf injection vector).
+@test "_schema_validate rejects embedded-newline values (YAML injection) (#687)" {
+  _assert_schema environment env_1 $'FOO=a\nBAR=x' fail
+  _assert_schema additional_contexts context_1 $'name=v\ninject' fail
+  _assert_schema additional_contexts context_1 $'repo=.\ninject' fail
+  _assert_schema volumes mount_1 $'/d:/d\ninject' fail
+  _assert_schema devices device_1 $'/dev/x:/dev/x\ninject' fail
+}
+
+# The numeric validators are deliberately shape-only: they constrain the
+# *form* (digits, colon, optional protocol) but delegate range/bound
+# checking to docker at `compose up` time. This test PINS that contract so
+# a future tightening (range check) or loosening (accepting non-numeric)
+# is observable rather than silent.
+@test "_schema_validate numeric validators are shape-only, not range-bound (#687)" {
+  # In-shape-but-out-of-range integers are accepted (delegated to docker):
+  _assert_schema network port_1 "0:0" ok
+  _assert_schema network port_1 "70000:80" ok
+  _assert_schema network port_1 "99999999999:80" ok
+  _assert_schema deploy gpu_count "999999999999999999999" ok
+  _assert_schema logging max_file "999999" ok
+  # Shape violations are still rejected, so the contract is shape, not free-form:
+  _assert_schema network port_1 "0:" fail
+  _assert_schema deploy gpu_count "1.5" fail
+  _assert_schema logging max_file "0" fail
+}
+
 @test "_schema_validate allows empty (clear) for every list + clearable scalar key" {
   _assert_schema resources shm_size "" ok
   _assert_schema lifecycle restart "" ok

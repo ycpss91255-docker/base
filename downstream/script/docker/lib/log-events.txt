@@ -17,6 +17,8 @@ conf_key_not_found
 conf_section_not_found
 conf_unknown_subcmd
 conf_unknown_arg
+conf_upsert_file_missing
+conf_upsert_newline_rejected
 stage_baseline_collision
 stage_reserved_tag
 stage_invalid_format
@@ -90,6 +92,9 @@ prune_volume_aborted
 prune_no_workspace
 prune_unknown_flag
 
+# hook.sh
+hook_not_executable
+
 # upgrade.sh
 upgrade_started
 upgrade_completed
@@ -119,6 +124,7 @@ ci_bats_path_not_found
 ci_bats_path_behavioural
 ci_bats_path_coverage
 ci_mixed_test_layout
+ci_issueref_in_comment
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

@@ -462,3 +462,59 @@ EOF
   assert_output "PRIVILEGED=false"
 }
 
+# ── apply-time trust boundary (hand-edited setup.conf) ────────────────
+# apply reads setup.conf via the conf.sh readers and emits compose.yaml
+# with NO schema revalidation (validation lives only on the set/add write
+# paths). These tests pin the apply-time contract for malformed /
+# metacharacter values that a user can hand-write into the file.
+
+@test "[environment] apply does NOT execute a command-substitution env value (#687)" {
+  # A `$(...)` payload in env_1 must reach compose.yaml as inert text, not
+  # be executed at apply time (it stays text; compose's own layer never
+  # runs it either since there is no eval).
+  rm -f "${TEMP_DIR}/pwn687"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOF
+[environment]
+env_1 = EVIL=\$(touch ${TEMP_DIR}/pwn687)
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  [ ! -e "${TEMP_DIR}/pwn687" ]
+}
+
+@test "[environment] apply emits an injection-style env value on a single line (#687)" {
+  # The INI reader is line-oriented, so a hand-written value cannot smuggle
+  # a real newline; the metacharacter payload stays on one environment:
+  # entry and never becomes a second YAML key.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = EVIL=$(touch /tmp/x)
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c 'EVIL=' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_output "1"
+}
+
+@test "[lifecycle] apply does not emit a restart: line for a malformed policy (#687)" {
+  # A hand-written invalid policy (bypassing the set-path validator) must
+  # not silently produce a bogus `restart: sometimes` in compose.yaml.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[lifecycle]
+restart = sometimes
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c 'restart: sometimes' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+

@@ -2,10 +2,10 @@
 #
 # lint_bare_stderr.sh - Flag bare printf/echo >&2 outside _log_* helpers.
 #
-# P4 ofenforce that all stderr output goes through lib/log.sh
-# helpers. Scans script/docker/**/*.sh and script/test/**/*.sh for lines
-# that write to fd 2 without using _log_err / _log_warn / _log_fatal /
-# _log_info / _log_debug / _die.
+# Enforce that all stderr output goes through lib/log.sh
+# helpers. Scans downstream/script/docker/**/*.sh and script/test/**/*.sh
+# for lines that write to fd 2 without using _log_err / _log_warn /
+# _log_fatal / _log_info / _log_debug / _die.
 #
 # Exit: 0 = clean, 1 = violations found, 2 = usage error.
 
@@ -18,10 +18,11 @@ _is_excluded_file() {
   case "${1}" in
     downstream/script/docker/lib/log.sh) return 0 ;;
     downstream/script/docker/lib/i18n.sh) return 0 ;;
-    script/docker/runtime/logging.sh) return 0 ;;
+    downstream/script/docker/runtime/logging.sh) return 0 ;;
+    downstream/script/docker/runtime/smoke.sh) return 0 ;;
     downstream/script/docker/lib/_tui_backend.sh) return 0 ;;
     downstream/script/docker/lib/_tui_conf.sh) return 0 ;;
-    script/docker/wrapper/setup_tui.sh) return 0 ;;
+    downstream/script/docker/wrapper/setup_tui.sh) return 0 ;;
   esac
   return 1
 }
@@ -53,8 +54,10 @@ _is_allowlisted_line() {
   [[ "${line}" == *'aborted'* ]] && return 0
   [[ "${line}" == *'_msg info volume_prompt'* ]] && return 0
 
-  # Pre-sourcing bootstrap errors (cannot find _lib.sh).
+  # Pre-sourcing bootstrap errors (cannot find _lib.sh / bootstrap.sh):
+  # these fire before lib/log.sh is sourced, so _log_* is not yet available.
   [[ "${line}" == *'cannot find _lib.sh'* ]] && return 0
+  [[ "${line}" == *'cannot find lib/bootstrap.sh'* ]] && return 0
   [[ "${line}" == *'.base/downstream/script/docker/lib/_lib.sh'* ]] && return 0
   [[ "${line}" == *'/_lib.sh'* ]] && return 0
 
@@ -101,7 +104,7 @@ while IFS= read -r file; do
       violations=$((violations + 1))
     fi
   done < "${file}"
-done < <(find "${repo_root}/script/docker" "${repo_root}/script/test" \
+done < <(find "${repo_root}/downstream/script/docker" "${repo_root}/script/test" \
   -name '*.sh' -type f 2>/dev/null | sort)
 
 if [[ "${violations}" -gt 0 ]]; then

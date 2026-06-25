@@ -190,7 +190,15 @@ _migrate_explicit_copy_apply() {
 # baked path /usr/local/lib/base/_entrypoint_logging.sh -> .../logging.sh).
 _migrate_logging_rename_detect() {
   local _file="$1"
-  grep -q '_entrypoint_logging\.sh' "${_file}"
+  # Fire when EITHER the Dockerfile COPY or the sibling entrypoint still
+  # references the retired helper name. A partial migration (Dockerfile
+  # hand-fixed to runtime/logging.sh, entrypoint still sourcing the old
+  # /usr/local/lib/base/_entrypoint_logging.sh) must still heal the
+  # entrypoint, otherwise the container cannot source the renamed helper.
+  grep -q '_entrypoint_logging\.sh' "${_file}" && return 0
+  local _entry
+  _entry="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_entry}" ]] && grep -q '_entrypoint_logging\.sh' "${_entry}"
 }
 
 _migrate_logging_rename_apply() {

@@ -102,6 +102,37 @@ EOF
   assert_output 'ENV TOPIC="robot/cmd"'
 }
 
+@test "_generate_runtime_dockerfile escapes a double-quote in a baked ENV value (#688)" {
+  # _validate_env_kv accepts a free-form value (^KEY=.*$), so a value
+  # bearing a `"` passes validation. Baked verbatim as `ENV K="<v>"` it
+  # emits the broken line `ENV MSG="say "hi""` which docker build rejects
+  # (the deploy.sh sibling generator %q-quotes its values; this sink was
+  # the asymmetric, unprotected one). The value must be escaped so the
+  # quote lands literally inside a single balanced double-quoted token.
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS runtime\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" 'MSG=say "hi"' "${_out}"
+  assert_success
+  # Exactly one ENV MSG line, and its value region is a single balanced
+  # "...": the inner quote must be backslash-escaped, not bare.
+  run grep -E '^ENV MSG=' "${_out}"
+  assert_output 'ENV MSG="say \"hi\""'
+}
+
+@test "_generate_runtime_dockerfile neutralises \$(...) / backtick in a baked ENV value (#688)" {
+  # A value containing $(...) or a backtick would be subject to Dockerfile
+  # ENV variable expansion / shell command substitution at build time
+  # rather than landing literally. Escape the `$` (and backslash) so the
+  # baked default is the literal string the user configured.
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS runtime\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" 'X=$(id)' "${_out}"
+  assert_success
+  run grep -E '^ENV X=' "${_out}"
+  # The `$` is backslash-escaped so docker build does not expand it.
+  assert_output 'ENV X="\$(id)"'
+}
+
 @test "_generate_runtime_dockerfile returns 1 when no runtime stage" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS sys\nFROM sys AS devel\n' > "${_df}"

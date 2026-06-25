@@ -433,3 +433,26 @@ EOS
   assert_output --partial "--owner"
   assert_output --partial "--repo"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Pre-prune hook abort
+#
+# prune.sh guards its prune work with `_run_pre_hook prune "$@" || exit $?`
+# (after arg parsing + target selection, before any `docker ... prune`).
+# A failing pre-hook must abort with the hook's rc AND must NOT run any
+# docker prune. Locked here so a refactor that drops/reorders the
+# `|| exit $?` cannot silently delete resources after a pre-hook said
+# 'do not proceed'. Real mode + a target selected (the hook no-ops under
+# --dry-run, and a no-target invocation exits 2 before the hook).
+@test "prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)" {
+  mkdir -p "${SANDBOX}/script/hooks/pre"
+  cat > "${SANDBOX}/script/hooks/pre/prune.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "PRE_PRUNE_HOOK_FIRED"
+exit 7
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/pre/prune.sh"
+  run -7 bash "${SANDBOX}/prune.sh" --networks
+  assert_output --partial "PRE_PRUNE_HOOK_FIRED"
+  refute_output --partial "docker network prune"
+}

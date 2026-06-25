@@ -100,6 +100,55 @@ EOF
   run -127 bash -c "source ${LIB}; _load_env"
 }
 
+@test "_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)" {
+  # _load_env does `set -o allexport; source "${env_file}"`, executing the
+  # .env as shell. write_env is responsible for producing safe quoting (it
+  # emits hostile build-arg values via `printf '%s=%q'`). This pins the
+  # loader half of that contract: a value carrying a command-substitution
+  # string, a backtick string, spaces, and a single quote -- written with
+  # the SAME %q quoting write_env uses -- must round-trip to the literal
+  # bytes (no command substitution executed, no word-splitting).
+  local _tmp
+  _tmp="$(mktemp)"
+  local _spaces='a b c'
+  local _dollar='X=$(id)'
+  local _backtick='Y=`whoami`'
+  local _squote="it's"
+  {
+    printf '%s=%q\n' FOO "${_spaces}"
+    printf '%s=%q\n' BAR "${_dollar}"
+    printf '%s=%q\n' BAZ "${_backtick}"
+    printf '%s=%q\n' QUX "${_squote}"
+  } > "${_tmp}"
+  run bash -c "source ${LIB}; _load_env '${_tmp}'; printf '%s\n' \"\${FOO}\" \"\${BAR}\" \"\${BAZ}\" \"\${QUX}\""
+  assert_success
+  assert_line --index 0 "a b c"
+  assert_line --index 1 'X=$(id)'
+  assert_line --index 2 'Y=`whoami`'
+  assert_line --index 3 "it's"
+  # The substitutions must NOT have executed: no uid= leakage anywhere.
+  refute_output --partial "uid="
+  rm -f "${_tmp}"
+}
+
+@test "_load_env aborts under set -euo pipefail when the file does not exist (#689)" {
+  # kcov instrumentation perturbs the inner set -u shell (BASH_SOURCE comes
+  # back unbound), masking the real "No such file" diagnostic; the abort
+  # behaviour is covered by the plain bats-unit run. Skip only under coverage.
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov perturbs the inner set -u shell (#613)"
+  # The path is provided but the file is gone -- the race the wrapper's
+  # no_env guard is meant to prevent, and which run.sh would hit at
+  # `_load_env "${FILE_PATH}/.env.generated"`. _load_env sources $1 with
+  # no `[[ -f ]]` guard, so under the wrappers' `set -euo pipefail` the
+  # failed `source` aborts the script. Pin that failure mode: non-zero
+  # exit, a "No such file" diagnostic, and that the line past _load_env
+  # never runs.
+  run bash -c "set -euo pipefail; source ${LIB}; _load_env /no/such/.env.generated; echo REACHED"
+  assert_failure
+  refute_output --partial "REACHED"
+  assert_output --partial "No such file"
+}
+
 # ── _compute_project_name ───────────────────────────────────────────────────
 
 @test "_compute_project_name produces clean PROJECT_NAME (single-instance #600)" {
