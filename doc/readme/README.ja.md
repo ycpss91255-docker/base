@@ -849,7 +849,9 @@ just --list  # CI ターゲット表示
 
 ## テスト
 
-詳細は [TEST.md](../test/TEST.md) を参照。
+詳細は [TEST.md](../test/TEST.md) のテスト索引を参照（種別ごとのカタログ：
+[unit](../test/unit.md) / [integration](../test/integration.md) /
+[behavioural](../test/behavioural.md) / [smoke](../test/smoke.md)）。
 
 ## ディレクトリ構造
 
@@ -923,7 +925,11 @@ just --list  # CI ターゲット表示
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
 │   ├── test/
-│   │   └── TEST.md                     # テストカタログと spec 表
+│   │   ├── TEST.md                     # テスト索引（総数 + 種別リンク）
+│   │   ├── unit.md                     # ユニットテスト一覧
+│   │   ├── integration.md             # 統合テスト一覧
+│   │   ├── behavioural.md             # 挙動テスト一覧
+│   │   └── smoke.md                   # smoke テスト一覧
 │   ├── changelog/
 │   │   └── CHANGELOG.md
 │   └── deprecations.md
