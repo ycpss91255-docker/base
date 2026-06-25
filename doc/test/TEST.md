@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2055 tests** total (1970 unit + 85 integration).
+Template self-tests: **2058 tests** total (1973 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -866,7 +866,7 @@ commands), and **#690 pre-stop hook abort** (a failing
 `script/hooks/pre/stop.sh` aborts with the hook's rc before
 `compose down` runs).
 
-### test/bats/unit/prune_sh_spec.bats (37)
+### test/bats/unit/prune_sh_spec.bats (40)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`
@@ -898,6 +898,18 @@ log). Plus `--repo` filter, `--dry-run` plan-only output, `-y` skip
 prompt, missing `--workspace` + empty `.env` → exit 2, `--workspace`
 flag wins over `.env` `WS_PATH`, `--owner` flag wins over `.env`
 `DOCKER_HUB_USER`, and `--help` mentions all four new flags.
+
+Plus the **`--worktree-orphans` interactive confirmation gate (#699)**
+— the destructive `docker rmi` loop only reaches its prompt when
+neither `-y` nor `--dry-run` is given, a branch the cases above never
+exercised. Three cases mirror the `--volumes` prompt pair for the more
+destructive image removal: piped `y` confirms and the candidate lands
+in `DOCKER_RMI_LOG`; piped `n` aborts with exit-1 + "aborted by user"
+and an empty `DOCKER_RMI_LOG`; closed stdin (`</dev/null`, no `-y`)
+aborts cleanly with the same diagnostic instead of dying on a `set -e`
+`read` EOF — prune.sh maps `read` EOF to an empty reply
+(`read -r _reply || _reply=""`) so the default case treats it as an
+explicit abort.
 
 Regression guard for **issue #282** — the four user-facing wrappers
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
