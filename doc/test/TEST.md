@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2076 tests** total (1991 unit + 85 integration).
+Template self-tests: **2083 tests** total (1998 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -185,10 +185,12 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 
 The setup.sh unit suite was split from a single 371-test
 `setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
-#677) so the CI bats-unit + coverage round-robin — which shards BY FILE
-— can balance the per-shard floor. All five share one
-`setup_spec_helper.bash` (common `setup()` / `teardown()`); behaviour
-and total test count are unchanged.
+#677) so the CI coverage shards — which partition BY FILE — can balance
+the per-shard floor. The coverage matrix now uses a greedy
+weight-balanced partition (by per-spec `@test` count) rather than
+round-robin, so the slowest shard approaches `total/N` even before this
+file-level split. All five share one `setup_spec_helper.bash` (common
+`setup()` / `teardown()`); behaviour and total test count are unchanged.
 
 #### test/bats/unit/setup_spec.bats (146)
 
@@ -347,10 +349,10 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (62)
+### test/bats/unit/self_test_yaml_spec.bats (63)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
-twelve cumulative invariants:
+thirteen cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
@@ -520,10 +522,32 @@ twelve cumulative invariants:
     self-correcting against a stale / old / racing `:main` regardless of
     cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3
     (pull failed -> build) intact. Applied to all five `build_local`-pattern
-    obtain steps (`hadolint`, `bats-unit`, `bats-integration`, `coverage`,
-    `behavioural`) since they pull the same tag and race identically;
-    `bats-unit` + `coverage` (the kcov-racing shards) are asserted
-    per-job, plus a count assertion that all five carry the guard.
+    obtain steps (`hadolint`, `bats-fragile`, `bats-integration`,
+    `coverage`, `behavioural`) since they pull the same tag and race
+    identically; `bats-fragile` + `coverage` (the kcov-racing shards) are
+    asserted per-job, plus a count assertion that all five carry the guard.
+
+13. **#677 CI double-run restructure (coverage = primary unit gate,
+    weight-balanced shards, single `bats-fragile` job)** — after #686
+    unified the coverage job onto the same Alpine test-tools image, the
+    4-shard `bats-unit` matrix and the 4-shard `coverage` matrix ran the
+    SAME ~1991 unit specs twice per PR (8 parallel jobs), differing only by
+    `COVERAGE=1`. The restructure: (a) the `coverage` matrix stays the
+    PRIMARY unit gate (kcov over every non-fragile test; codecov upload +
+    the #615/ADR-00000008 project gate untouched); (b) the `bats-unit`
+    matrix is replaced by a SINGLE `bats-fragile` job that runs ONLY the
+    kcov-fragile specs the coverage matrix skips via
+    `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN mode, so the delta is
+    preserved with zero double-run. The fragile set is computed at RUNTIME
+    (`test.sh --bats-fragile` -> `_fragile_unit_files` greps a
+    line-anchored skip guard), so a new fragile-skip in a 10th file is
+    picked up automatically; (c) `_shard_unit_files` replaces round-robin
+    with greedy bin-packing by per-spec `@test` count (heaviest-first into
+    the lightest shard) so the slowest coverage shard approaches `total/N`.
+    `ci-rollup needs:` and `release needs:` swap `bats-unit` ->
+    `bats-fragile`; `coverage` joins the `release` chain (it is now the
+    primary unit gate). Every unit test still runs SOMEWHERE: non-fragile
+    under coverage/kcov, the fragile files under `bats-fragile` (plain).
 
 | Category | Tests |
 |----------|-------|
@@ -531,28 +555,28 @@ twelve cumulative invariants:
 | `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
 | `classify` job declared with `code_changed` + `behavioural_relevant` outputs | 3 |
 | `classify` doc-only allow-list + behavioural block-list + non-PR default | 3 |
-| `bats-unit`/`bats-integration`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 4 |
-| `bats-unit`/`bats-integration` job-level `if: code_changed == 'true'` + no remaining monolithic `test:` job (#377) | 3 |
+| `bats-fragile`/`bats-integration`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 4 |
+| `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'` + no remaining monolithic `test:` job (#377, #677) | 3 |
 | `integration-e2e` job-level `if: code_changed == 'true'` + `behavioural` job-level `if: behavioural_relevant == 'true'` (#317 P3 tightens) | 2 |
-| `bats-unit`/`bats-integration`/`behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
+| `bats-fragile`/`bats-integration`/`behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
-| `bats-unit` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #377) | 2 |
+| `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #677) | 2 |
 | `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377) | 1 |
 | `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
 | `integration-e2e` native arm64 matrix (#603): amd64+arm64 native-runner matrix with `fail-fast: false`; shards `runs-on: ${{ matrix.runner }}`; Obtain pulls the matrix platform | 3 |
 | `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615) | 3 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615 + #677) | 3 |
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
-| `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615) | 3 |
+| `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
-| `bats-unit` declared + `strategy.matrix.shard: ['1/2', '2/2']` + `fail-fast: false` + invokes `test.sh --bats-unit-shard ${{ matrix.shard }}` (#377) | 3 |
+| `bats-fragile` declared + is a single job (no shard matrix) + invokes `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677) | 4 |
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
-| `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + kcov `matrix.shard: ['1/4'..'4/4']` mirroring bats-unit + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + per-shard `flags:` Codecov upload (#615) | 4 |
-| `release` job needs `[shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]` before publishing a tag (#376 + #377) | 1 |
-| Probe-and-rebuild against a stale/racing `:main`: `bats-unit` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
+| `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']` (greedy weight-balanced) + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + per-shard `flags:` Codecov upload (#615 + #677) | 4 |
+| `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]` before publishing a tag (#376 + #377 + #677) | 1 |
+| Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (14)
 
@@ -1450,7 +1474,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (46)
+### test/bats/unit/ci_spec.bats (52)
 
 | Test | Description |
 |------|-------------|
@@ -1485,8 +1509,9 @@ the host file content and the inherited stdout (preserving
 | `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 exactly two invocations |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
-| `_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)` | #615 coverage matrix mirrors unit matrix |
-| `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 round-robin invariant (each slice runs once) |
+| `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
+| `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 partition invariant (each slice runs once) |
+| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
@@ -1498,6 +1523,11 @@ the host file content and the inherited stdout (preserving
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
+| `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
+| `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
+| `_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)` | #677 plain mode runs the skipped tests |
+| `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
 | `_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 behavioural socket guard |
 | `_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 behavioural docker-CLI guard |
 
