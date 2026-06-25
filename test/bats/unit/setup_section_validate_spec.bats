@@ -518,3 +518,73 @@ EOF
   assert_output "0"
 }
 
+@test "[environment] apply quotes an env value containing a colon-space so YAML keeps it a scalar (#698)" {
+  # A validator-accepted value with a YAML-structural ': ' (e.g.
+  # MSG=a: b) emitted UNQUOTED parses as the mapping {MSG=a: b} —
+  # silent env corruption. The emit must wrap each entry as a
+  # double-quoted YAML scalar, mirroring ports/cgroup.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = MSG=a: b
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'MSG=a: b' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '- "MSG=a: b"'
+}
+
+@test "[environment] apply quotes an env value with a leading flow indicator (#698)" {
+  # A leading '*' (YAML alias/flow indicator) emitted unquoted breaks
+  # the parse; quoting makes it an inert scalar.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = GLOB=*
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'GLOB=' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '- "GLOB=*"'
+}
+
+@test "[environment] apply quotes an env value with an inline ' #' comment marker (#698)" {
+  # An unquoted ' #' truncates the YAML scalar at the comment; quoting
+  # preserves the whole value.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = NOTE=a #b
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'NOTE=a #b' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '- "NOTE=a #b"'
+}
+
+@test "[environment] apply escapes embedded double-quote / backslash in env value (#698)" {
+  # The YAML double-quoted scalar must escape \" and \\ so the value
+  # round-trips verbatim (mirrors the Dockerfile baked-ENV sink).
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = Q=a"b\c
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/downstream/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'Q=' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '- "Q=a\"b\\c"'
+}
+

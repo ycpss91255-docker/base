@@ -323,9 +323,9 @@ teardown() {
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
   run grep -E '^    environment:$' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- ROS_DOMAIN_ID=7' "${COMPOSE_OUT}"
+  run grep -F -- '- "ROS_DOMAIN_ID=7"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- LOG_LEVEL=debug' "${COMPOSE_OUT}"
+  run grep -F -- '- "LOG_LEVEL=debug"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -339,7 +339,7 @@ teardown() {
   printf -v _env '%s\n%s' "BUILD_TARGET=production" "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- LD_LIBRARY_PATH=/foo/production/lib' "${COMPOSE_OUT}"
+  run grep -F -- '- "LD_LIBRARY_PATH=/foo/production/lib"' "${COMPOSE_OUT}"
   assert_success
   refute grep -F -- '${BUILD_TARGET}' "${COMPOSE_OUT}"
 }
@@ -354,9 +354,9 @@ teardown() {
   printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib" "BUILD_TARGET=production"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' "${COMPOSE_OUT}"
+  run grep -F -- '- "LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- BUILD_TARGET=production' "${COMPOSE_OUT}"
+  run grep -F -- '- "BUILD_TARGET=production"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -370,7 +370,7 @@ teardown() {
   printf -v _env '%s' "PATH_PREFIX=/foo/\${UNDEFINED_VAR}/bar"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' "${COMPOSE_OUT}"
+  run grep -F -- '- "PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -383,7 +383,7 @@ teardown() {
     "PLUGIN_PATH=/opt/\${BUILD_TARGET}/lib/\${ARCH}"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- PLUGIN_PATH=/opt/production/lib/aarch64' "${COMPOSE_OUT}"
+  run grep -F -- '- "PLUGIN_PATH=/opt/production/lib/aarch64"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -398,9 +398,9 @@ teardown() {
     "INCLUDE=\${BASE}/include"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- BASE=/opt/lib' "${COMPOSE_OUT}"
+  run grep -F -- '- "BASE=/opt/lib"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- INCLUDE=/opt/lib/include' "${COMPOSE_OUT}"
+  run grep -F -- '- "INCLUDE=/opt/lib/include"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -1248,7 +1248,7 @@ services:
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
-      - TOP_ENV=1
+      - "TOP_ENV=1"
     ports:
       - "9000:9000"
     volumes:
@@ -1307,7 +1307,7 @@ services:
     networks:
       - mynet
     environment:
-      - HEADLESS=1
+      - "HEADLESS=1"
     ports:
       - "9000:9000"
       - "8080:80"
