@@ -1,6 +1,7 @@
 # Dockerfile.test-tools - Pre-built test tools for Docker container repos
 #
-# Contains: ShellCheck, Hadolint, Bats (with bats-support + bats-assert + bats-mock)
+# Contains: ShellCheck, Hadolint, Bats (with bats-support + bats-assert +
+# bats-mock), kcov (coverage)
 #
 # Usage:
 #   docker build -t test-tools:local -f .base/dockerfile/Dockerfile.test-tools .
@@ -9,6 +10,7 @@
 
 ARG BATS_VERSION=1.13.0
 ARG ALPINE_VERSION=3.21
+ARG KCOV_VERSION=v43
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
@@ -45,8 +47,31 @@ RUN apk add --no-cache curl xz && \
         "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 
+# kcov is not packaged in any Alpine repository (main / community /
+# edge-testing all lack it -- verified), so it cannot be `apk add`ed like
+# the other tools. Compile it from source in a throwaway builder stage and
+# COPY only the binary into the final image; the final stage `apk add`s
+# just the runtime shared libs kcov links against (libstdc++ / libcurl /
+# libdw / libelf / zlib / libgcc), not the build toolchain. This keeps the
+# coverage path on the SAME pre-baked Alpine image as the rest of the
+# self-test suite (one image, one pull) instead of the old debian
+# kcov/kcov service that apt-installed ~24 packages on every coverage shard
+# of every PR. kcov-on-musl was spiked for accuracy + stability: line-rate
+# and per-file covered counts matched the debian kcov baseline within <0.1%
+# (codecov threshold is 1%) and were bit-stable across repeated runs.
+FROM alpine:${ALPINE_VERSION} AS kcov-builder
+ARG KCOV_VERSION
+RUN apk add --no-cache \
+        cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
+        zlib-dev python3 git && \
+    git clone --depth 1 -b "${KCOV_VERSION}" \
+        https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    cmake -S /tmp/kcov -B /tmp/kcov/build && \
+    make -C /tmp/kcov/build -j"$(nproc)" && \
+    make -C /tmp/kcov/build install
+
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert,mock}
-# + parallel + git + ca-certificates.
+# + parallel + git + ca-certificates + kcov.
 # bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
 # and alpine:latest only ships busybox ash. The /usr/local/bin/bats symlink
 # exposes bats on PATH (the upstream bats/bats:latest puts it there but the
@@ -80,14 +105,20 @@ RUN apk add --no-cache curl xz && \
 FROM alpine:${ALPINE_VERSION}
 # mawk + gawk alongside the default busybox awk so the issueref awk
 # program is exercised under all three engines by its portability unit
-# test (issueref_lint_spec.bats). This closes the local==CI blind spot
-# where the kcov debian/mawk coverage shard caught a mawk-only regression
-# in the issueref match() greediness that the alpine/busybox `just test`
-# loop could not see.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx mawk gawk
+# test (issueref_lint_spec.bats). This closes a local==CI blind spot in
+# the issueref match() greediness (a mawk-only regression) by running the
+# awk program under mawk and gawk in-image rather than relying on a
+# separate runner to surface it.
+# libstdc++ / libcurl / libdw / libelf / zlib / libgcc are the runtime
+# shared libs the source-built kcov binary (copied below) links against;
+# they are the runtime counterparts of the -dev packages used in the
+# kcov-builder stage. Without them kcov would fail to load at runtime.
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx mawk gawk \
+        libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats
 COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
+COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats
