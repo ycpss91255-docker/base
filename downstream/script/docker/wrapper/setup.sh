@@ -1973,6 +1973,15 @@ _generate_deploy_sh() {
   local -a _argv=()
   _emit_docker_run_flags _flags _argv
 
+  # %q-quote the IMAGE / CONTAINER_NAME defaults so a name bearing a `"`,
+  # `$(...)`, or backtick lands as a single literal token in the generated
+  # launcher instead of breaking the assignment or command-substituting at
+  # field run time. This mirrors the per-flag %q protection below; the seam
+  # used to inline these as a bare heredoc default expansion. (#688)
+  local _image_ref_q _container_name_q
+  printf -v _image_ref_q '%q' "${_image_ref}"
+  printf -v _container_name_q '%q' "${_container_name}"
+
   # Emit deploy.sh. Runtime-expanded vars / backticks are escaped so they
   # land literally in the generated script; per-arg %q quoting keeps each
   # flag a single, safely-quoted token.
@@ -1993,8 +2002,8 @@ _generate_deploy_sh() {
 # on a different field machine.
 set -euo pipefail
 
-IMAGE="\${DEPLOY_IMAGE:-${_image_ref}}"
-CONTAINER_NAME="\${DEPLOY_CONTAINER_NAME:-${_container_name}}"
+IMAGE=\${DEPLOY_IMAGE:-${_image_ref_q}}
+CONTAINER_NAME=\${DEPLOY_CONTAINER_NAME:-${_container_name_q}}
 
 exec docker run \\
   --detach \\
