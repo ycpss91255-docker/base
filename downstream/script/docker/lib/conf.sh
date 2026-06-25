@@ -522,7 +522,7 @@ _upsert_conf_value() {
   # here at the writer sink so every caller (set / add / TUI / WS_PATH)
   # is protected.
   if [[ "${_key}" == *$'\n'* || "${_value}" == *$'\n'* ]]; then
-    printf "[_upsert_conf_value] refusing newline-bearing key/value\n" >&2
+    _log_err conf conf_upsert_newline_rejected "display=_upsert_conf_value: refusing newline-bearing key/value"
     return 1
   fi
 

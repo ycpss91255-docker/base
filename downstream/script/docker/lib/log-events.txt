@@ -18,6 +18,7 @@ conf_section_not_found
 conf_unknown_subcmd
 conf_unknown_arg
 conf_upsert_file_missing
+conf_upsert_newline_rejected
 stage_baseline_collision
 stage_reserved_tag
 stage_invalid_format
