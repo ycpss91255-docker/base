@@ -315,6 +315,27 @@ EOF
   assert_failure
 }
 
+@test "set rejects a newline-bearing value rather than corrupting setup.conf (#688)" {
+  # _validate_env_kv accepts an embedded newline (regex `.*$` matches up
+  # to a newline), so a value like $'A=b\nstray' passes validation. Left
+  # unguarded, _upsert_conf_value's `printf '%s = %s\n'` would write the
+  # stray second line as an orphan, un-keyed entry that corrupts the INI
+  # on the next read. The writer must refuse such a value loudly; the
+  # file must keep exactly one env_1 line and gain no orphan line.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[environment]
+env_1 = A=b
+EOF
+  run main set environment.env_1 $'BAZ=qux\nmalicious_section_break' --base-path "${TEMP_DIR}"
+  assert_failure
+  # No orphan line: the corrupting payload must not reach the file.
+  run grep -c 'malicious_section_break' "${TEMP_DIR}/config/docker/setup.conf"
+  assert_output "0"
+  # The original clean value is untouched.
+  run grep -c '^env_1 = A=b$' "${TEMP_DIR}/config/docker/setup.conf"
+  assert_output "1"
+}
+
 @test "set with no arguments fails clean (no shell error)" {
   run main set
   assert_failure

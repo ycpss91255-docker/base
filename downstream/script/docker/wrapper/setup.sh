@@ -3770,7 +3770,12 @@ _setup_set() {
     : > "${_conf}"
   fi
 
-  _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"
+  # Propagate writer refusal (e.g. newline-bearing value, #688) instead
+  # of printing a misleading success message over a no-op / partial write.
+  if ! _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"; then
+    _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_key}" "section=${_section}" "key=${_key}"
+    return 2
+  fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
@@ -4147,7 +4152,10 @@ _setup_add() {
     return 2
   fi
 
-  _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"
+  if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"; then
+    _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key}" "section=${_section}" "key=${_new_key}"
+    return 2
+  fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
