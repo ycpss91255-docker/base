@@ -517,7 +517,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Exit-code forwarding + error-path integration (#690)
+# Exit-code forwarding + error-path integration
 #
 # exec.sh forwards the in-container command's exit code so that
 # `./exec.sh false` / `./exec.sh my-test` propagate a container-command

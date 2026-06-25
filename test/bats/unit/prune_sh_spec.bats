@@ -435,7 +435,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Pre-prune hook abort (#690)
+# Pre-prune hook abort
 #
 # prune.sh guards its prune work with `_run_pre_hook prune "$@" || exit $?`
 # (after arg parsing + target selection, before any `docker ... prune`).

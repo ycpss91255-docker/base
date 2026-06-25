@@ -295,7 +295,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Pre-stop hook abort (#690)
+# Pre-stop hook abort
 #
 # stop.sh guards its teardown with `_run_pre_hook stop "$@" || exit $?`
 # (after env load, before `_down_project` → `docker compose down`). A

@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1982 tests** total (1897 unit + 85 integration).
+Template self-tests: **1994 tests** total (1909 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -694,7 +694,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
 | migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
 
-### test/bats/unit/build_sh_spec.bats (51)
+### test/bats/unit/build_sh_spec.bats (52)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -720,7 +720,10 @@ long form, value-required and directory-existence guards, usage help
 mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
 (#311: exports `BUILDKIT_PROGRESS=plain` so a hung `docker build`'s RUN
 step output is visible; `-vv` adds `set -x` on the wrapper itself;
-usage help mentions all four spellings).
+usage help mentions all four spellings), and **#690 pre-build hook
+abort** (a failing `script/hooks/pre/build.sh` makes the wrapper exit
+the hook's rc via `_run_pre_hook build "$@" || exit $?` AND `docker
+compose build` never runs).
 
 ### test/bats/unit/build_sh_prune_spec.bats (7)
 
@@ -746,7 +749,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (63)
+### test/bats/unit/run_sh_spec.bats (65)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -788,9 +791,15 @@ pre-#679 `up -d` + `exec` pair that bypassed the ENTRYPOINT and
 double-launched the default CMD; the #679 repro shape `-t runtime ros2
 launch …` is asserted; `devel` + CMD still uses `up -d` + `exec`; the
 no-CMD paths are unchanged; #580 exit-code propagation rides the `run`
-path for non-`devel` command mode).
+path for non-`devel` command mode), and **#690 pre-run hook abort +
+foreground post-run hook exit override** (a failing
+`script/hooks/pre/run.sh` aborts the wrapper with the hook's rc before
+the build delegate / `compose up`; in the foreground path a failing
+`script/hooks/post/run.sh` makes `_app_cleanup` override the wrapper
+exit with the hook's rc while `compose down --remove-orphans` still
+runs).
 
-### test/bats/unit/exec_sh_spec.bats (52)
+### test/bats/unit/exec_sh_spec.bats (57)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -822,9 +831,13 @@ interactive binary default (TTY), 4 shell flavours with `-c` auto-add
 forces no-TTY, explicit `-i`/`--tty` overrides heuristic, last-wins
 precedence between `-T` and `-i` in both orders, `-T` + `-t TARGET`
 attaches to the right service, `-T` + `--` separator round-trip,
-`--help` mentions both flag pairs).
+`--help` mentions both flag pairs), and **#690 exit-code forwarding +
+pre/post hook error paths** (the container command's exit code is
+forwarded unchanged via `return "${_exec_rc}"` — 42 / 0 / 7 cases; a
+failing post-exec hook overrides the forwarded rc via `|| exit $?`; a
+failing pre-exec hook aborts before `compose exec` runs).
 
-### test/bats/unit/stop_sh_spec.bats (26)
+### test/bats/unit/stop_sh_spec.bats (27)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown,
 and i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}`
@@ -843,9 +856,11 @@ and **`--prune` flag** (#319: opt-in lightweight cleanup after compose
 down — `docker network prune --filter until=10m` + `docker image prune
 --filter until=24h`; usage help mentions `--prune` with the two grace
 windows; the plain `stop.sh --dry-run` path emits no `docker prune`
-commands).
+commands), and **#690 pre-stop hook abort** (a failing
+`script/hooks/pre/stop.sh` aborts with the hook's rc before
+`compose down` runs).
 
-### test/bats/unit/prune_sh_spec.bats (36)
+### test/bats/unit/prune_sh_spec.bats (37)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
 docker garbage cleanup with conservative per-target `--filter until=`

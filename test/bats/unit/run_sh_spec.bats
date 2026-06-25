@@ -912,7 +912,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Pre-run hook abort + foreground post-run hook exit override (#690)
+# Pre-run hook abort + foreground post-run hook exit override
 # ════════════════════════════════════════════════════════════════════
 
 # Installs a real-mode fixture with .env/setup.conf/compose present and

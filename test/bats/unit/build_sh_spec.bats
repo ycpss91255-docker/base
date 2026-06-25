@@ -713,7 +713,7 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Pre-build hook abort (#690)
+# Pre-build hook abort
 #
 # build.sh guards its main work with `_run_pre_hook build "$@" || exit $?`
 # (after env prep, before `_compose_project build`). A failing pre-hook
