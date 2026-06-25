@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1982 tests** total (1897 unit + 85 integration).
+Template self-tests: **1987 tests** total (1902 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -184,7 +184,7 @@ The setup.sh unit suite was split from a single 371-test
 `setup_spec_helper.bash` (common `setup()` / `teardown()`); behaviour
 and total test count are unchanged.
 
-#### test/bats/unit/setup_spec.bats (145)
+#### test/bats/unit/setup_spec.bats (146)
 
 Core detection (user / hardware / docker / GPU / GUI), SSH X11
 forwarding (`_is_ssh_x11` / `_setup_ssh_x11_cookie`, #321), the INI
@@ -200,7 +200,7 @@ template-shipped defaults for `[lifecycle]` restart (#478), `[deploy]`
 `_setup_known_section` / `SCHEMA_SECTIONS` (#561), and `[security]`
 opt-in (#466).
 
-#### test/bats/unit/setup_subcommand_spec.bats (64)
+#### test/bats/unit/setup_subcommand_spec.bats (65)
 
 The git-style subcommand dispatcher and its mutating verbs (#49):
 dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
@@ -208,7 +208,7 @@ dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
 — round-trips, validators, no-`.env`-regen, comment preservation, and
 end-to-end subprocess cases.
 
-#### test/bats/unit/setup_emit_spec.bats (75)
+#### test/bats/unit/setup_emit_spec.bats (77)
 
 `apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
 workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
@@ -1115,7 +1115,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
 
-### test/bats/unit/deploy_spec.bats (48)
+### test/bats/unit/deploy_spec.bats (49)
 
 Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
 the pure mapping from a resolved docker-flag record to a `docker run`
