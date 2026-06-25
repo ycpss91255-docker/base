@@ -515,3 +515,94 @@ teardown() {
   assert_output --partial "-i"
   assert_output --partial "--tty"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Exit-code forwarding + error-path integration (#690)
+#
+# exec.sh forwards the in-container command's exit code so that
+# `./exec.sh false` / `./exec.sh my-test` propagate a container-command
+# failure for scripting/CI (exec.sh: `_compose_project exec ...;
+# _exec_rc=$?; ...; return "${_exec_rc}"`). The default docker stub in
+# this file always exits 0 for non-`ps` calls, so a non-zero container
+# exit was never exercised. _exec_rc_fixture swaps in a docker stub whose
+# `compose exec` exits ${DOCKER_EXEC_RC}, so a test can drive the wrapper
+# exit code. Mirrors run_sh_spec's _exit_code_fixture pattern.
+_exec_rc_fixture() {
+  # Container running so the not-running guard passes and exec proceeds.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  cat > "${BIN_DIR}/docker" <<'EOS'
+#!/usr/bin/env bash
+if [[ "$1" == "ps" ]]; then
+  cat "${DOCKER_PS_FILE}"
+  exit 0
+fi
+_has_exec=0
+for _a in "$@"; do
+  [[ "${_a}" == "exec" ]] && _has_exec=1
+done
+printf 'docker'
+printf ' %q' "$@"
+printf '\n'
+(( _has_exec )) && exit "${DOCKER_EXEC_RC:-0}"
+exit 0
+EOS
+  chmod +x "${BIN_DIR}/docker"
+}
+
+@test "exec.sh forwards a non-zero container command exit code (#690)" {
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=42
+  # Real mode (not --dry-run) so _compose_project exec actually runs and
+  # its rc is captured + forwarded by `return "${_exec_rc}"`.
+  run -42 bash "${SANDBOX}/exec.sh" -- false
+}
+
+@test "exec.sh forwards exit code 0 on success (#690)" {
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=0
+  run -0 bash "${SANDBOX}/exec.sh" -- true
+}
+
+@test "exec.sh forwards a distinct non-zero exit code unchanged (#690)" {
+  # A second non-zero code guards against the wrapper hard-coding 1 (or
+  # any fixed value) instead of forwarding the container command's rc.
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=7
+  run -7 bash "${SANDBOX}/exec.sh" -- some-test
+}
+
+@test "exec.sh post-exec hook failure overrides the forwarded rc (#690)" {
+  # exec.sh: `_run_post_hook exec "$@" || exit $?` (after capturing
+  # _exec_rc). A failing post-hook must override the container rc so the
+  # wrapper surfaces the hook failure. Container command succeeds (rc 0);
+  # the post-hook exits 9 → wrapper must exit 9, not 0.
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=0
+  mkdir -p "${SANDBOX}/script/hooks/post"
+  cat > "${SANDBOX}/script/hooks/post/exec.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "POST_EXEC_HOOK_FIRED"
+exit 9
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/post/exec.sh"
+  run -9 bash "${SANDBOX}/exec.sh" -- true
+  assert_output --partial "POST_EXEC_HOOK_FIRED"
+}
+
+@test "exec.sh aborts on a failing pre-exec hook and skips compose exec (#690)" {
+  # exec.sh: `_run_pre_hook exec "$@" || exit $?` fires AFTER the
+  # not-running guard, BEFORE `_compose_project exec`. A pre-hook that
+  # exits 7 must abort the wrapper (status 7) and the docker `exec`
+  # command must NEVER run. Real mode (pre-hook no-ops under --dry-run).
+  _exec_rc_fixture
+  mkdir -p "${SANDBOX}/script/hooks/pre"
+  cat > "${SANDBOX}/script/hooks/pre/exec.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "PRE_EXEC_HOOK_FIRED"
+exit 7
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/pre/exec.sh"
+  run -7 bash "${SANDBOX}/exec.sh" -- whoami
+  assert_output --partial "PRE_EXEC_HOOK_FIRED"
+  refute_output --partial "docker compose exec"
+}
