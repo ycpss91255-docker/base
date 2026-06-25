@@ -430,7 +430,7 @@ setup() {
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -465,6 +465,7 @@ setup() {
   assert_output --partial 'needs.bats-fragile.result'
   assert_output --partial 'needs.bats-integration.result'
   assert_output --partial 'needs.coverage.result'
+  assert_output --partial 'needs.coverage-gate.result'
   assert_output --partial 'needs.integration-e2e.result'
   assert_output --partial 'needs.behavioural.result'
 }
@@ -630,16 +631,38 @@ setup() {
   assert_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
 }
 
-@test "self-test.yaml: coverage invokes test.sh --coverage-shard + uploads per-shard to Codecov (#615)" {
-  # The kcov run is now per-shard (--coverage-shard \${{ matrix.shard }});
-  # each shard uploads its partial report under a per-shard flag so
-  # Codecov merges the uploads into one project figure. Token source
-  # unchanged (\${{ secrets.CODECOV_TOKEN }}).
+@test "self-test.yaml: coverage invokes test.sh --coverage-shard + uploads each shard report as a CI artifact (#710)" {
+  # The kcov run is per-shard (--coverage-shard); each shard uploads its
+  # kcov output (HTML + cobertura) as a CI artifact keyed by the shard
+  # index, for the self-hosted coverage-gate to merge locally. No external
+  # coverage-SaaS upload (the SaaS path is superseded by coverage_gate.sh).
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial './script/test/test.sh --coverage-shard ${{ matrix.shard }}'
-  assert_output --partial 'codecov/codecov-action@v6'
-  assert_output --partial 'token: ${{ secrets.CODECOV_TOKEN }}'
-  assert_output --partial 'directory: ./coverage'
-  assert_output --partial 'flags: coverage-shard-'
+  assert_output --partial 'actions/upload-artifact@v4'
+  assert_output --partial 'name: coverage-shard-${{ strategy.job-index }}'
+  assert_output --partial 'path: ./coverage'
+}
+
+@test "self-test.yaml: NO codecov reference anywhere in the workflow (#710)" {
+  # The whole Codecov path (action, token, directory, per-shard flag) is
+  # removed; coverage merge + gate is now self-hosted via coverage_gate.sh.
+  run grep -i 'codecov' "${WF}"
+  assert_failure
+}
+
+@test "self-test.yaml: declares a coverage-gate job that runs the self-hosted floor gate (#710)" {
+  # The self-hosted coverage-floor gate: downloads every shard artifact
+  # and runs coverage_gate.sh to merge the per-shard cobertura reports
+  # into one line-weighted project rate, failing below COVERAGE_MIN. Joins
+  # ci-rollup so the floor gates merge with no external SaaS.
+  run grep -E '^  coverage-gate:' "${WF}"
+  assert_success
+  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [classify, coverage]'
+  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial 'actions/download-artifact@v4'
+  assert_output --partial 'pattern: coverage-shard-*'
+  assert_output --partial 'script/test/drivers/coverage_gate.sh'
 }

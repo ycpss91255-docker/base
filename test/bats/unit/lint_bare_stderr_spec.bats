@@ -74,6 +74,24 @@ EOF
   assert_success
 }
 
+@test "does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)" {
+  # coverage_gate.sh is a deliberately log.sh-free standalone CI tool (it
+  # runs as bare `bash coverage_gate.sh ...` under GitHub Actions / GitLab
+  # CI), so its diagnostics go straight to stderr and the file is excluded
+  # wholesale -- same rationale class as the bootstrap pre-sourcing
+  # allowlist.
+  mkdir -p "${FIXTURE}/script/test/drivers"
+  cat > "${FIXTURE}/script/test/drivers/coverage_gate.sh" <<'EOF'
+#!/usr/bin/env bash
+_thing() {
+  echo "coverage_gate: report not found" >&2
+}
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_success
+  assert_output ""
+}
+
 @test "the real repo tree (default root) is clean (#692)" {
   # No $1: the lint defaults its root to two levels up from the script,
   # i.e. the real /source tree. This guards the live wrapper/lib + test

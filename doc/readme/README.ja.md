@@ -1,7 +1,6 @@
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -861,7 +860,6 @@ just --list  # CI ターゲット表示
 ├── justfile                            # base 自身の自己テスト/release エントリ（mods test + release）
 ├── compose.yaml                        # base CI runner（test-tools サービス）
 ├── .dockerignore                       # canonical な ignore セット（consumer へ同期）
-├── .codecov.yaml                       # カバレッジアップロード設定
 ├── downstream/                         # 出荷されるツール + コンテンツ（single source of truth）
 │   ├── .hadolint.yaml                  # 共有 Hadolint ルール（consumer へ symlink）
 │   ├── dockerfile/

@@ -144,3 +144,93 @@ coverage:
 - **A fixed patch target (e.g. 80%).** Rejected: the intentionally
   uncovered bash branches make a hard per-diff percentage flaky for
   refactor PRs; `target: auto` tracks the project rate instead.
+
+## Amendment (#710): self-hosted, GitLab-portable gate; Codecov removed
+
+- **Date:** 2026-06-25
+- **Status:** Accepted (supersedes the Codecov merge + `codecov/project`
+  status decided in sections 2 and 3 above)
+- **Resolves:** #709 (`codecov/project` is Pro-only, so the project gate
+  never worked on the free plan). **Relates:** #678 (no Codecov status to
+  wire -- the gate moves into `ci-rollup` directly), #686, #677.
+
+### Context
+
+This repo is being imported into the company GitLab, where Codecov is
+unavailable and uploading coverage to an external SaaS is data leakage.
+Separately, #709 found `codecov/project` is a Pro-only status, so the
+section-3 branch-protection gate never actually enforced anything on the
+free plan. Both push the same way: drop Codecov entirely and enforce the
+coverage floor locally, with a mechanism that ports to GitLab CI
+unchanged.
+
+### Decision
+
+1. **Remove Codecov.** The `codecov/codecov-action` upload step, the
+   `CODECOV_TOKEN` usage, the no-op `flags: coverage-shard-N`, and
+   `.codecov.yaml` are deleted. No coverage data leaves CI.
+
+2. **Self-hosted merge + floor gate.** kcov already writes a
+   `cobertura.xml` per shard whose root `<coverage>` element carries
+   `lines-covered` / `lines-valid`. A new CI-agnostic script,
+   `script/test/drivers/coverage_gate.sh`, MERGES the per-shard reports
+   into one project line-rate by SUMMING `covered` and `valid` across
+   shards -- `SUM(covered) / SUM(valid)`, a line-weighted total -- and
+   exits non-zero when it is below `COVERAGE_MIN`. It does NOT average the
+   per-shard `line-rate` attributes: shards have different denominators
+   (integration runs on the last shard only), so averaging would weight a
+   small shard equally with a large one and report a wrong total. The
+   script reads files and sets an exit code with no GitHub/GitLab
+   coupling, so it gates identically under both.
+
+3. **Threshold = v1 absolute floor.** `COVERAGE_MIN` defaults to **50**
+   (percent, env-overridable), set just below the current measured
+   project rate (~52.9%) so it does not false-fail today. It is meant to
+   **ratchet up** as coverage improves. v2 (a follow-up, NOT built here)
+   is regression-vs-main-baseline: store/fetch main's coverage % and fail
+   on a drop beyond a threshold -- the original #615 intent. v1 keeps it
+   simple with no baseline storage.
+
+4. **Wired through `ci-rollup`.** Each coverage shard uploads its kcov
+   report (HTML + cobertura) as a CI artifact (`actions/upload-artifact`,
+   keyed by `strategy.job-index`). A new `coverage-gate` job downloads
+   every shard artifact (`actions/download-artifact`, `pattern:
+   coverage-shard-*`) and runs `coverage_gate.sh` over the merged set.
+   `coverage-gate` joins `ci-rollup`'s `needs:` (which branch protection
+   already requires), so a sub-floor rate blocks merge with **no
+   branch-protection change** and no external SaaS.
+
+5. **Visibility without SaaS.** kcov's HTML + cobertura are kept. On
+   GitHub the gate appends a coverage summary table to
+   `$GITHUB_STEP_SUMMARY` (built-in, free). Publishing the kcov HTML to
+   GitHub Pages is a documented follow-up (deferred to keep this slice
+   small).
+
+### GitLab portability mapping (for the future move; mechanical)
+
+The gate script stays CI-agnostic; only the job wrapper changes:
+
+- **MR diff annotations:** point GitLab at kcov's cobertura via
+  `artifacts: { reports: { coverage_report: { coverage_format:
+  cobertura, path: coverage/**/cobertura.xml } } }`.
+- **MR coverage % widget / badge:** add a `coverage:` regex on the
+  coverage job, e.g. `coverage: '/merged line rate ([0-9.]+)%/'`, which
+  matches the line `coverage_gate.sh` prints to stdout
+  (`coverage_gate: merged line rate <N>% ...`).
+- **The floor gate itself** is unchanged: GitLab runs the same
+  `bash script/test/drivers/coverage_gate.sh coverage/**/cobertura.xml`;
+  a non-zero exit fails the pipeline (the merge gate), exactly as the
+  GitHub `coverage-gate` job does.
+
+### Consequences (amendment)
+
+- No coverage leaves CI; the gate is enforceable on any plan (the #709
+  Pro-only blocker is gone) and ports to GitLab by editing the job
+  wrapper, not the gate logic.
+- The line-weighted merge is the load-bearing detail; it is unit-tested
+  in `test/bats/unit/coverage_gate_spec.bats` (floor pass/fail, the
+  sum-not-average math with unequal denominators, and missing/empty/
+  malformed report handling).
+- The section-2 Codecov merge and the section-3 `codecov/project` status
+  are SUPERSEDED; the section-1 sharding and the "coverage is a gating PR
+  check via `ci-rollup`" posture remain.

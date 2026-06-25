@@ -427,11 +427,13 @@ jobs:
     # the same specs is replaced by a single plain bats-fragile job), and
     # the partition is now greedy weight-balanced by per-spec @test count so
     # the slowest shard approaches total/N instead of the round-robin floor.
-    # It runs on PRs, and joins ci-rollup's `needs:` so a kcov failure OR a
-    # coverage drop below the .codecov.yaml project threshold blocks merge. Each shard uploads its partial report under a per-shard flag;
-    # Codecov merges the uploads into one project figure ("Found N
-    # coverage files to report"). The matrix rollup folds every shard's
-    # result into needs.coverage.result, so ci-rollup sees one signal.
+    # It runs on PRs, and joins ci-rollup's `needs:` so a kcov failure
+    # blocks merge. Each shard uploads its kcov report (HTML + cobertura)
+    # as a CI artifact; the dedicated coverage-gate job downloads every
+    # shard artifact and merges them locally into one line-weighted
+    # project rate (self-hosted, no external SaaS -- ADR-00000008). The
+    # matrix rollup folds every shard's result into needs.coverage.result,
+    # so ci-rollup sees one signal.
     #
     # #686: kcov is now source-built into the shared alpine test-tools
     # image, so each shard obtains that one image (same 3-layer fallback as
@@ -530,20 +532,76 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
 
-      - name: Upload coverage to Codecov
-        if: ${{ always() }}
-        uses: codecov/codecov-action@v6
+      - name: Upload shard coverage artifact
+        # Self-hosted, no-SaaS merge (ADR-00000008, self-hosted amendment):
+        # instead of pushing the shard's report to an external coverage
+        # SaaS, publish kcov's
+        # output dir (HTML + cobertura.xml) as a CI artifact. The
+        # coverage-gate job downloads every shard's artifact and merges
+        # them locally into one line-weighted project rate -- no coverage
+        # data leaves CI. strategy.job-index keys the per-shard name.
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./coverage
-          # Per-shard flag so Codecov keeps the uploads distinct and merges
-          # them for the commit. fail_ci_if_error stays false: an upload
-          # transport hiccup must not fail the shard (the merge tolerates a
-          # missing shard); the MERGE gate is enforced by the codecov/project
-          # status (.codecov.yaml) joined into ci-rollup via branch
-          # protection, not by this step.
-          flags: coverage-shard-${{ strategy.job-index }}
-          fail_ci_if_error: false
+          name: coverage-shard-${{ strategy.job-index }}
+          path: ./coverage
+          if-no-files-found: error
+          retention-days: 7
+
+  coverage-gate:
+    # Self-hosted coverage-floor gate (ADR-00000008, self-hosted
+    # amendment; supersedes the old external-SaaS merge+status gate).
+    # Downloads
+    # every coverage shard's artifact, merges the per-shard kcov cobertura
+    # reports into ONE line-weighted project rate, and fails when it is
+    # below COVERAGE_MIN. CI-agnostic: the script reads cobertura files and
+    # sets an exit code, so the SAME script gates under GitHub Actions and
+    # (after the move) GitLab CI. Joins ci-rollup's needs:, so a coverage
+    # drop below the floor blocks merge -- no branch-protection change.
+    needs: [classify, coverage]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download all coverage shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: ./coverage-shards
+
+      - name: Coverage floor gate
+        # COVERAGE_MIN defaults inside the script (just under the current
+        # measured rate so it does not false-fail today; ratchets up).
+        # download-artifact lays each shard out under its own
+        # ./coverage-shards/coverage-shard-<idx>/ subdir. kcov can write
+        # BOTH a per-run AND a kcov-merged cobertura.xml inside one run's
+        # output, so pick EXACTLY ONE report per shard subdir (the merged
+        # one if present, else the first found) -- passing both to the gate
+        # would double-count that shard. The script then sums covered/valid
+        # across the one-per-shard set and emits the merged % to
+        # $GITHUB_STEP_SUMMARY.
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          reports=()
+          for shard_dir in ./coverage-shards/*/; do
+            merged="${shard_dir}kcov-merged/cobertura.xml"
+            if [[ -f "${merged}" ]]; then
+              reports+=("${merged}")
+              continue
+            fi
+            for xml in "${shard_dir}"**/cobertura.xml; do
+              reports+=("${xml}")
+              break
+            done
+          done
+          if [[ ${#reports[@]} -eq 0 ]]; then
+            echo "no cobertura.xml found under ./coverage-shards" >&2
+            exit 1
+          fi
+          printf 'coverage report: %s\n' "${reports[@]}"
+          bash ./script/test/drivers/coverage_gate.sh "${reports[@]}"
 
   integration-e2e:
     name: Integration E2E (${{ matrix.platform }})
@@ -859,13 +917,16 @@ jobs:
     # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
     # for those, otherwise doc-only PRs cannot merge.
     #
-    # `coverage` is now IN `needs:` (#615, ADR-00000008; amends #377). It
-    # is a sharded kcov PR gate: a kcov test failure fails the matrix and
-    # this rollup; a coverage regression below the .codecov.yaml project
-    # threshold is enforced separately via the codecov/project status as a
-    # required branch-protection check. The matrix folds into
-    # needs.coverage.result, so the rollup sees one signal.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]
+    # `coverage` is IN `needs:` (#615, ADR-00000008): a sharded kcov PR
+    # gate -- a kcov test failure fails the matrix and this rollup. The
+    # matrix folds into needs.coverage.result, so the rollup sees one
+    # signal. `coverage-gate` is the self-hosted coverage-FLOOR gate
+    # (ADR-00000008, self-hosted amendment; replaces the removed
+    # external-SaaS project status): it merges the shard cobertura reports and
+    # fails when the project rate drops below COVERAGE_MIN. Joining it here
+    # enforces the floor through ci-rollup -- no branch-protection change,
+    # and no external SaaS.
+    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -878,6 +939,7 @@ jobs:
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
+          COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
           INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
           BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
         run: |
@@ -889,6 +951,7 @@ jobs:
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
           echo "coverage:         ${COVERAGE_RESULT}"
+          echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
           echo "integration-e2e:  ${INTEGRATION_RESULT}"
           echo "behavioural:      ${BEHAVIOURAL_RESULT}"
           fail=0
@@ -897,7 +960,7 @@ jobs:
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
-                   "${COVERAGE_RESULT}" \
+                   "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
                    "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
