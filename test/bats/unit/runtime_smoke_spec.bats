@@ -76,3 +76,44 @@ EOS
   rm -rf "${_stub_dir}"
   assert_success
 }
+
+@test "smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)" {
+  # smoke.sh does `_ldd_out="$(ldd ...)" || continue`: when ldd itself exits
+  # non-zero (file not a dynamic executable, or ldd errors), that .so is
+  # skipped and treated clean -- even if the output mentions 'not found'.
+  # Pin this swallow as the documented behaviour (the loop trusts ldd's exit
+  # status over its text); a future hardening would surface the hard error.
+  mkdir -p "${SCAN_ROOT}/lib"
+  : > "${SCAN_ROOT}/lib/libbroken.so"
+  local _stub_dir
+  _stub_dir="$(mktemp -d)"
+  cat > "${_stub_dir}/ldd" <<'EOS'
+#!/usr/bin/env bash
+echo "    libmissing.so.1 => not found"
+exit 1
+EOS
+  chmod +x "${_stub_dir}/ldd"
+  PATH="${_stub_dir}:${PATH}" run bash "${SMOKE_SH}" "${SCAN_ROOT}"
+  rm -rf "${_stub_dir}"
+  assert_success
+  refute_output --partial "MISSING DEP"
+}
+
+@test "smoke.sh: accumulates _exit=1 and reports every bad .so (#692)" {
+  # Multiple libs with 'not found' deps: the loop must report ALL of them
+  # (one MISSING DEP line each) and still exit non-zero once.
+  mkdir -p "${SCAN_ROOT}/lib"
+  : > "${SCAN_ROOT}/lib/libbad1.so"
+  : > "${SCAN_ROOT}/lib/libbad2.so"
+  local _stub_dir
+  _stub_dir="$(mktemp -d)"
+  cat > "${_stub_dir}/ldd" <<'EOS'
+#!/usr/bin/env bash
+echo "    libmissing.so.1 => not found"
+EOS
+  chmod +x "${_stub_dir}/ldd"
+  PATH="${_stub_dir}:${PATH}" run bash "${SMOKE_SH}" "${SCAN_ROOT}"
+  rm -rf "${_stub_dir}"
+  assert_failure
+  assert_equal "$(grep -c 'MISSING DEP' <<< "${output}")" "2"
+}
