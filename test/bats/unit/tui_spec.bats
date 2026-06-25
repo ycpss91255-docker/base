@@ -3,7 +3,7 @@
 # tui_spec.bats — pure-logic unit tests for the TUI support libraries.
 # Focuses on validators, INI round-trip, and mount-string parsing. No
 # interactive dialog/whiptail calls are exercised here (see
-# tui_backend_spec.bats and tui_flow.bats for those).
+# tui_backend_spec.bats and tui_flow_spec.bats for those).
 
 bats_require_minimum_version 1.5.0
 
