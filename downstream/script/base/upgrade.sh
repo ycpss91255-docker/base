@@ -145,7 +145,15 @@ _rollback_subtree_pull() {
   local _pre_head="$1"
   _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
   _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
-  git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
+  # Do NOT swallow a failed reset with `|| true`. This rollback runs when
+  # a destructive subtree FF has already mangled the tree; if the rescue
+  # reset itself fails (corrupt / gc'd / empty / bogus pre_head), the user
+  # must hear the truth -- a still-broken tree -- not a reassuring
+  # 'restored' message they might push damage on top of.
+  if ! git reset --hard "${_pre_head}" >/dev/null 2>&1; then
+    _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
+    exit 1
+  fi
   _error "upgrade aborted; repo restored to pre-upgrade state"
 }
 
