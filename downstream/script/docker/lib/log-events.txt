@@ -104,6 +104,7 @@ upgrade_subtree_pull_failed
 upgrade_version_bumped
 upgrade_version_mismatch
 upgrade_rollback
+upgrade_rollback_failed
 
 # init.sh
 init_started

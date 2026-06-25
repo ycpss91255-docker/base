@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **2057 tests** total (1972 unit + 85 integration).
+Template self-tests: **2058 tests** total (1973 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1633,7 +1633,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/upgrade_spec.bats (38)
+### test/bats/unit/upgrade_spec.bats (39)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -1675,6 +1675,7 @@ must not be reported as "needing downgrade").
 | `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
 | `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
 | `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
+| `_rollback_subtree_pull surfaces a failed reset instead of falsely reporting 'restored' (#700)` | Failed-reset escalation (no false 'restored' message) |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
 | `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
