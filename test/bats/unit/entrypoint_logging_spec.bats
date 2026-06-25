@@ -100,6 +100,47 @@ teardown() {
   assert_output --partial "should still print"
 }
 
+@test "entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)" {
+  # Point LOG_FILE_PATH under a parent that is a regular FILE, so
+  # `mkdir -p $(dirname)` fails for any caller (root-proof) -- exercises
+  # the mkdir-fail warn-and-continue branch, never hit before.
+  printf 'i am a file\n' > "${TEMP_DIR}/blocker"
+  local _log="${TEMP_DIR}/blocker/devel.log"
+  run bash -c "
+    export LOG_FILE_PATH='${_log}'
+    . /source/downstream/script/docker/runtime/logging.sh
+    echo 'should still print'
+  " 2>&1
+  assert_success
+  assert_output --partial "cannot create"
+  assert_output --partial "should still print"
+  # No tee happened: the blocker file is untouched, no log produced.
+  assert [ ! -f "${_log}" ]
+}
+
+@test "entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)" {
+  # Build a stub PATH with the externals the helper reaches before the
+  # tee check (dirname, mkdir) but NOT tee, so `command -v tee` fails and
+  # the helper must warn-and-continue (non-fatal under the caller set -e).
+  local _bin="${TEMP_DIR}/stubbin"
+  mkdir -p "${_bin}"
+  local _t
+  for _t in bash dirname mkdir cat printf; do
+    ln -s "$(command -v "${_t}")" "${_bin}/${_t}" 2>/dev/null || true
+  done
+  local _log="${TEMP_DIR}/devel.log"
+  run bash -c "
+    export LOG_FILE_PATH='${_log}'
+    export PATH='${_bin}'
+    set -euo pipefail
+    . /source/downstream/script/docker/runtime/logging.sh
+    echo 'should still print'
+  " 2>&1
+  assert_success
+  assert_output --partial "tee binary missing"
+  assert_output --partial "should still print"
+}
+
 @test "entrypoint_logging captures stderr along with stdout (#328)" {
   local _log="${TEMP_DIR}/devel.log"
   run bash -c "

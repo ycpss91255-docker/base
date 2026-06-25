@@ -49,7 +49,7 @@ Template self-tests: **1990 tests** total (1905 unit + 85 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/bats/unit/log_spec.bats (64)
+### test/bats/unit/log_spec.bats (69)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -63,6 +63,7 @@ microsecond timestamps, `_log_plain` removed.
 | Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL | 2 |
 | Single-sink tty-detect dispatch (#438): non-TTY auto JSON, `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv | 5 |
 | Startup TTY cache `_LOG_IS_TTY` (#605): helper defined + cached-0/cached-nonzero/unset-fallback; auto-format honours cache + unset-identity; explicit `LOG_FORMAT` bypasses cache; `_log_color_enabled` cache read + NO_COLOR/FORCE_COLOR precedence over cache | 12 |
+| JSON escaping (`_log_json_escape`, #691): quote / lone-backslash double / newline+tab+CR / substitution order; live `_log_info` attr value with quote+backslash+tab stays well-formed | 5 |
 | JSON output: OTel fields, custom attributes, severity numbers, per-line structure | 4 |
 | TRACEPARENT in JSON: trace_id/span_id present/absent | 2 |
 | Strict body enforcement (#438): unregistered fatal, registered OK, empty OK, error names body + file | 4 |
@@ -74,7 +75,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/bats/unit/transcript_spec.bats (25)
+### test/bats/unit/transcript_spec.bats (31)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -96,6 +97,9 @@ Activation is execution-only (`_transcript_begin` in each verb's
 | `_transcript_enabled`: default true / `wrapper_transcript=false` kill switch; `WRAPPER_TRANSCRIPT` env override wins over conf both ways (#622) | 4 |
 | `_atexit`: registered callbacks run LIFO on exit | 1 |
 | `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days | 2 |
+| `_transcript_prune` keep=0 wipes all + read-side guard rejects hand-edited `wrapper_transcript_keep=0` (falls back to 20) (#691) | 2 |
+| Degrade-to-no-op failure branches (#691): mkdir-fail / raw-file-unwritable / tee-missing each WARN + return 0, wrapper continues | 3 |
+| Non-zero wrapper exit recorded (`transcript_complete exit_code=7`) AND propagated to caller (#691) | 1 |
 | End-to-end: file produced with combined content; ANSI stripped in file (colour on terminal); exit-code+duration line; `latest.log` symlink; `wrapper_transcript=false` no-op | 5 |
 | `_transcript_detach` (#608): no-detach full-captures (run -d path); detach captures orchestration only (`transcript_detached`, not the session); no-op when never begun | 3 |
 | Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui call begin + detach | 2 |
@@ -1238,7 +1242,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
 | `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
 
-### test/bats/unit/entrypoint_logging_spec.bats (6)
+### test/bats/unit/entrypoint_logging_spec.bats (8)
 
 Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
 downstream repos source from their `script/entrypoint.sh` so
@@ -1254,7 +1258,9 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging tees stdout to LOG_FILE_PATH when set (#328)` | Happy path |
 | `entrypoint_logging truncates LOG_FILE_PATH on each run (#328)` | Fresh container = fresh log |
 | `entrypoint_logging creates parent dir if missing (#328)` | mkdir -p safety net |
-| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
+| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback (truncate-fail branch) |
+| `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
+| `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
 ### test/bats/unit/template_spec.bats (145)

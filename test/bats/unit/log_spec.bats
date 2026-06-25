@@ -313,6 +313,62 @@ setup() {
   [[ "${combined}" == *'"severity_number":21'* ]]
 }
 
+# ── JSON escaping (_log_json_escape) ──────────────────────────────
+#
+# _log_json_escape is the only thing keeping JSON well-formed when an
+# attribute value / key / service / body carries a metacharacter. Every
+# other JSON test feeds clean values, so a regression in the escaper
+# (dropped backslash-doubling, inverted substitution order, an
+# unhandled control char) would still pass them. These pin each escape
+# explicitly: `"`, `\`, newline, tab, CR.
+
+# Inputs are built with printf into a variable so the metacharacters are
+# unambiguous (no nested-quoting guesswork over the bats -> bash -c hop).
+@test "_log_json_escape escapes a double-quote" {
+  source "${LOG_SH}"
+  run _log_json_escape 'a"b'
+  assert_success
+  assert_output 'a\"b'
+}
+
+@test "_log_json_escape doubles a lone backslash (no double-escape)" {
+  source "${LOG_SH}"
+  local _in; printf -v _in 'a\\b'   # a<backslash>b
+  run _log_json_escape "${_in}"
+  assert_success
+  assert_output 'a\\b'              # one backslash in -> two out (not four)
+}
+
+@test "_log_json_escape escapes newline tab and carriage-return" {
+  source "${LOG_SH}"
+  local _in; printf -v _in 'x\ny\tz\r'
+  run _log_json_escape "${_in}"
+  assert_success
+  assert_output 'x\ny\tz\r'
+}
+
+@test "_log_json_escape applies substitutions in order (backslash before quote)" {
+  source "${LOG_SH}"
+  # A backslash directly before a quote must become \\ then \" -> \\\" ,
+  # never \" + a stray doubled backslash. Pins the substitution ordering.
+  local _in; printf -v _in '%s' '\"'   # backslash then quote
+  run _log_json_escape "${_in}"
+  assert_success
+  assert_output '\\\"'
+}
+
+@test "JSON attribute value with quote/backslash/tab is escaped and line stays well-formed" {
+  source "${LOG_SH}"
+  local _v; printf -v _v 'say "hi"\tend\\done'   # quote, tab, backslash
+  run _log_info setup env_regenerated "note=${_v}"
+  assert_success
+  # The escaped substring appears verbatim in the JSON.
+  [[ "${output}" == *'"note":"say \"hi\"\tend\\done"'* ]]
+  # Line is still a single well-formed JSON object.
+  [[ "${output}" == "{"*"}" ]]
+  [[ "${output}" == *'"body":"env_regenerated"'* ]]
+}
+
 @test "JSON output is valid per-line (starts with { ends with })" {
   run bash -c "
     source ${LOG_SH}
