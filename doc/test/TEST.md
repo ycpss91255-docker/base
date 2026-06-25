@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1982 tests** total (1897 unit + 85 integration).
+Template self-tests: **1990 tests** total (1905 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -12,7 +12,7 @@ Template self-tests: **1982 tests** total (1897 unit + 85 integration).
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (43)
+### test/bats/unit/lib_spec.bats (45)
 
 | Test | Description |
 |------|-------------|
@@ -26,6 +26,8 @@ Template self-tests: **1982 tests** total (1897 unit + 85 integration).
 | `conf_logging.sh self-sources its conf.sh dependency in isolation (#568)` | Self-sourcing (load order not load-bearing) |
 | `_lib.sh is idempotent when sourced twice` | Double-source guard |
 | `_load_env exports variables from a .env file` | Env loader works |
+| `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
+| `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_load_env errors when no path is given` | Required arg check |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
@@ -1642,7 +1644,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (5)
+### test/bats/unit/conf_accessor_spec.bats (11)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
@@ -1651,6 +1653,18 @@ lists a section's keys, `_conf_load_merged` loads a template+repo section-replac
 merge into a handle, and `_conf_list_sorted` returns `prefix_N` values in numeric
 order (skipping empties) -- all without callers touching the internal
 parallel-array representation or the `<section>.<key>` namespacing rule.
+
+Dirty-input + error-path coverage (#689) pins the parser/accessor
+contracts on hand-edited / malformed setup.conf:
+
+| Test | Description |
+|------|-------------|
+| `_conf_get: duplicate key within a section -- last occurrence wins (#689)` | Override semantics (merge + re-save) |
+| `_conf_list: a section reopened later in the file keeps entries from both occurrences (#689)` | Reopened section appends; header deduped |
+| `_conf_get: inline '#' comment text is KEPT in the value (no inline-comment support) (#689)` | Trailing `# ...` is literal (only leading-# stripped) |
+| `_conf_sections: section header with internal whitespace is NOT trimmed ([ deploy ] != deploy) (#689)` | Interior spaces kept in captured name |
+| `_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)` | No header match -> keys lost, no crash |
+| `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
 
 ### test/bats/unit/gitignore_spec.bats (26)
 
