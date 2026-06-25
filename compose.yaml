@@ -48,14 +48,16 @@ services:
       - -c
       - ./script/test/test.sh --ci --behavioural
 
-  # Coverage: same pipeline plus kcov instrumentation. Stays on kcov/kcov
-  # because kcov is not in the alpine test-tools image (building it from
-  # source would balloon image size and pull in deps unrelated to fast CI).
-  # APT_MIRROR_DEBIAN is opt-in for networks where deb.debian.org is
-  # unreachable; _install_deps rewrites /etc/apt/sources.list before
-  # apt-installing bats/bats-support/bats-assert + git-cloning bats-mock.
+  # Coverage: same pre-baked test-tools image as `ci`, plus kcov
+  # instrumentation. kcov is now source-built INTO the test-tools
+  # image (Dockerfile.test-tools kcov-builder stage; not in any Alpine
+  # repo), so the coverage path runs on the same one-pull Alpine image as
+  # the rest of the suite — no more debian kcov/kcov service, no per-shard
+  # apt-install of ~24 packages (_install_deps), no APT_MIRROR_DEBIAN
+  # fragility. The only difference from `ci` is COVERAGE=1, which routes
+  # the in-container dispatch through _run_coverage.
   coverage:
-    image: kcov/kcov
+    image: ${TEST_TOOLS_IMAGE:-ghcr.io/ycpss91255-docker/test-tools:latest}
     security_opt:
       - seccomp=unconfined
     volumes:
@@ -64,7 +66,6 @@ services:
     environment:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
-      - APT_MIRROR_DEBIAN=${APT_MIRROR_DEBIAN:-deb.debian.org}
     entrypoint: /bin/bash
     command:
       - -c

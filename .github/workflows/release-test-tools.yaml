@@ -257,3 +257,9 @@ jobs:
           # zero for -W version, so probe presence via the binary path.
           docker run --rm "${image}" sh -c 'command -v mawk'
           docker run --rm "${image}" gawk --version
+          # kcov (#686): source-built into the image (not in any alpine
+          # repo) so the coverage matrix runs on this one shared image
+          # instead of the old debian kcov/kcov + per-shard apt-install.
+          # Smoke-check the binary loads (its runtime shared libs are
+          # apk-installed in the final stage); --version exits 0.
+          docker run --rm "${image}" kcov --version

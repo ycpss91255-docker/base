@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1982 tests** total (1897 unit + 85 integration).
+Template self-tests: **1977 tests** total (1892 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -1240,7 +1240,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (142)
+### test/bats/unit/template_spec.bats (145)
 
 | Test | Description |
 |------|-------------|
@@ -1259,7 +1259,7 @@ the host file content and the inherited stdout (preserving
 | `justfile.test has coverage recipe` | just recipe |
 | `justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
 | `justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.test |
-| `Dockerfile.test-tools no longer installs make (single runner: just)` | dead make dependency removed |
+| `Dockerfile.test-tools no longer installs make into the final image (single runner: just)` | dead make dependency stays out of final image |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -1313,6 +1313,9 @@ the host file content and the inherited stdout (preserving
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
+| `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
+| `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
+| `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
 | `Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)` | multi-arch build regression |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
 | `build.sh sources _lib.sh` | build.sh uses shared lib |
@@ -1388,18 +1391,10 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (46)
+### test/bats/unit/ci_spec.bats (38)
 
 | Test | Description |
 |------|-------------|
-| `_install_deps: skips apt-get and git when bats is already installed` | No-op fast path |
-| `_install_deps: dies with clear error when apt-get update fails` | Explicit `apt-get update` error |
-| `_install_deps: dies with clear error when apt-get install fails` | Explicit `apt-get install` error |
-| `_install_deps: dies with clear error when git clone bats-mock fails` | Explicit `git clone` error |
-| `_install_deps: happy path succeeds when bats absent and all deps install cleanly` | Full install path |
-| `_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default` | TW-mirror sed substitution path |
-| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default` | Default value short-circuit |
-| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset` | Unset env var short-circuit |
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
@@ -1436,7 +1431,7 @@ the host file content and the inherited stdout (preserving
 | `_run_coverage: non-last shard does NOT kcov the integration suite (#615)` | #615 no integration duplication |
 | `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
-| `main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)` | #615 coverage path skips lint |
+| `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
 
 ### test/bats/unit/issueref_lint_spec.bats (14)

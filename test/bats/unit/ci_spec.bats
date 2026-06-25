@@ -3,10 +3,8 @@
 # Unit tests for script/test/test.sh helper functions.
 # Only helpers that can be exercised without a full CI run are covered here.
 #
-# NOTE: these tests confine PATH to MOCK_DIR *after* sourcing test.sh so that
-# (a) `command -v bats` inside _install_deps always misses (bats lives in
-#     /usr/bin in the CI container, which MOCK_DIR does not include), and
-# (b) apt-get / git resolve to our mocks instead of the real binaries.
+# NOTE: these tests confine PATH to MOCK_DIR *after* sourcing test.sh so
+# the mocked binaries resolve instead of the real ones.
 
 setup() {
   export LOG_FORMAT=text
@@ -21,146 +19,6 @@ setup() {
 
 teardown() {
   cleanup_mock_dir
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _install_deps
-# ════════════════════════════════════════════════════════════════════
-
-@test "_install_deps: skips apt-get and git when bats is already installed" {
-  mock_cmd "bats" 'exit 0'
-  # These mocks must NOT be invoked; fail loudly if they are.
-  mock_cmd "apt-get" 'echo "apt-get should not be called"; exit 1'
-  mock_cmd "git" 'echo "git should not be called"; exit 1'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    _install_deps
-  '
-  assert_success
-  refute_output --partial "should not be called"
-}
-
-@test "_install_deps: dies with clear error when apt-get update fails" {
-  mock_cmd "apt-get" '
-    if [[ "$1" == "update" ]]; then exit 42; fi
-    exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    _install_deps
-  '
-  assert_failure
-  assert_output --partial "ERROR"
-  assert_output --partial "apt-get update failed"
-}
-
-@test "_install_deps: dies with clear error when apt-get install fails" {
-  mock_cmd "apt-get" '
-    case "$1" in
-      update)  exit 0 ;;
-      install) exit 100 ;;
-      *)       exit 0 ;;
-    esac'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    _install_deps
-  '
-  assert_failure
-  assert_output --partial "ERROR"
-  assert_output --partial "apt-get install failed"
-}
-
-@test "_install_deps: dies with clear error when git clone bats-mock fails" {
-  mock_cmd "apt-get" 'exit 0'
-  mock_cmd "git" '
-    if [[ "$1" == "clone" ]]; then exit 128; fi
-    exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    _install_deps
-  '
-  assert_failure
-  assert_output --partial "ERROR"
-  assert_output --partial "git clone bats-mock failed"
-}
-
-@test "_install_deps: happy path succeeds when bats absent and all deps install cleanly" {
-  mock_cmd "apt-get" 'exit 0'
-  mock_cmd "git" 'exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    _install_deps
-  '
-  assert_success
-}
-
-@test "_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default" {
-  local _log="${BATS_TEST_TMPDIR}/sed.log"
-  # _install_deps gates the sed branch on `[[ -f /etc/apt/sources.list ]]`,
-  # which is true on the previous kcov/kcov debian runner but FALSE on the
-  # alpine test-tools image (no /etc/apt). Materialise the file once if
-  # missing so this regression test is image-agnostic — the goal here is
-  # to verify the sed substitution logic, not the file-existence guard
-  # (the unset/default tests below already cover the no-op branch).
-  if [[ ! -f /etc/apt/sources.list ]]; then
-    mkdir -p /etc/apt
-    : > /etc/apt/sources.list
-  fi
-  mock_cmd "sed" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
-  mock_cmd "apt-get" 'exit 0'
-  mock_cmd "git" 'exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    export APT_MIRROR_DEBIAN="mirror.twds.com.tw"
-    _install_deps
-  '
-  assert_success
-  assert [ -f "${_log}" ]
-  run cat "${_log}"
-  assert_output --partial "s|deb.debian.org|mirror.twds.com.tw|g"
-}
-
-@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default" {
-  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
-  mock_cmd "apt-get" 'exit 0'
-  mock_cmd "git" 'exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    export APT_MIRROR_DEBIAN="deb.debian.org"
-    _install_deps
-  '
-  assert_success
-  refute_output --partial "sed-should-not-be-called"
-}
-
-@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset" {
-  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
-  mock_cmd "apt-get" 'exit 0'
-  mock_cmd "git" 'exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    export PATH="'"${MOCK_DIR}"'"
-    unset APT_MIRROR_DEBIAN
-    _install_deps
-  '
-  assert_success
-  refute_output --partial "sed-should-not-be-called"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -239,11 +97,11 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
-# Regression guards fordefault `test.sh` (no flag) must hit the
-# alpine `ci` service so the apt-install path is bypassed; `--coverage`
-# must hit the kcov/kcov-based `coverage` service. Mock `docker` so
-# the test captures the chosen service name + COVERAGE env without
-# actually running compose.
+# Regression guards: default `test.sh` (no flag) must hit the alpine
+# `ci` service; `--coverage` must hit the `coverage` service (which now
+# shares the same test-tools image). Mock `docker` so the test captures
+# the chosen service name + COVERAGE env without actually running
+# compose.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_via_compose: routes default mode to the ci service with COVERAGE=0" {
@@ -526,18 +384,18 @@ teardown() {
   assert_output --partial "COVERAGE_SHARD=2/4"
 }
 
-@test "main --ci with COVERAGE=1 skips the lint phase (kcov image has no hadolint) (#615)" {
-  # The coverage path runs in the kcov/kcov debian image, which bakes in
-  # neither shellcheck nor hadolint. Running the lint phase there would
-  # fail every coverage shard at _run_hadolint. Assert the --ci COVERAGE
-  # path does NOT shell out to either linter.
+@test "main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)" {
+  # The coverage shards are a kcov-only concern; lint is measured by the
+  # dedicated shellcheck/hadolint jobs. Running the lint phase once per
+  # coverage shard would be wasted work, so COVERAGE=1 deliberately skips
+  # it even though the shared test-tools image now ships both linters.
+  # Assert the --ci COVERAGE path does NOT shell out to either.
   local _sc_log="${BATS_TEST_TMPDIR}/sc.log"
   local _hd_log="${BATS_TEST_TMPDIR}/hd.log"
   mock_cmd "shellcheck" 'printf "called\n" >> "'"${_sc_log}"'"; exit 0'
   mock_cmd "hadolint" 'printf "called\n" >> "'"${_hd_log}"'"; exit 0'
   mock_cmd "kcov" 'exit 0'
   mock_cmd "bats" 'exit 0'
-  # bats already present so _install_deps short-circuits (no apt-get).
 
   run bash -c '
     source /source/script/test/test.sh
