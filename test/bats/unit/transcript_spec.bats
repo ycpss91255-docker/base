@@ -155,6 +155,38 @@ teardown() { rm -rf "${TMP_DIR}"; }
   assert_output "20"
 }
 
+@test "_transcript_prune: keep=0 would delete every transcript (#691)" {
+  # Pins the raw behaviour of prune itself: with keep=0 the count-based
+  # drop removes ALL *.log files. This is why the read-side guard in
+  # _transcript_begin MUST reject 0 (see next test) -- the validator
+  # already does (^[1-9][0-9]*$), but a hand-edited setup.conf bypasses it.
+  local _d="${TMP_DIR}/log/build"
+  mkdir -p "${_d}"
+  printf 'a\n' > "${_d}/a.log"
+  printf 'b\n' > "${_d}/b.log"
+  _transcript_prune "${_d}" 0 3650
+  run bash -c "ls ${_d}/*.log 2>/dev/null | wc -l"
+  assert_output "0"
+}
+
+@test "_transcript_begin: hand-edited wrapper_transcript_keep=0 is rejected, falls back to 20 (#691)" {
+  # The validator rejects 0 (>=1) but the Apply/read path does not
+  # revalidate; the read-side guard must reject an out-of-range 0 so a
+  # hand-edited setup.conf cannot drive prune with keep=0 (wipe-all).
+  mkdir -p "${TMP_DIR}/config/docker"
+  printf '[logging]\nwrapper_transcript_keep = 0\n' \
+    > "${TMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    printf 'KEEP=%s\n' \"\${_TRANSCRIPT_KEEP}\"
+    exit 0
+  "
+  assert_success
+  assert_output --partial "KEEP=20"
+}
+
 @test "_transcript_prune: drops files older than <days> regardless of count (#606)" {
   local _d="${TMP_DIR}/log/build"
   mkdir -p "${_d}"
@@ -215,6 +247,30 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert_output --partial "duration="
 }
 
+@test "transcript: a non-zero wrapper exit is recorded AND propagated (#691)" {
+  # The whole point of the transcript is to record FAILING runs, yet the
+  # shared harness always exits 0. Here the wrapper exits 7: the EXIT
+  # handler must (a) write transcript_complete exit_code=7 to the file and
+  # (b) `return "${_rc}"` so the real code reaches the caller (`just`),
+  # not get swallowed/rewritten by finalize (wait/rm clobbering $?).
+  run -7 bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    printf 'work then fail\n'
+    exit 7
+  "
+  # (a) exit code propagated to the caller.
+  assert_equal "${status}" 7
+  assert_output --partial "work then fail"
+  # (b) the recorded closing line carries the real non-zero code.
+  local _f
+  _f="$(ls "${TMP_DIR}/log/build/"*.log 2>/dev/null | head -n1)"
+  assert [ -n "${_f}" ]
+  run grep -F "transcript_complete exit_code=7" "${_f}"
+  assert_success
+}
+
 @test "transcript: latest.log symlink points at the run's file (#606)" {
   _run_transcript_harness build
   assert [ -L "${TMP_DIR}/log/build/latest.log" ]
@@ -229,6 +285,94 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert_success
   assert_output --partial "plain stdout line"
   assert [ ! -d "${TMP_DIR}/log/build" ]
+}
+
+# ── degrade-to-no-op failure branches ───────────────────────────────
+#
+# _transcript_begin has three failure-safe branches that must keep the
+# wrapper running (return 0, WARN only) when the logging substrate is
+# unavailable. A regression turning any into a hard failure would break
+# every wrapper on a read-only checkout or a tee-less image, silently.
+
+@test "_transcript_begin: mkdir-fail degrades to no-op + WARN, wrapper continues (#691)" {
+  # Make log/ a regular FILE so `mkdir -p log/build` cannot succeed.
+  printf '' > "${TMP_DIR}/log"
+  run bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}' LOG_FORMAT=text
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    rc=\$?
+    printf 'wrapper still runs\n'
+    exit \"\${rc}\"
+  " 2>&1
+  assert_success
+  assert_output --partial "wrapper still runs"
+  assert_output --partial "transcript_dir_create_failed"
+  # No transcript directory was created (log/ is still the file).
+  assert [ -f "${TMP_DIR}/log" ]
+  assert [ ! -d "${TMP_DIR}/log/build" ]
+}
+
+@test "_transcript_begin: file-unwritable degrades to no-op + WARN (#691)" {
+  # mkdir succeeds, but the raw capture path `: > <file>.raw` must fail.
+  # chmod-based write denial is bypassed by root (the harness runs as
+  # root), so instead PRE-CREATE the exact raw path as a DIRECTORY (the
+  # same root-proof trick the entrypoint-logging spec uses): `: >` onto a
+  # directory always fails. The raw path is deterministic once we pin both
+  # the trace id (via TRACEPARENT) and the timestamp (via a `date` stub).
+  local _bin="${TMP_DIR}/datestub"
+  mkdir -p "${_bin}"
+  local _real_date; _real_date="$(command -v date)"
+  cat > "${_bin}/date" <<STUB
+#!/usr/bin/env bash
+# Fixed UTC filename timestamp; delegate every other date call to the real binary.
+if [[ "\$*" == *"%Y%m%dT%H%M%SZ"* ]]; then
+  printf '20260625T000000Z\n'
+  exit 0
+fi
+exec "${_real_date}" "\$@"
+STUB
+  chmod +x "${_bin}/date"
+  local _tid8="0123456789abcdef0123456789abcdef"
+  local _raw="${TMP_DIR}/log/build/20260625T000000Z-${_tid8:0:8}.log.raw"
+  mkdir -p "${_raw}"   # occupy the raw path with a directory -> `: >` fails
+  run bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}' LOG_FORMAT=text
+    export TRACEPARENT='00-${_tid8}-aabbccddeeff0011-01'
+    export PATH='${_bin}:'\"\${PATH}\"
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    rc=\$?
+    printf 'wrapper still runs\n'
+    exit \"\${rc}\"
+  " 2>&1
+  assert_success
+  assert_output --partial "wrapper still runs"
+  assert_output --partial "transcript_file_unwritable"
+}
+
+@test "_transcript_begin: tee-missing degrades to no-op + WARN (#691)" {
+  # Build a stub PATH that has every external _transcript_begin reaches
+  # BEFORE the tee check (mkdir, date) but NOT tee, so `command -v tee`
+  # fails and the begin must warn-and-continue.
+  local _bin="${TMP_DIR}/stubbin"
+  mkdir -p "${_bin}"
+  local _t
+  for _t in bash mkdir date rm ls head od tr cat dirname basename grep; do
+    ln -s "$(command -v "${_t}")" "${_bin}/${_t}" 2>/dev/null || true
+  done
+  run bash -c "
+    export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}' LOG_FORMAT=text
+    export PATH='${_bin}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    rc=\$?
+    printf 'wrapper still runs\n'
+    exit \"\${rc}\"
+  " 2>&1
+  assert_success
+  assert_output --partial "wrapper still runs"
+  assert_output --partial "transcript_tee_missing"
 }
 
 # ──interactive verbs (orchestration capture + detach) ────────

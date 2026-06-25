@@ -351,8 +351,12 @@ _transcript_begin() {
 
   _TRANSCRIPT_KEEP="$(_transcript_conf wrapper_transcript_keep 20)"
   _TRANSCRIPT_DAYS="$(_transcript_conf wrapper_transcript_days 14)"
-  [[ "${_TRANSCRIPT_KEEP}" =~ ^[0-9]+$ ]] || _TRANSCRIPT_KEEP=20
-  [[ "${_TRANSCRIPT_DAYS}" =~ ^[0-9]+$ ]] || _TRANSCRIPT_DAYS=14
+  # Positive integers only (>= 1): mirror the validator's ^[1-9][0-9]*$
+  # so a hand-edited setup.conf that the Apply/read path never revalidates
+  # cannot reach prune with keep=0 (which would wipe every transcript) or
+  # days=0 (drop everything by age). Out-of-range -> documented default.
+  [[ "${_TRANSCRIPT_KEEP}" =~ ^[1-9][0-9]*$ ]] || _TRANSCRIPT_KEEP=20
+  [[ "${_TRANSCRIPT_DAYS}" =~ ^[1-9][0-9]*$ ]] || _TRANSCRIPT_DAYS=14
   _TRANSCRIPT_START="$(date +%s 2>/dev/null || printf '0')"
 
   # Header meta lines: written directly to the capture (file only).
