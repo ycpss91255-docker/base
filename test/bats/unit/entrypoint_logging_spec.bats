@@ -121,7 +121,7 @@ teardown() {
 @test "entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)" {
   # The kcov coverage wrapper itself shells out through PATH; replacing PATH
   # with a tee-less stub breaks kcov, not the helper. The tee-absent path is
-  # exercised by the plain bats-unit run; skip it only under coverage (#613).
+  # exercised by the plain bats-unit run; skip it only under coverage.
   [ "${COVERAGE:-0}" = 1 ] && skip "tee-less PATH stub perturbs the kcov wrapper (#613)"
   # Build a stub PATH with the externals the helper reaches before the
   # tee check (dirname, mkdir) but NOT tee, so `command -v tee` fails and

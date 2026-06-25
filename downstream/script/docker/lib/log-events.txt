@@ -124,6 +124,7 @@ ci_bats_path_not_found
 ci_bats_path_behavioural
 ci_bats_path_coverage
 ci_mixed_test_layout
+ci_issueref_in_comment
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint
