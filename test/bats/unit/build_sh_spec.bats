@@ -610,6 +610,19 @@ EOS
   refute_output --partial "proceed?"
 }
 
+@test "build.sh --reset-conf without -y on closed stdin aborts cleanly, no set-e crash (#702, #700)" {
+  # EOF path: an existing setup.conf forces the interactive confirm. With
+  # no --yes and a closed stdin, `read` returns non-zero on EOF. Pre-fix,
+  # the bare `read _reply` under `set -e` aborted at the read line BEFORE
+  # the case could map empty->abort, so a piped/CI invocation died with NO
+  # '[build] aborted.' diagnostic. Post-fix, EOF maps to an empty reply
+  # which the default case treats as an explicit abort.
+  echo "old" > "${SANDBOX}/config/docker/setup.conf"
+  run bash "${SANDBOX}/build.sh" --reset-conf </dev/null
+  assert_failure 1
+  assert_output --partial "[build] aborted."
+}
+
 # ════════════════════════════════════════════════════════════════════
 # -C / --chdir flag (issue docker_harness#53)
 #
