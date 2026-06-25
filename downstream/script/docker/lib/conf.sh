@@ -389,8 +389,21 @@ _write_setup_conf() {
     __tpl_lines+=("${__line}")
   done < "${_tpl}"
 
+  # Write to a sibling temp file and atomically `mv` it over _dst at the
+  # very end. The previous in-place `: > "${_dst}"` truncated the user's
+  # config FIRST, opening a data-loss window: any append failing after the
+  # truncate (disk full / mid-write error) left setup.conf truncated with
+  # no rollback. The temp+mv pattern means a mid-write failure leaves the
+  # original _dst untouched. Guard mktemp so a failed temp creation
+  # (read-only dir / no inodes) bails before touching _dst.
+  local _out
+  if ! _out="$(mktemp "${_dst}.XXXXXX" 2>/dev/null)" || [[ -z "${_out}" || ! -f "${_out}" ]]; then
+    _log_err conf conf_write_tmp_failed "display=_write_setup_conf: cannot create temp file next to ${_dst}; destination left unchanged" "file=${_dst}"
+    return 1
+  fi
+
   local __current="" __k __rest
-  : > "${_dst}"
+  : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
     if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       # Flush not-yet-emitted overrides belonging to the section we are
@@ -400,19 +413,19 @@ _write_setup_conf() {
         for __ovk in "${!__override[@]}"; do
           if [[ "${__ovk}" == "${__current}."* && -z "${__emitted[${__ovk}]:-}" ]]; then
             [[ -n "${__removed[${__ovk}]+x}" ]] && { __emitted[${__ovk}]=1; continue; }
-            printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_dst}"
+            printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_out}"
             __emitted[${__ovk}]=1
           fi
         done
         # Separate appended keys from the next section header with a blank line
-        printf '\n' >> "${_dst}"
+        printf '\n' >> "${_out}"
       fi
       __current="${BASH_REMATCH[1]}"
-      printf '%s\n' "${__line}" >> "${_dst}"
+      printf '%s\n' "${__line}" >> "${_out}"
       continue
     fi
     if [[ -z "${__line}" || "${__line}" =~ ^[[:space:]]*# ]]; then
-      printf '%s\n' "${__line}" >> "${_dst}"
+      printf '%s\n' "${__line}" >> "${_out}"
       continue
     fi
     if [[ -n "${__current}" && "${__line}" == *=* ]]; then
@@ -425,12 +438,12 @@ _write_setup_conf() {
         continue
       fi
       if [[ -n "${__override[${__nskey}]+x}" ]]; then
-        printf '%s = %s\n' "${__rest}" "${__override[${__nskey}]}" >> "${_dst}"
+        printf '%s = %s\n' "${__rest}" "${__override[${__nskey}]}" >> "${_out}"
         __emitted[${__nskey}]=1
         continue
       fi
     fi
-    printf '%s\n' "${__line}" >> "${_dst}"
+    printf '%s\n' "${__line}" >> "${_out}"
   done
 
   # Flush leftovers belonging to the final section
@@ -439,7 +452,7 @@ _write_setup_conf() {
     for __ovk in "${!__override[@]}"; do
       if [[ "${__ovk}" == "${__current}."* && -z "${__emitted[${__ovk}]:-}" ]]; then
         [[ -n "${__removed[${__ovk}]+x}" ]] && continue
-        printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_dst}"
+        printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_out}"
         __emitted[${__ovk}]=1
       fi
     done
@@ -484,16 +497,21 @@ _write_setup_conf() {
   # so re-saves don't double-write).
   local __ns
   for __ns in "${__new_section_order[@]}"; do
-    printf '\n[%s]\n' "${__ns}" >> "${_dst}"
+    printf '\n[%s]\n' "${__ns}" >> "${_out}"
     for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
       local __key="${_wsc_keys[_wsc_i]}"
       [[ "${__key}" == "${__ns}."* ]] || continue
       [[ -n "${__emitted[${__key}]:-}" ]] && continue
       [[ -n "${__removed[${__key}]+x}" ]] && continue
-      printf '%s = %s\n' "${__key#"${__ns}".}" "${_wsc_values[_wsc_i]}" >> "${_dst}"
+      printf '%s = %s\n' "${__key#"${__ns}".}" "${_wsc_values[_wsc_i]}" >> "${_out}"
       __emitted[${__key}]=1
     done
   done
+
+  # Atomically replace _dst only after the full rewrite succeeded. A
+  # failed mv (e.g. _dst on a read-only mount) is surfaced rather than
+  # leaving a stray temp file silently behind.
+  mv "${_out}" "${_dst}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -526,8 +544,17 @@ _upsert_conf_value() {
     return 1
   fi
 
+  # Guard the temp-file creation. An unchecked `mktemp` failure (read-only
+  # dir / no inodes) leaves _tmp empty, the per-line `>> ""` writes
+  # silently no-op, and the final `mv "" "${_file}"` either aborts under
+  # set -e with no actionable message or, worse, truncates the user's
+  # config. Bail BEFORE touching the original file so a failed write is
+  # never destructive.
   local _tmp
-  _tmp="$(mktemp "${_file}.XXXXXX")"
+  if ! _tmp="$(mktemp "${_file}.XXXXXX" 2>/dev/null)" || [[ -z "${_tmp}" || ! -f "${_tmp}" ]]; then
+    _log_err conf conf_upsert_tmp_failed "display=_upsert_conf_value: cannot create temp file next to ${_file}; original left unchanged" "file=${_file}"
+    return 1
+  fi
 
   local __line __current="" __k __rest __matched=0 __in_sect=0 __sect_found=0
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
