@@ -11,8 +11,14 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
+  # hook.sh emits its not-executable error via _log_err (lib/log.sh),
+  # which at runtime is always sourced before hook.sh through _lib.sh.
+  # Source it here so the helper is present in isolation too.
+  # shellcheck disable=SC1091
+  source /source/downstream/script/docker/lib/log.sh
   # shellcheck disable=SC1091
   source /source/downstream/script/docker/lib/hook.sh
 

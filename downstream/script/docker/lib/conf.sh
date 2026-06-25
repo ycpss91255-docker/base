@@ -512,7 +512,7 @@ _upsert_conf_value() {
   local _key="${3:?}"
   local _value="${4-}"
 
-  [[ -f "${_file}" ]] || { printf "[_upsert_conf_value] file missing: %s\n" "${_file}" >&2; return 1; }
+  [[ -f "${_file}" ]] || { _log_err conf conf_upsert_file_missing "display=_upsert_conf_value: file missing: ${_file}"; return 1; }
 
   # A value (or key) bearing a newline would be written by the
   # `printf '%s = %s\n'` lines below as multiple physical lines, leaving

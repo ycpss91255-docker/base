@@ -110,6 +110,21 @@ teardown() {
   assert_output --partial "--shell"
 }
 
+@test "unknown argument is a usage error (exit 2), distinct from detection error (#692)" {
+  # A bogus flag is a usage error: exit 2, not the exit 1 used for an
+  # unsupported-shell detection error. The distinction must not collapse.
+  run "${COMPLETIONS}" --bogus-flag
+  assert_equal "${status}" 2
+  assert_output --partial "unknown argument"
+}
+
+@test "missing action is a usage error (exit 2) (#692)" {
+  # A valid --shell but no install|uninstall action: usage error, exit 2.
+  run "${COMPLETIONS}" --shell bash
+  assert_equal "${status}" 2
+  assert_output --partial "missing action"
+}
+
 @test "-h / --help exits 0 with usage" {
   run "${COMPLETIONS}" --help
   assert_success

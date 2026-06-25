@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1990 tests** total (1905 unit + 85 integration).
+Template self-tests: **2055 tests** total (1970 unit + 85 integration).
 
 > Counted scope is the `just test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -181,7 +181,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh unit specs (371, split by concern)
+### setup.sh unit specs (378, split by concern)
 
 The setup.sh unit suite was split from a single 371-test
 `setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
@@ -673,7 +673,7 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
 | `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (32)
+### test/bats/unit/dockerfile_migrate_spec.bats (33)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -694,7 +694,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | migration 1 (wrapper-copy): shape A `COPY *.sh /lint/`, shape B `COPY .base/script/docker/*.sh /lint/` -> `wrapper/*.sh`, idempotent, detect-false | 4 |
 | migration 2 (pip-helper): drop retired `${CONFIG_DIR}/pip/requirements.txt` install line + comment, detect-false | 2 |
 | migration 3 (explicit-copy): drop single-line + backslash-continued explicit top-level `.sh` lint COPYs, detect-false on lib/wrapper dir COPYs | 3 |
-| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name | 3 |
+| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name, heal a stale entrypoint when the Dockerfile is already migrated (#692) | 4 |
 | migration 5 (hadolint): DL3007 pin tags, DL3046 `useradd -l`, DL3003 `WORKDIR /lint`, DL3042 `--no-cache-dir`, DL4006 alpine SHELL pipefail, DL3006 inline ignore (+idempotent), detect-false on clean | 8 |
 | migration 6 (sc1090): broaden entrypoint `SC1091` -> `SC1090,SC1091`, idempotent, detect-false without entrypoint | 3 |
 | migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
@@ -1017,7 +1017,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (11)
+### test/bats/unit/completions_spec.bats (13)
 
 Unit tests for the opt-in shell tab-completion installer
 `downstream/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1038,6 +1038,8 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `uninstall --shell all removes all three shells` | bash + fish + zsh removed |
 | `default --shell detects bash from $SHELL basename` | `$SHELL`-driven detection |
 | `default --shell detection errors on an unknown shell` | unknown -> error asking for --shell |
+| `unknown argument is a usage error (exit 2), distinct from detection error (#692)` | exit 2 vs exit 1 |
+| `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
@@ -1414,7 +1416,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (38)
+### test/bats/unit/ci_spec.bats (46)
 
 | Test | Description |
 |------|-------------|
@@ -1433,6 +1435,9 @@ the host file content and the inherited stdout (preserving
 | `main --bats-path: test/bats/behavioural/ path dies with a clear hint` | #523 behavioural guard |
 | `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
+| `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
+| `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
+| `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
@@ -1448,7 +1453,10 @@ the host file content and the inherited stdout (preserving
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
 | `_shard_unit_files: same shard index selects the same slice as _run_unit_shard's partition (#615)` | #615 coverage matrix mirrors unit matrix |
 | `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 round-robin invariant (each slice runs once) |
-| `_shard_unit_files: rejects a malformed shard spec (#615)` | #615 shard-spec validation |
+| `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
+| `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
+| `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
+| `_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)` | #692 empty-slice guard |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: last shard also kcov's the integration suite (#615)` | #615 integration on last shard |
 | `_run_coverage: non-last shard does NOT kcov the integration suite (#615)` | #615 no integration duplication |
@@ -1456,14 +1464,18 @@ the host file content and the inherited stdout (preserving
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 behavioural socket guard |
+| `_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 behavioural docker-CLI guard |
 
-### test/bats/unit/issueref_lint_spec.bats (14)
+### test/bats/unit/issueref_lint_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
 | `_run_issueref: flags a bare #NNN in a leading comment` | Leading comment ref detected |
 | `_run_issueref: flags a bare #NNN in a trailing comment` | Trailing comment ref detected |
 | `_run_issueref: flags the (#NNN) paren form in a comment` | Parenthesised ref detected |
+| `_run_issueref: flags a bare 2-digit ref (lower accept boundary) (#692)` | #692 2-digit lower bound flagged |
+| `_run_issueref: flags a bare 4-digit ref (upper accept boundary) (#692)` | #692 4-digit upper bound flagged |
 | `_run_issueref: flags refs in .bats helper comments (not @test names)` | Helper comment flagged, @test name kept |
 | `_run_issueref: passes clean on a tree with no comment refs` | Clean tree passes |
 | `_run_issueref: does NOT flag a #NNN inside a string literal` | String-literal ref kept |
@@ -1474,9 +1486,28 @@ the host file content and the inherited stdout (preserving
 | `_run_issueref: does NOT treat a ${#arr[@]} expansion as a comment` | Parameter expansion kept |
 | `_run_issueref: does NOT flag a #NNN opener in heredoc usage prose` | Heredoc usage prose kept |
 | `_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine` | Detection parity across busybox-awk / mawk / gawk |
+| `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/init_spec.bats (35)
+### test/bats/unit/lint_bare_stderr_spec.bats (5)
+
+Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
+goes through lib/log.sh helpers" lint. The lint takes the repo root as
+`$1`, so the spec drives it against synthesized fixture trees laid out
+like the real repo (sources under `downstream/script/docker/**`, tests
+under `script/test/**`). A real-repo-root clean-tree case guards against
+the path-drift bug (an empty find root passing vacuously) by proving the
+scan actually walks the populated `downstream/script/docker` tree.
+
+| Test | Description |
+|------|-------------|
+| `flags a bare 'printf ... >&2' under downstream/script/docker (#692)` | exit 1 + violation line on the correct tree |
+| `exits 0 on a clean tree (no bare stderr) (#692)` | clean fixture passes silently |
+| `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
+| `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
+| `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
+
+### test/bats/unit/init_spec.bats (40)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -1509,6 +1540,11 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_preflight_just: silent and exits 0 when just is present (#607)` | Runner present -> no warning |
 | `_bootstrap_just: no-op when just is already on PATH (#607)` | Opt-in bootstrap skips when installed |
 | `_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)` | Opt-in installer pipeline to ~/.local/bin |
+| `_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)` | #692 installer-failure _error path |
+| `_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)` | #692 warn-on-failure degrade |
+| `_call_setup: skips with a notice when setup.sh is absent (#692)` | #692 skip-when-absent branch |
+| `_call_setup: returns 0 on a setup.sh that succeeds (#692)` | #692 happy path no-noise |
+| `_gen_setup_conf errors when the template setup.conf is absent (#692)` | #692 missing-template _error |
 
 ### test/bats/unit/smoke_helper_spec.bats (19)
 
@@ -1682,7 +1718,7 @@ contracts on hand-edited / malformed setup.conf:
 | `_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)` | No header match -> keys lost, no crash |
 | `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
 
-### test/bats/unit/gitignore_spec.bats (26)
+### test/bats/unit/gitignore_spec.bats (29)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -1699,6 +1735,9 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: idempotent — second invocation produces no further changes` | Idempotency |
 | `_sync_gitignore: no duplicate canonical lines after re-run` | No-dup invariant |
 | `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
+| `_sync_gitignore: documented constraint -- CRLF entries are not matched (LF-only) (#692)` | #692 LF-only presence-match constraint |
+| `_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)` | #692 `..` path wrapped as-is |
+| `_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)` | #692 space path wrapped as-is |
 | `_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml` | 15-repo drift fix |
 | `_untrack_canonical_in_repo: leaves untracked files alone` | Scope guard |
 | `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |

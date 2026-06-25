@@ -273,13 +273,46 @@ teardown() {
   assert_output --partial "OK"
 }
 
-@test "_shard_unit_files: rejects a malformed shard spec (#615)" {
+@test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
   run bash -c '
     set -e
     source /source/script/test/test.sh
     _shard_unit_files 5/4
   '
   assert_failure
+  assert_output --partial "Need 1<=n<=total"
+}
+
+@test "_shard_unit_files: rejects a no-slash shard spec (#692)" {
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _shard_unit_files abc
+  '
+  assert_failure
+  assert_output --partial "Expected <n>/<total>"
+}
+
+@test "_shard_unit_files: rejects a non-numeric shard spec (#692)" {
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _shard_unit_files a/b
+  '
+  assert_failure
+  assert_output --partial "Need 1<=n<=total"
+}
+
+@test "_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)" {
+  # A round-robin slice can be empty when total greatly exceeds the spec
+  # count: shard 100/100 selects NR%100==99, which no spec index hits.
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _shard_unit_files 100/100
+  '
+  assert_failure
+  assert_output --partial "No spec files matched"
 }
 
 @test "_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)" {
@@ -501,6 +534,45 @@ teardown() {
   assert_output --partial "cannot combine with --coverage"
 }
 
+@test "main: unknown option dies with ci_unknown_option (#692)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bogus
+  '
+  assert_failure
+  assert_output --partial "Unknown option"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)" {
+  # `--hadolint` narrows --lint; standalone is the easy-to-make typo for
+  # --hadolint-only. It must fail loudly, not silently no-op.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --hadolint
+  '
+  assert_failure
+  assert_output --partial "narrows --lint"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL=bogus main --ci
+  '
+  assert_failure
+  assert_output --partial "Unknown LINT_TOOL"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -703,4 +775,52 @@ teardown() {
     _run_hadolint
   '
   assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _behavioural_setup prerequisite guards (drivers/bats.sh)
+# ════════════════════════════════════════════════════════════════════
+#
+# _behavioural_setup fails fast with two distinct _die calls when the
+# behavioural prerequisites are absent. The ci (non-behavioural) test
+# container has no docker.sock, so the socket guard is exercised against
+# the real condition; the docker-CLI guard needs the socket to pass
+# first, so a transient unix socket is created at the literal path the
+# function probes.
+
+@test "_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)" {
+  if [[ -S /var/run/docker.sock ]]; then
+    skip "docker.sock present in this environment; socket guard not reachable"
+  fi
+  run bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _behavioural_setup
+  '
+  assert_failure
+  assert_output --partial "requires /var/run/docker.sock"
+}
+
+@test "_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)" {
+  if [[ -S /var/run/docker.sock ]]; then
+    skip "real docker.sock present; would proceed past the CLI guard to buildx"
+  fi
+  # Create a transient unix socket at the probed path so the socket guard
+  # passes, then run with a PATH that omits docker to hit the CLI guard.
+  perl -e 'use IO::Socket::UNIX; unlink "/var/run/docker.sock"; IO::Socket::UNIX->new(Type=>SOCK_STREAM, Local=>"/var/run/docker.sock", Listen=>1) or die $!;'
+  local _clean="${BATS_TEST_TMPDIR}/nodocker"
+  mkdir -p "${_clean}"
+  local _cmd _src
+  for _cmd in bash sh env cat printf date grep sed find sort awk mktemp \
+              dirname basename id tr head tail cut wc rm mkdir ln cp test pwd; do
+    _src="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_src}" "${_clean}/${_cmd}"
+  done
+  run env PATH="${_clean}" bash -c '
+    set -e
+    source /source/script/test/test.sh
+    _behavioural_setup
+  '
+  rm -f /var/run/docker.sock
+  assert_failure
+  assert_output --partial "requires docker CLI"
 }

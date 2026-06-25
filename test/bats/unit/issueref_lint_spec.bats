@@ -57,6 +57,24 @@ teardown() {
   [[ "${output}" == *'(#429)'* ]]
 }
 
+@test "_run_issueref: flags a bare 2-digit ref (lower accept boundary) (#692)" {
+  # The accept window is [2,4] digits. Pin the 2-digit lower bound so a
+  # regression re-capping it (the original mawk bug capped at 2) is caught.
+  printf '%s\n' '# gate #42' > "${SCRATCH}/script/sample.sh"
+  run _run_issueref
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *'#42'* ]]
+}
+
+@test "_run_issueref: flags a bare 4-digit ref (upper accept boundary) (#692)" {
+  # The whole awk `+` rewrite exists because 3-4 digit refs were silently
+  # exempted under Debian mawk; pin the 4-digit upper bound is flagged.
+  printf '%s\n' '# gate #1234' > "${SCRATCH}/script/sample.sh"
+  run _run_issueref
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *'#1234'* ]]
+}
+
 @test "_run_issueref: flags refs in .bats helper comments (not @test names)" {
   # Fixture built via printf with the refs in vars (not a heredoc with bare
   # comment tokens) so this spec is itself immune to the comment sweep that
@@ -184,6 +202,27 @@ _issueref_engines() {
       echo "FAIL: ${engine} did not flag #440"
       return 1
     }
+  done < <(_issueref_engines)
+  [[ "${found}" -eq 1 ]]
+}
+
+@test "_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)" {
+  # Pin BOTH ends of the [2,4] accept window across every awk engine so a
+  # portability regression (e.g. mawk re-capping the window to 2) fails the
+  # fast local loop, not just kcov.
+  local fixture="${SCRATCH}/script/sample.sh"
+  local found=0 engine out ref
+  while IFS= read -r engine; do
+    [[ -z "${engine}" ]] && continue
+    found=1
+    for ref in '#42' '#1234'; do
+      printf '%s\n' "# gate ${ref}" > "${fixture}"
+      out="$(${engine} -v relbase="${SCRATCH}/" "${_ISSUEREF_AWK}" "${fixture}")"
+      [[ "${out}" == *"${ref}"* ]] || {
+        echo "FAIL: ${engine} did not flag boundary ref ${ref} -> [${out}]"
+        return 1
+      }
+    done
   done < <(_issueref_engines)
   [[ "${found}" -eq 1 ]]
 }
