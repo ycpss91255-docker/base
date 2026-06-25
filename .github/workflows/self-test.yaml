@@ -226,25 +226,27 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: ./script/test/test.sh --lint --hadolint
 
-  bats-unit:
-    # Matrix shard of the unit suite (#377). Replaces the previous
-    # monolithic `test` job's unit phase. Round-robin partition over
-    # `find test/bats/unit -name '*_spec.bats' | sort` keeps each shard's
-    # file count balanced enough at the current ~30 spec scale; weight
-    # by test count per spec is deferred (#377 out-of-scope).
+  bats-fragile:
+    # The kcov-fragile unit specs, run in PLAIN mode (no COVERAGE), as a
+    # SINGLE job (#677). After #686 unified the coverage job onto the same
+    # alpine test-tools image, the old 4-shard `bats-unit` matrix and the
+    # 4-shard `coverage` matrix ran the SAME ~1991 unit specs twice per PR
+    # (8 parallel jobs), differing only by COVERAGE=1. The coverage matrix
+    # is now the PRIMARY unit gate (kcov over every non-fragile test); the
+    # only delta it cannot cover is the handful of tests it SKIPS via
+    # `[ "${COVERAGE:-0}" = 1 ] && skip` because kcov's ptrace wrapper
+    # perturbs them. This job runs exactly those fragile specs in plain
+    # mode, so the delta is preserved with ZERO double-run: every unit test
+    # runs SOMEWHERE (non-fragile under coverage/kcov, fragile here).
     #
-    # Shards run in parallel — the wall-time gain comes from cutting
-    # the pre-#376 5min `test` job (which serialised 1308 unit + 64
-    # integration + shellcheck) into 4 parallel jobs each ~1-2min.
-    # ci-rollup folds each matrix shard's result into a single
-    # `needs.bats-unit.result` so branch-protection sees one signal.
+    # The fragile set is computed at RUNTIME (test.sh --bats-fragile ->
+    # _fragile_unit_files greps for the skip guard), so a new fragile-skip
+    # in a 10th file is picked up automatically (a ci_spec guard asserts the
+    # current set). Same Obtain (probe-and-rebuild) pattern as the other
+    # jobs; ci-rollup folds the result into needs.bats-fragile.result.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ['1/4', '2/4', '3/4', '4/4']
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -325,10 +327,10 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run Bats unit shard ${{ matrix.shard }}
+      - name: Run Bats kcov-fragile specs (plain mode)
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/test/test.sh --bats-unit-shard ${{ matrix.shard }}
+        run: ./script/test/test.sh --bats-fragile
 
   bats-integration:
     # Dedicated job for the 64 integration specs (#377). Pre-#377 these
@@ -416,16 +418,17 @@ jobs:
         run: ./script/test/test.sh --bats-integration
 
   coverage:
-    # Sharded kcov coverage, now an ENFORCED PR gate (#615, ADR-00000008;
-    # amends #377). #377 left this path fully serial (~8-12 min single
-    # kcov job) and sidestepped the cost by making it main-push-only +
-    # non-gating. #615 reverses that: the kcov run is split into a matrix
-    # of shards that MIRROR the bats-unit matrix (identical round-robin
-    # slice per index via _shard_unit_files), so per-shard wall-time is in
-    # the bats-unit ballpark (~one shard, parallel with bats-unit). It now
-    # runs on PRs too, and joins ci-rollup's `needs:` so a kcov failure OR
-    # a coverage drop below the .codecov.yaml project threshold blocks
-    # merge. Each shard uploads its partial report under a per-shard flag;
+    # Sharded kcov coverage -- the PRIMARY unit gate and an ENFORCED PR gate
+    # (#615, ADR-00000008; amends #377). #377 left this path fully serial
+    # (~8-12 min single kcov job) and sidestepped the cost by making it
+    # main-push-only + non-gating. #615 reverses that: the kcov run is split
+    # into a matrix of shards via _shard_unit_files. #677 makes it the
+    # primary unit gate (the old 4-shard bats-unit matrix that double-ran
+    # the same specs is replaced by a single plain bats-fragile job), and
+    # the partition is now greedy weight-balanced by per-spec @test count so
+    # the slowest shard approaches total/N instead of the round-robin floor.
+    # It runs on PRs, and joins ci-rollup's `needs:` so a kcov failure OR a
+    # coverage drop below the .codecov.yaml project threshold blocks merge. Each shard uploads its partial report under a per-shard flag;
     # Codecov merges the uploads into one project figure ("Found N
     # coverage files to report"). The matrix rollup folds every shard's
     # result into needs.coverage.result, so ci-rollup sees one signal.
@@ -850,11 +853,11 @@ jobs:
     # is now split into shard'd jobs that SKIP on doc-only PRs along
     # with everything else.
     #
-    # Conditionally-gated jobs (shellcheck / hadolint / bats-unit /
+    # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
     # bats-integration / coverage / integration-e2e / behavioural) carry
     # job-level `if:` so they SKIP on doc-only / non-behavioural PRs (#317
-    # P1/P3, #376, #377, #615); the rollup collapses SKIPPED into pass for
-    # those, otherwise doc-only PRs cannot merge.
+    # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
+    # for those, otherwise doc-only PRs cannot merge.
     #
     # `coverage` is now IN `needs:` (#615, ADR-00000008; amends #377). It
     # is a sharded kcov PR gate: a kcov test failure fails the matrix and
@@ -862,7 +865,7 @@ jobs:
     # threshold is enforced separately via the codecov/project status as a
     # required branch-protection check. The matrix folds into
     # needs.coverage.result, so the rollup sees one signal.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]
+    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -872,7 +875,7 @@ jobs:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
-          BATS_UNIT_RESULT: ${{ needs.bats-unit.result }}
+          BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
@@ -883,7 +886,7 @@ jobs:
           echo "classify:         ${CLASSIFY_RESULT}"
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
-          echo "bats-unit:        ${BATS_UNIT_RESULT}"
+          echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
           echo "coverage:         ${COVERAGE_RESULT}"
           echo "integration-e2e:  ${INTEGRATION_RESULT}"
@@ -893,7 +896,7 @@ jobs:
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
-                   "${BATS_UNIT_RESULT}" "${BATS_INTEGRATION_RESULT}" \
+                   "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
                    "${COVERAGE_RESULT}" \
                    "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
@@ -901,7 +904,7 @@ jobs:
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
+    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

@@ -126,8 +126,8 @@ setup() {
 
 # ── Downstream jobs gate on actionlint + classify ─
 
-@test "self-test.yaml: bats-unit job declares needs on actionlint AND classify (#377)" {
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -209,11 +209,10 @@ setup() {
 
 # ── Conditional gating ───────────────────────────────────
 
-@test "self-test.yaml: bats-unit job-level if: gates on code_changed (#377)" {
-  # bats-unit replaces the always-running `test` job's
-  # short-circuit pattern with a clean job-level skip. ci-rollup's
-  # SKIPPED=pass rule keeps doc-only PRs merge-able.
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)" {
+  # bats-fragile replaces the bats-unit matrix; same job-level skip so
+  # ci-rollup's SKIPPED=pass rule keeps doc-only PRs merge-able.
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
@@ -265,8 +264,8 @@ setup() {
 
 # ── buildx GHA cache on test-tools builds ────────────────
 
-@test "self-test.yaml: bats-unit job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'uses: docker/build-push-action@v6'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
@@ -291,8 +290,8 @@ setup() {
 
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
-@test "self-test.yaml: bats-unit job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #377)" {
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)" {
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'Obtain test-tools:local'
   assert_output --partial 'docker pull --platform linux/amd64'
@@ -302,8 +301,8 @@ setup() {
   assert_output --partial 'build_local=false'
 }
 
-@test "self-test.yaml: bats-unit Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #377)" {
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)" {
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "steps.obtain.outputs.build_local == 'true'"
 }
@@ -350,14 +349,14 @@ setup() {
 
 # ── Probe-and-rebuild against a stale / racing :main ────────────
 
-@test "self-test.yaml: bats-unit Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+@test "self-test.yaml: bats-fragile Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
   # release-test-tools republishes :main on a Dockerfile.test-tools change
   # concurrently with this run, so a freshly-baked tool (kcov) can be
   # absent from the :main we just pulled. After the pull+tag, the obtain
   # step must PROBE for the required tools (kcov at minimum) and, on a
   # miss, fall back to building locally (build_local=true) instead of
   # running the suite against a stale image.
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'REQUIRED_TOOLS'
   assert_output --partial 'kcov'
@@ -390,7 +389,7 @@ setup() {
 }
 
 @test "self-test.yaml: every :main-pulling Obtain step carries the probe-and-rebuild guard (#697)" {
-  # All five build_local-pattern obtain steps (hadolint, bats-unit,
+  # All five build_local-pattern obtain steps (hadolint, bats-fragile,
   # bats-integration, coverage, behavioural) pull the same :main tag and
   # so race identically; each must probe + rebuild on a miss. One
   # REQUIRED_TOOLS line per such job.
@@ -403,12 +402,12 @@ setup() {
   # Same gotcha-2 mitigation as the classify job: fork PRs need an
   # explicit fetch of origin/<base_ref> before `git diff` can resolve
   # the merge base for `dockerfile/Dockerfile.test-tools`.
-  # the `test` job split into bats-unit + bats-integration; gives
+  # the `test` job split into bats-fragile + bats-integration; gives
   # the hadolint job its own Obtain step too (it now runs the driver
   # inside the test-tools image). The coverage job also gained an Obtain
   # step now that kcov is baked into the shared test-tools image (it no
   # longer runs on the debian kcov/kcov service). So the count is:
-  # classify (1) + 6 jobs with Obtain steps (hadolint + bats-unit +
+  # classify (1) + 6 jobs with Obtain steps (hadolint + bats-fragile +
   # bats-integration + coverage + integration-e2e + behavioural).
   run grep -c 'git fetch origin' "${WF}"
   assert_success
@@ -422,15 +421,16 @@ setup() {
   assert_success
 }
 
-@test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615)" {
+@test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
-  # hadolint + bats-unit + bats-integration + coverage + integration-e2e
+  # hadolint + bats-fragile + bats-integration + coverage + integration-e2e
   # + behavioural so its result reflects every PR check. (ADR-8)
-  # adds `coverage` to the list — it is now a sharded kcov PR gate, not
-  # the main-only metric, so a kcov failure must block PR merge.
+  # adds `coverage` to the list — it is now the primary unit gate (a
+  # sharded kcov PR gate), so a kcov failure must block PR merge; the
+  # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, coverage, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -462,7 +462,7 @@ setup() {
   assert_output --partial 'needs.classify.result'
   assert_output --partial 'needs.shellcheck.result'
   assert_output --partial 'needs.hadolint.result'
-  assert_output --partial 'needs.bats-unit.result'
+  assert_output --partial 'needs.bats-fragile.result'
   assert_output --partial 'needs.bats-integration.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.integration-e2e.result'
@@ -549,37 +549,45 @@ setup() {
   refute_output --partial 'hadolint/hadolint-action'
 }
 
-@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-* + integration-e2e + behavioural before publishing a tag (#376 + #377)" {
+@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + integration-e2e + behavioural before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
-  # tag should NOT produce a Release. the `test` job is
-  # replaced by `bats-unit` + `bats-integration` in this chain.
+  # tag should NOT produce a Release. The bats-unit matrix is replaced
+  # with `bats-fragile` and `coverage` (now the primary unit gate) joins
+  # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────
 
-@test "self-test.yaml: declares bats-unit job (#377)" {
+@test "self-test.yaml: declares bats-fragile job (#677)" {
+  run grep -E '^  bats-fragile:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: bats-fragile is a single job (no shard matrix) (#677)" {
+  # The 4-shard bats-unit matrix (which double-ran the same specs the
+  # coverage matrix runs) is replaced with ONE plain job running only the
+  # kcov-fragile specs the coverage matrix skips. No strategy.matrix here.
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  refute_output --partial 'strategy:'
+  refute_output --partial 'matrix:'
+  refute_output --partial 'shard:'
+}
+
+@test "self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)" {
+  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial './script/test/test.sh --bats-fragile'
+}
+
+@test "self-test.yaml: no bats-unit shard matrix remains after #677" {
+  # The double-run bats-unit matrix is fully removed; coverage is the
+  # primary unit gate and bats-fragile covers the kcov-skipped delta.
   run grep -E '^  bats-unit:' "${WF}"
-  assert_success
-}
-
-@test "self-test.yaml: bats-unit declares strategy.matrix.shard with 1/4..4/4 + fail-fast: false (#377)" {
-  # Default N=2 per the issue body. Each shard runs in parallel; the
-  # matrix rollup propagates to needs.bats-unit.result. fail-fast: false
-  # so a shard 1 failure doesn't cancel shard 2 (the maintainer wants
-  # to see both shards' results).
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
-  assert_success
-  assert_output --partial 'fail-fast: false'
-  assert_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
-}
-
-@test "self-test.yaml: bats-unit invokes test.sh --bats-unit-shard \${{ matrix.shard }} (#377)" {
-  run awk '/^  bats-unit:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
-  assert_success
-  assert_output --partial './script/test/test.sh --bats-unit-shard ${{ matrix.shard }}'
+  assert_failure
 }
 
 @test "self-test.yaml: declares bats-integration job (#377)" {
@@ -610,10 +618,12 @@ setup() {
   refute_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
 }
 
-@test "self-test.yaml: coverage runs as a kcov matrix mirroring bats-unit shards (#615)" {
-  # Sharded kcov: the matrix mirrors bats-unit's 1/4..4/4 round-robin so
-  # each shard kcov's the identical unit slice the unit-test matrix runs;
-  # fail-fast: false so one shard's failure doesn't cancel the rest.
+@test "self-test.yaml: coverage runs as the primary kcov unit gate over a 1/4..4/4 shard matrix (#615 + #677)" {
+  # Sharded kcov is now the PRIMARY unit gate (the bats-unit matrix that
+  # double-ran the same specs is retired). The 1/4..4/4 shards use a
+  # greedy weight-balanced partition (_shard_unit_files) so the slowest
+  # shard approaches total/N; fail-fast: false so one shard's failure
+  # doesn't cancel the rest.
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'fail-fast: false'

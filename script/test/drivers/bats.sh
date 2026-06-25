@@ -83,13 +83,17 @@ _run_bats_path() {
 }
 
 _shard_unit_files() {
-  # Shared shard-partition primitive (unit shards, coverage
-  # shards). Echoes the newline-separated subset of
-  # test/bats/unit/*_spec.bats for shard <n> of <total>, using the same
-  # round-robin over `find ... | sort` so the bats-unit and coverage
-  # matrices select IDENTICAL slices for a given shard index — the
-  # coverage matrix is a kcov-instrumented mirror of the unit matrix.
-  # _die's on a malformed spec or an empty match. Inputs:
+  # Shared shard-partition primitive for the coverage matrix. Echoes the
+  # newline-separated subset of test/bats/unit/*_spec.bats for shard <n>
+  # of <total>, using greedy weight-balanced bin-packing by per-spec
+  # `@test` count: specs are sorted heaviest-first and each is assigned to
+  # the currently-lightest shard, so the slowest shard's @test load
+  # approaches total/N instead of the round-robin floor (a single big
+  # spec no longer pins one shard 2x above the others). Coverage is the
+  # only consumer (the bats-unit matrix was replaced by a single fragile
+  # job), but the slice is still partitioned so the kcov work spreads
+  # evenly across the matrix. _die's on a malformed spec or an empty
+  # match. Inputs:
   #   $1 = shard spec `<n>/<total>` (1<=n<=total)
   local _spec="${1:?BUG: _shard_unit_files expects <n>/<total>}"
   if [[ "${_spec}" != */* ]]; then
@@ -101,10 +105,28 @@ _shard_unit_files() {
        || (( _shard < 1 || _shard > _total )); then
     _die ci_invalid_shard "Invalid shard spec '${_spec}'. Need 1<=n<=total."
   fi
+  # Greedy longest-processing-time bin-packing. awk reads `<count> <path>`
+  # lines (heaviest first), maintains a running load per shard, assigns
+  # each spec to the lightest shard, and prints only the files landing in
+  # the requested shard. The `sort -k1` secondary on the path keeps the
+  # partition deterministic across runs (ties broken by name).
   local _files
-  _files=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name '*_spec.bats' -print \
-             | sort \
-             | awk -v s="${_shard}" -v t="${_total}" 'NR % t == (s - 1) % t')
+  _files=$(
+    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats; do
+      [[ -e "${_f}" ]] || continue
+      printf '%s %s\n' "$(grep -cE '^@test' "${_f}")" "${_f}"
+    done \
+      | sort -k1,1nr -k2,2 \
+      | awk -v want="${_shard}" -v t="${_total}" '
+          BEGIN { for (i = 1; i <= t; i++) load[i] = 0 }
+          {
+            # pick the lightest shard (ties -> lowest index for stability)
+            min = 1
+            for (i = 2; i <= t; i++) if (load[i] < load[min]) min = i
+            load[min] += $1
+            if (min == want) print $2
+          }'
+  )
   if [[ -z "${_files}" ]]; then
     _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
   fi
@@ -112,13 +134,13 @@ _shard_unit_files() {
 }
 
 _run_unit_shard() {
-  # Run a deterministic subset of test/bats/unit/*_spec.bats for the GHA
-  # bats-unit matrix. Spec accepts `<n>/<total>` where 1<=n<=total.
-  # Round-robin partition (see _shard_unit_files) so the mapping is stable
-  # across runs regardless of which files were added since the last
-  # matrix tuning. notes weight-by-test-count as a deferred
-  # follow-up; round-robin keeps each shard's count balanced enough at
-  # the current 30-ish unit spec scale.
+  # Run a deterministic subset of test/bats/unit/*_spec.bats for one shard.
+  # Spec accepts `<n>/<total>` where 1<=n<=total. Partition is the
+  # greedy weight-balanced bin-packing in _shard_unit_files, so the slice
+  # matches the coverage matrix's shard <n>. Retained as a plain-mode
+  # convenience (`test.sh --bats-unit-shard N/T`) for running a coverage
+  # slice locally without kcov; the CI unit gate is the kcov coverage
+  # matrix (+ the plain bats-fragile job for the kcov-skipped delta).
   local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
   local _files
   _files="$(_shard_unit_files "${_spec}")"
@@ -130,6 +152,55 @@ _run_unit_shard() {
   # shellcheck disable=SC2086
   printf '  shard:%s\n' ${_files}
   # Word-split intentional: bats accepts multiple file args.
+  # shellcheck disable=SC2086
+  bats "${_bats_args[@]}" ${_files}
+}
+
+# ── kcov-fragile unit specs ────────────────────────────────────────────
+
+readonly _FRAGILE_GUARD_RE='^[[:space:]]*\[ "\$\{COVERAGE:-0\}" = 1 \] &&[[:space:]]*skip'
+
+_fragile_unit_files() {
+  # Echo the newline-separated set of test/bats/unit/*_spec.bats files that
+  # contain at least one kcov-fragile test — those guarded at the start of
+  # a test body by `[ "${COVERAGE:-0}" = 1 ] && skip ...`. The coverage
+  # matrix SKIPS these tests (they perturb the kcov ptrace wrapper), so the
+  # plain bats-fragile job runs exactly this set with COVERAGE unset to
+  # preserve the delta. Computed at runtime by grepping for the skip guard
+  # so it self-maintains: a NEW fragile-skip in a 10th file is picked up
+  # automatically (a spec asserts the set). The regex is line-anchored on
+  # leading whitespace + the literal bracket so a COMMENT that merely
+  # mentions the guard (e.g. this driver's own spec) is NOT matched.
+  # _die's on an empty match (the guard pattern changed or the fragile
+  # tests were all removed — both want a human).
+  local _files
+  _files=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
+  if [[ -z "${_files}" ]]; then
+    _die ci_no_fragile_files \
+      "No kcov-fragile spec files matched the skip guard in test/bats/unit/. Did the guard pattern change?"
+  fi
+  printf '%s\n' "${_files}"
+}
+
+_run_bats_fragile() {
+  # Run ONLY the kcov-fragile unit specs in PLAIN mode (COVERAGE unset),
+  # for the GHA bats-fragile job. These are the exact tests the coverage
+  # matrix skips, so running them here preserves full unit coverage with
+  # zero double-run: non-fragile tests run under kcov (coverage matrix),
+  # fragile tests run plain here. Selection is runtime-computed
+  # (_fragile_unit_files) so the set self-maintains.
+  local _files
+  _files="$(_fragile_unit_files)"
+  local -a _bats_args
+  local _label
+  _bats_args_with_label _bats_args _label
+  echo "--- Running Bats kcov-fragile Unit Specs (plain; ${_label}) ---"
+  # Word-split intentional: print one line per fragile file.
+  # shellcheck disable=SC2086
+  printf '  fragile:%s\n' ${_files}
+  # Word-split intentional: bats accepts multiple file args. COVERAGE is
+  # NOT set, so the [ "${COVERAGE:-0}" = 1 ] && skip guards fall through
+  # and the fragile tests actually run.
   # shellcheck disable=SC2086
   bats "${_bats_args[@]}" ${_files}
 }
