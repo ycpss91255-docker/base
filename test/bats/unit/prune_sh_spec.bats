@@ -425,6 +425,60 @@ EOS
   assert_output --partial "alice/repo-99:devel"
 }
 
+# ── --worktree-orphans interactive confirmation gate ────────────────
+#
+# Every test above passes -y or --dry-run, so the interactive prompt
+# branch (prune.sh _run_worktree_orphans_prune) was never exercised:
+# the confirm-'y' delete path, the abort-on-non-'y' refuse path, and
+# the closed-stdin/EOF behaviour under `set -e`. Mirrors the --volumes
+# prompt pair (abort-on-'n' + -y-skip) for the MORE destructive image
+# removal. The volumes prompt already proved the pattern at the top of
+# this file.
+
+@test "prune.sh --worktree-orphans without -y confirms 'y' and removes the image (#699)" {
+  # Confirm path: a piped 'y' must reach the destructive docker rmi loop.
+  local _ws="${TEMP_DIR}/ws"
+  mkdir -p "${_ws}/worktree"
+  _orphans_setup_stub "${_ws}" tester
+  export DOCKER_IMAGES_OUTPUT="tester/repo-99:devel"
+  run bash -c "echo y | bash '${SANDBOX}/prune.sh' --worktree-orphans"
+  assert_success
+  run cat "${DOCKER_RMI_LOG}"
+  assert_output --partial "tester/repo-99:devel"
+}
+
+@test "prune.sh --worktree-orphans without -y aborts on 'n' and removes nothing (#699)" {
+  # Abort path: a non-'y' reply must refuse, emit 'aborted', and skip rmi.
+  # _run_worktree_orphans_prune returns 1; main runs it unguarded under
+  # set -e, so the whole run exits 1 (intended: a user abort is a failure).
+  local _ws="${TEMP_DIR}/ws"
+  mkdir -p "${_ws}/worktree"
+  _orphans_setup_stub "${_ws}" tester
+  export DOCKER_IMAGES_OUTPUT="tester/repo-99:devel"
+  run bash -c "echo n | bash '${SANDBOX}/prune.sh' --worktree-orphans"
+  assert_failure 1
+  assert_output --partial "aborted by user"
+  run cat "${DOCKER_RMI_LOG}"
+  assert_output ""
+}
+
+@test "prune.sh --worktree-orphans without -y on closed stdin aborts cleanly, no set-e crash (#699)" {
+  # EOF path: with no -y and a closed stdin, `read` returns non-zero on
+  # EOF. Pre-fix, `set -e` aborted the script at the `read` line BEFORE
+  # the case could map empty->abort, so a piped/CI invocation died with
+  # exit 1 and NO 'aborted' diagnostic. Post-fix, EOF maps to an empty
+  # reply which the case treats as an explicit abort with a clear message.
+  local _ws="${TEMP_DIR}/ws"
+  mkdir -p "${_ws}/worktree"
+  _orphans_setup_stub "${_ws}" tester
+  export DOCKER_IMAGES_OUTPUT="tester/repo-99:devel"
+  run bash "${SANDBOX}/prune.sh" --worktree-orphans </dev/null
+  assert_failure 1
+  assert_output --partial "aborted by user"
+  run cat "${DOCKER_RMI_LOG}"
+  assert_output ""
+}
+
 @test "prune.sh --help mentions --worktree-orphans (#388)" {
   run bash "${SANDBOX}/prune.sh" --help
   assert_success
