@@ -234,6 +234,30 @@ EOF
   assert_failure
 }
 
+@test "migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)" {
+  # Partial-migration state: a downstream repo hand-fixed the Dockerfile COPY
+  # to runtime/logging.sh, but its sibling entrypoint still sources the old
+  # baked /usr/local/lib/base/_entrypoint_logging.sh path. detect must still
+  # fire (so apply runs and heals the entrypoint), otherwise the container
+  # cannot source the renamed helper.
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+exec "$@"
+EOF
+  run bash -c "$(_src); _migrate_logging_rename_detect '${DF}'"
+  assert_success
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq ". /usr/local/lib/base/logging.sh" "${TEMP_DIR}/script/entrypoint.sh"
+  ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+}
+
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
 # v0.41.0 slimmed .hadolint.yaml, no longer ignoring a batch of rules.
 # Heal the mechanical violations the fanout fixed by hand:
