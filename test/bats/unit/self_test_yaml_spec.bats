@@ -619,16 +619,27 @@ setup() {
   refute_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
 }
 
-@test "self-test.yaml: coverage runs as the primary kcov unit gate over a 1/4..4/4 shard matrix (#615 + #677)" {
-  # Sharded kcov is now the PRIMARY unit gate (the bats-unit matrix that
-  # double-ran the same specs is retired). The 1/4..4/4 shards use a
-  # greedy weight-balanced partition (_shard_unit_files) so the slowest
-  # shard approaches total/N; fail-fast: false so one shard's failure
-  # doesn't cancel the rest.
+@test "self-test.yaml: coverage runs as the primary kcov unit gate over a DYNAMIC shard matrix (#615 + #677 + #725)" {
+  # Sharded kcov is the PRIMARY unit gate. The shard TOTAL is dynamic:
+  # the matrix is built from compute-shards' JSON output via fromJSON, not a
+  # hardcoded 1/4..4/4 list. fail-fast: false so one shard's failure doesn't
+  # cancel the rest.
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'fail-fast: false'
-  assert_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
+  assert_output --partial 'shard: ${{ fromJSON(needs.compute-shards.outputs.shards) }}'
+  refute_output --partial "shard: ['1/4', '2/4', '3/4', '4/4']"
+  assert_output --partial 'compute-shards'
+}
+
+@test "self-test.yaml: compute-shards job emits a dynamic shard array from vars.CI_SHARDS (default 8, clamped) (#725)" {
+  run awk '/^  compute-shards:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'shards: ${{ steps.gen.outputs.shards }}'
+  assert_output --partial 'CI_SHARDS: ${{ vars.CI_SHARDS }}'
+  assert_output --partial 'n="${CI_SHARDS:-8}"'
+  assert_output --partial 'n > 12'
+  assert_output --partial 'GITHUB_OUTPUT'
 }
 
 @test "self-test.yaml: coverage invokes test.sh --coverage-shard + uploads each shard report as a CI artifact (#710)" {
