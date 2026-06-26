@@ -7,6 +7,23 @@
   live deep at `.base/dist/script/base/` and self-locate the subtree
   root via a walk-up (see the Region A note below); the lockstep discipline
   this ADR mandates is what governed that move.
+- **Amended:** 2026-06-26 by #714 -- the shipped-tree directory was renamed
+  `downstream/` -> `dist/`, so every frozen interior path moves from
+  `.base/downstream/...` to `.base/dist/...` (this supersedes the
+  `.base/downstream/` contract introduced by #625 / #654). The rename was a
+  lockstep change exactly as this ADR mandates: `upgrade.sh` /
+  `init.sh`'s subtree-root marker check, the Region B config-drift paths
+  (`${TEMPLATE_REL}/dist/config[/docker/setup.conf]`), the Region A Step-3
+  `init.sh` call, and the Region C `dockerfile_migrate` lib all moved in the
+  same change. **Consumer migration:** an existing consumer on
+  `.base/downstream/` that upgrades gets `.base/dist/` after the subtree
+  pull, leaving its repo-level wrapper symlinks
+  (`script/build.sh -> .base/downstream/...`) dangling; the upgrade->init
+  resync heals them because `init.sh`'s `_symlink` helper `rm -f`s the stale
+  link and re-`ln -sf`s it at `.base/dist/...` (so stale `.base/downstream/`
+  symlinks are dropped and re-pointed). `dockerfile_migrate` migration 4 was
+  widened to match `(downstream/|dist/)?` so a consumer Dockerfile on either
+  historical path heals to the `dist/` target.
 
 ## Context
 

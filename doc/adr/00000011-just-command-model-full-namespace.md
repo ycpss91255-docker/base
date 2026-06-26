@@ -6,6 +6,13 @@
   namespaces renamed; entry shape) and ADR-00000006 (`init.sh` /
   `upgrade.sh` leave the base root)
 - **Builds on:** ADR-00000005 (`just` as the user-facing entry)
+- **Amended:** 2026-06-26 by #714 -- the shipped-tree directory `downstream/`
+  was renamed to `dist/` (terminology de-overload; `dist` = distribution).
+  Every `downstream/script/<ns>/` reference in sec.4 (the origin), sec.5,
+  and the §8 relocation now reads `dist/script/<ns>/`; the origin
+  single-source-of-truth lives at `dist/script/<ns>/` and a consumer's
+  `script/<ns>/` symlinks into `.base/dist/script/<ns>/`. See ADR-00000006's
+  #714 amendment for the frozen-path-contract + consumer-migration detail.
 
 ## Context
 

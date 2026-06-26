@@ -12,25 +12,82 @@ decisions live in [`doc/adr/`](doc/adr/), rationale in the issues.
 ### Domain
 
 **base**:
-The shared template repo (this repo); the single source downstream repos
-vendor.
-_Avoid_: template repo, upstream (when ambiguous).
+The container-template SOURCE repo (this repo, `ycpss91255-docker/base`;
+formerly named "template", renamed to base); the single source downstream
+repos vendor.
+_Avoid_: template repo (that is a different, distinct repo — see **template
+repo**), upstream (when ambiguous).
 
 **Downstream repo**:
 A repo under the org that vendors **base** as a `.base/` subtree and
-ships its own `Dockerfile` + `setup.conf`.
+ships its own `Dockerfile` + `setup.conf`. The canonical term for the REPO;
+bare "downstream" now always means the repo, never a directory.
 _Avoid_: consumer (acceptable as a synonym), client repo.
 
+**`dist/`**:
+base's shipped tree (renamed from `downstream/` in #714 — `dist` =
+*distribution*), vendored into each downstream repo as `.base/dist/`; the
+single home of the consumer-facing tooling / config / Dockerfile. Always
+written with the slash. It was the source of the "downstream" overload that
+#714 retired.
+_Avoid_: downstream/ (the old name), shipped/, shared/.
+
 **`.base` subtree contract**:
-The frozen set of paths inside `.base/` that a downstream repo and
-`upgrade.sh` rely on; restructuring base must preserve it (ADR-00000006).
+The frozen set of paths inside `.base/` (now `.base/dist/...`) that a
+downstream repo and `upgrade.sh` rely on; restructuring base must preserve
+it (ADR-00000006, amended by #714).
 _Avoid_: subtree layout, base API.
+
+**origin**:
+The symlink single-source-of-truth: the real files under `dist/script/<ns>/`
+that base-own `script/<ns>/` and a downstream's `script/<ns>/` both symlink
+into, so base uses the very tooling it ships (ADR-00000011 sec.4).
+_Avoid_: source, canonical copy.
+
+**base-own tooling**:
+base's self-only tooling that is NOT shipped to downstream repos:
+`script/test`, `script/release` (real directories, no `dist/` origin).
+_Avoid_: internal scripts, CI tooling.
 
 **Wrapper**:
 A user-facing entry script (`build` / `run` / `exec` / `stop` / `prune` /
 `setup` / `setup_tui`) under `dist/script/docker/wrapper/`, invoked through the
 `just` recipes (ADR-00000005).
 _Avoid_: command script, entrypoint (reserved for the container ENTRYPOINT).
+
+**tooling image (test-tools)**:
+base's CI toolchain image (`dockerfile/Dockerfile.test-tools`), bundling
+bats / shellcheck / hadolint / kcov; not a deployable artifact.
+_Avoid_: ci image, builder image.
+
+**consumer image (devel / runtime)**:
+What a downstream repo builds via `just docker build` from
+`dist/dockerfile/Dockerfile` — the actual deployable artifact (a `devel` or
+`runtime` **stage**).
+_Avoid_: app image (acceptable informally), product image.
+
+**template repo**:
+`ycpss91255-docker/template`, the GitHub Template repo — a pre-scaffolded
+downstream skeleton with `.base/` already vendored, used to bootstrap new
+downstream repos. Distinct from **base** and from **`just template`**.
+_Avoid_: starter, skeleton repo (informal only).
+
+**`just template`**:
+The namespace that scaffolds a repo-local command group under
+`script/local/<name>/` (an extension point; a subtree upgrade never
+overwrites it). Always written `just template`. Distinct from the
+**template repo**.
+_Avoid_: template namespace (use the full `just template`).
+
+**base's "Dockerfile / config"**:
+Say this literally — e.g. `dist/dockerfile/Dockerfile`, `dist/config/`. Do
+NOT call base's Dockerfile or config "template" / "the template Dockerfile".
+_Avoid_: template Dockerfile, template config.
+
+**`@<path>`**:
+The user's chat shorthand for a filesystem path (e.g. `@dist/script/justfile`).
+A notation convention, not a code construct.
+_Avoid_: at-path, reference.
 
 **Stage**:
 A Dockerfile build target (`FROM ... AS <stage>`); the unit the compose
