@@ -35,8 +35,12 @@ source "${_compose_dir}/log.sh"
 # Sets:
 #   PROJECT_NAME     e.g. "alice-myrepo"
 _compute_project_name() {
+  # Defaults keep this safe in a self-managed repo (base self-use)
+  # where no .env.generated was loaded, so DOCKER_HUB_USER / IMAGE_NAME are
+  # unset under set -u; the repo dir name gives a stable, unique-enough id.
+  # Consumers always load .env first, so the defaults never apply to them.
   # shellcheck disable=SC2034  # PROJECT_NAME is consumed by callers, not _lib.sh
-  PROJECT_NAME="${DOCKER_HUB_USER}-${IMAGE_NAME}"
+  PROJECT_NAME="${DOCKER_HUB_USER:-local}-${IMAGE_NAME:-$(basename -- "${FILE_PATH:-${PWD}}")}"
 }
 
 # _compose runs `docker compose` with the given args, or prints what it would
@@ -59,8 +63,15 @@ _compose() {
 # ). The hand-authored .env workload overlay reaches containers via
 # each service's `env_file: - .env` directive, not this CLI flag.
 _compose_project() {
+  # .env.generated is absent in a self-managed repo (base self-use);
+  # only pass --env-file when it exists so docker compose does not error on
+  # a missing interpolation cache. Consumers always have it post-setup.
+  local -a _env_file_arg=()
+  if [[ -f "${FILE_PATH}/.env.generated" ]]; then
+    _env_file_arg=(--env-file "${FILE_PATH}/.env.generated")
+  fi
   _compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
-    --env-file "${FILE_PATH}/.env.generated" \
+    "${_env_file_arg[@]}" \
     "$@"
 }

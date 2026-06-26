@@ -67,6 +67,14 @@ _bootstrap() {
     FILE_PATH="$(cd -- "${_invoke_dir}/.." && pwd -P)"
   elif [[ -f "${_invoke_dir}/../lib/_lib.sh" ]]; then
     FILE_PATH="$(cd -- "${_invoke_dir}/.." && pwd -P)"
+  elif [[ -f "${_invoke_dir}/dist/script/docker/lib/_lib.sh" ]]; then
+    # base self-use (root-symlink): base IS the template source, so it has
+    # no .base/ subtree -- it ships dist/ at the repo root and uses the very
+    # wrapper it ships (ADR-00000011 sec.4).
+    FILE_PATH="${_invoke_dir}"
+  elif [[ -f "${_invoke_dir}/../dist/script/docker/lib/_lib.sh" ]]; then
+    # base self-use (script/ subfolder): script/build.sh -> ../dist/...
+    FILE_PATH="$(cd -- "${_invoke_dir}/.." && pwd -P)"
   else
     FILE_PATH="${_invoke_dir}"
   fi
@@ -114,10 +122,16 @@ _bootstrap() {
   elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
     # shellcheck disable=SC1091
     source "${FILE_PATH}/lib/_lib.sh"
+  elif [[ -f "${FILE_PATH}/dist/script/docker/lib/_lib.sh" ]]; then
+    # base self-use: no .base/ subtree; the real lib ships under dist/ at
+    # the repo root (ADR-00000011 sec.4).
+    # shellcheck disable=SC1091
+    source "${FILE_PATH}/dist/script/docker/lib/_lib.sh"
   else
     printf '[%s] ERROR: cannot find _lib.sh -- expected one of:\n' "${_tag}" >&2
     printf '  %s\n' "${FILE_PATH}/.base/dist/script/docker/lib/_lib.sh" >&2
     printf '  %s\n' "${FILE_PATH}/lib/_lib.sh" >&2
+    printf '  %s\n' "${FILE_PATH}/dist/script/docker/lib/_lib.sh" >&2
     exit 1
   fi
 

@@ -47,8 +47,10 @@ coverage shard='':
     fi
 
 # just test behavioural -> behavioural runtime-test specs (opt-in; host docker.sock)
+# Builds the test-tools image through the docker namespace base self-uses
+# (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
 behavioural:
-    docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+    just docker build --target test-tools
     TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-behavioural
 
 # just test clean -> remove coverage reports

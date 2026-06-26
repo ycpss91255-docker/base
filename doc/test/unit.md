@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2017 tests**.
+Unit specs under `test/bats/unit/`: **2025 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -8,7 +8,7 @@ Unit specs under `test/bats/unit/`: **2017 tests**.
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (45)
+### test/bats/unit/lib_spec.bats (46)
 
 | Test | Description |
 |------|-------------|
@@ -1961,4 +1961,20 @@ cobertura fixtures so the spec is independent of any live kcov run.
 | `coverage_gate: errors on a report missing the line counters` | Malformed-report error |
 | `coverage_gate: default COVERAGE_MIN does not false-fail at ~52.9%` | Built-in default does not false-fail |
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
+
+### test/bats/unit/build_sh_base_self_spec.bats (2)
+
+build.sh in the base self-use topology (#713): base is the template SOURCE,
+so its tree has no `.base/` subtree, no setup.conf, no .env.generated, and a
+hand-authored compose.yaml. Covers lib resolution via the base-self path and
+`--target test-tools` dispatching `docker compose build` while skipping the
+setup-sync lifecycle.
+
+### test/bats/unit/base_docker_namespace_spec.bats (5)
+
+base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
+root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
+flat `script/<verb>.sh` symlinks resolving into `dist/` (no `.base/` hop),
+the `test-tools` compose service building `Dockerfile.test-tools`, and
+`just test behavioural` building it via the docker namespace.
 
