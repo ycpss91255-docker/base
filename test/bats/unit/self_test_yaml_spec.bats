@@ -398,20 +398,33 @@ setup() {
   assert_output '5'
 }
 
-@test "self-test.yaml: Obtain step pre-fetches base ref before diff (#317 P2 + P1 gotcha-2 reuse, #377)" {
-  # Same gotcha-2 mitigation as the classify job: fork PRs need an
-  # explicit fetch of origin/<base_ref> before `git diff` can resolve
-  # the merge base for `dockerfile/Dockerfile.test-tools`.
-  # the `test` job split into bats-fragile + bats-integration; gives
-  # the hadolint job its own Obtain step too (it now runs the driver
-  # inside the test-tools image). The coverage job also gained an Obtain
-  # step now that kcov is baked into the shared test-tools image (it no
-  # longer runs on the debian kcov/kcov service). So the count is:
-  # classify (1) + 6 jobs with Obtain steps (hadolint + bats-fragile +
-  # bats-integration + coverage + integration-e2e + behavioural).
+@test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {
+  # The "PR changed Dockerfile.test-tools" decision is computed ONCE in
+  # classify (its checkout is fetch-depth: 0, so the three-dot merge-base
+  # resolves). The 6 image jobs (hadolint, bats-fragile, bats-integration,
+  # coverage, integration-e2e, behavioural) used to repeat that diff on a
+  # shallow (fetch-depth: 1) checkout where no merge-base is reachable, so it
+  # reported every file as changed and rebuilt the image on EVERY PR. They now
+  # read needs.classify.outputs.testtools_changed instead -- so `git fetch
+  # origin` appears exactly once (classify).
   run grep -c 'git fetch origin' "${WF}"
   assert_success
-  assert_output '7'
+  assert_output '1'
+}
+
+@test "self-test.yaml: classify emits testtools_changed from a full-history diff (#734)" {
+  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'testtools_changed:'
+  assert_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+}
+
+@test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
+  # Every job that rebuilds test-tools keys off the single classify output,
+  # not its own shallow-checkout diff. One env wiring per image job (6).
+  run grep -c 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  assert_success
+  assert_output '6'
 }
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
