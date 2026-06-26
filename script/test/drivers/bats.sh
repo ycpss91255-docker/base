@@ -135,7 +135,8 @@ _shard_unit_files() {
   # partition deterministic across runs (ties broken by name).
   local _files
   _files=$(
-    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats; do
+    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats \
+              "${REPO_ROOT}"/test/bats/integration/*_spec.bats; do
       [[ -e "${_f}" ]] || continue
       printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
     done \
@@ -151,7 +152,7 @@ _shard_unit_files() {
           }'
   )
   if [[ -z "${_files}" ]]; then
-    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
+    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/{unit,integration}/ ?"
   fi
   printf '%s\n' "${_files}"
 }
@@ -271,19 +272,18 @@ _run_coverage() {
     echo "--- Running Tests with Kcov Coverage (full suite) ---"
     _targets=("${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/")
   else
-    # _shard_unit_files _die's on a malformed / empty shard spec.
+    # _shard_unit_files _die's on a malformed / empty shard spec. Its pool
+    # now spans unit + integration specs (time-balanced), so a shard slice
+    # already carries whatever integration specs it was assigned -- no
+    # last-shard special case (the old all-integration-on-last-shard rule is
+    # superseded; every spec still runs exactly once across the matrix, just
+    # spread by runtime).
     local _files
     _files="$(_shard_unit_files "${_shard_spec}")"
-    local _total="${_shard_spec#*/}"
-    local _shard="${_shard_spec%/*}"
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
     _targets=(${_files})
-    if (( _shard == _total )); then
-      echo "  + integration suite (last shard)"
-      _targets+=("${REPO_ROOT}/test/bats/integration/")
-    fi
     # Word-split intentional: print one line per shard target.
     printf '  cov-shard:%s\n' "${_targets[@]}"
   fi

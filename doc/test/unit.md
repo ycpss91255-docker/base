@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2027 tests**.
+Unit specs under `test/bats/unit/`: **2031 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1546,7 +1546,7 @@ the host file content and the inherited stdout (preserving
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (52)
+### test/bats/unit/ci_spec.bats (56)
 
 | Test | Description |
 |------|-------------|

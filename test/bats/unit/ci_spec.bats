@@ -249,13 +249,15 @@ teardown() {
   assert_output --partial "_spec.bats"
 }
 
-@test "_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)" {
-  # Union of every shard of 4 must equal the full sorted unit spec list,
-  # with no file in two shards (the invariant the Codecov merge relies on:
-  # every unit slice runs exactly once across the matrix).
+@test "_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)" {
+  # Union of every shard of 4 must equal the full sorted spec list (unit +
+  # integration, folded into one pool), with no file in two shards (the
+  # invariant the coverage-gate merge relies on: every spec runs exactly
+  # once across the matrix).
   run bash -c '
     source /source/script/test/test.sh
-    all=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name "*_spec.bats" | sort)
+    all=$(find "${REPO_ROOT}/test/bats/unit" "${REPO_ROOT}/test/bats/integration" \
+            -maxdepth 1 -name "*_spec.bats" | sort)
     union=$( { _shard_unit_files 1/4; _shard_unit_files 2/4; \
                _shard_unit_files 3/4; _shard_unit_files 4/4; } | sort )
     [[ "${all}" == "${union}" ]] || { echo "MISMATCH"; exit 1; }
@@ -342,7 +344,7 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _spec_weight: time-weighted shard partition (ADR-00000008 amend, #724)
+# _spec_weight: time-weighted shard partition (ADR-00000008 amend)
 #
 # The shard partition (greedy LPT in _shard_unit_files) weights each spec
 # by RUNTIME, not `@test` count: equal-count specs of unequal duration
@@ -412,6 +414,22 @@ teardown() {
   assert_output --partial "OK"
 }
 
+@test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {
+  # Previously ALL integration specs ran on the last shard (count-era). They
+  # are now folded into the time-balanced pool so an integration spec lands
+  # on exactly one shard (still kcov'd once across the matrix) but spread by
+  # time.
+  run bash -c '
+    source /source/script/test/test.sh
+    union=$( { _shard_unit_files 1/3; _shard_unit_files 2/3; _shard_unit_files 3/3; } )
+    printf "%s\n" "${union}" | grep -q "/test/bats/integration/.*_spec.bats" \
+      || { echo MISSING-INTEGRATION; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
 @test "_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)" {
   # No PATH override: _run_coverage shells out to find/sort/awk via
   # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
@@ -436,41 +454,22 @@ teardown() {
   refute_output --partial "test/bats/unit/ bats"
 }
 
-@test "_run_coverage: last shard also kcov's the integration suite (#615)" {
-  local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+@test "_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)" {
+  # This supersedes the old last-shard rule: integration specs are folded
+  # into the time-balanced pool, so a shard kcov's individual spec FILES
+  # (unit + integration mixed) and the whole integration DIR is never a
+  # target (which would re-cover all integration on one shard).
+  mock_cmd "kcov" 'exit 0'
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
     source /source/script/test/test.sh
-    _run_coverage 4/4
+    _run_coverage 2/2
   '
   assert_success
-  assert_output --partial "integration suite (last shard)"
-
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "test/bats/integration/"
-}
-
-@test "_run_coverage: non-last shard does NOT kcov the integration suite (#615)" {
-  local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
-  mock_cmd "bats" 'exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    _run_coverage 1/4
-  '
-  assert_success
-
-  run cat "${_log}"
-  assert_success
-  refute_output --partial "test/bats/integration/"
+  refute_output --partial "integration suite (last shard)"
+  refute_output --regexp 'cov-shard:.*/test/bats/integration/$'
+  assert_output --partial "_spec.bats"
 }
 
 @test "_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)" {
