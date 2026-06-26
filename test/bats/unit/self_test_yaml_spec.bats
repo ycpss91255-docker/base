@@ -696,7 +696,7 @@ setup() {
   run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial './script/test/test.sh --coverage-shard ${{ matrix.shard }}'
-  assert_output --partial 'actions/upload-artifact@v4'
+  assert_output --partial 'actions/upload-artifact@v7'
   assert_output --partial 'name: coverage-shard-${{ strategy.job-index }}'
   assert_output --partial 'path: ./coverage'
 }
@@ -719,7 +719,7 @@ setup() {
   assert_success
   assert_output --partial 'needs: [classify, coverage]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
-  assert_output --partial 'actions/download-artifact@v4'
+  assert_output --partial 'actions/download-artifact@v8'
   assert_output --partial 'pattern: coverage-shard-*'
   assert_output --partial 'script/test/drivers/coverage_gate.sh'
 }

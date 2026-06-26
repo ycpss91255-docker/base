@@ -573,7 +573,7 @@ jobs:
         # -e plumbing and every shard computes the identical exhaustive +
         # disjoint partition. A miss leaves no file -> @test-count fallback.
         # Read-only here; coverage-gate refreshes it on main pushes.
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: test/bats/.shard-weights
           key: shard-weights-${{ github.run_id }}
@@ -593,7 +593,7 @@ jobs:
         # coverage-gate job downloads every shard's artifact and merges
         # them locally into one line-weighted project rate -- no coverage
         # data leaves CI. strategy.job-index keys the per-shard name.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ strategy.job-index }}
           path: ./coverage
@@ -618,7 +618,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download all coverage shard artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-shard-*
           path: ./coverage-shards
@@ -674,7 +674,7 @@ jobs:
         # run-id key always creates a fresh entry; the coverage restore step's
         # `shard-weights-` restore-keys prefix then picks the most recent.
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: test/bats/.shard-weights
           key: shard-weights-${{ github.run_id }}
