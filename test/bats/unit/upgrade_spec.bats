@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for upgrade.sh, focused on _warn_config_drift — the
-# helper that tells the user when the upstream .base/downstream/config/ tree
+# helper that tells the user when the upstream .base/dist/config/ tree
 # moved during a subtree pull so they can reconcile their per-repo
 # <repo>/config/ copy.
 
@@ -9,7 +9,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  UPGRADE="/source/downstream/script/base/upgrade.sh"
+  UPGRADE="/source/dist/script/base/upgrade.sh"
 
   # Build a self-contained test harness: a shell script that redefines
   # `_log` / `_error` (avoids pulling in upgrade.sh's top-level `cd
@@ -50,7 +50,7 @@ teardown() {
 
 # ── _warn_config_drift logic ────────────────────────────────────────────────
 
-@test "_warn_config_drift silent when no .base/downstream/config in HEAD" {
+@test "_warn_config_drift silent when no .base/dist/config in HEAD" {
   local _git_dir="${TEMP_DIR}/empty"
   mkdir -p "${_git_dir}"
   git -C "${_git_dir}" init -q
@@ -61,18 +61,18 @@ teardown() {
 
 @test "_warn_config_drift silent when pre and post hashes match" {
   local _git_dir="${TEMP_DIR}/same"
-  mkdir -p "${_git_dir}/.base/downstream/config"
+  mkdir -p "${_git_dir}/.base/dist/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "one" > "${_git_dir}/.base/downstream/config/bashrc"
+  echo "one" > "${_git_dir}/.base/dist/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
 
   run bash -c "
     cd '${_git_dir}'
     source '${HARNESS}'
-    _pre=\$(git rev-parse HEAD:.base/downstream/config)
+    _pre=\$(git rev-parse HEAD:.base/dist/config)
     _warn_config_drift \"\${_pre}\"
   "
   assert_success
@@ -81,24 +81,24 @@ teardown() {
 
 @test "_warn_config_drift prints WARNING + diff hint when hashes differ" {
   local _git_dir="${TEMP_DIR}/drift"
-  mkdir -p "${_git_dir}/.base/downstream/config"
+  mkdir -p "${_git_dir}/.base/dist/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "original" > "${_git_dir}/.base/downstream/config/bashrc"
+  echo "original" > "${_git_dir}/.base/dist/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
   local _pre
-  _pre="$(git -C "${_git_dir}" rev-parse HEAD:.base/downstream/config)"
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD:.base/dist/config)"
 
-  echo "updated" > "${_git_dir}/.base/downstream/config/bashrc"
+  echo "updated" > "${_git_dir}/.base/dist/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c2
 
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _warn_config_drift '${_pre}'"
   assert_success
-  assert_output --partial "WARNING: .base/downstream/config/ changed"
-  assert_output --partial "diff -ruN .base/downstream/config config"
+  assert_output --partial "WARNING: .base/dist/config/ changed"
+  assert_output --partial "diff -ruN .base/dist/config config"
   assert_output --partial "git diff ${_pre:0:12}"
 }
 
@@ -122,7 +122,7 @@ teardown() {
   # guard against dropping the snapshot line. Path is parameterised
   # via TEMPLATE_REL post-v0.25.0 so the `.base/` -> `.base/`
   # rename keeps the snapshot working.
-  run grep -F 'HEAD:${TEMPLATE_REL}/downstream/config' "${UPGRADE}"
+  run grep -F 'HEAD:${TEMPLATE_REL}/dist/config' "${UPGRADE}"
   assert_success
 }
 
@@ -205,11 +205,11 @@ teardown() {
 # return its _pre_head so the test can call _verify_subtree_intact.
 _mk_subtree_repo() {
   local _dir="$1"
-  mkdir -p "${_dir}/.base/downstream/script/docker/wrapper" \
-           "${_dir}/.base/downstream/script/base"
+  mkdir -p "${_dir}/.base/dist/script/docker/wrapper" \
+           "${_dir}/.base/dist/script/base"
   echo "v0.9.5" > "${_dir}/.base/.version"
-  echo "#!/usr/bin/env bash" > "${_dir}/.base/downstream/script/base/init.sh"
-  echo "#!/usr/bin/env bash" > "${_dir}/.base/downstream/script/docker/wrapper/setup.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/dist/script/base/init.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/dist/script/docker/wrapper/setup.sh"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t
   git -C "${_dir}" config user.name t

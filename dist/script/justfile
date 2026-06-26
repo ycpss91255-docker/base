@@ -4,7 +4,7 @@
 # from the repo root.
 #
 # Import/mod paths resolve relative to the SYMLINK location (the repo root),
-# not this file's real .base/downstream/ location -- so `script/...` paths
+# not this file's real .base/dist/ location -- so `script/...` paths
 # below are repo-root-relative. Every action is a namespace (ADR-00000011,
 # zero special case): docker verbs come in via the `docker` module
 # (`just docker build` / `just docker run` / ...); repo-local command groups

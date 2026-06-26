@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Executable tests for the user-facing justfile at
-# downstream/script/justfile (entry) + downstream/script/docker/justfile.docker (symlinked from downstream repo root as
+# dist/script/justfile (entry) + dist/script/docker/justfile.docker (symlinked from downstream repo root as
 # `justfile`). ADR-00000005`just` replaces the GNU make wrapper.
 # Each recipe is a 1:1 forward to ./script/<name>.sh with `{{args}}`
 # passthrough -- no MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim.
@@ -25,55 +25,55 @@ setup() {
   # shellcheck disable=SC2154
   TMP_REPO="$(mktemp -d)"
   export TMP_REPO
-  mkdir -p "${TMP_REPO}/.base/downstream/script/docker" "${TMP_REPO}/script/docker"
+  mkdir -p "${TMP_REPO}/.base/dist/script/docker" "${TMP_REPO}/script/docker"
 
   # Layered entry chain (ADR-00000010): <repo>/justfile -> script/justfile
-  # -> .base/downstream/script/justfile (entry), which imports
+  # -> .base/dist/script/justfile (entry), which imports
   # script/docker/justfile.docker (the top-level docker recipes).
-  cp /source/downstream/script/justfile "${TMP_REPO}/.base/downstream/script/justfile"
-  cp /source/downstream/script/docker/justfile.docker "${TMP_REPO}/.base/downstream/script/docker/justfile.docker"
+  cp /source/dist/script/justfile "${TMP_REPO}/.base/dist/script/justfile"
+  cp /source/dist/script/docker/justfile.docker "${TMP_REPO}/.base/dist/script/docker/justfile.docker"
   ln -s "script/justfile" "${TMP_REPO}/justfile"
-  ln -s "../.base/downstream/script/justfile" "${TMP_REPO}/script/justfile"
-  ln -s "../../.base/downstream/script/docker/justfile.docker" "${TMP_REPO}/script/docker/justfile.docker"
+  ln -s "../.base/dist/script/justfile" "${TMP_REPO}/script/justfile"
+  ln -s "../../.base/dist/script/docker/justfile.docker" "${TMP_REPO}/script/docker/justfile.docker"
 
   # `template` namespace: the entry mod?s script/template/justfile.template.
-  mkdir -p "${TMP_REPO}/.base/downstream/script/template/skel" "${TMP_REPO}/script/template"
+  mkdir -p "${TMP_REPO}/.base/dist/script/template/skel" "${TMP_REPO}/script/template"
   # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it.
-  mkdir -p "${TMP_REPO}/.base/downstream/script/docker/lib"
-  cp /source/downstream/script/docker/lib/i18n.sh "${TMP_REPO}/.base/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/template/justfile.template "${TMP_REPO}/.base/downstream/script/template/justfile.template"
-  cp /source/downstream/script/template/new.sh "${TMP_REPO}/.base/downstream/script/template/new.sh"
-  cp /source/downstream/script/template/skel/justfile.skel "${TMP_REPO}/.base/downstream/script/template/skel/justfile.skel"
-  cp /source/downstream/script/template/skel/skel.sh "${TMP_REPO}/.base/downstream/script/template/skel/skel.sh"
-  chmod +x "${TMP_REPO}/.base/downstream/script/template/new.sh"
-  ln -s "../../.base/downstream/script/template/justfile.template" "${TMP_REPO}/script/template/justfile.template"
-  ln -s "../../.base/downstream/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
-  ln -s "../../.base/downstream/script/template/skel" "${TMP_REPO}/script/template/skel"
+  mkdir -p "${TMP_REPO}/.base/dist/script/docker/lib"
+  cp /source/dist/script/docker/lib/i18n.sh "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/template/justfile.template "${TMP_REPO}/.base/dist/script/template/justfile.template"
+  cp /source/dist/script/template/new.sh "${TMP_REPO}/.base/dist/script/template/new.sh"
+  cp /source/dist/script/template/skel/justfile.skel "${TMP_REPO}/.base/dist/script/template/skel/justfile.skel"
+  cp /source/dist/script/template/skel/skel.sh "${TMP_REPO}/.base/dist/script/template/skel/skel.sh"
+  chmod +x "${TMP_REPO}/.base/dist/script/template/new.sh"
+  ln -s "../../.base/dist/script/template/justfile.template" "${TMP_REPO}/script/template/justfile.template"
+  ln -s "../../.base/dist/script/template/new.sh" "${TMP_REPO}/script/template/new.sh"
+  ln -s "../../.base/dist/script/template/skel" "${TMP_REPO}/script/template/skel"
 
   # `base` namespace: the entry mod?s script/base/justfile.base
   # (just base upgrade / update / init / completions).
-  mkdir -p "${TMP_REPO}/.base/downstream/script/base" "${TMP_REPO}/script/base"
-  cp /source/downstream/script/base/justfile.base "${TMP_REPO}/.base/downstream/script/base/justfile.base"
-  ln -s "../../.base/downstream/script/base/justfile.base" "${TMP_REPO}/script/base/justfile.base"
+  mkdir -p "${TMP_REPO}/.base/dist/script/base" "${TMP_REPO}/script/base"
+  cp /source/dist/script/base/justfile.base "${TMP_REPO}/.base/dist/script/base/justfile.base"
+  ln -s "../../.base/dist/script/base/justfile.base" "${TMP_REPO}/script/base/justfile.base"
   # completions.sh is reached via the consumer symlink script/base/completions.sh;
   # stub it as a recorder so `just base completions` forwarding is observable.
-  cat > "${TMP_REPO}/.base/downstream/script/base/completions.sh" <<'EOS'
+  cat > "${TMP_REPO}/.base/dist/script/base/completions.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'completions'
 for _arg in "$@"; do printf ' %s' "${_arg}"; done
 printf '\n'
 EOS
-  chmod +x "${TMP_REPO}/.base/downstream/script/base/completions.sh"
-  ln -s "../../.base/downstream/script/base/completions.sh" "${TMP_REPO}/script/base/completions.sh"
-  # `just base init` forwards to ./.base/downstream/script/base/init.sh
+  chmod +x "${TMP_REPO}/.base/dist/script/base/completions.sh"
+  ln -s "../../.base/dist/script/base/completions.sh" "${TMP_REPO}/script/base/completions.sh"
+  # `just base init` forwards to ./.base/dist/script/base/init.sh
   # (relocated in) -- stub it as a recorder.
-  cat > "${TMP_REPO}/.base/downstream/script/base/init.sh" <<'EOS'
+  cat > "${TMP_REPO}/.base/dist/script/base/init.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'init'
 for _arg in "$@"; do printf ' %s' "${_arg}"; done
 printf '\n'
 EOS
-  chmod +x "${TMP_REPO}/.base/downstream/script/base/init.sh"
+  chmod +x "${TMP_REPO}/.base/dist/script/base/init.sh"
 
   local _name
   for _name in build run exec stop prune setup setup_tui; do
@@ -85,14 +85,14 @@ printf '\n'
 EOS
     chmod +x "${TMP_REPO}/script/${_name}.sh"
   done
-  # upgrade wrapper lives under .base/downstream/script/base/
-  cat > "${TMP_REPO}/.base/downstream/script/base/upgrade.sh" <<'EOS'
+  # upgrade wrapper lives under .base/dist/script/base/
+  cat > "${TMP_REPO}/.base/dist/script/base/upgrade.sh" <<'EOS'
 #!/usr/bin/env bash
 printf 'upgrade'
 for _arg in "$@"; do printf ' %s' "${_arg}"; done
 printf '\n'
 EOS
-  chmod +x "${TMP_REPO}/.base/downstream/script/base/upgrade.sh"
+  chmod +x "${TMP_REPO}/.base/dist/script/base/upgrade.sh"
 }
 
 teardown() {
@@ -138,7 +138,7 @@ teardown() {
   assert_output --partial "setup_tui"
 }
 
-@test "just base upgrade forwards to ./.base/downstream/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
+@test "just base upgrade forwards to ./.base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base upgrade v0.30.0
   assert_success
   assert_output --partial "upgrade v0.30.0"
@@ -150,7 +150,7 @@ teardown() {
   assert_output --partial "upgrade --check"
 }
 
-@test "just base init forwards to ./.base/downstream/script/base/init.sh (#653, #654, ADR-00000011)" {
+@test "just base init forwards to ./.base/dist/script/base/init.sh (#653, #654, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base init --force
   assert_success
   assert_output --partial "init --force"

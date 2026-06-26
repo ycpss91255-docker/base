@@ -121,11 +121,11 @@ internally rather than `build` growing a magic `test` argument.
 The whole `script/<ns>/` tree is **generic tooling with a single source of
 truth**; only repo-specific *content* differs. Therefore:
 
-- The **real files live in `downstream/script/<ns>/`** (the shipped tree),
+- The **real files live in `dist/script/<ns>/`** (the shipped tree),
   which is the single source of truth. base-own **`script/<ns>/` symlinks
-  into `downstream/script/<ns>/`** so base uses the very tooling it ships,
+  into `dist/script/<ns>/`** so base uses the very tooling it ships,
   with no duplicate base-own copy. A consumer's **`script/<ns>/` symlinks
-  into `.base/downstream/script/<ns>/`** -- a **single hop** to the real
+  into `.base/dist/script/<ns>/`** -- a **single hop** to the real
   file. (Per-sub symlinks, not a single whole-`script/` symlink, so
   `script/local/` and `script/entrypoint.sh` can stay *inside* `script/`
   and remain repo-owned -- alignment is kept.)
@@ -137,15 +137,15 @@ truth**; only repo-specific *content* differs. Therefore:
 
 **Origin-direction is build-verified (corrected 2026-06-23).** The
 opposite direction -- real files in base `script/<ns>/`, with
-`downstream/script/<ns>/` as a *directory* symlink back -- was tested and
+`dist/script/<ns>/` as a *directory* symlink back -- was tested and
 rejected: it makes the consumer wrapper symlinks (`<repo>/script/build.sh
--> .base/downstream/script/docker/wrapper/build.sh`) a **two-hop** chain
+-> .base/dist/script/docker/wrapper/build.sh`) a **two-hop** chain
 (file symlink through a directory symlink), and BuildKit does **not**
 resolve that at `COPY` time. The required lint copy `COPY script/*.sh
 /lint/` then fails with `"/script/build.sh": not found`. (A single
-directory-symlink path such as `COPY .base/downstream/script/docker/lib
+directory-symlink path such as `COPY .base/dist/script/docker/lib
 /lint/lib` *does* resolve; only the two-hop chain fails.) Keeping the real
-bytes at the `downstream/` path the consumer references makes every
+bytes at the `dist/` path the consumer references makes every
 consumer symlink single-hop -- the shape already proven in CI -- and
 leaves the consumer Dockerfile COPY paths and the ADR-00000006 Region C
 `upgrade.sh` paths **unchanged**. For docker this is exactly today's
@@ -155,14 +155,14 @@ base-own `script/<ns>` symlinks plus the consumer per-sub symlinks.
 **Amended 2026-06-24 (#654).** The base=origin symlink-unification this
 section describes turned out to be **N/A in practice -- there is no
 duplicated tooling to unify**. Audit of the tree found: the real docker
-files already live single-copy at `downstream/script/docker/`; base-own
+files already live single-copy at `dist/script/docker/`; base-own
 `script/test/` + `script/release/` are base's OWN self-test / skeleton
 tooling (not shipped copies of a downstream original); and the consumer
-entry mods only `downstream/.../template`. So there is no second copy of
+entry mods only `dist/.../template`. So there is no second copy of
 any namespace to collapse into a symlinked origin. What #654 actually did
 was the narrow, real change hiding inside this section's premise: relocate
 `init.sh` + `upgrade.sh` out of the subtree root into
-`downstream/script/base/` (the §8 move), with `upgrade.sh`'s self-location
+`dist/script/base/` (the §8 move), with `upgrade.sh`'s self-location
 rewritten to a walk-up so the `git subtree pull --prefix=` stays `.base`.
 The per-sub symlink wiring for namespaces remains as designed where a
 genuine origin/consumer split exists; it was simply not a
@@ -258,14 +258,14 @@ completion.
 **Done 2026-06-24 (#654).**
 
 `init.sh` and `upgrade.sh` move into the `base` namespace's tooling. Per
-§4 the real files live in `downstream/script/base/` (the shipped source of
+§4 the real files live in `dist/script/base/` (the shipped source of
 truth) and base-own `script/base/` symlinks into it. They back
 `just base init` / `just base upgrade` / `just base update`.
 
 Implementation note: because the scripts no longer sit at the subtree
 root, each rewrote its self-location from `dirname $BASH_SOURCE` to a
 **walk-up** to the subtree root -- the directory carrying the `.version` +
-`downstream/` markers. `upgrade.sh` `basename`s that root for the
+`dist/` markers. `upgrade.sh` `basename`s that root for the
 `git subtree pull --prefix=` flag (resolves to `.base`, NOT the script's
 own deep dir `base`); its `_lib.sh` source and the Step-3 `init.sh` call
 were repointed to the deep paths in the same slice. An integration test
@@ -274,11 +274,11 @@ captured `--prefix` is `.base`.
 
 - **Region A** (ADR-00000006/00000010 froze `.base/init.sh` at root) is
   **superseded**: the bootstrap path becomes
-  `.base/downstream/script/base/init.sh` (a brand-new consumer's documented
+  `.base/dist/script/base/init.sh` (a brand-new consumer's documented
   one-time bootstrap command updates accordingly; the wrapper-first rule
   from ADR-00000005 means steady-state users call `just base ...`, not the
   raw script).
-- **Regions B/C** keep their ADR-00000010 `downstream/` locations.
+- **Regions B/C** keep their ADR-00000010 `dist/` locations.
 - `upgrade.sh`'s self-referential and frozen-path constants move in the
   same slice that relocates the script, per ADR-00000006's lockstep
   discipline.

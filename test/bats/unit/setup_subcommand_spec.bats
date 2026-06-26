@@ -32,9 +32,9 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
@@ -98,7 +98,7 @@ EOF
   # template-default fallback the same way `apply` does, so users
   # running the build.sh drift-check path see the heads-up too.
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
@@ -110,7 +110,7 @@ EOF
 # only comments, no [section] headers
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
@@ -123,7 +123,7 @@ EOF
 mode = auto
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   refute_output --partial "no per-repo setup.conf"
@@ -132,7 +132,7 @@ EOF
 
 @test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_output --partial "[setup] WARN :"
@@ -149,19 +149,19 @@ EOF
   # End-to-end: invoke the script as a subprocess (the way build.sh / run.sh
   # do after B-1) instead of `source` + function call. Validates the
   # subcommand dispatch path actually works when the script is executed.
-  mkdir -p "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib" \
-           "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper" \
-           "${TEMP_DIR}/sandbox/.base/downstream/config/docker"
-  cp /source/downstream/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_tui_conf.sh"
+  mkdir -p "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib" \
+           "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper" \
+           "${TEMP_DIR}/sandbox/.base/dist/config/docker"
+  cp /source/dist/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_tui_conf.sh"
   # setup.sh sources _lib.sh for the _log_* helpers; _lib.sh
   # is an umbrella that sources lib/*.sh sub-libs
-  cp /source/downstream/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/"
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/downstream/config/docker/setup.conf"
+  cp /source/dist/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/dist/config/docker/setup.conf"
 
-  bash "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh" apply \
+  bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
   # drift hash covers template + setup.conf. Mutating .local
@@ -171,7 +171,7 @@ EOF
 mode = off
 EOF
 
-  run bash "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
     check-drift --base-path "${TEMP_DIR}/sandbox"
   assert_failure
   assert_output --partial "drift detected"
@@ -187,7 +187,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "set writes a value into an existing section, round-trip via show" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_count all --base-path "${TEMP_DIR}"
   assert_success
   run main show deploy.gpu_count --base-path "${TEMP_DIR}"
@@ -220,42 +220,42 @@ EOF
 }
 
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set bogus.key value --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
 }
 
 @test "set rejects an invalid gpu_count value" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid mount string" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid cgroup_rule" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid env_kv" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid port mapping" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
@@ -268,49 +268,49 @@ EOF
 # ──────────────────────────────────────────────────────────────────
 
 @test "set rejects an invalid target_arch (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set build.target_arch sparc --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid build network (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid gpu_runtime (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid network_name (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set network.network_name "-bad" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid device mount (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set devices.device_1 noslash --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "add rejects an invalid capability (#560 schema unification)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main add security.cap_add lowercase --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects a malformed dotted key (no dot)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
   assert_failure
 }
@@ -344,10 +344,10 @@ EOF
 }
 
 @test "set does NOT regenerate .env (mtime unchanged after set)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Seed .env via apply so it exists.
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -414,7 +414,7 @@ EOF
 }
 
 @test "show rejects an unknown section name" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main show bogus.key --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -455,30 +455,30 @@ EOF
 }
 
 @test "list <section> rejects an unknown section" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main list bogus --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
 }
 
 @test "set / show / list run end-to-end via subprocess" {
-  mkdir -p "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib" \
-           "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper" \
+  mkdir -p "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib" \
+           "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper" \
            "${TEMP_DIR}/sandbox/config/docker"
-  cp /source/downstream/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_tui_conf.sh"
+  cp /source/dist/script/docker/wrapper/setup.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_tui_conf.sh"
   # setup.sh sources _lib.sh for the _log_* helpers; _lib.sh
   # is an umbrella that sources lib/*.sh sub-libs
-  cp /source/downstream/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/downstream/script/docker/lib/"
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
+  cp /source/dist/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
     set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
   assert_success
 
-  run bash "${TEMP_DIR}/sandbox/.base/downstream/script/docker/wrapper/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
     show network.mode --base-path "${TEMP_DIR}/sandbox"
   assert_success
   assert_output "bridge"
@@ -717,8 +717,8 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)" {
-  mkdir -p "${TEMP_DIR}/.base/downstream/config/docker"
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/.base/downstream/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/.base/dist/config/docker"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/.base/dist/config/docker/setup.conf"
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 # user-customized
 [network]
@@ -728,7 +728,7 @@ EOF
   run bash -c "
     _SETUP_SCRIPT_DIR='${TEMP_DIR}/.base/script/docker'
     mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main reset --yes --base-path '${TEMP_DIR}'
   "
   assert_success
@@ -752,7 +752,7 @@ EOF
 }
 
 @test "main reset --yes backs up prior .env.generated to .env.generated.bak" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env.generated"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
@@ -762,7 +762,7 @@ EOF
 }
 
 @test "main reset --yes does NOT regenerate .env" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   : > "${TEMP_DIR}/.env.generated"
   local _before
   _before="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
@@ -779,7 +779,7 @@ EOF
 }
 
 @test "main reset without --yes refuses non-tty (no confirmation possible)" {
-  cp /source/downstream/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   # Bats runs without a controlling TTY — without --yes the handler
   # must refuse rather than silently destroy state.
   run main reset --base-path "${TEMP_DIR}"

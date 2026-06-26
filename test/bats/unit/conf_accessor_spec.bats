@@ -8,9 +8,9 @@
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  # shellcheck source=downstream/script/docker/lib/conf.sh
+  # shellcheck source=dist/script/docker/lib/conf.sh
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/conf.sh
+  source /source/dist/script/docker/lib/conf.sh
   FIX="$(mktemp)"
   cat > "${FIX}" <<'EOF'
 [deploy]
@@ -265,7 +265,7 @@ EOF
   # touching the real filesystem. The bare `mktemp -d`-style fixture call
   # above already ran, so override only for the writer invocation.
   run bash -c "
-    source /source/downstream/script/docker/lib/conf.sh
+    source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
     _upsert_conf_value '${_f}' volumes mount_1 /c:/d
@@ -298,7 +298,7 @@ EOF
   _orig="$(cat "${_dst}")"
 
   run bash -c "
-    source /source/downstream/script/docker/lib/conf.sh
+    source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
     declare -a _sections=() _keys=() _values=()
@@ -335,7 +335,7 @@ EOF
   _orig="$(cat "${_f}")"
 
   run bash -c "
-    source /source/downstream/script/docker/lib/conf.sh
+    source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
     _upsert_conf_value '${_f}' volumes mount_1 /c:/d
@@ -371,7 +371,7 @@ EOF
   _orig="$(cat "${_dst}")"
 
   run bash -c "
-    source /source/downstream/script/docker/lib/conf.sh
+    source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
     declare -a _sections=() _keys=() _values=()

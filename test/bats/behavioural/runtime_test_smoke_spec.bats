@@ -28,7 +28,7 @@ setup_file() {
 
   # Fixture: minimal multi-stage Dockerfile mirroring the
   # runtime-base -> runtime -> runtime-test chain from
-  # .base/downstream/dockerfile/Dockerfile. Carries no application
+  # .base/dist/dockerfile/Dockerfile. Carries no application
   # code -- only the smoke gate under test.
   FIXTURE_DIR="$(mktemp -d -t template-249-behavioural-XXXXXX)"
   export FIXTURE_DIR

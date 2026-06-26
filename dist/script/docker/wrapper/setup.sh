@@ -15,7 +15,7 @@
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-# Resolve the symlink (<repo>/setup.sh → .base/downstream/script/docker/setup.sh)
+# Resolve the symlink (<repo>/setup.sh → .base/dist/script/docker/setup.sh)
 # so sibling sources (i18n.sh / _tui_conf.sh) are located in the
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
@@ -3119,7 +3119,7 @@ YAML
     fi
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
     # + LOG_FILE_PATH when [logging] local_path is set for this svc
-    # (consumed by .base/downstream/script/docker/_entrypoint_logging.sh helper to
+    # (consumed by .base/dist/script/docker/_entrypoint_logging.sh helper to
     # tee container stdout/stderr to the bind-mounted host file).
     # _devel_llp resolved here -- the volumes block emit below reuses
     # this variable, but the env block needs to know about the mount

@@ -276,7 +276,7 @@ FROM devel AS runtime
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E '^[[:space:]]+runtime:$' '${TEMP_DIR}/compose.yaml'
   "
@@ -295,7 +295,7 @@ FROM devel AS gui
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -317,7 +317,7 @@ FROM devel AS headless
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -348,7 +348,7 @@ FROM devel AS devel-test
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -380,7 +380,7 @@ EOF
 FROM devel AS base
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
   " 2>&1
   # Validator sees `base` as a parsed stage post-Dockerfile read, but
@@ -405,7 +405,7 @@ FROM devel AS latest
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_failure
@@ -421,7 +421,7 @@ FROM devel AS v0
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
   "
   assert_failure
@@ -440,7 +440,7 @@ FROM devel AS gui
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
@@ -462,7 +462,7 @@ FROM devel AS headless
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -479,7 +479,7 @@ FROM base AS devel
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -492,7 +492,7 @@ EOF
   # Stub detect_gpu/gui to match what was stored, so non-Dockerfile
   # drift sources stay quiet and we observe ONLY the Dockerfile drift.
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     _check_setup_drift '${TEMP_DIR}'
@@ -514,7 +514,7 @@ FROM devel AS gui
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -528,7 +528,7 @@ FROM devel AS headless
 EOF
 
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     detect_gui() { local -n _o=\$1; _o=\"\$(grep -oP '^SETUP_GUI_DETECTED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     detect_gpu() { local -n _o=\$1; _o=\"\$(grep -oP '^GPU_ENABLED=\\K.*' '${TEMP_DIR}/.env.generated' 2>/dev/null || echo false)\"; }
     _check_setup_drift '${TEMP_DIR}'
@@ -824,7 +824,7 @@ FROM devel AS headless
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -863,7 +863,7 @@ mode = force
 gui.mode = off
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -903,7 +903,7 @@ network.mode = bridge
 network.port_1 = 8080:80
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -937,7 +937,7 @@ volumes.mount_inherit = false
 volumes.mount_1 = /only:/only
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -979,7 +979,7 @@ cap_add_2 = NET_ADMIN
 gui.mode = off
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -1009,7 +1009,7 @@ gui.mode = off
 gui.mode = off
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_success
@@ -1031,7 +1031,7 @@ gui.mode = off
 image.rule_1 = prefix:bogus_
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_success
@@ -1050,7 +1050,7 @@ EOF
 gui.mode = off
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_failure
@@ -1080,7 +1080,7 @@ EOF
 deploy.gpu_mode = force
 EOF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success

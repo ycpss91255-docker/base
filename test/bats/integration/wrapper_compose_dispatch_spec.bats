@@ -33,13 +33,13 @@ setup() {
   touch "${REPO_DIR}/Dockerfile"
   local _w
   for _w in build run exec stop; do
-    ln -s ".base/downstream/script/docker/wrapper/${_w}.sh" "${REPO_DIR}/${_w}.sh"
+    ln -s ".base/dist/script/docker/wrapper/${_w}.sh" "${REPO_DIR}/${_w}.sh"
   done
 
   # Seed a per-repo setup.conf from the template so apply renders .env +
   # compose.yaml deterministically.
   mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/downstream/config/docker/setup.conf" \
+  cp "${REPO_DIR}/.base/dist/config/docker/setup.conf" \
      "${REPO_DIR}/config/docker/setup.conf"
 
   cd "${REPO_DIR}"

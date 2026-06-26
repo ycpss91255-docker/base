@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# lib_spec.bats - Execution tests for downstream/script/docker/lib/_lib.sh helpers.
+# lib_spec.bats - Execution tests for dist/script/docker/lib/_lib.sh helpers.
 #
 # These tests source _lib.sh in a fresh subshell and call each helper so
 # the bash branches actually run (kcov can then attribute coverage).
@@ -9,7 +9,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  LIB="/source/downstream/script/docker/lib/_lib.sh"
+  LIB="/source/dist/script/docker/lib/_lib.sh"
 }
 
 # ── _detect_lang / _LANG ────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ setup() {
   # make its _parse_ini_section dependency available -- the module
   # idempotently self-sources its deps so _lib.sh load order is not
   # load-bearing.
-  run bash -c "source /source/downstream/script/docker/lib/conf_logging.sh; declare -F _parse_ini_section"
+  run bash -c "source /source/dist/script/docker/lib/conf_logging.sh; declare -F _parse_ini_section"
   assert_success
 }
 

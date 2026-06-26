@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
 #
-# Unit tests for downstream/script/docker/runtime/smoke.sh -- the runtime-test
+# Unit tests for dist/script/docker/runtime/smoke.sh -- the runtime-test
 # smoke check that catches missing shared library dependencies.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  SMOKE_SH="/source/downstream/script/docker/runtime/smoke.sh"
+  SMOKE_SH="/source/dist/script/docker/runtime/smoke.sh"
   SCAN_ROOT="$(mktemp -d)"
   export SCAN_ROOT
 }
@@ -51,14 +51,14 @@ EOS
 @test "Dockerfile.example runtime-test default RUNTIME_SMOKE_CMD calls smoke.sh (#430)" {
   # Default should invoke the helper script, not just the old
   # 'whoami && bash --version' that missed libboost_regex (ros1_bridge#123).
-  run grep -E '^# ARG RUNTIME_SMOKE_CMD=.*smoke\.sh' /source/downstream/dockerfile/Dockerfile
+  run grep -E '^# ARG RUNTIME_SMOKE_CMD=.*smoke\.sh' /source/dist/dockerfile/Dockerfile
   assert_success
 }
 
 @test "Dockerfile.example commented runtime-test COPY brings smoke.sh into image (#430)" {
-  run grep -F 'COPY' /source/downstream/dockerfile/Dockerfile
+  run grep -F 'COPY' /source/dist/dockerfile/Dockerfile
   # Find the runtime/smoke.sh COPY (commented in template; downstream uncomments)
-  run grep -F '.base/downstream/script/docker/runtime/smoke.sh' /source/downstream/dockerfile/Dockerfile
+  run grep -F '.base/dist/script/docker/runtime/smoke.sh' /source/dist/dockerfile/Dockerfile
   assert_success
 }
 

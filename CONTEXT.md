@@ -28,7 +28,7 @@ _Avoid_: subtree layout, base API.
 
 **Wrapper**:
 A user-facing entry script (`build` / `run` / `exec` / `stop` / `prune` /
-`setup` / `setup_tui`) under `downstream/script/docker/wrapper/`, invoked through the
+`setup` / `setup_tui`) under `dist/script/docker/wrapper/`, invoked through the
 `just` recipes (ADR-00000005).
 _Avoid_: command script, entrypoint (reserved for the container ENTRYPOINT).
 

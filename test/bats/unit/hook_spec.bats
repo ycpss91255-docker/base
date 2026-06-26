@@ -18,9 +18,9 @@ setup() {
   # which at runtime is always sourced before hook.sh through _lib.sh.
   # Source it here so the helper is present in isolation too.
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/log.sh
+  source /source/dist/script/docker/lib/log.sh
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/hook.sh
+  source /source/dist/script/docker/lib/hook.sh
 
   TMP_DIR="$(mktemp -d)"
   FILE_PATH="${TMP_DIR}"

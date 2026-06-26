@@ -13,7 +13,7 @@ setup() {
   # readonly). The driver references the REPO_ROOT global + _die; provide
   # both so the function runs against a controlled scratch tree.
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/_lib.sh
+  source /source/dist/script/docker/lib/_lib.sh
   _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; return 1; }
   # shellcheck disable=SC1091
   source /source/script/test/drivers/issueref.sh
@@ -21,7 +21,7 @@ setup() {
   # A scratch repo root the driver will scan. Mirror the in-scope roots so
   # the driver's find walk has somewhere to look.
   SCRATCH="$(mktemp -d)"
-  mkdir -p "${SCRATCH}/downstream/script" "${SCRATCH}/script" "${SCRATCH}/test"
+  mkdir -p "${SCRATCH}/dist/script" "${SCRATCH}/script" "${SCRATCH}/test"
   REPO_ROOT="${SCRATCH}"
 }
 

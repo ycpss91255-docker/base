@@ -2,7 +2,7 @@
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  CONF="/source/downstream/config/shell/tmux/tmux.conf"
+  CONF="/source/dist/config/shell/tmux/tmux.conf"
 }
 
 # ════════════════════════════════════════════════════════════════════

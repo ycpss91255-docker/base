@@ -18,6 +18,6 @@ test count) live in the sibling docs below.
 | [unit.md](unit.md) | `test/bats/unit/` — library, wrappers, generators, templates | 2012 |
 | [integration.md](integration.md) | `test/bats/integration/` — end-to-end init / upgrade / dispatch | 85 |
 | [behavioural.md](behavioural.md) | `test/bats/behavioural/` — opt-in `runtime-test` buildx specs (host docker) | 5 |
-| [smoke.md](smoke.md) | `downstream/test/smoke/` — shipped build-time smoke templates | 38 |
+| [smoke.md](smoke.md) | `dist/test/smoke/` — shipped build-time smoke templates | 38 |
 
 Self-test grand total (unit + integration): **2097**.

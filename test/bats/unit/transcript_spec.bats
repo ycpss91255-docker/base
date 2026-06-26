@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for downstream/script/docker/lib/transcript.sh.
+# Unit tests for dist/script/docker/lib/transcript.sh.
 #
 # The wrapper transcript tees a non-interactive verb's combined output to
 # log/<verb>/<ts>-<traceid8>.log (ANSI stripped) with a per-verb
@@ -14,12 +14,12 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/log.sh
+  source /source/dist/script/docker/lib/log.sh
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/transcript.sh
+  source /source/dist/script/docker/lib/transcript.sh
   TMP_DIR="$(mktemp -d)"
-  TRANSCRIPT_SH="/source/downstream/script/docker/lib/transcript.sh"
-  LOG_SH="/source/downstream/script/docker/lib/log.sh"
+  TRANSCRIPT_SH="/source/dist/script/docker/lib/transcript.sh"
+  LOG_SH="/source/dist/script/docker/lib/log.sh"
   # The self-test runner exports WRAPPER_TRANSCRIPT=false globally so
   # other specs never write a log/ tree into the checkout. This spec is the
   # one that exercises the conf-based enable logic, so clear the env override
@@ -430,18 +430,18 @@ STUB
 
 @test "wiring: the 5 full verbs call _transcript_begin (#606)" {
   for _w in build stop prune setup; do
-    run grep -qF '_transcript_begin' "/source/downstream/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_begin' "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
   done
-  run grep -qF '_transcript_begin' /source/downstream/script/base/upgrade.sh
+  run grep -qF '_transcript_begin' /source/dist/script/base/upgrade.sh
   assert_success
 }
 
 @test "wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)" {
   for _w in run exec setup_tui; do
-    run grep -qF '_transcript_begin' "/source/downstream/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_begin' "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
-    run grep -qF '_transcript_detach' "/source/downstream/script/docker/wrapper/${_w}.sh"
+    run grep -qF '_transcript_detach' "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
   done
 }

@@ -10,7 +10,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # expected line appears in compose.yaml or .env. Companion negative
 # tests confirm the corresponding compose / env block is omitted when
 # the key is empty / cleared. Ensures every key documented in
-# .base/downstream/config/docker/setup.conf has a setting → output assertion.
+# .base/dist/config/docker/setup.conf has a setting → output assertion.
 # ════════════════════════════════════════════════════════════════════
 
 # ── [deploy] ─────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ gpu_mode = off
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'deploy:' '${TEMP_DIR}/compose.yaml' | head -1
   "
@@ -38,7 +38,7 @@ gpu_capabilities = gpu compute
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E 'driver: nvidia' '${TEMP_DIR}/compose.yaml'
   "
@@ -54,7 +54,7 @@ gpu_capabilities = gpu
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E 'count: 2$' '${TEMP_DIR}/compose.yaml'
   "
@@ -70,7 +70,7 @@ gpu_capabilities = gpu compute utility
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'capabilities: [gpu, compute, utility]' '${TEMP_DIR}/compose.yaml'
   "
@@ -85,7 +85,7 @@ runtime = nvidia
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E '^    runtime: nvidia$' '${TEMP_DIR}/compose.yaml'
   "
@@ -100,7 +100,7 @@ runtime = off
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '^    runtime:' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -116,7 +116,7 @@ mode = off
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c 'DISPLAY' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -130,7 +130,7 @@ mode = force
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F '/tmp/.X11-unix:/tmp/.X11-unix:ro' '${TEMP_DIR}/compose.yaml'
   "
@@ -147,7 +147,7 @@ ipc = host
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^NETWORK_MODE=' '${TEMP_DIR}/.env.generated'
   "
@@ -162,7 +162,7 @@ ipc = private
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^IPC_MODE=' '${TEMP_DIR}/.env.generated'
   "
@@ -178,7 +178,7 @@ pid = host
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^PID_MODE=' '${TEMP_DIR}/.env.generated'
   "
@@ -193,7 +193,7 @@ ipc = host
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^PID_MODE=' '${TEMP_DIR}/.env.generated'
   "
@@ -208,7 +208,7 @@ ipc = host
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep 'pid:' '${TEMP_DIR}/compose.yaml'
   "
@@ -224,7 +224,7 @@ pid = host
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'pid: \${PID_MODE}' '${TEMP_DIR}/compose.yaml'
   "
@@ -240,7 +240,7 @@ network_name = my_bridge
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E '^networks:' '${TEMP_DIR}/compose.yaml'
   "
@@ -256,7 +256,7 @@ port_1 = 8080:80
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E '8080:80' '${TEMP_DIR}/compose.yaml'
   "
@@ -272,7 +272,7 @@ port_1 = 8080:80
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '8080:80' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -290,7 +290,7 @@ shm_size = 2gb
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E 'shm_size: 2gb' '${TEMP_DIR}/compose.yaml'
   "
@@ -304,7 +304,7 @@ shm_size =
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c 'shm_size:' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -320,7 +320,7 @@ env_1 = ROS_DOMAIN_ID=7
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'ROS_DOMAIN_ID=7' '${TEMP_DIR}/compose.yaml'
   "
@@ -333,7 +333,7 @@ EOF
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '^    environment:' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -349,7 +349,7 @@ tmpfs_1 = /tmp
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E '^      - /tmp$' '${TEMP_DIR}/compose.yaml'
   "
@@ -363,7 +363,7 @@ tmpfs_1 = /tmp/cache:size=1g
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F '/tmp/cache:size=1g' '${TEMP_DIR}/compose.yaml'
   "
@@ -376,7 +376,7 @@ EOF
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c '^    tmpfs:' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -392,7 +392,7 @@ device_1 = /dev/video0:/dev/video0
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E -- '- /dev/video0:/dev/video0' '${TEMP_DIR}/compose.yaml'
   "
@@ -407,7 +407,7 @@ cgroup_rule_1 = c 189:* rwm
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'c 189:* rwm' '${TEMP_DIR}/compose.yaml'
   "
@@ -424,7 +424,7 @@ mount_2 = /data:/data
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -E -- '- /data:/data' '${TEMP_DIR}/compose.yaml'
   "
@@ -439,7 +439,7 @@ mount_2 = /etc/machine-id:/etc/machine-id:ro
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F '/etc/machine-id:/etc/machine-id:ro' '${TEMP_DIR}/compose.yaml'
   "
@@ -455,7 +455,7 @@ privileged = false
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep '^PRIVILEGED=' '${TEMP_DIR}/.env.generated'
   "
@@ -479,7 +479,7 @@ env_1 = EVIL=\$(touch ${TEMP_DIR}/pwn687)
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   [ ! -e "${TEMP_DIR}/pwn687" ]
@@ -495,7 +495,7 @@ env_1 = EVIL=$(touch /tmp/x)
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c 'EVIL=' '${TEMP_DIR}/compose.yaml'
   "
@@ -511,7 +511,7 @@ restart = sometimes
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c 'restart: sometimes' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -529,7 +529,7 @@ env_1 = MSG=a: b
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'MSG=a: b' '${TEMP_DIR}/compose.yaml'
   "
@@ -546,7 +546,7 @@ env_1 = GLOB=*
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'GLOB=' '${TEMP_DIR}/compose.yaml'
   "
@@ -563,7 +563,7 @@ env_1 = NOTE=a #b
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'NOTE=a #b' '${TEMP_DIR}/compose.yaml'
   "
@@ -580,7 +580,7 @@ env_1 = Q=a"b\c
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -F 'Q=' '${TEMP_DIR}/compose.yaml'
   "
@@ -608,7 +608,7 @@ network.mode = bogus: value
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     grep -c 'network_mode: bogus' '${TEMP_DIR}/compose.yaml' || true
   "
@@ -633,7 +633,7 @@ network.pid = bogus: value
 EOF
   unset SETUP_CONF
   run bash -c "
-    source /source/downstream/script/docker/wrapper/setup.sh
+    source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
     { grep -c 'ipc: bogus' '${TEMP_DIR}/compose.yaml' || true; } | head -1
   "

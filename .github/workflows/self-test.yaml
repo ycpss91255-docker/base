@@ -37,7 +37,7 @@ jobs:
     #                          behavioural block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
     #                          Dockerfile.test-tools, build/run/exec/stop.sh,
-    #                          downstream/script/base/{init,upgrade}.sh,
+    #                          dist/script/base/{init,upgrade}.sh,
     #                          test/bats/behavioural/**, .github/workflows/**)
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
@@ -98,19 +98,19 @@ jobs:
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
-                  'downstream/dockerfile/Dockerfile' \
+                  'dist/dockerfile/Dockerfile' \
                   'dockerfile/Dockerfile.test-tools' \
-                  'downstream/script/docker/wrapper/build.sh' \
-                  'downstream/script/docker/wrapper/run.sh' \
-                  'downstream/script/docker/wrapper/exec.sh' \
-                  'downstream/script/docker/wrapper/stop.sh' \
-                  'downstream/script/docker/wrapper/prune.sh' \
-                  'downstream/script/docker/wrapper/setup.sh' \
-                  'downstream/script/docker/lib/i18n.sh' \
-                  'downstream/script/docker/lib/**' \
+                  'dist/script/docker/wrapper/build.sh' \
+                  'dist/script/docker/wrapper/run.sh' \
+                  'dist/script/docker/wrapper/exec.sh' \
+                  'dist/script/docker/wrapper/stop.sh' \
+                  'dist/script/docker/wrapper/prune.sh' \
+                  'dist/script/docker/wrapper/setup.sh' \
+                  'dist/script/docker/lib/i18n.sh' \
+                  'dist/script/docker/lib/**' \
                   'test/bats/behavioural/**' \
-                  'downstream/script/base/init.sh' \
-                  'downstream/script/base/upgrade.sh' \
+                  'dist/script/base/init.sh' \
+                  'dist/script/base/upgrade.sh' \
                   '.github/workflows/**'; then
             echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
           else
@@ -136,8 +136,8 @@ jobs:
 
   hadolint:
     # Dedicated Hadolint job (#376). Lints the two template-owned
-    # Dockerfiles (downstream/dockerfile/Dockerfile +
-    # dockerfile/Dockerfile.test-tools) with downstream/.hadolint.yaml.
+    # Dockerfiles (dist/dockerfile/Dockerfile +
+    # dockerfile/Dockerfile.test-tools) with dist/.hadolint.yaml.
     # #650 / ADR-00000011: this job now runs the SAME driver
     # (script/test/drivers/hadolint.sh, via `test.sh --hadolint-only`)
     # that `just test` runs locally, instead of the hadolint-action. The
@@ -693,7 +693,7 @@ jobs:
           cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/.base/"
 
           cd "${REPO_DIR}"
-          bash .base/downstream/script/base/init.sh
+          bash .base/dist/script/base/init.sh
 
           # Sanity: verify symlinks resolve and core files exist.
           # Post-#330: wrappers live under script/; #546: the root user
@@ -982,10 +982,10 @@ jobs:
           ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          # init.sh / upgrade.sh now live under downstream/script/base/
-          # (#654), already covered by the downstream/ entry below.
+          # init.sh / upgrade.sh now live under dist/script/base/
+          # (#654), already covered by the dist/ entry below.
           cp -r justfile compose.yaml \
-                downstream/ dockerfile/ test/ script/ doc/ \
+                dist/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"
 

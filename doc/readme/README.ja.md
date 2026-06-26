@@ -36,7 +36,7 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/downstream/script/base/init.sh
+./.base/dist/script/base/init.sh
 
 # 最新版にアップグレード
 just base update   # 確認
@@ -69,7 +69,7 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 
   全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
   参照。`just` が使えない場合、各 recipe には raw fallback
-  （`./script/<verb>.sh`、`./.base/downstream/script/base/upgrade.sh`）があります
+  （`./script/<verb>.sh`、`./.base/dist/script/base/upgrade.sh`）があります
   -- [クイックスタート](#クイックスタート)参照。
 
 ## 概要
@@ -81,15 +81,15 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 ```mermaid
 graph TB
     subgraph base["base（共有 repo）"]
-        scripts["downstream/.hadolint.yaml<br/>downstream/script/justfile（consumer エントリ）<br/>downstream/script/docker|base|template/"]
-        smoke["downstream/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
-        config["downstream/config/<br/>bashrc / tmux / terminator"]
-        mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        scripts["dist/.hadolint.yaml<br/>dist/script/justfile（consumer エントリ）<br/>dist/script/docker|base|template/"]
+        smoke["dist/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["dist/config/<br/>bashrc / tmux / terminator"]
+        mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例: my_app）"]
-        symlinks["justfile → script/justfile → .base/downstream/script/justfile<br/>script/docker|base|template/ → .base/downstream/script/.../（per-sub symlink）<br/>script/build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlink）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 所有）"]
         repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
@@ -141,26 +141,26 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `prune.sh` | コンテナ / image / build キャッシュの整理 |
 | `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
-| `downstream/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
-| `downstream/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
-| `downstream/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
-| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
-| `downstream/script/docker/lib/conf.sh` | INI ファイルパーサ + section マージ |
-| `downstream/script/docker/lib/env.sh` | 環境変数のセットアップとデフォルト |
-| `downstream/script/docker/lib/gitignore.sh` | Gitignore ファイル管理 |
-| `downstream/script/docker/lib/hook.sh` | wrapper 毎の pre/post hook 呼び出し |
-| `downstream/script/docker/lib/i18n.sh` | 言語検出とローカライズ（`_detect_lang`、`_LANG`） |
-| `downstream/script/docker/lib/log.sh` | 統一されたログ / 出力ユーティリティ |
-| `downstream/script/docker/lib/config_summary.sh` | ランタイム設定のサマリ |
-| `downstream/script/docker/lib/conf_logging.sh` | ログ設定 helper |
-| `downstream/script/docker/lib/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
-| `downstream/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
-| `downstream/script/docker/runtime/logging.sh` | host 側ログ tee helper |
-| `downstream/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `downstream/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
+| `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `dist/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
+| `dist/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
+| `dist/script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
+| `dist/script/docker/lib/conf.sh` | INI ファイルパーサ + section マージ |
+| `dist/script/docker/lib/env.sh` | 環境変数のセットアップとデフォルト |
+| `dist/script/docker/lib/gitignore.sh` | Gitignore ファイル管理 |
+| `dist/script/docker/lib/hook.sh` | wrapper 毎の pre/post hook 呼び出し |
+| `dist/script/docker/lib/i18n.sh` | 言語検出とローカライズ（`_detect_lang`、`_LANG`） |
+| `dist/script/docker/lib/log.sh` | 統一されたログ / 出力ユーティリティ |
+| `dist/script/docker/lib/config_summary.sh` | ランタイム設定のサマリ |
+| `dist/script/docker/lib/conf_logging.sh` | ログ設定 helper |
+| `dist/script/docker/lib/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
+| `dist/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
+| `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper |
+| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
+| `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
-| `downstream/test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
+| `dist/test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/bats/unit/` | base 自己テスト、ユニット（bats + kcov） |
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
 | `test/bats/behavioural/` | base 自己テスト、runtime 動作（opt-in） |
@@ -175,22 +175,22 @@ flowchart LR
 
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile`（→ `script/justfile`） | Repo コマンドエントリ — 階層化された namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。サブコマンドと flag は `{{args}}` でそのまま渡されます（`just docker build --no-cache --stage test-tools`）。引数なしの `just` で全 namespace を一覧表示。 |
-| `downstream/script/docker/justfile.docker` | `docker` namespace — コンテナ操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
-| `downstream/script/base/justfile.base` | `base` namespace — `.base` subtree を管理（`just base init/update/upgrade/completions`）。 |
-| `downstream/script/base/init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成（ブートストラップ：`./.base/downstream/script/base/init.sh`；以降は `just base init`）。 |
-| `downstream/script/base/upgrade.sh` | Subtree バージョンアップグレード（`just base upgrade [vX.Y.Z]`）。 |
+| `dist/script/docker/justfile.docker` | `docker` namespace — コンテナ操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
+| `dist/script/base/justfile.base` | `base` namespace — `.base` subtree を管理（`just base init/update/upgrade/completions`）。 |
+| `dist/script/base/init.sh` | 初回 symlink セットアップ + 新 repo スケルトン生成（ブートストラップ：`./.base/dist/script/base/init.sh`；以降は `just base init`）。 |
+| `dist/script/base/upgrade.sh` | Subtree バージョンアップグレード（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自己テストのエントリ（`just test`、`just test lint`、`just test coverage`、…）。 |
 | `script/release/justfile.release` | base の `release` namespace（release / publish ツール）。 |
 | `script/test/test.sh` | base 自己テストのディスパッチャ（ローカル + コンテナ内） |
 | `script/test/drivers/` | ツールごとに 1 つの driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
-| `downstream/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
+| `dist/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
 ### Dockerfile ステージ（規約）
 
-ダウンストリーム repo は `downstream/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
+ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
 すべてのステージは `ARG BASE_IMAGE` で指定されるベース image を共有します。
 
 | ステージ | 親ステージ | 用途 | 出荷 |
@@ -355,7 +355,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
   - `script/entrypoint.sh`（canonical）
   - ros / アプリ起動 helper 等
-- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `downstream/dockerfile/Dockerfile` 参照、#275）
+- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dist/dockerfile/Dockerfile` 参照、#275）
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
@@ -382,7 +382,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
            [logging.<svc>] で個別 service に key-level override 可能
 ```
 
-テンプレート既定値は `.base/downstream/config/docker/setup.conf`；repo ごとの上書きは
+テンプレート既定値は `.base/dist/config/docker/setup.conf`；repo ごとの上書きは
 `<repo>/config/docker/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
 section があれば template の section を全置換；無ければ template 既定値を継承。
 
@@ -396,7 +396,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
 ./setup_tui.sh volumes              # 特定 section に直接ジャンプ
 ./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
-./.base/downstream/script/base/init.sh --gen-conf # .base/downstream/config/docker/setup.conf を repo ルートに単純コピー
+./.base/dist/script/base/init.sh --gen-conf # .base/dist/config/docker/setup.conf を repo ルートに単純コピー
 ```
 
 ### ホスト側へのログ出力
@@ -466,8 +466,8 @@ Main
 `setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
 の度に再実行されることはありません：
 
-- **`just base init` / `./.base/downstream/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
-- **`just base upgrade` / `./.base/downstream/script/base/upgrade.sh`** が subtree pull の後に
+- **`just base init` / `./.base/dist/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
+- **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
   baseline で `.env` / `compose.yaml` を再生成した状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
@@ -720,7 +720,7 @@ git subtree add --prefix=.base \
 
 # 3. symlink 初期化（初回ブートストラップのみ；裏で setup.sh を実行）。
 #    以降は `just base init`（symlink されたエントリ）を使用。
-./.base/downstream/script/base/init.sh
+./.base/dist/script/base/init.sh
 ```
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
@@ -746,17 +746,17 @@ just base upgrade v0.3.0
 # してください。
 
 # just が使えない場合のフォールバック
-./.base/downstream/script/base/upgrade.sh v0.3.0
+./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` は一度に完結します：
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 整合性チェック — subtree マーカー（`.base/.version`、
-   `.base/downstream/script/base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）が消えた場合は
+   `.base/dist/script/base/init.sh`、`.base/dist/script/docker/wrapper/setup.sh`）が消えた場合は
    `git reset --hard` で rollback（旧 `git-subtree.sh` の destructive FF
    対策）
-3. `./.base/downstream/script/base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
+3. `./.base/dist/script/base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
    / `justfile` …）の再同期、`.gitignore` を canonical entry set に
    同期、derived artifact になった旧 tracked ファイル（`.env`、
    `compose.yaml`、…）を `git rm --cached`、最後に `setup.sh apply` を
@@ -766,8 +766,8 @@ just base upgrade v0.3.0
 
 per-repo のファイルは上書きされません：`<repo>/setup.conf` はそのまま
 保持され、`<repo>/config/`（bashrc / tmux / terminator …）も触りません
-— 上流の `.base/downstream/config/` が前回 pull 以降変わっていれば、
-upgrade.sh が `diff -ruN .base/downstream/config config` のヒントを表示するの
+— 上流の `.base/dist/config/` が前回 pull 以降変わっていれば、
+upgrade.sh が `diff -ruN .base/dist/config config` のヒントを表示するの
 で、必要に応じて手動で reconcile してください。
 
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
@@ -860,7 +860,7 @@ just --list  # CI ターゲット表示
 ├── justfile                            # base 自身の自己テスト/release エントリ（mods test + release）
 ├── compose.yaml                        # base CI runner（test-tools サービス）
 ├── .dockerignore                       # canonical な ignore セット（consumer へ同期）
-├── downstream/                         # 出荷されるツール + コンテンツ（single source of truth）
+├── dist/                         # 出荷されるツール + コンテンツ（single source of truth）
 │   ├── .hadolint.yaml                  # 共有 Hadolint ルール（consumer へ symlink）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 用マルチステージ Dockerfile テンプレート

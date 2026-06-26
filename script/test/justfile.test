@@ -3,13 +3,13 @@
 # (`lint` / `coverage` / `behavioural` / ...), via base's own root
 # `justfile`, which `mod?`s this file as the `test` namespace. `just` does
 # not auto-discover this file, so it never collides with the auto-discovered
-# container-ops `justfile` (downstream/script/justfile, symlinked into
+# container-ops `justfile` (dist/script/justfile, symlinked into
 # downstream roots).
 #
 # ADR-00000005: `just` is the single runner. ADR-00000010/00000011: base's
 # own dev/CI entry is the `test` namespace (was `ci`); this file lives under
 # script/test/, the base-own tooling tree, distinct from the shipped
-# downstream/ tree. Per the min->max principle (ADR-00000011 §3) bare
+# dist/ tree. Per the min->max principle (ADR-00000011 §3) bare
 # `just test` runs everything; options/sub-recipes narrow.
 
 # Recipes run from the repo root (relative `./script`, `docker compose`

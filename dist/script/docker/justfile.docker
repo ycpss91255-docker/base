@@ -1,6 +1,6 @@
 # Container-ops recipes (just). The `docker` module of the layered entry
 # (ADR-00000010/00000011): `mod?`'d by the consumer entry
-# (downstream/script/justfile, symlinked as <repo>/script/justfile, with
+# (dist/script/justfile, symlinked as <repo>/script/justfile, with
 # <repo>/justfile -> script/justfile) so the verbs resolve as the `docker`
 # namespace at the repo root -- `just docker build` / `just docker run` /
 # ... (ADR-00000011 zero-special-case: docker is a namespace like the rest,

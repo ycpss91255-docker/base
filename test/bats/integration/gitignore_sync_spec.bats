@@ -29,7 +29,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)" {
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   local _entry
   for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
@@ -38,13 +38,13 @@ teardown() {
 }
 
 @test "init.sh new-repo: .gitignore has the 'managed by template' marker" {
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   run grep -F 'managed by template' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
 @test "init.sh new-repo: .dockerignore contains all canonical derived entries (#604)" {
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.dockerignore" ]
   local _entry
   for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
@@ -54,13 +54,13 @@ teardown() {
 }
 
 @test "init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)" {
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   run grep -F 'managed by template' "${REPO_DIR}/.dockerignore"
   assert_success
 }
 
 @test "init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)" {
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   run grep -xF 'log/' "${REPO_DIR}/.gitignore"
   assert_success
   run grep -xF 'log/' "${REPO_DIR}/.dockerignore"
@@ -90,7 +90,7 @@ EOF
 
 @test "init.sh existing-repo: appends missing canonical entries to user .gitignore" {
   _seed_existing_repo
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
 
   # User entry preserved verbatim
   run grep -xF '.claude/' "${REPO_DIR}/.gitignore"
@@ -117,7 +117,7 @@ EOF
   run git -C "${REPO_DIR}" ls-files compose.yaml
   assert_output "compose.yaml"
 
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
 
   # No longer in index
   run git -C "${REPO_DIR}" ls-files compose.yaml
@@ -141,7 +141,7 @@ EOF
   git -C "${REPO_DIR}" add config/docker/setup.conf
   git -C "${REPO_DIR}" commit -q -m "track setup.conf"
 
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
 
   # setup.conf still tracked by git
   run git -C "${REPO_DIR}" ls-files config/docker/setup.conf
@@ -156,11 +156,11 @@ EOF
 
 @test "init.sh existing-repo: idempotent — second run produces no .gitignore changes" {
   _seed_existing_repo
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   local _first
   _first="$(cat "${REPO_DIR}/.gitignore")"
 
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   local _second
   _second="$(cat "${REPO_DIR}/.gitignore")"
 
@@ -172,7 +172,7 @@ EOF
   # User-authored .dockerignore with a hand-maintained build-context line
   # plus one already-present canonical entry.
   printf '%s\n' 'script/' '.env' > "${REPO_DIR}/.dockerignore"
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
 
   # Hand-maintained build-context line preserved
   run grep -xF 'script/' "${REPO_DIR}/.dockerignore"
@@ -190,11 +190,11 @@ EOF
 @test "init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)" {
   _seed_existing_repo
   printf '%s\n' 'script/' > "${REPO_DIR}/.dockerignore"
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   local _first
   _first="$(cat "${REPO_DIR}/.dockerignore")"
 
-  bash .base/downstream/script/base/init.sh
+  bash .base/dist/script/base/init.sh
   local _second
   _second="$(cat "${REPO_DIR}/.dockerignore")"
 
@@ -215,32 +215,32 @@ _seed_upgrade_fixture() {
 
   # Build a "template" snapshot containing the real init.sh + lib + a
   # passthrough setup.sh stub. init.sh / upgrade.sh live deep at
-  # downstream/script/base/ and self-locate the subtree root via the
-  # `.version` + `downstream/` walk-up markers seeded here.
-  mkdir -p "${TMPL_WORK}/downstream/script/docker/lib" \
-           "${TMPL_WORK}/downstream/script/base"
+  # dist/script/base/ and self-locate the subtree root via the
+  # `.version` + `dist/` walk-up markers seeded here.
+  mkdir -p "${TMPL_WORK}/dist/script/docker/lib" \
+           "${TMPL_WORK}/dist/script/base"
   echo "v9.0.0" > "${TMPL_WORK}/.version"
-  cp /source/downstream/script/base/init.sh "${TMPL_WORK}/downstream/script/base/init.sh"
-  cp /source/downstream/script/base/upgrade.sh "${TMPL_WORK}/downstream/script/base/upgrade.sh"
-  cp /source/downstream/script/docker/lib/gitignore.sh "${TMPL_WORK}/downstream/script/docker/lib/gitignore.sh"
+  cp /source/dist/script/base/init.sh "${TMPL_WORK}/dist/script/base/init.sh"
+  cp /source/dist/script/base/upgrade.sh "${TMPL_WORK}/dist/script/base/upgrade.sh"
+  cp /source/dist/script/docker/lib/gitignore.sh "${TMPL_WORK}/dist/script/docker/lib/gitignore.sh"
   # init.sh / upgrade.sh source _lib.sh on load (route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
   # sub-libs, so copy all three surfaces.
-  cp /source/downstream/script/docker/lib/_lib.sh "${TMPL_WORK}/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${TMPL_WORK}/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/docker/lib/* "${TMPL_WORK}/downstream/script/docker/lib/"
-  mkdir -p "${TMPL_WORK}/downstream/script/docker/wrapper"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
+  cp /source/dist/script/docker/lib/_lib.sh "${TMPL_WORK}/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${TMPL_WORK}/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/* "${TMPL_WORK}/dist/script/docker/lib/"
+  mkdir -p "${TMPL_WORK}/dist/script/docker/wrapper"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh; do
-    : > "${TMPL_WORK}/downstream/script/docker/wrapper/${_f}"
+    : > "${TMPL_WORK}/dist/script/docker/wrapper/${_f}"
   done
-  : > "${TMPL_WORK}/downstream/script/justfile"
-  : > "${TMPL_WORK}/downstream/script/docker/justfile.docker"
+  : > "${TMPL_WORK}/dist/script/justfile"
+  : > "${TMPL_WORK}/dist/script/docker/justfile.docker"
   : > "${TMPL_WORK}/.hadolint.yaml"
-  chmod +x "${TMPL_WORK}/downstream/script/base/init.sh" \
-           "${TMPL_WORK}/downstream/script/base/upgrade.sh" \
-           "${TMPL_WORK}/downstream/script/docker/wrapper/setup.sh"
+  chmod +x "${TMPL_WORK}/dist/script/base/init.sh" \
+           "${TMPL_WORK}/dist/script/base/upgrade.sh" \
+           "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
 
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t
@@ -291,7 +291,7 @@ YAML
   cd "${DOWN_DIR}"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./.base/downstream/script/base/upgrade.sh v9.0.1
+      ./.base/dist/script/base/upgrade.sh v9.0.1
   assert_success
   assert_output --partial "Done! Upgraded to v9.0.1"
 
@@ -324,12 +324,12 @@ YAML
   cd "${DOWN_DIR}"
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./.base/downstream/script/base/upgrade.sh v9.0.1 >/dev/null
+      ./.base/dist/script/base/upgrade.sh v9.0.1 >/dev/null
   local _post_first
   _post_first="$(git -C "${DOWN_DIR}" rev-parse HEAD)"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./.base/downstream/script/base/upgrade.sh v9.0.1
+      ./.base/dist/script/base/upgrade.sh v9.0.1
   assert_success
   assert_output --partial "Already at v9.0.1"
 

@@ -5,7 +5,7 @@
 # step.
 #
 # The seven user-facing wrappers were moved out of the repo root into
-# `script/` (symlinks into `.base/downstream/script/docker/wrapper/`); `init.sh`
+# `script/` (symlinks into `.base/dist/script/docker/wrapper/`); `init.sh`
 # no longer creates root-level `build.sh` / `run.sh` / `exec.sh` /
 # `stop.sh` / `setup_tui.sh`. The archive step's `cp -r` still listed
 # those root names as operands, and `cp -r` aborts non-zero on a

@@ -53,7 +53,7 @@ teardown() {
   assert_output --partial "config/shell/terminator/setup.sh"
   assert_output --partial "config/shell/tmux/setup.sh"
   # the base namespace scripts (completions.sh) are shellchecked too.
-  assert_output --partial "downstream/script/base"
+  assert_output --partial "dist/script/base"
 }
 
 @test "_run_shellcheck: picks up every .sh file in script/docker/" {
@@ -67,8 +67,8 @@ teardown() {
   '
   assert_success
 
-  # Every .sh under downstream/script/docker/wrapper/ and lib/ must appear.
-  for _f in /source/downstream/script/docker/wrapper/*.sh /source/downstream/script/docker/lib/*.sh; do
+  # Every .sh under dist/script/docker/wrapper/ and lib/ must appear.
+  for _f in /source/dist/script/docker/wrapper/*.sh /source/dist/script/docker/lib/*.sh; do
     run grep -F "${_f}" "${_log}"
     assert_success
   done
@@ -862,9 +862,9 @@ teardown() {
   assert [ -f "${_log}" ]
   run cat "${_log}"
   # Exactly the two Dockerfiles the CI hadolint job linted, with the
-  # downstream/.hadolint.yaml config (single source of truth).
-  assert_output --partial "--config /source/downstream/.hadolint.yaml"
-  assert_output --partial "downstream/dockerfile/Dockerfile"
+  # dist/.hadolint.yaml config (single source of truth).
+  assert_output --partial "--config /source/dist/.hadolint.yaml"
+  assert_output --partial "dist/dockerfile/Dockerfile"
   assert_output --partial "dockerfile/Dockerfile.test-tools"
 }
 

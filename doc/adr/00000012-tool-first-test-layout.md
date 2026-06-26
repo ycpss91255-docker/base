@@ -51,7 +51,7 @@ test/
   its config; `just test lint` runs all, `just test lint --shellcheck
   [<level>] | --hadolint` runs one. Lint configs move under
   `test/lint/<tool>/` -- notably `.hadolint.yaml` leaves
-  `downstream/.hadolint.yaml`, and the consumer Dockerfile lint-stage
+  `dist/.hadolint.yaml`, and the consumer Dockerfile lint-stage
   COPY, `self-test.yaml`'s hadolint `config:`, and any init/upgrade
   references update in lockstep.
 - **base migrates** `test/{unit,integration,behavioural}` ->

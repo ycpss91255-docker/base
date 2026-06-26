@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for the repo-local command-group scaffolder
-# downstream/script/template/new.sh (ADR-00000010). Runs new.sh
+# dist/script/template/new.sh (ADR-00000010). Runs new.sh
 # directly (no `just` needed): it creates script/local/<name>/justfile.<name>
 # + <name>.sh from skel/ and registers the group in
 # script/local/justfile.local.
@@ -17,12 +17,12 @@ setup() {
   # is the repo root in production).
   mkdir -p "${SANDBOX}/script/template/skel" "${SANDBOX}/script/local" \
            "${SANDBOX}/script/docker/lib"
-  cp /source/downstream/script/template/new.sh "${SANDBOX}/script/template/new.sh"
-  cp /source/downstream/script/template/skel/justfile.skel "${SANDBOX}/script/template/skel/justfile.skel"
-  cp /source/downstream/script/template/skel/skel.sh "${SANDBOX}/script/template/skel/skel.sh"
+  cp /source/dist/script/template/new.sh "${SANDBOX}/script/template/new.sh"
+  cp /source/dist/script/template/skel/justfile.skel "${SANDBOX}/script/template/skel/justfile.skel"
+  cp /source/dist/script/template/skel/skel.sh "${SANDBOX}/script/template/skel/skel.sh"
   # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it so the
   # source resolves relative to the copied new.sh.
-  cp /source/downstream/script/docker/lib/i18n.sh "${SANDBOX}/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${SANDBOX}/script/docker/lib/i18n.sh"
   chmod +x "${SANDBOX}/script/template/new.sh"
 }
 

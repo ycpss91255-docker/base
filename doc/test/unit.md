@@ -1059,7 +1059,7 @@ guard + the release smoke check).
 ### test/bats/unit/template_new_spec.bats (7)
 
 Unit tests for the repo-local command-group scaffolder
-`downstream/script/template/new.sh` (#633, closes #594). Runs `new.sh`
+`dist/script/template/new.sh` (#633, closes #594). Runs `new.sh`
 directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 + `<name>.sh` from `skel/` and registers the group in
 `script/local/justfile.local`.
@@ -1078,7 +1078,7 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
-top-level import). The entry `downstream/script/justfile` mods the docker
+top-level import). The entry `dist/script/justfile` mods the docker
 + base modules; docker verbs forward 1:1 to `./script/<name>.sh` via
 `{{args}}`, base verbs to `./.base/upgrade.sh`. Asserted by grep, not
 execution -- `just` is not in the test-tools image; downstream installs it.
@@ -1133,7 +1133,7 @@ justfile_user_spec.bats.
 ### test/bats/unit/completions_spec.bats (13)
 
 Unit tests for the opt-in shell tab-completion installer
-`downstream/script/base/completions.sh` (#653, ADR-00000011), reached as
+`dist/script/base/completions.sh` (#653, ADR-00000011), reached as
 `just base completions install|uninstall [--shell ...]`. Sandboxes HOME + the
 XDG dirs to a temp tree and stubs `just` on PATH so `JUST_COMPLETE=<shell> just`
 emits a per-shell marker; asserts the DYNAMIC loader is written to each shell's
@@ -1628,14 +1628,14 @@ the host file content and the inherited stdout (preserving
 Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
 goes through lib/log.sh helpers" lint. The lint takes the repo root as
 `$1`, so the spec drives it against synthesized fixture trees laid out
-like the real repo (sources under `downstream/script/docker/**`, tests
+like the real repo (sources under `dist/script/docker/**`, tests
 under `script/test/**`). A real-repo-root clean-tree case guards against
 the path-drift bug (an empty find root passing vacuously) by proving the
-scan actually walks the populated `downstream/script/docker` tree.
+scan actually walks the populated `dist/script/docker` tree.
 
 | Test | Description |
 |------|-------------|
-| `flags a bare 'printf ... >&2' under downstream/script/docker (#692)` | exit 1 + violation line on the correct tree |
+| `flags a bare 'printf ... >&2' under dist/script/docker (#692)` | exit 1 + violation line on the correct tree |
 | `exits 0 on a clean tree (no bare stderr) (#692)` | clean fixture passes silently |
 | `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |

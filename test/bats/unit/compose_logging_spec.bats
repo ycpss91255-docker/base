@@ -2,7 +2,7 @@
 #
 # Tests for [logging] / [logging.<svc>] support in generate_compose_yaml
 # and the supporting _collect_logging / _parse_logging_svc_sections
-# parsers in downstream/script/docker/wrapper/setup.sh.
+# parsers in dist/script/docker/wrapper/setup.sh.
 
 bats_require_minimum_version 1.5.0
 
@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/wrapper/setup.sh
+  source /source/dist/script/docker/wrapper/setup.sh
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
@@ -265,19 +265,19 @@ teardown() {
   # The [logging] section in the template default setup.conf is the
   # primary surface where downstream maintainers learn about the
   # local_path feature + the entrypoint helper. PR originally
-  # pointed at `.base/downstream/script/docker/runtime/logging.sh` (the
+  # pointed at `.base/dist/script/docker/runtime/logging.sh` (the
   # subtree path inside the workspace bind mount), which crashes on
   # build-time smoke ($USER unset) and is wrong on multi-repo
   # workspaces (WS_PATH = workspace parent, not repo root). Path A
   # ships the helper into the image at /usr/local/lib/base/; the
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
-  local _conf="/source/downstream/config/docker/setup.conf"
+  local _conf="/source/dist/config/docker/setup.conf"
   [[ -f "${_conf}" ]] || skip "config/docker/setup.conf not present"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken path must not reappear.
-  run grep -F '.base/downstream/script/docker/runtime/logging.sh' "${_conf}"
+  run grep -F '.base/dist/script/docker/runtime/logging.sh' "${_conf}"
   assert_failure
 }
 

@@ -68,15 +68,15 @@ collision-proof mechanism, and it doubles as the add-only guarantee
 
 ### 2. base/downstream directory split
 
-Everything shipped to consumers lives under a base-root `downstream/`
+Everything shipped to consumers lives under a base-root `dist/`
 folder that **mirrors a consumer's layout**; base's own tooling stays in
 base-root `script/` + `test/`. The `.base/` subtree carries both, but
-consumer symlinks only ever point into `.base/downstream/`.
+consumer symlinks only ever point into `.base/dist/`.
 
 base repo:
 
 ```
-downstream/                 # [SHIPS] consumer side = .base/downstream/
+dist/                 # [SHIPS] consumer side = .base/dist/
   script/
     justfile                # the entry (no suffix)
     docker/   justfile.docker  lib/ runtime/ wrapper/
@@ -100,9 +100,9 @@ consumer (after init):
 <repo>/
   justfile                SYMLINK -> script/justfile
   script/
-    justfile              SYMLINK -> .base/downstream/script/justfile   (identical to base; auto-flows)
-    docker/  justfile.docker + build.sh ... setup_tui.sh   SYMLINK -> .base/downstream/script/docker/...
-    ci/ cd/ template/      SYMLINK -> .base/downstream/script/...
+    justfile              SYMLINK -> .base/dist/script/justfile   (identical to base; auto-flows)
+    docker/  justfile.docker + build.sh ... setup_tui.sh   SYMLINK -> .base/dist/script/docker/...
+    ci/ cd/ template/      SYMLINK -> .base/dist/script/...
     local/                # REPO-OWNED (seeded once, committed, never clobbered)
       justfile.local      #   registry; entry import?s it; `just template new` appends here
       <name>/ justfile.<name> <name>.sh
@@ -121,7 +121,7 @@ the entry.
 ### 4. `just template new <name>` scaffolding
 
 `just template new <name>` creates `script/local/<name>/justfile.<name>`
-+ `<name>.sh` from `downstream/script/template/skel/` and appends a
++ `<name>.sh` from `dist/script/template/skel/` and appends a
 `mod?` line to `script/local/justfile.local` (idempotent). Bare
 `just template` prints help. The mechanism is discoverable out of the box
 (a seeded example), replacing #594's original `import?` plan, which the
@@ -131,7 +131,7 @@ import.
 ### 5. Naming
 
 - `Dockerfile` (was `Dockerfile.example`): `.example` only disambiguated
-  it from `Dockerfile.test-tools` in a shared folder; the `downstream/`
+  it from `Dockerfile.test-tools` in a shared folder; the `dist/`
   location now disambiguates, and it maps 1:1 to the consumer
   `Dockerfile`.
 - `Dockerfile.test-tools` keeps its suffix: it *names the image it
@@ -151,19 +151,19 @@ region, in the slice that moves each path:
 - **Region A (`.base/init.sh`)** -- unchanged. `init.sh` stays at the
   base root.
 - **Region B (`config/` drift detection)** -- `config/` moves to
-  `downstream/config/`. The pre/post-pull snapshot paths
+  `dist/config/`. The pre/post-pull snapshot paths
   (`HEAD:${TEMPLATE_REL}/config`,
   `.../config/docker/setup.conf`) move to
-  `${TEMPLATE_REL}/downstream/config[/docker/setup.conf]` in the same
+  `${TEMPLATE_REL}/dist/config[/docker/setup.conf]` in the same
   slice that relocates `config/`.
 - **Region C (Dockerfile lint-stage auto-patch)** -- `script/docker/lib/`
   and the `script/docker/*.sh` umbrella loaders move under
-  `downstream/script/docker/`. The grep+sed source paths
+  `dist/script/docker/`. The grep+sed source paths
   (`COPY .base/script/docker/lib`, the `script/*.sh` umbrella) move in
   the same slice that relocates `lib/` and the wrappers.
 
 The frozen-path **list** in ADR-00000006 is hereby re-pointed to the
-`downstream/` locations; the contract (move only as a deliberate,
+`dist/` locations; the contract (move only as a deliberate,
 `upgrade.sh`-aware change) is unchanged and reaffirmed.
 
 ## Consequences
@@ -175,7 +175,7 @@ The frozen-path **list** in ADR-00000006 is hereby re-pointed to the
   the `just`-first migration (ADR-00000005) covers this.
 - **Subtree dead weight.** The `.base/` subtree carries base's own
   `script/` + `test/` into every consumer. Accepted: it is the subtree
-  model's cost, and `downstream/` makes the shipped-vs-own line legible.
+  model's cost, and `dist/` makes the shipped-vs-own line legible.
 - **Extensibility without a generator.** `just` has no glob import, so
   auto-discovery is impossible; the fixed base namespaces (`ci`/`cd`/
   `template`) are wired statically and user groups self-register in the

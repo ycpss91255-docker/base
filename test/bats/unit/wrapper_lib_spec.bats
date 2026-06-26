@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # wrapper_lib_spec.bats - unit tests for the wrapper-runtime module
-# downstream/script/docker/lib/wrapper.sh.
+# dist/script/docker/lib/wrapper.sh.
 #
 # The runtime hoists the cross-cutting surfaces the 5 docker wrappers
 # (build / run / exec / stop / prune) used to duplicate: the _msg
@@ -14,7 +14,7 @@
 
 bats_require_minimum_version 1.5.0
 
-LIB="/source/downstream/script/docker/lib"
+LIB="/source/dist/script/docker/lib"
 
 setup() {
   export LOG_FORMAT=text
@@ -142,11 +142,11 @@ teardown() {
 
 _make_setup_sandbox() {
   local _root="$1"
-  mkdir -p "${_root}/.base/downstream/script/docker/wrapper" \
+  mkdir -p "${_root}/.base/dist/script/docker/wrapper" \
            "${_root}/config/docker"
   export SETUP_LOG="${TEMP_DIR}/setup.log"
   : > "${SETUP_LOG}"
-  cat > "${_root}/.base/downstream/script/docker/wrapper/setup.sh" <<EOS
+  cat > "${_root}/.base/dist/script/docker/wrapper/setup.sh" <<EOS
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -175,7 +175,7 @@ case "\${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${_root}/.base/downstream/script/docker/wrapper/setup.sh"
+  chmod +x "${_root}/.base/dist/script/docker/wrapper/setup.sh"
 }
 
 # Run _wrapper_setup_sync for a given verb in a fresh subshell against a
@@ -250,13 +250,13 @@ _run_setup_sync() {
 
 @test "_wrapper_setup_sync exits 1 with no_env error when setup leaves no .env (#565)" {
   local R="${TEMP_DIR}/repo5"
-  mkdir -p "${R}/.base/downstream/script/docker/wrapper" "${R}/config/docker"
+  mkdir -p "${R}/.base/dist/script/docker/wrapper" "${R}/config/docker"
   # setup.sh that does nothing (writes neither .env nor compose).
-  cat > "${R}/.base/downstream/script/docker/wrapper/setup.sh" <<'EOS'
+  cat > "${R}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${R}/.base/downstream/script/docker/wrapper/setup.sh"
+  chmod +x "${R}/.base/dist/script/docker/wrapper/setup.sh"
   run bash -c "
     source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
     _LANG=en

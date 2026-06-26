@@ -9,7 +9,7 @@
 #
 # Refuses to clobber an existing group; the registry append is idempotent.
 # The skel/ templates are located relative to this script, so it works
-# through the consumer's symlink into .base/downstream/script/template/.
+# through the consumer's symlink into .base/dist/script/template/.
 set -euo pipefail
 
 # i18n.sh provides _resolve_lang / _sanitize_lang. new.sh is a
@@ -17,9 +17,9 @@ set -euo pipefail
 # SETUP_LANG/$LANG like the docker wrappers, even though its (few) strings
 # are still English-only pending the localized-message pass. Located
 # relative to this script's real path so it resolves through the consumer
-# symlink into .base/downstream/script/template/new.sh.
+# symlink into .base/dist/script/template/new.sh.
 _new_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
-# shellcheck source=downstream/script/docker/lib/i18n.sh
+# shellcheck source=dist/script/docker/lib/i18n.sh
 source "$(dirname -- "${_new_self}")/../docker/lib/i18n.sh"
 unset _new_self
 

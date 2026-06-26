@@ -206,7 +206,7 @@ _migrate_logging_rename_apply() {
   # Dockerfile COPY: old flat helper path -> new runtime/ path, both src and
   # the baked dest filename.
   sed -i -E \
-    's|\.base/(downstream/)?script/docker/(runtime/)?_entrypoint_logging\.sh|.base/downstream/script/docker/runtime/logging.sh|g' \
+    's#\.base/(downstream/|dist/)?script/docker/(runtime/)?_entrypoint_logging\.sh#.base/dist/script/docker/runtime/logging.sh#g' \
     "${_file}"
   sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_file}"
 

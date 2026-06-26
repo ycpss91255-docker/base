@@ -24,9 +24,9 @@ set -euo pipefail
 # SETUP_LANG/$LANG like the docker wrappers, even though its diagnostics are
 # English-only pending the localized pass. Located relative to this
 # script's real path so it resolves through the consumer symlink into
-# .base/downstream/script/base/completions.sh.
+# .base/dist/script/base/completions.sh.
 _completions_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
-# shellcheck source=downstream/script/docker/lib/i18n.sh
+# shellcheck source=dist/script/docker/lib/i18n.sh
 source "$(dirname -- "${_completions_self}")/../docker/lib/i18n.sh"
 unset _completions_self
 

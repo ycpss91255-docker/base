@@ -16,7 +16,7 @@
 
 bats_require_minimum_version 1.5.0
 
-LIB="/source/downstream/script/docker/lib"
+LIB="/source/dist/script/docker/lib"
 
 setup() {
   export LOG_FORMAT=text
@@ -204,7 +204,7 @@ COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base
 EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}' && _migrate_logging_rename_apply '${DF}'"
   assert_success
-  grep -Fq "COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
   ! grep -q '_entrypoint_logging.sh' "${DF}"
 }
 
@@ -228,7 +228,7 @@ EOF
 @test "migration 4 (logging-rename): detect false when already on new name (#567)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}'"
   assert_failure
@@ -243,7 +243,7 @@ EOF
   mkdir -p "${TEMP_DIR}/script"
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
 #!/usr/bin/env bash

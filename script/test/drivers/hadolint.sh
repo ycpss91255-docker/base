@@ -14,8 +14,8 @@
 # ${REPO_ROOT}, _log_* / _die, no main).
 #
 # local==CI parity: self-test.yaml's dedicated hadolint job ran two
-# hadolint/hadolint-action steps over downstream/dockerfile/Dockerfile +
-# dockerfile/Dockerfile.test-tools with config downstream/.hadolint.yaml,
+# hadolint/hadolint-action steps over dist/dockerfile/Dockerfile +
+# dockerfile/Dockerfile.test-tools with config dist/.hadolint.yaml,
 # but `just test` skipped hadolint entirely -- a Dockerfile change passed
 # `just test` yet failed CI hadolint. Folding the SAME file list + config
 # into a driver run by BOTH `just test` (here) and the CI job (via this
@@ -27,9 +27,9 @@
 # self-test.yaml hadolint job invokes this driver, so the list lives here,
 # not duplicated in YAML. Paths are repo-root-relative; resolved against
 # ${REPO_ROOT} at call time.
-readonly _HADOLINT_CONFIG="downstream/.hadolint.yaml"
+readonly _HADOLINT_CONFIG="dist/.hadolint.yaml"
 readonly _HADOLINT_DOCKERFILES=(
-  "downstream/dockerfile/Dockerfile"
+  "dist/dockerfile/Dockerfile"
   "dockerfile/Dockerfile.test-tools"
 )
 

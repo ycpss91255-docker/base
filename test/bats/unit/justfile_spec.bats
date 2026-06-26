@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 #
 # Static checks for the layered user-facing just entry (ADR-00000010):
-# the entry at downstream/script/justfile (symlinked into the consumer as
+# the entry at dist/script/justfile (symlinked into the consumer as
 # script/justfile, with <repo>/justfile -> script/justfile) imports the
-# docker recipes at downstream/script/docker/justfile.docker as top-level
+# docker recipes at dist/script/docker/justfile.docker as top-level
 # verbs. ADR-00000005: `just` replaces the GNU make wrapper -- recipes
 # forward 1:1 to ./script/<name>.sh with full `{{args}}` passthrough (no
 # MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim).
@@ -19,8 +19,8 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # Verb recipes live in the docker module; the `default` recipe + the
   # import live in the entry.
-  DOCKER_JUSTFILE=/source/downstream/script/docker/justfile.docker
-  ENTRY=/source/downstream/script/justfile
+  DOCKER_JUSTFILE=/source/dist/script/docker/justfile.docker
+  ENTRY=/source/dist/script/justfile
 }
 
 @test "layered entry + docker module exist" {
@@ -56,26 +56,26 @@ setup() {
   assert_success
 }
 
-@test "base module declares upgrade + update (apt-aligned) forwarding to .base/downstream/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
-  local _base=/source/downstream/script/base/justfile.base
+@test "base module declares upgrade + update (apt-aligned) forwarding to .base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
+  local _base=/source/dist/script/base/justfile.base
   [ -f "${_base}" ]
   run grep -E '^upgrade \*args:' "${_base}"
   assert_success
   run grep -E '^update:' "${_base}"
   assert_success
-  run grep -F './.base/downstream/script/base/upgrade.sh {{args}}' "${_base}"
+  run grep -F './.base/dist/script/base/upgrade.sh {{args}}' "${_base}"
   assert_success
-  run grep -F './.base/downstream/script/base/upgrade.sh --check' "${_base}"
+  run grep -F './.base/dist/script/base/upgrade.sh --check' "${_base}"
   assert_success
 }
 
 @test "base module declares init + completions recipes (#653, ADR-00000011)" {
-  local _base=/source/downstream/script/base/justfile.base
+  local _base=/source/dist/script/base/justfile.base
   run grep -E '^init ' "${_base}"
   assert_success
   run grep -E '^completions ' "${_base}"
   assert_success
-  run grep -F './.base/downstream/script/base/init.sh {{args}}' "${_base}"
+  run grep -F './.base/dist/script/base/init.sh {{args}}' "${_base}"
   assert_success
   run grep -F 'script/base/completions.sh {{args}}' "${_base}"
   assert_success
