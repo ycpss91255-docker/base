@@ -341,6 +341,77 @@ teardown() {
   assert_output --partial "No spec files matched"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# _spec_weight: time-weighted shard partition (ADR-00000008 amend, #724)
+#
+# The shard partition (greedy LPT in _shard_unit_files) weights each spec
+# by RUNTIME, not `@test` count: equal-count specs of unequal duration
+# imbalance the shards otherwise. Weight source is a timings file (seconds
+# per spec basename) populated automatically from prior CI runs; a spec
+# absent from it (new spec / no data yet) falls back to its `@test` count.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_spec_weight: returns the recorded seconds from SHARD_WEIGHTS_FILE (#724)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    wf="${BATS_TEST_TMPDIR}/w.tsv"
+    printf "%s\n" "12 foo_spec.bats" "3 bar_spec.bats" > "${wf}"
+    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "/any/path/foo_spec.bats"
+  '
+  assert_success
+  assert_output "12"
+}
+
+@test "_spec_weight: falls back to @test count when the spec has no recorded time (#724)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    wf="${BATS_TEST_TMPDIR}/w.tsv"
+    printf "%s\n" "12 other_spec.bats" > "${wf}"
+    spec="${BATS_TEST_TMPDIR}/new_spec.bats"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${spec}"
+    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "${spec}"
+  '
+  assert_success
+  assert_output "2"
+}
+
+@test "_spec_weight: falls back to @test count when no SHARD_WEIGHTS_FILE is set (#724)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    spec="${BATS_TEST_TMPDIR}/c_spec.bats"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n@test \"c\" {\n:\n}\n" > "${spec}"
+    unset SHARD_WEIGHTS_FILE
+    _spec_weight "${spec}"
+  '
+  assert_success
+  assert_output "3"
+}
+
+@test "_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)" {
+  # Give ONE real spec a dominating runtime and everything else ~0; with 2
+  # shards, greedy-LPT-by-time must isolate the heavy spec on its own shard.
+  # Count-based weighting (which ignores SHARD_WEIGHTS_FILE) would not.
+  run bash -c '
+    source /source/script/test/test.sh
+    specs=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name "*_spec.bats" | sort)
+    heavy=$(printf "%s\n" "${specs}" | head -1 | xargs -n1 basename)
+    wf="${BATS_TEST_TMPDIR}/w.tsv"
+    : > "${wf}"
+    while IFS= read -r p; do
+      [[ -n "${p}" ]] || continue
+      b=$(basename "${p}")
+      if [[ "${b}" == "${heavy}" ]]; then echo "100000 ${b}"; else echo "1 ${b}"; fi
+    done <<< "${specs}" >> "${wf}"
+    s1=$(SHARD_WEIGHTS_FILE="${wf}" _shard_unit_files 1/2 | grep -c .)
+    s2=$(SHARD_WEIGHTS_FILE="${wf}" _shard_unit_files 2/2 | grep -c .)
+    echo "s1=${s1} s2=${s2}"
+    { [[ "${s1}" -eq 1 ]] || [[ "${s2}" -eq 1 ]]; } || { echo FAIL; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
 @test "_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)" {
   # No PATH override: _run_coverage shells out to find/sort/awk via
   # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
