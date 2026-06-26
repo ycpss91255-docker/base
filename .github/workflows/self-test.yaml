@@ -417,6 +417,35 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: ./script/test/test.sh --bats-integration
 
+  compute-shards:
+    # Dynamic coverage shard COUNT (#725). The total is `vars.CI_SHARDS`
+    # (default 8 when unset/non-numeric), clamped to [1, 12] -- a backstop so
+    # an over-large value cannot push the matrix far past the concurrent-job
+    # budget (excess shards just queue, wasting per-shard image-pull + kcov
+    # startup ~30-60s fixed overhead). Emits a JSON array `["1/N",...,"N/N"]`
+    # the coverage matrix consumes via fromJSON. A repo variable lets the
+    # count be tuned per environment (e.g. set to a runner fleet size if base
+    # moves to self-hosted) WITHOUT editing this workflow; "shard to runner
+    # count" is not runtime-detectable on GitHub-hosted, so a config var is
+    # the source of truth.
+    needs: actionlint
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.gen.outputs.shards }}
+    steps:
+      - id: gen
+        env:
+          CI_SHARDS: ${{ vars.CI_SHARDS }}
+        run: |
+          set -euo pipefail
+          n="${CI_SHARDS:-8}"
+          [[ "${n}" =~ ^[0-9]+$ ]] || n=8
+          (( n < 1 )) && n=1
+          (( n > 12 )) && n=12
+          shards="$(seq 1 "${n}" | sed "s|.*|\"&/${n}\"|" | paste -sd, -)"
+          echo "shards=[${shards}]" >> "${GITHUB_OUTPUT}"
+          echo "coverage shard count = ${n}: [${shards}]"
+
   coverage:
     # Sharded kcov coverage -- the PRIMARY unit gate and an ENFORCED PR gate
     # (#615, ADR-00000008; amends #377). #377 left this path fully serial
@@ -440,13 +469,16 @@ jobs:
     # bats-unit) instead of the old debian kcov/kcov image that apt-
     # installed ~24 packages every shard every PR. The per-shard apt
     # rebuild (and its APT_MIRROR_DEBIAN fragility) is gone.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, compute-shards]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/4', '2/4', '3/4', '4/4']
+        # Dynamic shard total from compute-shards (vars.CI_SHARDS, default 8),
+        # replacing the hardcoded 4 (#725). _shard_unit_files / test.sh
+        # --coverage-shard accept any total T.
+        shard: ${{ fromJSON(needs.compute-shards.outputs.shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

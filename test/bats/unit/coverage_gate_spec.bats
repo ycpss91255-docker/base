@@ -2,8 +2,10 @@
 #
 # Unit tests for script/test/drivers/coverage_gate.sh -- the self-hosted,
 # CI-agnostic coverage-floor gate (ADR-00000008). The gate MERGES the
-# per-shard kcov cobertura reports into ONE project line-rate (summing
-# covered/valid lines across shards, NOT averaging the per-shard rates)
+# per-shard kcov cobertura reports into ONE project line-rate by per-line
+# UNION (a line is covered if ANY shard ran it; valid = distinct source
+# lines), NOT a SUM of root counters (which double-counts source shared
+# across shards and drifts with the shard count -- see the merge bug fix)
 # and exits non-zero when the merged rate is below COVERAGE_MIN. These
 # tests drive it against controlled cobertura fixtures so they are
 # independent of any live kcov run.
@@ -24,22 +26,34 @@ teardown() {
   [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
 }
 
-# Write a minimal kcov-style cobertura.xml with the given covered/valid
-# line counts at $1; kcov emits these on the root <coverage> element.
+# Write a minimal kcov-style cobertura.xml at $1 with <covered> of <valid>
+# per-line <line> elements (the gate merges by per-line UNION). The
+# class filename defaults to a UNIQUE name per fixture dir, so distinct
+# fixtures are DISJOINT source -> their union equals the old sum (the
+# pre-union assertions stay valid). Pass $4 to force a SHARED filename so two
+# shards overlap on the same source (exercises the union dedupe).
+#   $1 path  $2 covered  $3 valid  [$4 filename]
 _make_cobertura() {
   local _path="${1}" _covered="${2}" _valid="${3}"
-  local _rate="0.0"
-  if [[ "${_valid}" != "0" ]]; then
-    _rate="$(awk -v c="${_covered}" -v v="${_valid}" 'BEGIN{printf "%.4f", c/v}')"
-  fi
+  local _fn="${4:-$(basename "$(dirname "${_path}")").sh}"
   mkdir -p "$(dirname "${_path}")"
-  cat > "${_path}" <<EOF
-<?xml version="1.0" ?>
-<coverage line-rate="${_rate}" lines-covered="${_covered}" lines-valid="${_valid}" branch-rate="0.0" version="1.9" timestamp="0">
-  <sources><source>/source</source></sources>
-  <packages></packages>
-</coverage>
-EOF
+  {
+    echo '<?xml version="1.0" ?>'
+    echo "<coverage lines-covered=\"${_covered}\" lines-valid=\"${_valid}\" version=\"1.9\" timestamp=\"0\">"
+    echo '  <packages><package name="p"><classes>'
+    echo "  <class name=\"c\" filename=\"${_fn}\"><lines>"
+    local _i
+    for (( _i = 1; _i <= _valid; _i++ )); do
+      if (( _i <= _covered )); then
+        echo "    <line number=\"${_i}\" hits=\"1\"/>"
+      else
+        echo "    <line number=\"${_i}\" hits=\"0\"/>"
+      fi
+    done
+    echo '  </lines></class>'
+    echo '  </classes></package></packages>'
+    echo '</coverage>'
+  } > "${_path}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -68,23 +82,54 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Multi-shard merge math: SUM covered/valid, do NOT average the rates
+# Multi-shard merge math: per-line UNION, do NOT average; do NOT double-count
+# shared source across shards
 # ════════════════════════════════════════════════════════════════════
 
-@test "coverage_gate: merges shards by summing covered/valid, not averaging" {
-  # Shard A: 90/100 = 90%. Shard B: 10/100 = 10%. The average of the two
-  # per-shard rates is 50%; the CORRECT line-weighted total is
-  # (90+10)/(100+100) = 50%. With equal denominators these coincide, so
-  # use UNEQUAL denominators to distinguish the two: A 90/100 (90%),
-  # B 10/900 (~1.1%) -> sum = 100/1000 = 10.00%, average would be ~45.6%.
+@test "coverage_gate: merges DISJOINT shards by union (= sum), not averaging" {
+  # Distinct fixtures -> distinct class filenames -> disjoint source, so the
+  # union equals the line-weighted sum. A 90/100 (90%), B 10/900 (~1.1%) ->
+  # union = 100/1000 = 10.00%; the average of the rates would be ~45.6%.
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 90 100
   _make_cobertura "${SCRATCH}/b/cobertura.xml" 10 900
   run env COVERAGE_MIN=0 bash "${GATE}" \
     "${SCRATCH}/a/cobertura.xml" "${SCRATCH}/b/cobertura.xml"
   [ "${status}" -eq 0 ]
-  # Line-weighted total is 10.00%, NOT the ~45.6% average of the rates.
   [[ "${output}" == *"10.00"* ]]
   [[ "${output}" != *"45.6"* ]]
+}
+
+@test "coverage_gate: SHARED source across shards is unioned, not double-counted (#730)" {
+  # The real bug dynamic sharding exposed: every shard's kcov reports the WHOLE tree, so a
+  # source file run by specs in multiple shards appears in EACH shard's report.
+  # Two shards over the SAME file (filename "shared.sh", 100 lines): shard A
+  # covers lines 1-30, shard B covers lines 31-60. UNION = 60/100 = 60.00%.
+  # The old SUM math double-counted valid: (30+30)/(100+100) = 30.00% (wrong).
+  mkdir -p "${SCRATCH}/a" "${SCRATCH}/b"
+  {
+    echo '<coverage lines-covered="30" lines-valid="100" version="1.9">'
+    echo '<packages><package><classes><class name="c" filename="shared.sh"><lines>'
+    for i in $(seq 1 100); do
+      if (( i <= 30 )); then echo "<line number=\"${i}\" hits=\"1\"/>"
+      else echo "<line number=\"${i}\" hits=\"0\"/>"; fi
+    done
+    echo '</lines></class></classes></package></packages></coverage>'
+  } > "${SCRATCH}/a/cobertura.xml"
+  {
+    echo '<coverage lines-covered="30" lines-valid="100" version="1.9">'
+    echo '<packages><package><classes><class name="c" filename="shared.sh"><lines>'
+    for i in $(seq 1 100); do
+      if (( i >= 31 && i <= 60 )); then echo "<line number=\"${i}\" hits=\"1\"/>"
+      else echo "<line number=\"${i}\" hits=\"0\"/>"; fi
+    done
+    echo '</lines></class></classes></package></packages></coverage>'
+  } > "${SCRATCH}/b/cobertura.xml"
+  run env COVERAGE_MIN=0 bash "${GATE}" \
+    "${SCRATCH}/a/cobertura.xml" "${SCRATCH}/b/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  # union 60/100 = 60.00%, NOT the double-counted sum 30.00%
+  [[ "${output}" == *"60.00"* ]]
+  [[ "${output}" != *"30.00"* ]]
 }
 
 @test "coverage_gate: four shards merge into one weighted total" {

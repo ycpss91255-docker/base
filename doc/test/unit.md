@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2034 tests**.
+Unit specs under `test/bats/unit/`: **2036 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -364,7 +364,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (65)
+### test/bats/unit/self_test_yaml_spec.bats (66)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1953,7 +1953,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/bats/unit/coverage_gate_spec.bats (11)
+### test/bats/unit/coverage_gate_spec.bats (12)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
