@@ -16,3 +16,4 @@ log/
 # Workspace-level Claude config lives in ycpss91255-docker/claude-workspace.
 .claude
 CLAUDE.md
+test/bats/.shard-weights

@@ -559,6 +559,21 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
+      - name: Restore shard-weights cache (time-balanced partition)
+        # The greedy-LPT partition (_shard_unit_files / _spec_weight) weights
+        # specs by recorded kcov seconds. Restore the cached weights to the
+        # in-repo path _spec_weight reads by default, so the in-container
+        # coverage run (the repo is mounted at /source) picks them up with no
+        # -e plumbing and every shard computes the identical exhaustive +
+        # disjoint partition. A miss leaves no file -> @test-count fallback.
+        # Read-only here; coverage-gate refreshes it on main pushes.
+        uses: actions/cache/restore@v4
+        with:
+          path: test/bats/.shard-weights
+          key: shard-weights-${{ github.run_id }}
+          restore-keys: |
+            shard-weights-
+
       - name: Run kcov coverage shard ${{ matrix.shard }}
         env:
           TEST_TOOLS_IMAGE: test-tools:local
@@ -634,6 +649,29 @@ jobs:
           fi
           printf 'coverage report: %s\n' "${reports[@]}"
           bash ./script/test/drivers/coverage_gate.sh "${reports[@]}"
+
+      - name: Merge shard timings into the weights file
+        # Each shard's artifact carries a timings.tsv (per-spec kcov seconds
+        # from _junit_to_timings). Merge them all into one weights file so the
+        # NEXT run's partition is time-balanced. Harmless on a first run with
+        # no timings.tsv yet (yields an empty file -> @test-count fallback).
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bash ./script/test/drivers/coverage_gate.sh --merge-timings \
+            test/bats/.shard-weights ./coverage-shards/*/timings.tsv
+          echo "merged $(grep -c . test/bats/.shard-weights || true) spec timings"
+
+      - name: Save shard-weights cache (main-push only)
+        # Only authoritative main-branch pushes refresh the shared weights;
+        # PR runs stay read-only so PR-runner noise never poisons them. The
+        # run-id key always creates a fresh entry; the coverage restore step's
+        # `shard-weights-` restore-keys prefix then picks the most recent.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: test/bats/.shard-weights
+          key: shard-weights-${{ github.run_id }}
 
   integration-e2e:
     name: Integration E2E (${{ matrix.platform }})
