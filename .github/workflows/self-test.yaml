@@ -790,7 +790,7 @@ jobs:
         # call ./script/test/test.sh directly and need no just. (The official
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
-        uses: extractions/setup-just@v3
+        uses: extractions/setup-just@v4
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
