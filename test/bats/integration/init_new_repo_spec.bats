@@ -24,6 +24,12 @@ setup() {
   # detection (../template relative to itself) works correctly. Use cp -a
   # to preserve executable bits and symlinks.
   cp -a /source/. "${REPO_DIR}/.base/"
+  # A real vendored subtree never carries `.git` (the consumer's `.git`
+  # lives at the repo root, outside the subtree). `cp -a /source/.` copies
+  # the source checkout's `.git`, which the self-run guard (ADR-00000011
+  # sec.8) would (correctly) read as "this is the base source" -- strip it
+  # so the fixture matches a genuine `.base/` subtree.
+  rm -rf "${REPO_DIR}/.base/.git"
 
   cd "${REPO_DIR}"
 }
@@ -575,4 +581,23 @@ teardown() {
   assert_success
   refute_output --partial "init_just_missing"
   refute_output --partial "just runner not found on PATH"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# init.sh self-run guard (ADR-00000011 sec.8)
+# ════════════════════════════════════════════════════════════════════
+
+@test "init.sh refuses to run when the subtree root carries .git (base template source)" {
+  # The base template SOURCE is itself a git checkout/worktree, so its
+  # subtree root carries `.git`; a vendored `.base/` subtree never does
+  # (the consumer's `.git` lives at the repo root, outside the subtree).
+  # Give the subtree root a `.git` to mimic the source, and assert init
+  # refuses instead of scaffolding -- otherwise it would pollute the
+  # parent dir.
+  rm -rf "${REPO_DIR}/.base/.git"
+  mkdir -p "${REPO_DIR}/.base/.git"
+  run env LOG_FORMAT=text bash .base/dist/script/base/init.sh
+  assert_failure
+  assert_output --partial "template source"
+  assert [ ! -f "${REPO_DIR}/Dockerfile" ]
 }

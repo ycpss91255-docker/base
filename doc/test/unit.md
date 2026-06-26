@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2015 tests**.
+Unit specs under `test/bats/unit/`: **2017 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1641,6 +1641,18 @@ scan actually walks the populated `dist/script/docker` tree.
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
+
+### test/bats/unit/template_guard_spec.bats (2)
+
+Unit coverage for `lib/template_guard.sh` (`_assert_not_template_source`) --
+the init/upgrade self-run guard (ADR-00000011 sec.8). A vendored `.base/`
+subtree never carries `.git`; the base checkout/worktree does, so `.git` at
+the resolved subtree root means "this is the base template source itself".
+
+| Test | Description |
+|------|-------------|
+| `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
+| `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
 ### test/bats/unit/init_spec.bats (40)
 
