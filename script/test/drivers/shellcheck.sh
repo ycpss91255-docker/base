@@ -39,6 +39,7 @@ _run_shellcheck() {
   shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
   rm -rf "${_lintdir}"
   shellcheck -x "${REPO_ROOT}/script/test/test.sh"
+  shellcheck -x "${REPO_ROOT}/script/test/sync-doc-counts.sh"
   # The per-tool drivers are base-own self-test tooling (sourced by
   # test.sh); shellcheck them with -x so source-following resolves the
   # _lib.sh / _log_* references the same way test.sh sees them.
