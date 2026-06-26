@@ -414,6 +414,39 @@ setup() {
   assert_output '7'
 }
 
+# ── self-maintaining shard-weights cache (time-balanced partition) ──
+
+@test "self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)" {
+  # The greedy-LPT partition weights specs by recorded kcov seconds; each
+  # shard restores the cached weights to the in-repo path _spec_weight reads
+  # by default, so every shard computes the identical (exhaustive + disjoint)
+  # partition. A cache miss degrades to the @test-count fallback.
+  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'actions/cache/restore'
+  assert_output --partial 'test/bats/.shard-weights'
+  assert_output --partial 'shard-weights-'
+}
+
+@test "self-test.yaml: coverage-gate merges shard timings into the weights file (#733)" {
+  # coverage-gate already downloads every shard artifact (cobertura), which
+  # now also carries each shard's timings.tsv; it merges them into one
+  # weights file via the gate driver's --merge-timings subcommand.
+  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial '--merge-timings'
+  assert_output --partial 'timings.tsv'
+}
+
+@test "self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)" {
+  # Only authoritative main-push runs refresh the cache (stable runners);
+  # PR runs read-only so PR-runner noise never poisons the shared weights.
+  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'actions/cache/save'
+  assert_output --partial "github.event_name == 'push'"
+}
+
 # ── ci-rollup aggregator ───────────────────────────────────────
 
 @test "self-test.yaml: declares ci-rollup job (#337)" {

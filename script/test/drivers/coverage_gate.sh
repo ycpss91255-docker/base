@@ -139,10 +139,43 @@ _run_coverage_gate() {
   _coverage_gate_run "$@"
 }
 
+# _merge_timings <out_file> <in_file>...
+#   Merge the per-shard `<seconds> <basename>` timings files (one per
+#   coverage shard, produced by _junit_to_timings) into one weights file at
+#   <out_file>, the SHARD_WEIGHTS_FILE the next run restores. A spec runs in
+#   exactly one shard, so normally one entry per basename; the MAX is kept
+#   as a defensive dedup. Non-existent inputs are skipped (a shard may have
+#   produced no file); no inputs yields an empty weights file. Output is
+#   sorted by basename so the cached weights are deterministic.
+_merge_timings() {
+  local _out="${1:?BUG: _merge_timings expects <out_file> <in_file>...}"
+  shift
+  local -a _ins=()
+  local _f
+  for _f in "$@"; do
+    [[ -f "${_f}" ]] && _ins+=("${_f}")
+  done
+  if (( ${#_ins[@]} == 0 )); then
+    : > "${_out}"
+    return 0
+  fi
+  awk '
+    ($2 != "") { v = $1 + 0; if (v > max[$2]) max[$2] = v }
+    END { for (k in max) print max[k], k }
+  ' "${_ins[@]}" | sort -k2,2 > "${_out}"
+}
+
 # Standalone CLI: when executed directly (CI: `bash coverage_gate.sh
 # coverage/*/cobertura.xml`), run the gate over the argument paths and
-# propagate its exit code. When sourced, this guard is false so only the
-# functions above are defined.
+# propagate its exit code. The `--merge-timings <out> <in>...` subcommand
+# aggregates per-shard timings instead (the coverage-gate job calls it after
+# downloading the shard artifacts). When sourced, this guard is false so
+# only the functions above are defined.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
-  _coverage_gate_run "$@"
+  if [[ "${1:-}" == "--merge-timings" ]]; then
+    shift
+    _merge_timings "$@"
+  else
+    _coverage_gate_run "$@"
+  fi
 fi

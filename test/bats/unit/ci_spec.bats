@@ -390,6 +390,23 @@ teardown() {
   assert_output "3"
 }
 
+@test "_spec_weight: reads the default repo weights file when SHARD_WEIGHTS_FILE is unset (#733)" {
+  # CI restores the cached weights to ${REPO_ROOT}/test/bats/.shard-weights
+  # (the mounted /source tree), so the in-container coverage run picks them up
+  # WITHOUT any -e plumbing. Source only the driver so REPO_ROOT (readonly in
+  # test.sh) can point at a tmpdir holding a controlled default weights file.
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats"
+    printf "%s\n" "42 foo_spec.bats" > "${REPO_ROOT}/test/bats/.shard-weights"
+    source /source/script/test/drivers/bats.sh
+    unset SHARD_WEIGHTS_FILE
+    _spec_weight "/any/path/foo_spec.bats"
+  '
+  assert_success
+  assert_output "42"
+}
+
 @test "_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)" {
   # Give ONE real spec a dominating runtime and everything else ~0; with 2
   # shards, greedy-LPT-by-time must isolate the heavy spec on its own shard.
@@ -413,6 +430,83 @@ teardown() {
   '
   assert_success
   assert_output --partial "OK"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _junit_to_timings: capture real per-spec-file kcov-mode runtime
+#
+# A coverage shard runs `kcov ... bats --report-formatter junit`, which
+# emits one <testsuite name=<spec> time=<sec>> per FILE. _junit_to_timings
+# turns that report into the `<seconds> <basename>` lines _spec_weight
+# reads, so the NEXT run's partition weights by real runtime instead of
+# the @test-count fallback. Seconds round to the nearest whole, floored at
+# 1 so a sub-second spec still carries a non-zero LPT weight.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    xml="${BATS_TEST_TMPDIR}/report.xml"
+    cat > "${xml}" <<EOF
+<?xml version="1.0"?>
+<testsuites time="3.6">
+  <testsuite name="test/bats/unit/foo_spec.bats" tests="2" time="2.4">
+    <testcase classname="x" name="a" time="1.2"/>
+  </testsuite>
+  <testsuite name="bar_spec.bats" tests="1" time="0.3">
+    <testcase classname="x" name="b" time="0.3"/>
+  </testsuite>
+</testsuites>
+EOF
+    _junit_to_timings "${xml}"
+  '
+  assert_success
+  # 2.4 -> 2; basename strips the path prefix
+  assert_line "2 foo_spec.bats"
+  # 0.3 rounds to 0 then floors to 1 (non-zero LPT weight)
+  assert_line "1 bar_spec.bats"
+}
+
+@test "_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _junit_to_timings "/no/such/report.xml"
+    echo "rc=$?"
+  '
+  assert_success
+  assert_output "rc=0"
+}
+
+@test "_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)" {
+  # A coverage run records each spec FILE's real kcov-mode runtime so the
+  # NEXT partition is time-balanced. Mock kcov to simulate the wrapped
+  # `bats --report-formatter junit --output DIR` by dropping a report at the
+  # requested dir; assert _run_coverage converts it into coverage/timings.tsv.
+  # REPO_ROOT is redirected to a tmpdir so the real mounted /source/coverage
+  # is never touched.
+  run bash -c '
+    # Source only the bats driver (test.sh makes REPO_ROOT readonly, which we
+    # must redirect to a tmpdir here); the driver is a pure function library.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" \
+             "${REPO_ROOT}/test/bats/unit" "${REPO_ROOT}/test/bats/integration"
+    source /source/script/test/drivers/bats.sh
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    cat > "${BATS_TEST_TMPDIR}/bin/kcov" <<"SH"
+#!/usr/bin/env bash
+outdir=""; prev=""
+for a in "$@"; do [[ "${prev}" == "--output" ]] && outdir="${a}"; prev="${a}"; done
+mkdir -p "${outdir}"
+printf "%s\n" "<testsuites><testsuite name=\"mock_spec.bats\" time=\"4.0\"></testsuite></testsuites>" \
+  > "${outdir}/report.xml"
+exit 0
+SH
+    chmod +x "${BATS_TEST_TMPDIR}/bin/kcov"
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" _run_coverage >/dev/null 2>&1
+    cat "${REPO_ROOT}/coverage/timings.tsv"
+  '
+  assert_success
+  assert_output "4 mock_spec.bats"
 }
 
 @test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {

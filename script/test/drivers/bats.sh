@@ -94,15 +94,47 @@ _spec_weight() {
   local _spec="${1:?BUG: _spec_weight expects a spec path}"
   local _base
   _base="$(basename -- "${_spec}")"
-  if [[ -n "${SHARD_WEIGHTS_FILE:-}" && -f "${SHARD_WEIGHTS_FILE}" ]]; then
+  # Weight source: SHARD_WEIGHTS_FILE when set (tests), else the canonical
+  # in-repo path the CI cache restores to. The container mounts the repo at
+  # ${REPO_ROOT}, so dropping the restored weights there means the in-
+  # container coverage run reads them with no -e plumbing; a missing file
+  # (first run / evicted cache / local run) drops to the @test-count fallback.
+  local _wf="${SHARD_WEIGHTS_FILE:-${REPO_ROOT:-}/test/bats/.shard-weights}"
+  if [[ -n "${_wf}" && -f "${_wf}" ]]; then
     local _secs
     _secs="$(awk -v b="${_base}" '$2 == b { print $1; f=1; exit } END { exit !f }' \
-      "${SHARD_WEIGHTS_FILE}" 2>/dev/null)" \
+      "${_wf}" 2>/dev/null)" \
       && { printf '%s\n' "${_secs}"; return 0; }
   fi
   local _c
   _c="$(grep -cE '^@test' "${_spec}" 2>/dev/null || true)"
   printf '%s\n' "${_c:-0}"
+}
+
+# _junit_to_timings <junit_xml>
+#   Emit `<seconds> <basename>` (one line per <testsuite>) from a bats
+#   junit report, so a coverage shard can record the real kcov-mode
+#   runtime of each spec FILE in the form _spec_weight reads back. bats
+#   `--report-formatter junit` writes one <testsuite name=<spec> time=<sec>>
+#   per file; we round the seconds to the nearest whole, floored at 1 so a
+#   sub-second spec still carries a non-zero greedy-LPT weight. Attribute
+#   order-independent. The <testsuites> root (plural) is skipped. A missing
+#   file is a no-op (return 0) so first-run / no-report paths degrade to the
+#   @test-count fallback in _spec_weight.
+_junit_to_timings() {
+  local _xml="${1:?BUG: _junit_to_timings expects a junit xml path}"
+  [[ -f "${_xml}" ]] || return 0
+  awk '
+    /<testsuite[ >]/ {
+      name = ""; t = ""
+      if (match($0, /name="[^"]*"/)) { name = substr($0, RSTART + 6, RLENGTH - 7) }
+      if (match($0, /time="[^"]*"/)) { t = substr($0, RSTART + 6, RLENGTH - 7) }
+      if (name == "") next
+      n = split(name, p, "/"); base = p[n]
+      s = int(t + 0.5); if (s < 1) s = 1
+      print s, base
+    }
+  ' "${_xml}"
 }
 
 _shard_unit_files() {
@@ -288,11 +320,26 @@ _run_coverage() {
     printf '  cov-shard:%s\n' "${_targets[@]}"
   fi
 
+  # Capture each spec FILE's real kcov-mode runtime via bats' junit report
+  # (one <testsuite time=...> per file) and convert it to coverage/timings.tsv
+  # (`<seconds> <basename>`). The coverage-gate job merges every shard's
+  # timings into the SHARD_WEIGHTS_FILE the NEXT run restores, so the
+  # partition self-balances by real time (greedy LPT, ADR-00000008). The
+  # junit report goes to a temp dir (only timings.tsv needs uploading); kcov's
+  # exit code (the actual test result) is preserved so a failing shard fails.
+  local _junit_dir
+  _junit_dir="$(mktemp -d)"
+  local _rc=0
   kcov \
     --include-path="${REPO_ROOT}" \
     --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
-    bats "${_targets[@]}"
+    bats --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
+    || _rc=$?
+  _junit_to_timings "${_junit_dir}/report.xml" \
+    > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
+  rm -rf "${_junit_dir}"
+  return "${_rc}"
 }
 
 # ── Behavioural runtime-test specs ────────────────────────────────────
