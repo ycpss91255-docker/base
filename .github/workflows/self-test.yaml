@@ -689,8 +689,14 @@ jobs:
           REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
           mkdir -p "${REPO_DIR}/.base"
 
-          # Mirror current template into the synthetic repo
+          # Mirror current template into the synthetic repo. A real vendored
+          # subtree never carries `.git` (the consumer's `.git` lives at the
+          # repo root, outside the subtree); `cp -a` of the checkout copies
+          # its `.git`, which the self-run guard (ADR-00000011 sec.8) reads as
+          # "this is the base source". Strip it so `.base/` is a genuine
+          # subtree and init.sh runs.
           cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/.base/"
+          rm -rf "${REPO_DIR}/.base/.git"
 
           cd "${REPO_DIR}"
           bash .base/dist/script/base/init.sh
