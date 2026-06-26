@@ -57,6 +57,48 @@ _src() {
   [ "${#lines[@]}" -ge 1 ]
 }
 
+# ── migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
+# base's shipped tree was renamed downstream/ -> dist/. A consumer
+# Dockerfile that hand-references the lint-stage lib/wrapper dir COPY under
+# .base/downstream/ breaks with "COPY source not found" after the rename;
+# every .base/downstream/ COPY source heals to .base/dist/.
+
+@test "migration 0 (downstream-to-dist): rewrites lib/wrapper COPY sources to .base/dist/ (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/wrapper /lint/wrapper
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); _migrate_downstream_to_dist_detect '${DF}' && _migrate_downstream_to_dist_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
+  grep -Fq "COPY .base/dist/script/docker/wrapper /lint/wrapper" "${DF}"
+  ! grep -q '\.base/downstream/' "${DF}"
+}
+
+@test "migration 0 (downstream-to-dist): detect false when no .base/downstream/ reference (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src); _migrate_downstream_to_dist_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration 0 (downstream-to-dist): idempotent — second run is a no-op (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${DF}" "${DF}.orig"
+}
+
 # ── migration 1: wrapper COPY shape A/B -> wrapper/*.sh ──────────────────────
 # v0.41.0 moved the user-facing wrappers into .base/script/docker/wrapper/.
 # Two pre-v0.41.0 lint-stage shapes break:
