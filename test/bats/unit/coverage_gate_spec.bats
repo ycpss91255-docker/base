@@ -196,3 +196,34 @@ _make_cobertura() {
   [[ "${output}" == *"Coverage"* ]]
   [[ "${output}" == *"60.00"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# --merge-timings: aggregate per-shard runtime files into one weights file
+#
+# Each coverage shard uploads a `<seconds> <basename>` timings file
+# (from _junit_to_timings). The coverage-gate job already downloads every
+# shard artifact, so it also merges the timings into one weights file that
+# the NEXT run restores as SHARD_WEIGHTS_FILE. A spec runs in exactly one
+# shard, so normally one entry per basename; the merge keeps the MAX as a
+# defensive dedup and tolerates a shard that produced no file.
+# ════════════════════════════════════════════════════════════════════
+
+@test "coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)" {
+  printf '%s\n' "10 foo_spec.bats" "3 bar_spec.bats" > "${SCRATCH}/a.tsv"
+  printf '%s\n' "5 baz_spec.bats" "7 foo_spec.bats" > "${SCRATCH}/b.tsv"
+  run bash "${GATE}" --merge-timings "${SCRATCH}/w.tsv" \
+    "${SCRATCH}/a.tsv" "${SCRATCH}/b.tsv" "${SCRATCH}/missing.tsv"
+  [ "${status}" -eq 0 ]
+  run cat "${SCRATCH}/w.tsv"
+  assert_line "10 foo_spec.bats"
+  assert_line "3 bar_spec.bats"
+  assert_line "5 baz_spec.bats"
+}
+
+@test "coverage_gate --merge-timings: no input files yields an empty weights file (#733)" {
+  run bash "${GATE}" --merge-timings "${SCRATCH}/w.tsv" "${SCRATCH}/none.tsv"
+  [ "${status}" -eq 0 ]
+  [ -f "${SCRATCH}/w.tsv" ]
+  run cat "${SCRATCH}/w.tsv"
+  [ -z "${output}" ]
+}
