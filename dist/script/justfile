@@ -11,15 +11,13 @@
 # come in via the repo-owned registry script/local/justfile.local (each
 # group a `mod?` line -> `just <group> <recipe>`).
 
+# Container-ops: build / run / exec / stop / prune / setup / setup-tui
 mod? docker 'script/docker/justfile.docker'
 
-# `just base upgrade [vX.Y.Z]` / `just base update` manage the `.base`
-# subtree dependency (apt-aligned; ADR-00000011). init + completions and
-# the script relocation land in
+# Manage the .base subtree: init / upgrade / update / completions (apt-aligned)
 mod? base 'script/base/justfile.base'
 
-# `just template new <name>` scaffolds a repo-local command group under
-# script/local/ and registers it. Bare `just template` prints help.
+# Repo-local command groups: `just template new <name>` scaffolds + registers
 mod? template 'script/template/justfile.template'
 
 # Repo-local command groups. script/local/justfile.local is REPO-OWNED
