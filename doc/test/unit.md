@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2027 tests**.
+Unit specs under `test/bats/unit/`: **2030 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1602,6 +1602,19 @@ the host file content and the inherited stdout (preserving
 | `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
 | `_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 behavioural socket guard |
 | `_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 behavioural docker-CLI guard |
+
+### test/bats/unit/doc_counts_spec.bats (3)
+
+Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
+generator that derives the `doc/test/*.md` count figures from the specs
+(`grep -c '^@test'`) so they stop being hand-edited. The
+`check_test_md_drift.sh` hook stays the validating safety net.
+
+| Test | Description |
+|------|-------------|
+| `_sync_doc_counts: rewrites a stale ### heading to the real @test count` | per-spec heading recompute |
+| `_sync_doc_counts: rewrites the per-type total to the sum of the headings` | per-type total from grep-over-files |
+| `_sync_doc_counts: is idempotent on an already-synced tree` | re-run no-op |
 
 ### test/bats/unit/issueref_lint_spec.bats (17)
 
