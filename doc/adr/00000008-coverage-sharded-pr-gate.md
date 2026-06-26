@@ -267,4 +267,27 @@ without weakening the gate (coverage stays a required PR check):
   union is shard-count-invariant (real 8-shard data: 51.42%). This SUPERSEDES
   the section-"MERGE MATH" line-weighted SUM described above.
 
+- **Self-maintaining real-runtime weights (#733).** The "automated timings
+  source" the #724 bullet deferred. Each coverage shard runs `kcov ... bats
+  --report-formatter junit`, and `_junit_to_timings` converts the per-file
+  `<testsuite time=...>` entries into a `coverage/timings.tsv`
+  (`<seconds> <basename>`) uploaded in the shard artifact. The coverage-gate
+  job (which already downloads every shard artifact) merges them via
+  `coverage_gate.sh --merge-timings` and, on main-branch pushes only,
+  `actions/cache/save`s the result; every run `actions/cache/restore`s it to
+  the in-repo `test/bats/.shard-weights` path `_spec_weight` reads by default,
+  so the partition self-balances by REAL seconds. PR runs are read-only (PR-
+  runner noise never poisons the shared weights); a cache miss or a brand-new
+  spec degrades to the `@test`-count fallback. This is the established
+  best-practice shape: runtime-weighted greedy-LPT with a self-maintaining
+  cached durations file -- cf. CircleCI ("timings-based test splitting gives
+  the most accurate split ... the most recent timings data is always used"),
+  Knapsack Pro (balance by time so every node finishes together), and
+  pytest-split's `least_duration` (largest-first into the lightest group) fed
+  by a stored `.test_durations`. The greedy-LPT partition is provably near-
+  optimal: Graham (1969, SIAM J. Appl. Math. 17(2):416-429) bounds LPT
+  makespan at `(4/3 - 1/(3m))` x optimal. The hard floor is the single
+  longest spec FILE (whole-file granularity); splitting a hot file by example
+  is a future refinement, not built here.
+
 The "coverage is a gating PR check via `ci-rollup`" posture is unchanged.
