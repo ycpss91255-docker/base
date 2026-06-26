@@ -116,6 +116,9 @@ init_progress
 init_just_missing
 init_bootstrap_just
 
+# template_guard.sh (init/upgrade self-run guard)
+base_self_run_refused
+
 # test.sh
 ci_apt_update_failed
 ci_apt_install_failed

@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **85 tests**.
+Integration specs under `test/bats/integration/`: **86 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -8,7 +8,7 @@ Integration specs under `test/bats/integration/`: **85 tests**.
 
 ## Test Files
 
-### test/bats/integration/init_new_repo_spec.bats (50)
+### test/bats/integration/init_new_repo_spec.bats (51)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -66,6 +66,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: script/base/ symlink wired for the base namespace` | #652, #653 — justfile.base + completions.sh symlinked; entry mods base |
 | `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
 | `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
+| `init.sh refuses to run when the subtree root carries .git (base template source)` | Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse, no scaffold |
 
 ### test/bats/integration/fresh_clone_portability_spec.bats (2)
 

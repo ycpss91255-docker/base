@@ -290,6 +290,29 @@ captured `--prefix` is `.base`.
   same slice that relocates the script, per ADR-00000006's lockstep
   discipline.
 
+**Amended 2026-06-26 (#719).** The walk-up self-location has a failure mode:
+run RAW from inside the base repo itself (`./dist/script/base/init.sh`, not
+via a `.base/` subtree), the walk-up resolves base's OWN root as the subtree
+root (it carries `.version` + `dist/`), so `REPO_ROOT` becomes base's PARENT
+dir and `init.sh` silently scaffolds a repo there. A shared guard
+`lib/template_guard.sh` (`_assert_not_template_source`) now refuses when the
+resolved subtree root carries `.git`: a vendored `.base/` subtree never does
+(the consumer's `.git` lives at the repo root, outside the subtree), but the
+base checkout/worktree has `.git` at the subtree root. The discriminator does
+NOT hardcode the subtree basename, preserving the rename contract; a
+git-remote match (fork/CI/rename-fragile) and a CONTEXT.md sentinel (shipped
+into `.base/`, indistinguishable) were rejected. `init.sh` is wired now;
+`upgrade.sh` (the symmetric raw-path hole) is tracked in #719's follow-up.
+
+A base-root **convenience bootstrap symlink** (`.base/init.sh` ->
+`dist/script/base/init.sh`, to shorten the one-time `./.base/dist/script/base/init.sh`)
+was considered and **rejected**: it partially reverts THIS section's
+relocation (which removed root-level scripts as "an eyesore" that breaks
+the every-action-lives-in-a-namespace rule), the saving is trivial (a
+one-time command copy-pasted from the README, not hand-typed), and it makes
+accidental in-base self-run easier. The raw bootstrap command stays the deep
+path; steady-state stays `just base init`.
+
 ## Final command list
 
 ```

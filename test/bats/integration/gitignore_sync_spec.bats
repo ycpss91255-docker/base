@@ -17,6 +17,11 @@ setup() {
   REPO_DIR="${TMP_ROOT}/myrepo"
   mkdir -p "${REPO_DIR}/.base"
   cp -a /source/. "${REPO_DIR}/.base/"
+  # A real vendored subtree never carries `.git`; `cp -a /source/.` copies
+  # the source checkout's `.git`, which the self-run guard (ADR-00000011
+  # sec.8) reads as "this is the base source". Strip it so the fixture
+  # matches a genuine `.base/` subtree.
+  rm -rf "${REPO_DIR}/.base/.git"
   cd "${REPO_DIR}"
 }
 
