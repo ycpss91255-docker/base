@@ -34,24 +34,6 @@
 # climbs. Overridable via the COVERAGE_MIN env var.
 : "${COVERAGE_MIN:=50}"
 
-# Parse one cobertura.xml's root <coverage> element and echo
-# "<covered> <valid>". Echoes nothing (and the caller treats it as a
-# parse failure) when either counter is absent. Pure text extraction so
-# it needs no XML library in the test-tools image.
-_coverage_gate_parse() {
-  local _file="${1}"
-  # kcov emits the counters as attributes on the root element, e.g.
-  #   <coverage line-rate="0.529" lines-covered="529" lines-valid="1000" ...>
-  # Grab the first occurrence of each (the root is the first element).
-  local _covered _valid
-  _covered="$(grep -o 'lines-covered="[0-9]*"' "${_file}" 2>/dev/null \
-    | head -n1 | grep -o '[0-9]*')"
-  _valid="$(grep -o 'lines-valid="[0-9]*"' "${_file}" 2>/dev/null \
-    | head -n1 | grep -o '[0-9]*')"
-  [[ -n "${_covered}" && -n "${_valid}" ]] || return 1
-  printf '%s %s\n' "${_covered}" "${_valid}"
-}
-
 # Append the coverage summary table to $GITHUB_STEP_SUMMARY when set
 # (GitHub Actions built-in, no SaaS). A no-op elsewhere (e.g. GitLab,
 # where the MR widget is fed by the job `coverage:` regex instead). Args:
@@ -83,28 +65,45 @@ _coverage_gate_run() {
     return 2
   fi
 
-  local _sum_covered=0 _sum_valid=0 _file _parsed _c _v
+  local _file
   for _file in "$@"; do
     if [[ ! -f "${_file}" ]]; then
       echo "coverage_gate: report not found: ${_file}" >&2
       return 2
     fi
-    if ! _parsed="$(_coverage_gate_parse "${_file}")"; then
-      echo "coverage_gate: no line counters in: ${_file}" >&2
-      return 2
-    fi
-    _c="${_parsed% *}"
-    _v="${_parsed#* }"
-    _sum_covered=$(( _sum_covered + _c ))
-    _sum_valid=$(( _sum_valid + _v ))
   done
 
+  # Per-line UNION across all shard reports (NOT SUM of root counters).
+  # Each shard's kcov runs with --include-path=<repo>, so every shard's
+  # cobertura reports the WHOLE tree and a source file exercised by specs in
+  # multiple shards appears in MULTIPLE reports. Summing root counters
+  # double-counts that shared source, so the rate drifts DOWN as the shard
+  # count grows (4 shards ~52.9%, 8 shards 42% on the SAME suite). A line is
+  # covered if ANY shard executed it (hits>0); valid = distinct source lines
+  # (key = <class filename> + <line number>) -- shard-count-invariant.
+  local _parsed _sum_covered _sum_valid
+  _parsed="$(awk '
+    match($0, /<class [^>]*filename="[^"]*"/) {
+      s = substr($0, RSTART, RLENGTH); sub(/.*filename="/, "", s); sub(/".*/, "", s)
+      cur = s; next
+    }
+    match($0, /<line number="[0-9]+" hits="[0-9]+"/) {
+      ln = substr($0, RSTART, RLENGTH)
+      n = ln; sub(/.*number="/, "", n); sub(/".*/, "", n)
+      h = ln; sub(/.*hits="/, "", h); sub(/".*/, "", h)
+      k = cur ":" n; valid[k] = 1; if (h + 0 > 0) cov[k] = 1
+    }
+    END { c = 0; v = 0; for (k in valid) v++; for (k in cov) c++; printf "%d %d", c, v }
+  ' "$@")"
+  _sum_covered="${_parsed% *}"
+  _sum_valid="${_parsed#* }"
+
   if (( _sum_valid == 0 )); then
-    echo "coverage_gate: total valid lines is zero (empty report set)" >&2
+    echo "coverage_gate: total valid lines is zero (no <line> data in report set)" >&2
     return 2
   fi
 
-  # Line-weighted total: SUM(covered)/SUM(valid), as a percentage.
+  # Union project rate covered/valid, as a percentage.
   local _rate
   _rate="$(awk -v c="${_sum_covered}" -v v="${_sum_valid}" \
     'BEGIN{printf "%.2f", (c/v)*100}')"
