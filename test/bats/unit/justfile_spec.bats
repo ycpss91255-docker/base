@@ -125,3 +125,30 @@ setup() {
   run grep -F -- '--lang' /source/script/release/justfile.release
   assert_failure
 }
+
+# `just --list` uses the comment IMMEDIATELY above a `mod?` (no blank gap) as
+# the module's description, and only the LAST line of a contiguous block. A
+# blank gap yields NO description; a multi-line block yields a mid-sentence
+# fragment. Enforce one clean one-liner per mod?: line above is a `#` comment,
+# line two-above is NOT (single, adjacent).
+_assert_mod_doc_comments() {
+  awk '
+    BEGIN { bad=0 }
+    /^mod\? / {
+      if (prev !~ /^#/)      { print "no adjacent doc comment: " $0; bad=1 }
+      else if (prev2 ~ /^#/) { print "multi-line comment block (fragment risk): " $0; bad=1 }
+    }
+    { prev2=prev; prev=$0 }
+    END { exit bad }
+  ' "$1"
+}
+
+@test "consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)" {
+  run _assert_mod_doc_comments "${ENTRY}"
+  assert_success
+}
+
+@test "base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)" {
+  run _assert_mod_doc_comments /source/justfile
+  assert_success
+}

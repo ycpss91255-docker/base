@@ -19,8 +19,11 @@
 # script/<verb>.sh symlinks point straight into dist/ (committed, since
 # init.sh -- which seeds them in a consumer -- never runs on base itself).
 
+# Container-ops (self-use): build / run / exec / stop / prune / setup / setup-tui
 mod? docker 'script/docker/justfile.docker'
+# Self-test: bats + shellcheck + hadolint + kcov (just test [lint|coverage|...])
 mod? test 'script/test/justfile.test'
+# Release / publish tooling (just release <recipe>)
 mod? release 'script/release/justfile.release'
 
 # Default: list available recipes / namespaces.

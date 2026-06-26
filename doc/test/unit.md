@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2025 tests**.
+Unit specs under `test/bats/unit/`: **2027 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1074,7 +1074,7 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh rejects an invalid group name` | name validation |
 | `new.sh errors with usage when no name given` | arg guard |
 
-### test/bats/unit/justfile_spec.bats (11)
+### test/bats/unit/justfile_spec.bats (13)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -1096,6 +1096,8 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | `entry mods the base namespace` | #652 -- `mod? base` |
 | `test / release namespaces own a default recipe (bare-namespace help)` | #655 -- bare `just test` / `just release` |
 | `test / release namespaces are English-only -- no --lang plumbing` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
+| `consumer entry: every top-level mod? has one adjacent one-line doc comment` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
+| `base root justfile: every top-level mod? has one adjacent one-line doc comment` | #720 -- same invariant for base's self-dev entry |
 
 ### test/bats/unit/help_lang_spec.bats (19)
 
