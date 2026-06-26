@@ -593,7 +593,7 @@ jobs:
         # coverage-gate job downloads every shard's artifact and merges
         # them locally into one line-weighted project rate -- no coverage
         # data leaves CI. strategy.job-index keys the per-shard name.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ strategy.job-index }}
           path: ./coverage
