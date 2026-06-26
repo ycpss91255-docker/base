@@ -183,18 +183,43 @@ EOF
 }
 
 @test "_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH" {
+  local _repo
+  _repo="$(mktemp -d)"
+  : > "${_repo}/.env.generated"   # present -> --env-file is included
   run bash -c "
     source ${LIB}
     DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
     _compute_project_name ''
-    FILE_PATH=/tmp/fakerepo
+    FILE_PATH='${_repo}'
     DRY_RUN=true _compose_project ps
   "
   assert_success
   assert_output --partial "-p alice-myrepo"
-  assert_output --partial "-f /tmp/fakerepo/compose.yaml"
-  assert_output --partial "--env-file /tmp/fakerepo/.env"
+  assert_output --partial "-f ${_repo}/compose.yaml"
+  assert_output --partial "--env-file ${_repo}/.env.generated"
   assert_output --partial " ps"
+  rm -rf "${_repo}"
+}
+
+@test "_compose_project omits --env-file when .env.generated is absent (self-managed repo)" {
+  # base self-use (ADR-00000011 sec.4): a hand-authored compose.yaml with no
+  # generated .env.generated -- _compose_project must still pass -p / -f but
+  # drop --env-file so docker compose does not error on a missing file.
+  local _repo
+  _repo="$(mktemp -d)"   # no .env.generated created
+  run bash -c "
+    source ${LIB}
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    _compute_project_name ''
+    FILE_PATH='${_repo}'
+    DRY_RUN=true _compose_project ps
+  "
+  assert_success
+  assert_output --partial "-p alice-myrepo"
+  assert_output --partial "-f ${_repo}/compose.yaml"
+  refute_output --partial "--env-file"
+  assert_output --partial " ps"
+  rm -rf "${_repo}"
 }
 
 # ════════════════════════════════════════════════════════════════════

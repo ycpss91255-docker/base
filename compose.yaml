@@ -1,4 +1,16 @@
 services:
+  # test-tools: base's own tooling image (ADR-00000011 sec.2/4).
+  # `just docker build --target test-tools` builds it from the standalone
+  # Dockerfile.test-tools via the shared docker wrapper, replacing the raw
+  # `docker build -f` one-liner. The ci / coverage / behavioural services
+  # below consume the resulting `test-tools:local` tag via image: (set
+  # TEST_TOOLS_IMAGE=test-tools:local). build-only service: never `run`.
+  test-tools:
+    build:
+      context: .
+      dockerfile: dockerfile/Dockerfile.test-tools
+    image: test-tools:local
+
   # Fast CI: ShellCheck + Bats only. Uses the prebuilt test-tools image
   # (alpine: bash + bats + bats-{support,assert,mock} + shellcheck +
   # hadolint baked in), so _install_deps short-circuits via its

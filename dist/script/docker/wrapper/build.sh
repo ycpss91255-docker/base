@@ -406,8 +406,12 @@ main() {
   # produced. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
   _wrapper_setup_sync build
 
-  # Load .env for project name
-  _load_env "${FILE_PATH}/.env.generated"
+  # Load .env for project name. Absent in a self-managed repo (base
+  # self-use): nothing to load -- the hand-authored compose.yaml
+  # carries its own config and _compute_project_name falls back to defaults.
+  if [[ -f "${FILE_PATH}/.env.generated" ]]; then
+    _load_env "${FILE_PATH}/.env.generated"
+  fi
   _compute_project_name ""
 
   # Pre-build snapshot so first-time users see which files drove this
@@ -478,7 +482,7 @@ main() {
   #   - `--dry-run` / `--no-prune` → print or skip
   # The buildx cache is intentionally untouched (use `prune.sh --builder`
   # for that). Tag shape mirrors run.sh's `_full_tag`.
-  local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${TARGET}"
+  local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-local}:${TARGET}"
   local _pre_build_id=""
   if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true ]]; then
     _pre_build_id="$(docker image inspect --format '{{.Id}}' \

@@ -119,6 +119,19 @@ _wrapper_setup_sync() {
   local _verb="${1:?_wrapper_setup_sync requires verb}"
   local _file_path="${FILE_PATH:?_wrapper_setup_sync requires FILE_PATH}"
   local _lang="${_LANG:-en}"
+
+  # Self-managed compose (base self-use): base is the template SOURCE
+  # -- it has no `.base/` subtree and ships a hand-authored compose.yaml, so
+  # there is no setup.conf to generate from and regenerating would clobber
+  # it. Skip the whole setup-sync lifecycle. This is the general
+  # "no .base/ subtree + no setup.conf -> the repo manages its own compose"
+  # rule (ADR-00000011 sec.4), not a base special-case; consumers always
+  # carry a `.base/` subtree so this never fires for them.
+  if [[ ! -d "${_file_path}/.base" \
+        && ! -f "${_file_path}/config/docker/setup.conf" ]]; then
+    return 0
+  fi
+
   local _setup="${_file_path}/.base/dist/script/docker/wrapper/setup.sh"
   local _tui="${_file_path}/setup_tui.sh"
 
