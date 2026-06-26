@@ -69,3 +69,9 @@ upgrade *args:
 # Check for a newer template version (exit 0 = up-to-date or available; non-1 = error)
 upgrade-check:
     @./upgrade.sh --check || [ $? -eq 1 ]
+
+# just test sync-docs -> regenerate doc/test/*.md count figures from the specs
+# (grep -c '^@test'), so the per-spec headings + per-type/grand totals stop
+# being hand-edited. Idempotent; check_test_md_drift.sh remains the validator.
+sync-docs:
+    ./script/test/sync-doc-counts.sh

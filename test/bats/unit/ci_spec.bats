@@ -48,6 +48,7 @@ teardown() {
   assert [ -f "${_log}" ]
   run cat "${_log}"
   assert_output --partial "script/test/test.sh"
+  assert_output --partial "sync-doc-counts.sh"
   assert_output --partial "init.sh"
   assert_output --partial "upgrade.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
