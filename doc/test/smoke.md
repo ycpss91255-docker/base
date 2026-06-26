@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Shared smoke specs that ship under `downstream/test/smoke/`: **38 tests**.
+Shared smoke specs that ship under `dist/test/smoke/`: **38 tests**.
 
 > **Not** part of the `just test` self-test grand total — these are
 > Dockerfile `test`-stage build-time assertions, not self-tests. See
@@ -26,7 +26,7 @@ so the shared specs and any per-repo `test/smoke/` overlay execute
 together. `display_env.bats` self-skips on headless repos by detecting
 the absence of GUI lines in the generated `compose.yaml`.
 
-### downstream/test/smoke/script_help.bats (27)
+### dist/test/smoke/script_help.bats (27)
 
 Locks the `-h` / `--help` invariants on the four wrapper scripts
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
@@ -57,7 +57,7 @@ usage, not English).
 | `build.sh defaults to en for LANG=en_US.UTF-8` | i18n detect — en default |
 | `build.sh SETUP_LANG overrides LANG` | i18n env override |
 
-### downstream/test/smoke/display_env.bats (11)
+### dist/test/smoke/display_env.bats (11)
 
 Asserts the generated `compose.yaml` carries the X11 / Wayland env
 + volume block expected by GUI containers, and that `run.sh` runs the
@@ -78,7 +78,7 @@ right `xhost` command per session type. Auto-skipped when the repo's
 | `run.sh calls xhost +local: on X11` | X11 xhost path |
 | `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Fallback path |
 
-### downstream/test/smoke/test_helper.bash
+### dist/test/smoke/test_helper.bash
 
 Not a spec — runtime helper (`assert_compose_has` / `skip_if_headless`
 etc.) loaded by every smoke spec via `load "${BATS_TEST_DIRNAME}/test_helper"`.

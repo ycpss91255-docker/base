@@ -4,7 +4,7 @@
 # Bare `just` lists the namespaces.
 #
 # This is base's OWN entry, distinct from the consumer-facing entry shipped
-# at downstream/script/justfile (which downstream repos symlink as their
+# at dist/script/justfile (which downstream repos symlink as their
 # root justfile via init.sh). base is consumed as a `.base/` subtree, so
 # this file lands at `.base/justfile` in a consumer and is never invoked
 # there (the consumer's own root justfile is the auto-discovered one).

@@ -36,7 +36,7 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/downstream/script/base/init.sh
+./.base/dist/script/base/init.sh
 
 # 升级到最新版
 just base update   # 检查
@@ -67,7 +67,7 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
   完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
-  `./.base/downstream/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
+  `./.base/dist/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 
 ## 概述
 
@@ -78,15 +78,15 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 ```mermaid
 graph TB
     subgraph base["base（共用 repo）"]
-        scripts["downstream/.hadolint.yaml<br/>downstream/script/justfile（consumer entry）<br/>downstream/script/docker|base|template/"]
-        smoke["downstream/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
-        config["downstream/config/<br/>bashrc / tmux / terminator"]
-        mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        scripts["dist/.hadolint.yaml<br/>dist/script/justfile（consumer entry）<br/>dist/script/docker|base|template/"]
+        smoke["dist/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["dist/config/<br/>bashrc / tmux / terminator"]
+        mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["justfile → script/justfile → .base/downstream/script/justfile<br/>script/docker|base|template/ → .base/downstream/script/.../（per-sub symlinks）<br/>script/build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlinks）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 自有）"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
@@ -138,29 +138,29 @@ flowchart LR
 | `stop.sh` | 停止并移除容器 |
 | `prune.sh` | 清理容器 / image / 构建缓存 |
 | `setup_tui.sh` | 交互式 setup.conf 编辑器（dialog / whiptail 前端） |
-| `downstream/script/docker/wrapper/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
-| `downstream/script/docker/lib/_lib.sh` | 核心 wrapper helper（env 加载、compose 调用、project 命名） |
-| `downstream/script/docker/lib/bootstrap.sh` | 共用 wrapper 初始化与参数解析 |
-| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML 生成与处理 |
-| `downstream/script/docker/lib/conf.sh` | INI 解析器与 section 合并器 |
-| `downstream/script/docker/lib/conf_logging.sh` | Logging 配置 helper |
-| `downstream/script/docker/lib/env.sh` | 环境变量设置与默认值 |
-| `downstream/script/docker/lib/gitignore.sh` | Gitignore 文件管理 |
-| `downstream/script/docker/lib/hook.sh` | 每个 wrapper 的 pre/post hook 调用 |
-| `downstream/script/docker/lib/i18n.sh` | 语言检测与本地化 |
-| `downstream/script/docker/lib/log.sh` | 统一日志与输出 helper |
-| `downstream/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
-| `downstream/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
-| `downstream/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
-| `downstream/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
-| `downstream/script/docker/runtime/logging.sh` | host 端 log tee helper |
-| `downstream/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
+| `dist/script/docker/wrapper/setup.sh` | 自动检测系统参数并生成 `.env` + `compose.yaml` |
+| `dist/script/docker/lib/_lib.sh` | 核心 wrapper helper（env 加载、compose 调用、project 命名） |
+| `dist/script/docker/lib/bootstrap.sh` | 共用 wrapper 初始化与参数解析 |
+| `dist/script/docker/lib/compose.sh` | Docker Compose YAML 生成与处理 |
+| `dist/script/docker/lib/conf.sh` | INI 解析器与 section 合并器 |
+| `dist/script/docker/lib/conf_logging.sh` | Logging 配置 helper |
+| `dist/script/docker/lib/env.sh` | 环境变量设置与默认值 |
+| `dist/script/docker/lib/gitignore.sh` | Gitignore 文件管理 |
+| `dist/script/docker/lib/hook.sh` | 每个 wrapper 的 pre/post hook 调用 |
+| `dist/script/docker/lib/i18n.sh` | 语言检测与本地化 |
+| `dist/script/docker/lib/log.sh` | 统一日志与输出 helper |
+| `dist/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
+| `dist/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
+| `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
+| `dist/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
+| `dist/script/docker/runtime/logging.sh` | host 端 log tee helper |
+| `dist/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
 | `script/test/test.sh` | base 自测调度器（本地 + container 内） |
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator） |
 | `setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
-| `downstream/test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
+| `dist/test/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
 | `test/bats/unit/` | base 自测，unit（bats + kcov） |
 | `test/bats/integration/` | base 自测，init/upgrade 端到端 |
 | `test/bats/behavioural/` | base 自测，runtime 行为（opt-in） |
@@ -174,19 +174,19 @@ flowchart LR
 
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `justfile`（→ `script/justfile`） | Repo 命令入口 — 分层 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。sub-cmd 与 flag 透过 `{{args}}` 直接透传（`just docker build --no-cache --stage test-tools`）；裸 `just` 列出所有 namespace。 |
-| `downstream/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
-| `downstream/script/base/justfile.base` | `base` namespace — 管理 `.base` subtree（`just base init/update/upgrade/completions`）。 |
-| `downstream/script/base/init.sh` | 首次初始化 symlinks + 新 repo 骨架生成（bootstrap：`./.base/downstream/script/base/init.sh`；之后用 `just base init`）。 |
-| `downstream/script/base/upgrade.sh` | Subtree 版本升级（`just base upgrade [vX.Y.Z]`）。 |
+| `dist/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
+| `dist/script/base/justfile.base` | `base` namespace — 管理 `.base` subtree（`just base init/update/upgrade/completions`）。 |
+| `dist/script/base/init.sh` | 首次初始化 symlinks + 新 repo 骨架生成（bootstrap：`./.base/dist/script/base/init.sh`；之后用 `just base init`）。 |
+| `dist/script/base/upgrade.sh` | Subtree 版本升级（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自测入口（`just test`、`just test lint`、`just test coverage` …）。 |
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
-| `downstream/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
+| `dist/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
 ### Dockerfile 分层（约定）
 
-下游 repo 遵循标准多阶段配置，定义于 `downstream/dockerfile/Dockerfile`。
+下游 repo 遵循标准多阶段配置，定义于 `dist/dockerfile/Dockerfile`。
 所有阶段共用 `ARG BASE_IMAGE` 指定的基础镜像。
 
 | 阶段 | 父阶段 | 用途 | 是否出货 |
@@ -340,7 +340,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
   - `script/entrypoint.sh`（canonical）
   - 任何 ros / app 启动 helper 等
-- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `downstream/dockerfile/Dockerfile`，#275）
+- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `dist/dockerfile/Dockerfile`，#275）
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
@@ -366,7 +366,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
-Template default 在 `.base/downstream/config/docker/setup.conf`；per-repo 覆盖放 `<repo>/config/docker/setup.conf`。
+Template default 在 `.base/dist/config/docker/setup.conf`；per-repo 覆盖放 `<repo>/config/docker/setup.conf`。
 Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
 template；没写的 section 则吃 template 默认。
 
@@ -378,7 +378,7 @@ template；没写的 section 则吃 template 默认。
 ./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
 ./setup_tui.sh volumes              # 直接跳到指定 section
 ./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
-./.base/downstream/script/base/init.sh --gen-conf # 单纯复制 .base/downstream/config/docker/setup.conf 到 <repo>/config/docker/setup.conf
+./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/config/docker/setup.conf 到 <repo>/config/docker/setup.conf
 ```
 
 ### 输出 log 到 host
@@ -441,8 +441,8 @@ Main
 
 `setup.sh` 仅在显式触发时才执行 — 并不会在每次 build / run 都重跑：
 
-- **`just base init` / `./.base/downstream/script/base/init.sh`** 建完骨架自动运行一次
-- **`just base upgrade` / `./.base/downstream/script/base/upgrade.sh`** subtree pull 后通过 init.sh
+- **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自动运行一次
+- **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 后通过 init.sh
   再跑一次，所以升级总是会用新版 baseline 重新生成 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 用户手动触发重跑；
   有 TTY 时先启动 `setup_tui.sh` 让用户修改 `setup.conf`，无 TTY 时直接调用 `setup.sh`
@@ -676,7 +676,7 @@ git subtree add --prefix=.base \
 
 # 3. 初始化 symlinks（一次性 bootstrap；底层会跑 setup.sh）。
 #    之后改用 `just base init`（symlink 后的入口）。
-./.base/downstream/script/base/init.sh
+./.base/dist/script/base/init.sh
 ```
 
 > `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
@@ -701,16 +701,16 @@ just base upgrade v0.3.0
 # 行手改 .base/.version。
 
 # 没有 just 时的 fallback
-./.base/downstream/script/base/upgrade.sh v0.3.0
+./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` 一次完成：
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 完整性检查 — subtree marker（`.base/.version`、
-   `.base/downstream/script/base/init.sh`、`.base/downstream/script/docker/wrapper/setup.sh`）若不见了会
+   `.base/dist/script/base/init.sh`、`.base/dist/script/docker/wrapper/setup.sh`）若不见了会
    `git reset --hard` rollback（防旧版 `git-subtree.sh` destructive FF）
-3. `./.base/downstream/script/base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
+3. `./.base/dist/script/base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、
    `git rm --cached` 已经变成 derived artifact 的旧 tracked 文件（`.env`、
    `compose.yaml`、…），最后调用 `setup.sh apply` 重新生成 `.env` +
@@ -720,8 +720,8 @@ just base upgrade v0.3.0
 
 per-repo 文件不会被覆盖：`<repo>/setup.conf` 保留原样、
 `<repo>/config/`（bashrc / tmux / terminator …）也不动 — 若上游
-`.base/downstream/config/` 自上次 pull 后有变动，upgrade.sh 会打印
-`diff -ruN .base/downstream/config config` 提示，由你自行 reconcile。
+`.base/dist/config/` 自上次 pull 后有变动，upgrade.sh 会打印
+`diff -ruN .base/dist/config config` 提示，由你自行 reconcile。
 
 不要手动 `git subtree pull` — 完整性检查、init.sh resync、sed 步骤
 容易漏掉。
@@ -813,7 +813,7 @@ just --list        # 显示 CI 命令
 ├── justfile                            # base 自身的自测/release 入口（mods test + release）
 ├── compose.yaml                        # base CI runner（test-tools services）
 ├── .dockerignore                       # canonical ignore set（同步进 consumers）
-├── downstream/                         # 出货的工具 + 内容（单一来源）
+├── dist/                         # 出货的工具 + 内容（单一来源）
 │   ├── .hadolint.yaml                  # 共用 Hadolint 规则（symlink 进 consumers）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 的多阶段 Dockerfile 模板

@@ -8,7 +8,7 @@
 #   git commit --allow-empty -m "chore: initial commit"
 #   git subtree add --prefix=.base \
 #       https://github.com/ycpss91255-docker/base.git main --squash
-#   ./.base/downstream/script/base/init.sh
+#   ./.base/dist/script/base/init.sh
 #
 # (Substitute `git@github.com:...` for SSH if you have a key configured.)
 #
@@ -24,10 +24,10 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-# init.sh lives deep in the subtree (.base/downstream/script/base/init.sh,
+# init.sh lives deep in the subtree (.base/dist/script/base/init.sh,
 # relocated in  ADR-00000011 §8 / ADR-00000006 Region A). Walk up from
 # the script's own directory to the subtree root -- the directory carrying
-# the subtree markers `.version` + `downstream/` -- so TEMPLATE_DIR is the
+# the subtree markers `.version` + `dist/` -- so TEMPLATE_DIR is the
 # subtree root regardless of how deep the script is nested. The subtree
 # prefix is its basename, used DIRECTLY as the symlink-target prefix below,
 # so a downstream rename still works without code changes.
@@ -35,7 +35,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 TEMPLATE_DIR="${SCRIPT_DIR}"
 while [[ "${TEMPLATE_DIR}" != "/" ]]; do
-  [[ -f "${TEMPLATE_DIR}/.version" && -d "${TEMPLATE_DIR}/downstream" ]] && break
+  [[ -f "${TEMPLATE_DIR}/.version" && -d "${TEMPLATE_DIR}/dist" ]] && break
   TEMPLATE_DIR="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
 done
 [[ -f "${TEMPLATE_DIR}/.version" ]] || {
@@ -49,9 +49,9 @@ TEMPLATE_REL="$(basename "${TEMPLATE_DIR}")"
 readonly TEMPLATE_REL
 
 # shellcheck disable=SC1091
-source "${TEMPLATE_DIR}/downstream/script/docker/lib/gitignore.sh"
+source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
-source "${TEMPLATE_DIR}/downstream/script/docker/lib/_lib.sh"
+source "${TEMPLATE_DIR}/dist/script/docker/lib/_lib.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -73,13 +73,13 @@ _create_symlinks() {
   # the root user entry is the `justfile` (the container-ops
   # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/build.sh" "script/build.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/run.sh" "script/run.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/exec.sh" "script/exec.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/stop.sh" "script/stop.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/prune.sh" "script/prune.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup.sh" "script/setup.sh"
-  _symlink "../${TEMPLATE_REL}/downstream/script/docker/wrapper/setup_tui.sh" "script/setup_tui.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/build.sh" "script/build.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/run.sh" "script/run.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/exec.sh" "script/exec.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/stop.sh" "script/stop.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/prune.sh" "script/prune.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/setup.sh" "script/setup.sh"
+  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/setup_tui.sh" "script/setup_tui.sh"
   # Migration hygiene: drop root *.sh symlinks (now under
   # script) plus the pre-setup_tui-rename `tui.sh` legacy name. The
   # [[ -L X ]] guard makes the loop idempotent on already-migrated
@@ -99,31 +99,31 @@ _create_symlinks() {
   done
   # ADR-00000005 / ADR-00000010 / ADR-00000011: `just` is the user-facing
   # entry, now layered + fully namespaced. <repo>/justfile -> script/justfile
-  # -> .base/downstream/script/justfile (the entry), which `mod?`s the docker
+  # -> .base/dist/script/justfile (the entry), which `mod?`s the docker
   # + base namespaces. mod paths in the entry resolve relative to the repo
   # root (the symlink location), so each module is linked at its
   # <repo>/script/<ns>/justfile.<ns> path.
   mkdir -p script/docker script/base
   _symlink "script/justfile" "justfile"
-  _symlink "../${TEMPLATE_REL}/downstream/script/justfile" "script/justfile"
-  _symlink "../../${TEMPLATE_REL}/downstream/script/docker/justfile.docker" "script/docker/justfile.docker"
+  _symlink "../${TEMPLATE_REL}/dist/script/justfile" "script/justfile"
+  _symlink "../../${TEMPLATE_REL}/dist/script/docker/justfile.docker" "script/docker/justfile.docker"
   # `base` namespace: `just base upgrade` / `just base update`
   # manage the .base subtree (apt-aligned); `just base init` re-wires symlinks;
   # `just base completions` installs opt-in shell tab-completion.
-  _symlink "../../${TEMPLATE_REL}/downstream/script/base/justfile.base" "script/base/justfile.base"
-  _symlink "../../${TEMPLATE_REL}/downstream/script/base/completions.sh" "script/base/completions.sh"
+  _symlink "../../${TEMPLATE_REL}/dist/script/base/justfile.base" "script/base/justfile.base"
+  _symlink "../../${TEMPLATE_REL}/dist/script/base/completions.sh" "script/base/completions.sh"
   # `template` namespace: `just template new <name>` scaffolds a
   # repo-local command group. The entry `mod?`s script/template/justfile.template;
   # new.sh + skel/ are linked alongside (base-owned, flow on upgrade).
   mkdir -p script/template
-  _symlink "../../${TEMPLATE_REL}/downstream/script/template/justfile.template" "script/template/justfile.template"
-  _symlink "../../${TEMPLATE_REL}/downstream/script/template/new.sh" "script/template/new.sh"
-  _symlink "../../${TEMPLATE_REL}/downstream/script/template/skel" "script/template/skel"
+  _symlink "../../${TEMPLATE_REL}/dist/script/template/justfile.template" "script/template/justfile.template"
+  _symlink "../../${TEMPLATE_REL}/dist/script/template/new.sh" "script/template/new.sh"
+  _symlink "../../${TEMPLATE_REL}/dist/script/template/skel" "script/template/skel"
 
   if [[ ! -f .hadolint.yaml ]] \
-    || diff -q .hadolint.yaml "${TEMPLATE_REL}/downstream/.hadolint.yaml" \
+    || diff -q .hadolint.yaml "${TEMPLATE_REL}/dist/.hadolint.yaml" \
       >/dev/null 2>&1; then
-    _symlink "${TEMPLATE_REL}/downstream/.hadolint.yaml" ".hadolint.yaml"
+    _symlink "${TEMPLATE_REL}/dist/.hadolint.yaml" ".hadolint.yaml"
   else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
@@ -136,7 +136,7 @@ _create_symlinks() {
 #
 # On first init (no <repo>/config), create an empty placeholder
 # directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
-# layered COPY chain (template#254) reads `.base/downstream/config/` first
+# layered COPY chain (template#254) reads `.base/dist/config/` first
 # as the default layer and `<repo>/config/` second as the override
 # overlay; an empty <repo>/config/ means "no overrides, take all
 # template defaults". Downstream adds files under <repo>/config/
@@ -145,7 +145,7 @@ _create_symlinks() {
 # Rationale (compared to the full-copy seed):
 #   * a symlink would make edits spill into the subtree and fight
 #     `git subtree pull`;
-#   * a plain Dockerfile COPY from `.base/downstream/config/` alone would
+#   * a plain Dockerfile COPY from `.base/dist/config/` alone would
 #     deny the user any per-repo override path at all;
 #   * a full-copy seed gives the user a clean
 #     repo-local editing surface but freezes their config at the
@@ -154,7 +154,7 @@ _create_symlinks() {
 #   * an EMPTY placeholder lets the layered COPY do
 #     the merge at build time. Repos opt into per-file overrides
 #     only when they need them; everything else flows through
-#     from .base/downstream/config/ on every build, keeping
+#     from .base/dist/config/ on every build, keeping
 #     <repo>/config/ small and the override-vs-default contract
 #     visible in `git status` / `git diff`.
 #
@@ -173,7 +173,7 @@ _populate_config() {
   # Stale symlink from an earlier init.sh version — drop it before
   # creating the placeholder. Without rm, `mkdir` would fail if the
   # symlink target is a real dir, or pollute the subtree if it's a
-  # .base/downstream/config/ symlink.
+  # .base/dist/config/ symlink.
   if [[ -L config ]]; then
     rm -f config
   fi
@@ -182,15 +182,15 @@ _populate_config() {
   mkdir -p config
   cat > config/.gitkeep <<'EOF'
 # Placeholder so this directory exists in git. The Dockerfile's
-# layered COPY (template#254) reads .base/downstream/config/ first then
+# layered COPY (template#254) reads .base/dist/config/ first then
 # overlays <repo>/config/ on top. Drop files under <repo>/config/
 # only when you want to override a specific template default
 # (e.g. <repo>/config/shell/bashrc to override template's bashrc,
 # or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
-# Files NOT placed here keep flowing through from .base/downstream/config/
+# Files NOT placed here keep flowing through from .base/dist/config/
 # on every build.
 EOF
-  _log "  Created empty config/ placeholder (.base/downstream/config/ is the default layer; <repo>/config/ overlays per-file)"
+  _log "  Created empty config/ placeholder (.base/dist/config/ is the default layer; <repo>/config/ overlays per-file)"
 }
 
 # _seed_local
@@ -254,7 +254,7 @@ _create_new_repo() {
   _log "Creating new repo: ${name}"
 
   # Dockerfile
-  cp "${TEMPLATE_DIR}/downstream/dockerfile/Dockerfile" Dockerfile
+  cp "${TEMPLATE_DIR}/dist/dockerfile/Dockerfile" Dockerfile
   _log "  Created Dockerfile (from template)"
 
   # compose.yaml is a derived artifact generated by setup.sh based on
@@ -262,7 +262,7 @@ _create_new_repo() {
 
   # script/entrypoint.sh
   mkdir -p script
-  cp "${TEMPLATE_DIR}/downstream/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
+  cp "${TEMPLATE_DIR}/dist/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
   chmod +x script/entrypoint.sh
   _log "  Created script/entrypoint.sh"
 
@@ -472,7 +472,7 @@ _sync_existing_gitignore() {
 # omitted sections fall back to template.
 
 _gen_setup_conf() {
-  local _src="${TEMPLATE_DIR}/downstream/config/docker/setup.conf"
+  local _src="${TEMPLATE_DIR}/dist/config/docker/setup.conf"
   local _dst="${REPO_ROOT}/config/docker/setup.conf"
   local _force="${1:-false}"
   mkdir -p "${REPO_ROOT}/config/docker"
@@ -504,7 +504,7 @@ _gen_setup_conf() {
 # ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
 
 _call_setup() {
-  local _setup="${TEMPLATE_DIR}/downstream/script/docker/wrapper/setup.sh"
+  local _setup="${TEMPLATE_DIR}/dist/script/docker/wrapper/setup.sh"
   if [[ ! -f "${_setup}" ]]; then
     _log "Skipping setup.sh (${_setup} not found)"
     return 0

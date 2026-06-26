@@ -20,7 +20,7 @@ _DOCKER_LIB_COMPOSE_SOURCED=1
 # own double-source guard) -- mirrors config_summary.sh. Keeps compose.sh
 # self-sufficient when a caller sources it without the full _lib.sh.
 _compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=downstream/script/docker/lib/log.sh
+# shellcheck source=dist/script/docker/lib/log.sh
 source "${_compose_dir}/log.sh"
 
 # _compute_project_name derives PROJECT_NAME for the current invocation.

@@ -3,7 +3,7 @@
 # lint_bare_stderr.sh - Flag bare printf/echo >&2 outside _log_* helpers.
 #
 # Enforce that all stderr output goes through lib/log.sh
-# helpers. Scans downstream/script/docker/**/*.sh and script/test/**/*.sh
+# helpers. Scans dist/script/docker/**/*.sh and script/test/**/*.sh
 # for lines that write to fd 2 without using _log_err / _log_warn /
 # _log_fatal / _log_info / _log_debug / _die.
 #
@@ -16,13 +16,13 @@ repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 # Files excluded entirely (log.sh itself, i18n, entrypoint, TUI).
 _is_excluded_file() {
   case "${1}" in
-    downstream/script/docker/lib/log.sh) return 0 ;;
-    downstream/script/docker/lib/i18n.sh) return 0 ;;
-    downstream/script/docker/runtime/logging.sh) return 0 ;;
-    downstream/script/docker/runtime/smoke.sh) return 0 ;;
-    downstream/script/docker/lib/_tui_backend.sh) return 0 ;;
-    downstream/script/docker/lib/_tui_conf.sh) return 0 ;;
-    downstream/script/docker/wrapper/setup_tui.sh) return 0 ;;
+    dist/script/docker/lib/log.sh) return 0 ;;
+    dist/script/docker/lib/i18n.sh) return 0 ;;
+    dist/script/docker/runtime/logging.sh) return 0 ;;
+    dist/script/docker/runtime/smoke.sh) return 0 ;;
+    dist/script/docker/lib/_tui_backend.sh) return 0 ;;
+    dist/script/docker/lib/_tui_conf.sh) return 0 ;;
+    dist/script/docker/wrapper/setup_tui.sh) return 0 ;;
     # Deliberately standalone, log.sh-free CI tool: the coverage-floor
     # gate runs as a bare `bash coverage_gate.sh ...` under both GitHub
     # Actions and (after the move) GitLab CI, so it must NOT depend on
@@ -64,7 +64,7 @@ _is_allowlisted_line() {
   # these fire before lib/log.sh is sourced, so _log_* is not yet available.
   [[ "${line}" == *'cannot find _lib.sh'* ]] && return 0
   [[ "${line}" == *'cannot find lib/bootstrap.sh'* ]] && return 0
-  [[ "${line}" == *'.base/downstream/script/docker/lib/_lib.sh'* ]] && return 0
+  [[ "${line}" == *'.base/dist/script/docker/lib/_lib.sh'* ]] && return 0
   [[ "${line}" == *'/_lib.sh'* ]] && return 0
 
   # Pre-sourcing -C/--chdir errors (before _lib.sh is loaded).
@@ -110,7 +110,7 @@ while IFS= read -r file; do
       violations=$((violations + 1))
     fi
   done < "${file}"
-done < <(find "${repo_root}/downstream/script/docker" "${repo_root}/script/test" \
+done < <(find "${repo_root}/dist/script/docker" "${repo_root}/script/test" \
   -name '*.sh' -type f 2>/dev/null | sort)
 
 if [[ "${violations}" -gt 0 ]]; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for downstream/script/docker/wrapper/exec.sh argument handling, i18n log lines,
+# Unit tests for dist/script/docker/wrapper/exec.sh argument handling, i18n log lines,
 # and the "container not running" guard. Mirrors the sandbox/mock strategy
 # from build_sh_spec.bats / run_sh_spec.bats: a sandbox tree with symlinked
 # exec.sh, real _lib.sh / i18n.sh, and a PATH-shimmed `docker` stub whose
@@ -18,13 +18,13 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/downstream/script/docker/lib"
+  mkdir -p "${SANDBOX}/.base/dist/script/docker/lib"
 
-  cp /source/downstream/script/docker/lib/_lib.sh  "${SANDBOX}/.base/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh  "${SANDBOX}/.base/downstream/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/_lib.sh  "${SANDBOX}/.base/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/i18n.sh  "${SANDBOX}/.base/dist/script/docker/lib/i18n.sh"
   # _lib.sh is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/downstream/script/docker/lib/* "${SANDBOX}/.base/downstream/script/docker/lib/"
-  ln -s /source/downstream/script/docker/wrapper/exec.sh "${SANDBOX}/exec.sh"
+  cp /source/dist/script/docker/lib/* "${SANDBOX}/.base/dist/script/docker/lib/"
+  ln -s /source/dist/script/docker/wrapper/exec.sh "${SANDBOX}/exec.sh"
 
   # Seed .env so _load_env / _compute_project_name succeed without bootstrap.
   {
@@ -233,9 +233,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/downstream/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
+  ln -s /source/dist/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -245,9 +245,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/downstream/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
+  ln -s /source/dist/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -257,9 +257,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/downstream/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
+  ln -s /source/dist/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/downstream/script/docker/lib/* "${_tmp}/lib/"
+  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -275,10 +275,10 @@ teardown() {
   # When -C points there, exec.sh's docker exec invocation must reference
   # the alt IMAGE_NAME, proving FILE_PATH was redirected.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/downstream/script/docker/lib"
-  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
+  mkdir -p "${ALT}/.base/dist/script/docker/lib"
+  cp /source/dist/script/docker/lib/_lib.sh "${ALT}/.base/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${ALT}/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/* "${ALT}/.base/dist/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -299,10 +299,10 @@ teardown() {
 
 @test "exec.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/downstream/script/docker/lib"
-  cp /source/downstream/script/docker/lib/_lib.sh "${ALT}/.base/downstream/script/docker/lib/_lib.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${ALT}/.base/downstream/script/docker/lib/i18n.sh"
-  cp /source/downstream/script/docker/lib/* "${ALT}/.base/downstream/script/docker/lib/"
+  mkdir -p "${ALT}/.base/dist/script/docker/lib"
+  cp /source/dist/script/docker/lib/_lib.sh "${ALT}/.base/dist/script/docker/lib/_lib.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${ALT}/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/* "${ALT}/.base/dist/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"

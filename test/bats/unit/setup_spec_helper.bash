@@ -13,7 +13,7 @@ setup() {
 
   # Source setup.sh functions only (main is guarded)
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/wrapper/setup.sh
+  source /source/dist/script/docker/wrapper/setup.sh
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"

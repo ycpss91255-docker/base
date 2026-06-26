@@ -8,7 +8,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  LOG_SH="/source/downstream/script/docker/lib/log.sh"
+  LOG_SH="/source/dist/script/docker/lib/log.sh"
 }
 
 # ── Text output format (LOG_FORMAT=text) ──────────────────────────
@@ -579,14 +579,14 @@ setup() {
 # ── lnav format file ──────────────────────────────────────────────
 
 @test "log.lnav-format.json exists and contains format key" {
-  local _f="/source/downstream/script/docker/lib/log.lnav-format.json"
+  local _f="/source/dist/script/docker/lib/log.lnav-format.json"
   [[ -f "${_f}" ]]
   run grep -q '"ycpss91255_otel_log"' "${_f}"
   assert_success
 }
 
 @test "log.lnav-format.json declares json: true" {
-  run grep -q '"json": true' /source/downstream/script/docker/lib/log.lnav-format.json
+  run grep -q '"json": true' /source/dist/script/docker/lib/log.lnav-format.json
   assert_success
 }
 

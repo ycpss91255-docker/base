@@ -2,7 +2,7 @@
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  RC="/source/downstream/config/shell/bashrc"
+  RC="/source/dist/config/shell/bashrc"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -63,7 +63,7 @@ setup() {
 @test "bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh" {
   # Layered config + drop-in pattern: at interactive shell start,
   # source any *.sh under ~/.bashrc.d/ so template-side helpers
-  # (from .base/downstream/config/shell/bashrc.d) AND downstream-side
+  # (from .base/dist/config/shell/bashrc.d) AND downstream-side
   # helpers (from <repo>/config/shell/bashrc.d) both get loaded.
   run grep -qF 'for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh' "${RC}"
   assert_success
@@ -79,12 +79,12 @@ setup() {
   assert_success
 }
 
-@test "bashrc.d/ directory exists in .base/downstream/config/shell/" {
+@test "bashrc.d/ directory exists in .base/dist/config/shell/" {
   # Empty placeholder so the dir exists in subtree (git doesn't
   # track empty dirs). Template-side helpers can drop *.sh here
   # later without touching Dockerfile.example.
-  assert [ -d "/source/downstream/config/shell/bashrc.d" ]
-  assert [ -f "/source/downstream/config/shell/bashrc.d/.gitkeep" ]
+  assert [ -d "/source/dist/config/shell/bashrc.d" ]
+  assert [ -f "/source/dist/config/shell/bashrc.d/.gitkeep" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -94,7 +94,7 @@ setup() {
 # `just exec` (compose exec + bashrc, bypasses entrypoint) fix the label.
 # ════════════════════════════════════════════════════════════════════
 
-HG="/source/downstream/config/shell/bashrc.d/30-name-host-groups.sh"
+HG="/source/dist/config/shell/bashrc.d/30-name-host-groups.sh"
 
 @test "host-group drop-in exists" {
   assert [ -f "${HG}" ]

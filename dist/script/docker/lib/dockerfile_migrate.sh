@@ -82,6 +82,29 @@ apply_migrations() {
   done
 }
 
+# ── Migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
+#
+# base's shipped tree was renamed downstream/ -> dist/ (terminology
+# de-overload: "downstream" now means only the repo). A consumer Dockerfile
+# that hand-references the subtree interior -- the lint-stage
+#   COPY .base/downstream/script/docker/lib    /lint/lib
+#   COPY .base/downstream/script/docker/wrapper /lint/wrapper
+# (the Region C path the earlier base/downstream split wrote in) -- breaks
+# with "COPY source not found" once the directory is gone. Rewrite every
+# .base/downstream/ COPY source to .base/dist/. Runs first so any later
+# migration sees the canonical dist/ path. Idempotent: once rewritten no
+# .base/downstream/ remains, so detect returns non-zero on a second run.
+_migrate_downstream_to_dist_detect() {
+  local _file="$1"
+  grep -q '\.base/downstream/' "${_file}"
+}
+
+_migrate_downstream_to_dist_apply() {
+  local _file="$1"
+  sed -i 's#\.base/downstream/#.base/dist/#g' "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/downstream/ -> .base/dist/ (#714)"
+}
+
 # ── Migration 1: wrapper COPY shape A/B -> wrapper/*.sh ─────────────────────
 #
 # v0.41.0 moved the user-facing wrappers (build/run/exec/stop/prune.sh) out
@@ -206,7 +229,7 @@ _migrate_logging_rename_apply() {
   # Dockerfile COPY: old flat helper path -> new runtime/ path, both src and
   # the baked dest filename.
   sed -i -E \
-    's|\.base/(downstream/)?script/docker/(runtime/)?_entrypoint_logging\.sh|.base/downstream/script/docker/runtime/logging.sh|g' \
+    's#\.base/(downstream/|dist/)?script/docker/(runtime/)?_entrypoint_logging\.sh#.base/dist/script/docker/runtime/logging.sh#g' \
     "${_file}"
   sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_file}"
 
@@ -401,6 +424,7 @@ _migrate_nounset_source_apply() {
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
+  downstream_to_dist
   wrapper_copy
   pip_helper
   explicit_copy

@@ -13,7 +13,7 @@
 #
 #   Add new entries here when the template introduces another derived
 #   artifact, then bump the next release. Downstreams pick it up via
-#   `just base upgrade` -> ./.base/downstream/script/base/upgrade.sh ->
+#   `just base upgrade` -> ./.base/dist/script/base/upgrade.sh ->
 #   init.sh resync chain.
 _canonical_gitignore_entries() {
   cat <<'EOF'

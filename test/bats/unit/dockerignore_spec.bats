@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for the .dockerignore canonical-sync helpers in
-# .base/downstream/script/docker/lib/gitignore.sh.
+# .base/dist/script/docker/lib/gitignore.sh.
 #
 # Mirrors the .gitignore canonical-sync pattern: downstream repos
 # accumulate derived artifacts (.env / compose.yaml / coverage/ ...) that
@@ -21,11 +21,11 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/conf.sh
+  source /source/dist/script/docker/lib/conf.sh
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/conf_logging.sh
+  source /source/dist/script/docker/lib/conf_logging.sh
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/gitignore.sh
+  source /source/dist/script/docker/lib/gitignore.sh
   TMP_DIR="$(mktemp -d)"
 }
 

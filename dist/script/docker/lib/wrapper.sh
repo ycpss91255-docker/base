@@ -119,7 +119,7 @@ _wrapper_setup_sync() {
   local _verb="${1:?_wrapper_setup_sync requires verb}"
   local _file_path="${FILE_PATH:?_wrapper_setup_sync requires FILE_PATH}"
   local _lang="${_LANG:-en}"
-  local _setup="${_file_path}/.base/downstream/script/docker/wrapper/setup.sh"
+  local _setup="${_file_path}/.base/dist/script/docker/wrapper/setup.sh"
   local _tui="${_file_path}/setup_tui.sh"
 
   # per-invocation overrides. Defensive copy so an unset

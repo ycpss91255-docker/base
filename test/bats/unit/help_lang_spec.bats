@@ -17,10 +17,10 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # /source is the mounted repo root in the ci container.
   TEST_SH="/source/script/test/test.sh"
-  INIT_SH="/source/downstream/script/base/init.sh"
-  UPGRADE_SH="/source/downstream/script/base/upgrade.sh"
-  COMPLETIONS_SH="/source/downstream/script/base/completions.sh"
-  NEW_SH="/source/downstream/script/template/new.sh"
+  INIT_SH="/source/dist/script/base/init.sh"
+  UPGRADE_SH="/source/dist/script/base/upgrade.sh"
+  COMPLETIONS_SH="/source/dist/script/base/completions.sh"
+  NEW_SH="/source/dist/script/template/new.sh"
 }
 
 # ── recipe --help: English baseline, exits 0, prints usage ────────────────────
@@ -123,10 +123,10 @@ setup() {
   SANDBOX="$(mktemp -d)"
   mkdir -p "${SANDBOX}/script/template/skel" "${SANDBOX}/script/local" \
            "${SANDBOX}/script/docker/lib"
-  cp /source/downstream/script/template/new.sh "${SANDBOX}/script/template/new.sh"
-  cp /source/downstream/script/template/skel/justfile.skel "${SANDBOX}/script/template/skel/justfile.skel"
-  cp /source/downstream/script/template/skel/skel.sh "${SANDBOX}/script/template/skel/skel.sh"
-  cp /source/downstream/script/docker/lib/i18n.sh "${SANDBOX}/script/docker/lib/i18n.sh"
+  cp /source/dist/script/template/new.sh "${SANDBOX}/script/template/new.sh"
+  cp /source/dist/script/template/skel/justfile.skel "${SANDBOX}/script/template/skel/justfile.skel"
+  cp /source/dist/script/template/skel/skel.sh "${SANDBOX}/script/template/skel/skel.sh"
+  cp /source/dist/script/docker/lib/i18n.sh "${SANDBOX}/script/docker/lib/i18n.sh"
   chmod +x "${SANDBOX}/script/template/new.sh"
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh --lang zh-TW deploy"
   assert_success

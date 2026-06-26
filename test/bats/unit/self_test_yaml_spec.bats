@@ -79,15 +79,15 @@ setup() {
   assert_success
   assert_output --partial "'script/entrypoint.sh'"
   assert_output --partial "'compose.yaml'"
-  assert_output --partial "'downstream/dockerfile/Dockerfile'"
+  assert_output --partial "'dist/dockerfile/Dockerfile'"
   assert_output --partial "'dockerfile/Dockerfile.test-tools'"
-  assert_output --partial "'downstream/script/docker/wrapper/build.sh'"
-  assert_output --partial "'downstream/script/docker/wrapper/run.sh'"
-  assert_output --partial "'downstream/script/docker/wrapper/exec.sh'"
-  assert_output --partial "'downstream/script/docker/wrapper/stop.sh'"
+  assert_output --partial "'dist/script/docker/wrapper/build.sh'"
+  assert_output --partial "'dist/script/docker/wrapper/run.sh'"
+  assert_output --partial "'dist/script/docker/wrapper/exec.sh'"
+  assert_output --partial "'dist/script/docker/wrapper/stop.sh'"
   assert_output --partial "'test/bats/behavioural/**'"
-  assert_output --partial "'downstream/script/base/init.sh'"
-  assert_output --partial "'downstream/script/base/upgrade.sh'"
+  assert_output --partial "'dist/script/base/init.sh'"
+  assert_output --partial "'dist/script/base/upgrade.sh'"
   assert_output --partial "'.github/workflows/**'"
 }
 
@@ -256,10 +256,10 @@ setup() {
   # must invalidate the behavioural-skip optimization.
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial "'downstream/script/docker/wrapper/setup.sh'"
-  assert_output --partial "'downstream/script/docker/lib/i18n.sh'"
-  assert_output --partial "'downstream/script/docker/lib/**'"
-  assert_output --partial "'downstream/script/docker/wrapper/prune.sh'"
+  assert_output --partial "'dist/script/docker/wrapper/setup.sh'"
+  assert_output --partial "'dist/script/docker/lib/i18n.sh'"
+  assert_output --partial "'dist/script/docker/lib/**'"
+  assert_output --partial "'dist/script/docker/wrapper/prune.sh'"
 }
 
 # ── buildx GHA cache on test-tools builds ────────────────

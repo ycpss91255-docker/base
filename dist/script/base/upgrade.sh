@@ -2,19 +2,19 @@
 # upgrade.sh - Upgrade template subtree to the latest version
 #
 # Run from the repo root:
-#   ./.base/downstream/script/base/upgrade.sh              # latest tag
-#   ./.base/downstream/script/base/upgrade.sh v0.3.0       # specific version
-#   ./.base/downstream/script/base/upgrade.sh --check      # check only
+#   ./.base/dist/script/base/upgrade.sh              # latest tag
+#   ./.base/dist/script/base/upgrade.sh v0.3.0       # specific version
+#   ./.base/dist/script/base/upgrade.sh --check      # check only
 #
 # Steady-state users call `just base upgrade [vX.Y.Z]`; the raw path above
 # is only for environments without `just`.
 
 set -euo pipefail
 
-# upgrade.sh lives deep in the subtree (.base/downstream/script/base/upgrade.sh,
+# upgrade.sh lives deep in the subtree (.base/dist/script/base/upgrade.sh,
 # relocated in  ADR-00000011 §8 / ADR-00000006). Walk up from the
 # script's own directory to the subtree root -- the directory carrying the
-# subtree markers `.version` + `downstream/` -- so SUBTREE_ROOT is the
+# subtree markers `.version` + `dist/` -- so SUBTREE_ROOT is the
 # subtree root regardless of how deep the script is nested. The subtree
 # prefix is its basename, used DIRECTLY as the subtree-pull --prefix= flag
 # and every filesystem reference, so a downstream rename still works
@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 SUBTREE_ROOT="${SCRIPT_DIR}"
 while [[ "${SUBTREE_ROOT}" != "/" ]]; do
-  [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/downstream" ]] && break
+  [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/dist" ]] && break
   SUBTREE_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
 done
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
@@ -48,7 +48,7 @@ readonly VERSION_FILE
 # the verb here for transcript.sh's classification before the source.
 export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
-source "${SUBTREE_ROOT}/downstream/script/docker/lib/_lib.sh"
+source "${SUBTREE_ROOT}/dist/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
@@ -293,25 +293,25 @@ _upgrade() {
 
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
-  # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/downstream/config so we can
+  # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/dist/config so we can
   # tell the user if their seeded <repo>/config is now out of sync with
   # the upstream baseline. Git tree hashes are stable and cheap (no blob
-  # compare); if HEAD has no ${TEMPLATE_REL}/downstream/config yet (initial setup),
+  # compare); if HEAD has no ${TEMPLATE_REL}/dist/config yet (initial setup),
   # leave _pre_config_hash empty.
   local _pre_config_hash=""
   # --verify: print the resolved hash on success, print nothing on
   # failure. Without it, git's default mode echoes the unresolved ref
   # back to stdout for unknown paths, which would be mistaken for a
   # hash later by _warn_config_drift.
-  _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config" 2>/dev/null || true)"
+  _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config" 2>/dev/null || true)"
 
   # Snapshot pre-pull setup.conf hash too. Path is the location
-  # ${TEMPLATE_REL}/downstream/config/docker/setup.conf. If the upstream baseline
+  # ${TEMPLATE_REL}/dist/config/docker/setup.conf. If the upstream baseline
   # changed, the user may want to copy new sections / keys into their
   # per-repo setup.conf override ('s 2-file model makes this a
   # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
-  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config/docker/setup.conf" 2>/dev/null || true)"
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config/docker/setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"
@@ -328,7 +328,7 @@ _upgrade() {
   # when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
   _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
-  "./${TEMPLATE_REL}/downstream/script/base/init.sh"
+  "./${TEMPLATE_REL}/dist/script/base/init.sh"
 
   # Step 4: update main.yaml @tag references
   _log "Step 4/5: update workflow @tag references"
@@ -358,7 +358,7 @@ _upgrade() {
   _log "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
   local _dockerfile="${REPO_ROOT}/Dockerfile"
   # shellcheck disable=SC1091
-  source "${SUBTREE_ROOT}/downstream/script/docker/lib/dockerfile_migrate.sh"
+  source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
   apply_migrations "${_dockerfile}"
   # Stage any files the migrations rewrote (Dockerfile + the sibling
   # entrypoint, when present) so they land in the same commit below.
@@ -385,7 +385,7 @@ COMMIT
 
   # Post-pull: warn when the upstream config baseline moved so the
   # user can reconcile <repo>/config/ (seeded by init.sh, user-owned
-  # afterwards) against the new .base/downstream/config/. Silent when the
+  # afterwards) against the new .base/dist/config/. Silent when the
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
@@ -405,26 +405,26 @@ COMMIT
 
 # _warn_config_drift <pre_pull_tree_hash>
 #
-# When the upstream ${TEMPLATE_REL}/downstream/config/ tree changed during this
+# When the upstream ${TEMPLATE_REL}/dist/config/ tree changed during this
 # pull, print a WARNING pointing the user at the diff so they can merge
 # into their <repo>/config/ manually. Never fails the upgrade (config is
 # user-owned — we only report, not force).
 _warn_config_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0         # no config in new subtree
   [[ "${_pre}" == "${_post}" ]] && return 0   # unchanged
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/downstream/config/ changed upstream since the last pull."
+  _log "WARNING: ${TEMPLATE_REL}/dist/config/ changed upstream since the last pull."
   _log "         Your <repo>/config/ is user-owned and was NOT updated."
   _log "         Review the diff and port any upstream changes you want:"
   _log ""
-  _log "           diff -ruN ${TEMPLATE_REL}/downstream/config config"
+  _log "           diff -ruN ${TEMPLATE_REL}/dist/config config"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/downstream/config/):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/downstream/config"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/config/):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/config"
   fi
 }
 
@@ -439,19 +439,19 @@ _warn_config_drift() {
 _warn_setup_conf_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/downstream/config/docker/setup.conf" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config/docker/setup.conf" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/downstream/config/docker/setup.conf changed upstream since the last pull."
+  _log "WARNING: ${TEMPLATE_REL}/dist/config/docker/setup.conf changed upstream since the last pull."
   _log "         Your config/docker/setup.conf is the user override and was NOT updated."
   _log "         Review the diff and copy any new sections / keys you want:"
   _log ""
-  _log "           diff -u ${TEMPLATE_REL}/downstream/config/docker/setup.conf config/docker/setup.conf"
+  _log "           diff -u ${TEMPLATE_REL}/dist/config/docker/setup.conf config/docker/setup.conf"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/downstream/config/docker/setup.conf):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/downstream/config/docker/setup.conf"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/config/docker/setup.conf):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/config/docker/setup.conf"
   fi
 }
 
@@ -459,7 +459,7 @@ _warn_setup_conf_drift() {
 
 _usage() {
   cat >&2 <<EOF
-Usage: ./${TEMPLATE_REL}/downstream/script/base/upgrade.sh [VERSION|--check|--gen-conf]
+Usage: ./${TEMPLATE_REL}/dist/script/base/upgrade.sh [VERSION|--check|--gen-conf]
        (or, preferred: just base upgrade [VERSION])
 
 Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
@@ -467,7 +467,7 @@ Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 Arguments:
   VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
-  --gen-conf    Copy ${TEMPLATE_REL}/downstream/config/docker/setup.conf to
+  --gen-conf    Copy ${TEMPLATE_REL}/dist/config/docker/setup.conf to
                 <repo>/config/docker/setup.conf for per-repo overrides
                 (delegates to init.sh --gen-conf)
   --lang LANG   Message language (en|zh-TW|zh-CN|ja; default: auto-detect
@@ -478,7 +478,7 @@ Examples:
   just base upgrade                                          # upgrade to latest
   just base upgrade v0.5.0                                   # specific version
   just base update                                           # check only
-  ./${TEMPLATE_REL}/downstream/script/base/upgrade.sh        # raw: latest
+  ./${TEMPLATE_REL}/dist/script/base/upgrade.sh        # raw: latest
 EOF
   exit 0
 }
@@ -518,7 +518,7 @@ main() {
 
   case "${1:-}" in
     --check) _check ;;
-    --gen-conf) "./${TEMPLATE_REL}/downstream/script/base/init.sh" --gen-conf ;;
+    --gen-conf) "./${TEMPLATE_REL}/dist/script/base/init.sh" --gen-conf ;;
     v*)
       _upgrade "$1"
       ;;

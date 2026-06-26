@@ -36,7 +36,7 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
-./.base/downstream/script/base/init.sh   # one-time bootstrap; thereafter: just base init
+./.base/dist/script/base/init.sh   # one-time bootstrap; thereafter: just base init
 
 # Upgrade to latest
 just base update   # check
@@ -69,7 +69,7 @@ command runner) layered on Docker. Install both on the host before using the
 
   See the [official install guide](https://github.com/casey/just#installation)
   for every method. If `just` is unavailable each recipe has a raw fallback
-  (`./script/<verb>.sh`, `./.base/downstream/script/base/upgrade.sh`) -- see
+  (`./script/<verb>.sh`, `./.base/dist/script/base/upgrade.sh`) -- see
   [Quick Start](#quick-start).
 
 ## Overview
@@ -81,15 +81,15 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ```mermaid
 graph TB
     subgraph base["base (shared repo)"]
-        scripts["downstream/.hadolint.yaml<br/>downstream/script/justfile (consumer entry)<br/>downstream/script/docker|base|template/"]
-        smoke["downstream/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
-        config["downstream/config/<br/>bashrc / tmux / terminator"]
-        mgmt["downstream/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        scripts["dist/.hadolint.yaml<br/>dist/script/justfile (consumer entry)<br/>dist/script/docker|base|template/"]
+        smoke["dist/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["dist/config/<br/>bashrc / tmux / terminator"]
+        mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml (opt-in)"]
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["justfile → script/justfile → .base/downstream/script/justfile<br/>script/docker|base|template/ → .base/downstream/script/.../ (per-sub symlinks)<br/>script/build.sh → .base/downstream/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
+        symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../ (per-sub symlinks)<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local (repo-owned)"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -141,29 +141,29 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `prune.sh` | Prune dangling images / build cache for the repo |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
-| `downstream/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
-| `downstream/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
-| `downstream/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
-| `downstream/script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
-| `downstream/script/docker/lib/conf.sh` | INI file parser and section merger |
-| `downstream/script/docker/lib/conf_logging.sh` | Logging configuration helpers |
-| `downstream/script/docker/lib/env.sh` | Environment variable setup and defaults |
-| `downstream/script/docker/lib/gitignore.sh` | Gitignore file management |
-| `downstream/script/docker/lib/hook.sh` | Per-wrapper pre/post hook invocation |
-| `downstream/script/docker/lib/i18n.sh` | Language detection and localization (`_detect_lang`, `_LANG`) |
-| `downstream/script/docker/lib/log.sh` | Unified logging and output utilities |
-| `downstream/script/docker/lib/config_summary.sh` | Summary of runtime configuration |
-| `downstream/script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
-| `downstream/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
-| `downstream/script/docker/runtime/logging.sh` | Host-side log tee helper |
-| `downstream/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
-| `downstream/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `dist/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
+| `dist/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
+| `dist/script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
+| `dist/script/docker/lib/conf.sh` | INI file parser and section merger |
+| `dist/script/docker/lib/conf_logging.sh` | Logging configuration helpers |
+| `dist/script/docker/lib/env.sh` | Environment variable setup and defaults |
+| `dist/script/docker/lib/gitignore.sh` | Gitignore file management |
+| `dist/script/docker/lib/hook.sh` | Per-wrapper pre/post hook invocation |
+| `dist/script/docker/lib/i18n.sh` | Language detection and localization (`_detect_lang`, `_LANG`) |
+| `dist/script/docker/lib/log.sh` | Unified logging and output utilities |
+| `dist/script/docker/lib/config_summary.sh` | Summary of runtime configuration |
+| `dist/script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `dist/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
+| `dist/script/docker/runtime/logging.sh` | Host-side log tee helper |
+| `dist/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
+| `dist/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
 | `script/test/test.sh` | base self-test dispatcher (local + in-container) |
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
 | `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
-| `downstream/test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
+| `dist/test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, unit (bats + kcov) |
 | `test/bats/integration/` | base self-tests, init/upgrade end-to-end |
 | `test/bats/behavioural/` | base self-tests, runtime behaviour (opt-in) |
@@ -177,13 +177,13 @@ ships its own `test/bats/{unit,integration,behavioural}/`.
 
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` (→ `script/justfile`) | Repo entry — layered namespaced recipes (`just docker build`, `just docker run`, `just test`, `just base upgrade`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just docker build --no-cache --stage test-tools`); bare `just` lists all namespaces. |
-| `downstream/script/docker/justfile.docker` | `docker` namespace — container ops (`just docker build/run/exec/stop/prune/setup/setup-tui`). |
-| `downstream/script/base/justfile.base` | `base` namespace — manage the `.base` subtree (`just base init/update/upgrade/completions`). |
-| `downstream/script/base/init.sh` | First-time symlink setup + new-repo scaffolding (bootstrap: `./.base/downstream/script/base/init.sh`; thereafter `just base init`). |
-| `downstream/script/base/upgrade.sh` | Subtree version upgrade (`just base upgrade [vX.Y.Z]`). |
+| `dist/script/docker/justfile.docker` | `docker` namespace — container ops (`just docker build/run/exec/stop/prune/setup/setup-tui`). |
+| `dist/script/base/justfile.base` | `base` namespace — manage the `.base` subtree (`just base init/update/upgrade/completions`). |
+| `dist/script/base/init.sh` | First-time symlink setup + new-repo scaffolding (bootstrap: `./.base/dist/script/base/init.sh`; thereafter `just base init`). |
+| `dist/script/base/upgrade.sh` | Subtree version upgrade (`just base upgrade [vX.Y.Z]`). |
 | `script/test/justfile.test` | base self-test entry (`just test`, `just test lint`, `just test coverage`, …). |
 | `script/release/justfile.release` | base `release` namespace (release / publish tooling). |
-| `downstream/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
+| `dist/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
@@ -216,7 +216,7 @@ Design decisions locked by #291:
 ### Dockerfile stages (convention)
 
 Downstream repos follow a standard multi-stage layout, defined in
-`downstream/dockerfile/Dockerfile`. All stages share a common base image
+`dist/dockerfile/Dockerfile`. All stages share a common base image
 parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
@@ -396,7 +396,7 @@ diagnostics pointing at the missing artifact.
 - `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
   - `script/entrypoint.sh` (canonical)
   - any ros / app launch helpers etc.
-- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `downstream/dockerfile/Dockerfile`, #275)
+- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `dist/dockerfile/Dockerfile`, #275)
 - `doc/` and `README.md`
 - Repo-specific smoke tests
 
@@ -429,7 +429,7 @@ two derived artifacts.
            [logging.<svc>] for per-service key-level override
 ```
 
-Template default lives at `.base/downstream/config/docker/setup.conf`
+Template default lives at `.base/dist/config/docker/setup.conf`
 (post-v0.25.0); per-repo overrides go at `<repo>/config/docker/setup.conf`.
 Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
@@ -452,7 +452,7 @@ to opt out of mounting a workspace. Edit via:
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./.base/downstream/script/base/init.sh --gen-conf # plain copy of .base/downstream/config/docker/setup.conf
+./.base/dist/script/base/init.sh --gen-conf # plain copy of .base/dist/config/docker/setup.conf
                               # to <repo>/config/docker/setup.conf
 ```
 
@@ -596,7 +596,7 @@ To browse a transcript in [lnav](https://lnav.org) with timestamp
 ordering and level highlighting, load the bundled regex format once:
 
 ```bash
-lnav -i .base/downstream/script/docker/lib/transcript.lnav-format.json   # one-time install
+lnav -i .base/dist/script/docker/lib/transcript.lnav-format.json   # one-time install
 lnav log/build/latest.log
 ```
 
@@ -630,8 +630,8 @@ Main
 `setup.sh` runs only when explicitly triggered — it is not re-run on
 every build or launch:
 
-- **`just base init` / `./.base/downstream/script/base/init.sh`** runs it once after the skeleton lands
-- **`just base upgrade` / `./.base/downstream/script/base/upgrade.sh`** re-runs it via init.sh
+- **`just base init` / `./.base/dist/script/base/init.sh`** runs it once after the skeleton lands
+- **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
   `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
@@ -836,7 +836,7 @@ git subtree add --prefix=.base \
 
 # 3. Initialize symlinks (one-time bootstrap; runs setup.sh under the hood).
 #    Thereafter use `just base init` (the symlinked entry).
-./.base/downstream/script/base/init.sh
+./.base/dist/script/base/init.sh
 ```
 
 > `git subtree add` requires `HEAD` to exist. On a freshly `git init`-ed repo with no commits, it fails with `ambiguous argument 'HEAD'` and `working tree has modifications`. The empty commit creates `HEAD` so subtree can merge into it.
@@ -861,17 +861,17 @@ just base upgrade v0.3.0
 # per SemVer §11. Edit .base/.version manually if intentional.
 
 # Fallback if just is unavailable
-./.base/downstream/script/base/upgrade.sh v0.3.0
+./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` handles the full cycle in one go:
 
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull integrity check — `git reset --hard` rollback if subtree
-   markers (`.base/.version`, `.base/downstream/script/base/init.sh`,
-   `.base/downstream/script/docker/wrapper/setup.sh`) are missing (catches the
+   markers (`.base/.version`, `.base/dist/script/base/init.sh`,
+   `.base/dist/script/docker/wrapper/setup.sh`) are missing (catches the
    destructive fast-forward seen on older `git-subtree.sh`)
-3. `./.base/downstream/script/base/init.sh` re-runs to: resync root symlinks
+3. `./.base/dist/script/base/init.sh` re-runs to: resync root symlinks
    (`build.sh` / `run.sh` / `justfile` …), sync `.gitignore` against
    the canonical entry set, `git rm --cached` any tracked-but-now-derived
    files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
@@ -881,8 +881,8 @@ just base upgrade v0.3.0
 
 Your per-repo files are never overwritten: `<repo>/config/docker/setup.conf` stays
 as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
-alone — if upstream `.base/downstream/config/` moved since the last pull,
-upgrade.sh prints a `diff -ruN .base/downstream/config config` hint so you can
+alone — if upstream `.base/dist/config/` moved since the last pull,
+upgrade.sh prints a `diff -ruN .base/dist/config config` hint so you can
 reconcile manually.
 
 Don't `git subtree pull` by hand — the integrity check, init.sh
@@ -1036,7 +1036,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
 ├── justfile                            # base's OWN self-test/release entry (mods test + release)
 ├── compose.yaml                        # base CI runner (test-tools services)
 ├── .dockerignore                       # Canonical ignore set (synced into consumers)
-├── downstream/                         # SHIPPED tooling + content (single source of truth)
+├── dist/                         # SHIPPED tooling + content (single source of truth)
 │   ├── .hadolint.yaml                  # Shared Hadolint rules (symlinked into consumers)
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # Multi-stage Dockerfile template for new repos

@@ -24,7 +24,7 @@ fi
 _DOCKER_SCHEMA_SOURCED=1
 
 _schema_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=downstream/script/docker/lib/_tui_conf.sh
+# shellcheck source=dist/script/docker/lib/_tui_conf.sh
 source "${_schema_dir}/_tui_conf.sh"
 unset _schema_dir
 

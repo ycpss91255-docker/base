@@ -16,7 +16,7 @@
 
 bats_require_minimum_version 1.5.0
 
-LIB="/source/downstream/script/docker/lib"
+LIB="/source/dist/script/docker/lib"
 
 setup() {
   export LOG_FORMAT=text
@@ -55,6 +55,48 @@ _src() {
   run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
   assert_success
   [ "${#lines[@]}" -ge 1 ]
+}
+
+# ── migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
+# base's shipped tree was renamed downstream/ -> dist/. A consumer
+# Dockerfile that hand-references the lint-stage lib/wrapper dir COPY under
+# .base/downstream/ breaks with "COPY source not found" after the rename;
+# every .base/downstream/ COPY source heals to .base/dist/.
+
+@test "migration 0 (downstream-to-dist): rewrites lib/wrapper COPY sources to .base/dist/ (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/wrapper /lint/wrapper
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); _migrate_downstream_to_dist_detect '${DF}' && _migrate_downstream_to_dist_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
+  grep -Fq "COPY .base/dist/script/docker/wrapper /lint/wrapper" "${DF}"
+  ! grep -q '\.base/downstream/' "${DF}"
+}
+
+@test "migration 0 (downstream-to-dist): detect false when no .base/downstream/ reference (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src); _migrate_downstream_to_dist_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration 0 (downstream-to-dist): idempotent — second run is a no-op (#714)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${DF}" "${DF}.orig"
 }
 
 # ── migration 1: wrapper COPY shape A/B -> wrapper/*.sh ──────────────────────
@@ -204,7 +246,7 @@ COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base
 EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}' && _migrate_logging_rename_apply '${DF}'"
   assert_success
-  grep -Fq "COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
   ! grep -q '_entrypoint_logging.sh' "${DF}"
 }
 
@@ -228,7 +270,7 @@ EOF
 @test "migration 4 (logging-rename): detect false when already on new name (#567)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}'"
   assert_failure
@@ -243,7 +285,7 @@ EOF
   mkdir -p "${TEMP_DIR}/script"
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/downstream/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
 #!/usr/bin/env bash

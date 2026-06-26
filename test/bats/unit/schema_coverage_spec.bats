@@ -25,7 +25,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/schema.sh
+  source /source/dist/script/docker/lib/schema.sh
 }
 
 # Source setup_tui.sh to populate the per-locale _TUI_MSG_* tables. The
@@ -33,7 +33,7 @@ setup() {
 # running, so this only loads the i18n tables + helpers (mirrors tui_spec).
 _load_locale_tables() {
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/wrapper/setup_tui.sh
+  source /source/dist/script/docker/wrapper/setup_tui.sh
 }
 
 @test "every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)" {
@@ -50,7 +50,7 @@ _load_locale_tables() {
   # equal the [section] headers in the shipped template, in file order. A
   # section added to the template but not the registry (or vice versa)
   # fails here.
-  local _tpl="/source/downstream/config/docker/setup.conf"
+  local _tpl="/source/dist/config/docker/setup.conf"
   local -a _hdrs=()
   local _line
   while IFS= read -r _line; do

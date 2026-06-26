@@ -4,9 +4,26 @@
 - **Status:** Accepted
 - **Amended:** 2026-06-24 by #654 / ADR-00000011 §8 -- Region A's frozen
   `.base/init.sh` root path is superseded. `init.sh` and `upgrade.sh` now
-  live deep at `.base/downstream/script/base/` and self-locate the subtree
+  live deep at `.base/dist/script/base/` and self-locate the subtree
   root via a walk-up (see the Region A note below); the lockstep discipline
   this ADR mandates is what governed that move.
+- **Amended:** 2026-06-26 by #714 -- the shipped-tree directory was renamed
+  `downstream/` -> `dist/`, so every frozen interior path moves from
+  `.base/downstream/...` to `.base/dist/...` (this supersedes the
+  `.base/downstream/` contract introduced by #625 / #654). The rename was a
+  lockstep change exactly as this ADR mandates: `upgrade.sh` /
+  `init.sh`'s subtree-root marker check, the Region B config-drift paths
+  (`${TEMPLATE_REL}/dist/config[/docker/setup.conf]`), the Region A Step-3
+  `init.sh` call, and the Region C `dockerfile_migrate` lib all moved in the
+  same change. **Consumer migration:** an existing consumer on
+  `.base/downstream/` that upgrades gets `.base/dist/` after the subtree
+  pull, leaving its repo-level wrapper symlinks
+  (`script/build.sh -> .base/downstream/...`) dangling; the upgrade->init
+  resync heals them because `init.sh`'s `_symlink` helper `rm -f`s the stale
+  link and re-`ln -sf`s it at `.base/dist/...` (so stale `.base/downstream/`
+  symlinks are dropped and re-pointed). `dockerfile_migrate` migration 4 was
+  widened to match `(downstream/|dist/)?` so a consumer Dockerfile on either
+  historical path heals to the `dist/` target.
 
 ## Context
 
@@ -39,14 +56,14 @@ reorg that touches its paths:
 
   > **Amended 2026-06-24 (#654, ADR-00000011 §8).** `init.sh` was
   > relocated out of the subtree root to
-  > `.base/downstream/script/base/init.sh` (with `upgrade.sh` alongside).
+  > `.base/dist/script/base/init.sh` (with `upgrade.sh` alongside).
   > Per this ADR's lockstep discipline the move was done in one slice that
   > also updated Step 3's call to
-  > `"./${TEMPLATE_REL}/downstream/script/base/init.sh"` (both the resync
+  > `"./${TEMPLATE_REL}/dist/script/base/init.sh"` (both the resync
   > and `--gen-conf` invocations). Critically, `upgrade.sh` no longer
   > derives `TEMPLATE_REL` from its own directory's basename (which is now
   > `base`, the wrong prefix): it **walks up** from its location to the
-  > subtree root -- the dir carrying the `.version` + `downstream/` markers
+  > subtree root -- the dir carrying the `.version` + `dist/` markers
   > -- and `basename`s THAT (`.base`), so the `git subtree pull --prefix=`
   > flag and every interior path stay correct regardless of nesting depth.
   > The new self-location walk-up IS the contract that replaces the frozen
@@ -89,7 +106,7 @@ or renamed without updating `upgrade.sh` in the same change** (and
 re-checking #492's trigger checklist):
 
 - `.base/init.sh` -- invoked directly by Region A. *(Superseded
-  2026-06-24 by #654: now `.base/downstream/script/base/init.sh`, located
+  2026-06-24 by #654: now `.base/dist/script/base/init.sh`, located
   via `upgrade.sh`'s walk-up to the subtree root rather than frozen at the
   root; see the Region A amendment above.)*
 - `.base/config/` and `.base/config/docker/setup.conf` -- hashed by

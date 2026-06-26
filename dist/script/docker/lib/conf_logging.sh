@@ -34,7 +34,7 @@ _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 # (_SETUP_SCRIPT_DIR for the template fallback in _collect_logging is a
 # caller-provided global, not a sourced module.)
 _conf_logging_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=downstream/script/docker/lib/conf.sh
+# shellcheck source=dist/script/docker/lib/conf.sh
 source "${_conf_logging_dir}/conf.sh"
 unset _conf_logging_dir
 

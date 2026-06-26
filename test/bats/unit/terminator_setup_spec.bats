@@ -7,7 +7,7 @@ setup() {
   export HOME="${TEMP_DIR}"
 
   # shellcheck disable=SC1091
-  source /source/downstream/config/shell/terminator/setup.sh
+  source /source/dist/config/shell/terminator/setup.sh
 }
 
 teardown() {
@@ -74,6 +74,6 @@ teardown() {
 @test "script runs entry_point when executed directly" {
   mock_cmd "terminator" 'exit 0'
   mock_cmd "chown" 'exit 0'
-  run bash /source/downstream/config/shell/terminator/setup.sh
+  run bash /source/dist/config/shell/terminator/setup.sh
   assert_success
 }

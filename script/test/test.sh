@@ -60,7 +60,7 @@ readonly REPO_ROOT
 export WRAPPER_TRANSCRIPT=false
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../downstream/script/docker/lib/_lib.sh"
+source "${SCRIPT_DIR}/../../dist/script/docker/lib/_lib.sh"
 
 # Per-tool drivers. test.sh is the dispatcher (arg parsing, mode dispatch,
 # CI-container setup); the per-tool execution lives in sourced driver

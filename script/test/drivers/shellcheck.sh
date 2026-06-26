@@ -16,11 +16,11 @@
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/downstream/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/downstream/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/dist/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/dist/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/dist/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/dist/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/dist/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
 
   # local==CI parity: the consumer Dockerfile devel-test stage lints
   # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x,
@@ -34,8 +34,8 @@ _run_shellcheck() {
   local _lintdir
   _lintdir="$(mktemp -d)"
   mkdir -p "${_lintdir}/wrapper" "${_lintdir}/lib"
-  cp "${REPO_ROOT}"/downstream/script/docker/wrapper/*.sh "${_lintdir}/wrapper/"
-  cp "${REPO_ROOT}"/downstream/script/docker/lib/*.sh "${_lintdir}/lib/"
+  cp "${REPO_ROOT}"/dist/script/docker/wrapper/*.sh "${_lintdir}/wrapper/"
+  cp "${REPO_ROOT}"/dist/script/docker/lib/*.sh "${_lintdir}/lib/"
   shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
   rm -rf "${_lintdir}"
   shellcheck -x "${REPO_ROOT}/script/test/test.sh"
@@ -43,8 +43,8 @@ _run_shellcheck() {
   # test.sh); shellcheck them with -x so source-following resolves the
   # _lib.sh / _log_* references the same way test.sh sees them.
   find "${REPO_ROOT}/script/test/drivers" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  shellcheck -x "${REPO_ROOT}/downstream/script/base/init.sh"
-  shellcheck -x "${REPO_ROOT}/downstream/script/base/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/downstream/config/shell/terminator/setup.sh"
-  shellcheck -x "${REPO_ROOT}/downstream/config/shell/tmux/setup.sh"
+  shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
+  shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"
+  shellcheck -x "${REPO_ROOT}/dist/config/shell/terminator/setup.sh"
+  shellcheck -x "${REPO_ROOT}/dist/config/shell/tmux/setup.sh"
 }

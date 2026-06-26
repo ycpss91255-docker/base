@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for the opt-in shell tab-completion installer
-# downstream/script/base/completions.sh (ADR-00000011).
+# dist/script/base/completions.sh (ADR-00000011).
 #
 # Reached as `just base completions install|uninstall [--shell ...]`, it writes
 # the DYNAMIC `just` completion loader into each shell's standard auto-load
@@ -14,7 +14,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  COMPLETIONS="/source/downstream/script/base/completions.sh"
+  COMPLETIONS="/source/dist/script/base/completions.sh"
 
   SANDBOX="$(mktemp -d)"
   export SANDBOX

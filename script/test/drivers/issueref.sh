@@ -38,7 +38,7 @@
 # walked for these extensions; @test description strings are exempt inside
 # .bats files (handled by the comment extractor below).
 readonly _ISSUEREF_ROOTS=(
-  "downstream"
+  "dist"
   "script"
   "test"
 )

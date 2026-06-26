@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/downstream/script/docker/lib/_tui_backend.sh
+  source /source/dist/script/docker/lib/_tui_backend.sh
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
