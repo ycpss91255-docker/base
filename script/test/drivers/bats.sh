@@ -82,6 +82,29 @@ _run_bats_path() {
   fi
 }
 
+# _spec_weight <spec_path>
+#   Echo the partition weight for a spec: its recorded runtime in whole
+#   seconds from SHARD_WEIGHTS_FILE (lines `<seconds> <basename>`, populated
+#   automatically from prior CI runs) when present, else a fallback of the
+#   spec's `@test` count -- so a new spec with no recorded time still gets a
+#   proportional weight until CI records its real runtime. Keeping the
+#   fallback in the SAME function lets _shard_unit_files stay weight-source
+#   agnostic (greedy LPT regardless of whether the unit is seconds or count).
+_spec_weight() {
+  local _spec="${1:?BUG: _spec_weight expects a spec path}"
+  local _base
+  _base="$(basename -- "${_spec}")"
+  if [[ -n "${SHARD_WEIGHTS_FILE:-}" && -f "${SHARD_WEIGHTS_FILE}" ]]; then
+    local _secs
+    _secs="$(awk -v b="${_base}" '$2 == b { print $1; f=1; exit } END { exit !f }' \
+      "${SHARD_WEIGHTS_FILE}" 2>/dev/null)" \
+      && { printf '%s\n' "${_secs}"; return 0; }
+  fi
+  local _c
+  _c="$(grep -cE '^@test' "${_spec}" 2>/dev/null || true)"
+  printf '%s\n' "${_c:-0}"
+}
+
 _shard_unit_files() {
   # Shared shard-partition primitive for the coverage matrix. Echoes the
   # newline-separated subset of test/bats/unit/*_spec.bats for shard <n>
@@ -112,9 +135,10 @@ _shard_unit_files() {
   # partition deterministic across runs (ties broken by name).
   local _files
   _files=$(
-    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats; do
+    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats \
+              "${REPO_ROOT}"/test/bats/integration/*_spec.bats; do
       [[ -e "${_f}" ]] || continue
-      printf '%s %s\n' "$(grep -cE '^@test' "${_f}")" "${_f}"
+      printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
     done \
       | sort -k1,1nr -k2,2 \
       | awk -v want="${_shard}" -v t="${_total}" '
@@ -128,7 +152,7 @@ _shard_unit_files() {
           }'
   )
   if [[ -z "${_files}" ]]; then
-    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/unit/ ?"
+    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/{unit,integration}/ ?"
   fi
   printf '%s\n' "${_files}"
 }
@@ -248,19 +272,18 @@ _run_coverage() {
     echo "--- Running Tests with Kcov Coverage (full suite) ---"
     _targets=("${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/")
   else
-    # _shard_unit_files _die's on a malformed / empty shard spec.
+    # _shard_unit_files _die's on a malformed / empty shard spec. Its pool
+    # now spans unit + integration specs (time-balanced), so a shard slice
+    # already carries whatever integration specs it was assigned -- no
+    # last-shard special case (the old all-integration-on-last-shard rule is
+    # superseded; every spec still runs exactly once across the matrix, just
+    # spread by runtime).
     local _files
     _files="$(_shard_unit_files "${_shard_spec}")"
-    local _total="${_shard_spec#*/}"
-    local _shard="${_shard_spec%/*}"
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
     _targets=(${_files})
-    if (( _shard == _total )); then
-      echo "  + integration suite (last shard)"
-      _targets+=("${REPO_ROOT}/test/bats/integration/")
-    fi
     # Word-split intentional: print one line per shard target.
     printf '  cov-shard:%s\n' "${_targets[@]}"
   fi

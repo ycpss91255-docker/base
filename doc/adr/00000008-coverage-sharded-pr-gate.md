@@ -234,3 +234,37 @@ The gate script stays CI-agnostic; only the job wrapper changes:
 - The section-2 Codecov merge and the section-3 `codecov/project` status
   are SUPERSEDED; the section-1 sharding and the "coverage is a gating PR
   check via `ci-rollup`" posture remain.
+
+## Amendment (#724 / #725 / #730): shard count is dynamic, the partition is time-balanced, the merge is a per-line union
+
+The section-1 sharding evolved to compress the PR critical path further
+without weakening the gate (coverage stays a required PR check):
+
+- **Dynamic shard count (#725).** The matrix is no longer the hardcoded
+  `['1/4'..'4/4']`. A `compute-shards` job emits `["1/N",...,"N/N"]` from
+  `vars.CI_SHARDS` (default 8, clamped [1,12]); the coverage matrix consumes
+  it via `fromJSON`. The count is a repo variable because "shard to runner
+  count" is not runtime-detectable on GitHub-hosted (parallelism is bounded
+  by the plan's concurrent-job limit); it also generalises to self-hosted
+  (set the var to the fleet size). `_shard_unit_files` / `--coverage-shard
+  N/T` already accept any total T.
+
+- **Time-balanced, integration-pooled partition (#724).** `_shard_unit_files`
+  now partitions unit + integration specs in ONE pool (integration is no
+  longer appended whole to the last shard, which made that shard the sole
+  bottleneck -- measured 326s vs 87-192s for the others at 8 shards). The
+  greedy-LPT weight moves from `@test` count to `_spec_weight` (recorded
+  seconds from `SHARD_WEIGHTS_FILE`, else `@test` count as a graceful
+  fallback). An automated timings source (so the seconds are real, not a
+  count proxy) is a deliberate follow-up.
+
+- **Per-line union merge (#730).** `coverage_gate.sh` now merges the shard
+  cobertura reports by per-line UNION (a line is covered if ANY shard ran
+  it; valid = distinct source lines), NOT `SUM(covered)/SUM(valid)` over the
+  root counters. Every shard's kcov reports the whole tree, so source shared
+  across shards was double-counted -- the SUM rate drifted DOWN with the
+  shard count (4 shards ~52.9% passed; 8 shards 42.42% false-failed). The
+  union is shard-count-invariant (real 8-shard data: 51.42%). This SUPERSEDES
+  the section-"MERGE MATH" line-weighted SUM described above.
+
+The "coverage is a gating PR check via `ci-rollup`" posture is unchanged.
