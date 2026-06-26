@@ -32,6 +32,11 @@ setup() {
   # lib so its functions are available to tests that hit _create_new_repo.
   ln -s /source/dist/script/docker/lib/gitignore.sh \
         "${TMP_REPO}/.base/dist/script/docker/lib/gitignore.sh"
+  # init.sh also sources lib/template_guard.sh on load (the self-run guard,
+  # ADR-00000011 sec.8). Symlink it so _source_init resolves it. The seeded
+  # subtree root (.base/, no .git) makes the guard a no-op for these tests.
+  ln -s /source/dist/script/docker/lib/template_guard.sh \
+        "${TMP_REPO}/.base/dist/script/docker/lib/template_guard.sh"
   # init.sh sources _lib.sh on load (routes _log / _error through
   # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
   # so symlink all three surfaces.

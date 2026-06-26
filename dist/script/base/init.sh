@@ -52,6 +52,8 @@ readonly TEMPLATE_REL
 source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/_lib.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/template_guard.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -659,6 +661,13 @@ Run from the repo root after:
 EOF
     return 0
   fi
+
+  # Refuse to run inside the base template source itself (ADR-00000011 sec.8).
+  # A vendored `.base/` subtree never carries `.git`; the base checkout/
+  # worktree does, so `.git` at the resolved subtree root means "this is the
+  # template source, not a consumer" -- proceeding would scaffold into base's
+  # PARENT dir. After --help (which must work anywhere), before any mutation.
+  _assert_not_template_source "${TEMPLATE_DIR}" init || exit 1
 
   cd "${REPO_ROOT}"
 
