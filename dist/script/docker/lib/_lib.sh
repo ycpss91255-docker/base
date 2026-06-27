@@ -35,6 +35,8 @@ source "${_lib_dir}/setup_conf.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/schema.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/stage.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/conf_logging.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/compose.sh"
