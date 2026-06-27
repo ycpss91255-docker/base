@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2048 tests**.
+Unit specs under `test/bats/unit/`: **2049 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -188,7 +188,7 @@ round-robin, so the slowest shard approaches `total/N` even before this
 file-level split. All five share one `setup_spec_helper.bash` (common
 `setup()` / `teardown()`); behaviour and total test count are unchanged.
 
-#### test/bats/unit/setup_spec.bats (146)
+#### test/bats/unit/setup_spec.bats (147)
 
 Core detection (user / hardware / docker / GPU / GUI), SSH X11
 forwarding (`_is_ssh_x11` / `_setup_ssh_x11_cookie`, #321), the INI
@@ -1290,7 +1290,7 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
 | `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
 | `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
-| `_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS` | dri auto |
+| `_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override` | dri auto |
 | `_resolve_deploy_context: dri_groups off yields empty` | dri off |
 | `_generate_deploy_sh: writes an executable launcher with the expected skeleton` | launcher skeleton |
 | `_generate_deploy_sh: inlines global [security] privileged + caps + devices` | global security/devices |

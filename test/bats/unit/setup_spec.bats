@@ -315,15 +315,31 @@ EOF
   assert_success
 }
 
-@test "_detect_dri_groups dedups repeated GIDs (#496)" {
+# SETUP_DETECT_DRI_GROUPS is a documented, supported operator override of
+# the /dev/dri stat host probe (README "Host-detection overrides" +
+# setup.sh --help). The two tests below assert the operator-override
+# contract: the env var forces the GID list verbatim and skips the stat.
+@test "SETUP_DETECT_DRI_GROUPS operator override forces the GID list verbatim (#496)" {
+  run bash -c "
+    export SETUP_DETECT_DRI_GROUPS='44 992'
+    source /source/dist/script/docker/wrapper/setup.sh
+    _detect_dri_groups
+  "
+  assert_success
+  # The override echoes its value verbatim and skips the /dev/dri stat,
+  # so the output is exactly the operator-supplied list (no host probe).
+  assert_output "44 992"
+}
+
+@test "SETUP_DETECT_DRI_GROUPS override echoes repeated GIDs verbatim (no stat dedup) (#496)" {
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 44 992'
     source /source/dist/script/docker/wrapper/setup.sh
     _detect_dri_groups
   "
   assert_success
-  # override echoes verbatim; dedup happens on the real stat path. Assert the
-  # override passthrough works (real-stat dedup is covered by sort -u).
+  # The override is a verbatim passthrough; sort -u dedup only applies on
+  # the real /dev/dri stat path, which the override deliberately bypasses.
   assert_output --partial "44"
   assert_output --partial "992"
 }
@@ -1379,13 +1395,20 @@ EOF
 
 # ════════════════════════════════════════════════════════════════════
 # _resolve_runtime / _detect_jetson (Jetson NVIDIA runtime)
+#
+# SETUP_DETECT_JETSON is a documented, supported operator override of the
+# /etc/nv_tegra_release host probe (README "Host-detection overrides" +
+# setup.sh --help). These tests assert the operator-override contract:
+# the env var forces the detection result and skips the host probe.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_detect_jetson honors SETUP_DETECT_JETSON=true override" {
+@test "SETUP_DETECT_JETSON=true operator override forces Jetson detection" {
+  # The probe file does not exist in the test env, so a true result here
+  # proves the override short-circuits the /etc/nv_tegra_release probe.
   SETUP_DETECT_JETSON=true _detect_jetson
 }
 
-@test "_detect_jetson honors SETUP_DETECT_JETSON=false override" {
+@test "SETUP_DETECT_JETSON=false operator override forces non-Jetson detection" {
   ! SETUP_DETECT_JETSON=false _detect_jetson
 }
 

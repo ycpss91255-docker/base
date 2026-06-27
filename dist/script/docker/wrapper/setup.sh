@@ -285,6 +285,24 @@ Apply-only options (#338):
                         .gitignore. Subsumes the dry-run piece of
                         the #230 base-mcp setup_resolve plan.
 
+Host-detection overrides (env vars):
+  These force a host-detection result instead of probing the host, so
+  the matching auto modes (deploy.gpu_runtime/build.network = auto, and
+  deploy.dri_groups = auto) resolve as if the host had that property.
+  Behaviour is otherwise unchanged.
+  SETUP_DETECT_JETSON=true|false
+                        Force the Jetson check (normally tests for
+                        /etc/nv_tegra_release). Set true to simulate a
+                        Jetson on non-Jetson hardware, or false to pin
+                        a non-Jetson result. Drives gpu_runtime=nvidia
+                        and build network=host under `auto`.
+  SETUP_DETECT_DRI_GROUPS="<gid> <gid> ..."
+                        Force the /dev/dri owner GIDs granted via
+                        group_add (normally stat'd from /dev/dri). Use
+                        on containerised / CI hosts whose render-group
+                        GIDs differ from the build host, or to pin them.
+                        Empty string means "no /dev/dri groups".
+
 Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
   <base-path>/compose.yaml  Full compose with baseline + conditional

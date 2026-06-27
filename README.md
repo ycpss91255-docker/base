@@ -673,6 +673,30 @@ following changed since last setup:
 
 Re-run with `--setup` to regenerate `.env` + `compose.yaml`.
 
+### Host-detection overrides
+
+`setup.sh apply` probes the host for two properties that gate the
+`auto` resolver modes. Operators can override the probe with an
+environment variable when the host's real state is wrong for the
+target (containerised / CI hosts, or simulating other hardware). The
+override only short-circuits detection; the resolver logic is unchanged.
+
+| Env var | Replaces | Value | Effect under `auto` |
+|---|---|---|---|
+| `SETUP_DETECT_JETSON` | `/etc/nv_tegra_release` probe | `true` / `false` | `deploy.gpu_runtime` -> `nvidia` and `build.network` -> `host` when `true` |
+| `SETUP_DETECT_DRI_GROUPS` | `stat` of `/dev/dri/{card*,renderD*}` | space-separated GIDs (empty = none) | `deploy.dri_groups` emits `group_add` with these GIDs |
+
+```bash
+# Simulate a Jetson on a desktop (forces nvidia runtime + host build-net)
+SETUP_DETECT_JETSON=true ./setup.sh apply
+
+# Pin the /dev/dri render GIDs a container is granted on a CI host
+SETUP_DETECT_DRI_GROUPS="44 992" ./setup.sh apply
+```
+
+These are first-class operator knobs, not test-only hooks. See
+`./setup.sh --help` for the same list.
+
 ### setup.sh subcommands (v0.11.0+)
 
 `setup.sh` is a git-style backend with explicit subcommands. The build / run / TUI scripts call it for you; invoke directly for scripted / non-interactive use:
