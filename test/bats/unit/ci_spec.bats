@@ -258,7 +258,7 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     all=$(find "${REPO_ROOT}/test/bats/unit" "${REPO_ROOT}/test/bats/integration" \
-            -maxdepth 1 -name "*_spec.bats" | sort)
+            -name "*_spec.bats" | sort)
     union=$( { _shard_unit_files 1/4; _shard_unit_files 2/4; \
                _shard_unit_files 3/4; _shard_unit_files 4/4; } | sort )
     [[ "${all}" == "${union}" ]] || { echo "MISMATCH"; exit 1; }
@@ -280,7 +280,7 @@ teardown() {
   # shard is at most ~1.5x the average so a single big spec can't pin it.
   run bash -c '
     source /source/script/test/test.sh
-    total=$(grep -rhcE "^@test" "${REPO_ROOT}"/test/bats/unit/*_spec.bats | paste -sd+ | bc)
+    total=$(grep -rhcE "^@test" "${REPO_ROOT}"/test/bats/unit/ | paste -sd+ | bc)
     avg=$(( total / 4 ))
     max=0
     for s in 1 2 3 4; do
@@ -413,7 +413,7 @@ teardown() {
   # Count-based weighting (which ignores SHARD_WEIGHTS_FILE) would not.
   run bash -c '
     source /source/script/test/test.sh
-    specs=$(find "${REPO_ROOT}/test/bats/unit" -maxdepth 1 -name "*_spec.bats" | sort)
+    specs=$(find "${REPO_ROOT}/test/bats/unit" -name "*_spec.bats" | sort)
     heavy=$(printf "%s\n" "${specs}" | head -1 | xargs -n1 basename)
     wf="${BATS_TEST_TMPDIR}/w.tsv"
     : > "${wf}"

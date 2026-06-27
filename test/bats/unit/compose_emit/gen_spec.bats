@@ -7,7 +7,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
-  load "${BATS_TEST_DIRNAME}/test_helper"
+  load "${BATS_TEST_DIRNAME}/../test_helper"
 
   # shellcheck disable=SC1091
   source /source/dist/script/docker/wrapper/setup.sh
