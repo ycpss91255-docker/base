@@ -1440,39 +1440,31 @@ _resolve_deploy_context() {
   local _rdc_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _rdc_out="${2:?"${FUNCNAME[0]}: missing out assoc"}"
 
-  local -a _b_k=() _b_v=() _d_k=() _d_v=() _g_k=() _g_v=() _n_k=() _n_v=()
-  local -a _s_k=() _s_v=() _l_k=() _l_v=() _r_k=() _r_v=() _e_k=() _e_v=()
-  local -a _t_k=() _t_v=() _dv_k=() _dv_v=()
-  _load_setup_conf "${_rdc_base}" "build"       _b_k  _b_v
-  _load_setup_conf "${_rdc_base}" "deploy"      _d_k  _d_v
-  _load_setup_conf "${_rdc_base}" "gui"         _g_k  _g_v
-  _load_setup_conf "${_rdc_base}" "network"     _n_k  _n_v
-  _load_setup_conf "${_rdc_base}" "security"    _s_k  _s_v
-  _load_setup_conf "${_rdc_base}" "lifecycle"   _l_k  _l_v
-  _load_setup_conf "${_rdc_base}" "resources"   _r_k  _r_v
-  _load_setup_conf "${_rdc_base}" "environment" _e_k  _e_v
-  _load_setup_conf "${_rdc_base}" "tmpfs"       _t_k  _t_v
-  _load_setup_conf "${_rdc_base}" "devices"     _dv_k _dv_v
+  # Parse the section-replace-merged conf ONCE into an opaque handle, then read
+  # every scalar/list from it -- replacing the former 10x per-section
+  # _load_setup_conf re-parse (each call re-tokenized the whole conf). Same
+  # merge precedence + SETUP_CONF override (ADR-00000008 follow-up).
+  _setup_conf_handle "${_rdc_base}" _RDC_CONF
 
   local _tmp=""
 
   # build-time network (scalar [build] network; auto -> host on Jetson).
   local _build_network_mode="" _build_network=""
-  _get_conf_value _b_k _b_v "network" "auto" _build_network_mode
+  _conf_get_into _RDC_CONF build network auto _build_network_mode
   _resolve_build_network "${_build_network_mode}" _build_network
   _rdc_out["build_network"]="${_build_network}"
 
   # [deploy] GPU family.
-  _get_conf_value _d_k _d_v "gpu_mode"         "auto" _tmp; _rdc_out["gpu_mode"]="${_tmp}"
-  _get_conf_value _d_k _d_v "gpu_count"        "all"  _tmp; _rdc_out["gpu_count"]="${_tmp}"
-  _get_conf_value _d_k _d_v "gpu_capabilities" "gpu"  _tmp; _rdc_out["gpu_caps"]="${_tmp}"
+  _conf_get_into _RDC_CONF deploy gpu_mode         auto _tmp; _rdc_out["gpu_mode"]="${_tmp}"
+  _conf_get_into _RDC_CONF deploy gpu_count        all  _tmp; _rdc_out["gpu_count"]="${_tmp}"
+  _conf_get_into _RDC_CONF deploy gpu_capabilities gpu  _tmp; _rdc_out["gpu_caps"]="${_tmp}"
   # gpu_runtime is the canonical key; legacy `runtime` is a permanent
   # alias (W3) consumed with a deprecation warning, removed at v1.0.0.
   local _gpu_runtime_mode=""
-  _get_conf_value _d_k _d_v "gpu_runtime" "" _gpu_runtime_mode
+  _conf_get_into _RDC_CONF deploy gpu_runtime "" _gpu_runtime_mode
   if [[ -z "${_gpu_runtime_mode}" ]]; then
     local _legacy_runtime=""
-    _get_conf_value _d_k _d_v "runtime" "" _legacy_runtime
+    _conf_get_into _RDC_CONF deploy runtime "" _legacy_runtime
     if [[ -n "${_legacy_runtime}" ]]; then
       _gpu_runtime_mode="${_legacy_runtime}"
       _log_warn setup conf_runtime_key_deprecated \
@@ -1484,29 +1476,29 @@ _resolve_deploy_context() {
   _rdc_out["gpu_runtime_mode"]="${_gpu_runtime_mode}"
 
   # [gui] mode (conf only -- caller layers the --gui / SETUP_GUI override).
-  _get_conf_value _g_k _g_v "mode" "auto" _tmp; _rdc_out["gui_mode"]="${_tmp}"
+  _conf_get_into _RDC_CONF gui mode auto _tmp; _rdc_out["gui_mode"]="${_tmp}"
 
   # [network] + [security] scalars.
-  _get_conf_value _n_k _n_v "mode"         "host"    _tmp; _rdc_out["net_mode"]="${_tmp}"
-  _get_conf_value _n_k _n_v "ipc"          "host"    _tmp; _rdc_out["ipc_mode"]="${_tmp}"
-  _get_conf_value _n_k _n_v "pid"          "private" _tmp; _rdc_out["pid_mode"]="${_tmp}"
-  _get_conf_value _n_k _n_v "network_name" ""        _tmp; _rdc_out["network_name"]="${_tmp}"
+  _conf_get_into _RDC_CONF network mode         host    _tmp; _rdc_out["net_mode"]="${_tmp}"
+  _conf_get_into _RDC_CONF network ipc          host    _tmp; _rdc_out["ipc_mode"]="${_tmp}"
+  _conf_get_into _RDC_CONF network pid          private _tmp; _rdc_out["pid_mode"]="${_tmp}"
+  _conf_get_into _RDC_CONF network network_name ""      _tmp; _rdc_out["network_name"]="${_tmp}"
   # privileged opt-in -- default false when the key is absent.
-  _get_conf_value _s_k _s_v "privileged"   "false"   _tmp; _rdc_out["privileged"]="${_tmp}"
+  _conf_get_into _RDC_CONF security privileged  false   _tmp; _rdc_out["privileged"]="${_tmp}"
 
   # [lifecycle] restart policy (default no).
-  _get_conf_value _l_k _l_v "restart" "no" _tmp; _rdc_out["restart_policy"]="${_tmp}"
+  _conf_get_into _RDC_CONF lifecycle restart no _tmp; _rdc_out["restart_policy"]="${_tmp}"
 
   # dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
   local _dri_groups_mode="" _dri_groups_str=""
-  _get_conf_value _d_k _d_v "dri_groups" "auto" _dri_groups_mode
+  _conf_get_into _RDC_CONF deploy dri_groups auto _dri_groups_mode
   [[ "${_dri_groups_mode}" == "auto" ]] && _dri_groups_str="$(_detect_dri_groups)"
   _rdc_out["dri_groups_str"]="${_dri_groups_str}"
 
   # [devices] device_* + cgroup_rule_*.
   local -a _devices_arr=() _cgroup_rule_arr=()
-  _get_conf_list_sorted _dv_k _dv_v "device_"      _devices_arr
-  _get_conf_list_sorted _dv_k _dv_v "cgroup_rule_" _cgroup_rule_arr
+  _conf_list_sorted _RDC_CONF devices "device_"      _devices_arr
+  _conf_list_sorted _RDC_CONF devices "cgroup_rule_" _cgroup_rule_arr
   local _devices_str="" _cgroup_rule_str=""
   (( ${#_devices_arr[@]}      > 0 )) && _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
   (( ${#_cgroup_rule_arr[@]}  > 0 )) && _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
@@ -1515,9 +1507,9 @@ _resolve_deploy_context() {
 
   # [environment] env_*, [tmpfs] tmpfs_*, [network] port_*.
   local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
-  _get_conf_list_sorted _e_k _e_v "env_"   _env_arr
-  _get_conf_list_sorted _t_k _t_v "tmpfs_" _tmpfs_arr
-  _get_conf_list_sorted _n_k _n_v "port_"  _ports_arr
+  _conf_list_sorted _RDC_CONF environment "env_"   _env_arr
+  _conf_list_sorted _RDC_CONF tmpfs       "tmpfs_" _tmpfs_arr
+  _conf_list_sorted _RDC_CONF network     "port_"  _ports_arr
   local _env_str="" _tmpfs_str="" _ports_str=""
   (( ${#_env_arr[@]}   > 0 )) && _env_str="$(printf '%s\n'   "${_env_arr[@]}")"
   (( ${#_tmpfs_arr[@]} > 0 )) && _tmpfs_str="$(printf '%s\n' "${_tmpfs_arr[@]}")"
@@ -1530,9 +1522,9 @@ _resolve_deploy_context() {
   # a per-repo [security] that wipes a list falls back to the template
   # baseline rather than Docker's stripped default (rationale).
   local -a _cap_add_arr=() _cap_drop_arr=() _sec_opt_arr=()
-  _get_conf_list_sorted _s_k _s_v "cap_add_"      _cap_add_arr
-  _get_conf_list_sorted _s_k _s_v "cap_drop_"     _cap_drop_arr
-  _get_conf_list_sorted _s_k _s_v "security_opt_" _sec_opt_arr
+  _conf_list_sorted _RDC_CONF security "cap_add_"      _cap_add_arr
+  _conf_list_sorted _RDC_CONF security "cap_drop_"     _cap_drop_arr
+  _conf_list_sorted _RDC_CONF security "security_opt_" _sec_opt_arr
   local _tpl_setup_conf
   _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
@@ -1553,7 +1545,7 @@ _resolve_deploy_context() {
   _rdc_out["sec_opt_str"]="${_sec_opt_str}"
 
   # [resources] shm_size (only meaningful when ipc != host).
-  _get_conf_value _r_k _r_v "shm_size" "" _tmp; _rdc_out["shm_size"]="${_tmp}"
+  _conf_get_into _RDC_CONF resources shm_size "" _tmp; _rdc_out["shm_size"]="${_tmp}"
 }
 
 # ════════════════════════════════════════════════════════════════════

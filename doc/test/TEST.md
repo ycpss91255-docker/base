@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **2133 tests** total (2047 unit + 86 integration).
+Template self-tests: **2134 tests** total (2048 unit + 86 integration).
 
 > "Self-test total" is the `just test` suite — what runs in the
 > `Self Test` CI job. Behavioural (5) and smoke (38) tests are tracked
-> here too but are **not** in the 2133 figure: behavioural specs need
+> here too but are **not** in the 2134 figure: behavioural specs need
 > host docker access and are opt-in, and smoke specs are Dockerfile
 > `test`-stage build-time assertions, not self-tests.
 
@@ -15,9 +15,9 @@ test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` — library, wrappers, generators, templates | 2047 |
+| [unit.md](unit.md) | `test/bats/unit/` — library, wrappers, generators, templates | 2048 |
 | [integration.md](integration.md) | `test/bats/integration/` — end-to-end init / upgrade / dispatch | 86 |
 | [behavioural.md](behavioural.md) | `test/bats/behavioural/` — opt-in `runtime-test` buildx specs (host docker) | 5 |
 | [smoke.md](smoke.md) | `dist/test/smoke/` — shipped build-time smoke templates | 38 |
 
-Self-test grand total (unit + integration): **2133**.
+Self-test grand total (unit + integration): **2134**.

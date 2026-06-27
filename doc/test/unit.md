@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2047 tests**.
+Unit specs under `test/bats/unit/`: **2048 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1877,7 +1877,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (15)
+### test/bats/unit/conf_accessor_spec.bats (16)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
