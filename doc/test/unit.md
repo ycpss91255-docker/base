@@ -177,16 +177,16 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh unit specs (385, split by concern)
+### setup.sh-derived unit specs (398, mirroring source libs)
 
-The setup.sh unit suite was split from a single 371-test
-`setup_spec.bats` into five cohesive `*_spec.bats` files (refs #377,
-#677) so the CI coverage shards — which partition BY FILE — can balance
-the per-shard floor. The coverage matrix now uses a greedy
-weight-balanced partition (by per-spec `@test` count) rather than
-round-robin, so the slowest shard approaches `total/N` even before this
-file-level split. All five share one `setup_spec_helper.bash` (common
-`setup()` / `teardown()`); behaviour and total test count are unchanged.
+The setup.sh decomposition (ADR-00000014) split one god-source into
+subsystem libs; these specs mirror those libs per ADR-00000015 (test
+files mirror source — one lib maps to one `<name>_spec.bats`, a lib with
+multiple sub-unit specs gets a `<name>/` folder, source is never split
+for tests). They share one `setup_spec_helper.bash` (common `setup()` /
+`teardown()`); behaviour and total test count are unchanged across the
+re-split. P1a (refs #758) relocated the compose / stage / setup_cmd
+specs; the `setup_spec.bats` slim-down is tracked as P1b.
 
 #### test/bats/unit/setup_spec.bats (147)
 
@@ -204,43 +204,46 @@ template-shipped defaults for `[lifecycle]` restart (#478), `[deploy]`
 `_setup_known_section` / `SCHEMA_SECTIONS` (#561), and `[security]`
 opt-in (#466).
 
-#### test/bats/unit/setup_subcommand_spec.bats (65)
+#### test/bats/unit/setup_cmd_spec.bats (103)
 
-The git-style subcommand dispatcher and its mutating verbs (#49):
-dispatch (Phase B-1), `set` / `show` / `list` (Phase B-2), `add` /
-`remove` (Phase B-3), and `reset` + BREAKING no-arg → help (Phase B-4)
-— round-trips, validators, no-`.env`-regen, comment preservation, and
-end-to-end subprocess cases.
+Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
+mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
+(Phase B-2), `add` / `remove` (Phase B-3), and `reset` + BREAKING no-arg
+→ help (Phase B-4) — round-trips, validators, no-`.env`-regen, comment
+preservation, and end-to-end subprocess cases. Also the per-section
+setup.conf parameter end-to-end coverage (#202, merged from the former
+`setup_section_validate_spec.bats`) exercising `_setup_validate_kv` /
+`_setup_known_section`: one key per test asserted through to
+`compose.yaml` / `.env`, across `[deploy]`, `[gui]`, `[network]`,
+`[resources]`, `[environment]`, `[tmpfs]`, `[devices]`, `[volumes]
+mount_2..N`, and `[security]` privileged, with companion negatives for
+cleared keys.
 
-#### test/bats/unit/setup_emit_spec.bats (78)
+#### test/bats/unit/setup_emit_spec.bats (72)
 
 `apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
-workload overlay (#502), `_generate_runtime_dockerfile` ENV-bake (#503),
-`config/app/` dev bind-mount (#504), `_rule_basename` /
-`detect_image_name` sanitization, i18n (`_msg` / `_detect_lang`),
-`[build]` `arg_N`, `_get_conf_list_sorted` empty-skip, workspace
-writeback, `--quiet` confirmation lines (#285), `--gui` /
+workload overlay (#502), `config/app/` dev bind-mount (#504),
+`_rule_basename` / `detect_image_name` sanitization, i18n (`_msg` /
+`_detect_lang`), `[build]` `arg_N`, `_get_conf_list_sorted` empty-skip,
+workspace writeback, `--quiet` confirmation lines (#285), `--gui` /
 `--no-x11-cookie` / `--print-resolved` apply flags (#338), `#450`
 propagation + duplicate-target guards, S7 `runtime.env` retirement
-(#507), and `_reconcile_workspace_path` (#569).
+(#507), and `_reconcile_workspace_path` (#569). The
+`_generate_runtime_dockerfile` ENV-bake tests moved to `stage_spec.bats`
+in P1a.
 
-#### test/bats/unit/setup_section_validate_spec.bats (38)
+#### test/bats/unit/stage_spec.bats (76)
 
-Per-section setup.conf parameter end-to-end coverage (#202): one key per
-test asserted through to `compose.yaml` / `.env`, across `[deploy]`,
-`[gui]`, `[network]`, `[resources]`, `[environment]`, `[tmpfs]`,
-`[devices]`, `[volumes] mount_2..N`, and `[security]` privileged, with
-companion negatives for cleared keys.
-
-#### test/bats/unit/setup_stage_override_spec.bats (58)
-
-The per-stage override engine: `_validate_stage_name` (#215),
-`_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main apply`
-auto-emit of non-baseline stages (#215), and per-stage overrides #220
+Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
+(#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
+apply` auto-emit of non-baseline stages (#215), per-stage overrides #220
 (`_parse_stage_sections` / `_load_stage_overrides` /
 `_validate_stage_override_key` / `_resolve_stage_scalar` /
 `_resolve_stage_list` + compose-emit integration, incl. #493
-`devel-test` override surface).
+`devel-test` override surface), the `_resolve_docker_flags` single
+per-stage flag-resolution layer (#505/#526, relocated from the compose
+spec in P1a), and `_generate_runtime_dockerfile` ENV-bake (#503/#688,
+relocated from setup_emit in P1a).
 
 ### test/bats/unit/tui_spec.bats (131)
 
@@ -1158,7 +1161,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
-### test/bats/unit/compose_emitter_spec.bats (27)
+### test/bats/unit/compose_emit/blocks_spec.bats (27)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1196,7 +1199,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: stage with overrides emits a standalone block (no extends)` | #220 standalone |
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 
-### test/bats/unit/compose_gen_spec.bats (87)
+### test/bats/unit/compose_emit/gen_spec.bats (75)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1237,19 +1240,7 @@ env/volumes + extra volumes from `[volumes]` section.
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
-| `_resolve_docker_flags: no overrides => inherits all parent values (#505)` | inherit baseline |
-| `_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)` | gui force-off |
-| `_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)` | gui force-on |
-| `_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)` | gpu force-off |
-| `_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)` | gpu scalars |
-| `_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)` | runtime override |
-| `_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)` | runtime legacy alias |
-| `_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)` | runtime per-stage precedence |
-| `_resolve_docker_flags: network scalars + privileged override (#505)` | net + privileged |
-| `_resolve_docker_flags: list fields append to top by default (#505)` | list append |
-| `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
-| `_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)` | per-stage caps append |
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
 
