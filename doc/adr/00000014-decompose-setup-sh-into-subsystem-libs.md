@@ -81,3 +81,15 @@ orchestrator, under these rules:
   principled fix when the source is the god-file.
 - **Leave setup.sh as-is**: rejected -- it is the measured root of the suite's
   granularity problems and a recurring perf/locality hazard.
+
+## Amendment (#747): compose emission -> lib/compose_emit.sh, not lib/compose.sh
+
+The compose slice found that `lib/compose.sh` is the `docker compose`
+INVOCATION wrapper + project naming (`_compose` / `_compose_project` /
+`_compute_project_name`), a distinct concern from compose.yaml GENERATION. The
+~1200-line emission block (`_emit_*`, `generate_compose_yaml`, the volume/device
+classifiers) therefore landed in a NEW `lib/compose_emit.sh` rather than being
+merged into the invocation wrapper. This is consistent with the
+"new lib only for the homeless" rule -- emission had no existing home, since
+compose.sh's home is invocation -- it just refines the slice's earlier
+"into lib/compose.sh" wording.

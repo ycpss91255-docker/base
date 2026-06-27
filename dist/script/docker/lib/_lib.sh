@@ -39,6 +39,8 @@ source "${_lib_dir}/compose.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/deploy.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/compose_emit.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/config_summary.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/hook.sh"
