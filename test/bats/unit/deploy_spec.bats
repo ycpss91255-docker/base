@@ -295,7 +295,13 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
-@test "_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS (#506/#496)" {
+# SETUP_DETECT_DRI_GROUPS is a documented, supported operator override of
+# the /dev/dri host probe (README "Host-detection overrides" + setup.sh
+# --help). These deploy specs use it to pin host detection to a known
+# value -- a real value to assert the auto path emits group_add, or the
+# empty string to pin "no host /dev/dri groups" so the launcher output is
+# deterministic regardless of the test host's actual GPU devices.
+@test "_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override (#506/#496)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "dri_groups = auto"
   local -A _ctx=()

@@ -56,8 +56,13 @@ _resolve_gui() {
 # _detect_jetson
 #   True if running on Jetson (JetPack / L4T) — NVIDIA ships
 #   /etc/nv_tegra_release as the canonical marker on tegra-based boards.
-#   Env override: SETUP_DETECT_JETSON=true|false forces detection result
-#   (used by tests to avoid touching /etc).
+#
+#   Operator override (supported, documented in README + setup.sh --help):
+#   SETUP_DETECT_JETSON=true|false forces the detection result and skips
+#   the /etc/nv_tegra_release probe. Real use: simulate a Jetson on
+#   non-Jetson hardware (so runtime / build-net auto-promotion applies),
+#   or pin the result on a host where the marker is absent or untrusted.
+#   This is a first-class knob over auto-detection, not a test-only hook.
 _detect_jetson() {
   if [[ -n "${SETUP_DETECT_JETSON:-}" ]]; then
     [[ "${SETUP_DETECT_JETSON}" == "true" ]]
@@ -72,8 +77,13 @@ _detect_jetson() {
 #   /dev/dri access via group_add on non-NVIDIA (Intel/AMD iGPU) hosts.
 #   Numeric GIDs only -- the render GID varies per host, so names are
 #   non-portable. Echoes empty when /dev/dri is absent (graceful).
-#   Env override SETUP_DETECT_DRI_GROUPS forces the result (used by tests
-#   to avoid touching /dev/dri).
+#
+#   Operator override (supported, documented in README + setup.sh --help):
+#   SETUP_DETECT_DRI_GROUPS (space-separated GIDs) forces the result and
+#   skips the /dev/dri stat. Real use: containerised / CI hosts where the
+#   /dev/dri render-group GIDs differ from the build host, or pinning the
+#   GIDs the container is granted via group_add. A first-class knob over
+#   auto-detection, not a test-only hook.
 _detect_dri_groups() {
   if [[ -n "${SETUP_DETECT_DRI_GROUPS:-}" ]]; then
     printf '%s' "${SETUP_DETECT_DRI_GROUPS}"
