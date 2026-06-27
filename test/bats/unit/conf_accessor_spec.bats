@@ -33,6 +33,19 @@ teardown() {
   assert_output "auto"
 }
 
+@test "_conf_get_into writes the value into the named outvar, no subshell (#742)" {
+  # Outvar variant of _conf_get: lets a hot resolver read many keys from one
+  # parsed handle without a $() fork per lookup. Same lookup + default
+  # semantics as _conf_get.
+  _conf_load "${FIX}" H
+  local _v="sentinel"
+  _conf_get_into H deploy gpu_runtime "" _v
+  assert_equal "${_v}" "auto"
+  # default applies when the key is absent
+  _conf_get_into H deploy nope "fallback" _v
+  assert_equal "${_v}" "fallback"
+}
+
 @test "_conf_sections lists section names in first-appearance order" {
   _conf_load "${FIX}" H
   run _conf_sections H

@@ -226,6 +226,28 @@ _conf_get() {
   printf '%s\n' "${_cg_val}"
 }
 
+# _conf_get_into <handle> <section> <key> <default> <outvar>
+#
+# Outvar variant of _conf_get: assign the value for <section>.<key> (or
+# <default> when absent) to the caller's <outvar>, with no $() subshell.
+# Same lookup + last-occurrence-wins semantics. Lets a hot resolver read many
+# keys from one parsed handle without a fork per lookup.
+_conf_get_into() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _key="${3:?"${FUNCNAME[0]}: missing key"}"
+  local _def="${4-}"
+  local -n _cgi_out="${5:?"${FUNCNAME[0]}: missing outvar"}"
+  local -n _cgi_es="${_h}__es" _cgi_k="${_h}__keys" _cgi_v="${_h}__vals"
+  local _cgi_i
+  _cgi_out="${_def}"
+  for (( _cgi_i = 0; _cgi_i < ${#_cgi_k[@]}; _cgi_i++ )); do
+    if [[ "${_cgi_es[_cgi_i]}" == "${_sec}" && "${_cgi_k[_cgi_i]}" == "${_key}" ]]; then
+      _cgi_out="${_cgi_v[_cgi_i]}"
+    fi
+  done
+}
+
 # _conf_sections <handle>
 #
 # Echo the handle's section names (deduped, first-appearance order), one
