@@ -93,3 +93,27 @@ merged into the invocation wrapper. This is consistent with the
 "new lib only for the homeless" rule -- emission had no existing home, since
 compose.sh's home is invocation -- it just refines the slice's earlier
 "into lib/compose.sh" wording.
+
+## Amendment (#749): the infra-cleanup slice was delivered as four sub-PRs
+
+The "shared base / infra cleanup" slice (#749) was too large to land as one PR
+(it carried setup.sh from ~1949 lines to a thin orchestrator), so it shipped as
+four behaviour-identical relocation sub-PRs, each its own issue-less `Refs #749`
+PR with the existing specs as the regression net; the last closes #749:
+
+- **749a** -> `lib/setup_detect.sh` (host detection + name/path resolution)
+- **749b** -> `lib/setup_conf.sh` (the setup.conf accessors)
+- **749c** -> `lib/stage.sh` (multi-stage Dockerfile + per-stage overrides)
+- **749d** -> `lib/resolve.sh` (mode+detection resolvers + conf hash),
+  `lib/env_emit.sh` (.env generation), `lib/drift.sh` (drift detection)
+
+Two refinements to the original plan, both consistent with the #747 precedent:
+
+- **.env generation -> `lib/env_emit.sh`, not `lib/env.sh`.** `lib/env.sh` is
+  the runtime `.env` READER (`_load_env`) every wrapper sources; `write_env` /
+  `_scaffold_env_overlay` are the GENERATORS, used only at setup time. Same
+  emission-vs-invocation split as compose_emit.sh vs compose.sh -- the
+  generators land in a new `lib/env_emit.sh` rather than polluting the reader.
+- **setup.sh's final shape.** After 749d it retains only the `_setup_msg*`
+  message catalog, `usage`, and `main` (the subcommand dispatcher) -- a thin
+  orchestrator over the subsystem libs, exactly the decomposition's goal.

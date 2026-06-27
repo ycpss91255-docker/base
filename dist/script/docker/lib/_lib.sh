@@ -37,6 +37,8 @@ source "${_lib_dir}/schema.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/stage.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/resolve.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/conf_logging.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/compose.sh"
@@ -45,11 +47,15 @@ source "${_lib_dir}/deploy.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/compose_emit.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/env_emit.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/config_summary.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/setup_cmd.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/setup_detect.sh"
+# shellcheck disable=SC1091
+source "${_lib_dir}/drift.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/hook.sh"
 unset _lib_dir
