@@ -43,5 +43,7 @@ source "${_lib_dir}/compose_emit.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/config_summary.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/setup_cmd.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/hook.sh"
 unset _lib_dir
