@@ -1471,10 +1471,13 @@ EOF
 @test "setup.sh default _base_path uses double parent traversal" {
   # setup.sh resolves the script directory once via readlink -f into
   # _SETUP_SCRIPT_DIR (so invocation through the root-level symlink works),
-  # then walks up `../../..` to reach the repo root. Accept either the
+  # then walks up `../../..` to reach the repo root. The base_path-default
+  # resolution moved with the subcommands into lib/setup_cmd.sh during the
+  # setup.sh decomposition (ADR-00000014); the traversal still keys off the
+  # same _SETUP_SCRIPT_DIR global setup.sh exports. Accept either the
   # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
   run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
-    /source/dist/script/docker/wrapper/setup.sh
+    /source/dist/script/docker/lib/setup_cmd.sh
   assert_success
 }
 
