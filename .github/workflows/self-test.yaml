@@ -32,7 +32,7 @@ jobs:
     # Per-PR diff classifier (pure shell, no third-party GHA action — same
     # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
     # outputs for downstream jobs:
-    #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE
+    #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE + CONTEXT.md
     #   behavioural_relevant — false if the PR does NOT touch any path in the
     #                          behavioural block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
@@ -91,7 +91,7 @@ jobs:
           BASE="origin/${BASE_REF}"
           # code_changed: anything outside the doc-only allow-list.
           if git diff --quiet "${BASE}"...HEAD \
-               -- ':!doc/**' ':!README.md' ':!LICENSE'; then
+               -- ':!doc/**' ':!README.md' ':!LICENSE' ':!CONTEXT.md'; then
             echo "code_changed=false" >> "${GITHUB_OUTPUT}"
           else
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **doc-only CI short-circuit now also covers `CONTEXT.md`** — the `classify` job's `code_changed` allow-list was `doc/** + README.md + LICENSE`, so a change to the root-level `CONTEXT.md` (tracked domain glossary, pure docs, not under `doc/`) tripped `code_changed=true` and ran the full heavy suite (shellcheck / hadolint / bats / coverage / integration-e2e / behavioural). Added `':!CONTEXT.md'` to the diff allow-list so a glossary-only PR skips them like any other docs change. `self_test_yaml_spec.bats` allow-list assertion updated.
+
 ### Fixed
 - **bump `extractions/setup-just@v3 -> @v4` to clear the last node20 deprecation warning** — #737 cleared the GitHub-owned actions, but the `integration-e2e` job's `setup-just@v3` (third-party) still declared node20 and warned on both arch shards. v4 is the maintainer's current major; the usage is parameterless so it is drop-in. Finishes the node20 cleanup for base.
 - **bump node20 GitHub Actions to node24 majors to clear the runner deprecation warning (#737)** — GitHub deprecated the Node 20 runtime and force-runs node20 actions on node24 (a shim that warns but still passes). Bumped the pinned versions that declared `node20` in their `action.yml`: `actions/upload-artifact@v4 -> @v7`, `actions/download-artifact@v4 -> @v8`, `actions/cache@v4 (save + restore) -> @v6` across `self-test.yaml`, `release-test-tools.yaml`, `publish-worker.yaml` (8 refs). `actions/checkout@v6` already runs node24. Note: `upload-artifact@v5` is STILL node20, so v6+ is required. `self_test_yaml_spec.bats` version assertions updated (@v4 -> @v7/@v8). The artifact upload<->download backend round-trip (coverage shards upload, coverage-gate downloads the `coverage-shard-*` artifacts) is verified by this PR's own CI run. Org-wide fan-out to other repos uses the same version set.

@@ -66,12 +66,16 @@ setup() {
   assert_output --partial 'behavioural_relevant: ${{ steps.diff.outputs.behavioural_relevant }}'
 }
 
-@test "self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' (#317)" {
+@test "self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' + 'CONTEXT.md' (#317)" {
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "':!doc/**'"
   assert_output --partial "':!README.md'"
   assert_output --partial "':!LICENSE'"
+  # CONTEXT.md is tracked at the repo root (domain glossary, pure docs) but is
+  # not under doc/, so without this it would trip code_changed=true and run the
+  # full suite for a glossary-only change.
+  assert_output --partial "':!CONTEXT.md'"
 }
 
 @test "self-test.yaml: classify uses behavioural block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)" {
