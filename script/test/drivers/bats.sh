@@ -27,11 +27,15 @@ _bats_args_with_label() {
   # images), fall back to serial bats — slower but correct.
   local -n _out_args="$1"
   local -n _out_label="$2"
-  _out_args=()
+  # --recursive so a directory target descends into per-lib sub-folders
+  # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
+  # first-class shard units (ADR-00000015). Harmless when the target is a
+  # file rather than a directory.
+  _out_args=(--recursive)
   if command -v parallel >/dev/null 2>&1; then
     local _jobs
     _jobs="$(nproc 2>/dev/null || echo 4)"
-    _out_args=(--jobs "${_jobs}")
+    _out_args+=(--jobs "${_jobs}")
     _out_label="jobs=${_jobs}"
   else
     _out_label="serial; parallel not in PATH"
@@ -165,10 +169,16 @@ _shard_unit_files() {
   # each spec to the lightest shard, and prints only the files landing in
   # the requested shard. The `sort -k1` secondary on the path keeps the
   # partition deterministic across runs (ties broken by name).
-  local _files
+  # globstar so `**` descends into per-lib sub-folders
+  # (test/bats/unit/<lib>/<subunit>_spec.bats, ADR-00000015); each
+  # foldered spec is still its own kcov/shard unit. Saved/restored so the
+  # sourced driver does not leak the shell option to callers.
+  local _files _globstar_was_set=0
+  shopt -q globstar && _globstar_was_set=1
+  shopt -s globstar
   _files=$(
-    for _f in "${REPO_ROOT}"/test/bats/unit/*_spec.bats \
-              "${REPO_ROOT}"/test/bats/integration/*_spec.bats; do
+    for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
+              "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
       [[ -e "${_f}" ]] || continue
       printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
     done \
@@ -183,6 +193,7 @@ _shard_unit_files() {
             if (min == want) print $2
           }'
   )
+  (( _globstar_was_set )) || shopt -u globstar
   if [[ -z "${_files}" ]]; then
     _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/{unit,integration}/ ?"
   fi
@@ -334,7 +345,7 @@ _run_coverage() {
     --include-path="${REPO_ROOT}" \
     --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
-    bats --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
+    bats --recursive --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
     || _rc=$?
   _junit_to_timings "${_junit_dir}/report.xml" \
     > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true

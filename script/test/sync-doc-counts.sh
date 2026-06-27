@@ -23,11 +23,19 @@ fi
 # have an individual `### <path> (N)` doc heading.
 _dir_test_count() {
   local _root="$1" _glob="$2" _f _sum=0 _c
+  # globstar so a caller can pass `<dir>/**/*_spec.bats` to recurse into
+  # per-lib sub-folders (test/bats/unit/<lib>/<subunit>_spec.bats,
+  # ADR-00000015). Saved/restored so sourcing this lib does not leak the
+  # option to the caller.
+  local _globstar_was_set=0
+  shopt -q globstar && _globstar_was_set=1
+  shopt -s globstar
   for _f in "${_root}"/${_glob}; do
     [[ -f "${_f}" ]] || continue
     _c="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
     _sum=$(( _sum + ${_c:-0} ))
   done
+  (( _globstar_was_set )) || shopt -u globstar
   printf '%s\n' "${_sum}"
 }
 
@@ -67,9 +75,9 @@ _sync_test_md_index() {
   local _t="${_root}/doc/test/TEST.md"
   [[ -f "${_t}" ]] || return 0
   local _u _i _b _s _tot
-  _u="$(_dir_test_count "${_root}" 'test/bats/unit/*_spec.bats')"
-  _i="$(_dir_test_count "${_root}" 'test/bats/integration/*_spec.bats')"
-  _b="$(_dir_test_count "${_root}" 'test/bats/behavioural/*_spec.bats')"
+  _u="$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
+  _i="$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
+  _b="$(_dir_test_count "${_root}" 'test/bats/behavioural/**/*_spec.bats')"
   _s="$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
   _tot=$(( _u + _i ))
   sed -i -E \
@@ -92,11 +100,11 @@ _sync_doc_counts() {
     _sync_headings "${_root}" "${_doc}"
   done
   _sync_type_total "${_root}/doc/test/unit.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/unit/*_spec.bats')"
+    "$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/integration.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/integration/*_spec.bats')"
+    "$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/behavioural.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/behavioural/*_spec.bats')"
+    "$(_dir_test_count "${_root}" 'test/bats/behavioural/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/smoke.md" \
     "$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
   _sync_test_md_index "${_root}"
