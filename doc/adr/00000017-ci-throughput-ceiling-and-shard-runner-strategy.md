@@ -97,3 +97,93 @@ recorded here to stop the topic being re-litigated.
   gated future path.
 - **Buy concurrency (GitHub Team/Enterprise or third-party runners).**
   Rejected for now (owner decision); recorded as the other escape path.
+
+## Amendment (2026-06-29): two CI principles make ~185s the irreducible floor; e2e caching and self-hosted-for-speed are both retracted
+
+The original decision floated "~135s with both levers (shards + e2e build cache)"
+and a "self-hosted escape ~80s". Both presupposed caching the e2e build. Two
+governing principles, made explicit after the fact, rule that out:
+
+1. **CI must align with the real `just docker build` flow.** A real user's
+   build caches via the local docker daemon, never via a CI-injected
+   `cache_from`. Any CI-only cache wiring (e.g. ghcr `cache_from` spliced into
+   the generated compose) diverges from what users actually run -- rejected
+   (same reason the prebuilt `base-env` image was rejected: it changes the
+   real build).
+2. **Every CI run must be clean and reproducible.** No state is retained
+   between runs -- on self-hosted runners too (they must be kept stateless to
+   match GitHub-hosted, or a cached run stops matching a clean run and CI
+   loses reproducibility).
+
+Together these forbid caching the e2e build by ANY mechanism: a CI-only cache
+violates (1); a retained daemon cache violates (2). Therefore:
+
+- **The e2e build is a clean build every run on every platform.** It is
+  apt/network-bound and sequential (sys -> devel-base -> devel), so it is
+  ~platform-independent (~154s arm64); extra cores do not speed it. This is
+  the binding pole.
+- **Irreducible CI floor ~= e2e-arm64 clean (~154s) + serial pre/post chain
+  (classify + compute-shards + gate + rollup, ~30s) ~= 185s**, on BOTH
+  GitHub-hosted and self-hosted.
+- **Self-hosted is NOT a speed lever** under principle 2: a stateless
+  self-hosted run pays the same ~154s clean e2e, and although it could shard
+  coverage across more cores (no 20-cap), coverage is already below the e2e
+  floor, so total does not move. The "~80s self-hosted" figure is retracted.
+  Self-hosted retains only the non-speed considerations (and #766 guard) and
+  is not pursued for performance.
+- **`CI_SHARDS` increase is not pursued**: total is e2e-bound, so cutting
+  coverage below the e2e floor yields no total-time win. The existing shard
+  count stays (it keeps coverage at/under the e2e pole; removing sharding
+  returns to the 522s serial run).
+
+**~185s is therefore the accepted floor -- a deliberate choice of fidelity +
+reproducibility over raw speed, not a process defect.** Going below it would
+require violating principle (1) or (2), or dropping covered work (e.g. the
+arm64 e2e, which has real value since the org ships arm64). The CI-squeeze
+effort's remaining scope is the quality wins (broader e2e command coverage,
+stale-comment + dead-package cleanup), not speed.
+
+## Sources / provenance (every figure above is reproducible)
+
+All measured / queried on 2026-06-29 unless noted. Recorded so future
+re-examination can re-derive, not trust, the numbers.
+
+- **Plan = free; 20 concurrent-job cap.** `gh api orgs/ycpss91255-docker
+  --jq .plan.name` -> `free`. The 20-job (5 macOS) concurrency limit is the
+  documented GitHub Free tier limit (GitHub Docs: Actions limits).
+- **No hosted capacity / idle API.** `gh api
+  orgs/ycpss91255-docker/actions/runner-limits` -> HTTP 404;
+  `.../actions/hosted-runners` -> HTTP 404 "GitHub hosted runners are not
+  supported for this organization"; `.../settings/billing/actions` -> HTTP
+  410 Gone.
+- **Peak concurrency 15.** Job-overlap analysis over `gh api
+  repos/ycpss91255-docker/base/actions/runs/28347066279/jobs` (max count of
+  jobs whose [started_at, completed_at) span a common instant).
+- **Serial (unsharded) coverage = 522s.** `just test coverage` (full kcov, no
+  shard) run on the org self-hosted runner host `C01013328` (32 vCPU, 125 GiB,
+  GPU; `nproc`=32), wall-clock 522s, 2135 ok / 0 not-ok. The runner identity:
+  `gh api orgs/ycpss91255-docker/actions/runners` -> 1 runner
+  `C01013328-ycpss91255-docker-org`, labels `self-hosted,Linux,X64,gpu`,
+  `status=online busy=false`.
+- **Per-job times (e2e arm64 ~154s, amd64 ~114s, slowest coverage shard
+  ~155-170s, total ~197-200s).** `gh api .../actions/runs/<id>/jobs` job
+  durations for self-test main-push runs: `28347066279` (commit 32d9847,
+  post-P1), `28279526244` (390ef9e, pre-P1 baseline), `28282248067` (cd20b1e,
+  P1a). e2e step breakdown ("Build test stage" 93s arm64) from the per-step
+  timings of the `Integration E2E (linux/arm64)` job in run 28347066279.
+- **Per-spec kcov seconds (e.g. deploy_spec ~97-107s).** Merged
+  `coverage-shard-*/timings.tsv` artifacts (max-dedup per spec) downloaded
+  from runs `28279526244` and `28347066279`.
+- **kcov tax +50-60% and the DEBUG-trap mechanism.** Spike on
+  `ghcr.io/ycpss91255-docker/test-tools:main` (kcov v43, Bats 1.13.0, bash
+  5.2.37): `deploy_spec` plain 29.7s vs kcov 47.4s (+60%); `setup_detect_spec`
+  15.5s vs 23.2s (+50%); kcov output carried `bash-helper-debug-trap.sh`.
+  Recorded in ADR-00000016.
+- **e2e build is a clean (uncached) build.** The `integration-e2e` job uses
+  the docker driver and rebuilds the example image each run; verified in
+  `.github/workflows/self-test.yaml` (the "Set up Docker Buildx (driver:
+  docker)" + "Build test stage" steps) and the per-step timings above.
+- **Public repo + fork-PR gating.** `gh api
+  repos/ycpss91255-docker/base/actions/permissions/fork-pr-contributor-approval`
+  -> `{"approval_policy":"all_external_contributors"}`; `gh repo view` ->
+  `visibility=PUBLIC`; `gh pr list --state all` fork-origin count = 0.
