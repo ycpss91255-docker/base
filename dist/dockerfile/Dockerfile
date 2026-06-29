@@ -123,7 +123,6 @@ RUN apt-get update && \
         terminator \
         curl \
         wget \
-        python3 \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
