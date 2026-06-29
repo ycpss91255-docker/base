@@ -175,6 +175,31 @@ setup() {
   assert_output --partial '_default'
 }
 
+@test "self-test.yaml: integration-e2e exercises the remaining downstream just commands for real (#769)" {
+  # Beyond the build/run -d/exec/stop core, the e2e must run each remaining
+  # downstream verb with REAL execution (not --dry-run): the foreground run
+  # variant, start (build + run), a real prune, an explicit setup re-run,
+  # the base update check, and the base completions installer.
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'just docker run id -un'
+  assert_output --partial 'just docker start'
+  assert_output --partial 'just docker prune --networks'
+  assert_output --partial 'just docker setup apply'
+  assert_output --partial 'just base update'
+  assert_output --partial 'just base completions install'
+}
+
+@test "self-test.yaml: integration-e2e documents setup-tui as intentionally out of scope (#769)" {
+  # setup-tui is interactive (TUI); it stays covered by tui_spec and is
+  # NOT driven for real in the e2e. The job must say so, and must not try
+  # to invoke it.
+  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'setup-tui'
+  refute_output --partial 'just docker setup-tui'
+}
+
 @test "self-test.yaml: integration-e2e runs as a native-runner matrix over amd64 + arm64 (#603)" {
   # A2: verify the runnability contract on BOTH arches via native
   # runners (no QEMU), mirroring the platform->runner convention in

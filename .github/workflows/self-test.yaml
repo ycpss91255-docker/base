@@ -888,6 +888,157 @@ jobs:
             exit 1
           fi
 
+      # The steps below (#769) extend the runnability contract beyond the
+      # build / run -d / exec / stop core: each remaining downstream `just`
+      # verb is driven with REAL execution (not --dry-run) and asserted on a
+      # real effect (in-container output / regenerated artifact / removed
+      # resource / verdict line). setup-tui (the interactive TUI) is
+      # intentionally NOT exercised here -- driving it for real needs a
+      # pseudo-TTY; it stays covered by the unit tui_spec.
+      - name: Run foreground command variant and assert auto-cleanup (#386 / #769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just docker run <cmd>` (no -d) is the foreground command variant:
+        # it brings the devel service up, execs the CMD, then the #386
+        # auto-down tears the project down on exit. Assert BOTH the real
+        # in-container effect (the CMD ran as the configured user) AND that
+        # the foreground auto-cleanup removed the container + project network.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?USER_NAME missing from .env.generated}"
+
+          # QUIET=1 mutes the pre-run config summary so the captured stdout is
+          # the in-container `id -un` output. </dev/null guards against any
+          # stdin read.
+          who="$(QUIET=1 just docker run id -un </dev/null 2>/dev/null \
+                   | tr -d '\r' | tail -n1)"
+          echo "foreground run id -un: ${who}"
+          if [[ "${who}" != "${USER_NAME}" ]]; then
+            echo "ERROR: foreground run ran as '${who}', expected '${USER_NAME}'"
+            exit 1
+          fi
+
+          # #386 foreground auto-down: no container + no project network survive.
+          if docker ps -a --format '{{.Names}}' | grep -q 'e2e_test'; then
+            echo "ERROR: foreground run left an e2e_test container behind"
+            docker ps -a
+            exit 1
+          fi
+          if docker network ls --format '{{.Name}}' | grep -q 'e2e_test_default'; then
+            echo "ERROR: foreground run left an e2e_test project network behind"
+            docker network ls
+            exit 1
+          fi
+
+      - name: Build + run in one step via `just docker start` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just docker start` is build (cached here) + a foreground `run` in
+        # one step (the recipe forwards no CMD, so the devel service comes up,
+        # the attached shell reads EOF from the non-interactive stdin and
+        # exits, then #386 auto-down cleans up). NOTE: the recipe is
+        # build-then-run, not a docker-native `start` of a stopped container.
+        # Assert the composite real effect: the devel image is present (build
+        # half ran) and nothing leaks (foreground run half cleaned up).
+        run: |
+          set -euo pipefail
+          just docker start </dev/null
+          if ! docker images --format '{{.Repository}}:{{.Tag}}' \
+               | grep -q 'e2e_test'; then
+            echo "ERROR: just docker start did not leave a built e2e_test image"
+            docker images
+            exit 1
+          fi
+          if docker ps -a --format '{{.Names}}' | grep -q 'e2e_test'; then
+            echo "ERROR: just docker start left a container behind (auto-down failed)"
+            docker ps -a
+            exit 1
+          fi
+
+      - name: Regenerate derived artifacts via `just docker setup apply` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # Explicit setup re-run: delete the two derived artifacts
+        # (.env.generated + compose.yaml) and assert `setup apply` regenerates
+        # them from setup.conf + host detection.
+        run: |
+          set -euo pipefail
+          test -f .env.generated && test -f compose.yaml
+          rm -f .env.generated compose.yaml
+          just docker setup apply
+          if [[ ! -f .env.generated || ! -f compose.yaml ]]; then
+            echo "ERROR: setup apply did not regenerate .env.generated + compose.yaml"
+            ls -la
+            exit 1
+          fi
+          grep -q 'services:' compose.yaml
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?regenerated .env.generated missing USER_NAME}"
+
+      - name: Real prune via `just docker prune` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # The runner is isolated, so exercise a REAL prune (not --dry-run):
+        # create an unused throwaway network, then `just docker prune
+        # --networks` with a tiny `until` window and assert the wrapper's real
+        # `docker network prune` removed it.
+        run: |
+          set -euo pipefail
+          docker network create e2e_prune_probe >/dev/null
+          # until=1s prunes networks created more than 1s ago; sleep so the
+          # probe qualifies deterministically.
+          sleep 2
+          just docker prune --networks --until 1s
+          if docker network ls --format '{{.Name}}' | grep -qx 'e2e_prune_probe'; then
+            echo "ERROR: just docker prune --networks did not remove the probe network"
+            docker network ls
+            exit 1
+          fi
+
+      - name: Check for base updates via `just base update` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just base update` runs upgrade.sh --check against the published base
+        # tags (needs network). The recipe masks the apt-style "update
+        # available" exit 1 to 0, so assert a real verdict line appears rather
+        # than just trusting exit 0.
+        run: |
+          set -euo pipefail
+          out="$(just base update 2>&1)"
+          echo "${out}"
+          if ! echo "${out}" \
+               | grep -Eq 'Already up to date|Update available|Local is ahead'; then
+            echo "ERROR: just base update produced no version verdict"
+            exit 1
+          fi
+
+      - name: Install shell completions via `just base completions` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          # Isolate the completion target dir so the assertion is hermetic and
+          # the installer never touches the runner's real HOME.
+          XDG_DATA_HOME: ${{ env.REPO_DIR }}/.xdg-data
+        run: |
+          set -euo pipefail
+          target="${XDG_DATA_HOME}/bash-completion/completions/just"
+          just base completions install --shell bash
+          if [[ ! -s "${target}" ]]; then
+            echo "ERROR: completions install wrote no (or empty) loader at ${target}"
+            exit 1
+          fi
+          grep -q 'JUST_COMPLETE' "${target}"
+          # The dynamic completer the loader invokes must itself emit non-empty
+          # completion output against the layered justfile.
+          comp="$(JUST_COMPLETE=bash just 2>/dev/null || true)"
+          if [[ -z "${comp}" ]]; then
+            echo "ERROR: 'just' produced no completion output"
+            exit 1
+          fi
+          # Round-trip: uninstall removes the loader.
+          just base completions uninstall --shell bash
+          if [[ -e "${target}" ]]; then
+            echo "ERROR: completions uninstall did not remove ${target}"
+            exit 1
+          fi
+
   behavioural:
     name: Behavioural Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify]
