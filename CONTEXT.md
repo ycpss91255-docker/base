@@ -220,6 +220,11 @@ _Avoid_: upgrade seds, Dockerfile patcher.
   travel; dev binds do not).
 - `upgrade.sh` pulls the **`.base` subtree** and heals downstream
   Dockerfiles via the **Dockerfile-migration list**.
+- The **base version monitor** (`check-base-version.sh`, shipped in the
+  subtree; the `base-version-monitor.yaml` workflow `init.sh` generates)
+  is the *pull* counterpart to `upgrade.sh`'s *push*: each repo polls
+  `base`'s latest stable release and opens an **upgrade-reminder issue**
+  in itself when behind — no PAT, no central repo list.
 
 ## Example dialogue
 

@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **86 tests**.
+Integration specs under `test/bats/integration/`: **87 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -8,7 +8,7 @@ Integration specs under `test/bats/integration/`: **86 tests**.
 
 ## Test Files
 
-### test/bats/integration/init_new_repo_spec.bats (51)
+### test/bats/integration/init_new_repo_spec.bats (52)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
