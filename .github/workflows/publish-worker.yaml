@@ -101,8 +101,7 @@ on:
           MVP supports linux/amd64 + linux/arm64 (publishes a multi-arch
           manifest list). When upstream base images are amd64-only,
           callers should leave this at the default; multi-arch base
-          images publish to linux/arm64 via native arm64 runners (no
-          QEMU emulation).
+          images publish to linux/arm64 via native arm64 runners.
       context_path:
         required: false
         type: string
@@ -201,7 +200,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

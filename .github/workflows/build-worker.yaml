@@ -41,8 +41,7 @@ on:
         description: |
           Comma-separated target platforms. Each runs as a parallel job on
           its own native runner (linux/amd64 → ubuntu-latest, linux/arm64
-          → ubuntu-24.04-arm), so arm64 builds avoid QEMU emulation
-          (which would take 30-60 min per run on an amd64 host) and stay
+          → ubuntu-24.04-arm), so arm64 builds run natively and stay
           in the 5-15 min range.
 
           Each matrix shard runs the full pipeline (test-tools build,
@@ -236,7 +235,7 @@ jobs:
       code_changed: ${{ steps.classify.outputs.code_changed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # `git diff --name-only base...head` needs both refs reachable;
           # PR events checkout only the merge ref by default.
@@ -327,9 +326,8 @@ jobs:
           echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
 
   # ────────────────────────────────────────────────────────────────
-  # Per-platform build. Each shard runs on its native runner so
-  # arm64 doesn't pay QEMU emulation cost. Full test + devel +
-  # runtime pipeline runs per platform.
+  # Per-platform build. Each shard runs on its native runner.
+  # Full test + devel + runtime pipeline runs per platform.
   # ────────────────────────────────────────────────────────────────
   build:
     needs: [path-filter, compute-matrix]
@@ -340,7 +338,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
 
