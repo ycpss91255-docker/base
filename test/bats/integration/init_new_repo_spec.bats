@@ -112,6 +112,15 @@ teardown() {
   assert_success
 }
 
+@test "new repo: .github/workflows/base-version-monitor.yaml exists (#777)" {
+  bash .base/dist/script/base/init.sh
+  assert [ -f "${REPO_DIR}/.github/workflows/base-version-monitor.yaml" ]
+  # Thin scheduler that defers to the subtree-shipped checker.
+  run grep -F '.base/dist/script/base/check-base-version.sh run' \
+    "${REPO_DIR}/.github/workflows/base-version-monitor.yaml"
+  assert_success
+}
+
 @test "new repo: main.yaml grants permissions: contents: write" {
   # Regression forsoftprops/action-gh-release@v2 (used by
   # release-worker.yaml) needs `contents: write` to create a Release.

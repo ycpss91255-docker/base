@@ -495,6 +495,65 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _sync_base_monitor_workflow — per-repo base version monitor
+# ════════════════════════════════════════════════════════════════════
+
+@test "_sync_base_monitor_workflow: generates base-version-monitor.yaml" {
+  _source_init
+  _sync_base_monitor_workflow
+  assert [ -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml" ]
+}
+
+@test "_sync_base_monitor_workflow: schedules weekly + manual dispatch" {
+  _source_init
+  _sync_base_monitor_workflow
+  local _wf="${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  run grep -F 'schedule:' "${_wf}"
+  assert_success
+  run grep -F 'workflow_dispatch' "${_wf}"
+  assert_success
+}
+
+@test "_sync_base_monitor_workflow: grants issues: write" {
+  _source_init
+  _sync_base_monitor_workflow
+  run grep -F 'issues: write' \
+    "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  assert_success
+}
+
+@test "_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix" {
+  _source_init
+  _sync_base_monitor_workflow
+  run grep -F '.base/dist/script/base/check-base-version.sh run' \
+    "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  assert_success
+}
+
+@test "_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file" {
+  _source_init
+  mkdir -p "${TMP_REPO}/.github/workflows"
+  echo "user-tuned" > "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _sync_base_monitor_workflow
+  run cat "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  assert_output "user-tuned"
+}
+
+@test "_create_new_repo: also generates base-version-monitor.yaml" {
+  _source_init
+  _create_new_repo "main"
+  assert [ -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml" ]
+}
+
+@test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
+  rm -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _init_existing_repo
+  assert [ -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _preflight_just / _bootstrap_just
 # ════════════════════════════════════════════════════════════════════
 
