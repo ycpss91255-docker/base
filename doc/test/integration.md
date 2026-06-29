@@ -12,9 +12,15 @@ Integration specs under `test/bats/integration/`: **86 tests**.
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
-**Level 2** equivalent (real `build.sh` / `run.sh` / `exec.sh` / `stop.sh`)
-runs as the `integration-e2e` job in `.github/workflows/self-test.yaml`,
-which has access to a Docker daemon on the host runner.
+**Level 2** equivalent runs as the `integration-e2e` job in
+`.github/workflows/self-test.yaml`, which has access to a Docker daemon on
+the host runner. It drives the documented `just` verbs with REAL execution
+on native amd64 + arm64: the build / run -d / exec / stop runnability core
+(#579/#603) plus (#769) the foreground `run` command variant, `start`
+(build + run), a real `prune`, an explicit `setup apply`, the `base update`
+check, and the `base completions` installer. `setup-tui` (interactive) is
+intentionally out of the e2e -- it needs a pseudo-TTY and stays covered by
+the unit `tui_spec`.
 
 | Test | Description |
 |------|-------------|
