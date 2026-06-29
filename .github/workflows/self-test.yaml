@@ -684,7 +684,7 @@ jobs:
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     # A2 (#603): verify the init.sh -> build -> run -> exec -> stop
-    # runnability contract on BOTH arches via native runners (no QEMU).
+    # runnability contract on BOTH arches via native runners.
     # Static 2-entry matrix mirroring the platform->runner convention in
     # build-worker / publish-worker / release-test-tools (#587); a shared
     # platform->runner single-source is a follow-up in that umbrella.

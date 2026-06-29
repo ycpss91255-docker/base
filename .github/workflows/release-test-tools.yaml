@@ -23,8 +23,7 @@ name: Release test-tools image to GHCR
 #
 # Multi-arch build model (#587): each architecture builds on its NATIVE
 # runner (linux/amd64 -> ubuntu-latest, linux/arm64 -> ubuntu-24.04-arm),
-# replacing the former single-runner QEMU emulation. Native arm64 is
-# faster and consistent with build-worker / publish-worker. Because the
+# consistent with build-worker / publish-worker. Because the
 # arches build on separate runners, each shard pushes its single-arch
 # image BY DIGEST (no tag), then a `merge` job assembles the tagged
 # multi-arch manifest list from the digests via
