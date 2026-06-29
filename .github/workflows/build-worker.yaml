@@ -235,7 +235,7 @@ jobs:
       code_changed: ${{ steps.classify.outputs.code_changed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # `git diff --name-only base...head` needs both refs reachable;
           # PR events checkout only the merge ref by default.
@@ -338,7 +338,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
 
