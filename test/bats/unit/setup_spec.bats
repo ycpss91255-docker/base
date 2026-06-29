@@ -5,137 +5,8 @@ bats_require_minimum_version 1.5.0
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 
 # ════════════════════════════════════════════════════════════════════
-# detect_user_info
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_user_info uses USER env when set" {
-  local _user _group _uid _gid
-  USER="mockuser" detect_user_info _user _group _uid _gid
-  assert_equal "${_user}" "mockuser"
-}
-
-@test "detect_user_info falls back to id -un when USER unset" {
-  local _user _group _uid _gid
-  mock_cmd "id" '
-case "$1" in
-  -un) echo "fallbackuser" ;;
-  -u)  echo "1001" ;;
-  -gn) echo "fallbackgroup" ;;
-  -g)  echo "1001" ;;
-esac'
-  unset USER
-  detect_user_info _user _group _uid _gid
-  assert_equal "${_user}" "fallbackuser"
-}
-
-@test "detect_user_info sets group uid gid correctly" {
-  local _user _group _uid _gid
-  mock_cmd "id" '
-case "$1" in
-  -un) echo "testuser" ;;
-  -u)  echo "1234" ;;
-  -gn) echo "testgroup" ;;
-  -g)  echo "5678" ;;
-esac'
-  USER="testuser" detect_user_info _user _group _uid _gid
-  assert_equal "${_group}" "testgroup"
-  assert_equal "${_uid}" "1234"
-  assert_equal "${_gid}" "5678"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_hardware
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_hardware returns uname -m output" {
-  local _hw
-  mock_cmd "uname" 'echo "aarch64"'
-  detect_hardware _hw
-  assert_equal "${_hw}" "aarch64"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_docker_hub_user
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_docker_hub_user uses docker info username when logged in" {
-  local _result
-  mock_cmd "docker" 'echo " Username: dockerhubuser"'
-  detect_docker_hub_user _result
-  assert_equal "${_result}" "dockerhubuser"
-}
-
-@test "detect_docker_hub_user falls back to USER when docker returns empty" {
-  local _result
-  mock_cmd "docker" 'echo "no username line here"'
-  USER="localuser" detect_docker_hub_user _result
-  assert_equal "${_result}" "localuser"
-}
-
-@test "detect_docker_hub_user falls back to id -un when USER also unset" {
-  local _result
-  mock_cmd "docker" 'echo "no username line here"'
-  mock_cmd "id" '
-case "$1" in
-  -un) echo "iduser" ;;
-esac'
-  unset USER
-  detect_docker_hub_user _result
-  assert_equal "${_result}" "iduser"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_gpu
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_gpu returns true when nvidia-container-toolkit is installed" {
-  local _result
-  mock_cmd "dpkg-query" 'echo "ii"'
-  detect_gpu _result
-  assert_equal "${_result}" "true"
-}
-
-@test "detect_gpu returns false when nvidia-container-toolkit is not installed" {
-  local _result
-  mock_cmd "dpkg-query" 'echo "un"'
-  detect_gpu _result
-  assert_equal "${_result}" "false"
-}
-
-# ════════════════════════════════════════════════════════════════════
 # detect_gpu_count
 # ════════════════════════════════════════════════════════════════════
-
-@test "detect_gpu_count returns count of GPUs from nvidia-smi -L output" {
-  mock_cmd "nvidia-smi" '
-if [[ "$1" == "-L" ]]; then
-  echo "GPU 0: NVIDIA A100 (UUID: ...)"
-  echo "GPU 1: NVIDIA A100 (UUID: ...)"
-  echo "GPU 2: NVIDIA A100 (UUID: ...)"
-fi'
-  local _n=0
-  detect_gpu_count _n
-  assert_equal "${_n}" "3"
-}
-
-@test "detect_gpu_count returns 0 when nvidia-smi is missing" {
-  # Point PATH at MOCK_DIR only (no nvidia-smi stub installed) so the
-  # command -v check fails.
-  local _saved_path="${PATH}"
-  PATH="${MOCK_DIR}"
-  local _n=99
-  detect_gpu_count _n
-  PATH="${_saved_path}"
-  assert_equal "${_n}" "0"
-}
-
-@test "detect_gpu_count returns 0 when nvidia-smi fails (driver broken)" {
-  mock_cmd "nvidia-smi" 'exit 9'
-  local _n=99
-  detect_gpu_count _n
-  assert_equal "${_n}" "0"
-}
-
 @test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
   # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
@@ -183,7 +54,6 @@ EOF
 }
 
 # ── [lifecycle] restart policy ─────────────────────────────────────────
-
 @test "[lifecycle] restart = always emits restart: always under devel (#478)" {
   printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/config/docker/setup.conf"
   unset SETUP_CONF
@@ -249,7 +119,6 @@ EOF
 }
 
 # ── [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
-
 @test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
     > "${TEMP_DIR}/config/docker/setup.conf"
@@ -315,37 +184,7 @@ EOF
   assert_success
 }
 
-# SETUP_DETECT_DRI_GROUPS is a documented, supported operator override of
-# the /dev/dri stat host probe (README "Host-detection overrides" +
-# setup.sh --help). The two tests below assert the operator-override
-# contract: the env var forces the GID list verbatim and skips the stat.
-@test "SETUP_DETECT_DRI_GROUPS operator override forces the GID list verbatim (#496)" {
-  run bash -c "
-    export SETUP_DETECT_DRI_GROUPS='44 992'
-    source /source/dist/script/docker/wrapper/setup.sh
-    _detect_dri_groups
-  "
-  assert_success
-  # The override echoes its value verbatim and skips the /dev/dri stat,
-  # so the output is exactly the operator-supplied list (no host probe).
-  assert_output "44 992"
-}
-
-@test "SETUP_DETECT_DRI_GROUPS override echoes repeated GIDs verbatim (no stat dedup) (#496)" {
-  run bash -c "
-    export SETUP_DETECT_DRI_GROUPS='44 44 992'
-    source /source/dist/script/docker/wrapper/setup.sh
-    _detect_dri_groups
-  "
-  assert_success
-  # The override is a verbatim passthrough; sort -u dedup only applies on
-  # the real /dev/dri stat path, which the override deliberately bypasses.
-  assert_output --partial "44"
-  assert_output --partial "992"
-}
-
 # ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
-
 @test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
   printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
   unset SETUP_CONF
@@ -628,34 +467,6 @@ EOF
   assert_success
 }
 
-@test "_setup_known_section recognises additional_contexts" {
-  _setup_known_section "additional_contexts"
-}
-
-@test "_setup_known_section recognises logging + [logging.<svc>] sub-section (#328)" {
-  _setup_known_section "logging"
-  _setup_known_section "logging.runtime"
-  _setup_known_section "logging.devel"
-  run _setup_known_section "logging."
-  assert_failure
-  run _setup_known_section "loggings"
-  assert_failure
-}
-
-@test "_setup_known_section recognises every SCHEMA_SECTIONS member (#561)" {
-  local _s
-  for _s in "${SCHEMA_SECTIONS[@]}"; do
-    _setup_known_section "${_s}"
-  done
-}
-
-@test "_setup_known_section derives from SCHEMA_SECTIONS, not a copy (#561)" {
-  # A section registered only in SCHEMA_SECTIONS must become known
-  # without hand-editing _setup_known_section.
-  SCHEMA_SECTIONS+=(brandnew)
-  _setup_known_section "brandnew"
-}
-
 @test "set logging.driver round-trips via show (#328)" {
   cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
   run main set logging.driver journald --base-path "${TEMP_DIR}"
@@ -809,958 +620,9 @@ EOF
   assert_failure
 }
 
-@test "detect_gpu_count nameref survives caller-local named '_line' (regression)" {
-  # Regression: previously detect_gpu_count used `local _line` internally,
-  # which shadowed a caller-local also named `_line`; the nameref outvar
-  # then silently wrote to the function-local `_line`, never reaching the
-  # caller. The fix uses `__dgc_`-prefixed locals.
-  mock_cmd "nvidia-smi" '
-if [[ "$1" == "-L" ]]; then
-  echo "GPU 0: A"
-  echo "GPU 1: B"
-fi'
-  local _line=99
-  detect_gpu_count _line
-  assert_equal "${_line}" "2"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_gui
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_gui returns true when DISPLAY is set" {
-  local _result
-  DISPLAY=":0" WAYLAND_DISPLAY="" detect_gui _result
-  assert_equal "${_result}" "true"
-}
-
-@test "detect_gui returns true when WAYLAND_DISPLAY is set" {
-  local _result
-  DISPLAY="" WAYLAND_DISPLAY="wayland-0" detect_gui _result
-  assert_equal "${_result}" "true"
-}
-
-@test "detect_gui returns false when both DISPLAY and WAYLAND_DISPLAY unset" {
-  local _result
-  DISPLAY="" WAYLAND_DISPLAY="" detect_gui _result
-  assert_equal "${_result}" "false"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _is_ssh_x11 (SSH X11 forwarding detection,)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_is_ssh_x11 true when SSH_CONNECTION set + DISPLAY=localhost:N (#321)" {
-  SSH_CONNECTION="1.2.3.4 12345 5.6.7.8 22" DISPLAY="localhost:10.0" _is_ssh_x11
-}
-
-@test "_is_ssh_x11 true when DISPLAY=localhost:N without fractional part (#321)" {
-  SSH_CONNECTION="x y z w" DISPLAY="localhost:0" _is_ssh_x11
-}
-
-@test "_is_ssh_x11 false when SSH_CONNECTION unset (#321)" {
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    unset SSH_CONNECTION
-    DISPLAY=localhost:10.0 _is_ssh_x11
-  "
-  assert_failure
-}
-
-@test "_is_ssh_x11 false when DISPLAY is local socket (:0) (#321)" {
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    SSH_CONNECTION='x y z w' DISPLAY=:0 _is_ssh_x11
-  "
-  assert_failure
-}
-
-@test "_is_ssh_x11 false when DISPLAY is unset (#321)" {
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    SSH_CONNECTION='x y z w' DISPLAY='' _is_ssh_x11
-  "
-  assert_failure
-}
-
-@test "_is_ssh_x11 false when DISPLAY points to a remote host (#321)" {
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    SSH_CONNECTION='x y z w' DISPLAY='other-host:0' _is_ssh_x11
-  "
-  assert_failure
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _setup_ssh_x11_cookie (cookie rewrite via xauth,)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)" {
-  # Stub xauth via PATH shim so the test does not depend on a real
-  # X server. Stub captures argv to /tmp/xauth.log AND writes a
-  # non-empty payload to the `-f <out>` target when nmerge runs, so
-  # the function's post-pipe `[[ ! -s "${_out}" ]]` defensive check
-  # passes.
-  local _bin="${TEMP_DIR}/bin"
-  mkdir -p "${_bin}"
-  cat > "${_bin}/xauth" <<'EOS'
-#!/usr/bin/env bash
-echo "xauth $*" >> "${XAUTH_LOG}"
-# Detect `-f <path> nmerge -` so the stub mimics real xauth's
-# behavior of writing the merged cookie bytes to <path>. Without
-# this, the function's empty-file check fires and returns 1.
-_out=""
-for ((i = 1; i <= $#; i++)); do
-  if [[ "${!i}" == "-f" ]]; then
-    j=$((i + 1))
-    _out="${!j}"
-  fi
-done
-if [[ "${*}" == *nmerge* && -n "${_out}" ]]; then
-  printf 'stub-cookie-bytes\n' > "${_out}"
-fi
-# nmerge reads stdin; consume so the pipe closes cleanly.
-cat >/dev/null 2>&1 || true
-exit 0
-EOS
-  chmod +x "${_bin}/xauth"
-
-  XAUTH_LOG="${TEMP_DIR}/xauth.log"
-  export XAUTH_LOG
-  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
-    run bash -c "
-      source /source/dist/script/docker/wrapper/setup.sh
-      _setup_ssh_x11_cookie '${TEMP_DIR}'
-    "
-  assert_success
-  assert_output "${TEMP_DIR}/.docker.xauth"
-  # File was created AND has content (hotfix: defensive
-  # check on empty cookie file).
-  assert [ -s "${TEMP_DIR}/.docker.xauth" ]
-  # xauth was invoked twice with `-i` (ignore-locks) since the hotfix.
-  run cat "${XAUTH_LOG}"
-  assert_output --partial "xauth -i nlist localhost:10.0"
-  assert_output --partial "xauth -i -f ${TEMP_DIR}/.docker.xauth nmerge -"
-}
-
-@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge writes 0-byte cookie (#321 hotfix)" {
-  # Defensive case: xauth pipeline exits 0 but produces an empty
-  # cookie file (e.g. nlist hit a contended ~/.Xauthority lock and
-  # silently returned nothing). The function must NOT echo the cookie
-  # path back — that would emit XAUTHORITY=<empty-file> into .env and
-  # break X11 auth silently inside the container.
-  local _bin="${TEMP_DIR}/bin"
-  mkdir -p "${_bin}"
-  cat > "${_bin}/xauth" <<'EOS'
-#!/usr/bin/env bash
-# Mimic the contended-lock failure mode: succeed but write nothing.
-cat >/dev/null 2>&1 || true
-exit 0
-EOS
-  chmod +x "${_bin}/xauth"
-
-  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
-    run bash -c "
-      source /source/dist/script/docker/wrapper/setup.sh
-      _setup_ssh_x11_cookie '${TEMP_DIR}'
-    "
-  assert_failure
-  assert_output --partial "empty cookie file"
-  assert_output --partial "XAUTHORITY left at host value"
-}
-
-@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)" {
-  # Distinct from the 0-byte branch: here the nlist|sed|nmerge pipeline
-  # itself exits non-zero (the `xauth_rewrite_failed` middle branch). A
-  # regression that swallowed this failure would silently emit a bogus
-  # XAUTHORITY into .env, so the function must surface it: return 1 and
-  # warn "cookie rewrite failed".
-  local _bin="${TEMP_DIR}/bin"
-  mkdir -p "${_bin}"
-  cat > "${_bin}/xauth" <<'EOS'
-#!/usr/bin/env bash
-# nlist succeeds (emits a line so the pipe has data); nmerge fails.
-case "$*" in
-  *nmerge*) cat >/dev/null 2>&1 || true; exit 1 ;;
-  *nlist*)  echo "localhost:10  MIT-MAGIC-COOKIE-1  deadbeef"; exit 0 ;;
-  *)        exit 0 ;;
-esac
-EOS
-  chmod +x "${_bin}/xauth"
-
-  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
-    run bash -c "
-      source /source/dist/script/docker/wrapper/setup.sh
-      _setup_ssh_x11_cookie '${TEMP_DIR}'
-    "
-  assert_failure
-  assert_output --partial "cookie rewrite failed"
-  assert_output --partial "XAUTHORITY left at host value"
-}
-
-@test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
-  # Shadow the `command` builtin with a function that returns 1 for
-  # `command -v xauth` and passes everything else through to the real
-  # builtin. Lets the function exercise its xauth-missing branch
-  # without touching PATH (which would also break setup.sh's own
-  # dirname / sed / etc. lookups during source).
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    command() {
-      if [[ \"\${1:-}\" == '-v' && \"\${2:-}\" == 'xauth' ]]; then
-        return 1
-      fi
-      builtin command \"\$@\"
-    }
-    DISPLAY=localhost:10.0 _setup_ssh_x11_cookie '${TEMP_DIR}'
-  "
-  assert_failure
-  assert_output --partial "xauth"
-  assert_output --partial "not in PATH"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# write_env: SSH X11 XAUTHORITY override
-# ════════════════════════════════════════════════════════════════════
-
-@test "write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)" {
-  local _env="${TEMP_DIR}/.env.generated"
-  # Pass all positional args incl. the new trailing _ssh_x11_xauth.
-  write_env "${_env}" \
-    alice alice 1000 1000 \
-    x86_64 alice false myrepo /tmp/ws \
-    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
-    bridge host private false all "gpu compute" \
-    true confhash dockerhash \
-    "" "" "" "" \
-    "/path/to/.docker.xauth"
-  assert [ -f "${_env}" ]
-  run grep -F 'XAUTHORITY=/path/to/.docker.xauth' "${_env}"
-  assert_success
-  run grep -F 'SSH X11 forwarding cookie override' "${_env}"
-  assert_success
-}
-
-@test "write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)" {
-  local _env="${TEMP_DIR}/.env.generated"
-  write_env "${_env}" \
-    alice alice 1000 1000 \
-    x86_64 alice false myrepo /tmp/ws \
-    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
-    bridge host private false all "gpu compute" \
-    true confhash dockerhash \
-    "" "" "" "" \
-    ""
-  assert [ -f "${_env}" ]
-  run cat "${_env}"
-  refute_output --partial "SSH X11 forwarding cookie override"
-  refute_output --partial $'\nXAUTHORITY='
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _parse_ini_section
-# ════════════════════════════════════════════════════════════════════
-
-@test "_parse_ini_section reads keys and values for one section" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[gpu]
-mode = auto
-count = all
-capabilities = gpu
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "gpu" _k _v
-  assert_equal "${#_k[@]}" "3"
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_v[0]}" "auto"
-  assert_equal "${_k[1]}" "count"
-  assert_equal "${_v[1]}" "all"
-}
-
-@test "_parse_ini_section isolates sections (entries from other sections ignored)" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[gpu]
-mode = auto
-
-[gui]
-mode = off
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "gui" _k _v
-  assert_equal "${#_k[@]}" "1"
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_v[0]}" "off"
-}
-
-@test "_parse_ini_section skips comment and empty lines" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-# top comment
-[network]
-# inside comment
-mode = host
-
-ipc = host
-
-# trailing
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "network" _k _v
-  assert_equal "${#_k[@]}" "2"
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_k[1]}" "ipc"
-}
-
-@test "_parse_ini_section trims whitespace around key and value" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  printf '[gpu]\n  mode  =  force  \n' > "${_conf}"
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "gpu" _k _v
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_v[0]}" "force"
-}
-
-@test "_parse_ini_section returns empty arrays for missing file" {
-  local -a _k=() _v=()
-  _parse_ini_section "${TEMP_DIR}/missing.conf" "gpu" _k _v
-  assert_equal "${#_k[@]}" "0"
-  assert_equal "${#_v[@]}" "0"
-}
-
-@test "_parse_ini_section returns empty arrays for absent section" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[gpu]
-mode = auto
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "gui" _k _v
-  assert_equal "${#_k[@]}" "0"
-}
-
-# A section like [logging] must NOT absorb entries from a distinct
-# dotted sub-section [logging.web]. Section matching is exact, not
-# prefix-based. conf_logging.sh relies on this: it reads the global
-# [logging] block and per-service [logging.<svc>] blocks separately.
-@test "_parse_ini_section does not absorb dotted sub-sections" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[logging]
-driver = json-file
-
-[logging.web]
-driver = local
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "logging" _k _v
-  assert_equal "${#_k[@]}" "1"
-  assert_equal "${_k[0]}" "driver"
-  assert_equal "${_v[0]}" "json-file"
-}
-
-@test "_parse_ini_section reads a dotted section name" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[logging]
-driver = json-file
-
-[logging.web]
-driver = local
-max_size = 5m
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "logging.web" _k _v
-  assert_equal "${#_k[@]}" "2"
-  assert_equal "${_k[0]}" "driver"
-  assert_equal "${_v[0]}" "local"
-  assert_equal "${_k[1]}" "max_size"
-  assert_equal "${_v[1]}" "5m"
-}
-
-# Duplicate keys and a reopened section are preserved in file order
-# (the original single-pass reader appended every matching line).
-@test "_parse_ini_section preserves duplicate keys and reopened sections in order" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[volumes]
-mount_1 = a:a
-
-[other]
-x = y
-
-[volumes]
-mount_1 = b:b
-mount_2 = c:c
-EOF
-  local -a _k=() _v=()
-  _parse_ini_section "${_conf}" "volumes" _k _v
-  assert_equal "${#_k[@]}" "3"
-  assert_equal "${_k[0]}" "mount_1"
-  assert_equal "${_v[0]}" "a:a"
-  assert_equal "${_k[1]}" "mount_1"
-  assert_equal "${_v[1]}" "b:b"
-  assert_equal "${_k[2]}" "mount_2"
-  assert_equal "${_v[2]}" "c:c"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _ini_tokenize (shared single-pass core)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_ini_tokenize tracks the owning section per entry and dedups headers" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[gpu]
-mode = auto
-
-[gui]
-mode = off
-
-[gpu]
-count = all
-EOF
-  local -a _s=() _es=() _k=() _v=()
-  _ini_tokenize "${_conf}" _s _es _k _v
-  # sections[] dedups by first appearance.
-  assert_equal "${#_s[@]}" "2"
-  assert_equal "${_s[0]}" "gpu"
-  assert_equal "${_s[1]}" "gui"
-  # entries keep their owning section even across a reopened header.
-  assert_equal "${#_k[@]}" "3"
-  assert_equal "${_es[0]}" "gpu"
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_es[1]}" "gui"
-  assert_equal "${_es[2]}" "gpu"
-  assert_equal "${_k[2]}" "count"
-}
-
-@test "_ini_tokenize keeps dotted keys verbatim (per-stage override keys)" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
-  cat > "${_conf}" <<'EOF'
-[stage:headless]
-gui.mode = off
-deploy.gpu_mode = force
-EOF
-  local -a _s=() _es=() _k=() _v=()
-  _ini_tokenize "${_conf}" _s _es _k _v
-  assert_equal "${_es[0]}" "stage:headless"
-  assert_equal "${_k[0]}" "gui.mode"
-  assert_equal "${_v[0]}" "off"
-  assert_equal "${_k[1]}" "deploy.gpu_mode"
-  assert_equal "${_v[1]}" "force"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _load_setup_conf (per-repo replace / template fallback)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_load_setup_conf honors SETUP_CONF env var override" {
-  local _override="${TEMP_DIR}/override.conf"
-  cat > "${_override}" <<'EOF'
-[gpu]
-mode = off
-count = 0
-EOF
-  local -a _k=() _v=()
-  SETUP_CONF="${_override}" _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  assert_equal "${#_k[@]}" "2"
-  assert_equal "${_v[0]}" "off"
-}
-
-@test "_load_setup_conf uses per-repo setup.conf when section present" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[gpu]
-mode = force
-EOF
-  unset SETUP_CONF
-  local -a _k=() _v=()
-  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  assert_equal "${_v[0]}" "force"
-}
-
-@test "_load_setup_conf falls back to template when section absent per-repo" {
-  # Per-repo setup.conf has [gpu] but NOT [gui]
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[gpu]
-mode = force
-EOF
-  unset SETUP_CONF
-  local -a _k=() _v=()
-  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
-  # Template default has [gui] mode = auto
-  assert_equal "${_v[0]}" "auto"
-}
-
-@test "_load_setup_conf replace strategy: per-repo section fully replaces template section" {
-  # Template [gpu] has mode+count+capabilities; per-repo only sets mode=off
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[gpu]
-mode = off
-EOF
-  unset SETUP_CONF
-  local -a _k=() _v=()
-  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  # Replace strategy: only "mode" — no count, no capabilities inherited
-  assert_equal "${#_k[@]}" "1"
-  assert_equal "${_k[0]}" "mode"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _get_conf_value / _get_conf_list_sorted
-# ════════════════════════════════════════════════════════════════════
-
-@test "_get_conf_value returns value for present key" {
-  local -a _k=("mode" "count") _v=("auto" "all")
-  local _out
-  _get_conf_value _k _v "mode" "DEFAULT" _out
-  assert_equal "${_out}" "auto"
-}
-
-@test "_get_conf_value returns default for absent key" {
-  local -a _k=("mode") _v=("auto")
-  local _out
-  _get_conf_value _k _v "missing" "DEFAULT" _out
-  assert_equal "${_out}" "DEFAULT"
-}
-
-@test "_get_conf_list_sorted returns values sorted by numeric suffix" {
-  local -a _k=("mount_3" "mount_1" "mount_10" "mount_2")
-  local -a _v=("/three:/three" "/one:/one" "/ten:/ten" "/two:/two")
-  local -a _out=()
-  _get_conf_list_sorted _k _v "mount_" _out
-  assert_equal "${#_out[@]}" "4"
-  assert_equal "${_out[0]}" "/one:/one"
-  assert_equal "${_out[1]}" "/two:/two"
-  assert_equal "${_out[2]}" "/three:/three"
-  assert_equal "${_out[3]}" "/ten:/ten"
-}
-
-@test "_get_conf_list_sorted skips non-matching keys" {
-  local -a _k=("mount_1" "mode" "mount_2")
-  local -a _v=("/a:/a" "auto" "/b:/b")
-  local -a _out=()
-  _get_conf_list_sorted _k _v "mount_" _out
-  assert_equal "${#_out[@]}" "2"
-  assert_equal "${_out[0]}" "/a:/a"
-  assert_equal "${_out[1]}" "/b:/b"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _resolve_gpu / _resolve_gui
-# ════════════════════════════════════════════════════════════════════
-
-@test "_resolve_gpu auto + detected=true => enabled" {
-  local _out
-  _resolve_gpu "auto" "true" _out
-  assert_equal "${_out}" "true"
-}
-
-@test "_resolve_gpu auto + detected=false => disabled" {
-  local _out
-  _resolve_gpu "auto" "false" _out
-  assert_equal "${_out}" "false"
-}
-
-@test "_resolve_gpu force => enabled regardless of detection" {
-  local _out
-  _resolve_gpu "force" "false" _out
-  assert_equal "${_out}" "true"
-}
-
-@test "_resolve_gpu off => disabled regardless of detection" {
-  local _out
-  _resolve_gpu "off" "true" _out
-  assert_equal "${_out}" "false"
-}
-
-@test "_resolve_gui auto + detected=true => enabled" {
-  local _out
-  _resolve_gui "auto" "true" _out
-  assert_equal "${_out}" "true"
-}
-
-@test "_resolve_gui force => enabled regardless" {
-  local _out
-  _resolve_gui "force" "false" _out
-  assert_equal "${_out}" "true"
-}
-
-@test "_resolve_gui off => disabled regardless" {
-  local _out
-  _resolve_gui "off" "true" _out
-  assert_equal "${_out}" "false"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _resolve_runtime / _detect_jetson (Jetson NVIDIA runtime)
-#
-# SETUP_DETECT_JETSON is a documented, supported operator override of the
-# /etc/nv_tegra_release host probe (README "Host-detection overrides" +
-# setup.sh --help). These tests assert the operator-override contract:
-# the env var forces the detection result and skips the host probe.
-# ════════════════════════════════════════════════════════════════════
-
-@test "SETUP_DETECT_JETSON=true operator override forces Jetson detection" {
-  # The probe file does not exist in the test env, so a true result here
-  # proves the override short-circuits the /etc/nv_tegra_release probe.
-  SETUP_DETECT_JETSON=true _detect_jetson
-}
-
-@test "SETUP_DETECT_JETSON=false operator override forces non-Jetson detection" {
-  ! SETUP_DETECT_JETSON=false _detect_jetson
-}
-
-@test "_resolve_runtime auto on Jetson => nvidia" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_runtime "auto" _out
-  assert_equal "${_out}" "nvidia"
-}
-
-@test "_resolve_runtime auto off Jetson => empty" {
-  local _out
-  SETUP_DETECT_JETSON=false _resolve_runtime "auto" _out
-  assert_equal "${_out}" ""
-}
-
-@test "_resolve_runtime nvidia => always nvidia" {
-  local _out
-  SETUP_DETECT_JETSON=false _resolve_runtime "nvidia" _out
-  assert_equal "${_out}" "nvidia"
-}
-
-@test "_resolve_runtime off => empty" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_runtime "off" _out
-  assert_equal "${_out}" ""
-}
-
-@test "_resolve_runtime empty => empty" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_runtime "" _out
-  assert_equal "${_out}" ""
-}
-
-@test "_resolve_runtime unknown mode falls through to empty (safe default)" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_runtime "garbage" _out
-  assert_equal "${_out}" ""
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _resolve_build_network (Jetson build-net auto-detect,)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_resolve_build_network auto on Jetson => host" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_build_network "auto" _out
-  assert_equal "${_out}" "host"
-}
-
-@test "_resolve_build_network auto off Jetson => empty" {
-  local _out
-  SETUP_DETECT_JETSON=false _resolve_build_network "auto" _out
-  assert_equal "${_out}" ""
-}
-
-@test "_resolve_build_network host => always host (explicit override wins)" {
-  local _out
-  SETUP_DETECT_JETSON=false _resolve_build_network "host" _out
-  assert_equal "${_out}" "host"
-}
-
-@test "_resolve_build_network bridge / none / default pass through" {
-  local _out
-  _resolve_build_network "bridge" _out
-  assert_equal "${_out}" "bridge"
-  _resolve_build_network "none" _out
-  assert_equal "${_out}" "none"
-  _resolve_build_network "default" _out
-  assert_equal "${_out}" "default"
-}
-
-@test "_resolve_build_network off / empty => empty (explicitly suppressed)" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_build_network "off" _out
-  assert_equal "${_out}" ""
-  SETUP_DETECT_JETSON=true _resolve_build_network "" _out
-  assert_equal "${_out}" ""
-}
-
-@test "_resolve_build_network unknown mode falls through to empty" {
-  local _out
-  SETUP_DETECT_JETSON=true _resolve_build_network "garbage" _out
-  assert_equal "${_out}" ""
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_image_name (now reads [image] rules from setup.conf)
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_image_name uses template default rules (prefix:docker_ → strip)" {
-  local _result
-  unset SETUP_CONF
-  detect_image_name _result "/home/user/docker_myapp"
-  assert_equal "${_result}" "myapp"
-}
-
-@test "detect_image_name uses template default rules (suffix:_ws → strip)" {
-  local _result
-  unset SETUP_CONF
-  detect_image_name _result "/home/user/projects/myapp_ws"
-  assert_equal "${_result}" "myapp"
-}
-
-@test "detect_image_name template default falls through to @basename for generic paths" {
-  local _result
-  unset SETUP_CONF
-  detect_image_name _result "/home/user/plainproject"
-  assert_equal "${_result}" "plainproject"
-}
-
-@test "detect_image_name honors per-repo setup.conf [image] rules" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[image]
-rule_1 = prefix:foo_
-rule_2 = @basename
-EOF
-  unset SETUP_CONF
-  local _result
-  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/foo_bar"
-  assert_equal "${_result}" "bar"
-}
-
-@test "detect_image_name rules apply in order (first match wins)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[image]
-rule_1 = prefix:docker_
-rule_2 = suffix:_ws
-rule_3 = @default:unused
-EOF
-  unset SETUP_CONF
-  local _result
-  # path has docker_ prefix AND _ws somewhere — prefix wins
-  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/myapp_ws/src/docker_nav"
-  assert_equal "${_result}" "nav"
-}
-
-@test "detect_image_name @default:<value> used when no rule matches" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[image]
-rule_1 = prefix:nonexistent_
-rule_2 = @default:myfallback
-EOF
-  unset SETUP_CONF
-  local _result
-  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plain"
-  assert_equal "${_result}" "myfallback"
-}
-
-@test "detect_image_name lowercases the result" {
-  local _result
-  unset SETUP_CONF
-  detect_image_name _result "/home/user/docker_MyApp"
-  assert_equal "${_result}" "myapp"
-}
-
-@test "detect_image_name returns unknown when no rule matches and no @default" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[image]
-rule_1 = prefix:nonexistent_
-EOF
-  unset SETUP_CONF
-  local _result
-  BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plain"
-  assert_equal "${_result}" "unknown"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# detect_ws_path
-# ════════════════════════════════════════════════════════════════════
-
-@test "detect_ws_path strategy 1: docker_* finds sibling *_ws" {
-  local _ws_parent="${TEMP_DIR}/projects"
-  mkdir -p "${_ws_parent}/docker_myapp" "${_ws_parent}/myapp_ws"
-  local _result
-  detect_ws_path _result "${_ws_parent}/docker_myapp"
-  assert_equal "${_result}" "${_ws_parent}/myapp_ws"
-}
-
-@test "detect_ws_path strategy 1: docker_* without sibling falls through" {
-  local _parent="${TEMP_DIR}/projects"
-  mkdir -p "${_parent}/docker_myapp"
-  local _result
-  detect_ws_path _result "${_parent}/docker_myapp"
-  # No sibling *_ws -> strategy-3 fallback, which now returns base_path
-  # itself (base-based repos keep scaffolding at the repo root).
-  assert_equal "${_result}" "${_parent}/docker_myapp"
-}
-
-@test "detect_ws_path strategy 2: finds _ws component in path" {
-  local _ws="${TEMP_DIR}/myapp_ws"
-  mkdir -p "${_ws}/src"
-  local _result
-  detect_ws_path _result "${_ws}/src"
-  assert_equal "${_result}" "${_ws}"
-}
-
-@test "detect_ws_path strategy 3: falls back to base_path itself" {
-  local _plain="${TEMP_DIR}/plain/project"
-  mkdir -p "${_plain}"
-  local _result
-  detect_ws_path _result "${_plain}"
-  # base-based repos keep the docker scaffolding at the repo root, so the
-  # final fallback resolves to base_path itself, not its parent.
-  assert_equal "${_result}" "${_plain}"
-}
-
-@test "detect_ws_path fails with ERROR when base_path does not exist" {
-  run -1 detect_ws_path _r "${TEMP_DIR}/nope"
-  assert_output --partial "base_path does not exist"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _compute_conf_hash
-# ════════════════════════════════════════════════════════════════════
-
-@test "_compute_conf_hash returns a sha256-shaped hex string" {
-  local _h
-  _compute_conf_hash "${TEMP_DIR}" _h
-  [[ "${_h}" =~ ^[0-9a-f]{64}$ ]]
-}
-
-@test "_compute_conf_hash differs when per-repo setup.conf changes" {
-  local _h1 _h2
-  _compute_conf_hash "${TEMP_DIR}" _h1
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[gpu]
-mode = off
-EOF
-  _compute_conf_hash "${TEMP_DIR}" _h2
-  [[ "${_h1}" != "${_h2}" ]]
-}
-
-# ════════════════════════════════════════════════════════════════════
-# write_env
-# ════════════════════════════════════════════════════════════════════
-
-@test "write_env creates .env with all required variables and SETUP_* metadata" {
-  local _env="${TEMP_DIR}/.env.generated"
-  write_env "${_env}" \
-    "testuser" "testgroup" "1001" "1001" \
-    "x86_64" "dockerhub" "true" \
-    "ros_noetic" "/workspace" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "private" "true" \
-    "all" "gpu" \
-    "true" "abc123" "df456"
-
-  assert [ -f "${_env}" ]
-  run grep 'USER_NAME=testuser' "${_env}"; assert_success
-  run grep 'USER_UID=1001'      "${_env}"; assert_success
-  run grep 'GPU_ENABLED=true'   "${_env}"; assert_success
-  run grep 'IMAGE_NAME=ros_noetic' "${_env}"; assert_success
-  run grep 'NETWORK_MODE=host'  "${_env}"; assert_success
-  run grep 'IPC_MODE=host'      "${_env}"; assert_success
-  run grep 'PID_MODE=private'   "${_env}"; assert_success
-  run grep 'PRIVILEGED=true'    "${_env}"; assert_success
-  run grep 'GPU_COUNT=all'      "${_env}"; assert_success
-  run grep -F 'GPU_CAPABILITIES="gpu"' "${_env}"; assert_success
-  run grep 'SETUP_CONF_HASH=abc123' "${_env}"; assert_success
-  run grep 'SETUP_DOCKERFILE_HASH=df456' "${_env}"; assert_success
-  run grep 'SETUP_GUI_DETECTED=true' "${_env}"; assert_success
-  run grep -E '^SETUP_TIMESTAMP=' "${_env}"; assert_success
-  run grep 'APT_MIRROR_UBUNTU=tw.archive.ubuntu.com' "${_env}"; assert_success
-  run grep 'APT_MIRROR_DEBIAN=mirror.twds.com.tw' "${_env}"; assert_success
-  run grep 'TZ=Asia/Taipei' "${_env}"; assert_success
-  # bash-source round-trip: re-loading the file must not raise a
-  # "command not found" on any multi-word value (regression: previously
-  # GPU_CAPABILITIES="gpu compute utility graphics" was unquoted).
-  run bash -c "set -o allexport; source '${_env}'"
-  assert_success
-  refute_output --partial "command not found"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _check_setup_drift
-# ════════════════════════════════════════════════════════════════════
-
-@test "_check_setup_drift no-op when .env missing" {
-  run _check_setup_drift "${TEMP_DIR}"
-  assert_success
-}
-
-@test "_check_setup_drift silent when nothing changed" {
-  # Prime .env by running a full setup cycle (write_env + _compute_conf_hash)
-  local _h=""
-  _compute_conf_hash "${TEMP_DIR}" _h
-  write_env "${TEMP_DIR}/.env.generated" \
-    "user" "group" "$(id -u)" "$(id -g)" \
-    "x86_64" "hub" "false" \
-    "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "private" "true" "all" "gpu" \
-    "false" "${_h}" ""
-  # stub detect_gui/detect_gpu to match stored false
-  detect_gui() { local -n _o=$1; _o="false"; }
-  detect_gpu() { local -n _o=$1; _o="false"; }
-
-  run _check_setup_drift "${TEMP_DIR}"
-  assert_success
-  refute_output --partial "WARNING"
-}
-
-@test "_check_setup_drift returns non-zero when conf hash changes" {
-  local _h_old=""
-  _compute_conf_hash "${TEMP_DIR}" _h_old
-  write_env "${TEMP_DIR}/.env.generated" \
-    "user" "group" "$(id -u)" "$(id -g)" \
-    "x86_64" "hub" "false" \
-    "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "private" "true" "all" "gpu" \
-    "false" "${_h_old}" ""
-  detect_gui() { local -n _o=$1; _o="false"; }
-  detect_gpu() { local -n _o=$1; _o="false"; }
-
-  # Drop in a new per-repo setup.conf → hash differs
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
-[gpu]
-mode = off
-EOF
-
-  run _check_setup_drift "${TEMP_DIR}"
-  # Non-zero exit lets build.sh/run.sh trigger auto-regen (v0.9.5+).
-  assert_failure
-  assert_output --partial "drift detected"
-  assert_output --partial "setup.conf modified"
-}
-
-@test "_check_setup_drift returns non-zero when GPU detection changes" {
-  local _h=""
-  _compute_conf_hash "${TEMP_DIR}" _h
-  # Store with GPU=false
-  write_env "${TEMP_DIR}/.env.generated" \
-    "user" "group" "$(id -u)" "$(id -g)" \
-    "x86_64" "hub" "false" \
-    "img" "${TEMP_DIR}" \
-    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "private" "true" "all" "gpu" \
-    "false" "${_h}" ""
-  # Now detection says true
-  detect_gui() { local -n _o=$1; _o="false"; }
-  detect_gpu() { local -n _o=$1; _o="true"; }
-
-  run _check_setup_drift "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "GPU detection changed"
-}
-
 # ════════════════════════════════════════════════════════════════════
 # main --lang + error paths (unchanged behaviour)
 # ════════════════════════════════════════════════════════════════════
-
 @test "main rejects bare flag without subcommand (#49 Phase B-4 BREAKING)" {
   # Pre-B-4 the legacy fall-through aliased flag-only invocation to
   # `apply`. B-4 removes that — the user must now type the subcommand
@@ -1789,13 +651,6 @@ EOF
 }
 
 # ── Per-repo setup.conf missing / empty INFO ────────────────
-# When the per-repo setup.conf is absent, or present but has no section
-# headers, every _load_setup_conf call falls back to the template default.
-# That fallback used to be silent — surfacing one WARN line at apply
-# entry tells the user the entire run is template-default driven, without
-# spamming a notice per section (11 sections would be noisy).
-# promoted this from INFO to WARN so the heads-up doesn't scroll past.
-
 @test "apply prints WARN when per-repo setup.conf is missing (#186)" {
   # No TEMP_DIR/config/docker/setup.conf created — apply should fall back to template
   # default and announce it once on stderr at WARN level.
@@ -1878,3 +733,790 @@ EOF
   assert [ -f "${TEMP_DIR}/sandbox_repo/.env.generated" ]
 }
 
+# ════════════════════════════════════════════════════════════════════
+# .env.generated cache + .env workload overlay (A2 file roles,)
+# ════════════════════════════════════════════════════════════════════
+@test "apply writes the derived cache to .env.generated (not .env)" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply scaffolds a .env workload overlay when absent" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  refute [ -f "${TEMP_DIR}/.env" ]
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  # Scaffold carries guidance, not derived values (no SETUP_* metadata).
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "apply does NOT overwrite an existing hand-authored .env overlay" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run cat "${TEMP_DIR}/.env"
+  assert_output "ROS_DOMAIN_ID=42"
+}
+
+@test "apply migrates a legacy .env cache to .env.generated + backs it up" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  # layout: .env IS the cache (carries the auto-gen marker) and
+  # .env.generated does not exist yet.
+  cat > "${TEMP_DIR}/.env" <<'EOF'
+IMAGE_NAME=legacycache
+SETUP_CONF_HASH=deadbeef
+EOF
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  # The stale cache is backed up and a fresh derived cache is written.
+  assert [ -f "${TEMP_DIR}/.env.bak" ]
+  run grep -E '^IMAGE_NAME=legacycache$' "${TEMP_DIR}/.env.bak"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  # .env is no longer the cache: it is the scaffolded overlay (no marker).
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "apply emits env_file: - .env on the devel service (#502 overlay)" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  assert_output --partial "- .env"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# config/app/ structured app-config dev bind-mount (S4,)
+# ════════════════════════════════════════════════════════════════════
+@test "apply dev-binds config/app/ into the devel service when present (#504)" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/config/app"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F './config/app:/opt/app/config' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "apply omits the config/app bind when the directory is absent (#504)" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/opt/app/config' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
+  rm -f "${TEMP_DIR}/config/docker/setup.conf" "${TEMP_DIR}/config/docker/setup.conf"
+  run main reset --yes --base-path "${TEMP_DIR}"
+  assert_success
+  # First-time bootstrap is a no-op: no override existed, no snapshot
+  # existed, so nothing to clear and no .bak files written.
+  refute [ -f "${TEMP_DIR}/config/docker/setup.conf.bak" ]
+  refute [ -f "${TEMP_DIR}/config/docker/setup.conf.bak" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# i18n
+# ════════════════════════════════════════════════════════════════════
+@test "_setup_msg returns English messages by default" {
+  _LANG="en"
+  [[ "$(_setup_msg env "done")" =~ updated ]]
+}
+
+@test "_setup_msg returns Traditional Chinese messages when _LANG=zh-TW" {
+  _LANG="zh-TW"
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
+}
+
+@test "_setup_msg returns Simplified Chinese messages when _LANG=zh-CN" {
+  _LANG="zh-CN"
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
+}
+
+@test "_setup_msg returns Japanese messages when _LANG=ja" {
+  _LANG="ja"
+  [[ "$(_setup_msg env "done")" =~ 更新完了 ]]
+}
+
+@test "_setup_msg env_comment and unknown_arg are defined in zh" {
+  _LANG="zh-TW"
+  [[ "$(_setup_msg env comment)" =~ 自動偵測 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知參數 ]]
+}
+
+@test "_setup_msg env_comment and unknown_arg are defined in zh-CN" {
+  _LANG="zh-CN"
+  [[ "$(_setup_msg env comment)" =~ 自动检测 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知参数 ]]
+}
+
+@test "_setup_msg env_comment and unknown_arg are defined in ja" {
+  _LANG="ja"
+  [[ "$(_setup_msg env comment)" =~ 自動検出 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 不明な引数 ]]
+}
+
+@test "_msg falls back to English when _LANG is unknown" {
+  _LANG="xx"
+  [[ "$(_setup_msg env "done")" =~ updated ]]
+  [[ "$(_setup_msg env comment)" =~ Auto-detected ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ "Unknown argument" ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# [build] section (arg_N KEY=VALUE schema)
+# ════════════════════════════════════════════════════════════════════
+@test "[build] template defaults ship TW mirrors via arg_N" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com"
+  assert_output --partial "APT_MIRROR_DEBIAN=mirror.twds.com.tw"
+}
+
+@test "[build] arg_N override replaces TW default when set" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_1 \
+    "APT_MIRROR_UBUNTU=archive.ubuntu.com"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_2 \
+    "APT_MIRROR_DEBIAN=deb.debian.org"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^APT_MIRROR_DEBIAN=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "APT_MIRROR_UBUNTU=archive.ubuntu.com"
+  assert_output --partial "APT_MIRROR_DEBIAN=deb.debian.org"
+}
+
+@test "[build] back-compat: old apt_mirror_* named keys still read" {
+  # Legacy repo setup.conf with the pre-arg_N schema must keep working
+  # so users can upgrade template without rewriting setup.conf first.
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[build]
+apt_mirror_ubuntu = mirror.example.com
+tz = Asia/Tokyo
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+    grep '^APT_MIRROR_UBUNTU=' '${TEMP_DIR}/.env.generated'
+    grep '^TZ=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "APT_MIRROR_UBUNTU=mirror.example.com"
+  assert_output --partial "TZ=Asia/Tokyo"
+}
+
+@test "[build] user-added arg_N propagates to .env" {
+  # Dockerfile with `ARG PYTHON_VERSION` can pick up a user-added
+  # build arg. Extra args land in .env so compose build.args can
+  # reference them.
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_9 \
+    "PYTHON_VERSION=3.12"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+    grep '^PYTHON_VERSION=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "PYTHON_VERSION=3.12"
+}
+
+@test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch arm64
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^TARGET_ARCH=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "TARGET_ARCH=arm64"
+}
+
+@test "[build] target_arch empty omits TARGET_ARCH from .env" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  # Explicit empty value (the template's default)
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch ""
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^TARGET_ARCH=' '${TEMP_DIR}/.env.generated'
+  "
+  # grep -c prints "0" and exits 1 when pattern missing; we want exactly that.
+  assert_failure
+  assert_output "0"
+}
+
+@test "[build] network = host writes BUILD_NETWORK to .env" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network host
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^BUILD_NETWORK=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "BUILD_NETWORK=host"
+}
+
+@test "[build] network empty omits BUILD_NETWORK from .env" {
+  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network ""
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c '^BUILD_NETWORK=' '${TEMP_DIR}/.env.generated'
+  "
+  assert_failure
+  assert_output "0"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Workspace writeback (first-time / user edit / opt-out)
+# ════════════════════════════════════════════════════════════════════
+@test "workspace first-time: writes \${WS_PATH} variable form (portable)" {
+  # Regression (v0.9.4): writeback used to bake the absolute host path
+  # into setup.conf. Committing that file broke other machines whose
+  # filesystem layout differed. Now we write the \${WS_PATH} variable
+  # form so docker-compose resolves it per-machine from .env.
+  local _repo="${TEMP_DIR}/repo"
+  mkdir -p "${_repo}"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' 2>&1
+  "
+  assert_success
+  assert [ -f "${_repo}/config/docker/setup.conf" ]
+  run grep '^mount_1' "${_repo}/config/docker/setup.conf"
+  assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
+}
+
+@test "workspace second-run: \${WS_PATH} form re-detects per machine" {
+  # Round-trip: first-time writes \${WS_PATH} form → second run reads
+  # setup.conf, sees the variable reference, and re-runs detect_ws_path
+  # so WS_PATH in .env reflects THIS machine (not the one that first
+  # committed the file).
+  local _repo="${TEMP_DIR}/repo"
+  mkdir -p "${_repo}"
+  bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
+    >/dev/null 2>&1
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' 2>&1
+    grep '^WS_PATH=' '${_repo}/.env.generated'
+    grep '^mount_1' '${_repo}/config/docker/setup.conf'
+  "
+  assert_success
+  # WS_PATH is a non-empty absolute path — exact value depends on the
+  # sandbox, but it must not be the literal variable string.
+  refute_output --partial 'WS_PATH=${WS_PATH}'
+  assert_output --regexp 'WS_PATH=/[^[:space:]]+'
+  # mount_1 stays as the portable variable form.
+  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+}
+
+@test "workspace second-run: respects user-pinned absolute path via setup.conf (#174)" {
+  local _repo="${TEMP_DIR}/repo"
+  local _pin="${TEMP_DIR}/custom_ws"
+  mkdir -p "${_repo}" "${_pin}"
+  bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
+    >/dev/null 2>&1
+  # user pins go into the override file (.local), not the
+  # materialized snapshot.
+  cat > "${_repo}/config/docker/setup.conf" <<EOF
+[volumes]
+mount_1 = ${_pin}:/home/\${USER_NAME}/work
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' 2>&1
+    grep '^WS_PATH=' '${_repo}/.env.generated'
+    grep '^mount_1' '${_repo}/config/docker/setup.conf'
+  "
+  assert_success
+  # Effective WS_PATH on this machine is the user-pinned absolute path.
+  assert_output --partial "WS_PATH=${_pin}"
+  # The override file (.local) keeps the pinned form verbatim — apply
+  # doesn't rewrite user intent.
+  assert_output --partial "mount_1 = ${_pin}:"
+}
+
+@test "workspace second-run: stale setup.conf path is harmlessly overwritten (#174)" {
+  # setup.conf was tracked → cross-machine clones inherited
+  # alice's absolute path on bob's checkout, forcing setup.sh to
+  # detect-and-rewrite. setup.conf is gitignored + a derived
+  # snapshot, so the only way a "stale" path lands is a manual edit
+  # between applies. Apply now silently regenerates setup.conf from
+  # template + .local (which contain the portable form) — no warning
+  # needed, the stale value is gone after one apply.
+  local _repo="${TEMP_DIR}/repo"
+  mkdir -p "${_repo}"
+  bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
+    >/dev/null 2>&1
+  sed -i 's|^mount_1.*|mount_1 = /nonexistent/stale/ws:/home/${USER_NAME}/work|' \
+    "${_repo}/config/docker/setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' 2>&1
+    grep '^WS_PATH=' '${_repo}/.env.generated'
+  "
+  assert_success
+  # Stale path does not leak into .env (apply regenerates from .local +
+  # template + fresh ws_path detection, ignoring the manually-mutated
+  # setup.conf entry for [volumes]).
+  refute_output --partial "WS_PATH=/nonexistent/stale/ws"
+}
+
+@test "fresh bootstrap: empty dir + main apply emits workspace mount in compose.yaml (#201 regression)" {
+  # bug: bootstrap wrote mount_1 to <repo>/config/docker/setup.conf, then
+  # immediately reloaded via _load_setup_conf which only consulted
+  # setup.conf.local (empty) + template (empty mount_1). The just-written
+  # value was lost and compose.yaml omitted the workspace mount.
+  # (2-file model): bootstrap writes to <repo>/config/docker/setup.conf and
+  # _load_setup_conf reads from the same file, so the reload picks up
+  # the freshly-written mount_1.
+  local _repo="${TEMP_DIR}/fresh"
+  mkdir -p "${_repo}"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' 2>&1
+  "
+  assert_success
+  # compose.yaml contains the workspace mount line (portable form)
+  run grep -F -- '${WS_PATH}:/home/${USER_NAME}/work' "${_repo}/compose.yaml"
+  assert_success
+}
+
+@test "workspace opt-out: cleared mount_1 means no workspace mount in compose" {
+  local _repo="${TEMP_DIR}/repo"
+  mkdir -p "${_repo}"
+  bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
+    >/dev/null 2>&1
+  # User clears mount_1 (opt-out)
+  sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/config/docker/setup.conf"
+  bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
+    >/dev/null 2>&1
+  # mount_1 stays empty (not re-populated)
+  run grep '^mount_1' "${_repo}/config/docker/setup.conf"
+  assert_equal "${output}" "mount_1 ="
+  # compose.yaml has no workspace mount
+  run grep ':/home/${USER_NAME}/work' "${_repo}/compose.yaml"
+  assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# — --quiet flag + success confirmation output
+# ════════════════════════════════════════════════════════════════════
+@test "setup.sh set: prints 3-line confirmation by default" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main set --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output --partial "[setup] set [build] arg_4 = ROS2_DISTRO=jazzy"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+}
+
+@test "setup.sh set --quiet: produces empty stdout" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh set -q: short form also suppresses output" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main set -q --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh set --quiet: still writes the value (mutation not skipped)" {
+  bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  run cat "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  assert_output --partial "arg_4 = ROS2_DISTRO=jazzy"
+}
+
+@test "setup.sh add: prints 3-line confirmation by default" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main add --base-path '${TEMP_DIR}' build.arg HARDWARE=arm64
+  "
+  assert_success
+  assert_output --partial "[setup] add [build] arg_"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+}
+
+@test "setup.sh add --quiet: produces empty stdout" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main add --quiet --base-path '${TEMP_DIR}' build.arg HARDWARE=arm64
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh remove: prints 3-line confirmation by default" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+[build]
+arg_1 = HARDWARE=arm64
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main remove --base-path '${TEMP_DIR}' build.arg_1
+  "
+  assert_success
+  assert_output --partial "[setup] remove [build] arg_1"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+}
+
+@test "setup.sh remove --quiet: produces empty stdout" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+[build]
+arg_1 = HARDWARE=arm64
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main remove --quiet --base-path '${TEMP_DIR}' build.arg_1
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh reset --yes: prints next: hint and file: by default" {
+  : > "${TEMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main reset --yes --base-path '${TEMP_DIR}'
+  "
+  assert_success
+  assert_output --partial "[setup]"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+}
+
+@test "setup.sh reset --yes --quiet: produces empty stdout" {
+  : > "${TEMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main reset --yes --quiet --base-path '${TEMP_DIR}'
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh apply --quiet: suppresses the env_done + USER=... summary" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --quiet --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "[setup] USER="
+}
+
+# ════════════════════════════════════════════════════════════════════
+# setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
+# ════════════════════════════════════════════════════════════════════
+@test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  # Baseline: mode=force resolves GUI_ENABLED=true regardless of host
+  # GUI detection.
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+  # CLI override flips GUI to off, ignoring setup.conf.
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui off --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui=force enables GUI even when setup.conf says off (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui=force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --gui rejects values outside auto|force|off (#338)" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui bogus 2>&1
+  "
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "apply --print-resolved prints KEY=VALUE state without writing .env (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+[deploy]
+gpu_mode = off
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  # Expected resolved lines
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+  assert_output --partial "GPU_MODE=off"
+  assert_output --partial "GPU_ENABLED=false"
+  # And NO file was written.
+  [[ ! -f "${TEMP_DIR}/.env.generated" ]]
+  [[ ! -f "${TEMP_DIR}/compose.yaml" ]]
+}
+
+@test "apply --print-resolved respects --gui override in the dump (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    SETUP_DETECT_JETSON=false main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --no-x11-cookie --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=1"
+}
+
+@test "apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=0"
+}
+
+@test "apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  # CLI --gui force wins
+  assert_output --partial "GUI_MODE=force"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# P2: propagation + non-privileged guard
+# ════════════════════════════════════════════════════════════════════
+@test "apply warns when device propagation used without privileged (#450 P2)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[security]
+privileged = false
+[devices]
+device_1 = /dev:/dev:rslave
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  assert_output --partial "propagation"
+  assert_output --partial "privileged"
+}
+
+@test "apply suppresses propagation warning when privileged is true (#450 P2)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[security]
+privileged = true
+[devices]
+device_1 = /dev:/dev:rslave
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  refute_output --partial "propagation"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# P4: duplicate device/volume target path detection
+# ════════════════════════════════════════════════════════════════════
+@test "apply warns when device and volume have same target path (#450 P4)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[devices]
+device_1 = /dev:/dev:rslave
+[volumes]
+mount_5 = /dev:/dev
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  assert_output --partial "duplicate"
+}
+
+@test "apply does NOT warn duplicate when device and volume targets differ (#450 P4)" {
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[devices]
+device_1 = /dev:/dev:rslave
+[volumes]
+mount_5 = /data:/data
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>&1
+  "
+  assert_success
+  refute_output --partial "duplicate"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# S7: runtime.env retired. apply no longer emits it; [environment]
+# still reaches compose.yaml (and is baked as ENV for the field via S3).
+# ════════════════════════════════════════════════════════════════════
+@test "apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+[environment]
+env_1 = FOO=bar
+env_2 = BAR=${FOO}_x
+EOC
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # runtime.env is retired -- it must NOT be created.
+  assert [ ! -f "${TEMP_DIR}/runtime.env" ]
+  # The resolved (cross-ref expanded) values still reach compose.yaml.
+  run grep -F 'BAR=bar_x' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "_write_runtime_env is removed (#507)" {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    declare -F _write_runtime_env
+  "
+  assert_failure
+}
