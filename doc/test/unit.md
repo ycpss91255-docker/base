@@ -177,7 +177,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh-derived unit specs (397, mirroring source libs)
+### setup.sh-derived unit specs (386, mirroring source libs)
 
 The setup.sh decomposition (ADR-00000014) split one god-source into
 subsystem libs; these specs mirror those libs per ADR-00000015 (test
@@ -191,18 +191,21 @@ specs; P1b (closes #758) split the remaining `setup_spec.bats` /
 `drift` / `setup_detect` / `setup_conf` / `env_emit`), slimming
 `setup_spec.bats` to the orchestrator (`main` dispatch, `usage`,
 `_setup_msg`, the `apply` pipeline integration tests) and retiring
-`setup_emit_spec.bats`.
+`setup_emit_spec.bats`. P1b also returned the remaining isolated unit
+tests to their owning lib's spec: the `_parse_ini_section` /
+`_ini_tokenize` INI-parser tests to `conf_accessor_spec.bats`
+(`lib/conf.sh`), `_setup_known_section` to `setup_cmd_spec.bats`
+(`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
+`setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (128)
+#### test/bats/unit/setup_spec.bats (109)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
-`--lang` / error paths), `usage`, `_setup_msg` / `_msg` i18n, the INI
-parser (`_parse_ini_section` + shared core `_ini_tokenize`),
-`_setup_known_section` / `SCHEMA_SECTIONS` (#561), the SSH X11 cookie
-rewrite (`_setup_ssh_x11_cookie`, #321), and the `apply` pipeline
-integration tests that drive detect → resolve → write_env → compose
-emit end-to-end: template-shipped defaults and emitted blocks for
+`--lang` / error paths), `usage`, `_setup_msg` / `_msg` i18n, and the
+`apply` pipeline integration tests that drive detect → resolve →
+write_env → compose emit end-to-end: template-shipped defaults and
+emitted blocks for
 `[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
 `gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
 `arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
@@ -227,12 +230,13 @@ Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero
 paths when the conf hash or GPU detection changes against a cached
 `.env`.
 
-#### test/bats/unit/setup_detect_spec.bats (45)
+#### test/bats/unit/setup_detect_spec.bats (49)
 
 Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 `detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
 `detect_gpu` / `detect_gpu_count` (incl. the nameref regression),
-`detect_gui`, `_is_ssh_x11` (#321), the `detect_image_name` rule engine
+`detect_gui`, `_is_ssh_x11` (#321), the SSH X11 cookie rewrite
+(`_setup_ssh_x11_cookie`, #321/#688), the `detect_image_name` rule engine
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
@@ -248,7 +252,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (103)
+#### test/bats/unit/setup_cmd_spec.bats (107)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -261,7 +265,8 @@ setup.conf parameter end-to-end coverage (#202, merged from the former
 `compose.yaml` / `.env`, across `[deploy]`, `[gui]`, `[network]`,
 `[resources]`, `[environment]`, `[tmpfs]`, `[devices]`, `[volumes]
 mount_2..N`, and `[security]` privileged, with companion negatives for
-cleared keys.
+cleared keys, plus the isolated `_setup_known_section` /
+`SCHEMA_SECTIONS` (#561) unit checks.
 
 #### test/bats/unit/stage_spec.bats (76)
 
@@ -1900,7 +1905,7 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
-### test/bats/unit/conf_accessor_spec.bats (16)
+### test/bats/unit/conf_accessor_spec.bats (27)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563): `_conf_load`
 loads a file into a named handle, `_conf_get` reads a value by (section, key)
@@ -1909,6 +1914,11 @@ lists a section's keys, `_conf_load_merged` loads a template+repo section-replac
 merge into a handle, and `_conf_list_sorted` returns `prefix_N` values in numeric
 order (skipping empties) -- all without callers touching the internal
 parallel-array representation or the `<section>.<key>` namespacing rule.
+Also the low-level INI reader the accessor is built on:
+`_parse_ini_section` (per-section key/value extraction, section isolation,
+comment/whitespace handling, dotted sub-sections, duplicate/reopened
+sections) and the shared single-pass core `_ini_tokenize` (relocated here
+from `setup_spec` in P1b, #758 -- they test `lib/conf.sh`).
 
 Dirty-input + error-path coverage (#689) pins the parser/accessor
 contracts on hand-edited / malformed setup.conf:

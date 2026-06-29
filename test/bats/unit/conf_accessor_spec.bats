@@ -20,10 +20,16 @@ gpu_count = 2
 [network]
 net = host
 EOF
+  # The _parse_ini_section / _ini_tokenize specs write fixtures under
+  # ${TEMP_DIR}/config/docker/; mirror the path setup the shared
+  # setup_spec_helper provides so those tests resolve their conf files.
+  TEMP_DIR="$(mktemp -d)"
+  mkdir -p "${TEMP_DIR}/config/docker"
 }
 
 teardown() {
   rm -f "${FIX}"
+  rm -rf "${TEMP_DIR}"
 }
 
 @test "_conf_get returns a value by section and key" {
@@ -399,4 +405,197 @@ EOF
   run bash -c "ls '${_dst}'.* 2>/dev/null | wc -l"
   assert_output "0"
   rm -f "${_tpl}" "${_dst}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _parse_ini_section
+# ════════════════════════════════════════════════════════════════════
+@test "_parse_ini_section reads keys and values for one section" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[gpu]
+mode = auto
+count = all
+capabilities = gpu
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "gpu" _k _v
+  assert_equal "${#_k[@]}" "3"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_v[0]}" "auto"
+  assert_equal "${_k[1]}" "count"
+  assert_equal "${_v[1]}" "all"
+}
+
+@test "_parse_ini_section isolates sections (entries from other sections ignored)" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[gpu]
+mode = auto
+
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "gui" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_v[0]}" "off"
+}
+
+@test "_parse_ini_section skips comment and empty lines" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+# top comment
+[network]
+# inside comment
+mode = host
+
+ipc = host
+
+# trailing
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "network" _k _v
+  assert_equal "${#_k[@]}" "2"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_k[1]}" "ipc"
+}
+
+@test "_parse_ini_section trims whitespace around key and value" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  printf '[gpu]\n  mode  =  force  \n' > "${_conf}"
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "gpu" _k _v
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_parse_ini_section returns empty arrays for missing file" {
+  local -a _k=() _v=()
+  _parse_ini_section "${TEMP_DIR}/missing.conf" "gpu" _k _v
+  assert_equal "${#_k[@]}" "0"
+  assert_equal "${#_v[@]}" "0"
+}
+
+@test "_parse_ini_section returns empty arrays for absent section" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[gpu]
+mode = auto
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "gui" _k _v
+  assert_equal "${#_k[@]}" "0"
+}
+
+# A section like [logging] must NOT absorb entries from a distinct
+# dotted sub-section [logging.web]. Section matching is exact, not
+# prefix-based. conf_logging.sh relies on this: it reads the global
+# [logging] block and per-service [logging.<svc>] blocks separately.
+@test "_parse_ini_section does not absorb dotted sub-sections" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "logging" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_k[0]}" "driver"
+  assert_equal "${_v[0]}" "json-file"
+}
+
+@test "_parse_ini_section reads a dotted section name" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+max_size = 5m
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "logging.web" _k _v
+  assert_equal "${#_k[@]}" "2"
+  assert_equal "${_k[0]}" "driver"
+  assert_equal "${_v[0]}" "local"
+  assert_equal "${_k[1]}" "max_size"
+  assert_equal "${_v[1]}" "5m"
+}
+
+# Duplicate keys and a reopened section are preserved in file order
+# (the original single-pass reader appended every matching line).
+@test "_parse_ini_section preserves duplicate keys and reopened sections in order" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[volumes]
+mount_1 = a:a
+
+[other]
+x = y
+
+[volumes]
+mount_1 = b:b
+mount_2 = c:c
+EOF
+  local -a _k=() _v=()
+  _parse_ini_section "${_conf}" "volumes" _k _v
+  assert_equal "${#_k[@]}" "3"
+  assert_equal "${_k[0]}" "mount_1"
+  assert_equal "${_v[0]}" "a:a"
+  assert_equal "${_k[1]}" "mount_1"
+  assert_equal "${_v[1]}" "b:b"
+  assert_equal "${_k[2]}" "mount_2"
+  assert_equal "${_v[2]}" "c:c"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _ini_tokenize (shared single-pass core)
+# ════════════════════════════════════════════════════════════════════
+@test "_ini_tokenize tracks the owning section per entry and dedups headers" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[gpu]
+mode = auto
+
+[gui]
+mode = off
+
+[gpu]
+count = all
+EOF
+  local -a _s=() _es=() _k=() _v=()
+  _ini_tokenize "${_conf}" _s _es _k _v
+  # sections[] dedups by first appearance.
+  assert_equal "${#_s[@]}" "2"
+  assert_equal "${_s[0]}" "gpu"
+  assert_equal "${_s[1]}" "gui"
+  # entries keep their owning section even across a reopened header.
+  assert_equal "${#_k[@]}" "3"
+  assert_equal "${_es[0]}" "gpu"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_es[1]}" "gui"
+  assert_equal "${_es[2]}" "gpu"
+  assert_equal "${_k[2]}" "count"
+}
+
+@test "_ini_tokenize keeps dotted keys verbatim (per-stage override keys)" {
+  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${_conf}" <<'EOF'
+[stage:headless]
+gui.mode = off
+deploy.gpu_mode = force
+EOF
+  local -a _s=() _es=() _k=() _v=()
+  _ini_tokenize "${_conf}" _s _es _k _v
+  assert_equal "${_es[0]}" "stage:headless"
+  assert_equal "${_k[0]}" "gui.mode"
+  assert_equal "${_v[0]}" "off"
+  assert_equal "${_k[1]}" "deploy.gpu_mode"
+  assert_equal "${_v[1]}" "force"
 }

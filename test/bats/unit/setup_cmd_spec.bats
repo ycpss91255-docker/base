@@ -1430,3 +1430,32 @@ EOF
   assert_output "0"
 }
 
+
+# ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
+@test "_setup_known_section recognises additional_contexts" {
+  _setup_known_section "additional_contexts"
+}
+
+@test "_setup_known_section recognises logging + [logging.<svc>] sub-section (#328)" {
+  _setup_known_section "logging"
+  _setup_known_section "logging.runtime"
+  _setup_known_section "logging.devel"
+  run _setup_known_section "logging."
+  assert_failure
+  run _setup_known_section "loggings"
+  assert_failure
+}
+
+@test "_setup_known_section recognises every SCHEMA_SECTIONS member (#561)" {
+  local _s
+  for _s in "${SCHEMA_SECTIONS[@]}"; do
+    _setup_known_section "${_s}"
+  done
+}
+
+@test "_setup_known_section derives from SCHEMA_SECTIONS, not a copy (#561)" {
+  # A section registered only in SCHEMA_SECTIONS must become known
+  # without hand-editing _setup_known_section.
+  SCHEMA_SECTIONS+=(brandnew)
+  _setup_known_section "brandnew"
+}

@@ -494,3 +494,130 @@ EOF
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
   assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_ssh_x11_cookie (cookie rewrite via xauth,)
+# ════════════════════════════════════════════════════════════════════
+@test "_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)" {
+  # Stub xauth via PATH shim so the test does not depend on a real
+  # X server. Stub captures argv to /tmp/xauth.log AND writes a
+  # non-empty payload to the `-f <out>` target when nmerge runs, so
+  # the function's post-pipe `[[ ! -s "${_out}" ]]` defensive check
+  # passes.
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+echo "xauth $*" >> "${XAUTH_LOG}"
+# Detect `-f <path> nmerge -` so the stub mimics real xauth's
+# behavior of writing the merged cookie bytes to <path>. Without
+# this, the function's empty-file check fires and returns 1.
+_out=""
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == "-f" ]]; then
+    j=$((i + 1))
+    _out="${!j}"
+  fi
+done
+if [[ "${*}" == *nmerge* && -n "${_out}" ]]; then
+  printf 'stub-cookie-bytes\n' > "${_out}"
+fi
+# nmerge reads stdin; consume so the pipe closes cleanly.
+cat >/dev/null 2>&1 || true
+exit 0
+EOS
+  chmod +x "${_bin}/xauth"
+
+  XAUTH_LOG="${TEMP_DIR}/xauth.log"
+  export XAUTH_LOG
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/dist/script/docker/wrapper/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_success
+  assert_output "${TEMP_DIR}/.docker.xauth"
+  # File was created AND has content (hotfix: defensive
+  # check on empty cookie file).
+  assert [ -s "${TEMP_DIR}/.docker.xauth" ]
+  # xauth was invoked twice with `-i` (ignore-locks) since the hotfix.
+  run cat "${XAUTH_LOG}"
+  assert_output --partial "xauth -i nlist localhost:10.0"
+  assert_output --partial "xauth -i -f ${TEMP_DIR}/.docker.xauth nmerge -"
+}
+
+@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge writes 0-byte cookie (#321 hotfix)" {
+  # Defensive case: xauth pipeline exits 0 but produces an empty
+  # cookie file (e.g. nlist hit a contended ~/.Xauthority lock and
+  # silently returned nothing). The function must NOT echo the cookie
+  # path back — that would emit XAUTHORITY=<empty-file> into .env and
+  # break X11 auth silently inside the container.
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+# Mimic the contended-lock failure mode: succeed but write nothing.
+cat >/dev/null 2>&1 || true
+exit 0
+EOS
+  chmod +x "${_bin}/xauth"
+
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/dist/script/docker/wrapper/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_failure
+  assert_output --partial "empty cookie file"
+  assert_output --partial "XAUTHORITY left at host value"
+}
+
+@test "_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)" {
+  # Distinct from the 0-byte branch: here the nlist|sed|nmerge pipeline
+  # itself exits non-zero (the `xauth_rewrite_failed` middle branch). A
+  # regression that swallowed this failure would silently emit a bogus
+  # XAUTHORITY into .env, so the function must surface it: return 1 and
+  # warn "cookie rewrite failed".
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/xauth" <<'EOS'
+#!/usr/bin/env bash
+# nlist succeeds (emits a line so the pipe has data); nmerge fails.
+case "$*" in
+  *nmerge*) cat >/dev/null 2>&1 || true; exit 1 ;;
+  *nlist*)  echo "localhost:10  MIT-MAGIC-COOKIE-1  deadbeef"; exit 0 ;;
+  *)        exit 0 ;;
+esac
+EOS
+  chmod +x "${_bin}/xauth"
+
+  PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
+    run bash -c "
+      source /source/dist/script/docker/wrapper/setup.sh
+      _setup_ssh_x11_cookie '${TEMP_DIR}'
+    "
+  assert_failure
+  assert_output --partial "cookie rewrite failed"
+  assert_output --partial "XAUTHORITY left at host value"
+}
+
+@test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
+  # Shadow the `command` builtin with a function that returns 1 for
+  # `command -v xauth` and passes everything else through to the real
+  # builtin. Lets the function exercise its xauth-missing branch
+  # without touching PATH (which would also break setup.sh's own
+  # dirname / sed / etc. lookups during source).
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    command() {
+      if [[ \"\${1:-}\" == '-v' && \"\${2:-}\" == 'xauth' ]]; then
+        return 1
+      fi
+      builtin command \"\$@\"
+    }
+    DISPLAY=localhost:10.0 _setup_ssh_x11_cookie '${TEMP_DIR}'
+  "
+  assert_failure
+  assert_output --partial "xauth"
+  assert_output --partial "not in PATH"
+}
