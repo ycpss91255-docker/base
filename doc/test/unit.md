@@ -177,7 +177,7 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
 
-### setup.sh-derived unit specs (398, mirroring source libs)
+### setup.sh-derived unit specs (397, mirroring source libs)
 
 The setup.sh decomposition (ADR-00000014) split one god-source into
 subsystem libs; these specs mirror those libs per ADR-00000015 (test
@@ -186,23 +186,67 @@ multiple sub-unit specs gets a `<name>/` folder, source is never split
 for tests). They share one `setup_spec_helper.bash` (common `setup()` /
 `teardown()`); behaviour and total test count are unchanged across the
 re-split. P1a (refs #758) relocated the compose / stage / setup_cmd
-specs; the `setup_spec.bats` slim-down is tracked as P1b.
+specs; P1b (closes #758) split the remaining `setup_spec.bats` /
+`setup_emit_spec.bats` god-files into one spec per leaf lib (`resolve` /
+`drift` / `setup_detect` / `setup_conf` / `env_emit`), slimming
+`setup_spec.bats` to the orchestrator (`main` dispatch, `usage`,
+`_setup_msg`, the `apply` pipeline integration tests) and retiring
+`setup_emit_spec.bats`.
 
-#### test/bats/unit/setup_spec.bats (147)
+#### test/bats/unit/setup_spec.bats (128)
 
-Core detection (user / hardware / docker / GPU / GUI), SSH X11
-forwarding (`_is_ssh_x11` / `_setup_ssh_x11_cookie`, #321), the INI
-parser (`_parse_ini_section` + shared core `_ini_tokenize`), setup.conf
-merging (`_load_setup_conf` replace strategy), `_get_conf_value` /
-`_get_conf_list_sorted`, resolvers (`_resolve_gpu` / `_resolve_gui` /
-`_resolve_runtime` / `_resolve_build_network`), `detect_image_name`
-rule engine, `detect_ws_path`, `_compute_conf_hash`, `write_env`,
-`_check_setup_drift`, the `main --lang` / error paths, plus the
-template-shipped defaults for `[lifecycle]` restart (#478), `[deploy]`
-`dri_groups` (#496) and `gpu_runtime` alias (#481),
-`[additional_contexts]` (#199), `[logging]` CLI (#328),
-`_setup_known_section` / `SCHEMA_SECTIONS` (#561), and `[security]`
-opt-in (#466).
+The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
+`show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
+`--lang` / error paths), `usage`, `_setup_msg` / `_msg` i18n, the INI
+parser (`_parse_ini_section` + shared core `_ini_tokenize`),
+`_setup_known_section` / `SCHEMA_SECTIONS` (#561), the SSH X11 cookie
+rewrite (`_setup_ssh_x11_cookie`, #321), and the `apply` pipeline
+integration tests that drive detect → resolve → write_env → compose
+emit end-to-end: template-shipped defaults and emitted blocks for
+`[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
+`gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
+`arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
+`config/app/` bind (#504), `.env.generated` cache + `.env` overlay
+(#502), workspace writeback (#174/#201), `--gui` / `--no-x11-cookie` /
+`--print-resolved` flags (#338), `--quiet` confirmation lines (#285),
+#450 propagation + duplicate-target guards, and S7 `runtime.env`
+retirement (#507).
+
+#### test/bats/unit/resolve_spec.bats (25)
+
+Mirrors `lib/resolve.sh`. The host-detection resolvers in isolation:
+`_resolve_gpu` / `_resolve_gui` (auto / force / off), `_resolve_runtime`
+and `_resolve_build_network` over `_detect_jetson`, the documented
+`SETUP_DETECT_JETSON` / `SETUP_DETECT_DRI_GROUPS` operator-override
+contract (#760) for `_detect_jetson` / `_detect_dri_groups`, and
+`_compute_conf_hash`.
+
+#### test/bats/unit/drift_spec.bats (4)
+
+Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero
+paths when the conf hash or GPU detection changes against a cached
+`.env`.
+
+#### test/bats/unit/setup_detect_spec.bats (45)
+
+Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
+`detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
+`detect_gpu` / `detect_gpu_count` (incl. the nameref regression),
+`detect_gui`, `_is_ssh_x11` (#321), the `detect_image_name` rule engine
++ sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
+(#569).
+
+#### test/bats/unit/setup_conf_spec.bats (12)
+
+Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
+replace strategy), `_get_conf_value` / `_get_conf_list_sorted`
+(incl. empty-skip), and the `_rule_basename` image-rule helper.
+
+#### test/bats/unit/env_emit_spec.bats (4)
+
+Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
+metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
+idempotency.
 
 #### test/bats/unit/setup_cmd_spec.bats (103)
 
@@ -218,19 +262,6 @@ setup.conf parameter end-to-end coverage (#202, merged from the former
 `[resources]`, `[environment]`, `[tmpfs]`, `[devices]`, `[volumes]
 mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys.
-
-#### test/bats/unit/setup_emit_spec.bats (72)
-
-`apply`-time emit and CLI-flag behaviour: `.env.generated` cache + `.env`
-workload overlay (#502), `config/app/` dev bind-mount (#504),
-`_rule_basename` / `detect_image_name` sanitization, i18n (`_msg` /
-`_detect_lang`), `[build]` `arg_N`, `_get_conf_list_sorted` empty-skip,
-workspace writeback, `--quiet` confirmation lines (#285), `--gui` /
-`--no-x11-cookie` / `--print-resolved` apply flags (#338), `#450`
-propagation + duplicate-target guards, S7 `runtime.env` retirement
-(#507), and `_reconcile_workspace_path` (#569). The
-`_generate_runtime_dockerfile` ENV-bake tests moved to `stage_spec.bats`
-in P1a.
 
 #### test/bats/unit/stage_spec.bats (76)
 
@@ -1161,7 +1192,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (27)
+### test/bats/unit/compose_emit/blocks_spec.bats (28)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1198,6 +1229,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: zero-diff stage with per-svc logging override emits logging block` | zero-diff logging |
 | `_emit_stage_service: stage with overrides emits a standalone block (no extends)` | #220 standalone |
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
+| `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
 ### test/bats/unit/compose_emit/gen_spec.bats (75)
 
