@@ -240,7 +240,7 @@ setup() {
   assert_success
 }
 
-# Wrapper -> compose dispatch is asserted behaviourally in
+# Wrapper -> compose dispatch is asserted by observed behaviour in
 # test/integration/wrapper_compose_dispatch_spec.bats: each wrapper
 # is run with --dry-run and the planned `docker compose -p <project> <verb>`
 # is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
@@ -294,7 +294,7 @@ setup() {
 }
 
 # run.sh foreground EXIT-trap cleanup (auto compose-down with
-# --remove-orphans -t 0) is asserted behaviourally in
+# --remove-orphans -t 0) is asserted by observed behaviour in
 # wrapper_compose_dispatch_spec.bats via the dry-run output, instead
 # of grepping the `_app_cleanup` identifier (renamed in).
 

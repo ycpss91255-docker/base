@@ -74,11 +74,16 @@ _sync_test_md_index() {
   local _root="$1"
   local _t="${_root}/doc/test/TEST.md"
   [[ -f "${_t}" ]] || return 0
-  local _u _i _b _s _tot
+  # ISTQB taxonomy (ADR-00000018): levels unit / integration / system /
+  # acceptance, plus the shipped build-time smoke type. system replaces the
+  # retired behavioural category. Empty level dirs (e.g. acceptance before
+  # S5 content lands) resolve to 0 via _dir_test_count's no-match path.
+  local _u _i _sy _a _sm _tot
   _u="$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
   _i="$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
-  _b="$(_dir_test_count "${_root}" 'test/bats/behavioural/**/*_spec.bats')"
-  _s="$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
+  _sy="$(_dir_test_count "${_root}" 'test/bats/system/**/*_spec.bats')"
+  _a="$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
+  _sm="$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
   _tot=$(( _u + _i ))
   sed -i -E \
     "s/\*\*[0-9]+ tests\*\* total \([0-9]+ unit \+ [0-9]+ integration\)/**${_tot} tests** total (${_u} unit + ${_i} integration)/" \
@@ -86,8 +91,9 @@ _sync_test_md_index() {
   sed -i -E "s/not\*\* in the [0-9]+ figure/not** in the ${_tot} figure/" "${_t}"
   sed -i -E "s#(\[unit\.md\]\(unit\.md\).*\| )[0-9]+ #\1${_u} #" "${_t}"
   sed -i -E "s#(\[integration\.md\]\(integration\.md\).*\| )[0-9]+ #\1${_i} #" "${_t}"
-  sed -i -E "s#(\[behavioural\.md\]\(behavioural\.md\).*\| )[0-9]+ #\1${_b} #" "${_t}"
-  sed -i -E "s#(\[smoke\.md\]\(smoke\.md\).*\| )[0-9]+ #\1${_s} #" "${_t}"
+  sed -i -E "s#(\[system\.md\]\(system\.md\).*\| )[0-9]+ #\1${_sy} #" "${_t}"
+  sed -i -E "s#(\[acceptance\.md\]\(acceptance\.md\).*\| )[0-9]+ #\1${_a} #" "${_t}"
+  sed -i -E "s#(\[smoke\.md\]\(smoke\.md\).*\| )[0-9]+ #\1${_sm} #" "${_t}"
   sed -i -E "s/(grand total \(unit \+ integration\): )\*\*[0-9]+\*\*/\1**${_tot}**/" "${_t}"
 }
 
@@ -103,8 +109,10 @@ _sync_doc_counts() {
     "$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/integration.md" \
     "$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
-  _sync_type_total "${_root}/doc/test/behavioural.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/behavioural/**/*_spec.bats')"
+  _sync_type_total "${_root}/doc/test/system.md" \
+    "$(_dir_test_count "${_root}" 'test/bats/system/**/*_spec.bats')"
+  _sync_type_total "${_root}/doc/test/acceptance.md" \
+    "$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/smoke.md" \
     "$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
   _sync_test_md_index "${_root}"

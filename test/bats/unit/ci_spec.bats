@@ -807,17 +807,17 @@ SH
   refute_output --partial "docker should not be called"
 }
 
-@test "main --bats-path: test/bats/behavioural/ path dies with a clear hint" {
+@test "main --bats-path: test/bats/system/ path dies with a clear hint" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
-    main --bats-path test/bats/behavioural/runtime_test_smoke_spec.bats
+    main --bats-path test/bats/system/runtime_test_smoke_spec.bats
   '
   assert_failure
-  assert_output --partial "ci-behavioural"
+  assert_output --partial "ci-system"
   refute_output --partial "docker should not be called"
 }
 
@@ -958,7 +958,7 @@ SH
   # back into the dispatcher.
   local _fn
   for _fn in _run_unit_tests _run_integration_tests _run_unit_shard \
-             _run_bats_fragile _run_bats_path _run_behavioural _run_coverage \
+             _run_bats_fragile _run_bats_path _run_system _run_coverage \
              _bats_args_with_label; do
     run grep -E "^${_fn}\(\) \{" /source/script/test/drivers/bats.sh
     assert_success
@@ -1078,30 +1078,30 @@ SH
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _behavioural_setup prerequisite guards (drivers/bats.sh)
+# _system_setup prerequisite guards (drivers/bats.sh)
 # ════════════════════════════════════════════════════════════════════
 #
-# _behavioural_setup fails fast with two distinct _die calls when the
-# behavioural prerequisites are absent. The ci (non-behavioural) test
+# _system_setup fails fast with two distinct _die calls when the
+# system prerequisites are absent. The ci (non-system) test
 # container has no docker.sock, so the socket guard is exercised against
 # the real condition; the docker-CLI guard needs the socket to pass
 # first, so a transient unix socket is created at the literal path the
 # function probes.
 
-@test "_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)" {
+@test "_system_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)" {
   if [[ -S /var/run/docker.sock ]]; then
     skip "docker.sock present in this environment; socket guard not reachable"
   fi
   run bash -c '
     set -e
     source /source/script/test/test.sh
-    _behavioural_setup
+    _system_setup
   '
   assert_failure
   assert_output --partial "requires /var/run/docker.sock"
 }
 
-@test "_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)" {
+@test "_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)" {
   if [[ -S /var/run/docker.sock ]]; then
     skip "real docker.sock present; would proceed past the CLI guard to buildx"
   fi
@@ -1118,7 +1118,7 @@ SH
   run env PATH="${_clean}" bash -c '
     set -e
     source /source/script/test/test.sh
-    _behavioural_setup
+    _system_setup
   '
   rm -f /var/run/docker.sock
   assert_failure

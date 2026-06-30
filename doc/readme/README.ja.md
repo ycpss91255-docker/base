@@ -163,7 +163,8 @@ flowchart LR
 | `dist/test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/bats/unit/` | base 自己テスト、ユニット（bats + kcov） |
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
-| `test/bats/behavioural/` | base 自己テスト、runtime 動作（opt-in） |
+| `test/bats/system/` | base 自己テスト、System レベル／Regression（runtime smoke gate、opt-in） |
+| `test/bats/acceptance/` | base 自己テスト、Acceptance レベル（UAT/OAT；予約、S5 #785） |
 
 テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`
 （例：`test/bats/unit/`）、linter は `test/lint/<tool>/` — そのため
@@ -171,7 +172,7 @@ flowchart LR
 ありません。[ADR-00000012](../adr/00000012-tool-first-test-layout.md)
 （category-first の ADR-00000004 を置き換え）参照。consumer は自身の
 `test/smoke/` を出荷し、base は自身の
-`test/bats/{unit,integration,behavioural}/` を出荷します。
+`test/bats/{unit,integration,system,acceptance}/` を出荷します。
 
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile`（→ `script/justfile`） | Repo コマンドエントリ — 階層化された namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。サブコマンドと flag は `{{args}}` でそのまま渡されます（`just docker build --no-cache --stage test-tools`）。引数なしの `just` で全 namespace を一覧表示。 |
@@ -850,7 +851,8 @@ just --list  # CI ターゲット表示
 
 詳細は [TEST.md](../test/TEST.md) のテスト索引を参照（種別ごとのカタログ：
 [unit](../test/unit.md) / [integration](../test/integration.md) /
-[behavioural](../test/behavioural.md) / [smoke](../test/smoke.md)）。
+[system](../test/system.md) / [acceptance](../test/acceptance.md) /
+[smoke](../test/smoke.md)）。
 
 ## ディレクトリ構造
 
@@ -897,7 +899,7 @@ just --list  # CI ターゲット表示
 │           └── display_env.bats
 ├── script/                             # base 自身の自己テスト/release ツール（symlink しない）
 │   ├── test/
-│   │   ├── justfile.test               # just test / lint / coverage / behavioural
+│   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # ディスパッチャ（ローカル + コンテナ内）
 │   │   ├── lint_bare_stderr.sh
 │   │   └── drivers/                    # ツールごとに 1 driver：bats.sh / shellcheck.sh / hadolint.sh
@@ -909,7 +911,8 @@ just --list  # CI ターゲット表示
 │   └── bats/
 │       ├── unit/                       # 56 unit spec + 2 個の bash ヘルパ（bats + kcov）
 │       ├── integration/                # init/upgrade の end-to-end（5 spec）
-│       └── behavioural/                # runtime 動作（opt-in；runtime_test_smoke_spec.bats）
+│       ├── system/                # System レベル／Regression（opt-in；runtime_test_smoke_spec.bats）
+│       └── acceptance/            # Acceptance レベル（UAT/OAT；予約、S5 #785）
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/
@@ -926,7 +929,8 @@ just --list  # CI ターゲット表示
 │   │   ├── TEST.md                     # テスト索引（総数 + 種別リンク）
 │   │   ├── unit.md                     # ユニットテスト一覧
 │   │   ├── integration.md             # 統合テスト一覧
-│   │   ├── behavioural.md             # 挙動テスト一覧
+│   │   ├── system.md             # System／Regression テスト一覧
+│   │   ├── acceptance.md         # Acceptance テスト一覧（予約、S5 #785）
 │   │   └── smoke.md                   # smoke テスト一覧
 │   ├── changelog/
 │   │   └── CHANGELOG.md

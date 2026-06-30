@@ -58,3 +58,58 @@ setup() {
   assert_success
   assert_output --partial "IDEMPOTENT"
 }
+
+@test "_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/system" "${root}/doc/test"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${root}/test/bats/system/x_spec.bats"
+    printf "%s\n" "System specs under \`test/bats/system/\`: **99 tests**." > "${root}/doc/test/system.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/system.md"
+  '
+  assert_success
+  assert_output --partial "**2 tests**"
+  refute_output --partial "**99 tests**"
+}
+
+@test "_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/acceptance" "${root}/doc/test"
+    printf "%s\n" "Acceptance specs under \`test/bats/acceptance/\`: **7 tests**." > "${root}/doc/test/acceptance.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/acceptance.md"
+  '
+  assert_success
+  assert_output --partial "**0 tests**"
+  refute_output --partial "**7 tests**"
+}
+
+@test "_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/test/bats/integration" \
+             "${root}/test/bats/system" "${root}/test/bats/acceptance" \
+             "${root}/dist/test/smoke" "${root}/doc/test"
+    printf "@test \"u\" {\n:\n}\n" > "${root}/test/bats/unit/u_spec.bats"
+    printf "@test \"i\" {\n:\n}\n" > "${root}/test/bats/integration/i_spec.bats"
+    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n@test \"s3\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
+    {
+      echo "| Doc | Scope | Count |"
+      echo "| [unit.md](unit.md) | unit | 0 |"
+      echo "| [integration.md](integration.md) | integration | 0 |"
+      echo "| [system.md](system.md) | system | 0 |"
+      echo "| [acceptance.md](acceptance.md) | acceptance | 0 |"
+      echo "| [smoke.md](smoke.md) | smoke | 0 |"
+    } > "${root}/doc/test/TEST.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/TEST.md"
+  '
+  assert_success
+  assert_output --partial "[system.md](system.md) | system | 3 "
+  assert_output --partial "[acceptance.md](acceptance.md) | acceptance | 0 "
+}

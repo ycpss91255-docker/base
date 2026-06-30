@@ -164,16 +164,20 @@ flowchart LR
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
 | `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `dist/test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
-| `test/bats/unit/` | base self-tests, unit (bats + kcov) |
-| `test/bats/integration/` | base self-tests, init/upgrade end-to-end |
-| `test/bats/behavioural/` | base self-tests, runtime behaviour (opt-in) |
+| `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
+| `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
+| `test/bats/system/` | base self-tests, System level / Regression (runtime smoke gate, opt-in) |
+| `test/bats/acceptance/` | base self-tests, Acceptance level (UAT/OAT; reserved, S5 #785) |
 
 Test content is laid out **tool-first** -- `test/<tool>/<category>/`
 for specs (e.g. `test/bats/unit/`) and `test/lint/<tool>/` for linters --
-so adding a tool is a new folder, not a new command surface. See
+so adding a tool is a new folder, not a new command surface. The category
+vocabulary is ISTQB-aligned (levels Unit / Integration / System /
+Acceptance + the Smoke type); see
+[ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
 [ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
 category-first ADR-00000004). A consumer ships its own `test/smoke/`; base
-ships its own `test/bats/{unit,integration,behavioural}/`.
+ships its own `test/bats/{unit,integration,system,acceptance}/`.
 
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` (→ `script/justfile`) | Repo entry — layered namespaced recipes (`just docker build`, `just docker run`, `just test`, `just base upgrade`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just docker build --no-cache --stage test-tools`); bare `just` lists all namespaces. |
@@ -1048,9 +1052,10 @@ Or directly:
 
 ## Tests
 
-See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
+See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 [unit](doc/test/unit.md) / [integration](doc/test/integration.md) /
-[behavioural](doc/test/behavioural.md) / [smoke](doc/test/smoke.md)).
+[system](doc/test/system.md) / [acceptance](doc/test/acceptance.md) /
+[smoke](doc/test/smoke.md)).
 
 ## Directory Structure
 
@@ -1097,7 +1102,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
 │           └── display_env.bats
 ├── script/                             # base's OWN self-test/release tooling (not symlinked)
 │   ├── test/
-│   │   ├── justfile.test               # just test / lint / coverage / behavioural
+│   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # Dispatcher (local + in-container)
 │   │   ├── lint_bare_stderr.sh
 │   │   └── drivers/                    # One driver per tool: bats.sh / shellcheck.sh / hadolint.sh
@@ -1107,9 +1112,10 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
 │   └── Dockerfile.test-tools           # Pre-built lint/test tools image (shellcheck/hadolint/bats)
 ├── test/                               # base's OWN specs (tool-first: test/<tool>/<category>/)
 │   └── bats/
-│       ├── unit/                       # 56 unit specs + 2 bash helpers (bats + kcov)
-│       ├── integration/                # init/upgrade end-to-end (5 specs)
-│       └── behavioural/                # Runtime behaviour (opt-in; runtime_test_smoke_spec.bats)
+│       ├── unit/                       # Unit-level specs + bash helpers (bats + kcov)
+│       ├── integration/                # Integration-level init/upgrade end-to-end specs
+│       ├── system/                     # System level / Regression (opt-in; runtime_test_smoke_spec.bats)
+│       └── acceptance/                 # Acceptance level (UAT/OAT; reserved, S5 #785)
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/
@@ -1123,10 +1129,11 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-type catalogs:
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000012)
 │   ├── test/
-│   │   ├── TEST.md                     # Test index (grand total + per-type links)
+│   │   ├── TEST.md                     # Test index (grand total + per-category links)
 │   │   ├── unit.md                     # Unit spec catalog
 │   │   ├── integration.md             # Integration spec catalog
-│   │   ├── behavioural.md             # Behavioural spec catalog
+│   │   ├── system.md                  # System / Regression spec catalog
+│   │   ├── acceptance.md              # Acceptance spec catalog (reserved, S5 #785)
 │   │   └── smoke.md                   # Smoke spec catalog
 │   ├── changelog/
 │   │   └── CHANGELOG.md

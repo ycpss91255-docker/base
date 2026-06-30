@@ -7,22 +7,22 @@
 #
 # 1. actionlint gate (original): an `actionlint` job runs
 #    rhysd/actionlint via Docker against the workflows tree, and the
-#    downstream jobs (test / integration-e2e / behavioural) declare
+#    downstream jobs (test / integration-e2e / system) declare
 #    `needs:` on actionlint so they cannot start until actionlint
 #    passes.
 #
 # 2. P1 classifier + buildx GHA cache: a `classify` job emits
-#    `code_changed` + `behavioural_relevant` outputs based on PR diff
-#    against the doc-only allow-list and behavioural block-list; the
+#    `code_changed` + `system_relevant` outputs based on PR diff
+#    against the doc-only allow-list and system block-list; the
 #    `test` job always runs (required check) but short-circuits to
-#    SUCCESS on doc-only PRs; `integration-e2e` + `behavioural` gate
+#    SUCCESS on doc-only PRs; `integration-e2e` + `system` gate
 #    via job-level `if:`. All three test-tools image builds use
 #    docker/build-push-action with shared `scope=test-tools` GHA cache.
 #
 # 3. ci-rollup aggregator: a single `ci-rollup` job aggregates
-#    [actionlint, classify, test, integration-e2e, behavioural] under
+#    [actionlint, classify, test, integration-e2e, system] under
 #    `if: always`, treating SKIPPED as pass-equivalent for the two
-#    conditionally-gated jobs (integration-e2e + behavioural). Branch
+#    conditionally-gated jobs (integration-e2e + system). Branch
 #    protection requires only `ci-rollup`, so sub-jobs
 #    shellcheck/hadolint, bats-unit/bats-integration) can join
 #    its `needs:` without further branch-protection churn.
@@ -60,10 +60,10 @@ setup() {
   assert_output --partial 'code_changed: ${{ steps.diff.outputs.code_changed }}'
 }
 
-@test "self-test.yaml: classify job declares behavioural_relevant output (#317)" {
+@test "self-test.yaml: classify job declares system_relevant output (#317)" {
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'behavioural_relevant: ${{ steps.diff.outputs.behavioural_relevant }}'
+  assert_output --partial 'system_relevant: ${{ steps.diff.outputs.system_relevant }}'
 }
 
 @test "self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' + 'CONTEXT.md' (#317)" {
@@ -78,7 +78,7 @@ setup() {
   assert_output --partial "':!CONTEXT.md'"
 }
 
-@test "self-test.yaml: classify uses behavioural block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)" {
+@test "self-test.yaml: classify uses system block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)" {
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "'script/entrypoint.sh'"
@@ -89,19 +89,19 @@ setup() {
   assert_output --partial "'dist/script/docker/wrapper/run.sh'"
   assert_output --partial "'dist/script/docker/wrapper/exec.sh'"
   assert_output --partial "'dist/script/docker/wrapper/stop.sh'"
-  assert_output --partial "'test/bats/behavioural/**'"
+  assert_output --partial "'test/bats/system/**'"
   assert_output --partial "'dist/script/base/init.sh'"
   assert_output --partial "'dist/script/base/upgrade.sh'"
   assert_output --partial "'.github/workflows/**'"
 }
 
-@test "self-test.yaml: classify defaults code_changed/behavioural_relevant to true on non-PR events (#317)" {
+@test "self-test.yaml: classify defaults code_changed/system_relevant to true on non-PR events (#317)" {
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   # Both outputs branch to 'true' when EVENT_NAME != pull_request
   assert_output --partial '!= "pull_request"'
   assert_output --partial 'code_changed=true'
-  assert_output --partial 'behavioural_relevant=true'
+  assert_output --partial 'system_relevant=true'
 }
 
 @test "self-test.yaml: classify omits set -e to fail-open on diff errors (#317 gotcha-1)" {
@@ -230,8 +230,8 @@ setup() {
   refute_output --partial 'docker pull --platform linux/amd64'
 }
 
-@test "self-test.yaml: behavioural job declares needs on actionlint AND classify (#317)" {
-  run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: system job declares needs on actionlint AND classify (#317)" {
+  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -266,23 +266,23 @@ setup() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: behavioural job-level if: gates on behavioural_relevant (#317 P3)" {
-  # P1 shipped this with `code_changed` while the behavioural_relevant
+@test "self-test.yaml: system job-level if: gates on system_relevant (#317 P3)" {
+  # P1 shipped this with `code_changed` while the system_relevant
   # output was emitted-but-unused; P3 tightens to the narrower output so
   # PRs that change pure lint / unit-test paths (already covered by
   # `test`) don't burn the docker.sock-mounted compose run.
-  run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial "if: needs.classify.outputs.behavioural_relevant == 'true'"
+  assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
   refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: classify behavioural block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)" {
+@test "self-test.yaml: classify system block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)" {
   # setup.sh / lib/** drive .env + compose.yaml generation; i18n.sh
   # gates wrapper message output (smoke regressions surface in compose
   # logs); prune.sh is part of the wrapper family. All four indirectly
   # affect what the docker.sock-mounted compose service does, so they
-  # must invalidate the behavioural-skip optimization.
+  # must invalidate the system-skip optimization.
   run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "'dist/script/docker/wrapper/setup.sh'"
@@ -309,8 +309,8 @@ setup() {
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
 
-@test "self-test.yaml: behavioural job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
-  run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
+  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'uses: docker/build-push-action@v6'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
@@ -367,8 +367,8 @@ setup() {
   assert_output --partial 'driver: docker'
 }
 
-@test "self-test.yaml: behavioural job has Obtain step with 3-layer fallback (#317 P2)" {
-  run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)" {
+  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'Obtain test-tools:local'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
@@ -419,7 +419,7 @@ setup() {
 
 @test "self-test.yaml: every :main-pulling Obtain step carries the probe-and-rebuild guard (#697)" {
   # All five build_local-pattern obtain steps (hadolint, bats-fragile,
-  # bats-integration, coverage, behavioural) pull the same :main tag and
+  # bats-integration, coverage, system) pull the same :main tag and
   # so race identically; each must probe + rebuild on a miss. One
   # REQUIRED_TOOLS line per such job.
   run grep -c 'REQUIRED_TOOLS=' "${WF}"
@@ -431,7 +431,7 @@ setup() {
   # The "PR changed Dockerfile.test-tools" decision is computed ONCE in
   # classify (its checkout is fetch-depth: 0, so the three-dot merge-base
   # resolves). The 6 image jobs (hadolint, bats-fragile, bats-integration,
-  # coverage, integration-e2e, behavioural) used to repeat that diff on a
+  # coverage, integration-e2e, system) used to repeat that diff on a
   # shallow (fetch-depth: 1) checkout where no merge-base is reachable, so it
   # reported every file as changed and rebuilt the image on EVERY PR. They now
   # read needs.classify.outputs.testtools_changed instead -- so `git fetch
@@ -499,13 +499,13 @@ setup() {
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
   # hadolint + bats-fragile + bats-integration + coverage + integration-e2e
-  # + behavioural so its result reflects every PR check. (ADR-8)
+  # + system so its result reflects every PR check. (ADR-8)
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -542,12 +542,12 @@ setup() {
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
   assert_output --partial 'needs.integration-e2e.result'
-  assert_output --partial 'needs.behavioural.result'
+  assert_output --partial 'needs.system.result'
 }
 
 @test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
   # every PR-check job has a job-level `if:` gate that may
-  # cause it to skip on doc-only / non-behavioural PRs (the old
+  # cause it to skip on doc-only / non-system PRs (the old
   # always-running `test` job no longer exists). The rollup must
   # collapse SKIPPED into pass for those, otherwise doc-only PRs
   # cannot merge.
@@ -625,14 +625,14 @@ setup() {
   refute_output --partial 'hadolint/hadolint-action'
 }
 
-@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + integration-e2e + behavioural before publishing a tag (#376 + #377 + #677)" {
+@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + integration-e2e + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
   # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]'
+  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────

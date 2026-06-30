@@ -91,7 +91,7 @@ invocation — `build.sh --dry-run`).
 
 ### test/bats/integration/wrapper_compose_dispatch_spec.bats (6)
 
-Behavioural assertion (#490) that every wrapper routes its `docker compose`
+Behaviour-based assertion (#490) that every wrapper routes its `docker compose`
 calls through the `-p`-injecting dispatcher. Reuses the
 `fresh_clone_portability_spec.bats` fixture pattern (cp `/source` -> `.base/`,
 symlink the wrappers from the repo root, materialize `.env` + `compose.yaml`

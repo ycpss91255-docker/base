@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 #
-# Integration test: wrapper -> compose dispatch, asserted behaviourally
+# Integration test: wrapper -> compose dispatch, asserted by observed behaviour
 # via --dry-run output rather than by grepping for the dispatcher's
 # identifier name in the wrapper source.
 #
-# Why behavioural: the old template_spec.bats greps asserted that the
+# Why behaviour-based: the old template_spec.bats greps asserted that the
 # literal string `_compose_project` appeared in each wrapper. Every
 # internal rename (`_compose_dispatch` shim, `_app_cleanup`)
 # forced those greps to be updated in lockstep or CI failed -- and a
@@ -55,7 +55,7 @@ teardown() {
   rm -rf "${TMP_ROOT}"
 }
 
-# ── compose dispatch (behavioural) ──────────────────────────────────────────
+# ── compose dispatch (behaviour-based) ──────────────────────────────────────────
 
 @test "build.sh --dry-run dispatches compose build with -p project flag" {
   run bash "${REPO_DIR}/build.sh" --dry-run

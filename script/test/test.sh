@@ -123,8 +123,8 @@ Options:
   --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
                           relative, e.g. test/bats/unit/ci_spec.bats) via the ci
                           container. Skips ShellCheck + kcov for a fast TDD
-                          inner loop. test/bats/behavioural/ is rejected (needs
-                          the ci-behavioural service); cannot combine with
+                          inner loop. test/bats/system/ is rejected (needs
+                          the ci-system service); cannot combine with
                           --coverage (#523)
   --filter REGEX          Pass a bats -f name filter (within-file single-test
                           selection); usable with or without --bats-path.
@@ -227,7 +227,7 @@ _run_via_compose() {
 
 main() {
   local mode="compose"
-  local behavioural=0
+  local system=0
   local bats_only=0
   local shellcheck_only=0
   local hadolint_only=0
@@ -258,7 +258,7 @@ main() {
       --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
-      --behavioural) behavioural=1; shift ;;
+      --system) system=1; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -314,9 +314,9 @@ main() {
         "--bats-path / --filter cannot combine with --coverage (single-path is the fast no-kcov loop; use --coverage alone for kcov)."
     fi
     if [[ -n "${bats_path}" ]]; then
-      if [[ "${bats_path}" == test/bats/behavioural || "${bats_path}" == test/bats/behavioural/* ]]; then
-        _die ci_bats_path_behavioural \
-          "test/bats/behavioural/ needs the ci-behavioural service + docker.sock; run 'just test behavioural' (host test.sh cannot launch it)."
+      if [[ "${bats_path}" == test/bats/system || "${bats_path}" == test/bats/system/* ]]; then
+        _die ci_bats_path_system \
+          "test/bats/system/ needs the ci-system service + docker.sock; run 'just test system' (host test.sh cannot launch it)."
       fi
       [[ -e "${REPO_ROOT}/${bats_path}" ]] \
         || _die ci_bats_path_not_found \
@@ -332,7 +332,7 @@ main() {
       # Running inside container. Default path skips kcov for speed
       # (the dev loop is far more frequent than the coverage check).
       # Pass COVERAGE=1 via the outer `--coverage` flag to include it.
-      # `--behavioural` swaps the bats invocation to drive
+      # `--system` swaps the bats invocation to drive
       # `docker buildx build` against runtime-test fixtures.
       # BATS_ONLY=1 (set by `--bats-only` outer flag, plumbed via
       # `_run_via_compose`) skips the ShellCheck phase — the dedicated
@@ -342,8 +342,8 @@ main() {
       # bats-unit / bats-integration jobs set these via the outer
       # `--bats-unit-shard` / `--bats-integration` flags so the
       # in-container path matches the local dev path.
-      if [[ "${behavioural}" == "1" ]]; then
-        _run_behavioural
+      if [[ "${system}" == "1" ]]; then
+        _run_system
         _fix_permissions
         return 0
       fi

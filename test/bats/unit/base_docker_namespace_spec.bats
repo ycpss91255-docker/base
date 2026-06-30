@@ -50,7 +50,7 @@ setup() {
   assert_success
 }
 
-@test "just test behavioural builds test-tools via the docker namespace, not a raw docker build (#713, ADR-00000011 sec.5)" {
+@test "just test system builds test-tools via the docker namespace, not a raw docker build (#713, ADR-00000011 sec.5)" {
   run grep -nE 'just docker build --target test-tools' "${ROOT}/script/test/justfile.test"
   assert_success
   # The raw `docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools`

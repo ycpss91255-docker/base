@@ -2,7 +2,7 @@ services:
   # test-tools: base's own tooling image (ADR-00000011 sec.2/4).
   # `just docker build --target test-tools` builds it from the standalone
   # Dockerfile.test-tools via the shared docker wrapper, replacing the raw
-  # `docker build -f` one-liner. The ci / coverage / behavioural services
+  # `docker build -f` one-liner. The ci / coverage / system services
   # below consume the resulting `test-tools:local` tag via image: (set
   # TEST_TOOLS_IMAGE=test-tools:local). build-only service: never `run`.
   test-tools:
@@ -33,17 +33,17 @@ services:
       - -c
       - ./script/test/test.sh --ci
 
-  # Behavioural: same image as `ci` but with the host docker
-  # socket mounted so test/bats/behavioural/*.bats can drive
+  # System: same image as `ci` but with the host docker
+  # socket mounted so test/bats/system/*.bats can drive
   # `docker buildx build --target runtime-test ...` against synthesized
   # fixtures and assert build pass/fail. Opt-in: never invoked by the
   # default `just test` flow. Local users run via
-  # `just test behavioural`; CI runs via a dedicated
-  # Behavioural Test job
-  # in self-test.yaml. The dedicated buildx builder (template-behavioural)
-  # is created/pruned per test.sh --behavioural run so this service does
+  # `just test system`; CI runs via a dedicated
+  # System Test job
+  # in self-test.yaml. The dedicated buildx builder (template-system)
+  # is created/pruned per test.sh --system run so this service does
   # NOT pollute the host's default buildx context or shared image cache.
-  ci-behavioural:
+  ci-system:
     image: ${TEST_TOOLS_IMAGE:-ghcr.io/ycpss91255-docker/test-tools:latest}
     security_opt:
       - seccomp=unconfined
@@ -58,7 +58,7 @@ services:
     entrypoint: /bin/bash
     command:
       - -c
-      - ./script/test/test.sh --ci --behavioural
+      - ./script/test/test.sh --ci --system
 
   # Coverage: same pre-baked test-tools image as `ci`, plus kcov
   # instrumentation. kcov is now source-built INTO the test-tools

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2070 tests**.
+Unit specs under `test/bats/unit/`: **2076 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -411,17 +411,17 @@ thirteen cumulative invariants:
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
    (`x.y.z`); downstream jobs (`test`, `integration-e2e`,
-   `behavioural`) need it so the workflow-validator class of
+   `system`) need it so the workflow-validator class of
    regression that wedged v0.26.0-rc1 (refs #297) is caught early.
 
 2. **#317 P1 classifier + buildx GHA cache** — a `classify` job
-   emits `code_changed` + `behavioural_relevant` outputs from PR
+   emits `code_changed` + `system_relevant` outputs from PR
    diff against the doc-only allow-list (`doc/**` + `README.md` +
-   `LICENSE`) and behavioural block-list (entrypoint.sh + compose
+   `LICENSE`) and system block-list (entrypoint.sh + compose
    + Dockerfile.example/.test-tools + wrappers + init/upgrade +
-   `test/bats/behavioural/**` + `.github/workflows/**`); the `test` job
+   `test/bats/system/**` + `.github/workflows/**`); the `test` job
    always runs (required check) but short-circuits to SUCCESS on
-   doc-only PRs; `integration-e2e` and `behavioural` gate via
+   doc-only PRs; `integration-e2e` and `system` gate via
    job-level `if:`; all three test-tools image builds use
    `docker/build-push-action` with shared `scope=test-tools` GHA
    cache.
@@ -435,13 +435,13 @@ thirteen cumulative invariants:
    branch) don't trip on missing `origin/<base>`.
 
 4. **#317 P2 Obtain step + rolling tag fallback** — each of the 3
-   downstream jobs (`test`, `integration-e2e`, `behavioural`)
+   downstream jobs (`test`, `integration-e2e`, `system`)
    precedes its test-tools provisioning with an `Obtain` step
    implementing the 3-layer fallback: PR touched
    `dockerfile/Dockerfile.test-tools` -> rebuild local; else
    `docker pull ghcr.io/ycpss91255-docker/test-tools:main` and
    re-tag; else fall back to a from-source rebuild. For `test` +
-   `behavioural` (which `docker compose run` test-tools), the
+   `system` (which `docker compose run` test-tools), the
    buildx Build step gates on `steps.obtain.outputs.build_local
    == 'true'` so the hot path skips it and the cold path reuses
    P1's GHA cache. For `integration-e2e` (which `docker compose
@@ -455,19 +455,19 @@ thirteen cumulative invariants:
    test` so the wrapper script skips its own internal test-tools
    build, reusing the image populated by the Obtain step.
 
-5. **#317 P3 behavioural conditional + block-list expansion** —
-   `behavioural` job's job-level `if:` tightens from
-   `code_changed == 'true'` (P1) to `behavioural_relevant ==
+5. **#317 P3 system conditional + block-list expansion** —
+   `system` job's job-level `if:` tightens from
+   `code_changed == 'true'` (P1) to `system_relevant ==
    'true'` (the narrower output P1 already emitted but didn't
    consume). PRs that change pure lint / unit-test paths
    covered by `test` now skip the docker.sock-mounted compose
-   run, saving ~3-5 min per such PR. The behavioural block-list
+   run, saving ~3-5 min per such PR. The system block-list
    in `classify` is extended with `script/docker/setup.sh` +
    `script/docker/i18n.sh` + `script/docker/lib/**` +
    `script/docker/prune.sh` (gotcha-5): each affects `.env` /
    `compose.yaml` generation or wrapper behaviour that the
    compose service exercises end-to-end, so they must invalidate
-   the behavioural-skip optimization.
+   the system-skip optimization.
 
 6. **#337 `ci-rollup` aggregator** — a single always-running
    (`if: always()`) `ci-rollup` job sits downstream of every PR
@@ -476,9 +476,9 @@ thirteen cumulative invariants:
    every `${{ needs.<job>.result }}` and applies a 2-tier rule:
    `actionlint` / `classify` must be `success`;
    conditionally-gated jobs (`shellcheck` / `hadolint` / `bats-unit` /
-   `bats-integration` / `coverage` / `integration-e2e` / `behavioural`)
+   `bats-integration` / `coverage` / `integration-e2e` / `system`)
    may be `success` or `skipped` (their job-level `if:` legitimately
-   skips on doc-only / non-behavioural PRs per #317 P1/P3, #376, #377,
+   skips on doc-only / non-system PRs per #317 P1/P3, #376, #377,
    #615). Adding sub-jobs (#377)
    to the rollup's `needs:` list becomes a workflow-internal
    change with no branch-protection update required.
@@ -526,10 +526,10 @@ thirteen cumulative invariants:
 
    `ci-rollup needs:` is `[actionlint, classify, shellcheck,
    hadolint, bats-unit, bats-integration, coverage, integration-e2e,
-   behavioural]` (9 jobs post-#615) — every PR-check job. `release needs:`
+   system]` (9 jobs post-#615) — every PR-check job. `release needs:`
    updates from `[shellcheck, hadolint, test, integration-e2e,
-   behavioural]` → `[shellcheck, hadolint, bats-unit, bats-integration,
-   integration-e2e, behavioural]`. Post-#377 only `actionlint` +
+   system]` → `[shellcheck, hadolint, bats-unit, bats-integration,
+   integration-e2e, system]`. Post-#377 only `actionlint` +
    `classify` are hard-mandatory in `ci-rollup`'s verifier (the
    always-running `test` job no longer exists).
 
@@ -585,7 +585,7 @@ thirteen cumulative invariants:
     cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3
     (pull failed -> build) intact. Applied to all five `build_local`-pattern
     obtain steps (`hadolint`, `bats-fragile`, `bats-integration`,
-    `coverage`, `behavioural`) since they pull the same tag and race
+    `coverage`, `system`) since they pull the same tag and race
     identically; `bats-fragile` + `coverage` (the kcov-racing shards) are
     asserted per-job, plus a count assertion that all five carry the guard.
 
@@ -615,21 +615,21 @@ thirteen cumulative invariants:
 |----------|-------|
 | `actionlint` job declared | 1 |
 | `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
-| `classify` job declared with `code_changed` + `behavioural_relevant` outputs | 3 |
-| `classify` doc-only allow-list + behavioural block-list + non-PR default | 3 |
-| `bats-fragile`/`bats-integration`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 4 |
+| `classify` job declared with `code_changed` + `system_relevant` outputs | 3 |
+| `classify` doc-only allow-list + system block-list + non-PR default | 3 |
+| `bats-fragile`/`bats-integration`/`integration-e2e`/`system` declare `needs: [actionlint, classify]` | 4 |
 | `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'` + no remaining monolithic `test:` job (#377, #677) | 3 |
-| `integration-e2e` job-level `if: code_changed == 'true'` + `behavioural` job-level `if: behavioural_relevant == 'true'` (#317 P3 tightens) | 2 |
-| `bats-fragile`/`bats-integration`/`behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
+| `integration-e2e` job-level `if: code_changed == 'true'` + `system` job-level `if: system_relevant == 'true'` (#317 P3 tightens) | 2 |
+| `bats-fragile`/`bats-integration`/`system` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
 | `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #677) | 2 |
 | `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377) | 1 |
 | `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
 | `integration-e2e` native arm64 matrix (#603): amd64+arm64 native-runner matrix with `fail-fast: false`; shards `runs-on: ${{ matrix.runner }}`; Obtain pulls the matrix platform | 3 |
-| `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
+| `system` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
-| `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]` + `if: always()` (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
+| `classify` system block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
 | `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + `coverage-gate` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
@@ -638,7 +638,7 @@ thirteen cumulative invariants:
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
 | `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']` (greedy weight-balanced) + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 + #710) | 4 |
 | Self-hosted coverage (#710): NO codecov reference anywhere in the workflow + a `coverage-gate` job downloads the shard artifacts and runs `coverage_gate.sh` | 2 |
-| `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]` before publishing a tag (#376 + #377 + #677) | 1 |
+| `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (14)
@@ -1590,7 +1590,7 @@ the host file content and the inherited stdout (preserving
 | `main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1` | #523 single-file dispatch |
 | `main --bats-path: accepts a directory` | #523 directory path |
 | `main --bats-path: non-existent path dies with ci_bats_path_not_found` | #523 missing-path guard |
-| `main --bats-path: test/bats/behavioural/ path dies with a clear hint` | #523 behavioural guard |
+| `main --bats-path: test/bats/system/ path dies with a clear hint` | #523 system guard |
 | `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
@@ -1628,10 +1628,10 @@ the host file content and the inherited stdout (preserving
 | `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
 | `_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)` | #677 plain mode runs the skipped tests |
 | `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
-| `_behavioural_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 behavioural socket guard |
-| `_behavioural_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 behavioural docker-CLI guard |
+| `_system_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 system socket guard |
+| `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
 
-### test/bats/unit/doc_counts_spec.bats (3)
+### test/bats/unit/doc_counts_spec.bats (6)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs
@@ -2024,5 +2024,5 @@ base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
 flat `script/<verb>.sh` symlinks resolving into `dist/` (no `.base/` hop),
 the `test-tools` compose service building `Dockerfile.test-tools`, and
-`just test behavioural` building it via the docker namespace.
+`just test system` building it via the docker namespace.
 

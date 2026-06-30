@@ -163,14 +163,15 @@ flowchart LR
 | `dist/test/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
 | `test/bats/unit/` | base 自身測試，unit（bats + kcov） |
 | `test/bats/integration/` | base 自身測試，init/upgrade 端對端 |
-| `test/bats/behavioural/` | base 自身測試，runtime 行為（opt-in） |
+| `test/bats/system/` | base 自身測試，System 層／Regression（runtime smoke gate，opt-in） |
+| `test/bats/acceptance/` | base 自身測試，Acceptance 層（UAT/OAT；保留，S5 #785） |
 
 測試內容採 **tool-first** 配置 -- spec 走 `test/<tool>/<category>/`
 （例如 `test/bats/unit/`）、linter 走 `test/lint/<tool>/` --
 新增一個工具就是開一個新資料夾，而非新增一個指令面。見
 [ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
 的 ADR-00000004）。consumer 出貨自己的 `test/smoke/`；base 出貨自己的
-`test/bats/{unit,integration,behavioural}/`。
+`test/bats/{unit,integration,system,acceptance}/`。
 
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
 | `justfile`（→ `script/justfile`） | Repo 指令入口 — 分層 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。Sub-cmd 與 flag 透過 `{{args}}` 直接傳遞（`just docker build --no-cache --stage test-tools`）；無參的 `just` 列出所有 namespace。 |
@@ -802,7 +803,8 @@ just --list  # 顯示 CI 指令
 
 詳見 [TEST.md](../test/TEST.md) 測試索引（各類型清單：
 [unit](../test/unit.md) / [integration](../test/integration.md) /
-[behavioural](../test/behavioural.md) / [smoke](../test/smoke.md)）。
+[system](../test/system.md) / [acceptance](../test/acceptance.md) /
+[smoke](../test/smoke.md)）。
 
 ## 目錄結構
 
@@ -849,7 +851,7 @@ just --list  # 顯示 CI 指令
 │           └── display_env.bats
 ├── script/                             # base 自身的 self-test/release 工具（不 symlink）
 │   ├── test/
-│   │   ├── justfile.test               # just test / lint / coverage / behavioural
+│   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # Dispatcher（本地 + 容器內）
 │   │   ├── lint_bare_stderr.sh
 │   │   └── drivers/                    # 每個工具一支 driver：bats.sh / shellcheck.sh / hadolint.sh
@@ -861,7 +863,8 @@ just --list  # 顯示 CI 指令
 │   └── bats/
 │       ├── unit/                       # 56 個 unit spec + 2 個 bash helper（bats + kcov）
 │       ├── integration/                # init/upgrade 端對端（5 個 spec）
-│       └── behavioural/                # Runtime 行為（opt-in；runtime_test_smoke_spec.bats）
+│       ├── system/                # System 層／Regression（opt-in；runtime_test_smoke_spec.bats）
+│       └── acceptance/            # Acceptance 層（UAT/OAT；保留，S5 #785）
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/
@@ -878,7 +881,8 @@ just --list  # 顯示 CI 指令
 │   │   ├── TEST.md                     # 測試索引（總計 + 各類型連結）
 │   │   ├── unit.md                     # 單元測試清單
 │   │   ├── integration.md             # 整合測試清單
-│   │   ├── behavioural.md             # 行為測試清單
+│   │   ├── system.md             # System／Regression 測試清單
+│   │   ├── acceptance.md         # Acceptance 測試清單（保留，S5 #785）
 │   │   └── smoke.md                   # smoke 測試清單
 │   ├── changelog/
 │   │   └── CHANGELOG.md
