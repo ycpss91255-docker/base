@@ -96,10 +96,10 @@ RUN apk add --no-cache \
 # to verify the downstream justfile recipe wraps upgrade.sh exit 1 (update
 # available) as success. `just` is the single runner (the Makefile / make
 # are retired), so install it explicitly — alpine provides no `just`.
-# docker-cli + docker-cli-buildx (#249): the behavioural test suite
-# (test/bats/behavioural/*.bats) drives `docker buildx build --target
+# docker-cli + docker-cli-buildx (#249): the system test suite
+# (test/bats/system/*.bats) drives `docker buildx build --target
 # runtime-test ...` against synthesized fixtures to assert the runtime
-# smoke gate actually gates. Only active when the ci-behavioural
+# smoke gate actually gates. Only active when the ci-system
 # compose service is invoked (it mounts the host docker.sock); the
 # default `ci` service ignores docker even when CLI is present.
 FROM alpine:${ALPINE_VERSION}

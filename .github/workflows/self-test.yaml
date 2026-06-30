@@ -33,12 +33,12 @@ jobs:
     # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
     # outputs for downstream jobs:
     #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE + CONTEXT.md
-    #   behavioural_relevant — false if the PR does NOT touch any path in the
-    #                          behavioural block-list (script/entrypoint.sh,
+    #   system_relevant — false if the PR does NOT touch any path in the
+    #                          system block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
     #                          Dockerfile.test-tools, build/run/exec/stop.sh,
     #                          dist/script/base/{init,upgrade}.sh,
-    #                          test/bats/behavioural/**, .github/workflows/**)
+    #                          test/bats/system/**, .github/workflows/**)
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
     # See issue #317 for the full design and path-list rationale.
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code_changed: ${{ steps.diff.outputs.code_changed }}
-      behavioural_relevant: ${{ steps.diff.outputs.behavioural_relevant }}
+      system_relevant: ${{ steps.diff.outputs.system_relevant }}
       testtools_changed: ${{ steps.diff.outputs.testtools_changed }}
     steps:
       - uses: actions/checkout@v7
@@ -73,7 +73,7 @@ jobs:
             # via the tool probe, so a non-PR build needs no forced rebuild.
             {
               echo "code_changed=true"
-              echo "behavioural_relevant=true"
+              echo "system_relevant=true"
               echo "testtools_changed=false"
             } >> "${GITHUB_OUTPUT}"
             exit 0
@@ -96,10 +96,10 @@ jobs:
           else
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           fi
-          # behavioural_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
+          # system_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
           # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
           # of these affects .env / compose.yaml generation or wrapper
-          # behaviour that the behavioural docker.sock-mounted compose
+          # behaviour that the system docker.sock-mounted compose
           # service exercises end-to-end).
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
@@ -114,13 +114,13 @@ jobs:
                   'dist/script/docker/wrapper/setup.sh' \
                   'dist/script/docker/lib/i18n.sh' \
                   'dist/script/docker/lib/**' \
-                  'test/bats/behavioural/**' \
+                  'test/bats/system/**' \
                   'dist/script/base/init.sh' \
                   'dist/script/base/upgrade.sh' \
                   '.github/workflows/**'; then
-            echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
+            echo "system_relevant=false" >> "${GITHUB_OUTPUT}"
           else
-            echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
+            echo "system_relevant=true" >> "${GITHUB_OUTPUT}"
           fi
           # testtools_changed: does THIS PR modify the test-tools Dockerfile?
           # The image jobs rebuild from source when it does (:main is stale for
@@ -1039,15 +1039,15 @@ jobs:
             exit 1
           fi
 
-  behavioural:
-    name: Behavioural Test (runtime-test smoke gate, #249)
+  system:
+    name: System Regression Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify]
-    # P3 (#317): gate on the narrower `behavioural_relevant` output so
+    # P3 (#317): gate on the narrower `system_relevant` output so
     # PRs that change pure lint / unit-test / doc paths (already covered
     # by `test`) don't burn the docker.sock-mounted compose run. The
     # block-list driving this output is in the `classify` job above;
     # gotcha-5 extends it to setup.sh + lib/** + i18n.sh + prune.sh.
-    if: needs.classify.outputs.behavioural_relevant == 'true'
+    if: needs.classify.outputs.system_relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -1118,10 +1118,10 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run behavioural specs (docker.sock-mounted ci-behavioural service)
+      - name: Run system specs (docker.sock-mounted ci-system service)
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: docker compose run --rm ci-behavioural
+        run: docker compose run --rm ci-system
 
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
@@ -1136,8 +1136,8 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # bats-integration / coverage / integration-e2e / behavioural) carry
-    # job-level `if:` so they SKIP on doc-only / non-behavioural PRs (#317
+    # bats-integration / coverage / integration-e2e / system) carry
+    # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
     # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
     # for those, otherwise doc-only PRs cannot merge.
     #
@@ -1150,7 +1150,7 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, behavioural]
+    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1165,7 +1165,7 @@ jobs:
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
           INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
-          BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
+          SYSTEM_RESULT: ${{ needs.system.result }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1177,7 +1177,7 @@ jobs:
           echo "coverage:         ${COVERAGE_RESULT}"
           echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
           echo "integration-e2e:  ${INTEGRATION_RESULT}"
-          echo "behavioural:      ${BEHAVIOURAL_RESULT}"
+          echo "system:      ${SYSTEM_RESULT}"
           fail=0
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
@@ -1185,13 +1185,13 @@ jobs:
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
                    "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
-                   "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
+                   "${INTEGRATION_RESULT}" "${SYSTEM_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, behavioural]
+    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

@@ -3,7 +3,7 @@
 #
 # Sourced library (no main): test.sh sources this near the top, after
 # _lib.sh, so the _log_* / _die helpers are available. Provides the bats
-# runners (unit / unit-shard / integration / bats-path / behavioural),
+# runners (unit / unit-shard / integration / bats-path / system),
 # the shared _bats_args_with_label helper, and the kcov coverage runner
 # (kcov wraps bats, so it lives with the bats driver).
 #
@@ -353,42 +353,42 @@ _run_coverage() {
   return "${_rc}"
 }
 
-# ── Behavioural runtime-test specs ────────────────────────────────────
+# ── System runtime-test specs ────────────────────────────────────
 #
-# Opt-in path. Requires the ci-behavioural compose service (mounts host
+# Opt-in path. Requires the ci-system compose service (mounts host
 # /var/run/docker.sock + sets MOUNT_DOCKER_SOCK=1). Drives
 # `docker buildx build --target runtime-test` against synthesized
 # fixtures so the runtime smoke gate is actually exercised end-to-end,
 # not just static-grep asserted.
 
-readonly _BEHAVIOURAL_BUILDER="template-behavioural"
+readonly _SYSTEM_BUILDER="template-system"
 
-_behavioural_setup() {
+_system_setup() {
   [[ -S /var/run/docker.sock ]] \
-    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'just test-behavioural' (ci-behavioural service)."
+    || _die ci_no_docker_socket "system mode requires /var/run/docker.sock; run via 'just test system' (ci-system service)."
   command -v docker >/dev/null 2>&1 \
-    || _die ci_no_docker_cli "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
+    || _die ci_no_docker_cli "system mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
 
   # Dedicated buildx builder isolates the cache from the host's default
   # context, so prune at the end only touches our cache (not the user's
   # other docker work). `--use` switches active builder for this process.
-  if ! docker buildx inspect "${_BEHAVIOURAL_BUILDER}" >/dev/null 2>&1; then
-    docker buildx create --name "${_BEHAVIOURAL_BUILDER}" --driver docker-container --bootstrap >/dev/null
+  if ! docker buildx inspect "${_SYSTEM_BUILDER}" >/dev/null 2>&1; then
+    docker buildx create --name "${_SYSTEM_BUILDER}" --driver docker-container --bootstrap >/dev/null
   fi
-  docker buildx use "${_BEHAVIOURAL_BUILDER}"
+  docker buildx use "${_SYSTEM_BUILDER}"
 }
 
-_behavioural_teardown() {
+_system_teardown() {
   # Prune only the dedicated builder's cache. Leaves the host's default
   # context untouched so the user's other docker workflows aren't
   # disturbed. `|| true` because builder may already be gone if
   # something earlier aborted partway through.
-  docker buildx prune --builder "${_BEHAVIOURAL_BUILDER}" -af >/dev/null 2>&1 || true
+  docker buildx prune --builder "${_SYSTEM_BUILDER}" -af >/dev/null 2>&1 || true
 }
 
-_run_behavioural() {
-  _behavioural_setup
-  trap _behavioural_teardown EXIT
+_run_system() {
+  _system_setup
+  trap _system_teardown EXIT
 
   local -a _bats_args=()
   local _jobs
@@ -397,5 +397,5 @@ _run_behavioural() {
     _bats_args=(--jobs "${_jobs}")
   fi
 
-  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/behavioural/"
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/system/"
 }

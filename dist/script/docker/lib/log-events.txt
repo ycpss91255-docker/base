@@ -129,7 +129,7 @@ ci_no_docker_socket
 ci_no_docker_cli
 ci_unknown_option
 ci_bats_path_not_found
-ci_bats_path_behavioural
+ci_bats_path_system
 ci_bats_path_coverage
 ci_mixed_test_layout
 ci_issueref_in_comment

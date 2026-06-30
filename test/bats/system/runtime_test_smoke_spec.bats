@@ -1,36 +1,39 @@
 #!/usr/bin/env bats
 #
-# Behavioural coverage for Dockerfile.example's runtime-test smoke gate
-# (template#249). Drives `docker buildx build --target runtime-test`
-# against a synthesized minimal fixture Dockerfile so the smoke RUN
-# line is genuinely exercised. Sister of the static-grep tests in
+# System-level regression: the build gate fires (ISTQB taxonomy,
+# ADR-00000018 -- System level, Regression type; formerly the retired
+# `behavioural` category). Drives `docker buildx build --target
+# runtime-test` against a synthesized minimal fixture Dockerfile so the
+# smoke RUN line is genuinely exercised end-to-end against the whole
+# built image. Sister of the static-grep tests in
 # test/unit/template_spec.bats (which only check the comment shape);
 # this file proves the gate actually fires (positive cases pass; the
-# `exit 1` case fails the build, not just prints a warning).
+# `exit 1` case fails the build, not just prints a warning). Guards the
+# previously-fixed runtime smoke-wrapper defects (Regression type).
 #
-# Requires the ci-behavioural compose service (mounts host
+# Requires the ci-system compose service (mounts host
 # /var/run/docker.sock + sets MOUNT_DOCKER_SOCK=1). Auto-skips when
 # the socket is absent so accidental invocation via the default `ci`
 # service is harmless.
 #
 # Each @test invokes one `docker buildx build` call (~5-15s amd64,
 # ~30-60s arm64 QEMU). The dedicated buildx builder
-# (template-behavioural, set up by test.sh _behavioural_setup) isolates
+# (template-system, set up by test.sh _system_setup) isolates
 # the cache from the user's other docker work.
 
 setup_file() {
   if [[ ! -S /var/run/docker.sock ]]; then
-    skip "behavioural test: /var/run/docker.sock not mounted (run via 'just test behavioural')"
+    skip "system test: /var/run/docker.sock not mounted (run via 'just test system')"
   fi
   if ! command -v docker >/dev/null 2>&1; then
-    skip "behavioural test: docker CLI not present (test-tools < v0.23.2)"
+    skip "system test: docker CLI not present (test-tools < v0.23.2)"
   fi
 
   # Fixture: minimal multi-stage Dockerfile mirroring the
   # runtime-base -> runtime -> runtime-test chain from
   # .base/dist/dockerfile/Dockerfile. Carries no application
   # code -- only the smoke gate under test.
-  FIXTURE_DIR="$(mktemp -d -t template-249-behavioural-XXXXXX)"
+  FIXTURE_DIR="$(mktemp -d -t template-249-system-XXXXXX)"
   export FIXTURE_DIR
   cat > "${FIXTURE_DIR}/Dockerfile" <<'EOF'
 FROM ubuntu:24.04 AS sys
@@ -53,7 +56,7 @@ teardown_file() {
 _build_runtime_test() {
   local _cmd="$1"
   docker buildx build \
-    --builder template-behavioural \
+    --builder template-system \
     --target runtime-test \
     --build-arg "RUNTIME_SMOKE_CMD=${_cmd}" \
     --progress=plain \

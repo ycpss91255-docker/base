@@ -1,6 +1,6 @@
 # Base / template self-test gate (just). Invoked as `just test` (bare =
 # run the whole self-test) and `just test <recipe>` for sub-actions
-# (`lint` / `coverage` / `behavioural` / ...), via base's own root
+# (`lint` / `coverage` / `system` / ...), via base's own root
 # `justfile`, which `mod?`s this file as the `test` namespace. `just` does
 # not auto-discover this file, so it never collides with the auto-discovered
 # container-ops `justfile` (dist/script/justfile, symlinked into
@@ -46,12 +46,12 @@ coverage shard='':
       ./script/test/test.sh --coverage
     fi
 
-# just test behavioural -> behavioural runtime-test specs (opt-in; host docker.sock)
+# just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
-behavioural:
+system:
     just docker build --target test-tools
-    TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-behavioural
+    TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-system
 
 # just test clean -> remove coverage reports
 clean:
@@ -75,3 +75,10 @@ upgrade-check:
 # being hand-edited. Idempotent; check_test_md_drift.sh remains the validator.
 sync-docs:
     ./script/test/sync-doc-counts.sh
+
+# just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
+# (the read-only twin of sync-docs). Non-zero exit on drift; the CI / hook
+# safety net that fails a PR which forgot to run sync-docs after adding a
+# @test.
+sync-docs-check:
+    ./script/test/check_test_md_drift.sh
