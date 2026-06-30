@@ -1,10 +1,20 @@
 # Tool-first `test/<tool>/<category>/` layout + per-tool test runner
 
 - **Date:** 2026-06-23
-- **Status:** Accepted
+- **Status:** Accepted (category vocabulary amended -- see below)
 - **Supersedes:** ADR-00000004 (category-first `test/<category>/<tool>/`)
 - **Relates to:** ADR-00000011 §5 (the generic test runner that consumes
   this layout)
+
+> **Amendment (2026-06-30):** The *category vocabulary* used below
+> (`{smoke, unit, integration, behavioural}`) is superseded by
+> ADR-00000018 (ISTQB-aligned taxonomy): `behavioural` -> `system`, a new
+> `acceptance` level is added, and `smoke` is reclassified as a build-time
+> *type* (it keeps its own directory). The **tool-first** decision of this
+> ADR -- `test/<tool>/<category>/` for specs and `test/lint/<tool>/` for
+> linters, one driver per tool subtree -- **still stands**; only the set of
+> category names *inside* `test/<tool>/` changes. Read the directory
+> examples below as `unit / integration / system / acceptance / smoke`.
 
 ## Context
 
