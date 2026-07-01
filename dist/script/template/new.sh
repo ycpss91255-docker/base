@@ -88,7 +88,12 @@ main() {
   chmod +x "${dest}/${name}.sh"
 
   line="mod? ${name} '${name}/justfile.${name}'"
-  if [[ -f "${reg}" ]] && grep -qF "${line}" "${reg}"; then
+  # Match a whole real registration line only (grep -x), NOT a commented
+  # example: init.sh seeds the registry with `#   mod? deploy '...'`, and a
+  # substring match (grep -F) there made `new.sh deploy` a silent no-op
+  # (reported "already registered", appended nothing -> `just deploy`
+  # undispatchable).
+  if [[ -f "${reg}" ]] && grep -qxF "${line}" "${reg}"; then
     printf 'group %q already registered in %s\n' "${name}" "${reg}"
   else
     printf '%s\n' "${line}" >> "${reg}"
