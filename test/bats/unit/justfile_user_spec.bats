@@ -138,6 +138,27 @@ teardown() {
   assert_output --partial "setup_tui"
 }
 
+@test "just docker start --help prints composite usage and does NOT build or run (#779)" {
+  # The composite `start` verb runs build.sh then run.sh. `--help` must
+  # short-circuit with the composite usage and exit BEFORE either step --
+  # previously build.sh's --help printed help (exit 0) and then run.sh ran
+  # a real container anyway. The stub build.sh would emit `build --help`
+  # and stub run.sh a bare `run` line iff the steps executed.
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker start --help
+  assert_success
+  assert_output --partial "Usage: just docker start"
+  refute_line "build --help"
+  refute_line "run"
+}
+
+@test "just docker start -h short-circuits like --help (#779)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker start -h
+  assert_success
+  assert_output --partial "Usage: just docker start"
+  refute_line "build -h"
+  refute_line "run"
+}
+
 @test "just base upgrade forwards to ./.base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base upgrade v0.30.0
   assert_success
