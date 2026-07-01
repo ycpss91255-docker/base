@@ -30,7 +30,7 @@ _run_shellcheck() {
   # lib/wrapper.sh), and even a no-x pass in the real tree resolves source=
   # directives differently than the flat copy. Reproduce the EXACT consumer
   # invocation -- flat layout + no -x -- so `just test` catches this class
-  # before the integration-e2e job / the downstream fanout does.
+  # before the acceptance job / the downstream fanout does.
   local _lintdir
   _lintdir="$(mktemp -d)"
   mkdir -p "${_lintdir}/wrapper" "${_lintdir}/lib"

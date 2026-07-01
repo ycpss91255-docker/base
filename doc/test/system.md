@@ -11,6 +11,13 @@ built image end-to-end; these specs are the **Regression** type -- they
 guard the previously-fixed runtime smoke-gate defects (#249 / #243).
 They replace the retired `behavioural` category.
 
+System is base's OWN image / build-gate perspective (technical specs),
+distinct from the **Acceptance** level ([acceptance.md](acceptance.md)),
+which verifies what the downstream consumer receives (the scaffolded
+framework + its `just` UX, UAT/OAT) via the host-driven `acceptance` CI
+job. Two adjacent top levels, two vehicles: System = these bats specs on
+the `ci-system` compose service; Acceptance = the `acceptance` job.
+
 Specs that drive `docker buildx build --target runtime-test` against
 synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
 is genuinely exercised end-to-end -- not just static-grep asserted
