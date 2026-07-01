@@ -197,19 +197,20 @@ EOF
 
 # _seed_local
 #
-# Seed the REPO-OWNED repo-local command-group registry
-# script/local/justfile.local (ADR-00000010). The base entry imports it
-# with `import?` (optional), and `just template new <name>` appends
-# one `mod?` line per group. Non-clobbering: a real file the repo commits,
-# never overwritten by a subtree upgrade -- so it preserves the repo's own
-# group registrations across upgrades.
+# Seed the REPO-OWNED script/local/ starter pair (ADR-00000010): the
+# command-group registry justfile.local + a companion bash template
+# local.sh. Both are real files the repo commits, never overwritten by a
+# subtree upgrade, mirroring the skel/ pair pattern (justfile.skel +
+# skel.sh) that `just template new` uses. Each file has its OWN
+# non-clobber guard, so an existing repo carrying only justfile.local (a
+# pre-S4 init) still picks up local.sh on its next upgrade, and vice
+# versa -- neither guard short-circuits the other.
 _seed_local() {
+  mkdir -p script/local
   if [[ -f script/local/justfile.local ]]; then
     _log "  Keeping existing script/local/justfile.local"
-    return 0
-  fi
-  mkdir -p script/local
-  cat > script/local/justfile.local <<'EOF'
+  else
+    cat > script/local/justfile.local <<'EOF'
 # Repo-local just command groups (registry). REPO-OWNED: committed by this
 # repo, never clobbered by a base subtree upgrade. The base entry imports
 # this file optionally (`import?`), so an empty registry is fine.
@@ -221,8 +222,44 @@ _seed_local() {
 #
 # then `just deploy <recipe>` runs it. Scaffold a new group with
 # `just template new <name>` -- it appends the `mod?` line here for you.
+#
+# A companion bash template ships beside this file as local.sh. Wire it to
+# a recipe you add here, e.g.:
+#
+#   local-hello:
+#       @./local.sh
 EOF
-  _log "  Created script/local/justfile.local (repo-local command-group registry)"
+    _log "  Created script/local/justfile.local (repo-local command-group registry)"
+  fi
+
+  if [[ -f script/local/local.sh ]]; then
+    _log "  Keeping existing script/local/local.sh"
+  else
+    cat > script/local/local.sh <<'EOF'
+#!/usr/bin/env bash
+# local.sh -- companion bash template for repo-local just recipes.
+#
+# REPO-OWNED: committed by this repo, never clobbered by a base subtree
+# upgrade (like justfile.local beside it). It is a starting point -- replace
+# the body with your own logic and back a recipe in justfile.local, e.g.:
+#
+#   local-hello:
+#       @./local.sh
+#
+# For a fuller, namespaced command group prefer `just template new <name>`,
+# which scaffolds script/local/<name>/{justfile.<name>,<name>.sh} and
+# registers it for you; this top-level local.sh is the lightweight option.
+set -euo pipefail
+
+main() {
+  echo "hello from script/local/local.sh -- edit me"
+}
+
+main "$@"
+EOF
+    chmod +x script/local/local.sh
+    _log "  Created script/local/local.sh (companion bash template)"
+  fi
 }
 
 _detect_template_version() {
@@ -249,6 +286,28 @@ _detect_repo_name() {
   basename "${REPO_ROOT}"
 }
 
+# _smoke_test_count -- total `^@test` count across the freshly-generated
+# per-stage smoke specs under test/bats/smoke/. This is the SAME source of
+# truth base's script/test/sync-doc-counts.sh uses (`grep -c '^@test'`),
+# reimplemented inline because that script lives in base's own tree, not the
+# shipped subtree (dist/), so init.sh cannot source it from a consumer's
+# .base/. Keeps the generated doc/test/TEST.md figure equal to what the
+# generated specs actually contain. Run with cwd = REPO_ROOT (main cd's
+# there before scaffolding).
+_smoke_test_count() {
+  local _f _sum=0 _c
+  local _globstar_was_set=0
+  shopt -q globstar && _globstar_was_set=1
+  shopt -s globstar
+  for _f in test/bats/smoke/**/*.bats; do
+    [[ -f "${_f}" ]] || continue
+    _c="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
+    _sum=$(( _sum + ${_c:-0} ))
+  done
+  (( _globstar_was_set )) || shopt -u globstar
+  printf '%s\n' "${_sum}"
+}
+
 _create_new_repo() {
   local ref="${1:-main}"
   local name=""
@@ -270,12 +329,16 @@ _create_new_repo() {
 
   # test/bats/smoke/<stage>/ -- per-Dockerfile-stage smoke tree, tool-first
   # (bats layer), mirroring .base/dist/test/bats/smoke/. shared/ runs on
-  # every -test stage; devel-test/ (and runtime-test/ when the runtime
-  # split is enabled) hold stage-specific specs. The repo-specific env
-  # spec asserts entrypoint + bash, both present in every stage, so it
-  # lands under shared/. devel-test/ starts empty (a placeholder) so the
-  # Dockerfile's per-stage COPY resolves before the consumer adds specs.
-  mkdir -p test/bats/smoke/shared test/bats/smoke/devel-test
+  # every -test stage; devel-test/ and runtime-test/ hold stage-specific
+  # specs. The repo-specific env spec asserts entrypoint + bash, both
+  # present in every stage, so it lands under shared/. The per-stage
+  # devel-test/ and runtime-test/ folders start empty (a .gitkeep
+  # placeholder) so the Dockerfile's per-stage selective COPY resolves
+  # before the consumer adds specs -- including the commented-out
+  # runtime-test COPY block, which needs the folder to exist the moment
+  # the runtime split is enabled. Mirrors the dist smoke tree 1:1 (S3).
+  mkdir -p test/bats/smoke/shared test/bats/smoke/devel-test \
+    test/bats/smoke/runtime-test
   cat > "test/bats/smoke/shared/${name}_env.bats" <<BATS
 #!/usr/bin/env bats
 #
@@ -304,6 +367,13 @@ BATS
   cat > test/bats/smoke/devel-test/.gitkeep <<'KEEP'
 # Reserved for devel-test-only smoke specs. Empty until a devel-test
 # specific assertion is added; the shared/ baseline still runs here.
+KEEP
+  cat > test/bats/smoke/runtime-test/.gitkeep <<'KEEP'
+# Reserved for runtime-test-only smoke specs (opt-in runtime split). Empty
+# until the runtime stage is enabled and a runtime-specific assertion is
+# added; the shared/ baseline still runs here. The placeholder keeps the
+# folder present so the Dockerfile's commented-out runtime-test COPY block
+# resolves the moment the split is turned on.
 KEEP
   _log "  Created test/bats/smoke/shared/${name}_env.bats"
 
@@ -389,16 +459,35 @@ MD
   done
   _log "  Created README.md + doc/ translations"
 
+  # TEST.md figures are DERIVED, never hardcoded: count `^@test` across the
+  # smoke specs just generated (same source of truth as sync-doc-counts.sh)
+  # so the total matches reality, and use a `### <path> (N)` level-3 heading
+  # the auto-counter can actually match (the pre-S4 scaffold shipped a stale
+  # "**1 test**" under a `##` heading the counter's regex skipped).
+  local _smoke_spec="test/bats/smoke/shared/${name}_env.bats"
+  local _smoke_total _shared_n
+  _smoke_total="$(_smoke_test_count)"
+  _shared_n="$(grep -cE '^@test' "${_smoke_spec}" 2>/dev/null || true)"
   cat > doc/test/TEST.md <<MD
 # TEST.md
 
-**1 test** total.
+Smoke tests: **${_smoke_total:-0} tests** total.
 
-## test/bats/smoke/shared/${name}_env.bats (1)
+Build-time smoke specs run inside each Dockerfile \`-test\` stage. Specs live
+under \`test/bats/smoke/{shared,devel-test,runtime-test}/\`; \`shared/\` runs on
+every \`-test\` stage, the per-stage folders hold stage-specific assertions.
+The figure above is the total \`@test\` count across all stage folders, kept
+in sync with \`grep -cE '^@test'\` (base's \`sync-doc-counts.sh\` source of
+truth) -- regenerate it when you add or remove specs.
+
+## Smoke specs
+
+### ${_smoke_spec} (${_shared_n:-0})
 
 | Test | Description |
 |------|-------------|
-| \`entrypoint.sh exists and is executable\` | Entrypoint check |
+| \`entrypoint.sh is installed and executable\` | Entrypoint present + executable |
+| \`bash is available on PATH\` | bash resolvable on PATH |
 MD
   _log "  Created doc/test/TEST.md"
 
