@@ -38,7 +38,7 @@ setup() {
 
 @test "release-worker.yaml: archive cp list keeps the paths that still ship" {
   # Companion guard so the removal does not over-prune the payload.
-  for _keep in 'Dockerfile' 'script/' '.hadolint.yaml' 'test/smoke/' '.base/' 'README.md' 'doc/'; do
+  for _keep in 'Dockerfile' 'script/' '.hadolint.yaml' 'test/bats/smoke/' '.base/' 'README.md' 'doc/'; do
     run grep -F "${_keep}" "${WF}"
     assert_success
   done

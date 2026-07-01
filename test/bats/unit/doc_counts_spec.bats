@@ -94,7 +94,7 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/test/bats/integration" \
              "${root}/test/bats/system" "${root}/test/bats/acceptance" \
-             "${root}/dist/test/smoke" "${root}/doc/test"
+             "${root}/dist/test/bats/smoke/shared" "${root}/doc/test"
     printf "@test \"u\" {\n:\n}\n" > "${root}/test/bats/unit/u_spec.bats"
     printf "@test \"i\" {\n:\n}\n" > "${root}/test/bats/integration/i_spec.bats"
     printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n@test \"s3\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"

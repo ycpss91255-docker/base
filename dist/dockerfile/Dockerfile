@@ -254,9 +254,16 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from template + repo-specific)
-COPY .base/dist/test/smoke/ /smoke_test/
-COPY test/smoke/ /smoke_test/
+# Smoke test (build-verification type). Per-stage selective COPY: only
+# the shared baseline + THIS stage's own specs, from both the template
+# (.base/dist/test/bats/smoke/) and the repo (test/bats/smoke/). No
+# whole-tree COPY, so the ephemeral -test image stays small and picks up
+# exactly the specs that apply to devel-test. Adding a stage = a folder
+# under smoke/<stage>/ + an analogous COPY block (see runtime-test).
+COPY .base/dist/test/bats/smoke/shared/     /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+COPY test/bats/smoke/shared/                /smoke_test/
+COPY test/bats/smoke/devel-test/            /smoke_test/
 
 ARG USER
 USER "${USER}"
@@ -517,8 +524,13 @@ RUN bats /smoke_test/
 # ENV BATS_LIB_PATH="/usr/lib/bats"
 # # Runtime-specific bats suite (e.g. assert installed CLIs resolve,
 # # entrypoint exits 0 on --help, ldd clean). Keep it CLI-only -- no GUI
-# # binaries that init QApplication / OGRE.
-# COPY test/smoke/ /smoke_test/
+# # binaries that init QApplication / OGRE. Same per-stage selective COPY
+# # as devel-test: only shared/ + this stage's runtime-test/, from both
+# # the template and the repo.
+# COPY .base/dist/test/bats/smoke/shared/       /smoke_test/
+# COPY .base/dist/test/bats/smoke/runtime-test/ /smoke_test/
+# COPY test/bats/smoke/shared/                  /smoke_test/
+# COPY test/bats/smoke/runtime-test/            /smoke_test/
 # # Flavour-specific runtime test deps are the consumer's job -- install
 # # them HERE on top of the common toolchain, e.g. for ROS:
 # #   RUN sudo apt-get update && \

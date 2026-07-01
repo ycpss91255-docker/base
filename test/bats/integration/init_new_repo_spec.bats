@@ -100,7 +100,7 @@ teardown() {
 
 @test "new repo: smoke test skeleton exists for the repo" {
   bash .base/dist/script/base/init.sh
-  assert [ -f "${REPO_DIR}/test/smoke/${REPO_NAME}_env.bats" ]
+  assert [ -f "${REPO_DIR}/test/bats/smoke/shared/${REPO_NAME}_env.bats" ]
 }
 
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {

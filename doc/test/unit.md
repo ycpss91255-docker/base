@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2076 tests**.
+Unit specs under `test/bats/unit/`: **2078 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1423,7 +1423,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (145)
+### test/bats/unit/template_spec.bats (147)
 
 | Test | Description |
 |------|-------------|
@@ -1443,9 +1443,11 @@ the host file content and the inherited stdout (preserving
 | `justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
 | `justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.test |
 | `Dockerfile.test-tools no longer installs make into the final image (single runner: just)` | dead make dependency stays out of final image |
-| `test/smoke/test_helper.bash exists` | Directory structure |
-| `test/smoke/script_help.bats exists` | Directory structure |
-| `test/smoke/display_env.bats exists` | Directory structure |
+| `dist smoke test_helper.bash exists under shared/` | Directory structure |
+| `dist smoke shared entrypoint spec exists under shared/` | Directory structure |
+| `dist smoke script_help.bats exists under devel-test/` | Directory structure |
+| `dist smoke display_env.bats exists under devel-test/` | Directory structure |
+| `old flat dist/test/smoke/ layout is gone` | Directory structure |
 | `test/bats/unit/ directory exists` | Directory structure |
 | `doc/readme/ directory exists` | Directory structure |
 | `doc/test/ directory exists` | Directory structure |
@@ -1739,8 +1741,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 ### test/bats/unit/smoke_helper_spec.bats (19)
 
 Exercises the runtime assertion helpers shipped in
-`test/smoke/test_helper.bash` (used by downstream-repo smoke specs via
-`load "${BATS_TEST_DIRNAME}/test_helper"`).
+`dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
+smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 
 | Test | Description |
 |------|-------------|
