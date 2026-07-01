@@ -83,7 +83,7 @@ _sync_test_md_index() {
   _i="$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
   _sy="$(_dir_test_count "${_root}" 'test/bats/system/**/*_spec.bats')"
   _a="$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
-  _sm="$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
+  _sm="$(_dir_test_count "${_root}" 'dist/test/bats/smoke/**/*.bats')"
   _tot=$(( _u + _i ))
   sed -i -E \
     "s/\*\*[0-9]+ tests\*\* total \([0-9]+ unit \+ [0-9]+ integration\)/**${_tot} tests** total (${_u} unit + ${_i} integration)/" \
@@ -114,7 +114,7 @@ _sync_doc_counts() {
   _sync_type_total "${_root}/doc/test/acceptance.md" \
     "$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
   _sync_type_total "${_root}/doc/test/smoke.md" \
-    "$(_dir_test_count "${_root}" 'dist/test/smoke/*.bats')"
+    "$(_dir_test_count "${_root}" 'dist/test/bats/smoke/**/*.bats')"
   _sync_test_md_index "${_root}"
 }
 

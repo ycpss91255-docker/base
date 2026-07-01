@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 #
-# Unit tests for test/smoke/test_helper.bash runtime assertion helpers.
+# Unit tests for dist/test/bats/smoke/shared/test_helper.bash runtime
+# assertion helpers.
 # These helpers are intended to be load-ed by per-repo smoke specs inside
 # the Docker `test` stage; here we exercise them in isolation under the
 # template's own CI.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  load "/source/dist/test/smoke/test_helper"
+  load "/source/dist/test/bats/smoke/shared/test_helper"
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"

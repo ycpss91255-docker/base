@@ -82,7 +82,7 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 graph TB
     subgraph base["base (shared repo)"]
         scripts["dist/.hadolint.yaml<br/>dist/script/justfile (consumer entry)<br/>dist/script/docker|base|template/"]
-        smoke["dist/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml (opt-in)"]
@@ -91,7 +91,7 @@ graph TB
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
         symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../ (per-sub symlinks)<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local (repo-owned)"]
-        repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
+        repo_test["test/bats/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
@@ -163,7 +163,7 @@ flowchart LR
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
 | `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
-| `dist/test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
+| `dist/test/bats/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
 | `test/bats/system/` | base self-tests, System level / Regression (runtime smoke gate, opt-in) |
@@ -176,7 +176,7 @@ vocabulary is ISTQB-aligned (levels Unit / Integration / System /
 Acceptance + the Smoke type); see
 [ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
 [ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
-category-first ADR-00000004). A consumer ships its own `test/smoke/`; base
+category-first ADR-00000004). A consumer ships its own `test/bats/smoke/`; base
 ships its own `test/bats/{unit,integration,system,acceptance}/`.
 
 | `.hadolint.yaml` | Shared Hadolint rules |
@@ -236,7 +236,7 @@ Notes:
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside
-  `test/smoke/<repo>_env.bats` see the same binaries / files a user would
+  `test/bats/smoke/<repo>_env.bats` see the same binaries / files a user would
   find after `docker run ... <repo>:devel`.
 - `Dockerfile.test-tools` builds the lint/test tool bundle (bats + shellcheck +
   hadolint). The downstream `test` stage consumes it through an `ARG
@@ -378,7 +378,7 @@ Notes:
 
 ### Smoke test helpers (for downstream repos)
 
-`test/smoke/test_helper.bash` (loaded by every smoke spec via
+`test/bats/smoke/test_helper.bash` (loaded by every smoke spec via
 `load "${BATS_TEST_DIRNAME}/test_helper"`) ships a small set of runtime
 assertion helpers. Downstream repos should prefer these over ad-hoc
 `[ -f ... ]` / `command -v` checks so failures produce decorated

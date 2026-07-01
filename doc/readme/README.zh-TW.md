@@ -79,7 +79,7 @@ Docker 執行。使用 `just <verb>` 入口前，請先在 host 安裝兩者：
 graph TB
     subgraph base["base（共用 repo）"]
         scripts["dist/.hadolint.yaml<br/>dist/script/justfile（consumer entry）<br/>dist/script/docker|base|template/"]
-        smoke["dist/test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
@@ -88,7 +88,7 @@ graph TB
     subgraph consumer["Docker Repo（例如 my_app）"]
         symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlinks）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 自有）"]
-        repo_test["test/smoke/<br/>app_env.bats（repo 專屬）"]
+        repo_test["test/bats/smoke/<br/>app_env.bats（repo 專屬）"]
         main_yaml["main.yaml<br/>→ 呼叫可重用 workflows"]
     end
 
@@ -160,7 +160,7 @@ flowchart LR
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
 | `config/` | Container 內部 shell 設定檔（bashrc、tmux、terminator、pip） |
 | `setup.conf` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
-| `dist/test/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
+| `dist/test/bats/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
 | `test/bats/unit/` | base 自身測試，unit（bats + kcov） |
 | `test/bats/integration/` | base 自身測試，init/upgrade 端對端 |
 | `test/bats/system/` | base 自身測試，System 層／Regression（runtime smoke gate，opt-in） |
@@ -170,7 +170,7 @@ flowchart LR
 （例如 `test/bats/unit/`）、linter 走 `test/lint/<tool>/` --
 新增一個工具就是開一個新資料夾，而非新增一個指令面。見
 [ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
-的 ADR-00000004）。consumer 出貨自己的 `test/smoke/`；base 出貨自己的
+的 ADR-00000004）。consumer 出貨自己的 `test/bats/smoke/`；base 出貨自己的
 `test/bats/{unit,integration,system,acceptance}/`。
 
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
@@ -203,7 +203,7 @@ flowchart LR
 說明：
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
-- `devel-test` 永遠從 `devel` 繼承，所以 `test/smoke/<repo>_env.bats` 裡的
+- `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的
   runtime assertion 所看到的二進位與檔案，就是使用者 `docker run ...
   <repo>:devel` 後會看到的內容。
 - `Dockerfile.test-tools` 建置 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 階段透過 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 預設 `test-tools:local`（對應本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 建到 host Docker daemon）。CI 則覆寫成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的預建 multi-arch image）,buildx 直接從 registry 拉對應架構的 bats / shellcheck / hadolint binary,避開 `docker-container` buildx driver 跨 step 不共享 image store 的問題。
@@ -318,7 +318,7 @@ List 欄位（`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*` /
 
 ### Smoke test helpers（供下游 repo 使用）
 
-`test/smoke/test_helper.bash`（每個 smoke spec 透過
+`test/bats/smoke/test_helper.bash`（每個 smoke spec 透過
 `load "${BATS_TEST_DIRNAME}/test_helper"` 載入）提供一組 runtime
 assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 `[ -f ... ]` / `command -v`，失敗時會輸出 decorated 診斷訊息直指缺少
