@@ -7,7 +7,7 @@
 #
 # 1. actionlint gate (original): an `actionlint` job runs
 #    rhysd/actionlint via Docker against the workflows tree, and the
-#    downstream jobs (test / integration-e2e / system) declare
+#    downstream jobs (test / acceptance / system) declare
 #    `needs:` on actionlint so they cannot start until actionlint
 #    passes.
 #
@@ -15,14 +15,14 @@
 #    `code_changed` + `system_relevant` outputs based on PR diff
 #    against the doc-only allow-list and system block-list; the
 #    `test` job always runs (required check) but short-circuits to
-#    SUCCESS on doc-only PRs; `integration-e2e` + `system` gate
+#    SUCCESS on doc-only PRs; `acceptance` + `system` gate
 #    via job-level `if:`. All three test-tools image builds use
 #    docker/build-push-action with shared `scope=test-tools` GHA cache.
 #
 # 3. ci-rollup aggregator: a single `ci-rollup` job aggregates
-#    [actionlint, classify, test, integration-e2e, system] under
+#    [actionlint, classify, test, acceptance, system] under
 #    `if: always`, treating SKIPPED as pass-equivalent for the two
-#    conditionally-gated jobs (integration-e2e + system). Branch
+#    conditionally-gated jobs (acceptance + system). Branch
 #    protection requires only `ci-rollup`, so sub-jobs
 #    shellcheck/hadolint, bats-unit/bats-integration) can join
 #    its `needs:` without further branch-protection churn.
@@ -142,16 +142,16 @@ setup() {
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
-@test "self-test.yaml: integration-e2e job declares needs on actionlint AND classify (#317)" {
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)" {
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
-@test "self-test.yaml: integration-e2e drives the container via just, not raw script/*.sh (#579)" {
+@test "self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)" {
   # A3: exercise the documented `just` entry points so a broken
   # container-ops justfile is caught (the user entry is just).
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'just docker build'
   assert_output --partial 'just docker run -d'
@@ -162,12 +162,12 @@ setup() {
   refute_output --partial './script/stop.sh'
 }
 
-@test "self-test.yaml: integration-e2e asserts the runnability contract (#579)" {
+@test "self-test.yaml: acceptance asserts the runnability contract (#579)" {
   # A1: the job must ASSERT results, not just run steps. Covers the
   # five-point contract: configured user (not initial/root), container
   # still running, wired ENTRYPOINT, usable ~/work mount, and full
   # teardown (container + project network) on stop.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'USER_NAME'
   assert_output --partial '/entrypoint.sh'
@@ -175,12 +175,12 @@ setup() {
   assert_output --partial '_default'
 }
 
-@test "self-test.yaml: integration-e2e exercises the remaining downstream just commands for real (#769)" {
+@test "self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)" {
   # Beyond the build/run -d/exec/stop core, the e2e must run each remaining
   # downstream verb with REAL execution (not --dry-run): the foreground run
   # variant, start (build + run), a real prune, an explicit setup re-run,
   # the base update check, and the base completions installer.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'just docker run id -un'
   assert_output --partial 'just docker start'
@@ -190,21 +190,36 @@ setup() {
   assert_output --partial 'just base completions install'
 }
 
-@test "self-test.yaml: integration-e2e documents setup-tui as intentionally out of scope (#769)" {
+@test "self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)" {
+  # Coverage gap: new.sh is unit-tested in isolation,
+  # but the `just template new <name>` RECIPE -- the template module
+  # wiring + the consumer symlink chain that resolves it -- is exercised
+  # nowhere. The acceptance job drives the REAL recipe in the scaffolded
+  # consumer and asserts the produced consumer artifact
+  # (script/local/<name>/ + its registration), i.e. from the consumer's
+  # chair (UAT). Placed here, not as a bats spec, because a faithful
+  # exercise needs the init.sh-scaffolded consumer this job already builds.
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'just template new'
+  assert_output --partial 'script/local/'
+}
+
+@test "self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)" {
   # setup-tui is interactive (TUI); it stays covered by tui_spec and is
   # NOT driven for real in the e2e. The job must say so, and must not try
   # to invoke it.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'setup-tui'
   refute_output --partial 'just docker setup-tui'
 }
 
-@test "self-test.yaml: integration-e2e runs as a native-runner matrix over amd64 + arm64 (#603)" {
+@test "self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)" {
   # A2: verify the runnability contract on BOTH arches via native
   # runners (no QEMU), mirroring the platform->runner convention in
   # build-worker / publish-worker / release-test-tools.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'fail-fast: false'
   assert_output --partial 'linux/amd64'
@@ -213,18 +228,18 @@ setup() {
   assert_output --partial 'ubuntu-24.04-arm'
 }
 
-@test "self-test.yaml: integration-e2e shards run on the matrix runner (#603)" {
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: acceptance shards run on the matrix runner (#603)" {
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'runs-on: ${{ matrix.runner }}'
 }
 
-@test "self-test.yaml: integration-e2e Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)" {
+@test "self-test.yaml: acceptance Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)" {
   # On the arm64 shard the test-tools:main pull must fetch the arm64
   # variant (test-tools is multi-arch); a hardcoded
   # linux/amd64 would resolve the wrong arch for the downstream
   # FROM ${TEST_TOOLS_IMAGE} build.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'docker pull --platform ${{ matrix.platform }}'
   refute_output --partial 'docker pull --platform linux/amd64'
@@ -260,8 +275,8 @@ setup() {
   assert_failure
 }
 
-@test "self-test.yaml: integration-e2e job-level if: gates on code_changed (#317)" {
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: acceptance job-level if: gates on code_changed (#317)" {
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
@@ -345,15 +360,15 @@ setup() {
   assert_output --partial 'build_local=false'
 }
 
-@test "self-test.yaml: integration-e2e job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+@test "self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'Obtain test-tools:local'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
   assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
 }
 
-@test "self-test.yaml: integration-e2e job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
+@test "self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
   # `./build.sh test` -> `docker compose build` whose `FROM
   # ${TEST_TOOLS_IMAGE}` resolves against the host docker daemon, not
   # against buildx's docker-container store. Keep the docker driver
@@ -362,7 +377,7 @@ setup() {
   # uncached (GHA cache requires docker-container), accepted because
   # the hot path is `docker pull :main` and the cold path matches
   # pre-P2 cost.
-  run awk '/^  integration-e2e:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'driver: docker'
 }
@@ -431,7 +446,7 @@ setup() {
   # The "PR changed Dockerfile.test-tools" decision is computed ONCE in
   # classify (its checkout is fetch-depth: 0, so the three-dot merge-base
   # resolves). The 6 image jobs (hadolint, bats-fragile, bats-integration,
-  # coverage, integration-e2e, system) used to repeat that diff on a
+  # coverage, acceptance, system) used to repeat that diff on a
   # shallow (fetch-depth: 1) checkout where no merge-base is reachable, so it
   # reported every file as changed and rebuilt the image on EVERY PR. They now
   # read needs.classify.outputs.testtools_changed instead -- so `git fetch
@@ -498,14 +513,14 @@ setup() {
 
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
-  # hadolint + bats-fragile + bats-integration + coverage + integration-e2e
+  # hadolint + bats-fragile + bats-integration + coverage + acceptance
   # + system so its result reflects every PR check. (ADR-8)
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -541,7 +556,7 @@ setup() {
   assert_output --partial 'needs.bats-integration.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
-  assert_output --partial 'needs.integration-e2e.result'
+  assert_output --partial 'needs.acceptance.result'
   assert_output --partial 'needs.system.result'
 }
 
@@ -574,7 +589,7 @@ setup() {
 }
 
 @test "self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)" {
-  # Same upstream pattern as the test/integration-e2e jobs so the
+  # Same upstream pattern as the test/acceptance jobs so the
   # actionlint workflow-validator gate still fires first, and the
   # doc-only short-circuit still skips lint runs.
   run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -625,14 +640,14 @@ setup() {
   refute_output --partial 'hadolint/hadolint-action'
 }
 
-@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + integration-e2e + system before publishing a tag (#376 + #377 + #677)" {
+@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
   # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]'
+  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────
