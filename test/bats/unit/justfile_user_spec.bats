@@ -204,6 +204,68 @@ teardown() {
   assert_output --partial "completions install --lang zh-TW"
 }
 
+# ── help coverage: recipe --help shim + namespace help recipe ──────────
+
+@test "just base update --help reaches upgrade.sh usage, not the check (#789)" {
+  # `update` is check-only; the *args --help shim must forward --help (usage)
+  # and must NOT run --check (the stub echoes its args, so we can tell them
+  # apart).
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base update --help
+  assert_success
+  assert_output --partial "upgrade --help"
+  refute_output --partial "--check"
+}
+
+@test "just base update -h reaches upgrade.sh usage (#789)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base update -h
+  assert_success
+  assert_output --partial "upgrade --help"
+}
+
+@test "just docker help + h alias list the docker verbs (#789)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker help
+  assert_success
+  assert_output --partial "build"
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker h
+  assert_success
+  assert_output --partial "build"
+}
+
+@test "just base help + h alias list the base verbs (#789)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base help
+  assert_success
+  assert_output --partial "upgrade"
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base h
+  assert_success
+  assert_output --partial "upgrade"
+}
+
+@test "just template help + h alias print the template usage (#789)" {
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template help
+  assert_success
+  assert_output --partial "just template new"
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template h
+  assert_success
+  assert_output --partial "just template new"
+}
+
+@test "dashed just <ns> --help errors but hints 'help' (documented just limit, #789)" {
+  # A dashed name cannot be a just recipe/alias, so `just <ns> --help` cannot be
+  # intercepted; with a `help` recipe present just emits a 'Did you mean help?'
+  # hint instead of a bare error. This is the documented namespace-help contract.
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker --help
+  assert_failure
+  assert_output --partial "help"
+}
+
+@test "just template new --help shows the recipe usage (recipe-level help, #789)" {
+  # A required-positional recipe still surfaces --help: just passes it through
+  # and new.sh prints its usage.
+  run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template new --help
+  assert_success
+  assert_output --partial "Usage: just template new"
+}
+
 @test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {
   # The entry imports script/local/justfile.local (`import?`); a group
   # registered there with a `mod?` line (path relative to script/local)

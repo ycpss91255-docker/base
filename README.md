@@ -191,6 +191,18 @@ ships its own `test/bats/{unit,integration,system,acceptance}/`.
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
+### Getting help (namespace vs recipe)
+
+`just` help works at two levels; the dashed `just <ns> --help` form is a
+documented `just` dispatch limitation, not a bug:
+
+| You want | Use | Notes |
+|---|---|---|
+| List a namespace's recipes | `just <ns>` **or** `just <ns> help` (`just <ns> h`) | e.g. `just docker help`, `just base help`. Bare `just <ns>` lists too. |
+| Help for one recipe | `just <ns> <recipe> --help` | e.g. `just docker build --help`, `just base upgrade --help`, `just base update --help` -- `--help` is forwarded to the backing script. |
+| List every namespace | `just` | Top-level overview. |
+| `just <ns> --help` | (avoid) | A dashed name cannot be a `just` recipe/alias, so this cannot be intercepted; `just` prints `Did you mean 'help'?` and points you at `just <ns> help`. |
+
 ### Wrapper UX cheat sheet (#291)
 
 Single canonical reference for what each user-facing script accepts.

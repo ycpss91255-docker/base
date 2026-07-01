@@ -61,12 +61,39 @@ setup() {
   [ -f "${_base}" ]
   run grep -E '^upgrade \*args:' "${_base}"
   assert_success
-  run grep -E '^update:' "${_base}"
+  # `update` takes *args purely as a --help shim: it still runs the check, so
+  # the signature is `update *args:` not the old argless `update:`.
+  run grep -E '^update \*args:' "${_base}"
   assert_success
   run grep -F './.base/dist/script/base/upgrade.sh {{args}}' "${_base}"
   assert_success
   run grep -F './.base/dist/script/base/upgrade.sh --check' "${_base}"
   assert_success
+}
+
+@test "base update recipe forwards -h|--help to upgrade.sh usage without the check (#789)" {
+  # The --help shim: `just base update --help` must reach upgrade.sh --help
+  # (usage) rather than running the network check or erroring on a dashed name.
+  local _base=/source/dist/script/base/justfile.base
+  run grep -F 'exec ./.base/dist/script/base/upgrade.sh --help' "${_base}"
+  assert_success
+  run grep -E '\-h\|--help' "${_base}"
+  assert_success
+}
+
+@test "every shipped namespace module ships a help recipe + h alias (#789)" {
+  # Namespace-level help within just's module limits: `just <ns> help` /
+  # `just <ns> h` list the namespace (dashed `just <ns> --help` cannot be a
+  # recipe; with `help` present just hints "Did you mean 'help'?").
+  local _m
+  for _m in /source/dist/script/docker/justfile.docker \
+            /source/dist/script/base/justfile.base \
+            /source/dist/script/template/justfile.template; do
+    run grep -E '^help:' "${_m}"
+    assert_success
+    run grep -F 'alias h := help' "${_m}"
+    assert_success
+  done
 }
 
 @test "base module declares init + completions recipes (#653, ADR-00000011)" {

@@ -37,6 +37,16 @@ set working-directory := '../..'
 default:
     @just --justfile '{{source_file()}}' --list
 
+# `help` is a named twin of `default` reachable as `just docker help` (and
+# `just docker h`), since the dashed `just docker --help` cannot be a just
+# recipe/alias -- with a `help` recipe present just then hints "Did you mean
+# 'help'?" instead of a bare error. Bare `just docker` still lists via `default`.
+alias h := help
+
+# just docker help (or `just docker h`) -> list the docker verbs (same as `just docker`)
+help:
+    @just --justfile '{{source_file()}}' --list
+
 # Build devel image (e.g. just docker build test  |  just docker build --no-cache)
 build *args:
     ./script/build.sh {{args}}

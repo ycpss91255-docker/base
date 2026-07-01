@@ -54,9 +54,13 @@ resolution; duplicate top-level recipe name = hard error; `mod?` =
 namespace; `import?`/`mod?` of a missing file is not an error).
 Additionally verified for this decision:
 
-- `just <ns> <recipe> --help` and `just <ns> --help` reach the module;
-  per-recipe help and `--lang` are surfaced by the recipe forwarding the
-  flag to its backing script (the wrappers already localise via `--lang`).
+- `just <ns> <recipe> --help` reaches the module: per-recipe help and
+  `--lang` are surfaced by the recipe forwarding the flag to its backing
+  script (the wrappers already localise via `--lang`). The dashed
+  `just <ns> --help` does **not** reach the module -- a dashed name cannot
+  be a `just` recipe/alias, so it is parsed as a recipe lookup that errors;
+  namespace help is `just <ns>` or the `just <ns> help` recipe instead (see
+  §6, reconciled by #789).
 - Dynamic shell completion (`clap_complete`, `JUST_COMPLETE=<shell> just`)
   is **module-aware** -- it drills into `just docker <tab>` and
   `just test lint <tab>`. The distro `just.fish` (shipped by the *fish*
@@ -215,8 +219,12 @@ achievable; the mechanism is (verified):
 - **recipe** (`just docker build`): `--help` and `--lang <code>` are
   forwarded to the backing script via `{{args}}` and parsed there (the
   docker wrappers already do this).
-- **namespace** (`just docker`): bare invocation runs the module `default`
-  recipe, which prints help; a flag after the namespace does not work.
+- **namespace** (`just docker`): help is `just <ns>` (bare invocation runs
+  the module `default`, which lists) **or** the explicit `just <ns> help`
+  recipe (`just <ns> h` alias) every shipped module now carries (#789). The
+  dashed `just <ns> --help` does not work -- a dashed name cannot be a
+  recipe/alias, so it is not intercepted; with a `help` recipe present `just`
+  emits a `Did you mean 'help'?` hint instead of a bare error.
 - **entry** (`just`): `just --list` / a localised overview.
 - Language at the namespace/entry level comes from the `SETUP_LANG` /
   `LANG` **env** (which `i18n.sh _resolve_lang` already honours), not a
@@ -225,8 +233,14 @@ achievable; the mechanism is (verified):
 **i18n scope -- "anything human-facing".** Localised strings + `--lang`
 apply only to the human-facing namespaces: **`docker`, `base`,
 `template`**. **`test` and `release` are English-only** (machine / CI /
-automation). `--help` exists for every recipe and namespace (English
-baseline) regardless.
+automation). Help exists at every level (English baseline) regardless, but
+via level-specific forms, not a uniform `--help` flag (#789): recipe help is
+`just <ns> <recipe> --help` (forwarded to the backing script); namespace help
+is `just <ns>` or the `just <ns> help` recipe (`h` alias) -- the dashed
+`just <ns> --help` is a documented `just` dispatch limitation that yields a
+`Did you mean 'help'?` hint. Every shipped recipe accepts `-h|--help`; where a
+recipe hardcodes its args (e.g. `base update`, which always runs the check) a
+small shim forwards `--help` to the backing usage without running the action.
 
 The namespace `default` help and all recipe scripts share **one CLI
 runtime lib** -- this is #565's `lib/wrapper.sh` runtime (arg pre-pass,
