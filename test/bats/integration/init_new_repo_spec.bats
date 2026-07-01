@@ -103,6 +103,32 @@ teardown() {
   assert [ -f "${REPO_DIR}/test/bats/smoke/shared/${REPO_NAME}_env.bats" ]
 }
 
+@test "new repo: smoke tree is per-stage tool-first (shared/devel-test/runtime-test), not flat test/smoke/ (S4 items 5,8)" {
+  bash .base/dist/script/base/init.sh
+  # Tool-first bats layer, one folder per Dockerfile -test stage, mirroring
+  # .base/dist/test/bats/smoke/. shared/ runs on every -test stage; the
+  # per-stage folders start as reserved placeholders so the Dockerfile's
+  # per-stage selective COPY resolves before the consumer adds specs.
+  assert [ -d "${REPO_DIR}/test/bats/smoke/shared" ]
+  assert [ -f "${REPO_DIR}/test/bats/smoke/devel-test/.gitkeep" ]
+  assert [ -f "${REPO_DIR}/test/bats/smoke/runtime-test/.gitkeep" ]
+  # The retired flat layout must NOT be scaffolded.
+  assert [ ! -d "${REPO_DIR}/test/smoke" ]
+}
+
+@test "new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)" {
+  bash .base/dist/script/base/init.sh
+  # The generated repo spec load-s test_helper; that name resolves only
+  # because each -test Dockerfile stage COPYs .base/dist/test/bats/smoke/
+  # shared/ (which ships test_helper.bash) alongside the repo's own
+  # test/bats/smoke/shared/ into /smoke_test/. Assert the load line and
+  # the shipped helper both exist so the build-time resolution holds.
+  run grep -F 'load "${BATS_TEST_DIRNAME}/test_helper"' \
+    "${REPO_DIR}/test/bats/smoke/shared/${REPO_NAME}_env.bats"
+  assert_success
+  assert [ -f "${REPO_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash" ]
+}
+
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.github/workflows/main.yaml" ]
@@ -166,6 +192,49 @@ teardown() {
 @test "new repo: doc/test/TEST.md exists" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/doc/test/TEST.md" ]
+}
+
+@test "new repo: TEST.md total matches the actual generated @test count (no stale 1 test) (S4 item 6)" {
+  bash .base/dist/script/base/init.sh
+  local _test_md="${REPO_DIR}/doc/test/TEST.md"
+  assert [ -f "${_test_md}" ]
+  # Source of truth: grep -cE '^@test' across the generated smoke specs,
+  # identical to base's sync-doc-counts.sh counting mechanism. The
+  # hardcoded "**1 test** total" the pre-S4 scaffold shipped was both a
+  # wrong figure (the spec carries 2 @tests) AND under a `##` heading the
+  # auto-counter's `### <path> (N)` regex cannot match.
+  local _actual=0 _f _c
+  shopt -s globstar
+  for _f in "${REPO_DIR}"/test/bats/smoke/**/*.bats; do
+    [[ -f "${_f}" ]] || continue
+    _c="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
+    _actual=$(( _actual + ${_c:-0} ))
+  done
+  shopt -u globstar
+  # The generated total must equal the real @test count.
+  run grep -E "\*\*${_actual} tests?\*\*" "${_test_md}"
+  assert_success
+  # And the stale hardcoded "1 test" figure must be gone (guard against
+  # regressing to the drifted constant). Only meaningful when the real
+  # count is not itself 1.
+  if [[ "${_actual}" -ne 1 ]]; then
+    run grep -F '**1 test**' "${_test_md}"
+    assert_failure
+  fi
+}
+
+@test "new repo: TEST.md per-file heading is level-3 (### path (N)) so sync-doc-counts can match (S4 item 6)" {
+  bash .base/dist/script/base/init.sh
+  local _test_md="${REPO_DIR}/doc/test/TEST.md"
+  # sync-doc-counts.sh's _sync_headings only rewrites `### <relpath> (N)`
+  # headings; the pre-S4 scaffold used a `## test/bats/... (1)` level-2
+  # heading the regex could never match. Assert a level-3 heading that
+  # points at the generated spec with its real @test count.
+  local _spec="test/bats/smoke/shared/${REPO_NAME}_env.bats"
+  local _n
+  _n="$(grep -cE '^@test' "${REPO_DIR}/${_spec}" 2>/dev/null || true)"
+  run grep -E "^### ${_spec} \\(${_n}\\)$" "${_test_md}"
+  assert_success
 }
 
 @test "new repo: doc/changelog/CHANGELOG.md exists" {
@@ -254,6 +323,45 @@ teardown() {
   mkdir -p "${REPO_DIR}/script/local"
   printf "mod? deploy 'deploy/justfile.deploy'\n" > "${REPO_DIR}/script/local/justfile.local"
   bash .base/dist/script/base/init.sh
+  run cat "${REPO_DIR}/script/local/justfile.local"
+  assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
+}
+
+@test "new repo: script/local/ seeds a bash companion template alongside justfile.local (S4 item 7)" {
+  bash .base/dist/script/base/init.sh
+  # The skel/ pair pattern ships both a justfile + a .sh; the seeded
+  # script/local/ mirrors that so a fresh repo has a ready-to-edit bash
+  # template next to the justfile.local registry. REPO-OWNED (a real file,
+  # not a symlink into the subtree) + executable so it can back a recipe.
+  local _sh="${REPO_DIR}/script/local/local.sh"
+  assert [ -f "${_sh}" ]
+  assert [ ! -L "${_sh}" ]
+  assert [ -x "${_sh}" ]
+  # Valid bash starter: shebang + strict mode.
+  run head -n 1 "${_sh}"
+  assert_output --partial "bash"
+  run grep -F 'set -euo pipefail' "${_sh}"
+  assert_success
+}
+
+@test "new repo: init.sh preserves a pre-existing script/local/local.sh (no clobber, S4 item 7)" {
+  mkdir -p "${REPO_DIR}/script/local"
+  printf '#!/usr/bin/env bash\n# user edits\necho custom\n' \
+    > "${REPO_DIR}/script/local/local.sh"
+  bash .base/dist/script/base/init.sh
+  run cat "${REPO_DIR}/script/local/local.sh"
+  assert_output --partial "user edits"
+}
+
+@test "new repo: init.sh seeds local.sh even when justfile.local already exists (independent guards, S4 item 7)" {
+  # An existing repo upgrading from a pre-S4 base already carries
+  # justfile.local but no local.sh; the seed must not short-circuit on the
+  # justfile.local guard and skip the companion.
+  mkdir -p "${REPO_DIR}/script/local"
+  printf "mod? deploy 'deploy/justfile.deploy'\n" > "${REPO_DIR}/script/local/justfile.local"
+  bash .base/dist/script/base/init.sh
+  assert [ -f "${REPO_DIR}/script/local/local.sh" ]
+  # The pre-existing registry is still untouched.
   run cat "${REPO_DIR}/script/local/justfile.local"
   assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
 }
