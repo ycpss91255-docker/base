@@ -12,8 +12,9 @@ Integration specs under `test/bats/integration/`: **94 tests**.
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
-**Level 2** equivalent runs as the `integration-e2e` job in
-`.github/workflows/self-test.yaml`, which has access to a Docker daemon on
+**Level 2** equivalent runs as the `acceptance` job in
+`.github/workflows/self-test.yaml` (the host-driven consumer/UX checks;
+see [acceptance.md](acceptance.md)), which has access to a Docker daemon on
 the host runner. It drives the documented `just` verbs with REAL execution
 on native amd64 + arm64: the build / run -d / exec / stop runnability core
 (#579/#603) plus (#769) the foreground `run` command variant, `start`

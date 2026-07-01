@@ -57,18 +57,10 @@ system:
 clean:
     rm -rf coverage/
 
-# Base-management recipes (relocate to the `base` namespace in).
-# Initialize repo (new or existing)
-init:
-    ./init.sh
-
-# Upgrade template subtree (e.g. just test upgrade v0.30.0; empty = latest)
-upgrade *args:
-    ./upgrade.sh {{args}}
-
-# Check for a newer template version (exit 0 = up-to-date or available; non-1 = error)
-upgrade-check:
-    @./upgrade.sh --check || [ $? -eq 1 ]
+# Base-management recipes (init / upgrade / upgrade-check) were removed:
+# ADR-00000011 §8 relocated init.sh / upgrade.sh to dist/script/base/ and
+# the `base` namespace supersedes them -- use `just base init`,
+# `just base upgrade [vX.Y.Z]`, `just base update` (the apt-style check).
 
 # just test sync-docs -> regenerate doc/test/*.md count figures from the specs
 # (grep -c '^@test'), so the per-spec headings + per-type/grand totals stop

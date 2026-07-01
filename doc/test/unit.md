@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2080 tests**.
+Unit specs under `test/bats/unit/`: **2084 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -403,7 +403,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/self_test_yaml_spec.bats (73)
+### test/bats/unit/self_test_yaml_spec.bats (74)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1063,7 +1063,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/bats/unit/justfile_user_spec.bats (18)
+### test/bats/unit/justfile_user_spec.bats (20)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -1095,7 +1095,7 @@ guard + the release smoke check).
 | `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help` | #633 -- module default recipe |
 
-### test/bats/unit/template_new_spec.bats (7)
+### test/bats/unit/template_new_spec.bats (9)
 
 Unit tests for the repo-local command-group scaffolder
 `dist/script/template/new.sh` (#633, closes #594). Runs `new.sh`
@@ -1423,7 +1423,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (147)
+### test/bats/unit/template_spec.bats (146)
 
 | Test | Description |
 |------|-------------|
