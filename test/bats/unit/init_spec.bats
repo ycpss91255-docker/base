@@ -683,3 +683,36 @@ EOF
   refute_output --partial "exited non-zero"
   refute_output --partial "Skipping setup.sh"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _smoke_test_count (S4 item 6 -- derived TEST.md figure source of truth)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)" {
+  _source_init
+  local _wd="${TMP_REPO}/count_repo"
+  mkdir -p "${_wd}/test/bats/smoke/shared" \
+           "${_wd}/test/bats/smoke/devel-test" \
+           "${_wd}/test/bats/smoke/runtime-test"
+  printf '@test "a" {\n  true\n}\n@test "b" {\n  true\n}\n' \
+    > "${_wd}/test/bats/smoke/shared/env.bats"
+  printf '@test "c" {\n  true\n}\n' \
+    > "${_wd}/test/bats/smoke/devel-test/extra.bats"
+  # .gitkeep placeholders carry no @test and must not inflate the count.
+  : > "${_wd}/test/bats/smoke/runtime-test/.gitkeep"
+  cd "${_wd}"
+  run _smoke_test_count
+  assert_success
+  assert_output "3"
+}
+
+@test "_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)" {
+  _source_init
+  local _wd="${TMP_REPO}/empty_repo"
+  mkdir -p "${_wd}/test/bats/smoke/shared"
+  : > "${_wd}/test/bats/smoke/shared/.gitkeep"
+  cd "${_wd}"
+  run _smoke_test_count
+  assert_success
+  assert_output "0"
+}

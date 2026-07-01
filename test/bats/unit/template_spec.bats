@@ -104,21 +104,17 @@ setup() {
   assert_success
 }
 
-@test "justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh" {
-  # `just test upgrade [vX.Y.Z]` is the documented entry point.
-  # The recipe forwards {{args}} to ./upgrade.sh so an empty arg resolves
-  # to "latest" and a set arg pins a specific tag -- no VAR=VALUE token,
-  # which is the whole point of moving off make.
-  run grep -F './upgrade.sh {{args}}' /source/script/test/justfile.test
-  assert_success
-}
-
-@test "justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Same wrap as the downstream justfile (regression): the runner
-  # must not mistake exit 1 (update available) for a real error.
-  run grep -E '\./upgrade\.sh --check \|\| \[ \$\? -eq 1 \]' \
-      /source/script/test/justfile.test
-  assert_success
+@test "justfile.test carries no stale init/upgrade recipes at nonexistent root scripts (#779)" {
+  # ADR-00000011 §8 relocated init.sh / upgrade.sh from the repo root to
+  # dist/script/base/, and the `base` namespace (`just base init` /
+  # `just base upgrade` / `just base update`) supersedes the former
+  # `test init` / `test upgrade` / `test upgrade-check` recipes. Those
+  # recipes still pointed at the vanished root ./init.sh / ./upgrade.sh,
+  # so they failed immediately if invoked. Guard: justfile.test must not
+  # reference the relocated root scripts (self recipes resolve to real
+  # targets).
+  run grep -E '\./(init|upgrade)\.sh' /source/script/test/justfile.test
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════

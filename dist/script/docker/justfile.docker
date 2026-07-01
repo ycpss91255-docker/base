@@ -55,8 +55,32 @@ build *args:
 run *args:
     ./script/run.sh {{args}}
 
-# Build + run in one step (e.g. just start  |  just start --no-cache)
+# Build + run in one step (e.g. just start  |  just start --no-cache).
+# `-h|--help` short-circuits with the composite-verb usage and exits
+# WITHOUT building or running -- otherwise --help would forward to
+# build.sh (prints its help, exit 0) and the recipe would run.sh anyway.
 start *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case " {{args}} " in
+      *" -h "*|*" --help "*)
+        cat <<'USAGE'
+    Usage: just docker start [BUILD FLAGS...]
+
+      Build the devel image (build.sh) then run it interactively (run.sh)
+      in one step. Build flags forward to the build stage; the run stage
+      takes no extra args here.
+
+        just docker start                build, then run
+        just docker start --no-cache     rebuild from scratch, then run
+        just docker start -t TARGET      build a target, then run
+
+      See `just docker build --help` / `just docker run --help` for the
+      full per-stage flag lists.
+    USAGE
+        exit 0
+        ;;
+    esac
     ./script/build.sh {{args}}
     ./script/run.sh
 

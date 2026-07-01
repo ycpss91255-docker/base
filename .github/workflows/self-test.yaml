@@ -679,17 +679,25 @@ jobs:
           path: test/bats/.shard-weights
           key: shard-weights-${{ github.run_id }}
 
-  integration-e2e:
-    name: Integration E2E (${{ matrix.platform }})
+  acceptance:
+    name: Acceptance (${{ matrix.platform }})
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
+    # Acceptance level (ISTQB, ADR-00000018): verify what the downstream
+    # CONSUMER receives -- scaffold a synthesized downstream repo via
+    # init.sh, then drive the delivered framework + its UX (`just docker`
+    # / `just base` / `just template` verbs, help, completion, generated
+    # layout) from the consumer's chair (UAT + OAT). This is distinct from
+    # the `system` job, which exercises base's OWN image lifecycle +
+    # build-gate (System level). See doc/test/acceptance.md.
+    #
     # A2 (#603): verify the init.sh -> build -> run -> exec -> stop
     # runnability contract on BOTH arches via native runners.
     # Static 2-entry matrix mirroring the platform->runner convention in
     # build-worker / publish-worker / release-test-tools (#587); a shared
     # platform->runner single-source is a follow-up in that umbrella.
     # ci-rollup aggregates the matrixed job through
-    # needs.integration-e2e.result (all shards must succeed), so no
+    # needs.acceptance.result (all shards must succeed), so no
     # rollup change is needed.
     strategy:
       fail-fast: false
@@ -1039,6 +1047,67 @@ jobs:
             exit 1
           fi
 
+      - name: Scaffold a repo-local command group via `just template new` (#785)
+        working-directory: ${{ env.REPO_DIR }}
+        # Acceptance coverage (#785 / QA item 10): `new.sh` is unit-tested in
+        # isolation, but the `just template new <name>` RECIPE -- the
+        # `template` namespace wiring and the consumer symlink chain that
+        # resolves it -- is exercised nowhere. Drive the REAL recipe in the
+        # scaffolded consumer and assert the produced consumer artifact: the
+        # scaffolded group dir + files, the registry entry, and that the new
+        # group is actually dispatchable through `just` afterwards (UAT).
+        run: |
+          set -euo pipefail
+          name="deploy"
+          # Guard against a false green: the group must not pre-exist.
+          if [[ -e "script/local/${name}" ]]; then
+            echo "ERROR: script/local/${name} already exists before scaffolding"
+            exit 1
+          fi
+
+          just template new "${name}"
+
+          # (1) the scaffolded group dir + its two files exist, and the
+          # command script is executable.
+          if [[ ! -f "script/local/${name}/justfile.${name}" \
+                || ! -x "script/local/${name}/${name}.sh" ]]; then
+            echo "ERROR: just template new did not scaffold script/local/${name}/"
+            ls -la "script/local/${name}" || true
+            exit 1
+          fi
+          # (2) __NAME__ placeholders were substituted (no leftover token).
+          if grep -RqF '__NAME__' "script/local/${name}/"; then
+            echo "ERROR: scaffolded files still contain the __NAME__ placeholder"
+            exit 1
+          fi
+          # (3) the group is registered in the repo-owned registry.
+          if ! grep -qF "mod? ${name} '${name}/justfile.${name}'" \
+               script/local/justfile.local; then
+            echo "ERROR: group '${name}' not registered in script/local/justfile.local"
+            cat script/local/justfile.local || true
+            exit 1
+          fi
+          # (4) the freshly-registered group resolves through the consumer
+          # entry: `just --list ${name}` lists the scaffolded module's
+          # example `hello` recipe (proves the module + registry wiring, no
+          # side effect).
+          if ! just --list "${name}" | grep -qw 'hello'; then
+            echo "ERROR: 'just --list ${name}' does not resolve the scaffolded module"
+            just --list "${name}" || true
+            just --list || true
+            exit 1
+          fi
+          # (5) the strongest consumer-chair assertion: actually RUN the
+          # scaffolded example recipe end-to-end -- it cd's into the module
+          # dir and execs the generated ./${name}.sh, whose __NAME__ was
+          # substituted, so the greeting must name the group.
+          out="$(just "${name}" hello)"
+          echo "${out}"
+          if [[ "${out}" != *"hello from the ${name} group"* ]]; then
+            echo "ERROR: 'just ${name} hello' did not run the scaffolded recipe"
+            exit 1
+          fi
+
   system:
     name: System Regression Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify]
@@ -1136,7 +1205,7 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # bats-integration / coverage / integration-e2e / system) carry
+    # bats-integration / coverage / acceptance / system) carry
     # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
     # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
     # for those, otherwise doc-only PRs cannot merge.
@@ -1150,7 +1219,7 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]
+    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1164,7 +1233,7 @@ jobs:
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
-          INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
+          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
         run: |
           set -euo pipefail
@@ -1176,8 +1245,8 @@ jobs:
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
           echo "coverage:         ${COVERAGE_RESULT}"
           echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
-          echo "integration-e2e:  ${INTEGRATION_RESULT}"
-          echo "system:      ${SYSTEM_RESULT}"
+          echo "acceptance:       ${ACCEPTANCE_RESULT}"
+          echo "system:           ${SYSTEM_RESULT}"
           fail=0
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
@@ -1185,13 +1254,13 @@ jobs:
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
                    "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
-                   "${INTEGRATION_RESULT}" "${SYSTEM_RESULT}"; do
+                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]
+    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
