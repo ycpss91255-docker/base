@@ -268,17 +268,25 @@ _create_new_repo() {
   chmod +x script/entrypoint.sh
   _log "  Created script/entrypoint.sh"
 
-  # test/smoke/<name>_env.bats
-  mkdir -p test/smoke
-  cat > "test/smoke/${name}_env.bats" <<BATS
+  # test/bats/smoke/<stage>/ -- per-Dockerfile-stage smoke tree, tool-first
+  # (bats layer), mirroring .base/dist/test/bats/smoke/. shared/ runs on
+  # every -test stage; devel-test/ (and runtime-test/ when the runtime
+  # split is enabled) hold stage-specific specs. The repo-specific env
+  # spec asserts entrypoint + bash, both present in every stage, so it
+  # lands under shared/. devel-test/ starts empty (a placeholder) so the
+  # Dockerfile's per-stage COPY resolves before the consumer adds specs.
+  mkdir -p test/bats/smoke/shared test/bats/smoke/devel-test
+  cat > "test/bats/smoke/shared/${name}_env.bats" <<BATS
 #!/usr/bin/env bats
 #
 # Repo-specific runtime smoke tests. Exercise the \`devel\` image built
-# from this repo's Dockerfile, via the \`test\` stage. Use the shared
+# from this repo's Dockerfile, via the \`devel-test\` stage. Use the shared
 # helpers in test_helper.bash (assert_cmd_installed, assert_file_exists,
 # assert_dir_exists, assert_file_owned_by, assert_pip_pkg, ...) to keep
 # assertions terse. Add one assertion per meaningful installation
-# artifact.
+# artifact. Assertions here run on EVERY -test stage (shared/), so keep
+# them to the universal surface; put stage-specific checks under
+# test/bats/smoke/<stage>/.
 
 setup() {
   load "\${BATS_TEST_DIRNAME}/test_helper"
@@ -293,7 +301,11 @@ setup() {
   assert_cmd_installed bash
 }
 BATS
-  _log "  Created test/smoke/${name}_env.bats"
+  cat > test/bats/smoke/devel-test/.gitkeep <<'KEEP'
+# Reserved for devel-test-only smoke specs. Empty until a devel-test
+# specific assertion is added; the shared/ baseline still runs here.
+KEEP
+  _log "  Created test/bats/smoke/shared/${name}_env.bats"
 
   # .github/workflows/main.yaml
   mkdir -p .github/workflows
@@ -382,7 +394,7 @@ MD
 
 **1 test** total.
 
-## test/smoke/${name}_env.bats (1)
+## test/bats/smoke/shared/${name}_env.bats (1)
 
 | Test | Description |
 |------|-------------|
