@@ -27,14 +27,36 @@ set working-directory := '../..'
 default:
     @just --justfile '{{source_file()}}' --list
 
+# `help` is a named twin of `default` reachable as `just base help` (and
+# `just base h`), since the dashed `just base --help` cannot be a just
+# recipe/alias -- with a `help` recipe present just then hints "Did you mean
+# 'help'?" instead of a bare error. Bare `just base` still lists via `default`.
+alias h := help
+
+# just base help (or `just base h`) -> list the base verbs (same as `just base`)
+help:
+    @just --justfile '{{source_file()}}' --list
+
 # just base upgrade [vX.Y.Z] -> pull the .base subtree (empty = latest)
 upgrade *args:
     ./.base/dist/script/base/upgrade.sh {{args}}
 
-# just base update -> report whether a newer base tag is available
-# (apt-style; exit 0 = up-to-date or update available, non-1 = real error)
-update:
-    @./.base/dist/script/base/upgrade.sh --check || [ $? -eq 1 ]
+# `*args` on `update` is a `--help` shim only: update always runs the check
+# and never upgrades, so non-help args are ignored; `-h|--help` reaches
+# upgrade.sh's usage WITHOUT the network check (a dashed name cannot be a just
+# recipe, so the entry cannot intercept `just base update --help` -- the recipe
+# does). The blank line below detaches this rationale from the --list doc.
+
+# just base update -> report whether a newer base tag is available (apt-style)
+update *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for _a in {{args}}; do
+      case "${_a}" in
+        -h|--help) exec ./.base/dist/script/base/upgrade.sh --help ;;
+      esac
+    done
+    ./.base/dist/script/base/upgrade.sh --check || [ "$?" -eq 1 ]
 
 # just base init -> (re-)wire repo symlinks + .gitignore
 init *args:
