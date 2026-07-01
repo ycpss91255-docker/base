@@ -125,16 +125,24 @@ setup() {
 # Structure: test directory layout
 # ════════════════════════════════════════════════════════════════════
 
-@test "test/smoke/test_helper.bash exists" {
-  assert [ -f /source/dist/test/smoke/test_helper.bash ]
+@test "dist smoke test_helper.bash exists under shared/" {
+  assert [ -f /source/dist/test/bats/smoke/shared/test_helper.bash ]
 }
 
-@test "test/smoke/script_help.bats exists" {
-  assert [ -f /source/dist/test/smoke/script_help.bats ]
+@test "dist smoke shared entrypoint spec exists under shared/" {
+  assert [ -f /source/dist/test/bats/smoke/shared/entrypoint.bats ]
 }
 
-@test "test/smoke/display_env.bats exists" {
-  assert [ -f /source/dist/test/smoke/display_env.bats ]
+@test "dist smoke script_help.bats exists under devel-test/" {
+  assert [ -f /source/dist/test/bats/smoke/devel-test/script_help.bats ]
+}
+
+@test "dist smoke display_env.bats exists under devel-test/" {
+  assert [ -f /source/dist/test/bats/smoke/devel-test/display_env.bats ]
+}
+
+@test "old flat dist/test/smoke/ layout is gone" {
+  assert [ ! -d /source/dist/test/smoke ]
 }
 
 @test "test/bats/unit/ directory exists" {
