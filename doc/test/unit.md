@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2081 tests**.
+Unit specs under `test/bats/unit/`: **2082 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1063,7 +1063,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/bats/unit/justfile_user_spec.bats (18)
+### test/bats/unit/justfile_user_spec.bats (20)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -1081,6 +1081,8 @@ guard + the release smoke check).
 | `just docker exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
 | `just docker run / stop / prune / setup forward` | wrapper dispatch |
 | `just docker setup-tui forwards to setup_tui.sh` | hyphenated recipe |
+| `just docker start --help prints composite usage and does NOT build or run` | #779 -- composite verb `--help` short-circuits before build.sh/run.sh |
+| `just docker start -h short-circuits like --help` | #779 -- `-h` alias short-circuits |
 | `just base upgrade forwards to .base/upgrade.sh` | #652 -- base ns upgrade dispatch |
 | `just base update runs upgrade.sh --check` | #652 -- apt-aligned check |
 | `just base init forwards to .base/init.sh` | #653 -- base ns init dispatch |
@@ -1423,7 +1425,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (147)
+### test/bats/unit/template_spec.bats (146)
 
 | Test | Description |
 |------|-------------|
@@ -1440,8 +1442,7 @@ the host file content and the inherited stdout (preserving
 | `justfile.test has lint recipe` | just recipe |
 | `justfile.test lint recipe forwards args + runs all linters by default (#650)` | `lint *args` forwards --shellcheck/--hadolint |
 | `justfile.test has coverage recipe` | just recipe |
-| `justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
-| `justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.test |
+| `justfile.test carries no stale init/upgrade recipes at nonexistent root scripts (#779)` | #779 -- stale init/upgrade/upgrade-check removed; superseded by the `base` namespace |
 | `Dockerfile.test-tools no longer installs make into the final image (single runner: just)` | dead make dependency stays out of final image |
 | `dist smoke test_helper.bash exists under shared/` | Directory structure |
 | `dist smoke shared entrypoint spec exists under shared/` | Directory structure |
