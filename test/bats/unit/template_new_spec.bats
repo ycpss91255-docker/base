@@ -82,3 +82,35 @@ teardown() {
   assert_failure
   assert_output --partial "usage"
 }
+
+@test "new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)" {
+  # Regression: init.sh seeds script/local/justfile.local with a
+  # COMMENTED example `#   mod? deploy 'deploy/justfile.deploy'`. The
+  # idempotency guard used `grep -qF` (substring), which matched that
+  # comment line, so `just template new deploy` -- the literal documented
+  # example name -- reported "already registered" and appended NO real
+  # mod? line, leaving `just deploy` undispatchable. The guard must match
+  # a whole real registration line, not a commented example.
+  mkdir -p "${SANDBOX}/script/local"
+  cat > "${SANDBOX}/script/local/justfile.local" <<'REG'
+# Repo-local just command groups (registry).
+#
+#   mod? deploy 'deploy/justfile.deploy'
+#
+# then `just deploy <recipe>` runs it.
+REG
+  run bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
+  assert_success
+  # A real (line-start, non-commented) registration line must now exist.
+  run grep -Ec "^mod\\? deploy 'deploy/justfile.deploy'\$" "${SANDBOX}/script/local/justfile.local"
+  assert_output "1"
+}
+
+@test "new.sh source ships with the executable bit set (recipe invokes it directly) (#785)" {
+  # Regression: the `template new` recipe runs
+  # `script/template/new.sh {{name}}` DIRECTLY (not `bash script/...`), so
+  # the shipped script must carry the executable bit. It was tracked 100644
+  # and `just template new` failed with exit 126 (Permission denied) in
+  # every real consumer; the unit sandbox masked it by chmod +x on copy.
+  assert [ -x "/source/dist/script/template/new.sh" ]
+}
