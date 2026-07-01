@@ -410,7 +410,7 @@ thirteen cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
    `rhysd/actionlint` via Docker pinned to an explicit version
-   (`x.y.z`); downstream jobs (`test`, `integration-e2e`,
+   (`x.y.z`); downstream jobs (`test`, `acceptance`,
    `system`) need it so the workflow-validator class of
    regression that wedged v0.26.0-rc1 (refs #297) is caught early.
 
@@ -421,7 +421,7 @@ thirteen cumulative invariants:
    + Dockerfile.example/.test-tools + wrappers + init/upgrade +
    `test/bats/system/**` + `.github/workflows/**`); the `test` job
    always runs (required check) but short-circuits to SUCCESS on
-   doc-only PRs; `integration-e2e` and `system` gate via
+   doc-only PRs; `acceptance` and `system` gate via
    job-level `if:`; all three test-tools image builds use
    `docker/build-push-action` with shared `scope=test-tools` GHA
    cache.
@@ -435,7 +435,7 @@ thirteen cumulative invariants:
    branch) don't trip on missing `origin/<base>`.
 
 4. **#317 P2 Obtain step + rolling tag fallback** — each of the 3
-   downstream jobs (`test`, `integration-e2e`, `system`)
+   downstream jobs (`test`, `acceptance`, `system`)
    precedes its test-tools provisioning with an `Obtain` step
    implementing the 3-layer fallback: PR touched
    `dockerfile/Dockerfile.test-tools` -> rebuild local; else
@@ -444,13 +444,13 @@ thirteen cumulative invariants:
    `system` (which `docker compose run` test-tools), the
    buildx Build step gates on `steps.obtain.outputs.build_local
    == 'true'` so the hot path skips it and the cold path reuses
-   P1's GHA cache. For `integration-e2e` (which `docker compose
+   P1's GHA cache. For `acceptance` (which `docker compose
    build`, whose `FROM ${TEST_TOOLS_IMAGE}` resolves against the
    host docker daemon), the buildx `driver: docker` override is
    preserved and the rebuild fallback is inlined as plain
    `docker build` — GHA cache is not available on this driver,
    accepted because the hot path is `docker pull :main` and cold
-   path matches pre-P2 cost. `integration-e2e` additionally
+   path matches pre-P2 cost. `acceptance` additionally
    passes `TEST_TOOLS_IMAGE: test-tools:local` to `./build.sh
    test` so the wrapper script skips its own internal test-tools
    build, reusing the image populated by the Obtain step.
@@ -476,7 +476,7 @@ thirteen cumulative invariants:
    every `${{ needs.<job>.result }}` and applies a 2-tier rule:
    `actionlint` / `classify` must be `success`;
    conditionally-gated jobs (`shellcheck` / `hadolint` / `bats-unit` /
-   `bats-integration` / `coverage` / `integration-e2e` / `system`)
+   `bats-integration` / `coverage` / `acceptance` / `system`)
    may be `success` or `skipped` (their job-level `if:` legitimately
    skips on doc-only / non-system PRs per #317 P1/P3, #376, #377,
    #615). Adding sub-jobs (#377)
@@ -512,7 +512,7 @@ thirteen cumulative invariants:
      rollup.** The #377-era posture (main-only `if:`, "NOT in ci-rollup
      needs") is no longer asserted here.
 
-9. **#579 integration-e2e runnability gate** — the e2e job drives
+9. **#579 acceptance runnability gate** — the e2e job drives
    build / run / exec / stop through the documented `just` entry points
    (not raw `script/*.sh`, so a broken container-ops justfile is
    caught) and ASSERTS the runnability contract instead of only running
@@ -525,7 +525,7 @@ thirteen cumulative invariants:
    `extractions/setup-just` action.
 
    `ci-rollup needs:` is `[actionlint, classify, shellcheck,
-   hadolint, bats-unit, bats-integration, coverage, integration-e2e,
+   hadolint, bats-unit, bats-integration, coverage, acceptance,
    system]` (9 jobs post-#615) — every PR-check job. `release needs:`
    updates from `[shellcheck, hadolint, test, integration-e2e,
    system]` → `[shellcheck, hadolint, bats-unit, bats-integration,
@@ -533,7 +533,7 @@ thirteen cumulative invariants:
    `classify` are hard-mandatory in `ci-rollup`'s verifier (the
    always-running `test` job no longer exists).
 
-10. **#603 native arm64 e2e matrix** — `integration-e2e` runs as a
+10. **#603 native arm64 e2e matrix** — `acceptance` runs as a
     static 2-entry `strategy.matrix` (`linux/amd64` -> `ubuntu-latest`,
     `linux/arm64` -> `ubuntu-24.04-arm`) with `fail-fast: false`, so the
     #579 runnability contract is verified on both arches via native
@@ -542,7 +542,7 @@ thirteen cumulative invariants:
     `runs-on: ${{ matrix.runner }}` and the Obtain step pulls
     `test-tools:main` for `${{ matrix.platform }}` (multi-arch post-#587)
     so the arm64 shard gets the arm64 variant. `ci-rollup` aggregates
-    through `needs.integration-e2e.result` unchanged.
+    through `needs.acceptance.result` unchanged.
 
 11. **#615 sharded kcov + coverage as an enforced PR gate (amends #377,
     ADR-00000008)** — `coverage` is no longer the #377 main-only metric.
@@ -617,19 +617,19 @@ thirteen cumulative invariants:
 | `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
 | `classify` job declared with `code_changed` + `system_relevant` outputs | 3 |
 | `classify` doc-only allow-list + system block-list + non-PR default | 3 |
-| `bats-fragile`/`bats-integration`/`integration-e2e`/`system` declare `needs: [actionlint, classify]` | 4 |
+| `bats-fragile`/`bats-integration`/`acceptance`/`system` declare `needs: [actionlint, classify]` | 4 |
 | `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'` + no remaining monolithic `test:` job (#377, #677) | 3 |
-| `integration-e2e` job-level `if: code_changed == 'true'` + `system` job-level `if: system_relevant == 'true'` (#317 P3 tightens) | 2 |
+| `acceptance` job-level `if: code_changed == 'true'` + `system` job-level `if: system_relevant == 'true'` (#317 P3 tightens) | 2 |
 | `bats-fragile`/`bats-integration`/`system` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 3 |
 | `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
 | `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2 + #677) | 2 |
 | `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377) | 1 |
-| `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
-| `integration-e2e` native arm64 matrix (#603): amd64+arm64 native-runner matrix with `fail-fast: false`; shards `runs-on: ${{ matrix.runner }}`; Obtain pulls the matrix platform | 3 |
+| `acceptance` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
+| `acceptance` native arm64 matrix (#603): amd64+arm64 native-runner matrix with `fail-fast: false`; shards `runs-on: ${{ matrix.runner }}`; Obtain pulls the matrix platform | 3 |
 | `system` Obtain step with 3-layer fallback (#317 P2) | 1 |
 | Obtain steps pre-fetch base ref (5 occurrences post-#377: classify + 4 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
 | `classify` system block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
-| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
+| `ci-rollup` declared + `needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
 | `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + `coverage-gate` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
@@ -638,7 +638,7 @@ thirteen cumulative invariants:
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
 | `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'` (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']` (greedy weight-balanced) + invokes `test.sh --coverage-shard ${{ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 + #710) | 4 |
 | Self-hosted coverage (#710): NO codecov reference anywhere in the workflow + a `coverage-gate` job downloads the shard artifacts and runs `coverage_gate.sh` | 2 |
-| `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
+| `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (14)
