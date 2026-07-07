@@ -61,6 +61,8 @@ declare -gA SCHEMA_VALIDATOR=(
   [logging.max_file]=_validate_log_max_file
   [logging.compress]=_validate_log_compress
   [logging.local_path]=_validate_log_local_path
+  [logging.container_log_keep]=_validate_container_log_keep
+  [logging.container_log_days]=_validate_container_log_days
   [logging.wrapper_transcript]=_validate_wrapper_transcript
   [logging.wrapper_transcript_keep]=_validate_wrapper_transcript_keep
   [logging.wrapper_transcript_days]=_validate_wrapper_transcript_days
@@ -140,6 +142,8 @@ declare -gA SCHEMA_I18N=(
   [logging.compress]=logging.compress.prompt
   [logging.local_path]=logging.local_path.prompt
   # Config-file / env only, no TUI editor -> no label to translate.
+  [logging.container_log_keep]=""
+  [logging.container_log_days]=""
   [logging.wrapper_transcript]=""
   [logging.wrapper_transcript_keep]=""
   [logging.wrapper_transcript_days]=""

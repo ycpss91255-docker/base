@@ -409,6 +409,28 @@ _validate_wrapper_transcript_days() {
   return 1
 }
 
+# _validate_container_log_keep <value>
+#
+# [logging] container_log_keep: per-service retention count for the
+# local_path per-start container logs, positive integer >= 1 (mirrors
+# _validate_wrapper_transcript_keep).
+_validate_container_log_keep() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
+# _validate_container_log_days <value>
+#
+# [logging] container_log_days: per-service retention age in days for the
+# local_path per-start container logs, positive integer >= 1 (mirrors
+# _validate_wrapper_transcript_days).
+_validate_container_log_days() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
 # _validate_log_local_path <value>
 #
 # Host-side log directory for the [logging] local_path feature

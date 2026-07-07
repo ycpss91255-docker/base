@@ -36,9 +36,14 @@ _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 # "repoint the stable symlink + prune per-start files by keep/days" logic
 # is shared with the container-log tee (runtime/logging.sh) rather than
 # duplicated here. Sourced via the sibling runtime/ dir (host-side path).
+# Defensive: the shellcheck /lint image stage flattens lib/ alone (no
+# runtime/ sibling), so a missing helper must NOT abort the wrapper under
+# set -e -- the finalize path guards each call with `declare -F`.
 _transcript_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=dist/script/docker/runtime/logrotate.sh
-source "${_transcript_lib_dir}/../runtime/logrotate.sh"
+if [[ -r "${_transcript_lib_dir}/../runtime/logrotate.sh" ]]; then
+  # shellcheck source=dist/script/docker/runtime/logrotate.sh
+  source "${_transcript_lib_dir}/../runtime/logrotate.sh"
+fi
 unset _transcript_lib_dir
 
 # Non-interactive verbs: full output captured end-to-end (no detach).
@@ -203,6 +208,7 @@ _transcript_strip_ansi() {
 #   transcript's stable symlink is `latest.log`.
 _transcript_prune() {
   local _dir="${1:?}" _keep="${2:-20}" _days="${3:-14}"
+  declare -F _logrotate_prune >/dev/null 2>&1 || return 0
   _logrotate_prune "${_dir}" "latest.log" "${_keep}" "${_days}"
 }
 
@@ -259,7 +265,9 @@ _transcript_finalize() {
     else
       mv -f -- "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null || true
     fi
-    _logrotate_repoint "${_TRANSCRIPT_FILE}" "latest.log"
+    if declare -F _logrotate_repoint >/dev/null 2>&1; then
+      _logrotate_repoint "${_TRANSCRIPT_FILE}" "latest.log"
+    fi
   fi
   _transcript_prune "$(dirname -- "${_TRANSCRIPT_FILE}")" \
     "${_TRANSCRIPT_KEEP:-20}" "${_TRANSCRIPT_DAYS:-14}"
