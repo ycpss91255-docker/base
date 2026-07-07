@@ -202,6 +202,22 @@ _emit_restart_line() {
   esac
 }
 
+# init emitter: [lifecycle] init toggle. Docker's `init: true` runs the
+# daemon init (docker-init = tini) as PID 1 -- a zombie reaper + signal
+# forwarder. Default ON (emits `init: true`); an explicit `false` omits
+# the field. Stages that `extends: devel` inherit it; the per-stage
+# standalone block re-emits it (no extends to inherit from).
+_emit_init_line() {
+  local _init="${1-true}"
+  # apply does no schema revalidation, so a hand-edited setup.conf can feed
+  # a non-boolean here. Drop anything _validate_init rejects rather than
+  # emit a malformed init: field (apply-time trust-boundary guard, mirrors
+  # _emit_restart_line).
+  _validate_init "${_init}" || return 0
+  [[ "${_init}" == "false" ]] && return 0
+  printf '    init: true\n'
+}
+
 # env_file emitter: inject the hand-authored .env workload
 # overlay into the service so per-task env vars take effect with
 # `just run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is

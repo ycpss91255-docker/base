@@ -366,6 +366,18 @@ _validate_log_compress() {
   esac
 }
 
+# _validate_init <value>
+#
+# [lifecycle] init: boolean toggle for Docker's `init: true` (docker-init
+# = tini as PID 1, zombie reaper + signal forwarder). true or false only.
+_validate_init() {
+  local _v="${1-}"
+  case "${_v}" in
+    true|false) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # _validate_wrapper_transcript <value>
 #
 # [logging] wrapper_transcript: boolean kill switch.
