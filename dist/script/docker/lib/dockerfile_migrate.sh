@@ -421,6 +421,44 @@ _migrate_nounset_source_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
+# ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling (#805) ─────
+#
+# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
+# helper dir (the shared per-start-file + symlink + retention primitives).
+# A downstream Dockerfile that COPYs logging.sh into /usr/local/lib/base/
+# but predates the split lacks the logrotate.sh COPY, so the container tee
+# degrades to no rotation/prune. Insert the sibling COPY right after the
+# logging.sh COPY, reusing that line's own flag/src shape. Runs after
+# logging_rename so the logging COPY is already in its canonical
+# runtime/logging.sh -> /usr/local/lib/base/logging.sh form.
+_migrate_logrotate_copy_detect() {
+  local _file="$1"
+  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
+  # its baked dest, with the logrotate sibling not yet COPY'd. Anchoring on
+  # the stable dest path (not the src) heals a hand-relocated src too.
+  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
+  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logrotate\.sh([[:space:]]|$)' "${_file}" && return 1
+  return 0
+}
+
+_migrate_logrotate_copy_apply() {
+  local _file="$1"
+  # Emit each active logging.sh COPY line, then a logrotate.sh twin with
+  # both the src basename and the baked dest rewritten logging -> logrotate.
+  local _tmp
+  _tmp="$(mktemp)"
+  awk '
+    { print }
+    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
+      twin=$0
+      gsub(/logging\.sh/, "logrotate.sh", twin)
+      print twin
+    }
+  ' "${_file}" > "${_tmp}"
+  mv "${_tmp}" "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/logrotate.sh COPY sibling (#805)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -429,6 +467,7 @@ _MIGRATIONS=(
   pip_helper
   explicit_copy
   logging_rename
+  logrotate_copy
   hadolint
   sc1090
   arg_user
