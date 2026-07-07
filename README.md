@@ -434,6 +434,7 @@ two derived artifacts.
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
            default no; on devel (extends:devel stages inherit). Avoid
            always/unless-stopped on stages that exit 0 (infinite restart).
+           init (true|false) — Docker init/PID1 reaper; default true.
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none), ipc, pid (host|private), privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
@@ -491,6 +492,28 @@ host's name in the generated `compose.yaml`, so the local X11
 MIT-MAGIC-COOKIE (which is keyed to the host's hostname) still matches.
 Under `host` networking nothing is injected — the container already shares
 the host's UTS namespace.
+
+#### Container init: PID1 reaper (#792)
+
+`[lifecycle] init` toggles Docker's `init: true` on every service, which
+runs the daemon init (`docker-init` = tini) as **PID 1** — a zombie reaper
+and signal forwarder. It **defaults ON**: a deliberate exception to
+"lifecycle knobs default off", because init is transparent to a correct
+single-service workload, while running as PID 1 *without* reaping / signal
+forwarding is a footgun (`stop` hangs until SIGKILL; orphaned children pile
+up as zombies). It applies on the next compose regeneration, so an existing
+repo picks it up on `setup.sh apply`. Disable it with:
+
+```bash
+./setup.sh set lifecycle.init false
+./setup.sh apply                       # regenerates compose.yaml
+```
+
+**Caveat:** tini forwards signals only to its **direct child** (PID 2 = the
+entrypoint). An entrypoint that itself supervises children must still
+`trap` + forward signals to them — init does not reach grandchildren for
+signalling. **Reaping, however, is comprehensive:** any orphaned process in
+the container is reaped, so killed subtrees never accumulate as zombies.
 
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
 is copied to `<repo>/config/docker/setup.conf` (the parent dir is created

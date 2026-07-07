@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2098 tests**.
+Unit specs under `test/bats/unit/`: **2104 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -281,7 +281,7 @@ per-stage flag-resolution layer (#505/#526, relocated from the compose
 spec in P1a), and `_generate_runtime_dockerfile` ENV-bake (#503/#688,
 relocated from setup_emit in P1a).
 
-### test/bats/unit/tui_spec.bats (131)
+### test/bats/unit/tui_spec.bats (132)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1197,7 +1197,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (28)
+### test/bats/unit/compose_emit/blocks_spec.bats (29)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
