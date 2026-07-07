@@ -45,6 +45,17 @@ _check() {
   esac
 }
 
+_cond_applies() {
+  # Return 0 when the guard expression `<condvar>=<value>` matches the
+  # current environment (env `<condvar>` equals `<value>`), non-zero
+  # otherwise. Used to make a requirement conditional -- e.g. only require
+  # `packages: write` when the caller selected `cache_backend: registry`.
+  local cond="$1" condvar condval
+  condvar="${cond%%=*}"
+  condval="${cond#*=}"
+  [[ "${!condvar:-}" == "${condval}" ]]
+}
+
 _reason() {
   # One-line explanation of why <kind>/<envvar> is unsatisfied, so the
   # failure message states the observed problem, not just the fix.
@@ -69,17 +80,24 @@ _read_manifest() {
 }
 
 _list() {
-  local manifest="$1" kind key envvar desc hint
+  local manifest="$1" kind key envvar desc hint cond
   printf 'Caller contract -- this worker requires:\n\n'
-  while IFS='|' read -r kind key envvar desc hint; do
-    printf '  [%s] %s -- %s\n' "${kind}" "${key}" "${desc}"
+  while IFS='|' read -r kind key envvar desc hint cond; do
+    if [[ -n "${cond}" ]]; then
+      # Self-describe that this requirement is only enforced conditionally
+      # (e.g. `packages` only when cache_backend: registry), so `--list`
+      # doubles as accurate contract documentation.
+      printf '  [%s] %s -- %s (when %s)\n' "${kind}" "${key}" "${desc}" "${cond}"
+    else
+      printf '  [%s] %s -- %s\n' "${kind}" "${key}" "${desc}"
+    fi
   done < <(_read_manifest "${manifest}")
 }
 
 _validate() {
-  local manifest="$1" kind key envvar desc hint
+  local manifest="$1" kind key envvar desc hint cond
   local failures=0 total=0
-  while IFS='|' read -r kind key envvar desc hint; do
+  while IFS='|' read -r kind key envvar desc hint cond; do
     case "${kind}" in
       input|permission) ;;
       *)
@@ -92,6 +110,25 @@ _validate() {
         ;;
     esac
     total=$((total + 1))
+    # Optional 6th field `<condvar>=<value>` gates a requirement on another
+    # env var (e.g. only require `packages: write` when the caller selected
+    # `cache_backend: registry`). A declared-but-not-applicable requirement
+    # is counted in the total (the manifest is non-empty) but skipped, never
+    # a failure -- keeping unrelated callers backward compatible.
+    if [[ -n "${cond}" ]]; then
+      # A guard field lacking `=` is a malformed manifest: it cannot express
+      # `<condvar>=<value>`, and silently skipping it would fail OPEN (the
+      # requirement never enforced). Fail loud instead -- same class as the
+      # unknown-kind guard (config error, exit 2), naming the offending guard.
+      if [[ "${cond}" != *=* ]]; then
+        printf "preflight: malformed manifest '%s': guard '%s' missing '=' (expected '<condvar>=<value>') on line: %s|%s|%s|%s|%s|%s\n" \
+          "${manifest}" "${cond}" "${kind}" "${key}" "${envvar}" "${desc}" "${hint}" "${cond}" >&2
+        return 2
+      fi
+      if ! _cond_applies "${cond}"; then
+        continue
+      fi
+    fi
     if ! _check "${kind}" "${envvar}"; then
       if [[ "${failures}" -eq 0 ]]; then
         printf 'Preflight failed: this worker call is missing part of its caller contract.\n'

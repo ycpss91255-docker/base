@@ -44,11 +44,13 @@ setup() {
   assert_output --partial 'with:'
 }
 
-@test "build manifest: a caller missing packages permission fails with the permissions fix (#801 pave-the-way)" {
-  # image_name supplied, but the GHCR/packages probe reported missing --
-  # the future registry-cache backend needs `packages: write`. The caller
-  # is told to grant it instead of 403-ing deep in a 20-min build.
+@test "build manifest: a registry-cache caller missing packages permission fails with the permissions fix (#801)" {
+  # cache_backend: registry selected, image_name supplied, but the GHCR
+  # packages: write probe reported missing -- the registry-cache backend
+  # needs `packages: write`. The caller is told to grant it instead of
+  # 403-ing deep in a 20-min build.
   PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=registry \
   PREFLIGHT_PERM_PACKAGES=missing \
     run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
   assert_failure
@@ -56,11 +58,32 @@ setup() {
   assert_output --partial 'permissions:'
 }
 
-@test "build manifest --list: self-describes both requirements" {
+@test "build manifest: the default gha caller without packages permission still passes (#801 backward compat)" {
+  # cache_backend defaults to gha -> the buildx cache lives in GHA cache
+  # and the test-tools image is pulled anonymously, so no packages
+  # permission is required. An existing caller that never granted
+  # `packages: write` must not start failing.
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=gha \
+  PREFLIGHT_PERM_PACKAGES=missing \
+    run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
+  assert_success
+}
+
+@test "build manifest: a registry-cache caller with packages granted passes (#801)" {
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=registry \
+  PREFLIGHT_PERM_PACKAGES=granted \
+    run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
+  assert_success
+}
+
+@test "build manifest --list: self-describes both requirements, packages as registry-conditional (#801)" {
   run bash "${PREFLIGHT}" --list "${BUILD_MANIFEST}"
   assert_success
   assert_output --partial 'image_name'
   assert_output --partial 'packages'
+  assert_output --partial 'when PREFLIGHT_CACHE_BACKEND=registry'
 }
 
 # ── release-worker caller contract ────────────────────────────────────
