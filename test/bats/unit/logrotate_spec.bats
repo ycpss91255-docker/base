@@ -91,6 +91,25 @@ teardown() { rm -rf "${TMP_DIR}"; }
   [ -L "${TMP_DIR}/svc.log" ]
 }
 
+@test "_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)" {
+  # A shared /var/log/<repo>/ holds svc-a's per-start files + stable a.log
+  # AND svc-b's stable b.log symlink. Pruning svc-a must skip b.log even
+  # though its name != the caller's <symlink_name> -- it is a symlink, not a
+  # real per-start file. (Reals dated in the future so ls -t sorts b.log,
+  # created now, as the OLDEST -> without the symlink guard the count pass
+  # would have deleted it.)
+  : > "${TMP_DIR}/a_1.log"; touch -d "2030-01-01 00:00:00" "${TMP_DIR}/a_1.log"
+  : > "${TMP_DIR}/a_2.log"; touch -d "2030-01-02 00:00:00" "${TMP_DIR}/a_2.log"
+  ln -sfn "a_2.log" "${TMP_DIR}/a.log"
+  ln -sfn "a_2.log" "${TMP_DIR}/b.log"
+  # keep=1 for svc-a: a_1 drops, a_2 stays; both symlinks must survive.
+  _logrotate_prune "${TMP_DIR}" "a.log" 1 3650
+  [ -L "${TMP_DIR}/b.log" ]
+  [ -L "${TMP_DIR}/a.log" ]
+  [ -e "${TMP_DIR}/a_2.log" ]
+  [ ! -e "${TMP_DIR}/a_1.log" ]
+}
+
 @test "_logrotate_prune: missing dir is a no-op (best-effort) (#805)" {
   run _logrotate_prune "${TMP_DIR}/does-not-exist" "svc.log" 3 14
   assert_success

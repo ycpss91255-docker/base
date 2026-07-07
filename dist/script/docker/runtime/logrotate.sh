@@ -53,9 +53,17 @@ _logrotate_repoint() {
 # _logrotate_prune <dir> <symlink_name> <keep> <days>
 #   Retention for the per-start *.log real files in <dir>: keep at most
 #   <keep> most-recent AND drop any older than <days> days -- the
-#   stricter of the two wins. The <symlink_name> stable symlink is never
-#   removed (it is not a regular file, and it is skipped by name in the
-#   count pass). Failure-safe (best-effort); a missing dir is a no-op.
+#   stricter of the two wins. NO symlink is ever removed -- neither the
+#   caller's own <symlink_name> nor a sibling service's stable symlink
+#   sharing the dir (both passes exclude symlinks).
+#
+#   Known limitation (pooled keep): both passes glob every *.log real file
+#   in <dir>, so when multiple services share one /var/log/<repo>/ dir the
+#   <keep>/<days> caps are POOLED across services, not per-service. Under
+#   the one-service-per-repo model this is rare and out of scope here;
+#   revisit if a repo runs many services teeing into the same dir.
+#
+#   Failure-safe (best-effort); a missing dir is a no-op.
 _logrotate_prune() {
   local _dir="${1:?_logrotate_prune: missing dir}"
   local _link="${2:?_logrotate_prune: missing symlink name}"
@@ -69,12 +77,16 @@ _logrotate_prune() {
     -exec rm -f -- {} + 2>/dev/null || true
 
   # Count-based drop: keep the <keep> newest real files, remove the rest.
-  # `ls -t` is newest-first and portable; skip the stable symlink by name
-  # so it is never counted toward (or removed by) the cap.
+  # `ls -t` is newest-first and portable. Skip ANY symlink (`-h`), not just
+  # the caller's own by name: a shared /var/log/<repo>/ dir can hold a
+  # SIBLING service's stable `<other>.log` symlink, which is not a real
+  # per-start file and must never be pruned (mirrors the age pass's
+  # `-type f`, so prune is symlink-safe regardless of name).
   local -a _files=()
   local _f
   while IFS= read -r _f; do
     [[ -z "${_f}" ]] && continue
+    [[ -h "${_f}" ]] && continue
     [[ "$(basename -- "${_f}")" == "${_link}" ]] && continue
     _files+=("${_f}")
   done < <(ls -1t -- "${_dir}"/*.log 2>/dev/null)
