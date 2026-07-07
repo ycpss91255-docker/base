@@ -32,6 +32,15 @@ if [[ -n "${_DOCKER_LIB_TRANSCRIPT_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 
+# Shared glog-style rotate/symlink/prune primitives (issue #805). The
+# "repoint the stable symlink + prune per-start files by keep/days" logic
+# is shared with the container-log tee (runtime/logging.sh) rather than
+# duplicated here. Sourced via the sibling runtime/ dir (host-side path).
+_transcript_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=dist/script/docker/runtime/logrotate.sh
+source "${_transcript_lib_dir}/../runtime/logrotate.sh"
+unset _transcript_lib_dir
+
 # Non-interactive verbs: full output captured end-to-end (no detach).
 _TRANSCRIPT_FULL_VERBS=" build setup stop prune upgrade "
 
@@ -190,34 +199,11 @@ _transcript_strip_ansi() {
 #   Retention: in <verb_dir>, keep at most <keep> most-recent *.log files
 #   AND drop any older than <days> days -- the stricter of the two wins.
 #   Never touches the `latest.log` symlink. Failure-safe (best-effort).
+#   Thin wrapper over the shared _logrotate_prune (issue #805): the
+#   transcript's stable symlink is `latest.log`.
 _transcript_prune() {
   local _dir="${1:?}" _keep="${2:-20}" _days="${3:-14}"
-  [[ -d "${_dir}" ]] || return 0
-
-  # Age-based drop: real *.log files older than <days> days. Portable
-  # `find -mtime` (busybox + GNU); `-type f` skips the latest.log symlink.
-  find "${_dir}" -maxdepth 1 -type f -name '*.log' -mtime "+${_days}" \
-    -exec rm -f -- {} + 2>/dev/null || true
-
-  # Count-based drop: keep the <keep> newest, remove the rest. `ls -t`
-  # is newest-first and portable; skip the latest.log symlink so it is
-  # never counted toward (or removed by) the cap.
-  local -a _files=()
-  local _f
-  while IFS= read -r _f; do
-    [[ -z "${_f}" ]] && continue
-    [[ "$(basename -- "${_f}")" == "latest.log" ]] && continue
-    _files+=("${_f}")
-  done < <(ls -1t -- "${_dir}"/*.log 2>/dev/null)
-
-  local _n=${#_files[@]}
-  if (( _n > _keep )); then
-    local _i
-    for (( _i=_keep; _i<_n; _i++ )); do
-      rm -f -- "${_files[_i]}" 2>/dev/null || true
-    done
-  fi
-  return 0
+  _logrotate_prune "${_dir}" "latest.log" "${_keep}" "${_days}"
 }
 
 # ── EXIT handler ────────────────────────────────────────────────────
@@ -273,8 +259,7 @@ _transcript_finalize() {
     else
       mv -f -- "${_TRANSCRIPT_RAW}" "${_TRANSCRIPT_FILE}" 2>/dev/null || true
     fi
-    ln -sfn "$(basename -- "${_TRANSCRIPT_FILE}")" \
-      "$(dirname -- "${_TRANSCRIPT_FILE}")/latest.log" 2>/dev/null || true
+    _logrotate_repoint "${_TRANSCRIPT_FILE}" "latest.log"
   fi
   _transcript_prune "$(dirname -- "${_TRANSCRIPT_FILE}")" \
     "${_TRANSCRIPT_KEEP:-20}" "${_TRANSCRIPT_DAYS:-14}"
