@@ -1056,6 +1056,7 @@ _setup_apply() {
   local privileged="${_dctx[privileged]}"
   local restart_policy="${_dctx[restart_policy]}"
   local init="${_dctx[init]}"
+  local watchdog_env_str="${_dctx[watchdog_env_str]}"
   local dri_groups_str="${_dctx[dri_groups_str]}"
 
   # resolution order CLI > env > conf > default. The shared resolver
@@ -1302,6 +1303,7 @@ _setup_apply() {
     "${restart_policy}" \
     "${dri_groups_str}" \
     "${init}" \
+    "${watchdog_env_str}" \
     || return $?
 
   # S7: runtime.env retired. Under the A2 model its purpose
