@@ -581,7 +581,7 @@ setup() {
   assert_output --partial 'success'
 }
 
-# ── System-level build-worker self-test (#802) ─────────────────
+# ── System-level build-worker self-test ────────────────────────
 
 @test "self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)" {
   # System level (ADR-00000018): actually run base's OWN build-gate

@@ -3,7 +3,7 @@
 # build_worker_compute_matrix_spec.bats -- unit tests for
 # script/ci/build_worker/compute_matrix.sh, the platform -> build matrix
 # resolver extracted out of build-worker.yaml's inline `compute-matrix`
-# step (#802).
+# step.
 #
 # The matrix computation is the classic "a matrix condition that produces
 # no jobs" semantic break the shared worker can suffer: actionlint cannot

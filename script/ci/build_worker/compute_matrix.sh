@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # compute_matrix.sh -- platform -> build matrix resolver for the reusable
-# Docker build worker (build-worker.yaml, #802).
+# Docker build worker (build-worker.yaml).
 #
 # Parses the caller's comma-separated `platforms` input into the
 # strategy.matrix `include` list the build job fans out over, mapping each

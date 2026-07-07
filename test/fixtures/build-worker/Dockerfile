@@ -1,4 +1,5 @@
-# Minimal fixture for the build-worker System self-test (#802).
+# Minimal fixture for the build-worker System self-test (self-test.yaml's
+# worker-selftest job).
 #
 # self-test.yaml's `worker-selftest` job invokes the shared reusable worker
 # (`uses: ./.github/workflows/build-worker.yaml`) against THIS Dockerfile to

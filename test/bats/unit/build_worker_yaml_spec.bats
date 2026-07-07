@@ -214,7 +214,7 @@ setup() {
   # suffix (`-devel-test-cache`, `-devel-cache`, `-runtime-test-cache`,
   # `-runtime-cache`) is appended at the use site. See the b1 mitigation
   # of for why the shape changed from a single shared `<base>-cache`
-  # scope to 4 per-target scopes. #802 pushed the derivation into
+  # scope to 4 per-target scopes. The derivation is now delegated to
   # cache_scope.sh; the step keeps `id: cache` + a `key=` GITHUB_OUTPUT.
   run grep -E '^        id: cache$' "${WF}"
   assert_success
@@ -475,7 +475,7 @@ setup() {
   }
 }
 
-# ── #802: worker logic pushed down to host-testable shell scripts ──────
+# ── worker logic pushed down to host-testable shell scripts ────────────
 
 @test "build-worker.yaml: compute-matrix delegates to the extracted compute_matrix.sh (#802)" {
   # The platform -> matrix logic (the "a matrix condition that produces no
@@ -496,7 +496,7 @@ setup() {
 @test "build-worker.yaml: compute-matrix version-matches the script via job_workflow_sha (#802)" {
   # The script is fetched from base at the SAME ref as this workflow, so the
   # resolver can never drift from the worker it feeds -- the exact
-  # version-match pattern the #800 preflight uses. Assert the compute-matrix
+  # version-match pattern the caller-contract preflight uses. Assert the compute-matrix
   # job checks out ycpss91255-docker/base at github.job_workflow_sha into
   # the .worker-base path the delegating call reads from.
   run awk '/^  compute-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
@@ -507,7 +507,7 @@ setup() {
 }
 
 @test "build-worker.yaml: Compute cache scope delegates to the extracted cache_scope.sh (#802)" {
-  # The base-key derivation (with its #272 / #378 bug history) is pushed
+  # The base-key derivation (with its per-target cache-scope bug history) is pushed
   # down into a pure-shell, host-testable script covered by
   # build_worker_cache_scope_spec.bats. The step must call the script,
   # feed it IMAGE_NAME / CACHE_VARIANT / HARDWARE via env, and keep only

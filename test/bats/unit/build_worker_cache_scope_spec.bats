@@ -3,12 +3,13 @@
 # build_worker_cache_scope_spec.bats -- unit tests for
 # script/ci/build_worker/cache_scope.sh, the buildx cache-scope base-key
 # resolver extracted out of build-worker.yaml's inline `Compute cache
-# scope` step (#802).
+# scope` step.
 #
-# The scope key shape carries a real bug history (#272 per-(repo, variant,
-# arch) scoping; #378 the shared-scope manifest cascade that invalidated
-# sibling caches), yet the derivation lived as inline shell reachable only
-# in production. Pushing it down to a pure-shell script (System-level logic
+# The scope key shape carries a real cache-scope bug history (per-(repo,
+# variant, arch) scoping, and the shared-scope manifest cascade that once
+# invalidated sibling caches), yet the derivation lived as inline shell
+# reachable only in production. Pushing it down to a pure-shell script
+# (System-level logic
 # -> Unit level, ADR-00000018) makes the shape -- including the optional
 # cache_variant segment single-call callers omit -- runnable locally under
 # `just test`.
