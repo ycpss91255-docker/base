@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **94 tests**.
+Integration specs under `test/bats/integration/`: **100 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -160,4 +160,16 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+### test/bats/integration/ci_preflight_contract_spec.bats (6)
+
+Drives `script/ci/preflight.sh` against the ACTUAL shipped requirement
+manifests (`script/ci/preflight/build.manifest` +
+`release.manifest`) with a deliberately-incomplete fake caller
+environment. A complete caller passes; a caller that forgot `image_name`
+(build) or `archive_name_prefix` (release) fails early with the
+plain-language `main.yaml` fix; a caller missing the packages permission
+fails with the permissions fix (paving the way for the registry-cache
+backend's `packages: write`); `--list` self-describes the build
+contract.
 
