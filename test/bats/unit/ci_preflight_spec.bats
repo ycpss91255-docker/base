@@ -222,3 +222,21 @@ EOF
   assert_output --partial 'when PREFLIGHT_CACHE_BACKEND=registry'
 }
 
+@test "preflight: a malformed conditional guard (no '=') fails loudly as a config error (exit 2), never silently skipped (#801)" {
+  # A guard field lacking `=` (e.g. `FOO` instead of `FOO=bar`) must not
+  # fail open -- silently skipping the requirement would contradict the
+  # never-silent thesis, same class as the unknown-`kind` guard. It is a
+  # config error (exit 2) naming the offending guard + line.
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name|add image_name
+permission|packages|PREFLIGHT_PERM_PACKAGES|GHCR packages: write|grant packages|BOGUSGUARD
+EOF
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_PERM_PACKAGES=missing \
+    run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_equal "${status}" 2
+  assert_output --partial 'BOGUSGUARD'
+  assert_output --partial 'guard'
+}
+

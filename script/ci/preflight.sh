@@ -115,8 +115,19 @@ _validate() {
     # `cache_backend: registry`). A declared-but-not-applicable requirement
     # is counted in the total (the manifest is non-empty) but skipped, never
     # a failure -- keeping unrelated callers backward compatible.
-    if [[ -n "${cond}" ]] && ! _cond_applies "${cond}"; then
-      continue
+    if [[ -n "${cond}" ]]; then
+      # A guard field lacking `=` is a malformed manifest: it cannot express
+      # `<condvar>=<value>`, and silently skipping it would fail OPEN (the
+      # requirement never enforced). Fail loud instead -- same class as the
+      # unknown-kind guard (config error, exit 2), naming the offending guard.
+      if [[ "${cond}" != *=* ]]; then
+        printf "preflight: malformed manifest '%s': guard '%s' missing '=' (expected '<condvar>=<value>') on line: %s|%s|%s|%s|%s|%s\n" \
+          "${manifest}" "${cond}" "${kind}" "${key}" "${envvar}" "${desc}" "${hint}" "${cond}" >&2
+        return 2
+      fi
+      if ! _cond_applies "${cond}"; then
+        continue
+      fi
     fi
     if ! _check "${kind}" "${envvar}"; then
       if [[ "${failures}" -eq 0 ]]; then

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2138 tests**.
+Unit specs under `test/bats/unit/`: **2140 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -369,7 +369,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (42)
+### test/bats/unit/build_worker_yaml_spec.bats (43)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -403,11 +403,11 @@ on doc-only PRs).
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 | #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` gha scopes in the default ternary branch, no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max` on both branches, default preserves zero-diff for single-call callers | 6 |
-| #801 registry cache backend: `cache_backend` input declared `type: string` default `"gha"` (default preserves the gha backend for existing callers), all 4 build steps emit a `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8 lines), GHCR `docker/login-action` step gated on `cache_backend == 'registry'` | 5 |
+| #801 registry cache backend: `cache_backend` input declared `type: string` default `"gha"` (default preserves the gha backend for existing callers), all 4 build steps emit a `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8 lines), the `extra_stages` buildx loop honors `cache_backend` too (shell-side selection, no hardwired gha ref), GHCR `docker/login-action` step gated on `cache_backend == 'registry'` | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/ci_preflight_spec.bats (17)
+### test/bats/unit/ci_preflight_spec.bats (18)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator
 the reusable build / release workers run before any real work. Drives
@@ -426,7 +426,8 @@ requirement on another env var (e.g. `packages: write` only when
 `cache_backend: registry`) -- a guard that does not match is
 declared-but-skipped (never a failure), a matching guard enforces the
 requirement without leaking the guard into the hint, and `--list`
-annotates it as `(when <condvar>=<value>)`.
+annotates it as `(when <condvar>=<value>)`. A malformed guard field
+lacking `=` fails loud as a config error (exit 2), never failing open.
 
 ### test/bats/unit/worker_preflight_yaml_spec.bats (12)
 

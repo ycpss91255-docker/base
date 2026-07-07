@@ -252,6 +252,36 @@ setup() {
   done
 }
 
+@test "build-worker.yaml: extra_stages loop honors cache_backend for both backends (#801)" {
+  # A caller using cache_backend: registry AND extra_stages must not get
+  # those stages silently gha-cached. The extra_stages buildx loop receives
+  # the backend + repo via env and selects the cache ref in shell with the
+  # same registry/gha shapes as the four standard steps (registry ref with
+  # mode=max on cache-to; gha branch byte-for-byte unchanged).
+  run grep -F 'CACHE_BACKEND: ${{ inputs.cache_backend }}' "${WF}"
+  assert_success
+  run grep -F 'REPO: ${{ github.repository }}' "${WF}"
+  assert_success
+  # Shell selection helpers emit the registry ref (unique %s printf form,
+  # distinct from the four steps' format() {0}/{1}) and the unchanged gha form.
+  run grep -F 'type=registry,ref=ghcr.io/%s/buildcache:%s' "${WF}"
+  assert_success
+  run grep -F 'type=registry,ref=ghcr.io/%s/buildcache:%s,mode=max' "${WF}"
+  assert_success
+  run grep -F 'type=gha,scope=%s' "${WF}"
+  assert_success
+  # The loop no longer hardwires a gha cache ref on the buildx invocations.
+  run grep -F '"type=gha,scope=${CACHE_KEY}' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+  # Both buildx invocations (test-stage + stage) call the selection helpers.
+  run grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
+  assert_success
+  assert_output "2"
+  run grep -cF -e '--cache-to "$(cache_to_for ' "${WF}"
+  assert_success
+  assert_output "2"
+}
+
 @test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
   # Both cache-from and cache-to (8 lines total) gate on the input so the
   # backend is chosen per call, defaulting to gha.

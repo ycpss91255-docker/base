@@ -678,6 +678,8 @@ jobs:
         env:
           EXTRA_STAGES: ${{ inputs.extra_stages }}
           CACHE_KEY: ${{ steps.cache.outputs.key }}
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
+          REPO: ${{ github.repository }}
           CONTEXT_PATH: ${{ inputs.context_path }}
           DOCKERFILE: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           BUILD_CONTEXTS_INPUT: ${{ inputs.build_contexts }}
@@ -687,6 +689,31 @@ jobs:
           TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"
         run: |
           set -euo pipefail
+
+          # #801 -- honor cache_backend for extra stages too, so a caller
+          # using cache_backend: registry does not silently gha-cache these
+          # stages (the exact 10 GB ceiling this feature escapes). Same
+          # selection as the four standard build-push steps: registry ->
+          # type=registry,ref=ghcr.io/<repo>/buildcache:<scope> (mode=max on
+          # cache-to), gha -> byte-for-byte the original type=gha,scope form.
+          # The registry backend's buildx login is already established by the
+          # job-level "Log in to GHCR" step (gated on the same input).
+          cache_from_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s' "${scope}"
+            fi
+          }
+          cache_to_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s,mode=max' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s,mode=max' "${scope}"
+            fi
+          }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
 
@@ -734,8 +761,8 @@ jobs:
                 --file "${DOCKERFILE}" \
                 --target "${test_stage}" \
                 --platform "${PLATFORM}" \
-                --cache-from "type=gha,scope=${CACHE_KEY}-${test_stage}-cache" \
-                --cache-to "type=gha,scope=${CACHE_KEY}-${test_stage}-cache,mode=max" \
+                --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
+                --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
                 "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
                 "${CONTEXT_PATH}"
               echo "::endgroup::"
@@ -746,8 +773,8 @@ jobs:
               --file "${DOCKERFILE}" \
               --target "${stage}" \
               --platform "${PLATFORM}" \
-              --cache-from "type=gha,scope=${CACHE_KEY}-${stage}-cache" \
-              --cache-to "type=gha,scope=${CACHE_KEY}-${stage}-cache,mode=max" \
+              --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
+              --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
               "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
               "${CONTEXT_PATH}"
             echo "::endgroup::"
