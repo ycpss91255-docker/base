@@ -349,6 +349,55 @@ EOF
   [ "${_n}" -eq 1 ]
 }
 
+# ── migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
+# The generic watchdog (#797) ships runtime/watchdog.sh, COPY'd next to
+# logging.sh at /usr/local/lib/base/. A downstream Dockerfile that COPYs
+# logging.sh but predates the watchdog lacks the watchdog.sh COPY; this
+# migration inserts the sibling COPY after the logging.sh COPY.
+
+@test "migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}' && _migrate_watchdog_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
+  # The original logging.sh COPY is preserved.
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+}
+
+@test "migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+EOF
+  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (watchdog-copy): detect false when no logging.sh COPY present (#797)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+RUN echo hi
+EOF
+  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF '/usr/local/lib/base/watchdog.sh' "${DF}")"
+  [ "${_n}" -eq 1 ]
+}
+
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
 # v0.41.0 slimmed .hadolint.yaml, no longer ignoring a batch of rules.
 # Heal the mechanical violations the fanout fixed by hand:
