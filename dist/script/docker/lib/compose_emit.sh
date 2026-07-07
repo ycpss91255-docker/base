@@ -218,12 +218,13 @@ _emit_init_line() {
   printf '    init: true\n'
 }
 
-# watchdog env emitter: [lifecycle] watchdog (#797). Emits each resolved
+# watchdog env emitter: [lifecycle] watchdog. Emits each resolved
 # `WATCHDOG_*=value` line (built in deploy.sh, gated on a non-empty
 # watchdog_check) as a YAML double-quoted environment list item, so a
 # command value carrying YAML-structural characters survives the parse.
-# No-op when the block is empty (watchdog disabled -> zero-diff, the #505
-# golden is unaffected). The env is uniform across services (a lifecycle
+# No-op when the block is empty (watchdog disabled -> zero compose diff,
+# the default-off golden is unaffected). The env is uniform across
+# services (a lifecycle
 # property, not per-service like LOG_FILE_PATH), so devel emits it and
 # extends:devel stages inherit it; standalone override stages re-emit it.
 _emit_watchdog_env() {
@@ -781,8 +782,8 @@ YAML
       echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
       echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
     fi
-    # [lifecycle] watchdog (#797): re-emit here because a standalone stage
-    # has no `extends: devel` to inherit devel's WATCHDOG_* env from.
+    # [lifecycle] watchdog: re-emit here because a standalone stage has no
+    # `extends: devel` to inherit devel's WATCHDOG_* env from.
     _emit_watchdog_env "${_watchdog_env_str}"
   fi
   # ports: only under bridge mode (compose ignores it under host).
@@ -1106,8 +1107,8 @@ YAML
         echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
         echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       fi
-      # [lifecycle] watchdog (#797): WATCHDOG_* env on devel; extends:devel
-      # stages inherit it (it is a uniform lifecycle property, not per-svc).
+      # [lifecycle] watchdog: WATCHDOG_* env on devel; extends:devel stages
+      # inherit it (it is a uniform lifecycle property, not per-svc).
       _emit_watchdog_env "${_watchdog_env_str}"
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)

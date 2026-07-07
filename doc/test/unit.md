@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2159 tests**.
+Unit specs under `test/bats/unit/`: **2190 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -852,7 +852,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (40)
+### test/bats/unit/dockerfile_migrate_spec.bats (44)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1463,7 +1463,31 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (148)
+### test/bats/unit/watchdog_spec.bats (18)
+
+Unit tests for `dist/script/docker/runtime/watchdog.sh` (#797), the
+generic single-service watchdog sourced from a repo entrypoint (sibling
+of `logging.sh`). Covers the master off switch (no-op when
+`WATCHDOG_CHECK` unset), config load defaults + clamping, the pluggable
+health-check runner (pass / fail / timeout), the shared `_watchdog_evaluate`
+decision seam (healthy reset / under-threshold / act), the
+`restart-container` monitor (start-period defers checks; exits the
+container after the failure threshold), the `restart-service` supervisor
+(restarts in place then gives up loudly at `WATCHDOG_MAX_RESTARTS`), the
+`WATCHDOG_NOTIFY` give-up hook, and the `watchdog.log` per-start file +
+symlink under a `watchdog/` subdir (reusing `logrotate.sh`).
+
+### test/bats/unit/compose_watchdog_spec.bats (6)
+
+Tests for `[lifecycle]` watchdog (#797) support in
+`generate_compose_yaml` and its resolution in `_resolve_deploy_context`:
+the `WATCHDOG_*` service environment is emitted (YAML-quoted) only when
+the master switch `watchdog_check` is set, so the default-off case leaves
+`compose.yaml` byte-identical (the #505 golden is unaffected); the env
+rides on devel and extends:devel stages inherit it; and the resolver
+builds the env block only for the knobs the conf sets.
+
+### test/bats/unit/template_spec.bats (151)
 
 | Test | Description |
 |------|-------------|

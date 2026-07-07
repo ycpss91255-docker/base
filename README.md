@@ -518,6 +518,66 @@ entrypoint). An entrypoint that itself supervises children must still
 signalling. **Reaping, however, is comprehensive:** any orphaned process in
 the container is reaped, so killed subtrees never accumulate as zombies.
 
+#### Watchdog: supervised restart (#797)
+
+The third `[lifecycle]` capability base owns (sibling to restart and init)
+is a **generic, health-check-driven watchdog** for the container's one
+service. It is **generic** because the app supplies the health-check
+*command*; base ships the supervision loop. **Every knob defaults OFF** —
+with `watchdog_check` empty (the master switch) there is no watchdog and
+no behavior change, and the entrypoint's `. /usr/local/lib/base/watchdog.sh`
+line is a no-op. Enable it per repo:
+
+```bash
+./setup.sh set lifecycle.watchdog_check 'curl -fsS localhost:8080/health'
+./setup.sh set lifecycle.watchdog_on_fail restart-service   # optional
+./setup.sh apply                       # regenerates compose.yaml
+```
+
+Once `watchdog_check` is set, `setup.sh apply` emits the `WATCHDOG_*`
+values into each service's `environment:`, and the sourced helper runs the
+loop: after `watchdog_start_period`, it runs `watchdog_check` every
+`watchdog_interval`s (each bounded by `watchdog_timeout`); after
+`watchdog_failures` consecutive failures it takes the `watchdog_on_fail`
+action.
+
+| Knob | Default | Meaning |
+|------|---------|---------|
+| `watchdog_check` | *(empty)* | Health-check command; its exit status is the health signal (0 = healthy). **Empty disables the watchdog.** |
+| `watchdog_interval` | `30` | Seconds between checks. |
+| `watchdog_timeout` | `10` | Per-check timeout (seconds); a hung check counts as unhealthy. |
+| `watchdog_start_period` | `0` | Startup grace window (seconds) before checks begin, so a still-initializing service is not killed. |
+| `watchdog_failures` | `3` | Consecutive failures before acting. |
+| `watchdog_on_fail` | `restart-container` | Failure action (see below). |
+| `watchdog_max_restarts` | `5` | `restart-service` ceiling before giving up. |
+| `watchdog_notify` | *(empty)* | Optional command run once, on give-up. |
+
+**Two failure modes** (`watchdog_on_fail`):
+
+- **`restart-container`** (default, Docker-native): the watchdog runs as a
+  background monitor while the entrypoint `exec`s the service as PID 2; on
+  the failure threshold it **exits the container** so Docker's restart
+  policy (`[lifecycle] restart`) restarts the whole container. Docker's own
+  backoff absorbs restart storms — there is no watchdog-side backoff. Pair
+  it with a `restart` policy (e.g. `on-failure`) so the container actually
+  comes back.
+- **`restart-service`**: the watchdog **restarts only the in-container
+  service in place** (the container stays up), for heavy-init containers
+  where a full restart is expensive. It **requires `init = true`** (the
+  surviving PID 1). It counts restarts; on reaching `watchdog_max_restarts`
+  it **gives up LOUDLY** (never silently churns), runs `watchdog_notify`
+  (if set), then falls back to exiting the container (the Docker-native end
+  state).
+
+Both the health-check and the notify command are **pluggable** — base
+ships the hook points, the app/operator fills in the definition of
+"healthy" and the delivery of the give-up notification. Watchdog events
+(restart, give-up) are **always logged loudly to stderr** (captured by
+`docker logs`, never silent); when the [logging output to host](#logging-output-to-host)
+feature is on, they are **also** written to a `watchdog.log` under the log
+dir's `watchdog/` subdir (per-start file + stable symlink + retention,
+reusing the same `logrotate.sh` primitives as the container logs).
+
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
 is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
 automatically) and the detected workspace is written to `[volumes]

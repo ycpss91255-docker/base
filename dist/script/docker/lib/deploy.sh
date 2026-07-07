@@ -235,7 +235,7 @@ _resolve_deploy_context() {
   # generated deploy.sh run flags do not carry it).
   _conf_get_into _RDC_CONF lifecycle init true _tmp; _rdc_out["init"]="${_tmp}"
 
-  # [lifecycle] watchdog (#797). Emitted to the service `environment:` as
+  # [lifecycle] watchdog. Emitted to the service `environment:` as
   # WATCHDOG_* env only when the master switch (watchdog_check) is set --
   # empty check => empty string => feature off (no env, no behavior change).
   # Each remaining knob is emitted only when the conf sets it, so an unset

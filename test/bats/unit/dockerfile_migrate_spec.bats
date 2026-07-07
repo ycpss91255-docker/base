@@ -350,7 +350,7 @@ EOF
 }
 
 # ── migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
-# The generic watchdog (#797) ships runtime/watchdog.sh, COPY'd next to
+# The generic watchdog ships runtime/watchdog.sh, COPY'd next to
 # logging.sh at /usr/local/lib/base/. A downstream Dockerfile that COPYs
 # logging.sh but predates the watchdog lacks the watchdog.sh COPY; this
 # migration inserts the sibling COPY after the logging.sh COPY.

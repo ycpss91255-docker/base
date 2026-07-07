@@ -172,7 +172,7 @@ COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/bas
 # stable <svc>.log symlink, and keep/days retention; it must be COPY'd
 # alongside logging.sh or the container tee degrades to no rotation/prune.
 COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
-# Generic single-service watchdog (#797). Sourced from
+# Generic single-service watchdog. Sourced from
 # script/entrypoint.sh right after logging.sh with a single un-guarded
 # line:
 #   . /usr/local/lib/base/watchdog.sh
@@ -405,7 +405,7 @@ RUN bats /smoke_test/
 # # logging.sh sources its logrotate.sh sibling for per-start files +
 # # symlink + retention, so COPY it here too.
 # COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
-# # Generic single-service watchdog (#797). A no-op while
+# # Generic single-service watchdog. A no-op while
 # # [lifecycle] watchdog_check is unset; a repo enabling it in the runtime
 # # image must COPY it here too (runtime is a fresh BASE_IMAGE, so devel's
 # # COPY is not inherited). It reuses logrotate.sh (above) for watchdog.log.

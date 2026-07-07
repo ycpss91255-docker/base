@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 #
-# Tests for [lifecycle] watchdog (#797) support in generate_compose_yaml
-# and its resolution in _resolve_deploy_context: the WATCHDOG_* service
+# Tests for [lifecycle] watchdog support in generate_compose_yaml and its
+# resolution in _resolve_deploy_context: the WATCHDOG_* service
 # environment is emitted ONLY when the master switch (watchdog_check) is
 # set, so the default-off case leaves compose.yaml byte-identical (the
-# #505 golden is unaffected).
+# default-off golden is unaffected).
 
 bats_require_minimum_version 1.5.0
 

@@ -4,7 +4,7 @@
 # Sourced from a repo's `script/entrypoint.sh` (a sibling of logging.sh),
 # this helper adds a health-check-driven supervision loop for the one
 # service the container runs. It is the third [lifecycle] capability base
-# owns -- sibling to restart policy (#478) and init / PID1 (#792) -- and,
+# owns -- sibling to the restart policy and init / PID1 -- and, like both,
 # like both of them, EVERY knob defaults OFF: with `WATCHDOG_CHECK` unset
 # the source line is a no-op, so it is safe to drop into every entrypoint
 # unconditionally (no behavior change for repos that do not opt in).
@@ -21,7 +21,7 @@
 #
 # Failure action (`WATCHDOG_ON_FAIL`):
 #   - restart-container (DEFAULT): let the container EXIT so Docker's
-#     restart policy (#478) restarts the whole container. Simplest,
+#     restart policy restarts the whole container. Simplest,
 #     Docker-native; Docker's own backoff absorbs restart storms (no
 #     watchdog-side backoff). In this mode the entrypoint still `exec`s
 #     the service as PID 2 and the watchdog runs as a background monitor
@@ -33,15 +33,16 @@
 #     reaching `WATCHDOG_MAX_RESTARTS` it GIVES UP with a LOUD log (never
 #     silently churns), runs `WATCHDOG_NOTIFY` (if set), then falls back
 #     to exiting the container (the Docker-native end state). This mode
-#     relies on init / PID1 (#792) as the surviving supervisor.
+#     relies on init / PID1 as the surviving supervisor.
 #
 # Logging:
 #   Watchdog events (restart, give-up) are ALWAYS logged loudly to stderr
 #   so `docker logs` captures them -- never silent. When a log dir is
 #   configured (the [logging] local_path feature, i.e. `LOG_FILE_PATH`
 #   is set), the events are ALSO written to a dedicated `watchdog.log`
-#   following the #805 per-start-file + stable-symlink + retention
-#   convention, reusing the shared runtime/logrotate.sh primitives. The
+#   following the per-start-file + stable-symlink + retention convention
+#   of the container logs, reusing the shared runtime/logrotate.sh
+#   primitives. The
 #   watchdog logs live in a `watchdog/` subdir of the log dir so their
 #   retention never prunes the service's own per-start logs.
 #
@@ -135,7 +136,7 @@ _watchdog_load_config() {
 # _watchdog_log_setup -- when a log dir is configured (LOG_FILE_PATH set),
 # create a per-start watchdog file `<logdir>/watchdog/watchdog_<ts>.log`,
 # repoint the stable `watchdog.log` symlink at it, and prune old per-start
-# files by keep-count AND age (the #805 convention). The watchdog logs
+# files by keep-count AND age (the container-log convention). The watchdog logs
 # live in their own `watchdog/` subdir so pruning them never touches the
 # service's per-start logs (the shared-dir pooled-keep limitation of
 # logrotate.sh). Best-effort: any failure degrades to stderr-only logging.

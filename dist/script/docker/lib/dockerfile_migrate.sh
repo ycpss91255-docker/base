@@ -461,13 +461,13 @@ _migrate_logrotate_copy_apply() {
 
 # ── Migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
 #
-# The generic single-service watchdog (#797) ships a new runtime helper
+# The generic single-service watchdog ships a new runtime helper
 # watchdog.sh, COPY'd next to logging.sh / logrotate.sh at
 # /usr/local/lib/base/. A downstream Dockerfile that COPYs logging.sh but
 # predates the watchdog lacks the watchdog.sh COPY, so a repo that adds
 # `. /usr/local/lib/base/watchdog.sh` to its entrypoint would source a
 # missing file. Insert the sibling COPY right after the logging.sh COPY,
-# reusing that line's own flag/src shape. Mirrors the #805 logrotate-copy
+# reusing that line's own flag/src shape. Mirrors the logrotate-copy
 # migration; runs after logging_rename / logrotate_copy so the logging
 # COPY is already canonical. Idempotent: skipped once watchdog.sh is COPY'd.
 _migrate_watchdog_copy_detect() {

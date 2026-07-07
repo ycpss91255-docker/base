@@ -4,7 +4,7 @@
 # single-service watchdog sourced from a repo entrypoint (sibling of
 # logging.sh). Health-check-driven supervision with two failure actions
 # (restart-container default / restart-service), all knobs default OFF.
-# See ADR-00000020 and issue #797.
+# See ADR-00000020 (base owns the single-service lifecycle).
 
 bats_require_minimum_version 1.5.0
 

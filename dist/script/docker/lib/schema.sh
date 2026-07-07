@@ -138,7 +138,7 @@ declare -gA SCHEMA_I18N=(
   # init: config-file / CLI (`setup.sh set lifecycle.init`) only, never
   # surfaced in the TUI menu -- explicit no-editor opt-out.
   [lifecycle.init]=""
-  # watchdog (#797): config-file / CLI only, never surfaced in the TUI
+  # watchdog: config-file / CLI only, never surfaced in the TUI
   # menu -- explicit no-editor opt-out (same posture as init / transcript).
   [lifecycle.watchdog_check]=""
   [lifecycle.watchdog_interval]=""

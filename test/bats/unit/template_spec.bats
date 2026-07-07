@@ -750,7 +750,7 @@ _stage_lint_layout() {
 }
 
 @test "Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)" {
-  # The generic watchdog (#797) ships runtime/watchdog.sh, sourced from the
+  # The generic watchdog ships runtime/watchdog.sh, sourced from the
   # repo entrypoint alongside logging.sh. It must be COPY'd into the same
   # in-image dir (devel stage, before devel-test) so the source line
   # resolves at build + run time.
