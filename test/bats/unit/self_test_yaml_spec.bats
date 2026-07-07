@@ -520,7 +520,7 @@ setup() {
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -579,6 +579,61 @@ setup() {
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'success'
+}
+
+# ── System-level build-worker self-test (#802) ─────────────────
+
+@test "self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)" {
+  # System level (ADR-00000018): actually run base's OWN build-gate
+  # (build-worker.yaml) end-to-end via a local reusable-workflow call, so a
+  # semantic break in the worker turns this job red instead of surfacing
+  # only when a downstream runs it in production. The `uses:` is the LOCAL
+  # reusable-workflow reference (must stay actionlint-clean).
+  run grep -E '^  worker-selftest:' "${WF}"
+  assert_success
+  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'uses: ./.github/workflows/build-worker.yaml'
+}
+
+@test "self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)" {
+  # The point is to exercise the orchestration, not build a real image: the
+  # worker is pointed at the trivial alpine fixture
+  # (test/fixtures/build-worker/Dockerfile) via context_path, with the
+  # required image_name input supplied.
+  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'image_name: worker-selftest'
+  assert_output --partial 'context_path: test/fixtures/build-worker'
+}
+
+@test "self-test.yaml: worker-selftest needs actionlint + classify and gates on system_relevant (#802)" {
+  # Same upstream pattern as the system job: actionlint fires first, and the
+  # narrower system_relevant output skips it on pure lint / unit / doc PRs
+  # (any change to .github/workflows/** re-runs it via the block-list).
+  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
+}
+
+@test "self-test.yaml: ci-rollup consumes worker-selftest as a SKIPPED-tolerant gate (#802)" {
+  # The System self-test joins the aggregator branch protection keys on, in
+  # the success-or-skipped bucket (it skips on non-system PRs). ci-rollup
+  # must list it in needs: and inspect its result.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs.worker-selftest.result'
+  assert_output --partial ', worker-selftest]'
+}
+
+@test "self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)" {
+  # Acceptance criterion: the System job is part of the required gate before
+  # a tag. release fires on tag push only; if the worker self-test fails the
+  # tag must NOT produce a Release.
+  run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'worker-selftest]'
 }
 
 # ── shellcheck + hadolint dedicated jobs ───────────────────────
@@ -647,7 +702,7 @@ setup() {
   # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system]'
+  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────
