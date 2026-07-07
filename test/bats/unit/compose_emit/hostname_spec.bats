@@ -71,3 +71,56 @@ teardown() {
   run grep -E '^    hostname:' "${COMPOSE_OUT}"
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# per-stage standalone emit (effective gui/net gate)
+# ════════════════════════════════════════════════════════════════════
+
+@test "per-stage GUI+bridge override injects hostname on that stage (#794)" {
+  # Parent is GUI-off + host (devel emits NO hostname), so the only
+  # possible source of a hostname line is the stage that opts into
+  # GUI + bridge -- proving the standalone-emit path pins it via the
+  # stage's EFFECTIVE flags.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:probe]
+gui.mode = force
+network.mode = bridge
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host"
+  run grep -F 'hostname: test-host-42' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "per-stage GUI-off under bridge injects NO hostname (#794)" {
+  # Parent GUI-off + host emits nothing; the stage stays on bridge but
+  # turns the GUI off -> its effective gui is false, so no hostname line
+  # anywhere. Guards the effective-flag gate on the standalone path.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:probe]
+gui.mode = off
+network.mode = bridge
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host"
+  run grep -E '^    hostname:' "${COMPOSE_OUT}"
+  assert_failure
+}
