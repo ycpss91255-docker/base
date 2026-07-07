@@ -482,6 +482,29 @@ _logging_svc_local_path_mount() {
   _llp_out="${_raw}:/var/log/${_name}"
 }
 
+# _logging_svc_retention <svc> <keep_out> <days_out> <global> <per_svc>
+#
+# Resolve the container-log retention knobs for service <svc> from the
+# effective [logging] / [logging.<svc>] keys (container_log_keep /
+# container_log_days), falling back to 20 / 14 and clamping a
+# non-positive hand-edit back to the default (mirrors transcript.sh +
+# runtime/logging.sh). Emitted as CONTAINER_LOG_KEEP / CONTAINER_LOG_DAYS
+# env alongside LOG_FILE_PATH so the in-image tee's shared logrotate
+# prune honors setup.conf across the container boundary (#805).
+_logging_svc_retention() {
+  local _svc="$1"
+  local -n _keep_out="$2"
+  local -n _days_out="$3"
+  local _logging_global_str="${4-}"
+  local _logging_per_svc_str="${5-}"
+  local -A _kv=()
+  _logging_svc_kv "${_svc}" _kv "${_logging_global_str}" "${_logging_per_svc_str}"
+  _keep_out="${_kv[container_log_keep]:-20}"
+  _days_out="${_kv[container_log_days]:-14}"
+  [[ "${_keep_out}" =~ ^[1-9][0-9]*$ ]] || _keep_out=20
+  [[ "${_days_out}" =~ ^[1-9][0-9]*$ ]] || _days_out=14
+}
+
 # _emit_stage_service <ctx_assoc> <resolved_assoc> <svc> <emit_stage> <has_overrides>
 #
 # Per-service compose emitter. Consumes one resolved-stage value
@@ -565,6 +588,10 @@ YAML
     if [[ -n "${_stage_llp}" ]]; then
       echo "    environment:"
       echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
+      local _clog_keep _clog_days
+      _logging_svc_retention "${_svc}" _clog_keep _clog_days "${_logging_global_str}" "${_logging_per_svc_str}"
+      echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
+      echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       echo "    volumes:"
       echo "      - ${_stage_llp}"
     fi
@@ -727,7 +754,13 @@ YAML
         echo "      - ${_ev_dq}"
       done <<< "${_eff_environment}"
     fi
-    [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
+    if [[ -n "${_stage_log_file}" ]]; then
+      echo "      - LOG_FILE_PATH=${_stage_log_file}"
+      local _clog_keep _clog_days
+      _logging_svc_retention "${_svc}" _clog_keep _clog_days "${_logging_global_str}" "${_logging_per_svc_str}"
+      echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
+      echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
+    fi
   fi
   # ports: only under bridge mode (compose ignores it under host).
   if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
@@ -1042,7 +1075,13 @@ YAML
           echo "      - ${_ev_dq}"
         done
       fi
-      [[ -n "${_devel_log_file}" ]] && echo "      - LOG_FILE_PATH=${_devel_log_file}"
+      if [[ -n "${_devel_log_file}" ]]; then
+        echo "      - LOG_FILE_PATH=${_devel_log_file}"
+        local _clog_keep _clog_days
+        _logging_svc_retention devel _clog_keep _clog_days "${_logging_global_str}" "${_logging_per_svc_str}"
+        echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
+        echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
+      fi
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
