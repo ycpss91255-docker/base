@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2112 tests**.
+Unit specs under `test/bats/unit/`: **2116 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -403,7 +403,7 @@ on doc-only PRs).
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/ci_preflight_spec.bats (9)
+### test/bats/unit/ci_preflight_spec.bats (13)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator
 the reusable build / release workers run before any real work. Drives
@@ -412,8 +412,11 @@ required input passes; an empty required input, or an ungranted / unset
 permission probe, fails non-zero with a plain-language message naming
 the gap and the `main.yaml` fix; every unmet requirement is reported in
 one pass (not fail-on-first); `--list` self-describes the manifest;
-comment / blank manifest lines are ignored; a missing manifest file is a
-usage error (exit 2).
+comment / blank manifest lines are ignored. Malformed-manifest guards
+keep the never-silent thesis honest: an unknown requirement kind (a
+typo'd `kind` column) fails loudly naming the offending kind, and a
+missing / empty / all-comment (zero-requirement) manifest is a config
+error (exit 2) rather than a silent green.
 
 ### test/bats/unit/worker_preflight_yaml_spec.bats (10)
 

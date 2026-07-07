@@ -33,12 +33,15 @@ set -euo pipefail
 
 _check() {
   # Return 0 when the requirement identified by <kind>/<envvar> is
-  # satisfied by the current environment, non-zero otherwise.
+  # satisfied by the current environment, non-zero otherwise. Fail closed
+  # on an unrecognised kind so a malformed manifest can never validate
+  # green -- _validate rejects unknown kinds up front (with a loud
+  # message); this default is the defence-in-depth backstop.
   local kind="$1" envvar="$2"
   case "${kind}" in
     input) [[ -n "${!envvar:-}" ]] ;;
     permission) [[ "${!envvar:-}" == "granted" ]] ;;
-    *) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -75,8 +78,20 @@ _list() {
 
 _validate() {
   local manifest="$1" kind key envvar desc hint
-  local failures=0
+  local failures=0 total=0
   while IFS='|' read -r kind key envvar desc hint; do
+    case "${kind}" in
+      input|permission) ;;
+      *)
+        # A malformed manifest (typo'd kind column) must never validate
+        # green -- fail loudly, naming the offending kind and its line, as
+        # a config error (exit 2, same class as a missing manifest).
+        printf "preflight: malformed manifest '%s': unknown requirement kind '%s' (expected 'input' or 'permission') on line: %s|%s|%s|%s|%s\n" \
+          "${manifest}" "${kind}" "${kind}" "${key}" "${envvar}" "${desc}" "${hint}" >&2
+        return 2
+        ;;
+    esac
+    total=$((total + 1))
     if ! _check "${kind}" "${envvar}"; then
       if [[ "${failures}" -eq 0 ]]; then
         printf 'Preflight failed: this worker call is missing part of its caller contract.\n'
@@ -93,6 +108,14 @@ _validate() {
     fi
   done < <(_read_manifest "${manifest}")
 
+  if [[ "${total}" -eq 0 ]]; then
+    # A manifest that exists but declares nothing to check must not pass
+    # silently -- treat it as a config error (exit 2), same class as a
+    # missing manifest file.
+    printf "preflight: manifest '%s' declares no requirements (empty or all comments) -- nothing to validate\n" \
+      "${manifest}" >&2
+    return 2
+  fi
   if [[ "${failures}" -gt 0 ]]; then
     printf 'Preflight: %d requirement(s) unmet -- see above.\n' "${failures}" >&2
     return 1

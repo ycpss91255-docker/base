@@ -114,3 +114,46 @@ EOF
   assert_equal "${status}" 2
 }
 
+@test "preflight: an unknown manifest kind fails loudly, naming the offending kind (never silently green)" {
+  # A typo in the kind column (`permision`) must not slip through as a
+  # silent pass -- that would contradict the whole never-silent thesis.
+  cat > "${MANIFEST}" <<'EOF'
+permision|packages|PREFLIGHT_PERM_PACKAGES|typo'd kind column|grant packages
+EOF
+  PREFLIGHT_PERM_PACKAGES=granted run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_output --partial 'permision'
+  assert_output --partial 'kind'
+}
+
+@test "preflight: an unknown manifest kind is a config error (exit 2)" {
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|ok|add image_name
+boguskind|x|Y|z|fix
+EOF
+  PREFLIGHT_INPUT_IMAGE_NAME=ros run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_equal "${status}" 2
+  assert_output --partial 'boguskind'
+}
+
+@test "preflight: an empty manifest is a usage error (exit 2), never silently green" {
+  : > "${MANIFEST}"
+  run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_equal "${status}" 2
+  assert_output --partial 'no requirements'
+}
+
+@test "preflight: an all-comment manifest is a usage error (exit 2)" {
+  cat > "${MANIFEST}" <<'EOF'
+# only comments here
+
+# nothing to validate
+EOF
+  run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_equal "${status}" 2
+  assert_output --partial 'no requirements'
+}
+
