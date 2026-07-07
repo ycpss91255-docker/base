@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2146 tests**.
+Unit specs under `test/bats/unit/`: **2159 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -369,7 +369,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (37)
+### test/bats/unit/build_worker_yaml_spec.bats (43)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -380,7 +380,10 @@ runtime-test / runtime after #243) forwarding those inputs, no
 leftover `context: .` / `file: ./Dockerfile` literals, the GHA-cache
 plumbing (#272: `cache_variant` input, `Compute cache scope` step;
 #378 b1: per-target scope suffix so a late-stage COPY change in one
-target no longer cascades into siblings' manifests), and the #273
+target no longer cascades into siblings' manifests; #801:
+`cache_backend` input selecting the gha default or a GHCR registry
+backend via a per-step ternary, a guarded `docker/login-action` step),
+and the #273
 doc-only PR fast-pass (`path-filter` job; Phase 2 classifier is pure
 shell via `git diff --name-only base...head` + `case` glob, no
 `dorny/paths-filter` dependency; 6-path allowlist; compute-matrix +
@@ -399,11 +402,12 @@ on doc-only PRs).
 | User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps + no short-form regression) | 5 |
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
-| #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` scopes (cache-from + cache-to per target), no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max`, default preserves zero-diff for single-call callers | 6 |
+| #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` gha scopes in the default ternary branch, no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max` on both branches, default preserves zero-diff for single-call callers | 6 |
+| #801 registry cache backend: `cache_backend` input declared `type: string` default `"gha"` (default preserves the gha backend for existing callers), all 4 build steps emit a `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8 lines), the `extra_stages` buildx loop honors `cache_backend` too (shell-side selection, no hardwired gha ref), GHCR `docker/login-action` step gated on `cache_backend == 'registry'` | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
-### test/bats/unit/ci_preflight_spec.bats (13)
+### test/bats/unit/ci_preflight_spec.bats (18)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator
 the reusable build / release workers run before any real work. Drives
@@ -416,9 +420,16 @@ comment / blank manifest lines are ignored. Malformed-manifest guards
 keep the never-silent thesis honest: an unknown requirement kind (a
 typo'd `kind` column) fails loudly naming the offending kind, and a
 missing / empty / all-comment (zero-requirement) manifest is a config
-error (exit 2) rather than a silent green.
+error (exit 2) rather than a silent green. Conditional requirements
+(#801): an optional 6th manifest field `<condvar>=<value>` gates a
+requirement on another env var (e.g. `packages: write` only when
+`cache_backend: registry`) -- a guard that does not match is
+declared-but-skipped (never a failure), a matching guard enforces the
+requirement without leaking the guard into the hint, and `--list`
+annotates it as `(when <condvar>=<value>)`. A malformed guard field
+lacking `=` fails loud as a config error (exit 2), never failing open.
 
-### test/bats/unit/worker_preflight_yaml_spec.bats (10)
+### test/bats/unit/worker_preflight_yaml_spec.bats (12)
 
 Structural assertions that `build-worker.yaml` and `release-worker.yaml`
 wire in the caller-contract preflight: a `preflight` job that the real
@@ -428,7 +439,9 @@ the validator + manifest from base at the worker's own ref
 worker it guards), then calling `preflight.sh` with the per-worker
 manifest and the real inputs exported into the env vars the manifest
 names (plus a GHCR-login probe feeding the packages-permission check on
-the build side).
+the build side). #801 adds the build side's `cache_backend` export into
+the manifest guard env and a REAL packages: write probe (a GHCR
+blob-upload scope check, not a bare login) for the registry backend.
 
 ### test/bats/unit/self_test_yaml_spec.bats (74)
 
