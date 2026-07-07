@@ -132,7 +132,7 @@ _emit_volumes_block() {
 # Hoisted out of generate_compose_yaml so the per-service emitter
 # (_emit_stage_service) and the devel baseline block can share them as
 # independently-testable sub-seams. Each takes its context explicitly
-# instead of closing over generate_compose_yaml's 29 positional args.
+# instead of closing over generate_compose_yaml's 30 positional args.
 # ════════════════════════════════════════════════════════════════════
 
 # additional_contexts emitter: forwards `[additional_contexts]
@@ -200,6 +200,22 @@ _emit_restart_line() {
     on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
     *)            printf '    restart: %s\n'   "${_restart}" ;;
   esac
+}
+
+# init emitter: [lifecycle] init toggle. Docker's `init: true` runs the
+# daemon init (docker-init = tini) as PID 1 -- a zombie reaper + signal
+# forwarder. Default ON (emits `init: true`); an explicit `false` omits
+# the field. Stages that `extends: devel` inherit it; the per-stage
+# standalone block re-emits it (no extends to inherit from).
+_emit_init_line() {
+  local _init="${1-true}"
+  # apply does no schema revalidation, so a hand-edited setup.conf can feed
+  # a non-boolean here. Drop anything _validate_init rejects rather than
+  # emit a malformed init: field (apply-time trust-boundary guard, mirrors
+  # _emit_restart_line).
+  _validate_init "${_init}" || return 0
+  [[ "${_init}" == "false" ]] && return 0
+  printf '    init: true\n'
 }
 
 # env_file emitter: inject the hand-authored .env workload
@@ -506,6 +522,7 @@ _emit_stage_service() {
   local _tmpfs_str="${_ess_ctx[tmpfs]-}"
   local _shm_size="${_ess_ctx[shm_size]-}"
   local _dri_groups_str="${_ess_ctx[dri_groups]-}"
+  local _init="${_ess_ctx[init]-true}"
   local _logging_global_str="${_ess_ctx[logging_global]-}"
   local _logging_per_svc_str="${_ess_ctx[logging_per_svc]-}"
   local _net_mode="${_ess_ctx[net_mode]-host}"
@@ -656,6 +673,9 @@ YAML
      [[ "${_eff_runtime}" != "auto" ]]; then
     echo "    runtime: ${_eff_runtime}"
   fi
+  # init: standalone block has no `extends: devel` to inherit from, so
+  # re-emit the [lifecycle] init toggle (default on).
+  _emit_init_line "${_init}"
   # cap_add / cap_drop / security_opt: effective per-stage lists —
   # a stage can override / clear inherited caps via [stage:*]
   # security.cap_add_* / cap_drop_* / security_opt_* (+ *_inherit), else
@@ -819,6 +839,7 @@ generate_compose_yaml() {
   local _logging_per_svc_str="${27:-}"
   local _restart="${28:-no}"
   local _dri_groups_str="${29:-}"
+  local _init="${30:-true}"
 
   # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
   # both the devel service and every per-stage block emit an identical value.
@@ -967,6 +988,7 @@ YAML
     _emit_env_file_block
     _emit_runtime_line "${_runtime}"
     _emit_restart_line "${_restart}"
+    _emit_init_line "${_init}"
     # cap_add / cap_drop / security_opt + group_add (shared emitters).
     _emit_caps_block "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}"
     _emit_group_add_block "${_gui}" "${_dri_groups_str}"
@@ -1142,6 +1164,7 @@ YAML
       [tmpfs]="${_tmpfs_str}"
       [shm_size]="${_shm_size}"
       [dri_groups]="${_dri_groups_str}"
+      [init]="${_init}"
       [logging_global]="${_logging_global_str}"
       [logging_per_svc]="${_logging_per_svc_str}"
       [net_mode]="${_net_mode}"

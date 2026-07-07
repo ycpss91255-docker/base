@@ -155,6 +155,17 @@ teardown() {
   [ "${status}" -ne 0 ]
 }
 
+@test "_validate_init accepts true/false and rejects everything else (#792)" {
+  _validate_init "true"
+  _validate_init "false"
+  run _validate_init "yes"
+  [ "${status}" -ne 0 ]
+  run _validate_init "1"
+  [ "${status}" -ne 0 ]
+  run _validate_init ""
+  [ "${status}" -ne 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _validate_shm_size
 # ════════════════════════════════════════════════════════════════════

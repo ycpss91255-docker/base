@@ -105,6 +105,17 @@ setup() {
   assert_output '    restart: "on-failure:5"'
 }
 
+@test "_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)" {
+  run _emit_init_line
+  assert_output "    init: true"
+  run _emit_init_line "true"
+  assert_output "    init: true"
+  run _emit_init_line "false"
+  assert_output ""
+  run _emit_init_line "garbage"
+  assert_output ""
+}
+
 @test "_emit_additional_contexts_block: empty omits; entries emit block" {
   run _emit_additional_contexts_block ""
   assert_output ""

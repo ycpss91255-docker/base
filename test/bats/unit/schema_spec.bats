@@ -106,6 +106,8 @@ _assert_schema() {
 @test "_schema_validate accepts every registered key's valid sample" {
   _assert_schema resources shm_size "2gb" ok
   _assert_schema lifecycle restart "unless-stopped" ok
+  _assert_schema lifecycle init "true" ok
+  _assert_schema lifecycle init "false" ok
   _assert_schema build target_arch "arm64" ok
   _assert_schema build network "host" ok
   _assert_schema build arg_1 "FOO=bar" ok
@@ -135,6 +137,7 @@ _assert_schema() {
 @test "_schema_validate rejects every registered key's invalid sample" {
   _assert_schema resources shm_size "huge" fail
   _assert_schema lifecycle restart "sometimes" fail
+  _assert_schema lifecycle init "garbage" fail
   _assert_schema build target_arch "sparc" fail
   _assert_schema build network "carrier-pigeon" fail
   _assert_schema build arg_1 "1BAD=x" fail
