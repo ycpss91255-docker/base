@@ -198,7 +198,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (109)
+#### test/bats/unit/setup_spec.bats (113)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
