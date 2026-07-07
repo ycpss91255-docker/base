@@ -125,6 +125,8 @@ _assert_schema() {
   _assert_schema logging max_file "3" ok
   _assert_schema logging compress "true" ok
   _assert_schema logging local_path "/var/log/app" ok
+  _assert_schema logging container_log_keep "20" ok
+  _assert_schema logging container_log_days "14" ok
   _assert_schema volumes mount_1 "/data:/data:ro" ok
   _assert_schema devices device_1 "/dev/snd:/dev/snd" ok
   _assert_schema devices cgroup_rule_1 "c 81:* rmw" ok
@@ -154,6 +156,8 @@ _assert_schema() {
   _assert_schema logging max_file "0" fail
   _assert_schema logging compress "maybe" fail
   _assert_schema logging local_path $'has\nnewline' fail
+  _assert_schema logging container_log_keep "0" fail
+  _assert_schema logging container_log_days "abc" fail
   _assert_schema volumes mount_1 "noslash" fail
   _assert_schema devices device_1 "noslash" fail
   _assert_schema devices cgroup_rule_1 "bogus" fail
@@ -279,7 +283,7 @@ _sorted_keys() {
 }
 
 @test "_schema_section_keys returns all logging keys (#561, #606)" {
-  [ "$(_sorted_keys logging)" = "compress driver local_path max_file max_size wrapper_transcript wrapper_transcript_days wrapper_transcript_keep " ]
+  [ "$(_sorted_keys logging)" = "compress container_log_days container_log_keep driver local_path max_file max_size wrapper_transcript wrapper_transcript_days wrapper_transcript_keep " ]
 }
 
 @test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {
