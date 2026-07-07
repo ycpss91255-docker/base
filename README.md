@@ -458,6 +458,40 @@ clean. Enable what a container needs via `setup_tui.sh` (security /
 devices pages), `setup.sh add security.cap_add SYS_ADMIN`, or by
 uncommenting the examples in the template.
 
+#### Network mode: host default, bridge opt-in (#794)
+
+`[network] mode` ships as **`host`** and stays there by default. This is a
+deliberate fail-safe for the ROS-plurality org, not a convenience:
+
+> **Cross-machine ROS MUST stay on `host`.** Under `bridge` the container
+> lives on the `172.17.x` docker network, which is **not routable off the
+> box and cannot be made routable**. A multi-machine robot flipped to
+> bridge will have its ROS 1 / ROS 2 peers — a safety scanner, a LiDAR —
+> go **silently unreachable across machines while CI stays green**. That
+> failure is silent, catastrophic, and safety-relevant, so the default
+> fails safe toward it (host) and tightening is opt-in.
+
+For a **confirmed single-machine** repo (app container, AI tooling — no
+cross-machine ROS), you can tighten to bridge for least-privilege network
+isolation:
+
+```bash
+./setup.sh set network.mode bridge
+./setup.sh set network.ipc private   # optional: private IPC namespace too
+./setup.sh apply
+```
+
+Published ports (`[network] port_<N>`, e.g. `port_1 = 8080:80`) only take
+effect once you are on bridge — compose ignores `ports:` under host
+networking.
+
+Local GUI keeps working under bridge: when the GUI is enabled **and**
+`network.mode = bridge`, `setup.sh` pins the container's `hostname:` to the
+host's name in the generated `compose.yaml`, so the local X11
+MIT-MAGIC-COOKIE (which is keyed to the host's hostname) still matches.
+Under `host` networking nothing is injected — the container already shares
+the host's UTS namespace.
+
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
 is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
 automatically) and the detected workspace is written to `[volumes]
