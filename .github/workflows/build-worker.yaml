@@ -399,39 +399,31 @@ jobs:
     needs: path-filter
     if: needs.path-filter.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
+      # The platform -> matrix logic is pushed down into a pure-shell,
+      # host-testable script (script/ci/build_worker/compute_matrix.sh,
+      # #802) so the "a matrix condition that produces no jobs" semantic
+      # break is caught by `just test` bats, not only in production. The
+      # script is fetched from base at the SAME ref as this workflow
+      # (github.job_workflow_sha) so the resolver can never drift from the
+      # worker it feeds -- the exact version-match pattern the #800
+      # preflight uses. The step keeps only the thin GITHUB_OUTPUT plumbing.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
       - id: set
         env:
           PLATFORMS: ${{ inputs.platforms }}
         run: |
-          items=""
-          IFS=',' read -ra plats <<< "${PLATFORMS}"
-          for p in "${plats[@]}"; do
-            p="$(echo "${p}" | tr -d '[:space:]')"
-            case "${p}" in
-              linux/amd64)
-                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"},'
-                ;;
-              linux/arm64)
-                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"aarch64"},'
-                ;;
-              "")
-                continue
-                ;;
-              *)
-                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
-                exit 1
-                ;;
-            esac
-          done
-          if [ -z "${items}" ]; then
-            echo "::error::No valid platforms found in '${PLATFORMS}'"
-            exit 1
-          fi
-          json="{\"include\":[${items%,}]}"
-          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+          matrix="$(bash .worker-base/script/ci/build_worker/compute_matrix.sh)"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
 
   # ────────────────────────────────────────────────────────────────
   # Per-platform build. Each shard runs on its native runner.

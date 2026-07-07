@@ -473,3 +473,34 @@ setup() {
     return 1
   }
 }
+
+# ── #802: worker logic pushed down to host-testable shell scripts ──────
+
+@test "build-worker.yaml: compute-matrix delegates to the extracted compute_matrix.sh (#802)" {
+  # The platform -> matrix logic (the "a matrix condition that produces no
+  # jobs" semantic break) is pushed down into a pure-shell, host-testable
+  # script covered by build_worker_compute_matrix_spec.bats. The YAML step
+  # must call the script and keep only the GITHUB_OUTPUT plumbing -- the old
+  # inline `case linux/amd64)` fan-out logic must be gone from the YAML.
+  run grep -F 'bash .worker-base/script/ci/build_worker/compute_matrix.sh' "${WF}"
+  assert_success
+  run grep -F 'echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"' "${WF}"
+  assert_success
+  # No leftover inline platform fan-out (would mean the extraction was
+  # half-done and the untested inline copy could drift).
+  run grep -F '{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"}' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "build-worker.yaml: compute-matrix version-matches the script via job_workflow_sha (#802)" {
+  # The script is fetched from base at the SAME ref as this workflow, so the
+  # resolver can never drift from the worker it feeds -- the exact
+  # version-match pattern the #800 preflight uses. Assert the compute-matrix
+  # job checks out ycpss91255-docker/base at github.job_workflow_sha into
+  # the .worker-base path the delegating call reads from.
+  run awk '/^  compute-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'repository: ycpss91255-docker/base'
+  assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
+  assert_output --partial 'path: .worker-base'
+}
