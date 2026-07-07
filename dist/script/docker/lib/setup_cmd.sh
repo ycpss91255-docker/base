@@ -1055,6 +1055,7 @@ _setup_apply() {
   local network_name="${_dctx[network_name]}"
   local privileged="${_dctx[privileged]}"
   local restart_policy="${_dctx[restart_policy]}"
+  local init="${_dctx[init]}"
   local dri_groups_str="${_dctx[dri_groups_str]}"
 
   # resolution order CLI > env > conf > default. The shared resolver
@@ -1300,6 +1301,7 @@ _setup_apply() {
     "${_logging_per_svc_str}" \
     "${restart_policy}" \
     "${dri_groups_str}" \
+    "${init}" \
     || return $?
 
   # S7: runtime.env retired. Under the A2 model its purpose

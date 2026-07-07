@@ -105,6 +105,47 @@ EOF
   assert_failure
 }
 
+# ── [lifecycle] init (PID1 reaper) ─────────────────────────────────────
+@test "[lifecycle] init defaults ON: emits init: true under devel (#792)" {
+  # conf has no [lifecycle] init key -> code default true -> init: true.
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    init: true$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "[lifecycle] init = false omits init: field (#792)" {
+  printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    init:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "template setup.conf ships [lifecycle] init = true (#792)" {
+  run grep -E '^init = true$' /source/dist/config/docker/setup.conf
+  assert_success
+}
+
+@test "setup.sh set lifecycle.init rejects a non-boolean (#792)" {
+  printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  unset SETUP_CONF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main set lifecycle.init maybe --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+}
+
 @test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
   unset SETUP_CONF
