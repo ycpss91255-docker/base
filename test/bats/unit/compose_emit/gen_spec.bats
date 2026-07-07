@@ -1099,6 +1099,7 @@ services:
     env_file:
       - .env
     runtime: nvidia
+    init: true
     networks:
       - mynet
     hostname: test-host-42
@@ -1163,6 +1164,7 @@ services:
     privileged: true
     ipc: private
     runtime: nvidia
+    init: true
     networks:
       - mynet
     environment:

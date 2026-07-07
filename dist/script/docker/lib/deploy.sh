@@ -173,7 +173,7 @@ _emit_docker_run_flags() {
 #
 # Populated keys: build_network gpu_mode gpu_count gpu_caps
 #   gpu_runtime_mode gui_mode net_mode ipc_mode pid_mode network_name
-#   privileged restart_policy dri_groups_str devices_str cgroup_rule_str
+#   privileged restart_policy init dri_groups_str devices_str cgroup_rule_str
 #   env_str tmpfs_str ports_str cap_add_str cap_drop_str sec_opt_str
 #   shm_size  (assoc subscripts quoted so ShellCheck does not read them
 #   as arithmetic refs (SC2154) -- the out-param is a nameref).
@@ -230,6 +230,10 @@ _resolve_deploy_context() {
 
   # [lifecycle] restart policy (default no).
   _conf_get_into _RDC_CONF lifecycle restart no _tmp; _rdc_out["restart_policy"]="${_tmp}"
+  # [lifecycle] init toggle -- compose `init: true` (PID1 reaper). Default
+  # ON: key-absent / cleared conf resolves to true (compose-level only; the
+  # generated deploy.sh run flags do not carry it).
+  _conf_get_into _RDC_CONF lifecycle init true _tmp; _rdc_out["init"]="${_tmp}"
 
   # dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
   local _dri_groups_mode="" _dri_groups_str=""
