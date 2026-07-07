@@ -204,6 +204,41 @@ on:
             with:
               image_name: omniverse_web_viewer
               submodules: recursive
+      cache_backend:
+        required: false
+        type: string
+        default: "gha"
+        description: |
+          Where the buildx layer cache is stored: `gha` (default) or
+          `registry`. Any value other than `registry` is treated as `gha`.
+
+          `gha` uses GitHub Actions cache (`type=gha`) -- the historical
+          behaviour, with a hard 10 GB per-repo ceiling. Source-heavy repos
+          exceed that ceiling, so GHA evicts entries (LRU) while they are
+          still being written and the next run recompiles cold. Adding cache
+          scopes (`cache_variant`) makes it worse, not better: it is a
+          capacity problem, not a scope problem (#801).
+
+          `registry` stores the cache in the GHCR registry
+          (`type=registry,ref=ghcr.io/<owner>/<repo>/buildcache:<scope>`),
+          which has no 10 GB ceiling, so the second run genuinely hits and
+          does not recompile. Selecting `registry` requires the calling job
+          to grant `packages: write` -- verified up front by the preflight
+          (#800), which does a real write-scope probe (not just a login) so
+          a caller that forgot the permission fails within seconds with the
+          fix instead of 403-ing deep in a 20-minute build. The registry
+          backend also adds a GHCR `docker/login-action` login step.
+
+          Default `gha` keeps every existing caller unchanged (backward
+          compatible) and needs no extra permission. Closes #801.
+
+          Example (opt in on a source-heavy repo):
+            with:
+              image_name: ros1_bridge
+              cache_backend: registry
+            permissions:
+              contents: read
+              packages: write
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -232,19 +267,42 @@ jobs:
           repository: ycpss91255-docker/base
           ref: ${{ github.job_workflow_sha }}
           path: .preflight-base
-      - name: Probe GHCR login (packages capability)
-        # Attempt an authenticated GHCR login with the workflow token.
-        # Success -> the caller can reach the packages registry (pave the
-        # way for the registry-cache backend's packages: write, #801);
-        # failure -> report missing so the preflight tells the caller to
-        # grant the permission rather than 403-ing mid-build.
+      - name: Probe GHCR packages write (registry cache backend, #801)
+        # Only the registry cache backend needs packages: write. The default
+        # gha backend stores the buildx cache in GHA cache and pulls
+        # test-tools anonymously, so report granted -- the manifest's
+        # packages requirement is guarded on cache_backend == registry and
+        # is not enforced for gha callers (backward compatible).
+        #
+        # For registry, verify a REAL packages: write capability, not just
+        # that login works: a read-only token can still `docker login`, so
+        # login alone is no proof. Request a push-scoped GHCR token and open
+        # a blob upload against the repo's buildcache namespace -- HTTP 202
+        # means write is granted, 401/403 means the caller did not grant
+        # packages: write, so the preflight fails early with the fix instead
+        # of 403-ing deep in a 20-minute build.
         id: ghcr
         env:
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
         run: |
           set -u
-          if echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin >/dev/null 2>&1; then
+          if [ "${CACHE_BACKEND}" != "registry" ]; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" \
+            --password-stdin >/dev/null 2>&1 || true
+          repo_lc="$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')"
+          token="$(curl -fsSL -u "${GHCR_ACTOR}:${GHCR_TOKEN}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo_lc}/buildcache:pull,push" \
+            | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${token}" \
+            "https://ghcr.io/v2/${repo_lc}/buildcache/blobs/uploads/")"
+          if [ "${code}" = "202" ]; then
             echo "packages=granted" >> "${GITHUB_OUTPUT}"
           else
             echo "packages=missing" >> "${GITHUB_OUTPUT}"
@@ -252,6 +310,7 @@ jobs:
       - name: Validate caller contract (preflight)
         env:
           PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}
           PREFLIGHT_PERM_PACKAGES: ${{ steps.ghcr.outputs.packages }}
         run: bash .preflight-base/script/ci/preflight.sh .preflight-base/script/ci/preflight/build.manifest
 
@@ -429,6 +488,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # #801 -- the registry cache backend reads/writes the buildx cache
+      # under ghcr.io/<repo>/buildcache, which needs an authenticated buildx
+      # session for cache-to. Gated on cache_backend so the default gha path
+      # adds no login; packages: write is verified up front by the preflight.
+      - name: Log in to GHCR (registry cache backend)
+        if: ${{ inputs.cache_backend == 'registry' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Compute cache scope
         # #272 — derive a per-(repo, variant, arch) cache scope base.
         # ${image_name}[-${cache_variant}]-${matrix.hardware}.
@@ -505,8 +576,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -525,8 +596,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -559,8 +630,8 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -579,8 +650,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci

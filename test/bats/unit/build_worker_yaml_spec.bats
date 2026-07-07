@@ -221,18 +221,43 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: 4 build steps use per-target cache scopes (#378 b1)" {
+@test "build-worker.yaml: 4 build steps use per-target gha cache scopes in the default branch (#378 b1, #801 ternary)" {
   # all 4 build steps shared `${steps.cache.outputs.key}` so a
   # late-stage COPY in devel cascaded the manifest pointer in the
   # shared scope, invalidating runtime / runtime-test caches on the
-  # next PR. each target has its own scope; one scope's
-  # manifest update no longer affects the others.
+  # next PR. each target has its own scope; one scope's manifest update
+  # no longer affects the others.
+  #
+  # #801 made cache-from / cache-to a `cache_backend`-selected ternary;
+  # the default (gha) branch is a `format()` that emits the SAME
+  # `type=gha,scope=<key>-<target>-cache` string as before, so gha
+  # callers are byte-for-byte unchanged at runtime.
   for _target in devel-test devel runtime-test runtime; do
-    run grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
+    run grep -F "format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
     assert_success
-    run grep -F "cache-to: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache,mode=max" "${WF}"
+    run grep -F "format('type=gha,scope={0}-${_target}-cache,mode=max', steps.cache.outputs.key)" "${WF}"
     assert_success
   done
+}
+
+@test "build-worker.yaml: 4 build steps emit a type=registry GHCR buildcache ref when cache_backend is registry (#801)" {
+  # The registry branch of the ternary stores/reads the buildx cache in
+  # GHCR (no 10 GB GHA ceiling): type=registry,ref=ghcr.io/<repo>/buildcache
+  # tagged per target, with mode=max on cache-to.
+  for _target in devel-test devel runtime-test runtime; do
+    run grep -F "format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-${_target}-cache', github.repository, steps.cache.outputs.key)" "${WF}"
+    assert_success
+    run grep -F "format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-${_target}-cache,mode=max', github.repository, steps.cache.outputs.key)" "${WF}"
+    assert_success
+  done
+}
+
+@test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
+  # Both cache-from and cache-to (8 lines total) gate on the input so the
+  # backend is chosen per call, defaulting to gha.
+  run grep -cE "^          cache-(from|to): \\\$\{\{ inputs\.cache_backend == 'registry'" "${WF}"
+  assert_success
+  assert_output "8"
 }
 
 @test "build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)" {
@@ -243,15 +268,49 @@ setup() {
   [ "${status}" -ne 0 ] || [ "${output}" = "0" ]
 }
 
-@test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
+@test "build-worker.yaml: 4 build steps all set mode=max on cache-to for both backends (#272 preserved, #801)" {
   # mode=max exports all intermediate stage layers (including the heavy
-  # builder / source-build stages). The 10 GB GHA quota tradeoff is
-  # accepted; LRU eviction is expected to keep hot paths cached. With
-  # per-target scopes (b1) the total storage roughly 4x grows; LRU
-  # still keeps hot paths.
-  run grep -cE '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }}-(devel-test|devel|runtime-test|runtime)-cache,mode=max$' "${WF}"
+  # builder / source-build stages). Both ternary branches (gha default +
+  # registry) carry mode=max on cache-to; 4 cache-to lines * both
+  # branches = 4 gha + 4 registry mode=max occurrences.
+  # gha default branch is the `|| format(...)` fallback, so its cache-to
+  # format() ends the whole `${{ ... }}` expression ( `) }}` ).
+  run grep -cF ",mode=max', steps.cache.outputs.key) }}" "${WF}"
   assert_success
   assert_output "4"
+  # registry branch is the `&& format(...)` arm, so its cache-to format()
+  # is followed by the `||` fallback ( `) ||` ).
+  run grep -cF ",mode=max', github.repository, steps.cache.outputs.key) ||" "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: declares cache_backend input with default gha (#801)" {
+  # Opt-in registry cache backend; default gha keeps every existing
+  # caller byte-for-byte unchanged (no 10 GB GHA ceiling escape unless
+  # asked for).
+  run grep -A 3 '^      cache_backend:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: "gha"'
+}
+
+@test "build-worker.yaml: cache_backend default preserves the gha backend for existing callers (#801)" {
+  local _cb
+  _cb="$(grep -A 3 '^      cache_backend:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_cb}" == *'"gha"'* ]]
+}
+
+@test "build-worker.yaml: GHCR login step is gated on cache_backend == registry (#801)" {
+  # The registry backend pushes cache to ghcr.io/<repo>/buildcache and
+  # needs an authenticated buildx session; the default gha path adds no
+  # login. Assert both the docker/login-action use and its cache_backend
+  # gate are present.
+  run grep -E '^[[:space:]]+uses: docker/login-action@' "${WF}"
+  assert_success
+  run grep -F "if: \${{ inputs.cache_backend == 'registry' }}" "${WF}"
+  assert_success
 }
 
 @test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
