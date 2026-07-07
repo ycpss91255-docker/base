@@ -157,3 +157,68 @@ EOF
   assert_output --partial 'no requirements'
 }
 
+# ── conditional requirements (#801) ──────────────────────────────────
+#
+# A requirement may carry an optional 6th field `<condvar>=<value>`: it is
+# only enforced when env `<condvar>` equals `<value>`, otherwise it is
+# declared-but-not-applicable and skipped. This lets one static manifest
+# gate the registry-cache backend's `packages: write` requirement on the
+# caller's `cache_backend` selection without special-casing the engine per
+# worker.
+
+@test "preflight: a conditional requirement is skipped when its guard env does not match (#801)" {
+  # cache_backend != registry -> the packages requirement does not apply,
+  # so a missing permission does not fail the caller (backward compatible).
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name|add image_name
+permission|packages|PREFLIGHT_PERM_PACKAGES|GHCR packages: write|grant `packages: write`|PREFLIGHT_CACHE_BACKEND=registry
+EOF
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=gha \
+  PREFLIGHT_PERM_PACKAGES=missing \
+    run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_success
+}
+
+@test "preflight: a conditional requirement is enforced when its guard env matches (#801)" {
+  # cache_backend == registry -> the packages requirement applies; a
+  # caller that did not grant `packages: write` fails early with the fix.
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name|add image_name
+permission|packages|PREFLIGHT_PERM_PACKAGES|GHCR packages: write|grant `packages: write` under `permissions:`|PREFLIGHT_CACHE_BACKEND=registry
+EOF
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=registry \
+  PREFLIGHT_PERM_PACKAGES=missing \
+    run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_failure
+  assert_output --partial 'packages'
+  assert_output --partial 'permissions:'
+  # The guard field must not leak into the human-facing hint text.
+  refute_output --partial 'PREFLIGHT_CACHE_BACKEND=registry'
+}
+
+@test "preflight: a matched conditional requirement passes when it is satisfied (#801)" {
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name|add image_name
+permission|packages|PREFLIGHT_PERM_PACKAGES|GHCR packages: write|grant `packages: write`|PREFLIGHT_CACHE_BACKEND=registry
+EOF
+  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
+  PREFLIGHT_CACHE_BACKEND=registry \
+  PREFLIGHT_PERM_PACKAGES=granted \
+    run bash "${PREFLIGHT}" "${MANIFEST}"
+  assert_success
+}
+
+@test "preflight --list: annotates a conditional requirement with its guard (#801)" {
+  cat > "${MANIFEST}" <<'EOF'
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name|add image_name
+permission|packages|PREFLIGHT_PERM_PACKAGES|GHCR packages: write|grant packages|PREFLIGHT_CACHE_BACKEND=registry
+EOF
+  run bash "${PREFLIGHT}" --list "${MANIFEST}"
+  assert_success
+  assert_output --partial 'packages'
+  # The list self-describes that packages is only required conditionally.
+  assert_output --partial 'when PREFLIGHT_CACHE_BACKEND=registry'
+}
+
