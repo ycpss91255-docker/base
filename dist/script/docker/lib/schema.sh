@@ -49,6 +49,7 @@ declare -gA SCHEMA_VALIDATOR=(
   [deploy.runtime]=_validate_runtime          # legacy alias
   [resources.shm_size]=_validate_shm_size
   [lifecycle.restart]=_validate_restart
+  [lifecycle.init]=_validate_init
   [build.target_arch]=_validate_target_arch
   [build.network]=_validate_build_network
   [network.network_name]=_validate_network_name
@@ -124,6 +125,9 @@ declare -gA SCHEMA_I18N=(
   [deploy.runtime]=deploy.runtime.prompt        # legacy alias
   [resources.shm_size]=resources.shm_size.prompt
   [lifecycle.restart]=lifecycle.restart.prompt
+  # init: config-file / CLI (`setup.sh set lifecycle.init`) only, never
+  # surfaced in the TUI menu -- explicit no-editor opt-out.
+  [lifecycle.init]=""
   [build.target_arch]=build.target_arch.prompt
   [build.network]=build.network.prompt
   [network.network_name]=network.name.prompt
