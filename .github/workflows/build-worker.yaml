@@ -207,6 +207,55 @@ on:
 
 jobs:
   # ────────────────────────────────────────────────────────────────
+  # #800 — caller-contract preflight. Runs before any build compute so a
+  # downstream main.yaml that forgot a required input or a needed
+  # permission fails within seconds with a plain-language fix, instead of
+  # 403-ing or silently skipping deep in a 20-minute build.
+  #
+  # The declared requirement list lives in
+  # script/ci/preflight/build.manifest and is validated by the pure-shell
+  # script/ci/preflight.sh — both fetched from base at the SAME ref as
+  # this workflow (github.job_workflow_sha) so the validator can never
+  # drift from the worker it guards. Adding a future requirement is one
+  # line in that manifest; the preflight follows automatically. The logic
+  # is unit- + integration-tested under `just test`; this job is the thin
+  # wiring that feeds it the real inputs / permission probes.
+  # ────────────────────────────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .preflight-base
+      - name: Probe GHCR login (packages capability)
+        # Attempt an authenticated GHCR login with the workflow token.
+        # Success -> the caller can reach the packages registry (pave the
+        # way for the registry-cache backend's packages: write, #801);
+        # failure -> report missing so the preflight tells the caller to
+        # grant the permission rather than 403-ing mid-build.
+        id: ghcr
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -u
+          if echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin >/dev/null 2>&1; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+          else
+            echo "packages=missing" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Validate caller contract (preflight)
+        env:
+          PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          PREFLIGHT_PERM_PACKAGES: ${{ steps.ghcr.outputs.packages }}
+        run: bash .preflight-base/script/ci/preflight.sh .preflight-base/script/ci/preflight/build.manifest
+
+  # ────────────────────────────────────────────────────────────────
   # #273 — doc-only PR fast-pass.
   #
   # Classifies the PR diff against an allowlist of doc-only paths
@@ -330,7 +379,7 @@ jobs:
   # Full test + devel + runtime pipeline runs per platform.
   # ────────────────────────────────────────────────────────────────
   build:
-    needs: [path-filter, compute-matrix]
+    needs: [path-filter, compute-matrix, preflight]
     if: needs.path-filter.outputs.code_changed == 'true'
     strategy:
       fail-fast: false

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2093 tests**.
+Unit specs under `test/bats/unit/`: **2112 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -402,6 +402,30 @@ on doc-only PRs).
 | #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` scopes (cache-from + cache-to per target), no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max`, default preserves zero-diff for single-call callers | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
+
+### test/bats/unit/ci_preflight_spec.bats (9)
+
+Unit tests for `script/ci/preflight.sh`, the caller-contract validator
+the reusable build / release workers run before any real work. Drives
+the pure-shell engine over synthetic requirement manifests: a present
+required input passes; an empty required input, or an ungranted / unset
+permission probe, fails non-zero with a plain-language message naming
+the gap and the `main.yaml` fix; every unmet requirement is reported in
+one pass (not fail-on-first); `--list` self-describes the manifest;
+comment / blank manifest lines are ignored; a missing manifest file is a
+usage error (exit 2).
+
+### test/bats/unit/worker_preflight_yaml_spec.bats (10)
+
+Structural assertions that `build-worker.yaml` and `release-worker.yaml`
+wire in the caller-contract preflight: a `preflight` job that the real
+build / release job gates on (its `needs:` list includes it), fetching
+the validator + manifest from base at the worker's own ref
+(`github.job_workflow_sha`, so the validator can never drift from the
+worker it guards), then calling `preflight.sh` with the per-worker
+manifest and the real inputs exported into the env vars the manifest
+names (plus a GHCR-login probe feeding the packages-permission check on
+the build side).
 
 ### test/bats/unit/self_test_yaml_spec.bats (74)
 
