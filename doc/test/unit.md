@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2144 tests**.
+Unit specs under `test/bats/unit/`: **2146 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1429,7 +1429,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/entrypoint_logging_spec.bats (11)
+### test/bats/unit/entrypoint_logging_spec.bats (12)
 
 Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
 downstream repos source from their `script/entrypoint.sh` so

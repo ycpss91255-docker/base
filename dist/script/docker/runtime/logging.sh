@@ -80,10 +80,21 @@ _entrypoint_logging_setup() {
     return 0
   fi
 
-  # Per-start real file: <svc>_<ts>.log alongside the stable symlink.
+  # Per-start real file: <svc>_<ts>.log alongside the stable symlink. The
+  # timestamp is second-granular, so two starts in the SAME wall-clock
+  # second (a crash-loop restart with sub-second backoff) would resolve to
+  # the same path and the second would TRUNCATE the first run's file --
+  # reintroducing the truncate-on-restart footgun. Guard it: if the name is
+  # already taken, probe a `-<n>` suffix so each start keeps its own file
+  # (the disambiguator the transcript gets from its <ts>-<traceid8> shape).
   local _ts _real
   _ts="$(date -u '+%Y%m%dT%H%M%SZ' 2>/dev/null || printf 'unknown')"
   _real="${_dir}/${_stem}_${_ts}.log"
+  local _seq=1
+  while [[ -e "${_real}" ]]; do
+    _real="${_dir}/${_stem}_${_ts}-${_seq}.log"
+    _seq=$(( _seq + 1 ))
+  done
   if ! : > "${_real}" 2>/dev/null; then
     printf '[entrypoint-logging] WARN: cannot write %s, skipping tee\n' \
       "${_real}" >&2

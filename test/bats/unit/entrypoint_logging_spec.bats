@@ -108,6 +108,40 @@ EOF
   assert_output "devel_${_t2}.log"
 }
 
+@test "entrypoint_logging same wall-clock second: second start bumps suffix, never truncates the first (#805)" {
+  # Both starts see the SAME second-granular timestamp (crash-loop restart
+  # within one second). The second start must NOT reuse -- and truncate --
+  # the first run's file; it probes a -<n> suffix instead.
+  local _ts="20260101T000000Z"
+  run bash -c "
+    export PATH='$(_stub_date_dir "${_ts}"):${PATH}'
+    export LOG_FILE_PATH='${TEMP_DIR}/devel.log'
+    . /source/dist/script/docker/runtime/logging.sh
+    echo 'first-run'
+    sleep 0.2
+  "
+  assert_success
+  run bash -c "
+    export PATH='$(_stub_date_dir "${_ts}"):${PATH}'
+    export LOG_FILE_PATH='${TEMP_DIR}/devel.log'
+    . /source/dist/script/docker/runtime/logging.sh
+    echo 'second-run'
+    sleep 0.2
+  "
+  assert_success
+  # Two DISTINCT files: the base name and its -1 bump; both survive.
+  assert [ -f "${TEMP_DIR}/devel_${_ts}.log" ]
+  assert [ -f "${TEMP_DIR}/devel_${_ts}-1.log" ]
+  # The first run's file was NOT truncated by the second start.
+  run grep -F "first-run" "${TEMP_DIR}/devel_${_ts}.log"
+  assert_success
+  run grep -F "second-run" "${TEMP_DIR}/devel_${_ts}-1.log"
+  assert_success
+  # Symlink follows the newest (bumped) run.
+  run readlink "${TEMP_DIR}/devel.log"
+  assert_output "devel_${_ts}-1.log"
+}
+
 @test "entrypoint_logging captures stderr along with stdout in the per-start file (#328)" {
   local _ts="20260101T000000Z"
   run bash -c "
@@ -212,21 +246,26 @@ EOF
   assert [ "${#_kept[@]}" -eq 4 ]
 }
 
-@test "entrypoint_logging warns + continues when the per-start file is unwritable (#691)" {
-  # Deterministic ts -> the per-start path is known; pre-create it as a
-  # directory so `: > <real>` fails for any caller (root-proof), exercising
-  # the file-unwritable warn-and-continue branch.
+@test "entrypoint_logging bumps past an occupied base per-start name, still tees (#805)" {
+  # The base per-start name is occupied (here by a directory); the probe
+  # loop must skip it and write to a free -<n> file rather than fail, and
+  # the occupant is left untouched.
   local _ts="20260101T000000Z"
   mkdir -p "${TEMP_DIR}/devel_${_ts}.log"
   run bash -c "
     export PATH='$(_stub_date_dir "${_ts}"):${PATH}'
     export LOG_FILE_PATH='${TEMP_DIR}/devel.log'
     . /source/dist/script/docker/runtime/logging.sh
-    echo 'should still print'
-  " 2>&1
+    echo 'bumped'
+    sleep 0.2
+  "
   assert_success
-  assert_output --partial "WARN"
-  assert_output --partial "should still print"
+  # Occupant directory untouched; run wrote to the -1 bump.
+  assert [ -d "${TEMP_DIR}/devel_${_ts}.log" ]
+  run grep -F "bumped" "${TEMP_DIR}/devel_${_ts}-1.log"
+  assert_success
+  run readlink "${TEMP_DIR}/devel.log"
+  assert_output "devel_${_ts}-1.log"
 }
 
 @test "entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)" {

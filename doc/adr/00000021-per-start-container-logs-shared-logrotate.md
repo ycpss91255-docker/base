@@ -73,6 +73,25 @@ mechanism so the two producers do not carry parallel implementations.
   or the tee degrades to no rotation/prune. A `logrotate_copy`
   `dockerfile_migrate` migration adds the sibling COPY on `just upgrade`.
 
+- **Same-second collision guard.** The per-start filename is second-granular
+  (`<svc>_<ts>.log`). Two starts in the same wall-clock second (a crash-loop
+  restart with sub-second backoff) would otherwise resolve to the same path
+  and the second would truncate the first -- the exact footgun this issue
+  removes. `logging.sh` guards it by probing a `-<n>` suffix when the
+  timestamped name is already taken, so each start keeps its own file (the
+  disambiguator the transcript gets from its `<ts>-<traceid8>` shape).
+
+- **Prune is symlink-safe, but keep is pooled (known limitation).** Both
+  prune passes exclude symlinks (`find -type f` in the age pass, an `-h`
+  test in the count pass), so neither the caller's own stable symlink nor a
+  sibling service's `<other>.log` symlink sharing `/var/log/<repo>/` is ever
+  deleted -- symlink safety does not depend on the symlink's name. However,
+  both passes glob every `*.log` real file in the dir, so the `keep` / `days`
+  caps are POOLED across services when multiple services tee into one dir,
+  not per-service. Under the one-service-per-repo model this is rare and is
+  left out of scope here; revisit if a repo runs many services into the
+  same log dir.
+
 ## Scope note
 
 This issue changes only HOW container logs are stored (per-start + symlink
