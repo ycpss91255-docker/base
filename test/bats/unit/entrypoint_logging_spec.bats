@@ -2,7 +2,7 @@
 #
 # Tests for dist/script/docker/runtime/logging.sh -- the helper sourced
 # from repo entrypoints to tee container stdout/stderr to the host
-# bind-mounted log when [logging] local_path is set. Glog-style (#805):
+# bind-mounted log when [logging] local_path is set. Glog-style:
 # each container start writes a per-start real file <svc>_<ts>.log and
 # repoints the stable <svc>.log symlink (= LOG_FILE_PATH) at it, then
 # prunes old per-start files by CONTAINER_LOG_KEEP / CONTAINER_LOG_DAYS.

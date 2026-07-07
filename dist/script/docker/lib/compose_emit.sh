@@ -490,7 +490,7 @@ _logging_svc_local_path_mount() {
 # non-positive hand-edit back to the default (mirrors transcript.sh +
 # runtime/logging.sh). Emitted as CONTAINER_LOG_KEEP / CONTAINER_LOG_DAYS
 # env alongside LOG_FILE_PATH so the in-image tee's shared logrotate
-# prune honors setup.conf across the container boundary (#805).
+# prune honors setup.conf across the container boundary.
 _logging_svc_retention() {
   local _svc="$1"
   local -n _keep_out="$2"

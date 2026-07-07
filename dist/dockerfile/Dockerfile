@@ -167,7 +167,7 @@ COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # crashes when $USER is unset, and multi-repo workspaces where
 # WS_PATH is the workspace parent rather than the repo root.
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-# Shared glog-style rotate/symlink/prune helper (#805). logging.sh sources
+# Shared glog-style rotate/symlink/prune helper. logging.sh sources
 # this sibling from the same in-image dir to write per-start log files, a
 # stable <svc>.log symlink, and keep/days retention; it must be COPY'd
 # alongside logging.sh or the container tee degrades to no rotation/prune.
@@ -394,7 +394,7 @@ RUN bats /smoke_test/
 # # runtime image too.
 # COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 # # logging.sh sources its logrotate.sh sibling for per-start files +
-# # symlink + retention, so COPY it here too (#805).
+# # symlink + retention, so COPY it here too.
 # COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
 #
 # # (Optional) Interactive-shell env source for `docker exec`.

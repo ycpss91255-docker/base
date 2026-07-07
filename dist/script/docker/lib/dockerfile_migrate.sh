@@ -421,7 +421,7 @@ _migrate_nounset_source_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
-# ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling (#805) ─────
+# ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
 #
 # runtime/logging.sh now sources a sibling logrotate.sh from the in-image
 # helper dir (the shared per-start-file + symlink + retention primitives).

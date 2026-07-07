@@ -32,7 +32,7 @@ if [[ -n "${_DOCKER_LIB_TRANSCRIPT_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 
-# Shared glog-style rotate/symlink/prune primitives (issue #805). The
+# Shared glog-style rotate/symlink/prune primitives. The
 # "repoint the stable symlink + prune per-start files by keep/days" logic
 # is shared with the container-log tee (runtime/logging.sh) rather than
 # duplicated here. Sourced via the sibling runtime/ dir (host-side path).
@@ -204,7 +204,7 @@ _transcript_strip_ansi() {
 #   Retention: in <verb_dir>, keep at most <keep> most-recent *.log files
 #   AND drop any older than <days> days -- the stricter of the two wins.
 #   Never touches the `latest.log` symlink. Failure-safe (best-effort).
-#   Thin wrapper over the shared _logrotate_prune (issue #805): the
+#   Thin wrapper over the shared _logrotate_prune: the
 #   transcript's stable symlink is `latest.log`.
 _transcript_prune() {
   local _dir="${1:?}" _keep="${2:-20}" _days="${3:-14}"

@@ -300,7 +300,7 @@ EOF
   ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
 }
 
-# ── migration (logrotate-copy): logging.sh's logrotate.sh sibling (#805) ─────
+# ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
 # runtime/logging.sh now sources a sibling logrotate.sh from the in-image
 # helper dir. A downstream Dockerfile that COPYs logging.sh but predates the
 # split lacks the logrotate.sh COPY, so the container tee degrades. This

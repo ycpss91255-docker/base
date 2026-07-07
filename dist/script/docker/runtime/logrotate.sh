@@ -24,7 +24,7 @@
 # (alongside logging.sh) so the in-image container-log tee can source it;
 # host-side, lib/transcript.sh sources it via ../runtime/logrotate.sh.
 #
-# Refs:    ADR-00000021, ADR-00000007, issue #805.
+# Refs:    ADR-00000021, ADR-00000007.
 
 # Guard against double-sourcing (transcript.sh and logging.sh may both be
 # in the same source graph in a unit spec).

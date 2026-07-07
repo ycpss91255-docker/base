@@ -3,7 +3,7 @@
 # Unit tests for dist/script/docker/runtime/logrotate.sh -- the shared
 # glog-style rotate/symlink/prune primitives reused by BOTH the wrapper
 # transcript (lib/transcript.sh) and the container-log tee
-# (runtime/logging.sh). See ADR-00000021, issue #805.
+# (runtime/logging.sh). See ADR-00000021.
 
 bats_require_minimum_version 1.5.0
 

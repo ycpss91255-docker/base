@@ -8,7 +8,7 @@
 # identical content -- this is "host file is the current run, the daemon
 # json-file driver keeps rolling history" rather than a hijack.
 #
-# Glog-style per-start files + stable symlink (#805, ADR-00000021):
+# Glog-style per-start files + stable symlink (ADR-00000021):
 # `LOG_FILE_PATH` is `/var/log/<repo>/<svc>.log`, treated as the STABLE
 # SYMLINK. On each container start the helper writes a fresh per-start
 # real file `/var/log/<repo>/<svc>_<ts>.log` and repoints the <svc>.log
@@ -51,7 +51,7 @@
 # source line works the same at build-time, runtime, and across every
 # workspace layout with no `$USER` deref or path arithmetic.
 
-# Shared glog-style rotate/symlink/prune primitives (#805). Sourced from
+# Shared glog-style rotate/symlink/prune primitives. Sourced from
 # the sibling path so it works both in-image (/usr/local/lib/base/) and
 # from the source tree (bats unit specs). Defensive: a missing helper
 # (e.g. a partially-upgraded downstream image) must not abort a caller
