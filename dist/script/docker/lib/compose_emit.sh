@@ -282,7 +282,7 @@ _emit_group_add_block() {
   done
 }
 
-# hostname: GUI+bridge-gated (#794). Under bridge networking the container
+# hostname: GUI+bridge-gated (ADR-00000019). Under bridge networking the container
 # gets a Docker-assigned random hostname, which breaks the LOCAL X11
 # MIT-MAGIC-COOKIE -- that cookie is keyed to the host's hostname, so the
 # container's random name fails the auth match. Pinning the container's
@@ -679,7 +679,7 @@ YAML
     echo "    network_mode: \${NETWORK_MODE}"
   fi
   # hostname: pin to host name under GUI+bridge so local X11 auth works
-  # (#794 -- see _emit_hostname_line). Uses the stage's EFFECTIVE gui/net.
+  # (see _emit_hostname_line). Uses the stage's EFFECTIVE gui/net.
   _emit_hostname_line "${_eff_gui}" "${_eff_net_mode}" "${_host_name}"
   # environment: GUI baseline (effective gui) + effective env list
   # + LOG_FILE_PATH for the per-stage tee target.
@@ -820,7 +820,7 @@ generate_compose_yaml() {
   local _restart="${28:-no}"
   local _dri_groups_str="${29:-}"
 
-  # Host name for the GUI+bridge hostname pin (#794). Resolved once here so
+  # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
   # both the devel service and every per-stage block emit an identical value.
   # HOSTNAME is set by every interactive/non-interactive bash the wrapper
   # runs under; fall back to `uname -n` when a caller unsets it (and tolerate
@@ -979,7 +979,7 @@ YAML
       echo "    network_mode: \${NETWORK_MODE}"
     fi
     # hostname: pin to host name under GUI+bridge so local X11 auth works
-    # (#794 -- see _emit_hostname_line). No-op under host / GUI-off.
+    # (see _emit_hostname_line). No-op under host / GUI-off.
     _emit_hostname_line "${_gui}" "${_net_mode}" "${_host_name}"
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
     # + LOG_FILE_PATH when [logging] local_path is set for this svc

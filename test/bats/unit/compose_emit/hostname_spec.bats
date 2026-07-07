@@ -3,7 +3,7 @@
 # Tests for the GUI+bridge hostname injection in generate_compose_yaml /
 # the per-stage emitter (dist/script/docker/lib/compose_emit.sh).
 #
-# Rationale (#794): under bridge networking the container otherwise gets a
+# Rationale (ADR-00000019): under bridge networking the container otherwise gets a
 # Docker-assigned random hostname, which breaks the LOCAL X11
 # MIT-MAGIC-COOKIE (the cookie is keyed to the host's hostname). When GUI
 # is enabled AND network.mode = bridge, the emitter pins the container's

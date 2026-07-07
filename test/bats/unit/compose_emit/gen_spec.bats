@@ -1029,7 +1029,7 @@ DOCK
   # branch -- gui off, gpu off, ipc override (shm emit), privileged
   # override, runtime inherit, net inherit, env replace, volume replace,
   # port append -- so any drift in the assembled compose.yaml fails here.
-  # Pin HOSTNAME so the GUI+bridge hostname injection (#794) on the devel
+  # Pin HOSTNAME so the GUI+bridge hostname injection (ADR-00000019) on the devel
   # service is deterministic in the golden (devel is gui=true + bridge; the
   # headless stage is gui=off so it stays hostname-less).
   export HOSTNAME="test-host-42"
