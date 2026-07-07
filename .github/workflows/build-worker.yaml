@@ -442,6 +442,18 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
 
+      # #802 -- base-owned worker logic (the cache-scope resolver) is fetched
+      # at the worker's own ref (github.job_workflow_sha) into a dedicated
+      # path so it can never drift from the worker, and never collides with
+      # the caller checkout above. Same version-match pattern as the #800
+      # preflight job.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+
       # #470 — Opt-in pre-build cleanup for large BASE_IMAGE repos. Runs
       # before Set up Docker Buildx so buildx's overlayfs snapshot dir
       # lands on the freed space; tool-cache: true also wipes
@@ -515,13 +527,21 @@ jobs:
         # cold-restart (sequentially, the 4 build steps within one job
         # share layers in the buildx local store so it's not 4x time).
         # After that, every PR enjoys isolated per-target caches.
+        # #802 -- the base-key derivation is pushed down into a pure-shell,
+        # host-testable script (script/ci/build_worker/cache_scope.sh),
+        # fetched from base at the worker's own ref (github.job_workflow_sha,
+        # checked out below into .worker-base) so it can never drift from the
+        # worker it feeds. This step keeps only the GITHUB_OUTPUT plumbing;
+        # the per-target suffix (-devel-cache, ...) is still appended at each
+        # build-push use site.
         id: cache
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CACHE_VARIANT: ${{ inputs.cache_variant }}
+          HARDWARE: ${{ matrix.hardware }}
         run: |
-          base="${{ inputs.image_name }}"
-          if [ -n "${{ inputs.cache_variant }}" ]; then
-            base="${base}-${{ inputs.cache_variant }}"
-          fi
-          echo "key=${base}-${{ matrix.hardware }}" >> "${GITHUB_OUTPUT}"
+          key="$(bash .worker-base/script/ci/build_worker/cache_scope.sh)"
+          echo "key=${key}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate .env
         run: |

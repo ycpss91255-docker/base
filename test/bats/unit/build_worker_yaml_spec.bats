@@ -208,16 +208,17 @@ setup() {
   assert_output --partial 'default: ""'
 }
 
-@test "build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378)" {
+@test "build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)" {
   # The step computes the per-(repo, variant, arch) base
   # `${image_name}[-${cache_variant}]-${hardware}` once; per-target
   # suffix (`-devel-test-cache`, `-devel-cache`, `-runtime-test-cache`,
   # `-runtime-cache`) is appended at the use site. See the b1 mitigation
   # of for why the shape changed from a single shared `<base>-cache`
-  # scope to 4 per-target scopes.
+  # scope to 4 per-target scopes. #802 pushed the derivation into
+  # cache_scope.sh; the step keeps `id: cache` + a `key=` GITHUB_OUTPUT.
   run grep -E '^        id: cache$' "${WF}"
   assert_success
-  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  run grep -E '^          echo "key=\$\{key\}" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
   assert_success
 }
 
@@ -499,6 +500,38 @@ setup() {
   # job checks out ycpss91255-docker/base at github.job_workflow_sha into
   # the .worker-base path the delegating call reads from.
   run awk '/^  compute-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'repository: ycpss91255-docker/base'
+  assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
+  assert_output --partial 'path: .worker-base'
+}
+
+@test "build-worker.yaml: Compute cache scope delegates to the extracted cache_scope.sh (#802)" {
+  # The base-key derivation (with its #272 / #378 bug history) is pushed
+  # down into a pure-shell, host-testable script covered by
+  # build_worker_cache_scope_spec.bats. The step must call the script,
+  # feed it IMAGE_NAME / CACHE_VARIANT / HARDWARE via env, and keep only
+  # the GITHUB_OUTPUT plumbing; the old inline `base="..."` derivation must
+  # be gone.
+  run grep -F 'bash .worker-base/script/ci/build_worker/cache_scope.sh' "${WF}"
+  assert_success
+  run grep -F 'echo "key=${key}" >> "${GITHUB_OUTPUT}"' "${WF}"
+  assert_success
+  run grep -F 'IMAGE_NAME: ${{ inputs.image_name }}' "${WF}"
+  assert_success
+  run grep -F 'CACHE_VARIANT: ${{ inputs.cache_variant }}' "${WF}"
+  assert_success
+  # No leftover inline scope derivation (would mean an untested copy could
+  # drift from the tested script).
+  run grep -F 'base="${{ inputs.image_name }}"' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "build-worker.yaml: build job checks out base worker source at job_workflow_sha into .worker-base (#802)" {
+  # The cache-scope script the build job runs is fetched at the worker's own
+  # ref, isolated in .worker-base so it never collides with the caller
+  # checkout at the workspace root.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'repository: ycpss91255-docker/base'
   assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
