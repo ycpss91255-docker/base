@@ -282,6 +282,21 @@ _emit_group_add_block() {
   done
 }
 
+# hostname: GUI+bridge-gated (ADR-00000019). Under bridge networking the container
+# gets a Docker-assigned random hostname, which breaks the LOCAL X11
+# MIT-MAGIC-COOKIE -- that cookie is keyed to the host's hostname, so the
+# container's random name fails the auth match. Pinning the container's
+# hostname to the host's name restores the match. It is only meaningful when
+# BOTH the GUI is enabled AND network.mode = bridge: under host networking
+# the container already shares the host's UTS namespace (its hostname IS the
+# host's), and with the GUI off there is no X cookie to satisfy. Caller
+# passes the effective gui flag + net mode + the resolved host name.
+_emit_hostname_line() {
+  local _g="$1" _nm="$2" _host="${3-}"
+  [[ "${_g}" == "true" && "${_nm}" == "bridge" && -n "${_host}" ]] || return 0
+  echo "    hostname: ${_host}"
+}
+
 # device_cgroup_rules from [devices] cgroup_rule_* (enclosing scope).
 _emit_cgroup_rules_block() {
   local _cgroup_rule_str="${1-}"
@@ -496,6 +511,7 @@ _emit_stage_service() {
   local _net_mode="${_ess_ctx[net_mode]-host}"
   local _ipc_mode="${_ess_ctx[ipc_mode]-host}"
   local _pid_mode="${_ess_ctx[pid_mode]-private}"
+  local _host_name="${_ess_ctx[host_name]-}"
   local _any_prop_device="${_ess_ctx[any_prop_device]-false}"
 
   # ── Zero-diff path: stage with NO overrides keeps the minimal
@@ -662,6 +678,9 @@ YAML
   else
     echo "    network_mode: \${NETWORK_MODE}"
   fi
+  # hostname: pin to host name under GUI+bridge so local X11 auth works
+  # (see _emit_hostname_line). Uses the stage's EFFECTIVE gui/net.
+  _emit_hostname_line "${_eff_gui}" "${_eff_net_mode}" "${_host_name}"
   # environment: GUI baseline (effective gui) + effective env list
   # + LOG_FILE_PATH for the per-stage tee target.
   local _stage_llp=""
@@ -800,6 +819,13 @@ generate_compose_yaml() {
   local _logging_per_svc_str="${27:-}"
   local _restart="${28:-no}"
   local _dri_groups_str="${29:-}"
+
+  # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
+  # both the devel service and every per-stage block emit an identical value.
+  # HOSTNAME is set by every interactive/non-interactive bash the wrapper
+  # runs under; fall back to `uname -n` when a caller unsets it (and tolerate
+  # an empty result -- _emit_hostname_line no-ops on empty).
+  local _host_name="${HOSTNAME:-$(uname -n 2>/dev/null || true)}"
 
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
@@ -952,6 +978,9 @@ YAML
     else
       echo "    network_mode: \${NETWORK_MODE}"
     fi
+    # hostname: pin to host name under GUI+bridge so local X11 auth works
+    # (see _emit_hostname_line). No-op under host / GUI-off.
+    _emit_hostname_line "${_gui}" "${_net_mode}" "${_host_name}"
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
     # + LOG_FILE_PATH when [logging] local_path is set for this svc
     # (consumed by .base/dist/script/docker/_entrypoint_logging.sh helper to
@@ -1118,6 +1147,7 @@ YAML
       [net_mode]="${_net_mode}"
       [ipc_mode]="${_ipc_mode}"
       [pid_mode]="${_pid_mode}"
+      [host_name]="${_host_name}"
       [any_prop_device]="${_any_prop_device}"
     )
 
