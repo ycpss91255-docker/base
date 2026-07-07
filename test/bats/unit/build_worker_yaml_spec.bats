@@ -228,10 +228,10 @@ setup() {
   # next PR. each target has its own scope; one scope's manifest update
   # no longer affects the others.
   #
-  # #801 made cache-from / cache-to a `cache_backend`-selected ternary;
-  # the default (gha) branch is a `format()` that emits the SAME
-  # `type=gha,scope=<key>-<target>-cache` string as before, so gha
-  # callers are byte-for-byte unchanged at runtime.
+  # The cache_backend option made cache-from / cache-to a
+  # `cache_backend`-selected ternary; the default (gha) branch is a
+  # `format()` that emits the SAME `type=gha,scope=<key>-<target>-cache`
+  # string as before, so gha callers are byte-for-byte unchanged at runtime.
   for _target in devel-test devel runtime-test runtime; do
     run grep -F "format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
     assert_success

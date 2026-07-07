@@ -157,7 +157,7 @@ EOF
   assert_output --partial 'no requirements'
 }
 
-# ── conditional requirements (#801) ──────────────────────────────────
+# ── conditional requirements ─────────────────────────────────────────
 #
 # A requirement may carry an optional 6th field `<condvar>=<value>`: it is
 # only enforced when env `<condvar>` equals `<value>`, otherwise it is
