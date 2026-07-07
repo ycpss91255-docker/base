@@ -177,6 +177,39 @@ teardown() {
   assert_failure
   run grep -F "/var/log/myrepo" "${COMPOSE_OUT}"
   assert_failure
+  # No retention env either when the feature is off.
+  run grep -F "CONTAINER_LOG_KEEP" "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "local_path emits CONTAINER_LOG_KEEP/DAYS retention env, default fallback (#805)" {
+  local _extras=()
+  local _global
+  printf -v _global '%s\n%s' "driver=json-file" "local_path=./logs/"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" \
+    "" "" "" "" "" "" "" "" "" "${_global}" ""
+  # Retention env rides alongside LOG_FILE_PATH; defaults 20 / 14 when the
+  # [logging] container_log_* keys are unset.
+  run grep -F "CONTAINER_LOG_KEEP=20" "${COMPOSE_OUT}"
+  assert_success
+  run grep -F "CONTAINER_LOG_DAYS=14" "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "local_path retention env honors container_log_keep/days overrides (#805)" {
+  local _extras=()
+  local _global
+  printf -v _global '%s\n%s\n%s\n%s' \
+    "driver=json-file" "local_path=./logs/" \
+    "container_log_keep=5" "container_log_days=7"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" \
+    "" "" "" "" "" "" "" "" "" "${_global}" ""
+  run grep -F "CONTAINER_LOG_KEEP=5" "${COMPOSE_OUT}"
+  assert_success
+  run grep -F "CONTAINER_LOG_DAYS=7" "${COMPOSE_OUT}"
+  assert_success
 }
 
 @test "local_path on per-svc [logging.<svc>] emits LOG_FILE_PATH for that svc only (#328)" {
