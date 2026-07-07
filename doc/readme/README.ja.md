@@ -155,7 +155,8 @@ flowchart LR
 | `dist/script/docker/lib/conf_logging.sh` | ログ設定 helper |
 | `dist/script/docker/lib/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
 | `dist/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
-| `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper |
+| `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper（per-start ファイル + 安定 symlink） |
+| `dist/script/docker/runtime/logrotate.sh` | 共有 rotate/symlink/prune primitives（tee + transcript 共有） |
 | `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
 | `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |

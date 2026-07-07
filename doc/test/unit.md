@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2127 tests**.
+Unit specs under `test/bats/unit/`: **2144 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -839,7 +839,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (36)
+### test/bats/unit/dockerfile_migrate_spec.bats (40)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1370,7 +1370,7 @@ skipped, ipc `private` skipped) and the deliberate omissions
 | `_setup_deploy: --stage selects the target stage` | stage select |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
 
-### test/bats/unit/compose_logging_spec.bats (17)
+### test/bats/unit/compose_logging_spec.bats (19)
 
 Covers `[logging]` + `[logging.<svc>]` support in
 `generate_compose_yaml` (#310). Tests the global emission on every
@@ -1429,7 +1429,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/entrypoint_logging_spec.bats (8)
+### test/bats/unit/entrypoint_logging_spec.bats (11)
 
 Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
 downstream repos source from their `script/entrypoint.sh` so
@@ -1450,7 +1450,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (146)
+### test/bats/unit/template_spec.bats (148)
 
 | Test | Description |
 |------|-------------|
