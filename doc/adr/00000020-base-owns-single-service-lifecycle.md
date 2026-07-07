@@ -73,16 +73,38 @@ watchdog's design lives in #797, not here).
   is one repo" does not make this premature — the abstraction boundary
   is the one-service model itself, which is already universal.
 - **Bake fixed lifecycle behavior into `base` (non-configurable).**
-  Rejected: it would change behavior for every existing downstream and
-  remove Docker-native escape hatches. See the back-compat consequence
-  below.
+  Rejected: it would change behavior for every existing downstream
+  unconditionally and remove Docker-native escape hatches. Configuration
+  with a principled default (see the default-rule consequence below) is
+  the middle path: safe defaults where absence is a footgun, opt-in where
+  semantics could change.
 
 ## Consequences
 
-- **Every lifecycle capability is exposed as configuration and defaults
-  OFF / to the least-surprising Docker-native behavior.** An unset knob
-  is a no-op — no behavior change for existing downstreams (back-compat
-  by construction). New lifecycle features are documented in the README.
+- **Every lifecycle capability is exposed as configuration, and its
+  DEFAULT is the safest correct behavior for a well-run single-service
+  container — decided by a principled two-branch rule, not per-capability
+  taste:**
+  1. **When enabling the capability is transparent to a correct workload
+     AND running without it is a footgun, the default is ON.** Concrete
+     instance: init / PID1 reaping (#792) defaults **ON**. With the app
+     running as PID 1 there is no zombie reaping and no signal
+     forwarding, so `stop` can hang until `SIGKILL` and orphaned children
+     accumulate — "app as PID 1" is itself the latent bug. `init: true`
+     is transparent to a correct single process and fixes both, so it is
+     the safe default even though it is a (beneficial, low-risk) behavior
+     change on the next compose regeneration.
+  2. **When enabling the capability could change a workload's semantics,
+     the default is OFF / the Docker-native no-op, and enabling is
+     opt-in.** Concrete instances: network / ipc mode (ADR-00000019, host
+     default), the watchdog's restart-service action (#797, restart the
+     whole container is the default), and the restart policy (#478).
+
+  The double condition — *transparent to correct workloads* AND *absence
+  is a footgun* — is what prevents an "everything defaults ON" slippery
+  slope: an unset knob is a no-op only where the capability is genuinely
+  optional; where its absence is a latent bug, the default fixes it. New
+  lifecycle features are documented in the README.
 - **Where a capability has a non-trivial failure action, the action is
   itself configurable, with the Docker-native option as the default, so
   the simple case pays no complexity.** Concretely for the watchdog
