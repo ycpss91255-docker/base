@@ -109,7 +109,12 @@ jobs:
           # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
           # of these affects .env / compose.yaml generation or wrapper
           # behaviour that the system docker.sock-mounted compose
-          # service exercises end-to-end).
+          # service exercises end-to-end). The build_worker script dir +
+          # the build-worker self-test fixture are also here: the worker-
+          # selftest job consumes those scripts (its YAML plumbing / output
+          # contract) and builds that fixture, so a PR touching ONLY them --
+          # without any .github/workflows/** change -- must still re-run the
+          # System self-test instead of skipping it.
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
@@ -124,6 +129,8 @@ jobs:
                   'dist/script/docker/lib/i18n.sh' \
                   'dist/script/docker/lib/**' \
                   'test/bats/system/**' \
+                  'script/ci/build_worker/**' \
+                  'test/fixtures/build-worker/**' \
                   'dist/script/base/init.sh' \
                   'dist/script/base/upgrade.sh' \
                   '.github/workflows/**'; then

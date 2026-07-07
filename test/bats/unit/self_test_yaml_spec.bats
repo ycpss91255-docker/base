@@ -306,6 +306,18 @@ setup() {
   assert_output --partial "'dist/script/docker/wrapper/prune.sh'"
 }
 
+@test "self-test.yaml: classify system block-list covers the build_worker scripts + self-test fixture (#802)" {
+  # The worker-selftest job consumes script/ci/build_worker/** (its YAML
+  # plumbing / output contract) and builds test/fixtures/build-worker/**, so
+  # a PR touching ONLY those -- without a .github/workflows/** change -- must
+  # still flip system_relevant=true and re-run the System self-test instead
+  # of skipping it.
+  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "'script/ci/build_worker/**'"
+  assert_output --partial "'test/fixtures/build-worker/**'"
+}
+
 # ── buildx GHA cache on test-tools builds ────────────────
 
 @test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
