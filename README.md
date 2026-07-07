@@ -155,7 +155,8 @@ flowchart LR
 | `dist/script/docker/lib/config_summary.sh` | Summary of runtime configuration |
 | `dist/script/docker/lib/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
 | `dist/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
-| `dist/script/docker/runtime/logging.sh` | Host-side log tee helper |
+| `dist/script/docker/runtime/logging.sh` | Host-side log tee helper (per-start file + stable symlink) |
+| `dist/script/docker/runtime/logrotate.sh` | Shared rotate/symlink/prune primitives (tee + transcript) |
 | `dist/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
 | `dist/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
 | `script/test/test.sh` | base self-test dispatcher (local + in-container) |
@@ -441,6 +442,8 @@ two derived artifacts.
            mount_2..mount_N (extra host mounts; devices via /dev path)
 [logging]  driver (json-file default), max_size, max_file, compress
            local_path (host-side log dir; bind-mounted to /var/log/<repo>)
+           container_log_keep (20), container_log_days (14) (per-start
+           container-log retention; keep-count AND age, stricter wins)
            wrapper_transcript (tee verbs to log/<verb>/; default true),
            wrapper_transcript_keep (20), wrapper_transcript_days (14)
            [logging.<svc>] for per-service key-level override
@@ -607,13 +610,18 @@ file, in addition to the docker daemon's json-file log:
 
 ```ini
 [logging]
-local_path = ./log/   # repo-relative; or /abs/, or ~/dir/
+local_path = ./log/     # repo-relative; or /abs/, or ~/dir/
+container_log_keep = 20  # keep at most N most-recent per-start files
+container_log_days = 14  # AND drop files older than D days (stricter wins)
 ```
 
-Re-run any wrapper to regenerate `compose.yaml`. Host file lands at
-`<local_path>/<svc>.log` per service. `docker logs <ct>` is unaffected
-(json-file keeps rolling history; the host file mirrors the current
-run).
+Re-run any wrapper to regenerate `compose.yaml`. On each container start
+the tee writes a per-start file `<local_path>/<svc>_<ts>.log` and repoints
+a stable symlink `<local_path>/<svc>.log` at it (glog-style): `tail
+<svc>.log` always shows the current run, while earlier runs stay on disk.
+Old per-start files are pruned by `container_log_keep` most-recent AND
+`container_log_days` age (stricter wins), never the symlink. `docker logs
+<ct>` is unaffected (json-file keeps rolling history).
 
 For **new repos** generated with `init.sh` from this version on, the
 helper is pre-wired in `script/entrypoint.sh` — setting
@@ -622,18 +630,18 @@ this single un-guarded line to `script/entrypoint.sh` before the
 final `exec` as a one-time migration:
 
 ```bash
-. /usr/local/lib/base/_entrypoint_logging.sh
+. /usr/local/lib/base/logging.sh
 ```
 
 The helper is COPY'd into the image at the stable in-image path
-`/usr/local/lib/base/_entrypoint_logging.sh` by `Dockerfile`'s
-devel stage (refs #368), so the source line works at build-time AND
-runtime in every workspace layout — no `$USER` deref, no workspace
-bind-mount dependence.
+`/usr/local/lib/base/logging.sh` by `Dockerfile`'s devel stage (refs
+#368), together with its `logrotate.sh` sibling (refs #805), so the
+source line works at build-time AND runtime in every workspace layout —
+no `$USER` deref, no workspace bind-mount dependence.
 
 Troubleshooting: `local_path` set but the host file stays empty →
 check `script/entrypoint.sh` actually contains the source line
-(`grep _entrypoint_logging script/entrypoint.sh`).
+(`grep logging.sh script/entrypoint.sh`).
 
 ### Wrapper transcripts
 

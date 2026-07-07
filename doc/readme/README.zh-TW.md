@@ -152,7 +152,8 @@ flowchart LR
 | `dist/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
 | `dist/script/docker/lib/_tui_backend.sh` | TUI 使用的 dialog / whiptail 包裝函式 |
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
-| `dist/script/docker/runtime/logging.sh` | host 端 log tee helper |
+| `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 檔案 + 穩定 symlink） |
+| `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
 | `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
 | `dist/script/docker/runtime/entrypoint.sh` | template entrypoint helper |
 | `script/test/test.sh` | base 自身測試 dispatcher（本地 + 容器內） |

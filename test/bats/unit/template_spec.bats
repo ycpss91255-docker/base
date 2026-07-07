@@ -731,6 +731,34 @@ _stage_lint_layout() {
   assert_failure
 }
 
+@test "Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)" {
+  # runtime/logging.sh sources its sibling logrotate.sh from the same
+  # in-image dir, so the shared rotate/symlink/prune helper must be COPY'd
+  # alongside logging.sh (same devel-stage window) or the container tee
+  # degrades to no rotation/prune.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
+  assert_success
+  local _devel_line _test_line _copy_line
+  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
+  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
+  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}" | head -1 | cut -d: -f1)"
+  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
+  (( _devel_line < _copy_line ))
+  (( _copy_line < _test_line ))
+}
+
+@test "Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)" {
+  # The optional runtime stage is a fresh BASE_IMAGE (no devel inherit), so
+  # a repo enabling host-side log tee there must COPY BOTH logging.sh and
+  # its logrotate.sh sibling; the commented scaffold documents both.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
+  assert_success
+}
+
 @test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {
   # Lock in: only i18n.sh defines _detect_lang. build.sh / run.sh /
   # exec.sh / stop.sh / _lib.sh previously shipped their own copies,

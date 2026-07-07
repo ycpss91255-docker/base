@@ -300,6 +300,55 @@ EOF
   ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
 }
 
+# ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
+# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
+# helper dir. A downstream Dockerfile that COPYs logging.sh but predates the
+# split lacks the logrotate.sh COPY, so the container tee degrades. This
+# migration inserts the sibling COPY after the logging.sh COPY.
+
+@test "migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}' && _migrate_logrotate_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
+  # The original logging.sh COPY is preserved.
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+}
+
+@test "migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
+EOF
+  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (logrotate-copy): detect false when no logging.sh COPY present (#805)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+RUN echo hi
+EOF
+  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF '/usr/local/lib/base/logrotate.sh' "${DF}")"
+  [ "${_n}" -eq 1 ]
+}
+
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
 # v0.41.0 slimmed .hadolint.yaml, no longer ignoring a batch of rules.
 # Heal the mechanical violations the fanout fixed by hand:
