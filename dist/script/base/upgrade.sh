@@ -49,6 +49,10 @@ readonly VERSION_FILE
 export _WRAPPER_VERB=upgrade
 # shellcheck disable=SC1091
 source "${SUBTREE_ROOT}/dist/script/docker/lib/_lib.sh"
+# _lib.sh does NOT pull in template_guard.sh, so source it explicitly
+# (mirroring init.sh) for the self-run guard _assert_not_template_source.
+# shellcheck disable=SC1091
+source "${SUBTREE_ROOT}/dist/script/docker/lib/template_guard.sh"
 
 cd "${REPO_ROOT}"
 
@@ -512,6 +516,14 @@ main() {
   case "${1:-}" in
     -h|--help) _usage ;;
   esac
+
+  # Refuse to run inside the base template source itself (ADR-00000011
+  # sec.8). A vendored `.base/` subtree never carries `.git`; the base
+  # checkout/worktree does, so `.git` at the resolved subtree root means
+  # "this is the template source, not a consumer" -- proceeding would
+  # subtree-pull into base's PARENT dir. After --help (which must work
+  # anywhere), before any mutation. Same helper init.sh uses.
+  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit 1
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
     _error "${TEMPLATE_REL}/ not found. Run from repo root."
