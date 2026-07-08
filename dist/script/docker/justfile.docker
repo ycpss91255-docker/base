@@ -43,9 +43,11 @@ default:
 # 'help'?" instead of a bare error. Bare `just docker` still lists via `default`.
 alias h := help
 
-# just docker help (or `just docker h`) -> list the docker verbs (same as `just docker`)
-help:
-    @just --justfile '{{source_file()}}' --list
+# just docker help (or `just docker h`) -> language-aware recipe listing:
+# translated one-line summaries via the shared `_msg help` i18n renderer
+# (honours $LANG / --lang). Bare `just docker` and `just --list` stay English.
+help *args:
+    @"$(dirname "$(readlink -f '{{source_file()}}')")/lib/help.sh" docker {{args}}
 
 # Build devel image (e.g. just docker build test  |  just docker build --no-cache)
 build *args:

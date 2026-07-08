@@ -38,9 +38,13 @@ setup() {
 
   # `template` namespace: the entry mod?s script/template/justfile.template.
   mkdir -p "${TMP_REPO}/.base/dist/script/template/skel" "${TMP_REPO}/script/template"
-  # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it.
+  # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it. The
+  # namespace `help` recipes invoke the shared i18n renderer
+  # (docker/lib/help.sh), which sources i18n.sh from the same lib dir.
   mkdir -p "${TMP_REPO}/.base/dist/script/docker/lib"
   cp /source/dist/script/docker/lib/i18n.sh "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/help.sh "${TMP_REPO}/.base/dist/script/docker/lib/help.sh"
+  chmod +x "${TMP_REPO}/.base/dist/script/docker/lib/help.sh"
   cp /source/dist/script/template/justfile.template "${TMP_REPO}/.base/dist/script/template/justfile.template"
   cp /source/dist/script/template/new.sh "${TMP_REPO}/.base/dist/script/template/new.sh"
   cp /source/dist/script/template/skel/justfile.skel "${TMP_REPO}/.base/dist/script/template/skel/justfile.skel"
@@ -268,6 +272,54 @@ teardown() {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template h
   assert_success
   assert_output --partial "just template new"
+}
+
+# ── language-aware `just <ns> help` (i18n via _msg help) ───────────────
+# The namespace `help` recipe renders each recipe's one-line summary in
+# the caller's language through the shared _msg help renderer
+# (dist/script/docker/lib/help.sh). `just --list` / bare `just <ns>`
+# stay English (native listing cannot be intercepted); `just <ns> help`
+# is the rich translated entry point.
+
+@test "just docker help renders zh-TW recipe summaries under LANG=zh-TW (i18n)" {
+  LANG=zh_TW.UTF-8 run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker help
+  assert_success
+  assert_output --partial "建置 devel 映像"
+  assert_output --partial "just docker build"
+  assert_output --partial "互動式啟動容器"
+}
+
+@test "just docker help renders Japanese recipe summaries under LANG=ja (i18n)" {
+  LANG=ja_JP.UTF-8 run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker help
+  assert_success
+  assert_output --partial "devel イメージをビルド"
+}
+
+@test "just docker help --lang overrides LANG for the listing (i18n)" {
+  LANG=C run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker help --lang zh-CN
+  assert_success
+  assert_output --partial "构建 devel 镜像"
+}
+
+@test "just docker help English default still renders the translated listing (i18n)" {
+  LANG=C run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker help
+  assert_success
+  assert_output --partial "Build the devel image"
+  assert_output --partial "just docker build"
+}
+
+@test "just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)" {
+  LANG=zh_TW.UTF-8 run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base help
+  assert_success
+  assert_output --partial "拉取 .base subtree"
+  assert_output --partial "just base upgrade"
+}
+
+@test "just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)" {
+  LANG=zh_TW.UTF-8 run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template help
+  assert_success
+  assert_output --partial "just template new"
+  assert_output --partial "命令群組"
 }
 
 @test "dashed just <ns> --help errors but hints 'help' (documented just limit, #789)" {

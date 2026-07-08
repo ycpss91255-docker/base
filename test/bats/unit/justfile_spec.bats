@@ -89,7 +89,7 @@ setup() {
   for _m in /source/dist/script/docker/justfile.docker \
             /source/dist/script/base/justfile.base \
             /source/dist/script/template/justfile.template; do
-    run grep -E '^help:' "${_m}"
+    run grep -E '^help( |:)' "${_m}"
     assert_success
     run grep -F 'alias h := help' "${_m}"
     assert_success
