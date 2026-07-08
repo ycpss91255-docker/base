@@ -418,3 +418,26 @@ STUB
   [ ! -e "base" ]
   [ -f ".base/script/docker/new_script.sh" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# upgrade.sh self-run guard (ADR-00000011 sec.8, issue #721)
+# ════════════════════════════════════════════════════════════════════
+
+@test "upgrade.sh refuses to run when the subtree root carries .git (base template source)" {
+  cd "${DOWN_DIR}"
+
+  # The base template SOURCE is itself a git checkout/worktree, so its
+  # subtree root carries `.git`; a vendored `.base/` subtree never does
+  # (the consumer's `.git` lives at the repo root, outside the subtree).
+  # Give the subtree root a `.git` to mimic the source, and assert
+  # upgrade refuses instead of running a nonsensical subtree pull into
+  # base's PARENT dir.
+  rm -rf .base/.git
+  mkdir -p .base/.git
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure
+  assert_output --partial "template source"
+  # Pre-flight aborted before subtree pull ran: version untouched.
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}

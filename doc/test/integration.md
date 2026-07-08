@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **102 tests**.
+Integration specs under `test/bats/integration/`: **103 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -111,7 +111,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (14)
+### test/bats/integration/upgrade_spec.bats (15)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
