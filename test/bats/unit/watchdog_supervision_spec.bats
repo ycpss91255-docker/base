@@ -162,9 +162,10 @@ EOF
   assert_output --partial "EXITED"
 }
 
-# ── docker stop: supervisor forwards SIGTERM to the service group ────
+# ── docker stop: supervisor forwards SIGTERM PROMPTLY (not deferred until
+#    the interval) to the service group ───────────────────────────────
 
-@test "restart-service supervisor forwards SIGTERM to the service group on docker stop (bounded) (#797)" {
+@test "restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   command -v setsid >/dev/null 2>&1 || skip "setsid unavailable"
   cat > "${TMP_DIR}/graceful.sh" <<'EOF'
@@ -172,10 +173,15 @@ EOF
 trap 'touch "$1"; exit 0' TERM
 sleep 300
 EOF
+  # INTERVAL=30 but the whole harness is timeout 12: a bare foreground
+  # `sleep 30` would DEFER the trapped SIGTERM past the 12s timeout, so the
+  # graceful forward (marker) would never run and the harness would be
+  # SIGKILL'd at 12s (status 124). The interruptible sleep handles SIGTERM
+  # at ~1s -> marker created, supervisor exits, well under the interval.
   run timeout 12 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='true'
-    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=5 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
+    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
     _watchdog_supervise bash '${TMP_DIR}/graceful.sh' '${TMP_DIR}/graceful.marker' &
     _sup=\$!
     sleep 1

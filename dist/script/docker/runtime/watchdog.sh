@@ -25,8 +25,8 @@
 #     Docker-native; Docker's own backoff absorbs restart storms (no
 #     watchdog-side backoff). In this mode the entrypoint still `exec`s
 #     the service as PID 2 and the watchdog runs as a background monitor
-#     that, on give-up, signals PID 1 (bounded SIGTERM -> grace -> SIGKILL)
-#     so the container tears down.
+#     that, on give-up, sends SIGTERM to PID 1 -- tini forwards it to the
+#     service and exits, tearing the container down.
 #   - restart-service: restart only the in-container service in place
 #     (container stays up) -- for heavy-init containers where a full
 #     container restart is expensive. The watchdog supervises the service
@@ -242,32 +242,43 @@ _watchdog_should_give_up() {
 # ════════════════════════════════════════════════════════════════════
 
 # _watchdog_grace -- the bounded stop-grace window, in seconds: reuse
-# WATCHDOG_TIMEOUT with a positive-integer floor. Every terminate path
-# (stop_service / exit_container / the SIGTERM trap) waits AT MOST this long
-# before escalating to SIGKILL, so nothing is ever an unbounded wait against
-# a wedged / SIGTERM-ignoring service (the docker-stop model).
+# WATCHDOG_TIMEOUT with a positive-integer floor. The service-teardown paths
+# (stop_service / the SIGTERM trap) wait AT MOST this long before escalating
+# to SIGKILL, so nothing is ever an unbounded wait against a wedged /
+# SIGTERM-ignoring service (the docker-stop model).
 _watchdog_grace() {
   local _g="${_WATCHDOG_TIMEOUT:-${_WATCHDOG_DEFAULT_TIMEOUT}}"
   [[ "${_g}" =~ ^[1-9][0-9]*$ ]] || _g="${_WATCHDOG_DEFAULT_TIMEOUT}"
   printf '%s' "${_g}"
 }
 
+# _watchdog_sleep <seconds> -- an INTERRUPTIBLE sleep: backgrounded then
+# waited, so a trapped SIGTERM / SIGINT is handled IMMEDIATELY. A bare
+# foreground `sleep` defers a pending trap until it returns, which would
+# delay the docker-stop graceful forward by up to a full interval (default
+# 30s > docker's 10s stop grace -> the service would be SIGKILL'd before the
+# forward ran). `wait` is a builtin that a signal interrupts at once.
+_watchdog_sleep() {
+  local _s="${1:-0}"
+  [[ "${_s}" =~ ^[1-9][0-9]*$ ]] || return 0
+  sleep "${_s}" &
+  wait "$!" 2>/dev/null || true
+}
+
 # _watchdog_exit_container <code> -- end the container so Docker's restart
-# policy takes over. Signals PID 1 (the init) so tini tears the whole
-# container down, waits a BOUNDED grace, then escalates to SIGKILL (the
-# `docker stop` SIGTERM -> grace -> SIGKILL model) so a SIGTERM-ignoring
-# service can never leave the container running unhealthy forever. Every
-# signal is best-effort so a restricted environment still exits.
+# policy takes over. The reliable teardown is SIGTERM to PID 1 (the init):
+# tini forwards it to its child (PID 2 = the service) and then exits with
+# the child's status, tearing the whole container down. In restart-service
+# mode this process IS PID 2, so the `exit` below is itself what tini
+# reaps; in restart-container mode the background monitor's SIGTERM-to-init
+# is what triggers the teardown. (`kill -KILL 1` is deliberately NOT used:
+# a same-PID-namespace init is protected from an un-handled SIGKILL by its
+# own namespace members, so it is a kernel no-op -- SIGTERM + tini's forward
+# is the real mechanism.) The signal is best-effort so a restricted
+# environment still exits.
 _watchdog_exit_container() {
   local _code="${1:-1}"
   kill -TERM 1 2>/dev/null || true
-  local _grace _waited=0
-  _grace="$(_watchdog_grace)"
-  while kill -0 1 2>/dev/null && (( _waited < _grace )); do
-    sleep 1
-    _waited=$(( _waited + 1 ))
-  done
-  kill -KILL 1 2>/dev/null || true
   exit "${_code}"
 }
 
@@ -425,9 +436,12 @@ _watchdog_supervise() {
   trap '_watchdog_on_signal 143' TERM
   trap '_watchdog_on_signal 130' INT
   _watchdog_start_service "$@"
-  sleep "${_WATCHDOG_START_PERIOD}"
+  # Interruptible waits (backgrounded sleep + wait) so a SIGTERM on
+  # `docker stop` is forwarded to the service at once, never deferred until
+  # the interval elapses.
+  _watchdog_sleep "${_WATCHDOG_START_PERIOD}"
   while : ; do
-    sleep "${_WATCHDOG_INTERVAL}"
+    _watchdog_sleep "${_WATCHDOG_INTERVAL}"
     if ! _watchdog_child_alive; then
       _rc=2
     else
