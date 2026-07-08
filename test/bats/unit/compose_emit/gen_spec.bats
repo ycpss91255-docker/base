@@ -434,10 +434,12 @@ teardown() {
   assert_success
   # Ports are overlay-overridable ${PORT_N:-default} interpolations, not
   # baked literals, so a multi_run .env overlay can remap the host port
-  # per instance (ADR-00000022). The setup.conf value is the :- default.
-  run grep -F -- '- "${PORT_0:-8080:80}"' "${COMPOSE_OUT}"
+  # per instance (ADR-00000022). The setup.conf value is the :- default;
+  # the index is 1-based (PORT_1 = first port) matching base's indexed-key
+  # convention (port_1 / mount_1 / arg_1).
+  run grep -F -- '- "${PORT_1:-8080:80}"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- "${PORT_1:-5000:5000}"' "${COMPOSE_OUT}"
+  run grep -F -- '- "${PORT_2:-5000:5000}"' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -1113,7 +1115,7 @@ services:
       - XAUTHORITY=/tmp/.docker.xauth
       - "TOP_ENV=1"
     ports:
-      - "${PORT_0:-9000:9000}"
+      - "${PORT_1:-9000:9000}"
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
@@ -1173,8 +1175,8 @@ services:
     environment:
       - "HEADLESS=1"
     ports:
-      - "${PORT_0:-9000:9000}"
-      - "${PORT_1:-8080:80}"
+      - "${PORT_1:-9000:9000}"
+      - "${PORT_2:-8080:80}"
     volumes:
       - ./hl-data:/data
     shm_size: 256m

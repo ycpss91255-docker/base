@@ -69,13 +69,16 @@ channel differs by kind:
 | `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` |
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
-| **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = 0-based index within the service's port list) |
+| **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = **1-based** index within the service's port list -- `PORT_1` = first port, matching base's 1-based indexed-key convention `port_1` / `mount_1` / `arg_1`) |
 | workload env (`ROS_DOMAIN_ID`, tokens) | `.env` overlay via `env_file:` + baked ENV default (ADR-00000003 S3) | `- "KEY=value"` default; overlay wins in the field image |
 | writable volume topology | compose-merge overlay (a mount is a topology decision, not a flat scalar) | bind/named mount string |
 | `runtime` / `hostname` / GPU | **not per-instance** -- host-bound, correctly *shared* across co-located instances (all instances on a host share the runtime, the X11-cookie hostname, and the GPU) | literal / host-resolved |
 
 The concrete change this decision required was `ports`: they were baked
-literals and are now `${PORT_<n>:-<default>}`. The other interpolation-
+literals and are now `${PORT_<n>:-<default>}`, `n` 1-based per the
+convention above (a human who configured `[network] port_1` overrides
+`PORT_1`, not `PORT_0` -- the off-by-one would be a footgun). The other
+interpolation-
 channel fields (`name` / `container_name` / `network_mode` / `ipc` /
 `privileged` / `pid`) were already compliant; the guard locks them.
 

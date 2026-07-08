@@ -74,7 +74,7 @@ CONF
   run _is_overlay_overridable '8080:80'
   assert_failure
   # The overlay-overridable form the emitter must produce.
-  run _is_overlay_overridable '${PORT_0:-8080:80}'
+  run _is_overlay_overridable '${PORT_1:-8080:80}'
   assert_success
   run _is_overlay_overridable '${NETWORK_MODE}'
   assert_success
@@ -125,13 +125,15 @@ CONF
   _emit_exercised_compose
   # devel ports (from the top-level list) and the headless stage's ports
   # (from [stage:headless] override) are all overlay interpolations, with the
-  # setup.conf value preserved as the :- default (single-run behaviour).
-  run grep -F -- '- "${PORT_0:-8080:80}"' "${COMPOSE_OUT}"
+  # setup.conf value preserved as the :- default (single-run behaviour). The
+  # index is 1-based (PORT_1 = first port) to match base's indexed-key
+  # convention (port_1 / mount_1 / arg_1).
+  run grep -F -- '- "${PORT_1:-8080:80}"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- "${PORT_1:-9090:90}"' "${COMPOSE_OUT}"
+  run grep -F -- '- "${PORT_2:-9090:90}"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- "${PORT_0:-5000:5000}"' "${COMPOSE_OUT}"
+  run grep -F -- '- "${PORT_1:-5000:5000}"' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- "${PORT_1:-6000:6000}"' "${COMPOSE_OUT}"
+  run grep -F -- '- "${PORT_2:-6000:6000}"' "${COMPOSE_OUT}"
   assert_success
 }

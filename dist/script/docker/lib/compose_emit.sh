@@ -792,9 +792,11 @@ YAML
   # multi_run .env overlay can remap the host port per instance without a
   # regenerate (ADR-00000022 forward invariant). Unset -> compose
   # substitutes the setup.conf default (identical single-run behaviour).
+  # The index is 1-based (PORT_1 = first port) to match base's 1-based
+  # indexed-key convention (port_1 / mount_1 / arg_1).
   if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
     echo "    ports:"
-    local _sp _spi=0
+    local _sp _spi=1
     while IFS= read -r _sp; do
       [[ -z "${_sp}" ]] && continue
       # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
@@ -1124,9 +1126,11 @@ YAML
     # multi_run .env overlay can remap the host port per instance without a
     # regenerate (ADR-00000022 forward invariant). Unset -> compose
     # substitutes the setup.conf default (identical single-run behaviour).
+    # The index is 1-based (PORT_1 = first port) to match base's 1-based
+    # indexed-key convention (port_1 / mount_1 / arg_1).
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
       echo "    ports:"
-      local _p _pi=0
+      local _p _pi=1
       while IFS= read -r _p; do
         [[ -z "${_p}" ]] && continue
         # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
