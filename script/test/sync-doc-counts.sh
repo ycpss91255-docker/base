@@ -39,19 +39,23 @@ _dir_test_count() {
   printf '%s\n' "${_sum}"
 }
 
-# _sync_headings <root> <doc> -- rewrite each `### <relpath> (N)` heading's N
-# from grep -c '^@test' on <root>/<relpath> (leaving headings whose path does
-# not resolve untouched).
+# _sync_headings <root> <doc> -- rewrite each `<hashes> <relpath> (N)` heading's
+# N from grep -c '^@test' on <root>/<relpath> (leaving headings whose path does
+# not resolve untouched). Any ATX depth is matched (### and #### and deeper) and
+# re-emitted at its original depth: per-leaf-lib specs use level-4 `####`
+# sub-headings (ADR-00000015), and anchoring on `###` alone left those counts
+# unregenerated -- a silent drift the drift checker (same generator) was blind
+# to.
 _sync_headings() {
   local _root="$1" _doc="$2" _tmp _line
   [[ -f "${_doc}" ]] || return 0
   _tmp="$(mktemp "${_doc}.XXXXXX")" || return 1
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^###[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]]; then
-      local _path="${BASH_REMATCH[1]}" _n
+    if [[ "${_line}" =~ ^(#{3,6})[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]]; then
+      local _hashes="${BASH_REMATCH[1]}" _path="${BASH_REMATCH[2]}" _n
       if [[ -f "${_root}/${_path}" ]]; then
         _n="$(grep -cE '^@test' "${_root}/${_path}" 2>/dev/null || true)"
-        printf '### %s (%s)\n' "${_path}" "${_n:-0}"
+        printf '%s %s (%s)\n' "${_hashes}" "${_path}" "${_n:-0}"
         continue
       fi
     fi

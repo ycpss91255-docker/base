@@ -1082,32 +1082,30 @@ SH
 # ════════════════════════════════════════════════════════════════════
 #
 # _system_setup fails fast with two distinct _die calls when the
-# system prerequisites are absent. The ci (non-system) test
-# container has no docker.sock, so the socket guard is exercised against
-# the real condition; the docker-CLI guard needs the socket to pass
-# first, so a transient unix socket is created at the literal path the
-# function probes.
+# system prerequisites are absent. Both guards probe SYSTEM_DOCKER_SOCK
+# (default /var/run/docker.sock), so each test points it at its OWN
+# BATS_TEST_TMPDIR path: the socket-absent test needs a path that does not
+# exist, the CLI-absent test creates a transient socket at its path so the
+# socket guard passes first. Per-test paths eliminate the race the two
+# tests used to have on the shared process-global /var/run/docker.sock
+# under parallel bats jobs.
 
-@test "_system_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)" {
-  if [[ -S /var/run/docker.sock ]]; then
-    skip "docker.sock present in this environment; socket guard not reachable"
-  fi
-  run bash -c '
+@test "_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)" {
+  local _sock="${BATS_TEST_TMPDIR}/absent.sock"
+  run env SYSTEM_DOCKER_SOCK="${_sock}" bash -c '
     set -e
     source /source/script/test/test.sh
     _system_setup
   '
   assert_failure
-  assert_output --partial "requires /var/run/docker.sock"
+  assert_output --partial "requires ${_sock}"
 }
 
 @test "_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)" {
-  if [[ -S /var/run/docker.sock ]]; then
-    skip "real docker.sock present; would proceed past the CLI guard to buildx"
-  fi
-  # Create a transient unix socket at the probed path so the socket guard
+  # Create a transient unix socket at a per-test path so the socket guard
   # passes, then run with a PATH that omits docker to hit the CLI guard.
-  perl -e 'use IO::Socket::UNIX; unlink "/var/run/docker.sock"; IO::Socket::UNIX->new(Type=>SOCK_STREAM, Local=>"/var/run/docker.sock", Listen=>1) or die $!;'
+  local _sock="${BATS_TEST_TMPDIR}/present.sock"
+  perl -e 'use IO::Socket::UNIX; my $p = $ARGV[0]; unlink $p; IO::Socket::UNIX->new(Type=>SOCK_STREAM, Local=>$p, Listen=>1) or die $!;' "${_sock}"
   local _clean="${BATS_TEST_TMPDIR}/nodocker"
   mkdir -p "${_clean}"
   local _cmd _src
@@ -1115,12 +1113,11 @@ SH
               dirname basename id tr head tail cut wc rm mkdir ln cp test pwd; do
     _src="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_src}" "${_clean}/${_cmd}"
   done
-  run env PATH="${_clean}" bash -c '
+  run env PATH="${_clean}" SYSTEM_DOCKER_SOCK="${_sock}" bash -c '
     set -e
     source /source/script/test/test.sh
     _system_setup
   '
-  rm -f /var/run/docker.sock
   assert_failure
   assert_output --partial "requires docker CLI"
 }

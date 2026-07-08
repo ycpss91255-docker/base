@@ -364,8 +364,14 @@ _run_coverage() {
 readonly _SYSTEM_BUILDER="template-system"
 
 _system_setup() {
-  [[ -S /var/run/docker.sock ]] \
-    || _die ci_no_docker_socket "system mode requires /var/run/docker.sock; run via 'just test system' (ci-system service)."
+  # Socket path is overridable via SYSTEM_DOCKER_SOCK (default the real
+  # daemon socket) so the guard is exercisable against a per-test path
+  # instead of the single process-global /var/run/docker.sock -- the two
+  # prerequisite-guard tests otherwise race on that shared literal under
+  # parallel bats jobs. Production leaves it unset, so behaviour is unchanged.
+  local _sock="${SYSTEM_DOCKER_SOCK:-/var/run/docker.sock}"
+  [[ -S "${_sock}" ]] \
+    || _die ci_no_docker_socket "system mode requires ${_sock}; run via 'just test system' (ci-system service)."
   command -v docker >/dev/null 2>&1 \
     || _die ci_no_docker_cli "system mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
 
