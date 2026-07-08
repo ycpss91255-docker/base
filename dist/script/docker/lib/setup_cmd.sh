@@ -964,7 +964,7 @@ _setup_apply() {
   BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
 
   # ── Load setup.conf sections ──
-  # Only the sections apply still consumes directly are loaded here:
+  # Only the sections apply still consumes directly are read here:
   # [build] (build args / target_arch), [volumes] (WS_PATH + extra_volumes),
   # [security] (the propagation guard re-reads privileged), and
   # [additional_contexts]. Every docker/build scalar + list-string the
@@ -973,19 +973,26 @@ _setup_apply() {
   # shared _resolve_deploy_context below (S6b,), which loads its own
   # sections -- the same resolver the deploy generator uses, so the field
   # deploy can never drift from apply.
-  local -a _build_k=() _build_v=() _vol_k=() _vol_v=() _sec_k=() _sec_v=()
-  local -a _ac_k=() _ac_v=()
-  _load_setup_conf "${_base_path}" "build"               _build_k _build_v
-  _load_setup_conf "${_base_path}" "volumes"             _vol_k _vol_v
-  _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
-  _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
+  #
+  # Parse the section-replace-merged conf ONCE into an opaque handle, then
+  # read [build] / [security] / [additional_contexts] from it via the
+  # _conf_get_into / _conf_list_sorted accessors -- replacing three
+  # per-section _load_setup_conf calls that each re-tokenized the whole conf
+  # (same merge precedence + SETUP_CONF override). [volumes] is NOT read from
+  # this handle: _reconcile_workspace_path mutates its parallel arrays in
+  # place and reloads them after a mount_1 rewrite (bootstrap / stale path),
+  # so it keeps a dedicated single-section load that stays in sync with the
+  # committed conf a handle built here would go stale against.
+  _setup_conf_handle "${_base_path}" _APPLY_CONF
+  local -a _vol_k=() _vol_v=()
+  _load_setup_conf "${_base_path}" "volumes" _vol_k _vol_v
 
   # Build args: each `[build] arg_N = KEY=VALUE` entry becomes a
   # compose build.arg. Empty VALUE means "do not override" — let
   # compose.yaml's `${VAR:-<default>}` fallback pick the Dockerfile
   # default (archive.ubuntu.com for APT, Asia/Taipei for TZ, etc.).
   local -a _build_args=()
-  _get_conf_list_sorted _build_k _build_v "arg_" _build_args
+  _conf_list_sorted _APPLY_CONF build "arg_" _build_args
 
   # Back-compat: repos that still have the old named-key schema
   # (apt_mirror_ubuntu = …, tz = …) keep working without having to
@@ -994,13 +1001,13 @@ _setup_apply() {
   # user hits Save.
   if (( ${#_build_args[@]} == 0 )); then
     local _bc_v=""
-    _get_conf_value _build_k _build_v "apt_mirror_ubuntu" "" _bc_v
+    _conf_get_into _APPLY_CONF build apt_mirror_ubuntu "" _bc_v
     [[ -n "${_bc_v}" ]] && _build_args+=("APT_MIRROR_UBUNTU=${_bc_v}")
     _bc_v=""
-    _get_conf_value _build_k _build_v "apt_mirror_debian" "" _bc_v
+    _conf_get_into _APPLY_CONF build apt_mirror_debian "" _bc_v
     [[ -n "${_bc_v}" ]] && _build_args+=("APT_MIRROR_DEBIAN=${_bc_v}")
     _bc_v=""
-    _get_conf_value _build_k _build_v "tz" "" _bc_v
+    _conf_get_into _APPLY_CONF build tz "" _bc_v
     [[ -n "${_bc_v}" ]] && _build_args+=("TZ=${_bc_v}")
   fi
 
@@ -1027,7 +1034,7 @@ _setup_apply() {
   # --platform (no --build-arg passed, no compose build.arg emitted).
   # Non-empty = pin the value for cross-build or explicit control.
   local target_arch=""
-  _get_conf_value _build_k _build_v "target_arch" "" target_arch
+  _conf_get_into _APPLY_CONF build target_arch "" target_arch
 
   # Build-time network override: scalar `[build] network`. Empty =
   # docker default (bridge). Non-empty = passed as `build.network` in
@@ -1124,7 +1131,7 @@ _setup_apply() {
     done <<< "${_devices_str}"
     if [[ "${_has_prop}" == true ]]; then
       local _priv_val=""
-      _get_conf_value _sec_k _sec_v "privileged" "" _priv_val
+      _conf_get_into _APPLY_CONF security privileged "" _priv_val
       if [[ "${_priv_val}" != "true" ]]; then
         _log_warn setup conf_invalid_value \
           "display=device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup."
@@ -1170,7 +1177,7 @@ _setup_apply() {
   # values here and emits them verbatim into compose.yaml. Empty list
   # means no `additional_contexts:` block is emitted.
   local -a _ac_arr=()
-  _get_conf_list_sorted _ac_k _ac_v "context_" _ac_arr
+  _conf_list_sorted _APPLY_CONF additional_contexts "context_" _ac_arr
   local _additional_contexts_str=""
   (( ${#_ac_arr[@]} > 0 )) && _additional_contexts_str="$(printf '%s\n' "${_ac_arr[@]}")"
 
