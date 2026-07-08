@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2190 tests**.
+Unit specs under `test/bats/unit/`: **2219 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -369,7 +369,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (43)
+### test/bats/unit/build_worker_yaml_spec.bats (47)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -406,6 +406,30 @@ on doc-only PRs).
 | #801 registry cache backend: `cache_backend` input declared `type: string` default `"gha"` (default preserves the gha backend for existing callers), all 4 build steps emit a `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8 lines), the `extra_stages` buildx loop honors `cache_backend` too (shell-side selection, no hardwired gha ref), GHCR `docker/login-action` step gated on `cache_backend == 'registry'` | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
+| #802 push worker logic down: `compute-matrix` delegates to `compute_matrix.sh` (no inline platform fan-out) and version-matches it via `job_workflow_sha` into `.worker-base`, `Compute cache scope` delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT / HARDWARE, no inline derivation), build job checks out base worker source into `.worker-base` | 4 |
+
+### test/bats/unit/build_worker_compute_matrix_spec.bats (8)
+
+Unit tests for `script/ci/build_worker/compute_matrix.sh`, the platform ->
+build matrix resolver extracted out of build-worker.yaml's inline
+`compute-matrix` step (#802). Pushes the "a matrix condition that produces
+no jobs" semantic break down the pyramid (System-level worker logic -> Unit
+level, ADR-00000018): each supported platform maps to the right native
+runner + HARDWARE (`linux/amd64` -> ubuntu-latest / x86_64, `linux/arm64` ->
+ubuntu-24.04-arm / aarch64), whitespace + empty comma segments are
+tolerated, an unsupported platform fails with a naming plain-language error,
+and an empty / all-empty list fails the no-jobs guard instead of fanning out
+to zero build jobs.
+
+### test/bats/unit/build_worker_cache_scope_spec.bats (4)
+
+Unit tests for `script/ci/build_worker/cache_scope.sh`, the buildx
+cache-scope base-key resolver extracted out of build-worker.yaml's inline
+`Compute cache scope` step (#802). Locks the
+`${image_name}[-${cache_variant}]-${hardware}` shape (with its #272 / #378
+bug history): the optional `cache_variant` segment single-call callers omit,
+the per-arch hardware suffix, and the distro-in-image_name case that needs no
+variant.
 
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
@@ -443,7 +467,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (74)
+### test/bats/unit/self_test_yaml_spec.bats (80)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1465,17 +1489,32 @@ the host file content and the inherited stdout (preserving
 
 ### test/bats/unit/watchdog_spec.bats (18)
 
-Unit tests for `dist/script/docker/runtime/watchdog.sh` (#797), the
-generic single-service watchdog sourced from a repo entrypoint (sibling
-of `logging.sh`). Covers the master off switch (no-op when
-`WATCHDOG_CHECK` unset), config load defaults + clamping, the pluggable
-health-check runner (pass / fail / timeout), the shared `_watchdog_evaluate`
-decision seam (healthy reset / under-threshold / act), the
-`restart-container` monitor (start-period defers checks; exits the
-container after the failure threshold), the `restart-service` supervisor
-(restarts in place then gives up loudly at `WATCHDOG_MAX_RESTARTS`), the
-`WATCHDOG_NOTIFY` give-up hook, and the `watchdog.log` per-start file +
-symlink under a `watchdog/` subdir (reusing `logrotate.sh`).
+Pure-logic (kcov-safe) unit tests for
+`dist/script/docker/runtime/watchdog.sh` (#797), the generic
+single-service watchdog sourced from a repo entrypoint (sibling of
+`logging.sh`). Covers the master off switch (no-op when `WATCHDOG_CHECK`
+unset), config load defaults + clamping, the pluggable health-check
+runner (pass / fail / timeout), the shared `_watchdog_evaluate` decision
+seam (healthy reset / under-threshold / act), the `_watchdog_grace`
+bounded stop window, `_watchdog_pgid_of` / `_watchdog_child_alive`
+liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
+`watchdog.log` per-start file + symlink under a `watchdog/` subdir
+(reusing `logrotate.sh`). The process-level supervision loops + signal
+paths live in `watchdog_supervision_spec.bats`.
+
+### test/bats/unit/watchdog_supervision_spec.bats (7)
+
+Process-level supervision tests for the watchdog (#797): the
+`restart-container` monitor loop, the `restart-service` supervisor, and
+the real signal / process-group teardown paths -- bounded
+SIGTERM → grace → SIGKILL (a SIGTERM-ignoring service is killed within the
+grace, no unbounded-`wait` hang), whole-subtree kill via `setsid` (no
+orphaned grandchild leaks per restart), give-up against a wedged service
+still reaching container-exit, and the `docker stop` SIGTERM forward to
+the service group. These drive real background processes / sleeps /
+signals, so the file is **kcov-fragile** (each test carries the
+`[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
+`bats-fragile`, ADR-00000008 / #613 / #677).
 
 ### test/bats/unit/compose_watchdog_spec.bats (6)
 

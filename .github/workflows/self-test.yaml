@@ -109,7 +109,12 @@ jobs:
           # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
           # of these affects .env / compose.yaml generation or wrapper
           # behaviour that the system docker.sock-mounted compose
-          # service exercises end-to-end).
+          # service exercises end-to-end). The build_worker script dir +
+          # the build-worker self-test fixture are also here: the worker-
+          # selftest job consumes those scripts (its YAML plumbing / output
+          # contract) and builds that fixture, so a PR touching ONLY them --
+          # without any .github/workflows/** change -- must still re-run the
+          # System self-test instead of skipping it.
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
@@ -124,6 +129,8 @@ jobs:
                   'dist/script/docker/lib/i18n.sh' \
                   'dist/script/docker/lib/**' \
                   'test/bats/system/**' \
+                  'script/ci/build_worker/**' \
+                  'test/fixtures/build-worker/**' \
                   'dist/script/base/init.sh' \
                   'dist/script/base/upgrade.sh' \
                   '.github/workflows/**'; then
@@ -1201,6 +1208,42 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: docker compose run --rm ci-system
 
+  worker-selftest:
+    name: System build-worker self-test (#802)
+    needs: [actionlint, classify]
+    # System level (ADR-00000018): really invoke base's OWN shared build-gate
+    # (`build-worker.yaml`) end-to-end against a minimal fixture, so a
+    # SEMANTIC break in the worker -- an input that became required with no
+    # caller passing it, a broken cache change, a matrix condition that
+    # produces no jobs, a removed build step -- turns THIS job red, instead
+    # of surfacing only when some downstream runs the worker in production.
+    # actionlint / build_worker_yaml_spec.bats only check the worker
+    # statically; this is the one part (the build-gate mechanism itself) that
+    # was never actually run in base's own CI (#802).
+    #
+    # Distinct level from the #800 Acceptance-level preflight contract test
+    # (does the CONSUMER get told what to supply) and from the `system` job
+    # above (base's own image lifecycle): this asks "does the worker itself
+    # build". Gated on system_relevant so pure lint / unit-test / doc PRs
+    # skip it (`.github/workflows/**` is in the classify block-list, so any
+    # change to the worker or this job re-runs it); ci-rollup collapses
+    # SKIPPED into pass, and the `release` gate requires it before a tag.
+    #
+    # The pyramid is pushed down first: the worker's matrix + cache-scope
+    # logic is unit-tested by build_worker_compute_matrix_spec.bats /
+    # build_worker_cache_scope_spec.bats and the caller-contract preflight by
+    # ci_preflight_spec.bats -- so this residual System job only needs to
+    # prove the orchestration wires together and really builds. The fixture
+    # is a trivial alpine no-op (test/fixtures/build-worker/Dockerfile) that
+    # builds in seconds: we test the worker, not a real image.
+    if: needs.classify.outputs.system_relevant == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-worker.yaml
+    with:
+      image_name: worker-selftest
+      context_path: test/fixtures/build-worker
+
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
     # joins this `needs:` list so branch protection never needs to
@@ -1228,7 +1271,7 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system]
+    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1244,6 +1287,7 @@ jobs:
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
+          WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1256,6 +1300,7 @@ jobs:
           echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
           echo "acceptance:       ${ACCEPTANCE_RESULT}"
           echo "system:           ${SYSTEM_RESULT}"
+          echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           fail=0
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
@@ -1263,13 +1308,14 @@ jobs:
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
                    "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
-                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}"; do
+                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
+                   "${WORKER_SELFTEST_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system]
+    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
