@@ -373,6 +373,35 @@ _mk_subtree_repo() {
   assert_success
 }
 
+# ── self-run guard wiring (ADR-00000011 sec.8) ──────────────────────────────
+#
+# upgrade.sh has the same walk-up as init.sh (SUBTREE_ROOT -> parent as
+# REPO_ROOT, basename as the subtree prefix used directly in
+# `git subtree pull --prefix=`). Run raw inside the base template source
+# it would attempt a nonsensical subtree pull into base's PARENT dir.
+# The shared guard _assert_not_template_source (lib/template_guard.sh,
+# added in the init.sh guard change) refuses that; init.sh already sources
+# and calls it. Lock the same wiring into upgrade.sh.
+
+@test "upgrade.sh sources lib/template_guard.sh" {
+  # _lib.sh does NOT pull in template_guard.sh, so upgrade.sh must source
+  # it explicitly (mirroring init.sh) for _assert_not_template_source to
+  # be defined.
+  run grep -F 'lib/template_guard.sh' "${UPGRADE}"
+  assert_success
+}
+
+@test "upgrade.sh calls _assert_not_template_source with the resolved subtree root" {
+  # Lock the call site (with the `upgrade` service tag and SUBTREE_ROOT
+  # argument). Runtime ordering — the guard fires before any mutation —
+  # is covered by the integration test (which asserts refusal leaves
+  # .version untouched); a textual line-order check would be wrong here
+  # because _upgrade (holding the `git subtree pull`) is defined ABOVE
+  # main(), where the guard call lives.
+  run grep -F '_assert_not_template_source "${SUBTREE_ROOT}" upgrade' "${UPGRADE}"
+  assert_success
+}
+
 # ── _semver_cmp (SemVer §11 ordering) ───────────────────────────────────────
 #
 # SemVer §11 says a pre-release version has LOWER precedence than the

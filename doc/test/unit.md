@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2226 tests**.
+Unit specs under `test/bats/unit/`: **2228 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1947,7 +1947,7 @@ no-ops, and the ldd-skip + accumulate-all behaviour (#692).
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/upgrade_spec.bats (39)
+### test/bats/unit/upgrade_spec.bats (41)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
