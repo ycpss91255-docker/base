@@ -27,6 +27,24 @@ setup() {
   assert_output --partial "### test/bats/unit/x_spec.bats (3)"
 }
 
+@test "_sync_doc_counts: rewrites a stale #### (level-4) heading too (#815)" {
+  # Regression: _sync_headings must regenerate deeper ATX headings, not just
+  # `###`. Before the fix its regex anchored `^###[[:space:]]`, so a `####`
+  # heading never matched -- its (N) drifted silently and check_test_md_drift
+  # (same generator) was blind to it.
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n@test \"c\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "#### test/bats/unit/x_spec.bats (1)" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_output --partial "#### test/bats/unit/x_spec.bats (3)"
+}
+
 @test "_sync_doc_counts: rewrites the per-type total to the sum of the headings (#727)" {
   run bash -c '
     source "'"${GEN}"'"

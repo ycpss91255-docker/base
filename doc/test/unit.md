@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2219 tests**.
+Unit specs under `test/bats/unit/`: **2220 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1733,10 +1733,10 @@ builds the env block only for the knobs the conf sets.
 | `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
 | `_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)` | #677 plain mode runs the skipped tests |
 | `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
-| `_system_setup: dies ci_no_docker_socket when /var/run/docker.sock is absent (#692)` | #692 system socket guard |
+| `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
 | `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
 
-### test/bats/unit/doc_counts_spec.bats (6)
+### test/bats/unit/doc_counts_spec.bats (7)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs
@@ -1746,6 +1746,7 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | Test | Description |
 |------|-------------|
 | `_sync_doc_counts: rewrites a stale ### heading to the real @test count` | per-spec heading recompute |
+| `_sync_doc_counts: rewrites a stale #### (level-4) heading too (#815)` | #815 deeper ATX depth regenerated, not just ### |
 | `_sync_doc_counts: rewrites the per-type total to the sum of the headings` | per-type total from grep-over-files |
 | `_sync_doc_counts: is idempotent on an already-synced tree` | re-run no-op |
 
