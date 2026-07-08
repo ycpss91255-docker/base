@@ -787,12 +787,19 @@ YAML
     _emit_watchdog_env "${_watchdog_env_str}"
   fi
   # ports: only under bridge mode (compose ignores it under host).
+  # Each published port is emitted as an overlay-overridable
+  # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
+  # multi_run .env overlay can remap the host port per instance without a
+  # regenerate (ADR-00000022 forward invariant). Unset -> compose
+  # substitutes the setup.conf default (identical single-run behaviour).
   if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
     echo "    ports:"
-    local _sp
+    local _sp _spi=0
     while IFS= read -r _sp; do
       [[ -z "${_sp}" ]] && continue
-      echo "      - \"${_sp}\""
+      # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
+      printf '      - "${PORT_%d:-%s}"\n' "${_spi}" "${_sp}"
+      _spi=$(( _spi + 1 ))
     done <<< "${_eff_ports}"
   fi
   # volumes: GUI baseline (effective gui) + effective volume list
@@ -1111,13 +1118,20 @@ YAML
       # inherit it (it is a uniform lifecycle property, not per-svc).
       _emit_watchdog_env "${_watchdog_env_str}"
     fi
-    # ports: only emitted when network_mode=bridge (ignored under host)
+    # ports: only emitted when network_mode=bridge (ignored under host).
+    # Each published port is emitted as an overlay-overridable
+    # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
+    # multi_run .env overlay can remap the host port per instance without a
+    # regenerate (ADR-00000022 forward invariant). Unset -> compose
+    # substitutes the setup.conf default (identical single-run behaviour).
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
       echo "    ports:"
-      local _p
+      local _p _pi=0
       while IFS= read -r _p; do
         [[ -z "${_p}" ]] && continue
-        echo "      - \"${_p}\""
+        # shellcheck disable=SC2016  # literal ${} consumed by compose, not bash
+        printf '      - "${PORT_%d:-%s}"\n' "${_pi}" "${_p}"
+        _pi=$(( _pi + 1 ))
       done <<< "${_ports_str}"
     fi
     # volumes block (GUI baseline conditional; workspace + extras from

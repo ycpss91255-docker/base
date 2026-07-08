@@ -57,6 +57,7 @@ _emit_exercised_compose() {
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
 [stage:headless]
 network.mode = bridge
+network.port_inherit = false
 network.port_1 = 5000:5000
 network.port_2 = 6000:6000
 CONF
