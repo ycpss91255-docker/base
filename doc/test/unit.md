@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2220 tests**.
+Unit specs under `test/bats/unit/`: **2226 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1344,6 +1344,24 @@ env/volumes + extra volumes from `[volumes]` section.
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
+
+### test/bats/unit/compose_emit/overlay_guard_spec.bats (6)
+
+Forward-invariant guard (ADR-00000022): base's emitted compose must never
+bake a hardcoded per-instance literal over the interpolation-channel field
+set, so base-generated stacks are multi_run-expandable by construction. A
+predicate self-check proves the guard discriminates a baked literal from a
+`${VAR:-default}` interpolation, so a future change that hardcodes a
+per-instance field fails immediately.
+
+| Test | Description |
+|------|-------------|
+| `overlay guard predicate rejects a baked literal, accepts an interpolation` | self-check discrimination |
+| `overlay guard: project name: is an overlay interpolation` | name interpolated |
+| `overlay guard: every container_name: carries an interpolation (not a baked literal)` | container_name interpolated |
+| `overlay guard: network_mode: is an env interpolation, never a baked literal` | network_mode interpolated |
+| `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
+| `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
 ### test/bats/unit/deploy_spec.bats (49)
 
