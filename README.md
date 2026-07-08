@@ -199,9 +199,9 @@ documented `just` dispatch limitation, not a bug:
 
 | You want | Use | Notes |
 |---|---|---|
-| List a namespace's recipes | `just <ns>` **or** `just <ns> help` (`just <ns> h`) | e.g. `just docker help`, `just base help`. Bare `just <ns>` lists too. |
+| List a namespace's recipes | `just <ns> help` (`just <ns> h`) | e.g. `just docker help`, `just base help`. **Localised**: renders each recipe's one-line summary in your language (`$LANG`, or `--lang <en\|zh-TW\|zh-CN\|ja>`) for the `docker` / `base` / `template` namespaces. Bare `just <ns>` lists too, but stays English. |
 | Help for one recipe | `just <ns> <recipe> --help` | e.g. `just docker build --help`, `just base upgrade --help`, `just base update --help` -- `--help` is forwarded to the backing script. |
-| List every namespace | `just` | Top-level overview. |
+| List every namespace | `just` | Top-level overview. `just --list` (and bare `just <ns>`) stay English -- just's native listing cannot be intercepted; `just <ns> help` is the translated entry point. |
 | `just <ns> --help` | (avoid) | A dashed name cannot be a `just` recipe/alias, so this cannot be intercepted; `just` prints `Did you mean 'help'?` and points you at `just <ns> help`. |
 
 ### Wrapper UX cheat sheet (#291)

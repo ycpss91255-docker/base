@@ -15,9 +15,11 @@ default: help
 # `default`.
 alias h := help
 
-# just template help (or `just template h`) -> usage for the template namespace
-help:
-    @echo "just template new <name>   scaffold a repo-local command group at script/local/<name>/ (then: just <name> <recipe>)"
+# just template help (or `just template h`) -> language-aware recipe listing:
+# translated one-line summaries via the shared `_msg help` i18n renderer
+# (honours $LANG / --lang). Bare `just template` prints the same via `default`.
+help *args:
+    @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" template {{args}}
 
 # Scaffold a new repo-local command group: create script/local/<name>/ from
 # the skeleton and register it in script/local/justfile.local.
