@@ -208,16 +208,17 @@ setup() {
   assert_output --partial 'default: ""'
 }
 
-@test "build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378)" {
+@test "build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)" {
   # The step computes the per-(repo, variant, arch) base
   # `${image_name}[-${cache_variant}]-${hardware}` once; per-target
   # suffix (`-devel-test-cache`, `-devel-cache`, `-runtime-test-cache`,
   # `-runtime-cache`) is appended at the use site. See the b1 mitigation
   # of for why the shape changed from a single shared `<base>-cache`
-  # scope to 4 per-target scopes.
+  # scope to 4 per-target scopes. The derivation is now delegated to
+  # cache_scope.sh; the step keeps `id: cache` + a `key=` GITHUB_OUTPUT.
   run grep -E '^        id: cache$' "${WF}"
   assert_success
-  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  run grep -E '^          echo "key=\$\{key\}" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
   assert_success
 }
 
@@ -472,4 +473,67 @@ setup() {
     echo "expected Free disk space (line ${_free}) before Set up Docker Buildx (line ${_buildx})"
     return 1
   }
+}
+
+# ── worker logic pushed down to host-testable shell scripts ────────────
+
+@test "build-worker.yaml: compute-matrix delegates to the extracted compute_matrix.sh (#802)" {
+  # The platform -> matrix logic (the "a matrix condition that produces no
+  # jobs" semantic break) is pushed down into a pure-shell, host-testable
+  # script covered by build_worker_compute_matrix_spec.bats. The YAML step
+  # must call the script and keep only the GITHUB_OUTPUT plumbing -- the old
+  # inline `case linux/amd64)` fan-out logic must be gone from the YAML.
+  run grep -F 'bash .worker-base/script/ci/build_worker/compute_matrix.sh' "${WF}"
+  assert_success
+  run grep -F 'echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"' "${WF}"
+  assert_success
+  # No leftover inline platform fan-out (would mean the extraction was
+  # half-done and the untested inline copy could drift).
+  run grep -F '{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"}' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "build-worker.yaml: compute-matrix version-matches the script via job_workflow_sha (#802)" {
+  # The script is fetched from base at the SAME ref as this workflow, so the
+  # resolver can never drift from the worker it feeds -- the exact
+  # version-match pattern the caller-contract preflight uses. Assert the compute-matrix
+  # job checks out ycpss91255-docker/base at github.job_workflow_sha into
+  # the .worker-base path the delegating call reads from.
+  run awk '/^  compute-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'repository: ycpss91255-docker/base'
+  assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
+  assert_output --partial 'path: .worker-base'
+}
+
+@test "build-worker.yaml: Compute cache scope delegates to the extracted cache_scope.sh (#802)" {
+  # The base-key derivation (with its per-target cache-scope bug history) is pushed
+  # down into a pure-shell, host-testable script covered by
+  # build_worker_cache_scope_spec.bats. The step must call the script,
+  # feed it IMAGE_NAME / CACHE_VARIANT / HARDWARE via env, and keep only
+  # the GITHUB_OUTPUT plumbing; the old inline `base="..."` derivation must
+  # be gone.
+  run grep -F 'bash .worker-base/script/ci/build_worker/cache_scope.sh' "${WF}"
+  assert_success
+  run grep -F 'echo "key=${key}" >> "${GITHUB_OUTPUT}"' "${WF}"
+  assert_success
+  run grep -F 'IMAGE_NAME: ${{ inputs.image_name }}' "${WF}"
+  assert_success
+  run grep -F 'CACHE_VARIANT: ${{ inputs.cache_variant }}' "${WF}"
+  assert_success
+  # No leftover inline scope derivation (would mean an untested copy could
+  # drift from the tested script).
+  run grep -F 'base="${{ inputs.image_name }}"' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "build-worker.yaml: build job checks out base worker source at job_workflow_sha into .worker-base (#802)" {
+  # The cache-scope script the build job runs is fetched at the worker's own
+  # ref, isolated in .worker-base so it never collides with the caller
+  # checkout at the workspace root.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'repository: ycpss91255-docker/base'
+  assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
+  assert_output --partial 'path: .worker-base'
 }

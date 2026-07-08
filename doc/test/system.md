@@ -18,6 +18,29 @@ framework + its `just` UX, UAT/OAT) via the host-driven `acceptance` CI
 job. Two adjacent top levels, two vehicles: System = these bats specs on
 the `ci-system` compose service; Acceptance = the `acceptance` job.
 
+The System level has a second, CI-only vehicle for the **build-gate
+mechanism itself**: the `worker-selftest` job in `self-test.yaml` (#802).
+Base only checked its shared reusable worker `build-worker.yaml`
+*statically* (actionlint + the structural `build_worker_yaml_spec.bats`
+grep); it was never actually *run* in base's own CI, so a semantic break
+(an input that became required with no caller passing it, a broken cache
+change, a matrix condition that produces no jobs, a removed build step)
+surfaced only when a downstream ran the worker in production. The
+`worker-selftest` job closes that gap by invoking the worker end-to-end via
+a local reusable-workflow call (`uses: ./.github/workflows/build-worker.yaml`)
+against a minimal fixture (`test/fixtures/build-worker/Dockerfile` -- a
+trivial alpine no-op that builds in seconds; the point is to exercise the
+orchestration, not build a real image). Deliberately breaking the worker
+turns it red. It is gated on `system_relevant` and joins the `ci-rollup`
+aggregator + the `release` gate, so it is required before a tag. The
+worker's own extractable logic is pushed further down the pyramid to Unit
+level (`build_worker_compute_matrix_spec.bats` / `build_worker_cache_scope_spec.bats`)
+and the caller-contract preflight to Acceptance (#800), so this job only
+proves the residual orchestration wires together and really builds. This
+vehicle is CI-only (a reusable-workflow call runs only on GitHub); its
+wiring is locked by `self_test_yaml_spec.bats` and its real execution is the
+CI job.
+
 Specs that drive `docker buildx build --target runtime-test` against
 synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
 is genuinely exercised end-to-end -- not just static-grep asserted
