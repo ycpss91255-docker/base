@@ -126,63 +126,38 @@ teardown() {
   assert_output $'-a\n-b\nc'
 }
 
-# ── start period defers checks (real monitor loop, bounded) ──────────
+# ── bounded stop grace + pgid / liveness helpers ─────────────────────
 
-@test "restart-container monitor DEFERS checks during the start period (#797)" {
-  # A failing check + a start period longer than the observation window
-  # must NOT trigger a container exit yet (still initializing).
-  run timeout 6 bash -c "
-    . '${WD}'
-    export WATCHDOG_CHECK='false'
-    _WATCHDOG_START_PERIOD=30 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1
-    _watchdog_exit_container() { echo ACTED; exit 0; }
-    ( _watchdog_monitor ) &
-    _pid=\$!
-    sleep 2
-    kill \${_pid} 2>/dev/null || true
-    echo DONE
-  "
-  refute_output --partial "ACTED"
-  assert_output --partial "DONE"
+@test "_watchdog_grace reuses WATCHDOG_TIMEOUT with a positive floor (#797)" {
+  run bash -c ". '${WD}'; _WATCHDOG_TIMEOUT=4 _watchdog_grace"
+  assert_output "4"
+  # A non-positive / bogus timeout floors back to the default (never 0 ->
+  # never an unbounded / zero-length wait).
+  run bash -c ". '${WD}'; _WATCHDOG_TIMEOUT=0 _watchdog_grace"
+  assert_output "10"
+  run bash -c ". '${WD}'; _WATCHDOG_TIMEOUT=abc _watchdog_grace"
+  assert_output "10"
 }
 
-# ── restart-container acts after the failure threshold ───────────────
-
-@test "restart-container monitor EXITS the container after consecutive failures (#797)" {
-  run timeout 8 bash -c "
-    . '${WD}'
-    export WATCHDOG_CHECK='false'
-    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=2
-    _watchdog_exit_container() { echo ACTED-\$1; exit 0; }
-    _watchdog_monitor
-  " 2>&1
+@test "_watchdog_pgid_of returns a numeric pgid for a live pid, falls back for a bogus one (#797)" {
+  # Self: the shell's pgid is a positive integer.
+  run bash -c ". '${WD}'; _watchdog_pgid_of \$\$"
   assert_success
-  assert_output --partial "restart-container"
-  assert_output --partial "ACTED-1"
+  [[ "${output}" =~ ^[0-9]+$ ]]
+  # A pid with no /proc entry falls back to the pid argument itself.
+  run bash -c ". '${WD}'; _watchdog_pgid_of 999999"
+  assert_output "999999"
 }
 
-# ── restart-service: restarts in place, gives up loudly at MAX ───────
-
-@test "restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)" {
-  run timeout 10 bash -c "
-    . '${WD}'
-    export WATCHDOG_CHECK='false'
-    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1 _WATCHDOG_MAX_RESTARTS=2
-    # Stub the child-management seams so no real processes are spawned.
-    _watchdog_start_service()   { :; }
-    _watchdog_child_alive()     { return 0; }
-    _watchdog_restart_service() { echo RESTARTED; }
-    _watchdog_stop_service()    { :; }
-    _watchdog_exit_container()  { echo EXITED; exit 0; }
-    _watchdog_supervise sleep 100
-  " 2>&1
+@test "_watchdog_child_alive is false for a dead pid, true for a live one (#797)" {
+  run bash -c ". '${WD}'; _WATCHDOG_CHILD_PID=999999 _watchdog_child_alive"
+  assert_failure
+  run bash -c ". '${WD}'; sleep 5 & _WATCHDOG_CHILD_PID=\$! _watchdog_child_alive; rc=\$?; kill \$! 2>/dev/null; exit \${rc}"
   assert_success
-  # Two in-place restarts (MAX_RESTARTS=2), then a loud give-up + container exit.
-  assert_output --partial "restart 1/2"
-  assert_output --partial "restart 2/2"
-  assert_output --partial "GIVING UP"
-  assert_output --partial "EXITED"
 }
+
+# ── give-up decision logic (seams stubbed; process-level loops live in
+#    watchdog_supervision_spec.bats, which is kcov-fragile) ────────────
 
 # ── NOTIFY runs on give-up when set ──────────────────────────────────
 

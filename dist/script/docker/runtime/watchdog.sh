@@ -4,9 +4,9 @@
 # Sourced from a repo's `script/entrypoint.sh` (a sibling of logging.sh),
 # this helper adds a health-check-driven supervision loop for the one
 # service the container runs. It is the third [lifecycle] capability base
-# owns -- sibling to the restart policy and init / PID1 -- and, like both,
-# like both of them, EVERY knob defaults OFF: with `WATCHDOG_CHECK` unset
-# the source line is a no-op, so it is safe to drop into every entrypoint
+# owns -- sibling to the restart policy and init / PID1 -- and, like both
+# of them, EVERY knob defaults OFF: with `WATCHDOG_CHECK` unset the source
+# line is a no-op, so it is safe to drop into every entrypoint
 # unconditionally (no behavior change for repos that do not opt in).
 #
 # What it is:
@@ -25,15 +25,23 @@
 #     Docker-native; Docker's own backoff absorbs restart storms (no
 #     watchdog-side backoff). In this mode the entrypoint still `exec`s
 #     the service as PID 2 and the watchdog runs as a background monitor
-#     that, on give-up, signals PID 1 so the container tears down.
+#     that, on give-up, signals PID 1 (bounded SIGTERM -> grace -> SIGKILL)
+#     so the container tears down.
 #   - restart-service: restart only the in-container service in place
 #     (container stays up) -- for heavy-init containers where a full
 #     container restart is expensive. The watchdog supervises the service
-#     as a child, restarting it on failure and COUNTING restarts; on
-#     reaching `WATCHDOG_MAX_RESTARTS` it GIVES UP with a LOUD log (never
-#     silently churns), runs `WATCHDOG_NOTIFY` (if set), then falls back
-#     to exiting the container (the Docker-native end state). This mode
-#     relies on init / PID1 as the surviving supervisor.
+#     as a PROCESS-GROUP LEADER (via setsid) so each stop/restart signals
+#     the WHOLE group (SIGTERM -> bounded grace -> SIGKILL, like
+#     `docker stop`) -- the service AND every grandchild it spawned die, so
+#     no orphaned subtree accumulates per restart. (init / PID1 reaps DEAD
+#     children but does NOT kill LIVE orphans; it is the watchdog's
+#     process-group kill, not init, that prevents subtree leaks across
+#     restarts.) It COUNTS restarts; on reaching `WATCHDOG_MAX_RESTARTS` it
+#     GIVES UP with a LOUD log (never silently churns), runs
+#     `WATCHDOG_NOTIFY` (if set), then falls back to exiting the container
+#     (the Docker-native end state). It runs as PID 2 under init / PID1, so
+#     it also traps SIGTERM and forwards a graceful stop to the service on
+#     `docker stop`.
 #
 # Logging:
 #   Watchdog events (restart, give-up) are ALWAYS logged loudly to stderr
@@ -233,37 +241,122 @@ _watchdog_should_give_up() {
 # Terminal actions (overridable seams -- unit tests replace them)
 # ════════════════════════════════════════════════════════════════════
 
+# _watchdog_grace -- the bounded stop-grace window, in seconds: reuse
+# WATCHDOG_TIMEOUT with a positive-integer floor. Every terminate path
+# (stop_service / exit_container / the SIGTERM trap) waits AT MOST this long
+# before escalating to SIGKILL, so nothing is ever an unbounded wait against
+# a wedged / SIGTERM-ignoring service (the docker-stop model).
+_watchdog_grace() {
+  local _g="${_WATCHDOG_TIMEOUT:-${_WATCHDOG_DEFAULT_TIMEOUT}}"
+  [[ "${_g}" =~ ^[1-9][0-9]*$ ]] || _g="${_WATCHDOG_DEFAULT_TIMEOUT}"
+  printf '%s' "${_g}"
+}
+
 # _watchdog_exit_container <code> -- end the container so Docker's restart
 # policy takes over. Signals PID 1 (the init) so tini tears the whole
-# container down cleanly, then exits this process. Best-effort on the
-# signal so a restricted environment still exits.
+# container down, waits a BOUNDED grace, then escalates to SIGKILL (the
+# `docker stop` SIGTERM -> grace -> SIGKILL model) so a SIGTERM-ignoring
+# service can never leave the container running unhealthy forever. Every
+# signal is best-effort so a restricted environment still exits.
 _watchdog_exit_container() {
   local _code="${1:-1}"
   kill -TERM 1 2>/dev/null || true
+  local _grace _waited=0
+  _grace="$(_watchdog_grace)"
+  while kill -0 1 2>/dev/null && (( _waited < _grace )); do
+    sleep 1
+    _waited=$(( _waited + 1 ))
+  done
+  kill -KILL 1 2>/dev/null || true
   exit "${_code}"
 }
 
 # ── restart-service child management ─────────────────────────────────
 
-# _watchdog_start_service <cmd...> -- launch the supervised service as a
-# background child and record its PID in _WATCHDOG_CHILD_PID.
-_watchdog_start_service() {
-  "$@" &
-  _WATCHDOG_CHILD_PID=$!
+# _watchdog_pgid_of <pid> -- echo the process-group id of <pid>, read from
+# /proc (paren-safe: the comm field can contain spaces / parens, so parse
+# after the final `) `), falling back to <pid> itself.
+_watchdog_pgid_of() {
+  local _pid="${1-}"
+  [[ -n "${_pid}" ]] || return 1
+  local _stat _rest _state _ppid _pgrp
+  if [[ -r "/proc/${_pid}/stat" ]]; then
+    _stat="$(cat "/proc/${_pid}/stat" 2>/dev/null)"
+    _rest="${_stat##*') '}"
+    read -r _state _ppid _pgrp _ <<< "${_rest}"
+    [[ "${_pgrp}" =~ ^[0-9]+$ ]] && { printf '%s' "${_pgrp}"; return 0; }
+  fi
+  printf '%s' "${_pid}"
 }
 
-# _watchdog_child_alive -- 0 while the supervised child is still running.
+# _watchdog_start_service <cmd...> -- launch the supervised service as its
+# own PROCESS-GROUP LEADER (via setsid) and record its PID + PGID. A fresh
+# process group lets stop/restart signal the WHOLE group -- the service AND
+# every grandchild it spawns -- so no orphaned subtree survives a restart.
+# setsid gives pgid == pid; group-signalling is enabled only while that
+# invariant holds (else we would signal the supervisor's own group).
+# Without setsid, fall back to single-PID signalling.
+_watchdog_start_service() {
+  _WATCHDOG_USE_PGKILL=0
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" &
+    _WATCHDOG_CHILD_PID=$!
+    _WATCHDOG_CHILD_PGID="$(_watchdog_pgid_of "${_WATCHDOG_CHILD_PID}")"
+    [[ "${_WATCHDOG_CHILD_PGID}" == "${_WATCHDOG_CHILD_PID}" ]] && _WATCHDOG_USE_PGKILL=1
+  else
+    "$@" &
+    _WATCHDOG_CHILD_PID=$!
+    _WATCHDOG_CHILD_PGID="${_WATCHDOG_CHILD_PID}"
+  fi
+}
+
+# _watchdog_signal <signal> -- send <signal> to the supervised service: the
+# whole process GROUP when it was launched as a setsid leader (kills the
+# service + its subtree), else just the child PID. Best-effort.
+_watchdog_signal() {
+  local _sig="${1:?}"
+  [[ -n "${_WATCHDOG_CHILD_PID:-}" ]] || return 0
+  if [[ "${_WATCHDOG_USE_PGKILL:-0}" == "1" ]]; then
+    kill "-${_sig}" "-${_WATCHDOG_CHILD_PGID}" 2>/dev/null || true
+  else
+    kill "-${_sig}" "${_WATCHDOG_CHILD_PID}" 2>/dev/null || true
+  fi
+}
+
+# _watchdog_child_alive -- 0 while the supervised child is genuinely running.
+# A zombie (exited, awaiting reap) counts as NOT alive so the stop grace and
+# the restart decision never spin on a dead-but-unreaped child.
 _watchdog_child_alive() {
   [[ -n "${_WATCHDOG_CHILD_PID:-}" ]] || return 1
-  kill -0 "${_WATCHDOG_CHILD_PID}" 2>/dev/null
+  kill -0 "${_WATCHDOG_CHILD_PID}" 2>/dev/null || return 1
+  if [[ -r "/proc/${_WATCHDOG_CHILD_PID}/stat" ]]; then
+    local _stat _rest
+    _stat="$(cat "/proc/${_WATCHDOG_CHILD_PID}/stat" 2>/dev/null)"
+    _rest="${_stat##*') '}"
+    [[ "${_rest%% *}" == "Z" ]] && return 1
+  fi
+  return 0
 }
 
-# _watchdog_stop_service -- terminate the current supervised child (if any).
+# _watchdog_stop_service -- terminate the supervised service (and its whole
+# process group / subtree) like `docker stop`: SIGTERM, then a BOUNDED grace
+# window, then SIGKILL anything still alive, then reap. The bounded wait is
+# the fix for an unbounded `wait` hanging the supervisor against a service
+# that ignores SIGTERM -- a wedged service is ALWAYS killed within the grace,
+# so in-place restart completes AND give-up can proceed to exit the container.
 _watchdog_stop_service() {
   [[ -n "${_WATCHDOG_CHILD_PID:-}" ]] || return 0
-  kill -TERM "${_WATCHDOG_CHILD_PID}" 2>/dev/null || true
+  _watchdog_signal TERM
+  local _grace _waited=0
+  _grace="$(_watchdog_grace)"
+  while _watchdog_child_alive && (( _waited < _grace )); do
+    sleep 1
+    _waited=$(( _waited + 1 ))
+  done
+  _watchdog_child_alive && _watchdog_signal KILL
   wait "${_WATCHDOG_CHILD_PID}" 2>/dev/null || true
   _WATCHDOG_CHILD_PID=""
+  _WATCHDOG_CHILD_PGID=""
 }
 
 # _watchdog_restart_service <cmd...> -- stop the current child, start a
@@ -271,6 +364,19 @@ _watchdog_stop_service() {
 _watchdog_restart_service() {
   _watchdog_stop_service
   _watchdog_start_service "$@"
+}
+
+# _watchdog_on_signal <code> -- SIGTERM / SIGINT handler for the
+# restart-service supervisor. On `docker stop`, tini forwards SIGTERM to the
+# supervisor (PID 2); the service runs in its OWN process group (setsid), so
+# without this it would die only by namespace teardown (SIGKILL) and lose
+# its graceful shutdown. Forward a graceful, BOUNDED stop to the service's
+# group then exit, so the supervisor honours `docker stop` and never hangs it.
+_watchdog_on_signal() {
+  local _code="${1:-143}"
+  _watchdog_log INFO "received termination signal; forwarding SIGTERM to the service group and shutting down"
+  _watchdog_stop_service
+  exit "${_code}"
 }
 
 # _watchdog_give_up -- restart-service ceiling reached: log loudly, run
@@ -314,6 +420,10 @@ _watchdog_monitor() {
 # exit). Never returns -- the entrypoint's own `exec` is not reached.
 _watchdog_supervise() {
   local _restarts=0 _ctr=0 _rc
+  # Honour `docker stop`: tini forwards SIGTERM to us (PID 2); forward a
+  # graceful, bounded stop to the service group then exit (never hangs stop).
+  trap '_watchdog_on_signal 143' TERM
+  trap '_watchdog_on_signal 130' INT
   _watchdog_start_service "$@"
   sleep "${_WATCHDOG_START_PERIOD}"
   while : ; do

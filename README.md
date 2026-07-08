@@ -563,11 +563,18 @@ action.
   comes back.
 - **`restart-service`**: the watchdog **restarts only the in-container
   service in place** (the container stays up), for heavy-init containers
-  where a full restart is expensive. It **requires `init = true`** (the
-  surviving PID 1). It counts restarts; on reaching `watchdog_max_restarts`
-  it **gives up LOUDLY** (never silently churns), runs `watchdog_notify`
-  (if set), then falls back to exiting the container (the Docker-native end
-  state).
+  where a full restart is expensive. It supervises the service as a
+  **process-group leader** (via `setsid`) and stops/restarts it like
+  `docker stop` (SIGTERM → bounded grace → SIGKILL) against the **whole
+  group**, so the service *and every grandchild it spawned* die on each
+  restart — no orphaned subtree leaks. (`init = true` reaps *dead*
+  children but does not kill *live* orphans; it is this process-group kill,
+  not init, that prevents the leak. Init is still recommended as the
+  surviving PID 1, and the supervisor also traps SIGTERM so `docker stop`
+  gracefully stops the service.) It counts restarts; on reaching
+  `watchdog_max_restarts` it **gives up LOUDLY** (never silently churns),
+  runs `watchdog_notify` (if set), then falls back to exiting the container
+  (the Docker-native end state).
 
 Both the health-check and the notify command are **pluggable** — base
 ships the hook points, the app/operator fills in the definition of
