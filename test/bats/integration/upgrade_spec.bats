@@ -420,10 +420,10 @@ STUB
 }
 
 # ════════════════════════════════════════════════════════════════════
-# upgrade.sh self-run guard (ADR-00000011 sec.8, issue #721)
+# upgrade.sh self-run guard (ADR-00000011 sec.8)
 # ════════════════════════════════════════════════════════════════════
 
-@test "upgrade.sh refuses to run when the subtree root carries .git (base template source)" {
+@test "upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)" {
   cd "${DOWN_DIR}"
 
   # The base template SOURCE is itself a git checkout/worktree, so its
