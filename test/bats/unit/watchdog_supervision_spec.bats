@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
 #
 # Process-level supervision tests for dist/script/docker/runtime/watchdog.sh
-# (#797): the restart-container monitor loop, the restart-service supervisor,
-# and the real signal / process-group teardown paths (bounded
+# (issue 797): the restart-container monitor loop, the restart-service
+# supervisor, and the real signal / process-group teardown paths (bounded
 # SIGTERM -> grace -> SIGKILL, whole-subtree kill via setsid, and the
 # docker-stop SIGTERM forward). These drive real background processes,
 # sleeps, and signals, so they are KCOV-FRAGILE (the kcov wrapper perturbs
-# child processes / signal timing, ADR-00000008 / #613 / #677): every test
-# below carries the line-anchored `[ "${COVERAGE:-0}" = 1 ] && skip` guard so
+# child processes / signal timing, per ADR-00000008): every test below
+# carries the line-anchored `[ "${COVERAGE:-0}" = 1 ] && skip` guard so
 # the coverage matrix skips this file and it runs PLAIN under bats-fragile.
 # The kcov-safe pure-logic units live in watchdog_spec.bats.
 
