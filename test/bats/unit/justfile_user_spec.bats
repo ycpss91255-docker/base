@@ -38,9 +38,13 @@ setup() {
 
   # `template` namespace: the entry mod?s script/template/justfile.template.
   mkdir -p "${TMP_REPO}/.base/dist/script/template/skel" "${TMP_REPO}/script/template"
-  # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it.
+  # new.sh sources ../docker/lib/i18n.sh for --lang; mirror it. The
+  # namespace `help` recipes invoke the shared i18n renderer
+  # (docker/lib/help.sh), which sources i18n.sh from the same lib dir.
   mkdir -p "${TMP_REPO}/.base/dist/script/docker/lib"
   cp /source/dist/script/docker/lib/i18n.sh "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
+  cp /source/dist/script/docker/lib/help.sh "${TMP_REPO}/.base/dist/script/docker/lib/help.sh"
+  chmod +x "${TMP_REPO}/.base/dist/script/docker/lib/help.sh"
   cp /source/dist/script/template/justfile.template "${TMP_REPO}/.base/dist/script/template/justfile.template"
   cp /source/dist/script/template/new.sh "${TMP_REPO}/.base/dist/script/template/new.sh"
   cp /source/dist/script/template/skel/justfile.skel "${TMP_REPO}/.base/dist/script/template/skel/justfile.skel"
