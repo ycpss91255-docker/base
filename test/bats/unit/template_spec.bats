@@ -749,6 +749,45 @@ _stage_lint_layout() {
   (( _copy_line < _test_line ))
 }
 
+@test "Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)" {
+  # The generic watchdog ships runtime/watchdog.sh, sourced from the
+  # repo entrypoint alongside logging.sh. It must be COPY'd into the same
+  # in-image dir (devel stage, before devel-test) so the source line
+  # resolves at build + run time.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
+  assert_success
+  local _devel_line _test_line _copy_line
+  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
+  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
+  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}" | head -1 | cut -d: -f1)"
+  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
+  (( _devel_line < _copy_line ))
+  (( _copy_line < _test_line ))
+}
+
+@test "Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
+  assert_success
+}
+
+@test "runtime/entrypoint.sh sources the watchdog helper after logging (#797)" {
+  # The template entrypoint sources logging.sh then watchdog.sh; both are
+  # no-ops when their feature is off, so the source lines are safe. Order
+  # matters: watchdog logs should ride the logging tee.
+  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  run grep -F '. /usr/local/lib/base/watchdog.sh' "${_ep}"
+  assert_success
+  local _log_line _wd_line
+  _log_line="$(grep -nF '. /usr/local/lib/base/logging.sh' "${_ep}" | head -1 | cut -d: -f1)"
+  _wd_line="$(grep -nF '. /usr/local/lib/base/watchdog.sh' "${_ep}" | head -1 | cut -d: -f1)"
+  [[ -n "${_log_line}" && -n "${_wd_line}" ]]
+  (( _log_line < _wd_line ))
+}
+
 @test "Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)" {
   # The optional runtime stage is a fresh BASE_IMAGE (no devel inherit), so
   # a repo enabling host-side log tee there must COPY BOTH logging.sh and

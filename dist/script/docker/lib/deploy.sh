@@ -235,6 +235,27 @@ _resolve_deploy_context() {
   # generated deploy.sh run flags do not carry it).
   _conf_get_into _RDC_CONF lifecycle init true _tmp; _rdc_out["init"]="${_tmp}"
 
+  # [lifecycle] watchdog. Emitted to the service `environment:` as
+  # WATCHDOG_* env only when the master switch (watchdog_check) is set --
+  # empty check => empty string => feature off (no env, no behavior change).
+  # Each remaining knob is emitted only when the conf sets it, so an unset
+  # knob falls back to watchdog.sh's own default. Built here as a
+  # newline-separated `WATCHDOG_KEY=value` block that compose_emit YAML-quotes.
+  local _wd_check=""
+  _conf_get_into _RDC_CONF lifecycle watchdog_check "" _wd_check
+  local _wd_env_str=""
+  if [[ -n "${_wd_check}" ]]; then
+    _wd_env_str="WATCHDOG_CHECK=${_wd_check}"
+    local _wd_key _wd_val
+    for _wd_key in interval timeout start_period failures on_fail max_restarts notify; do
+      _wd_val=""
+      _conf_get_into _RDC_CONF lifecycle "watchdog_${_wd_key}" "" _wd_val
+      [[ -z "${_wd_val}" ]] && continue
+      _wd_env_str+=$'\n'"WATCHDOG_${_wd_key^^}=${_wd_val}"
+    done
+  fi
+  _rdc_out["watchdog_env_str"]="${_wd_env_str}"
+
   # dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
   local _dri_groups_mode="" _dri_groups_str=""
   _conf_get_into _RDC_CONF deploy dri_groups auto _dri_groups_mode

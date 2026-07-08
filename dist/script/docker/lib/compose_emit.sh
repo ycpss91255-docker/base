@@ -218,6 +218,26 @@ _emit_init_line() {
   printf '    init: true\n'
 }
 
+# watchdog env emitter: [lifecycle] watchdog. Emits each resolved
+# `WATCHDOG_*=value` line (built in deploy.sh, gated on a non-empty
+# watchdog_check) as a YAML double-quoted environment list item, so a
+# command value carrying YAML-structural characters survives the parse.
+# No-op when the block is empty (watchdog disabled -> zero compose diff,
+# the default-off golden is unaffected). The env is uniform across
+# services (a lifecycle
+# property, not per-service like LOG_FILE_PATH), so devel emits it and
+# extends:devel stages inherit it; standalone override stages re-emit it.
+_emit_watchdog_env() {
+  local _watchdog_env_str="${1-}"
+  [[ -z "${_watchdog_env_str}" ]] && return 0
+  local _we _we_dq
+  while IFS= read -r _we; do
+    [[ -z "${_we}" ]] && continue
+    _yaml_dq "${_we}" _we_dq
+    echo "      - ${_we_dq}"
+  done <<< "${_watchdog_env_str}"
+}
+
 # env_file emitter: inject the hand-authored .env workload
 # overlay into the service so per-task env vars take effect with
 # `just run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
@@ -546,6 +566,7 @@ _emit_stage_service() {
   local _shm_size="${_ess_ctx[shm_size]-}"
   local _dri_groups_str="${_ess_ctx[dri_groups]-}"
   local _init="${_ess_ctx[init]-true}"
+  local _watchdog_env_str="${_ess_ctx[watchdog_env]-}"
   local _logging_global_str="${_ess_ctx[logging_global]-}"
   local _logging_per_svc_str="${_ess_ctx[logging_per_svc]-}"
   local _net_mode="${_ess_ctx[net_mode]-host}"
@@ -734,7 +755,7 @@ YAML
   _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
   local _stage_log_file=""
   [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
-  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
+  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]] || [[ -n "${_watchdog_env_str}" ]]; then
     echo "    environment:"
     if [[ "${_eff_gui}" == "true" ]]; then
       cat <<'YAML'
@@ -761,6 +782,9 @@ YAML
       echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
       echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
     fi
+    # [lifecycle] watchdog: re-emit here because a standalone stage has no
+    # `extends: devel` to inherit devel's WATCHDOG_* env from.
+    _emit_watchdog_env "${_watchdog_env_str}"
   fi
   # ports: only under bridge mode (compose ignores it under host).
   if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
@@ -873,6 +897,7 @@ generate_compose_yaml() {
   local _restart="${28:-no}"
   local _dri_groups_str="${29:-}"
   local _init="${30:-true}"
+  local _watchdog_env_str="${31:-}"
 
   # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
   # both the devel service and every per-stage block emit an identical value.
@@ -1047,7 +1072,7 @@ YAML
     _logging_svc_local_path_mount devel _devel_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
     local _devel_log_file=""
     [[ -n "${_devel_llp}" ]] && _devel_log_file="/var/log/${_name}/devel.log"
-    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]]; then
+    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]] || [[ -n "${_watchdog_env_str}" ]]; then
       echo "    environment:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1082,6 +1107,9 @@ YAML
         echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
         echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       fi
+      # [lifecycle] watchdog: WATCHDOG_* env on devel; extends:devel stages
+      # inherit it (it is a uniform lifecycle property, not per-svc).
+      _emit_watchdog_env "${_watchdog_env_str}"
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
@@ -1204,6 +1232,7 @@ YAML
       [shm_size]="${_shm_size}"
       [dri_groups]="${_dri_groups_str}"
       [init]="${_init}"
+      [watchdog_env]="${_watchdog_env_str}"
       [logging_global]="${_logging_global_str}"
       [logging_per_svc]="${_logging_per_svc_str}"
       [net_mode]="${_net_mode}"

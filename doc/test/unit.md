@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2181 tests**.
+Unit specs under `test/bats/unit/`: **2219 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -876,7 +876,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (40)
+### test/bats/unit/dockerfile_migrate_spec.bats (44)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1487,7 +1487,46 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/bats/unit/template_spec.bats (148)
+### test/bats/unit/watchdog_spec.bats (18)
+
+Pure-logic (kcov-safe) unit tests for
+`dist/script/docker/runtime/watchdog.sh` (#797), the generic
+single-service watchdog sourced from a repo entrypoint (sibling of
+`logging.sh`). Covers the master off switch (no-op when `WATCHDOG_CHECK`
+unset), config load defaults + clamping, the pluggable health-check
+runner (pass / fail / timeout), the shared `_watchdog_evaluate` decision
+seam (healthy reset / under-threshold / act), the `_watchdog_grace`
+bounded stop window, `_watchdog_pgid_of` / `_watchdog_child_alive`
+liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
+`watchdog.log` per-start file + symlink under a `watchdog/` subdir
+(reusing `logrotate.sh`). The process-level supervision loops + signal
+paths live in `watchdog_supervision_spec.bats`.
+
+### test/bats/unit/watchdog_supervision_spec.bats (7)
+
+Process-level supervision tests for the watchdog (#797): the
+`restart-container` monitor loop, the `restart-service` supervisor, and
+the real signal / process-group teardown paths -- bounded
+SIGTERM → grace → SIGKILL (a SIGTERM-ignoring service is killed within the
+grace, no unbounded-`wait` hang), whole-subtree kill via `setsid` (no
+orphaned grandchild leaks per restart), give-up against a wedged service
+still reaching container-exit, and the `docker stop` SIGTERM forward to
+the service group. These drive real background processes / sleeps /
+signals, so the file is **kcov-fragile** (each test carries the
+`[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
+`bats-fragile`, ADR-00000008 / #613 / #677).
+
+### test/bats/unit/compose_watchdog_spec.bats (6)
+
+Tests for `[lifecycle]` watchdog (#797) support in
+`generate_compose_yaml` and its resolution in `_resolve_deploy_context`:
+the `WATCHDOG_*` service environment is emitted (YAML-quoted) only when
+the master switch `watchdog_check` is set, so the default-off case leaves
+`compose.yaml` byte-identical (the #505 golden is unaffected); the env
+rides on devel and extends:devel stages inherit it; and the resolver
+builds the env block only for the knobs the conf sets.
+
+### test/bats/unit/template_spec.bats (151)
 
 | Test | Description |
 |------|-------------|

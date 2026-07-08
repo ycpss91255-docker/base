@@ -6,5 +6,11 @@
 # devel stage (+).
 # shellcheck disable=SC1091
 . /usr/local/lib/base/logging.sh
+# Generic single-service watchdog. No-op when [lifecycle]
+# watchdog_check is unset (WATCHDOG_CHECK empty), so this source line is
+# safe unconditionally. When ON_FAIL=restart-service the watchdog
+# supervises the service itself and this script does not reach `exec`.
+# shellcheck disable=SC1091
+. /usr/local/lib/base/watchdog.sh
 
 exec "${@}"

@@ -50,6 +50,14 @@ declare -gA SCHEMA_VALIDATOR=(
   [resources.shm_size]=_validate_shm_size
   [lifecycle.restart]=_validate_restart
   [lifecycle.init]=_validate_init
+  [lifecycle.watchdog_check]=_validate_watchdog_cmd
+  [lifecycle.watchdog_interval]=_validate_watchdog_posint
+  [lifecycle.watchdog_timeout]=_validate_watchdog_posint
+  [lifecycle.watchdog_start_period]=_validate_watchdog_nonneg
+  [lifecycle.watchdog_failures]=_validate_watchdog_posint
+  [lifecycle.watchdog_on_fail]=_validate_watchdog_on_fail
+  [lifecycle.watchdog_max_restarts]=_validate_watchdog_posint
+  [lifecycle.watchdog_notify]=_validate_watchdog_cmd
   [build.target_arch]=_validate_target_arch
   [build.network]=_validate_build_network
   [network.network_name]=_validate_network_name
@@ -130,6 +138,16 @@ declare -gA SCHEMA_I18N=(
   # init: config-file / CLI (`setup.sh set lifecycle.init`) only, never
   # surfaced in the TUI menu -- explicit no-editor opt-out.
   [lifecycle.init]=""
+  # watchdog: config-file / CLI only, never surfaced in the TUI
+  # menu -- explicit no-editor opt-out (same posture as init / transcript).
+  [lifecycle.watchdog_check]=""
+  [lifecycle.watchdog_interval]=""
+  [lifecycle.watchdog_timeout]=""
+  [lifecycle.watchdog_start_period]=""
+  [lifecycle.watchdog_failures]=""
+  [lifecycle.watchdog_on_fail]=""
+  [lifecycle.watchdog_max_restarts]=""
+  [lifecycle.watchdog_notify]=""
   [build.target_arch]=build.target_arch.prompt
   [build.network]=build.network.prompt
   [network.network_name]=network.name.prompt

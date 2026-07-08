@@ -431,6 +431,52 @@ _validate_container_log_days() {
   return 1
 }
 
+# _validate_watchdog_posint <value>
+#
+# [lifecycle] watchdog_interval / _timeout / _failures / _max_restarts:
+# a positive integer >= 1 (seconds or a count). Mirrors the container-log
+# retention validators.
+_validate_watchdog_posint() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
+# _validate_watchdog_nonneg <value>
+#
+# [lifecycle] watchdog_start_period: a non-negative integer (0 allowed --
+# a zero grace window means checks begin immediately).
+_validate_watchdog_nonneg() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[0-9]+$ ]] && return 0
+  return 1
+}
+
+# _validate_watchdog_on_fail <value>
+#
+# [lifecycle] watchdog_on_fail: the failure action. restart-container
+# (Docker-native default) or restart-service (in-place, needs init PID1).
+_validate_watchdog_on_fail() {
+  case "${1-}" in
+    restart-container|restart-service) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_watchdog_cmd <value>
+#
+# [lifecycle] watchdog_check / watchdog_notify: a pluggable shell command.
+# Lenient (any non-empty string is a valid command) but rejects embedded
+# newlines, which would inject an extra YAML line into the compose
+# environment: list (mirrors the local_path / env_kv newline guards).
+# Empty is handled by the empty-value policy (allow = feature disabled).
+_validate_watchdog_cmd() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" == *$'\n'* ]] && return 1
+  return 0
+}
+
 # _validate_log_local_path <value>
 #
 # Host-side log directory for the [logging] local_path feature

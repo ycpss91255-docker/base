@@ -108,6 +108,15 @@ _assert_schema() {
   _assert_schema lifecycle restart "unless-stopped" ok
   _assert_schema lifecycle init "true" ok
   _assert_schema lifecycle init "false" ok
+  _assert_schema lifecycle watchdog_check "rosnode ping -a" ok
+  _assert_schema lifecycle watchdog_interval "30" ok
+  _assert_schema lifecycle watchdog_timeout "10" ok
+  _assert_schema lifecycle watchdog_start_period "0" ok
+  _assert_schema lifecycle watchdog_failures "3" ok
+  _assert_schema lifecycle watchdog_on_fail "restart-container" ok
+  _assert_schema lifecycle watchdog_on_fail "restart-service" ok
+  _assert_schema lifecycle watchdog_max_restarts "5" ok
+  _assert_schema lifecycle watchdog_notify "curl -X POST https://hook" ok
   _assert_schema build target_arch "arm64" ok
   _assert_schema build network "host" ok
   _assert_schema build arg_1 "FOO=bar" ok
@@ -140,6 +149,13 @@ _assert_schema() {
   _assert_schema resources shm_size "huge" fail
   _assert_schema lifecycle restart "sometimes" fail
   _assert_schema lifecycle init "garbage" fail
+  _assert_schema lifecycle watchdog_interval "0" fail
+  _assert_schema lifecycle watchdog_timeout "-5" fail
+  _assert_schema lifecycle watchdog_start_period "-1" fail
+  _assert_schema lifecycle watchdog_failures "abc" fail
+  _assert_schema lifecycle watchdog_on_fail "restart-host" fail
+  _assert_schema lifecycle watchdog_max_restarts "1.5" fail
+  _assert_schema lifecycle watchdog_check $'has\nnewline' fail
   _assert_schema build target_arch "sparc" fail
   _assert_schema build network "carrier-pigeon" fail
   _assert_schema build arg_1 "1BAD=x" fail
@@ -201,6 +217,9 @@ _assert_schema() {
 @test "_schema_validate allows empty (clear) for every list + clearable scalar key" {
   _assert_schema resources shm_size "" ok
   _assert_schema lifecycle restart "" ok
+  _assert_schema lifecycle watchdog_check "" ok
+  _assert_schema lifecycle watchdog_notify "" ok
+  _assert_schema lifecycle watchdog_interval "" ok
   _assert_schema build target_arch "" ok
   _assert_schema build arg_1 "" ok
   _assert_schema network network_name "" ok

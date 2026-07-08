@@ -459,6 +459,45 @@ _migrate_logrotate_copy_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/logrotate.sh COPY sibling (#805)"
 }
 
+# ── Migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
+#
+# The generic single-service watchdog ships a new runtime helper
+# watchdog.sh, COPY'd next to logging.sh / logrotate.sh at
+# /usr/local/lib/base/. A downstream Dockerfile that COPYs logging.sh but
+# predates the watchdog lacks the watchdog.sh COPY, so a repo that adds
+# `. /usr/local/lib/base/watchdog.sh` to its entrypoint would source a
+# missing file. Insert the sibling COPY right after the logging.sh COPY,
+# reusing that line's own flag/src shape. Mirrors the logrotate-copy
+# migration; runs after logging_rename / logrotate_copy so the logging
+# COPY is already canonical. Idempotent: skipped once watchdog.sh is COPY'd.
+_migrate_watchdog_copy_detect() {
+  local _file="$1"
+  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
+  # its baked dest, with the watchdog sibling not yet COPY'd. Anchoring on
+  # the stable dest path heals a hand-relocated src too.
+  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
+  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/watchdog\.sh([[:space:]]|$)' "${_file}" && return 1
+  return 0
+}
+
+_migrate_watchdog_copy_apply() {
+  local _file="$1"
+  # Emit each active logging.sh COPY line, then a watchdog.sh twin with both
+  # the src basename and the baked dest rewritten logging -> watchdog.
+  local _tmp
+  _tmp="$(mktemp)"
+  awk '
+    { print }
+    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
+      twin=$0
+      gsub(/logging\.sh/, "watchdog.sh", twin)
+      print twin
+    }
+  ' "${_file}" > "${_tmp}"
+  mv "${_tmp}" "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/watchdog.sh COPY sibling (#797)"
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -468,6 +507,7 @@ _MIGRATIONS=(
   explicit_copy
   logging_rename
   logrotate_copy
+  watchdog_copy
   hadolint
   sc1090
   arg_user

@@ -19,6 +19,10 @@ _is_excluded_file() {
     dist/script/docker/lib/log.sh) return 0 ;;
     dist/script/docker/lib/i18n.sh) return 0 ;;
     dist/script/docker/runtime/logging.sh) return 0 ;;
+    # In-container watchdog helper: runs in the runtime image with no
+    # lib/log.sh sourced, so its loud stderr events go straight to fd 2
+    # (captured by `docker logs`) -- same rationale as logging.sh.
+    dist/script/docker/runtime/watchdog.sh) return 0 ;;
     dist/script/docker/runtime/smoke.sh) return 0 ;;
     dist/script/docker/lib/_tui_backend.sh) return 0 ;;
     dist/script/docker/lib/_tui_conf.sh) return 0 ;;
