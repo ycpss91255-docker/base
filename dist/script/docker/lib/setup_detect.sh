@@ -371,7 +371,12 @@ _reconcile_workspace_path() {
       cp "${_tpl_conf}" "${_rwp_repo_conf}"
       _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
         "${_ws_portable_form}"
-      # Reload [volumes] so extra_volumes picks up the new mount_1.
+      # Reload [volumes] so extra_volumes picks up the new mount_1. This is a
+      # single-section reload of the parallel arrays this function mutates in
+      # place (the caller's out-param), NOT the multi-section re-parse the
+      # parse-once handle replaces: the handle tokenizes both template+repo
+      # and would go stale the moment _upsert_conf_value rewrote the conf, so
+      # a fresh single-section read is both cheaper and correct here.
       _rwp_vk=(); _rwp_vv=()
       _load_setup_conf "${_rwp_base}" "volumes" _rwp_vk _rwp_vv
       _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
@@ -403,6 +408,8 @@ _reconcile_workspace_path() {
       [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
       _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
         "${_ws_portable_form}"
+      # Single-section reload after the stale-path rewrite (see the bootstrap
+      # branch above for why this stays a per-section load, not the handle).
       _rwp_vk=(); _rwp_vv=()
       _load_setup_conf "${_rwp_base}" "volumes" _rwp_vk _rwp_vv
       _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
