@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2234 tests**.
+Unit specs under `test/bats/unit/`: **2241 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1789,6 +1789,25 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | `_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine` | Detection parity across busybox-awk / mawk / gawk |
 | `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
+
+### test/bats/unit/adr_numbering_spec.bats (7)
+
+Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
+refs #808), the ADR-numbering lint. The registry is the filesystem
+(`doc/adr/NNNNNNNN-<slug>.md`): the lint FAILS on a duplicate ADR number or a
+malformed filename and WARNS (exit 0) on a numbering gap. Driven at the driver
+CLI over throwaway fixture `doc/adr/` trees, plus a real-tree guard that the
+live `doc/adr/` passes today with the intentional `00000009` gap warned.
+
+| Test | Description |
+|------|-------------|
+| `_run_adr_numbering: FAILS on a duplicate ADR number, naming both files (#808)` | Duplicate number fails, both files named |
+| `_run_adr_numbering: FAILS on a malformed filename, naming the file (#808)` | Malformed filename fails, file named |
+| `_run_adr_numbering: FAILS on a too-short (non-8-digit) number prefix (#808)` | Non-8-digit prefix fails |
+| `_run_adr_numbering: PASSES a clean set WITH a gap, warning the gap (exit 0) (#808)` | Gap warned, exit 0 |
+| `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
+| `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
+| `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 

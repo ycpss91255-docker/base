@@ -76,6 +76,8 @@ source "${SCRIPT_DIR}/drivers/hadolint.sh"
 source "${SCRIPT_DIR}/drivers/bats.sh"
 # shellcheck source=script/test/drivers/issueref.sh
 source "${SCRIPT_DIR}/drivers/issueref.sh"
+# shellcheck source=script/test/drivers/adr_numbering.sh
+source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +102,9 @@ Options:
   --hadolint              With --lint: run only Hadolint (still via compose)
   --issueref              With --lint: run only the issue-ref comment lint
                           (no transient #NNN in code comments; ADR-00000013)
+  --adr-numbering         With --lint: run only the ADR-numbering lint
+                          (doc/adr/ duplicate-free + well-formed; gaps
+                          warned, not failed)
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -248,6 +253,7 @@ main() {
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
+      --adr-numbering) lint_tool="adr-numbering"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -358,8 +364,9 @@ main() {
           shellcheck) _run_shellcheck ;;
           hadolint)   _run_hadolint ;;
           issueref)   _run_issueref ;;
-          "")         _run_shellcheck; _run_hadolint; _run_issueref ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | empty)." ;;
+          adr-numbering) _run_adr_numbering ;;
+          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | empty)." ;;
         esac
         return 0
       fi
@@ -376,6 +383,7 @@ main() {
         _run_shellcheck
         _run_hadolint
         _run_issueref
+        _run_adr_numbering
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
