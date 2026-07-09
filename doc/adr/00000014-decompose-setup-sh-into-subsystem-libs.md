@@ -1,5 +1,8 @@
 # Decompose setup.sh into subsystem libs (relocate-first, tracer-bullet order)
 
+> Serves: mechanism -- setup.sh decomposition into subsystem libs
+> (architecture / testability); no invariant.
+
 - **Date:** 2026-06-27
 - **Status:** Accepted
 - **Relates to:** epic #745 (slices #746 deploy, #747 compose, #748

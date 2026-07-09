@@ -1,5 +1,8 @@
 # ISTQB-aligned test taxonomy (levels / types / static analysis)
 
+> Serves: PRD invariant 7 (rigorous, industry-aligned test bar) --
+> established the commitment via the ISTQB-aligned taxonomy.
+
 - **Date:** 2026-06-30
 - **Status:** Accepted
 - **Amends:** ADR-00000012 (supersedes only its category vocabulary

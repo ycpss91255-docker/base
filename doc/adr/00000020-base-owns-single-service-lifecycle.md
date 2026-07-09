@@ -1,5 +1,8 @@
 # `base` container is one service; `base` owns the common single-service lifecycle
 
+> Serves: PRD invariant 1 (base owns the single-service lifecycle) --
+> established; also PRD invariant 5 (the two-branch default rule).
+
 - **Date:** 2026-07-07
 - **Status:** Accepted
 - **Relates to:** issues #478 (restart policy), #792 (init / PID1

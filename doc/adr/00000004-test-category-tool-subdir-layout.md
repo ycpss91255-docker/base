@@ -1,5 +1,8 @@
 # `test/<category>/<tool>/` subdir layout for multi-tool repos
 
+> Serves: PRD invariant 7 (rigorous test bar) -- test layout; superseded
+> by ADR-00000012 (tool-first).
+
 - **Date:** 2026-06-05
 - **Status:** Superseded by ADR-00000012 (2026-06-23)
 

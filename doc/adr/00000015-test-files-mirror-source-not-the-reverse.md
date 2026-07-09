@@ -1,5 +1,8 @@
 # Test files mirror source files; source structure never follows tests
 
+> Serves: PRD invariant 7 (rigorous test bar) -- test files mirror
+> source; mechanism.
+
 - **Date:** 2026-06-27
 - **Status:** Accepted
 - **Relates to:** ADR-00000012 (tool-first `test/<tool>/<category>/`

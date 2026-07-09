@@ -1,5 +1,8 @@
 # Coverage tooling: evaluate kcov alternatives to lift the per-file shard floor
 
+> Serves: PRD invariant 7 (rigorous test bar) -- coverage tooling (a
+> swappable mechanism); spike Rejected, kcov kept.
+
 - **Date:** 2026-06-27
 - **Decided:** 2026-06-29
 - **Status:** Rejected (spike below disproved the premise)

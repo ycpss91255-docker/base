@@ -67,6 +67,16 @@ _touch_adr() {
   [[ "${output}" == *"0001-short.md"* ]]
 }
 
+@test "_run_adr_numbering: EXEMPTS doc/adr/README.md (the index), not flagged malformed (#808)" {
+  _touch_adr "00000001-alpha.md"
+  _touch_adr "00000002-beta.md"
+  : > "${SCRATCH}/doc/adr/README.md"
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+  [[ "${output}" != *"README.md"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: passes (gaps allowed)
 # ════════════════════════════════════════════════════════════════════

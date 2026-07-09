@@ -14,6 +14,8 @@
 #
 # The registry is the filesystem. ADR files live at
 # doc/adr/NNNNNNNN-<slug>.md (8-digit zero-padded number + kebab slug).
+# doc/adr/README.md (the ADR index / PRD audit) is the one conventional
+# non-ADR file in the registry dir and is exempt from the naming contract.
 # The lint reads doc/adr/*.md and:
 #   - FAILS (non-zero) on a DUPLICATE ADR number (two files sharing
 #     NNNNNNNN). This is the primary defect -- two PRs once authored the
@@ -52,6 +54,12 @@ _run_adr_numbering() {
 
   for _file in "${_files[@]}"; do
     _base="$(basename "${_file}")"
+    # README.md is the ADR index / PRD audit (doc/adr/README.md), not an
+    # ADR record. It is the conventional non-ADR file in the registry dir,
+    # so it is deliberately exempt from the NNNNNNNN-<slug>.md contract.
+    if [[ "${_base}" == "README.md" ]]; then
+      continue
+    fi
     if [[ ! "${_base}" =~ ${_ADR_NAME_RE} ]]; then
       _malformed+=("${_base}")
       continue

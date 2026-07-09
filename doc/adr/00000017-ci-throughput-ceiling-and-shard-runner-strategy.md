@@ -1,5 +1,8 @@
 # CI throughput ceiling (free + public) and the shard / runner strategy
 
+> Serves: PRD invariant 7 (rigorous test bar) -- CI throughput / shard
+> strategy; a swappable mechanism, not the invariant.
+
 - **Date:** 2026-06-29
 - **Status:** Accepted
 - **Relates to:** ADR-00000008 (sharded coverage PR gate), ADR-00000016

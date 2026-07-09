@@ -1,5 +1,8 @@
 # Network mode: keep `host` as the default, ship `bridge` as a usable opt-in
 
+> Serves: PRD invariant 4 (fail-safe defaults) -- established; the
+> network host default is the general principle's instance.
+
 - **Date:** 2026-07-07
 - **Status:** Accepted
 - **Relates to:** issue #794 (this decision, recorded in the issue's

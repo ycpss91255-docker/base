@@ -133,6 +133,7 @@ ci_bats_path_system
 ci_bats_path_coverage
 ci_mixed_test_layout
 ci_issueref_in_comment
+ci_adr_numbering
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint
