@@ -5,7 +5,9 @@
 wrappers, the `setup.conf` -> `.env`/`compose.yaml` resolution, and the
 self-test gate. This glossary fixes the domain vocabulary so future work
 and architecture reviews stop re-coining terms. It is a glossary only —
-decisions live in [`doc/adr/`](doc/adr/), rationale in the issues.
+product intent and invariants live in [`doc/PRD.md`](doc/PRD.md), the
+decisions serving them live in [`doc/adr/`](doc/adr/), rationale in the
+issues.
 
 ## Language
 
