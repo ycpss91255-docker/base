@@ -1,5 +1,8 @@
 # Strip transient issue numbers from code comments; keep ADR refs + what/why prose
 
+> Serves: PRD invariant 2 (never fail silently) -- the issue-ref comment
+> lint is one of its enforcing guards; mechanism.
+
 - **Date:** 2026-06-24
 - **Status:** Accepted
 - **Relates to:** the `doc/adr/` references that this convention

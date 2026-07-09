@@ -1790,7 +1790,7 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/adr_numbering_spec.bats (7)
+### test/bats/unit/adr_numbering_spec.bats (8)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -1804,6 +1804,7 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: FAILS on a duplicate ADR number, naming both files (#808)` | Duplicate number fails, both files named |
 | `_run_adr_numbering: FAILS on a malformed filename, naming the file (#808)` | Malformed filename fails, file named |
 | `_run_adr_numbering: FAILS on a too-short (non-8-digit) number prefix (#808)` | Non-8-digit prefix fails |
+| `_run_adr_numbering: EXEMPTS doc/adr/README.md (the index), not flagged malformed (#808)` | README.md index exempt from the naming contract |
 | `_run_adr_numbering: PASSES a clean set WITH a gap, warning the gap (exit 0) (#808)` | Gap warned, exit 0 |
 | `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |

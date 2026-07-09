@@ -1,5 +1,9 @@
 # `just` command model: zero-special-case namespaces, generic tooling, min->max coverage
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- established the zero-special-case `just` command model + generic
+> runner.
+
 - **Date:** 2026-06-23
 - **Status:** Accepted
 - **Amends:** ADR-00000010 (docker is no longer top-level; `ci`/`cd`

@@ -1,5 +1,8 @@
 # Cache TTY-ness at startup so a transcript tee cannot re-flip single-sink dispatch
 
+> Serves: mechanism -- wrapper log/transcript single-sink fidelity; no
+> invariant.
+
 - **Date:** 2026-06-18
 - **Status:** Accepted
 

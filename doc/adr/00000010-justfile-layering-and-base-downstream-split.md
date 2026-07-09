@@ -1,5 +1,8 @@
 # Layered `just` entry + base/downstream directory split
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- established the `dist/` split + layered `just` entry.
+
 - **Date:** 2026-06-22
 - **Status:** Accepted
 - **Amends:** ADR-00000006 (frozen `.base/` interior paths move; see below)

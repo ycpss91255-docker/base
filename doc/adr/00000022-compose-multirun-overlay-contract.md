@@ -1,5 +1,9 @@
 # base<->multi_run compose contract: per-instance isolation is an overlay, enforced by a guard
 
+> Serves: PRD invariant 3 (multi_run-expandable by construction) --
+> established by the overlay contract + guard; also invariant 2 (a loud
+> self-check).
+
 - **Date:** 2026-07-08
 - **Status:** Accepted
 - **Relates to:** issue #716 (this decision), issue #25 (multi_run),

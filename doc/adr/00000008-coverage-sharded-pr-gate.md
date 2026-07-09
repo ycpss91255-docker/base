@@ -1,5 +1,8 @@
 # Shard kcov coverage + promote it to an enforced PR gate
 
+> Serves: PRD invariant 7 (rigorous test bar) -- the coverage gate; a
+> swappable mechanism, not the invariant.
+
 - **Date:** 2026-06-24
 - **Status:** Accepted
 - **Amends:** #377 (which made coverage a non-gating, main-push-only

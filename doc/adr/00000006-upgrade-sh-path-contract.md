@@ -1,5 +1,8 @@
 # upgrade.sh hard-coded paths are a protocol-stable contract
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- the upgrade.sh frozen-path contract; mechanism.
+
 - **Date:** 2026-06-08
 - **Status:** Accepted
 - **Amended:** 2026-06-24 by #654 / ADR-00000011 §8 -- Region A's frozen

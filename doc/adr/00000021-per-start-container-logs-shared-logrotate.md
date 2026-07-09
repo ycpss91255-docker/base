@@ -1,5 +1,8 @@
 # Per-start container log files + stable symlink + shared rotate/prune helper
 
+> Serves: PRD invariant 1 (base owns the single-service lifecycle) --
+> per-start container logs (#805) realise it; mechanism.
+
 - **Date:** 2026-07-07
 - **Status:** Accepted
 - **Relates to:** issue #805 (this decision), ADR-00000007 (wrapper

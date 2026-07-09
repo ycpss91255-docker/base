@@ -1,5 +1,8 @@
 # Responsibility split between setup.conf and compose-native mechanisms
 
+> Serves: mechanism -- the config-resolution boundary (setup.conf vs
+> compose-native); serves the one-source-render goal, no invariant.
+
 - **Date:** 2026-05-28
 - **Status:** Accepted
 

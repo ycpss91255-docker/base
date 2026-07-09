@@ -1,5 +1,8 @@
 # Adopt `just` over the Makefile wrapper
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- `just` as the single user-facing entry; mechanism.
+
 - **Date:** 2026-06-08
 - **Status:** Accepted (amended 2026-06-12)
 

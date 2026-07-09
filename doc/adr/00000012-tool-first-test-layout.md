@@ -1,5 +1,8 @@
 # Tool-first `test/<tool>/<category>/` layout + per-tool test runner
 
+> Serves: PRD invariant 7 (rigorous test bar) -- tool-first test layout;
+> supersedes ADR-00000004.
+
 - **Date:** 2026-06-23
 - **Status:** Accepted (category vocabulary amended -- see below)
 - **Supersedes:** ADR-00000004 (category-first `test/<category>/<tool>/`)
