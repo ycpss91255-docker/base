@@ -149,6 +149,33 @@ taxonomy). *Swappable mechanisms (not invariant):* the coverage tooling
 (ADR-00000008 / ADR-00000016) and the CI throughput / shard strategy
 (ADR-00000017).
 
+### 8. Development and field are cleanly separated, and provisioned by opposite means
+
+base keeps the **development** environment and the **deployable/field**
+environment cleanly apart, and provides the same config by opposite means:
+
+- **In development** -- config is bind-mounted into the container; edit it
+  directly, re-run to apply.
+- **In a deployable stage** -- config is baked into the image (a working
+  default), plus an optional "mount a file to override it" hook, so a
+  deployment adjusts config **without a rebuild**.
+
+The developer-vs-user split follows **git-tracking**: committed = the
+developer's default (baked); gitignored / not in the repo = the
+user/operator-editable overlay. The **`devel` and `*-test` stages are never
+deploy targets** -- only field-oriented stages deploy; every downstream repo
+follows this.
+
+*Why fixed:* base's value is that a downstream inherits one correct dev->field
+path. A devel/test image is not a field artifact (binds source, carries the
+toolchain, expects a live-edit surface); deploying it, or letting field config
+need a rebuild, breaks the dev/field split every downstream relies on.
+
+*Serves / established by:* ADR-00000003 (env/workload boundary + field
+delivery; this generalizes its env-row override to config files); ADR-00000023
+(config field-override + field-deploy mechanism); ADR-00000011 / ADR-00000018
+(devel/runtime/*-test stage structure).
+
 ## Product Shape
 
 - **Vendored subtree, thin caller** (invariant 6): base is the shared core;

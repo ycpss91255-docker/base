@@ -3,7 +3,7 @@
 This is the index of base's Architecture Decision Records **and** the
 audit that maps each ADR onto [`doc/PRD.md`](../PRD.md) -- base's north
 star. Every ADR now carries a one-line `> Serves:` back-reference to the
-PRD invariant (1-7), goal, or scope item it upholds; this table is the
+PRD invariant (1-8), goal, or scope item it upholds; this table is the
 consolidated view.
 
 **The filesystem is the ADR registry.** There is no database and no
@@ -37,15 +37,16 @@ does not match `NNNNNNNN-<slug>.md`), so it does not perturb that lint.
 | `amend` | A factual detail is now stale and should be refreshed (tracked as a follow-up, not edited here). |
 | `supersede` | Replaced by a later ADR (named). |
 | `merge` | Overlaps another ADR and could be consolidated (named). |
-| `elevates-invariant` | Established a PRD Core Invariant (named 1-7). |
+| `elevates-invariant` | Established a PRD Core Invariant (named 1-8). |
 
-The seven PRD Core Invariants: **1** one container = one service / base
+The eight PRD Core Invariants: **1** one container = one service / base
 owns the single-service lifecycle; **2** never fail silently; **3**
 multi_run-expandable by construction; **4** fail-safe defaults; **5** the
 two-branch default rule; **6** base is a subtree / downstream a thin
-caller; **7** rigorous, industry-aligned test bar. ADRs that are pure
-*mechanisms* serve a goal but map to no invariant -- the table says so
-explicitly.
+caller; **7** rigorous, industry-aligned test bar; **8** development and
+field are cleanly separated, provisioned by opposite means. ADRs that are
+pure *mechanisms* serve a goal but map to no invariant -- the table says
+so explicitly.
 
 ## Audit table
 
@@ -53,7 +54,7 @@ explicitly.
 |---|---|---|---|
 | 00000001 -- setup.conf vs compose-native boundary | keep | mechanism (config-resolution boundary; serves the one-source-render goal), no invariant | The escape-hatch/`--env-file` case was refined into a primary path by ADR-00000003. |
 | 00000002 -- no `latest` tag for base | keep | invariant 6 (subtree / propagation) -- mechanism | Immutable version pinning of subtree + workflow refs keeps propagation reproducible. Dated example `v0.39.0` is self-dating. |
-| 00000003 -- env vs workload boundary + field delivery | keep | invariant 3 (axis-A `.env` overlay model) + goal (one source -> many render; field delivery) | Foundational to the PRD Product Shape; refines ADR-00000001; the overlay model is the seed ADR-00000022 later elevates. |
+| 00000003 -- env vs workload boundary + field delivery | keep (amended by 00000023) | invariant 3 (axis-A `.env` overlay model) + goal (one source -> many render; field delivery); also invariant 8 (its env-row override generalizes to config files) | Foundational to the PRD Product Shape; refines ADR-00000001; the overlay model is the seed ADR-00000022 later elevates. **Amended 2026-07-15 (ADR-00000023):** its structured-config Field cell gains a mount-wins `-v` override and "compose does not travel" is refined to "a resolved compose travels" (in-file amendment note). |
 | 00000004 -- category-first test layout | supersede (by 00000012) | invariant 7 (test bar) -- mechanism | Category-first reversed to tool-first; Status already records the supersession. |
 | 00000005 -- adopt `just` over the Makefile | keep | invariant 6 (thin-caller entrypoint) -- mechanism | The single discoverable user entry ADR-00000010/00000011 build on. Dated `13 downstream repos` / `v0.39.0` are self-dating. |
 | 00000006 -- upgrade.sh path contract | keep | invariant 6 (subtree upgrade path) -- mechanism | Frozen interior paths; already carries forward-pointers to ADR-00000010/00000011's `dist/` moves. |
@@ -72,15 +73,18 @@ explicitly.
 | 00000020 -- base owns the single-service lifecycle | elevates-invariant (1) | invariant 1 (single-service lifecycle); also invariant 5 (two-branch default rule) | Canonical single ADR-20; init-toggle content folded in (see Anomalies). |
 | 00000021 -- per-start container logs + shared logrotate | keep | invariant 1 (single-service lifecycle) -- mechanism | The #805 log-persistence lifecycle capability realising invariant 1. |
 | 00000022 -- compose<->multi_run overlay contract | elevates-invariant (3) | invariant 3 (multi_run-expandable by construction); also invariant 2 (the overlay guard) | The overlay contract + `overlay_guard_spec.bats`; PRD names it under both invariants 2 and 3. |
+| 00000023 -- config field-override + self-contained field-deploy contract | elevates-invariant (8) | invariant 8 (dev/field separation, provisioned by opposite means) -- established with ADR-00000003 | The git-tracked provisioning axis, baked-default + mount-wins `-v` override (file analog of ADR-3's env `-e`), deploy-as-resolved-self-contained-compose (amends ADR-3's "compose does not travel"), `deployable = not devel and not *-test`, and the `config/<component>/deploy.manifest` tunability channel. Reconciled with ADR-00000022 (single-file config `-v` != general volume topology). Mechanism in #831 / #832 / #833. |
 
 ## Audit conclusion
 
 - **keep:** 14 (00000001, 00000002, 00000003, 00000005, 00000006,
   00000007, 00000008, 00000012, 00000013, 00000014, 00000015, 00000016,
-  00000017, 00000021)
+  00000017, 00000021) -- 00000003 is `keep (amended by 00000023)`, the
+  amendment recorded inline in-file.
 - **supersede:** 1 (00000004, by 00000012 -- already recorded)
-- **elevates-invariant:** 6 (00000010, 00000011 -> inv 6; 00000018 -> inv
-  7; 00000019 -> inv 4; 00000020 -> inv 1; 00000022 -> inv 3)
+- **elevates-invariant:** 7 (00000010, 00000011 -> inv 6; 00000018 -> inv
+  7; 00000019 -> inv 4; 00000020 -> inv 1; 00000022 -> inv 3; 00000023 ->
+  inv 8)
 - **amend:** 0 in the verdict column; 1 recommended follow-up (a
   forward-pointer on 00000010 -- see below)
 - **merge:** 0
