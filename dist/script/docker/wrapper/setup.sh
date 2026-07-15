@@ -129,9 +129,9 @@ _setup_msg_usage() {
 
 _setup_msg_reset() {
   case "${_LANG}:${1:?}" in
-    zh-TW:confirm)   echo "將以模板預設值覆寫 setup.conf（舊檔備份為 setup.conf.bak / .env.bak）。繼續嗎？" ;;
-    zh-CN:confirm)   echo "将以模板默认值覆写 setup.conf（旧文件备份为 setup.conf.bak / .env.bak）。继续吗？" ;;
-    ja:confirm)      echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
+    zh-TW:confirm)   echo "將以模板預設值覆寫 setup.conf（舊檔備份為 .setup.conf.bak / .env.bak）。繼續嗎？" ;;
+    zh-CN:confirm)   echo "将以模板默认值覆写 setup.conf（旧文件备份为 .setup.conf.bak / .env.bak）。继续吗？" ;;
+    ja:confirm)      echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは .setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
     *:confirm)       echo "Overwrite setup.conf with template default? (prior setup.conf → .bak, prior .env → .env.bak)" ;;
     zh-TW:aborted)   echo "已取消，未變更任何檔案" ;;
     zh-CN:aborted)   echo "已取消，未更改任何文件" ;;
@@ -218,7 +218,7 @@ Subcommands:
                 drift descriptions on stderr) when regen is needed.
                 Used by build.sh / run.sh to decide auto-regen.
   set <section>.<key> <value>
-                Write a single value into <base-path>/config/docker/setup.conf
+                Write a single value into <base-path>/.setup.conf
                 (creates the section / key if missing). Validates
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
@@ -241,7 +241,7 @@ Subcommands:
                 section matching `<list>_*` whose value equals <value>.
   reset [-y|--yes]
                 Overwrite setup.conf with the template default. Prior
-                setup.conf / .env are saved to setup.conf.bak / .env.bak.
+                setup.conf / .env are saved to .setup.conf.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output F] [--dry-run] [-y|--yes]

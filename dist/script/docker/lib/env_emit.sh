@@ -189,7 +189,7 @@ _scaffold_env_overlay() {
 # They are injected into the container via `env_file: - .env` and take
 # effect with only `just run` -- no regenerate, no SETUP_CONF_HASH drift,
 # no git churn. Machine-bound / set-once params (GPU, privileged, mounts,
-# IMAGE_NAME, APT mirror) belong in config/docker/setup.conf instead.
+# IMAGE_NAME, APT mirror) belong in .setup.conf instead.
 # See README "Where each parameter lives (env vs workload)".
 EOF
 }

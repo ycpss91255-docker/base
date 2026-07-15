@@ -54,8 +54,8 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
-  local _repo_conf="${_base}/config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../.setup.conf"
+  local _repo_conf="${_base}/.setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
   if [[ -f "${_repo_conf}" ]]; then
@@ -88,8 +88,8 @@ _setup_conf_handle() {
     return 0
   fi
   _conf_load_merged \
-    "${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf" \
-    "${_base}/config/docker/setup.conf" \
+    "${_SETUP_SCRIPT_DIR}/../../../.setup.conf" \
+    "${_base}/.setup.conf" \
     "${_h}"
 }
 

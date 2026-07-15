@@ -150,8 +150,8 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
-  local _repo_conf="${_base}/config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../.setup.conf"
+  local _repo_conf="${_base}/.setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
   # assignment happens in the function's scope, not a subshell.

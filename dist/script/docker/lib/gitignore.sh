@@ -21,8 +21,8 @@ _canonical_gitignore_entries() {
 .env.generated
 .env.bak
 compose.yaml
-setup.conf.bak
-setup.conf.local
+.setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth

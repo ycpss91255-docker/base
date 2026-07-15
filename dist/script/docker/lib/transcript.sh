@@ -124,7 +124,7 @@ _transcript_is_capture_verb() {
 _transcript_conf() {
   local _key="${1:?}" _default="${2:-}"
   local _conf
-  _conf="$(_transcript_repo_root)/config/docker/setup.conf"
+  _conf="$(_transcript_repo_root)/.setup.conf"
   [[ -f "${_conf}" ]] || { printf '%s' "${_default}"; return 0; }
   local _line
   _line="$(grep -E "^[[:space:]]*${_key}[[:space:]]*=" "${_conf}" 2>/dev/null | tail -n1)"

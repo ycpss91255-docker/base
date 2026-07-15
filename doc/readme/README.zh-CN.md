@@ -368,7 +368,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
-Template default 在 `.base/dist/config/docker/setup.conf`；per-repo 覆盖放 `<repo>/config/docker/setup.conf`。
+Template default 在 `.base/dist/.setup.conf`；per-repo 覆盖放 `<repo>/.setup.conf`。
 Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
 template；没写的 section 则吃 template 默认。
 
@@ -380,7 +380,7 @@ template；没写的 section 则吃 template 默认。
 ./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
 ./setup_tui.sh volumes              # 直接跳到指定 section
 ./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
-./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/config/docker/setup.conf 到 <repo>/config/docker/setup.conf
+./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
 ### 输出 log 到 host
@@ -517,7 +517,7 @@ docker load < image.tar
 | `list [<section>]` | INI 风格 dump |
 | `add <section>.<list> <value>` | 加到列表型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除 |
-| `reset [-y\|--yes]` | 恢复 template 默认；旧 `setup.conf` → `setup.conf.bak`、旧 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | 恢复 template 默认；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自带式 field bundle（image + 生成 `deploy.sh` 的 `tar.xz`），stage `S` 默认 `runtime`；build 前先预览解析后的启动器并确认。见 [Field 部署](#field-部署setupsh-deploy) |
 
 带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。

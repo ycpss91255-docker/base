@@ -449,8 +449,9 @@ two derived artifacts.
            [logging.<svc>] for per-service key-level override
 ```
 
-Template default lives at `.base/dist/config/docker/setup.conf`
-(post-v0.25.0); per-repo overrides go at `<repo>/config/docker/setup.conf`.
+Template default lives at `.base/dist/.setup.conf`; per-repo overrides go
+at the repo-root dotfile `<repo>/.setup.conf` (tool-managed by `just
+setup`, kept out of the hand-editable `config/` surface).
 Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
 to template.
@@ -586,8 +587,8 @@ dir's `watchdog/` subdir (per-start file + stable symlink + retention,
 reusing the same `logrotate.sh` primitives as the container logs).
 
 On first `setup.sh` run (no per-repo setup.conf yet), the template file
-is copied to `<repo>/config/docker/setup.conf` (the parent dir is created
-automatically) and the detected workspace is written to `[volumes]
+is copied to the repo-root `<repo>/.setup.conf` and the detected
+workspace is written to `[volumes]
 mount_1`. Subsequent runs read `mount_1` as source of truth — clear it
 to opt out of mounting a workspace. Edit via:
 
@@ -595,8 +596,8 @@ to opt out of mounting a workspace. Edit via:
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./.base/dist/script/base/init.sh --gen-conf # plain copy of .base/dist/config/docker/setup.conf
-                              # to <repo>/config/docker/setup.conf
+./.base/dist/script/base/init.sh --gen-conf # plain copy of .base/dist/.setup.conf
+                              # to <repo>/.setup.conf
 ```
 
 ### Where each parameter lives (env vs workload)
@@ -858,7 +859,7 @@ These are first-class operator knobs, not test-only hooks. See
 | `list [<section>]` | INI-style dump |
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match |
-| `reset [-y\|--yes]` | Restore template default; archives prior `setup.conf` → `setup.conf.bak`, prior `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field bundle (`tar.xz` of image + generated `deploy.sh`) for stage `S` (default `runtime`); previews the resolved launcher and prompts before building. See [Field deployment](#field-deployment-setupsh-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
@@ -1051,7 +1052,7 @@ just base upgrade v0.3.0
 4. `sed` rewrites `.github/workflows/main.yaml`'s
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
 
-Your per-repo files are never overwritten: `<repo>/config/docker/setup.conf` stays
+Your per-repo files are never overwritten: `<repo>/.setup.conf` stays
 as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
 alone — if upstream `.base/dist/config/` moved since the last pull,
 upgrade.sh prints a `diff -ruN .base/dist/config config` hint so you can
@@ -1211,11 +1212,10 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 ├── .dockerignore                       # Canonical ignore set (synced into consumers)
 ├── dist/                         # SHIPPED tooling + content (single source of truth)
 │   ├── .hadolint.yaml                  # Shared Hadolint rules (symlinked into consumers)
+│   ├── .setup.conf                     # Template runtime-config default (seeds <repo>/.setup.conf)
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # Multi-stage Dockerfile template for new repos
-│   ├── config/                         # Container-internal shell/tool configs
-│   │   ├── docker/
-│   │   │   └── setup.conf              # Template runtime-config default
+│   ├── config/                         # Container-internal shell/tool configs (hand-editable)
 │   │   └── shell/
 │   │       ├── bashrc
 │   │       ├── bashrc.d/               # Interactive shell bootstrap drop-ins

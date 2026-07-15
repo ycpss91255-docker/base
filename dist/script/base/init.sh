@@ -622,16 +622,16 @@ _sync_existing_gitignore() {
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
 #
-# Copies <subtree-prefix>/config/docker/setup.conf to <repo>/config/docker/setup.conf
+# Copies <subtree-prefix>/.setup.conf to <repo>/.setup.conf
 # so the user can override any section. Replace strategy: a section present
 # in the per-repo file fully replaces the template's corresponding section;
 # omitted sections fall back to template.
 
 _gen_setup_conf() {
-  local _src="${TEMPLATE_DIR}/dist/config/docker/setup.conf"
-  local _dst="${REPO_ROOT}/config/docker/setup.conf"
+  local _src="${TEMPLATE_DIR}/dist/.setup.conf"
+  local _dst="${REPO_ROOT}/.setup.conf"
   local _force="${1:-false}"
-  mkdir -p "${REPO_ROOT}/config/docker"
+  # .setup.conf is a repo-root dotfile — no parent dir to create.
   if [[ ! -f "${_src}" ]]; then
     _error "Template setup.conf not found at ${_src}"
   fi
@@ -790,14 +790,14 @@ Version is tracked in <subtree-prefix>/.version (auto-synced by subtree
 pull).
 
 Options:
-  --gen-conf         Copy <subtree-prefix>/config/docker/setup.conf to
-                     <repo>/config/docker/setup.conf so the user can
+  --gen-conf         Copy <subtree-prefix>/.setup.conf to
+                     <repo>/.setup.conf so the user can
                      override any section (image_name / gpu / gui /
                      network / volumes / security / stage:*). Refuses
                      to overwrite an existing per-repo setup.conf unless
                      --force is given.
   --force            With --gen-conf: overwrite existing setup.conf,
-                     backing up the previous setup.conf to setup.conf.bak
+                     backing up the previous .setup.conf to .setup.conf.bak
                      and .env to .env.bak first.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
