@@ -959,7 +959,7 @@ generate_compose_yaml() {
   # already filters them; that's an acceptable v1 silent-drop since
   # the TUI is the primary write path and validates names upfront.
   local -a _conf_stages=()
-  _parse_stage_sections "${_setup_base}/config/docker/setup.conf" _conf_stages
+  _parse_stage_sections "${_setup_base}/.setup.conf" _conf_stages
   local _cs
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in

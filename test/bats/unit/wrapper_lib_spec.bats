@@ -213,7 +213,7 @@ _run_setup_sync() {
   local R="${TEMP_DIR}/repo2"
   _make_setup_sandbox "${R}"
   # Pre-seed all three artifacts so the only reason setup runs is RUN_SETUP.
-  echo "x" > "${R}/config/docker/setup.conf"
+  echo "x" > "${R}/.setup.conf"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   RUN_SETUP=true _run_setup_sync "${R}" run
@@ -225,7 +225,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync drift-check clean path does NOT re-apply (#565)" {
   local R="${TEMP_DIR}/repo3"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/config/docker/setup.conf"
+  echo "x" > "${R}/.setup.conf"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=0 _run_setup_sync "${R}" build
@@ -238,7 +238,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync regenerates on drift (check-drift non-zero) (#565)" {
   local R="${TEMP_DIR}/repo4"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/config/docker/setup.conf"
+  echo "x" > "${R}/.setup.conf"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=1 _run_setup_sync "${R}" run
@@ -250,7 +250,7 @@ _run_setup_sync() {
 
 @test "_wrapper_setup_sync exits 1 with no_env error when setup leaves no .env (#565)" {
   local R="${TEMP_DIR}/repo5"
-  mkdir -p "${R}/.base/dist/script/docker/wrapper" "${R}/config/docker"
+  mkdir -p "${R}/.base/dist/script/docker/wrapper" "${R}"
   # setup.sh that does nothing (writes neither .env nor compose).
   cat > "${R}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -317,7 +317,7 @@ EOS
   # _run_interactive branch that reads the array.
   local R="${TEMP_DIR}/repo_noargs"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/config/docker/setup.conf"
+  echo "x" > "${R}/.setup.conf"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   run bash -c "

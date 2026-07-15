@@ -88,8 +88,8 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS probe
 DOCK
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:probe]
 gui.mode = force
 network.mode = bridge
@@ -112,8 +112,8 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS probe
 DOCK
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:probe]
 gui.mode = off
 network.mode = bridge

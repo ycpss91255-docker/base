@@ -267,7 +267,7 @@ _load_stage_overrides() {
   if [[ -n "${SETUP_CONF:-}" ]]; then
     _conf="${SETUP_CONF}"
   else
-    _conf="${_base}/config/docker/setup.conf"
+    _conf="${_base}/.setup.conf"
   fi
   [[ -f "${_conf}" ]] || return 0
   _parse_ini_section "${_conf}" "stage:${_stage}" _lso_keys _lso_values

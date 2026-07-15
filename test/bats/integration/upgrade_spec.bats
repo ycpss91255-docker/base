@@ -265,6 +265,67 @@ _seed_entry() {
   assert_output --partial "Already up to date."
 }
 
+# ── Legacy setup.conf auto-migration ────────────────────────────────
+# setup.conf left the hand-editable config/ surface and now lives at the
+# repo root as .setup.conf. upgrade.sh must relocate a downstream's
+# legacy config/docker/setup.conf override so it is never silently
+# dropped (fail-loud), and must leave a repo already at the new location
+# untouched.
+
+@test "upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly" {
+  cd "${DOWN_DIR}"
+  mkdir -p config/docker
+  printf '[gpu]\nmode = force\n' > config/docker/setup.conf
+  git add config/docker/setup.conf
+  git commit -q -m "add legacy setup.conf override"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  # Loud, unmissable migration announcement.
+  assert_output --partial "relocating per-repo setup.conf override"
+  assert_output --partial "config/docker/setup.conf -> .setup.conf"
+
+  # Override relocated to the root dotfile, content preserved, legacy gone.
+  [ -f ".setup.conf" ]
+  [ ! -f "config/docker/setup.conf" ]
+  grep -Fq "mode = force" .setup.conf
+
+  # The relocation is committed, so the tree is clean afterwards (the
+  # subsequent subtree pull would have refused a dirty tree otherwise).
+  refute_output --partial "config/docker/setup.conf still present"
+}
+
+@test "upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)" {
+  cd "${DOWN_DIR}"
+  printf '[gpu]\nmode = force\n' > .setup.conf
+  git add .setup.conf
+  git commit -q -m "add root .setup.conf override"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  refute_output --partial "relocating per-repo setup.conf override"
+  [ -f ".setup.conf" ]
+  [ ! -f "config/docker/setup.conf" ]
+  grep -Fq "mode = force" .setup.conf
+}
+
+@test "upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist" {
+  cd "${DOWN_DIR}"
+  mkdir -p config/docker
+  printf '[gpu]\nmode = legacy\n' > config/docker/setup.conf
+  printf '[gpu]\nmode = root_wins\n' > .setup.conf
+  git add config/docker/setup.conf .setup.conf
+  git commit -q -m "add both legacy and root setup.conf"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  # Fail-loud: warn about the conflict, keep BOTH, root file wins.
+  assert_output --partial "BOTH"
+  [ -f ".setup.conf" ]
+  [ -f "config/docker/setup.conf" ]
+  grep -Fq "mode = root_wins" .setup.conf
+}
+
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
 @test "upgrade.sh fails fast when git identity is missing" {

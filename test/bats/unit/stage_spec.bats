@@ -540,7 +540,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Per-stage overrides
 #
-# `[stage:<name>]` sections in <repo>/config/docker/setup.conf override top-level
+# `[stage:<name>]` sections in <repo>/.setup.conf override top-level
 # settings on a per-stage basis when a corresponding `FROM ... AS <name>`
 # stage exists in the Dockerfile. Allowlist gates which keys can be
 # overridden; list fields (mount_*/port_*/env_*) use append-default
@@ -550,9 +550,9 @@ EOF
 # ─── _parse_stage_sections ────────────────────────────────────────
 
 @test "_parse_stage_sections: empty file → empty output" {
-  : > "${TEMP_DIR}/config/docker/setup.conf"
+  : > "${TEMP_DIR}/.setup.conf"
   local -a _stages=()
-  _parse_stage_sections "${TEMP_DIR}/config/docker/setup.conf" _stages
+  _parse_stage_sections "${TEMP_DIR}/.setup.conf" _stages
   [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
 }
 
@@ -563,7 +563,7 @@ EOF
 }
 
 @test "_parse_stage_sections: extracts [stage:NAME] sections in file order" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 
@@ -580,7 +580,7 @@ gui.mode = auto
 network.mode = bridge
 EOF
   local -a _stages=()
-  _parse_stage_sections "${TEMP_DIR}/config/docker/setup.conf" _stages
+  _parse_stage_sections "${TEMP_DIR}/.setup.conf" _stages
   [[ "${#_stages[@]}" -eq 3 ]] || { echo "expected 3 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
   [[ "${_stages[0]}" == "headless" ]] || { echo "expected headless first, got ${_stages[0]}"; return 1; }
   [[ "${_stages[1]}" == "gui" ]] || { echo "expected gui second, got ${_stages[1]}"; return 1; }
@@ -588,7 +588,7 @@ EOF
 }
 
 @test "_parse_stage_sections: ignores plain sections that are not [stage:...]" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 [network]
@@ -597,14 +597,14 @@ mode = host
 mount_1 = /etc/localtime:/etc/localtime
 EOF
   local -a _stages=()
-  _parse_stage_sections "${TEMP_DIR}/config/docker/setup.conf" _stages
+  _parse_stage_sections "${TEMP_DIR}/.setup.conf" _stages
   [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
 }
 
 # ─── _load_stage_overrides ────────────────────────────────────────
 
 @test "_load_stage_overrides: returns the keys+values under [stage:NAME]" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 
@@ -634,7 +634,7 @@ EOF
 }
 
 @test "_load_stage_overrides: stage absent from setup.conf → empty arrays" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 
@@ -855,7 +855,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = force
 
@@ -894,7 +894,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
 mode = host
 
@@ -926,7 +926,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [volumes]
 mount_1 =
 mount_2 = /etc/localtime:/etc/localtime:ro
@@ -966,7 +966,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = force
 
@@ -1001,7 +1001,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [stage:headless]
 gui.mode = off
 
@@ -1025,7 +1025,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [stage:headless]
 gui.mode = off
 image.rule_1 = prefix:bogus_
@@ -1045,7 +1045,7 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [stage:sys]
 gui.mode = off
 EOF
@@ -1075,7 +1075,7 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [stage:devel-test]
 deploy.gpu_mode = force
 EOF

@@ -52,11 +52,11 @@ teardown() {
 # an absolute host path that does NOT exist on the current machine.
 _seed_stale_setup_conf() {
   local _host="$1"
-  mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/dist/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  mkdir -p "${REPO_DIR}"
+  cp "${REPO_DIR}/.base/dist/.setup.conf" "${REPO_DIR}/.setup.conf"
   # shellcheck disable=SC2016  # ${USER_NAME} is a literal in setup.conf
   sed -i "s|^mount_1 =.*|mount_1 = ${_host}:/home/\${USER_NAME}/work|" \
-    "${REPO_DIR}/config/docker/setup.conf"
+    "${REPO_DIR}/.setup.conf"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -75,7 +75,7 @@ _seed_stale_setup_conf() {
   # regardless — the stale value never reaches WS_PATH.
   _seed_stale_setup_conf "/nonexistent/contributor-a/repo"
 
-  assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
+  assert [ -f "${REPO_DIR}/.setup.conf" ]
   assert [ ! -f "${REPO_DIR}/.env.generated" ]
   assert [ ! -f "${REPO_DIR}/compose.yaml" ]
 
@@ -102,11 +102,11 @@ _seed_stale_setup_conf() {
 @test "fresh clone with portable \${WS_PATH} mount_1: no warning, .env gets local path" {
   # Same shape as above but with a repo whose committed setup.conf
   # already uses the portable form (the happy case after v0.9.4+).
-  mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/dist/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  mkdir -p "${REPO_DIR}"
+  cp "${REPO_DIR}/.base/dist/.setup.conf" "${REPO_DIR}/.setup.conf"
   # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
   sed -i 's|^mount_1 =.*|mount_1 = ${WS_PATH}:/home/${USER_NAME}/work|' \
-    "${REPO_DIR}/config/docker/setup.conf"
+    "${REPO_DIR}/.setup.conf"
 
   run bash "${REPO_DIR}/build.sh" --dry-run
   assert_success
@@ -114,7 +114,7 @@ _seed_stale_setup_conf() {
   refute_output --partial "WARNING"
 
   # mount_1 stays as the portable form.
-  run grep '^mount_1' "${REPO_DIR}/config/docker/setup.conf"
+  run grep '^mount_1' "${REPO_DIR}/.setup.conf"
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
 
   # .env populated with this machine's WS_PATH (non-empty, absolute).

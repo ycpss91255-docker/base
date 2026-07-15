@@ -190,7 +190,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 @test "_compute_conf_hash differs when per-repo setup.conf changes" {
   local _h1 _h2
   _compute_conf_hash "${TEMP_DIR}" _h1
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = off
 EOF

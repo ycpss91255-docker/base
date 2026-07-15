@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2233 tests**.
+Unit specs under `test/bats/unit/`: **2235 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -240,11 +240,13 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (12)
+#### test/bats/unit/setup_conf_spec.bats (14)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
-replace strategy), `_get_conf_value` / `_get_conf_list_sorted`
-(incl. empty-skip), and the `_rule_basename` image-rule helper.
+replace strategy) resolving the per-repo override from the repo-root
+`.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
+read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip),
+and the `_rule_basename` image-rule helper.
 
 #### test/bats/unit/env_emit_spec.bats (4)
 

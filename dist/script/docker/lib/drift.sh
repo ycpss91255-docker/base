@@ -134,7 +134,7 @@ _announce_template_default_fallback() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   # Existence check tracks the per-repo override file (setup.conf), the
   # source of truth
-  local _repo_conf="${_base}/config/docker/setup.conf"
+  local _repo_conf="${_base}/.setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
     _log_warn setup conf_no_repo_conf "display=$(_setup_msg warnings no_repo_conf)"
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then

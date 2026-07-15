@@ -371,7 +371,7 @@ EOF
 
 @test "_print_config_summary prints files, identity, all populated sections, resolved" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -387,7 +387,7 @@ EOF
   "
   assert_success
   # File paths
-  assert_output --partial "setup.conf   : ${_fp}/config/docker/setup.conf"
+  assert_output --partial "setup.conf   : ${_fp}/.setup.conf"
   assert_output --partial ".env         : ${_fp}/.env"
   assert_output --partial "compose.yaml : ${_fp}/compose.yaml"
   # Identity
@@ -419,7 +419,7 @@ EOF
   # placeholder to the value at a glance without re-deriving from
   # Identity field labels.
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -444,7 +444,7 @@ EOF
 
 @test "_print_config_summary Variables block falls back to '-' for unset values" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -459,7 +459,7 @@ EOF
 @test "_print_config_summary hides sections that are empty in setup.conf" {
   local _fp="${BATS_TEST_TMPDIR}"
   # Minimal conf with only [image]; expect no [build]/[volumes] headers
-  mkdir -p "${_fp}/config/docker" && cat > "${_fp}/config/docker/setup.conf" <<'EOF'
+  mkdir -p "${_fp}" && cat > "${_fp}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -481,7 +481,7 @@ EOF
 
 @test "_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     FORCE_COLOR=1 source ${LIB}
     FORCE_COLOR=1
@@ -504,7 +504,7 @@ EOF
 
 @test "_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     NO_COLOR=1 FORCE_COLOR=1 source ${LIB}
     NO_COLOR=1 FORCE_COLOR=1
@@ -527,7 +527,7 @@ EOF
   # branch so downstream `build.sh` users see the warning.
   local _fp="${BATS_TEST_TMPDIR}/empty_conf"
   mkdir -p "${_fp}"
-  mkdir -p "${_fp}/config/docker" && cat > "${_fp}/config/docker/setup.conf" <<'EOF'
+  mkdir -p "${_fp}" && cat > "${_fp}/.setup.conf" <<'EOF'
 # only comments, no [section] headers
 EOF
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
@@ -591,7 +591,7 @@ EOF
 
 @test "_print_config_summary uses zh-TW labels when _LANG=zh-TW" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     source ${LIB}
     _LANG=zh-TW
@@ -628,7 +628,7 @@ EOF
 
 @test "_print_config_summary uses ja labels when _LANG=ja" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  _write_sample_conf "${_fp}/.setup.conf"
   run bash -c "
     source ${LIB}
     _LANG=ja

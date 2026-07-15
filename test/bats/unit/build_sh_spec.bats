@@ -131,7 +131,7 @@ teardown() {
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   # Patch the mock so check-drift subcommand reports drift (exit 1).
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
@@ -183,7 +183,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -201,7 +201,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  rm -f "${SANDBOX}/config/docker/setup.conf"
+  rm -f "${SANDBOX}/.setup.conf"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   assert_output --partial "First run"
@@ -220,7 +220,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -330,7 +330,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "TARGET_ARCH=arm64"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -345,7 +345,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -363,7 +363,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "BUILD_NETWORK=host"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -378,7 +378,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -517,7 +517,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -587,7 +587,7 @@ EOS
   # -y skips the interactive prompt; --dry-run makes the init.sh call
   # a printf instead of an exec so we can assert it without sandbox
   # side effects.
-  echo "old" > "${SANDBOX}/config/docker/setup.conf"
+  echo "old" > "${SANDBOX}/.setup.conf"
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
@@ -598,13 +598,13 @@ EOS
   run bash "${SANDBOX}/build.sh" --help
   assert_success
   assert_output --partial "--reset-conf"
-  assert_output --partial "setup.conf.bak"
+  assert_output --partial ".setup.conf.bak"
 }
 
 @test "build.sh --reset-conf with no existing setup.conf / .env skips prompt" {
   # Nothing to overwrite → no confirmation needed, --dry-run just prints
   # the init.sh call and exits cleanly.
-  rm -f "${SANDBOX}/config/docker/setup.conf" "${SANDBOX}/.env.generated"
+  rm -f "${SANDBOX}/.setup.conf" "${SANDBOX}/.env.generated"
   run bash "${SANDBOX}/build.sh" --reset-conf --dry-run
   assert_success
   refute_output --partial "proceed?"
@@ -617,7 +617,7 @@ EOS
   # the case could map empty->abort, so a piped/CI invocation died with NO
   # '[build] aborted.' diagnostic. Post-fix, EOF maps to an empty reply
   # which the default case treats as an explicit abort.
-  echo "old" > "${SANDBOX}/config/docker/setup.conf"
+  echo "old" > "${SANDBOX}/.setup.conf"
   run bash "${SANDBOX}/build.sh" --reset-conf </dev/null
   assert_failure 1
   assert_output --partial "[build] aborted."
@@ -741,7 +741,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/config/docker/setup.conf"
+  : > "${SANDBOX}/.setup.conf"
   : > "${SANDBOX}/compose.yaml"
   mkdir -p "${SANDBOX}/script/hooks/pre"
   cat > "${SANDBOX}/script/hooks/pre/build.sh" <<'HOOK'

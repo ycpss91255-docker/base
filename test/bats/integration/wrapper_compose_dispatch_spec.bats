@@ -38,9 +38,9 @@ setup() {
 
   # Seed a per-repo setup.conf from the template so apply renders .env +
   # compose.yaml deterministically.
-  mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/.base/dist/config/docker/setup.conf" \
-     "${REPO_DIR}/config/docker/setup.conf"
+  mkdir -p "${REPO_DIR}"
+  cp "${REPO_DIR}/.base/dist/.setup.conf" \
+     "${REPO_DIR}/.setup.conf"
 
   cd "${REPO_DIR}"
 

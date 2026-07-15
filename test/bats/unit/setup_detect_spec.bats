@@ -237,7 +237,7 @@ fi'
 }
 
 @test "detect_image_name honors per-repo setup.conf [image] rules" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = prefix:foo_
 rule_2 = @basename
@@ -249,7 +249,7 @@ EOF
 }
 
 @test "detect_image_name rules apply in order (first match wins)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = prefix:docker_
 rule_2 = suffix:_ws
@@ -263,7 +263,7 @@ EOF
 }
 
 @test "detect_image_name @default:<value> used when no rule matches" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = prefix:nonexistent_
 rule_2 = @default:myfallback
@@ -282,7 +282,7 @@ EOF
 }
 
 @test "detect_image_name returns unknown when no rule matches and no @default" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = prefix:nonexistent_
 EOF
@@ -340,7 +340,7 @@ EOF
 # _rule_basename
 # ════════════════════════════════════════════════════════════════════
 @test "detect_image_name uses @basename rule alone (exercises _rule_basename)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -359,7 +359,7 @@ EOF
 # reject the generated project name.
 # ════════════════════════════════════════════════════════════════════
 @test "detect_image_name replaces '.' with '-' (regression: tmp.abcdef → tmp-abcdef)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -370,7 +370,7 @@ EOF
 }
 
 @test "detect_image_name collapses runs of '-' and strips leading/trailing separators" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -385,7 +385,7 @@ EOF
 # detect_image_name string rule
 # ════════════════════════════════════════════════════════════════════
 @test "detect_image_name string:<value> short-circuits path parsing" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = string:my_app
 rule_2 = prefix:docker_
@@ -398,7 +398,7 @@ EOF
 }
 
 @test "detect_image_name string value is still lowercased + sanitized" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = string:My.App.Name
 EOF
@@ -417,72 +417,72 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 @test "_reconcile_workspace_path: portable form detects WS_PATH locally, mount_1 untouched (#569)" {
   local _base="${TEMP_DIR}/repo"
-  mkdir -p "${_base}/config/docker"
+  mkdir -p "${_base}"
   # shellcheck disable=SC2016  # literal ${WS_PATH} is the portable form stored in setup.conf
   printf '[volumes]\nmount_1 = ${WS_PATH}:/home/${USER_NAME}/work\n' \
-    > "${_base}/config/docker/setup.conf"
+    > "${_base}/.setup.conf"
   local -a _vk=() _vv=()
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
-  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  _reconcile_workspace_path "${_base}" "${_base}/.setup.conf" _vk _vv _ws
   # detect_ws_path fallback = base_path itself = ${_base}.
   assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
   # mount_1 stays the portable form (no rewrite).
-  run cat "${_base}/config/docker/setup.conf"
+  run cat "${_base}/.setup.conf"
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 @test "_reconcile_workspace_path: absolute existing host path is honored as WS_PATH (#569)" {
   local _base="${TEMP_DIR}/repo"
-  mkdir -p "${_base}/config/docker"
+  mkdir -p "${_base}"
   local _pinned="${TEMP_DIR}/pinned_ws"
   mkdir -p "${_pinned}"
   printf '[volumes]\nmount_1 = %s:/work\n' "${_pinned}" \
-    > "${_base}/config/docker/setup.conf"
+    > "${_base}/.setup.conf"
   local -a _vk=() _vv=()
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
-  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  _reconcile_workspace_path "${_base}" "${_base}/.setup.conf" _vk _vv _ws
   assert_equal "${_ws}" "${_pinned}"
   # conf untouched (absolute path honored, not rewritten).
-  run cat "${_base}/config/docker/setup.conf"
+  run cat "${_base}/.setup.conf"
   assert_output --partial "mount_1 = ${_pinned}:/work"
 }
 
 @test "_reconcile_workspace_path: stale absolute path warns + rewrites mount_1 to portable (#569)" {
   local _base="${TEMP_DIR}/repo"
-  mkdir -p "${_base}/config/docker"
+  mkdir -p "${_base}"
   printf '[volumes]\nmount_1 = /nonexistent/contributor-a/repo:/work\n' \
-    > "${_base}/config/docker/setup.conf"
+    > "${_base}/.setup.conf"
   local -a _vk=() _vv=()
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
-  run _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  run _reconcile_workspace_path "${_base}" "${_base}/.setup.conf" _vk _vv _ws
   assert_success
   assert_output --partial "stale"
   # mount_1 migrated back to the portable form.
-  run cat "${_base}/config/docker/setup.conf"
+  run cat "${_base}/.setup.conf"
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
   refute_output --partial "/nonexistent/contributor-a/repo"
 }
 
 @test "_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)" {
   local _base="${TEMP_DIR}/repo"
-  mkdir -p "${_base}/config/docker"
-  printf '[volumes]\nmount_1 =\n' > "${_base}/config/docker/setup.conf"
+  mkdir -p "${_base}"
+  printf '[volumes]\nmount_1 =\n' > "${_base}/.setup.conf"
   local -a _vk=() _vv=()
   _load_setup_conf "${_base}" "volumes" _vk _vv
   local _ws=""
-  _reconcile_workspace_path "${_base}" "${_base}/config/docker/setup.conf" _vk _vv _ws
+  _reconcile_workspace_path "${_base}" "${_base}/.setup.conf" _vk _vv _ws
   assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
-  run cat "${_base}/config/docker/setup.conf"
+  run cat "${_base}/.setup.conf"
   assert_output --partial "mount_1 ="
 }
 
 @test "_reconcile_workspace_path: first-time bootstrap copies template + writes portable mount_1 (#569)" {
   local _base="${TEMP_DIR}/repo"
   mkdir -p "${_base}"
-  local _repo_conf="${_base}/config/docker/setup.conf"
+  local _repo_conf="${_base}/.setup.conf"
   # No repo conf yet -> bootstrap from the real template.
   [ ! -f "${_repo_conf}" ]
   local -a _vk=() _vv=()

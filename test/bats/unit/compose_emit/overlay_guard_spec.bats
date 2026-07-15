@@ -35,7 +35,7 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS headless
 EOF
-  mkdir -p "${TEMP_DIR}/config/docker"
+  mkdir -p "${TEMP_DIR}"
 }
 
 teardown() {
@@ -54,7 +54,7 @@ _is_overlay_overridable() {
 # bridge network (-> network_mode: line + ports honoured), devel ports,
 # and a [stage:headless] with its own ports override.
 _emit_exercised_compose() {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:headless]
 network.mode = bridge
 network.port_inherit = false

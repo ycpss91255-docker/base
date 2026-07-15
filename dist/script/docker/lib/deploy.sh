@@ -305,7 +305,7 @@ _resolve_deploy_context() {
   _conf_list_sorted _RDC_CONF security "cap_drop_"     _cap_drop_arr
   _conf_list_sorted _RDC_CONF security "security_opt_" _sec_opt_arr
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v

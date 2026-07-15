@@ -802,7 +802,7 @@ jobs:
             && test -L script/exec.sh && test -L script/stop.sh
           test -L script/setup_tui.sh
           test -L justfile
-          test -f Dockerfile && test -f compose.yaml && test -f config/docker/setup.conf
+          test -f Dockerfile && test -f compose.yaml && test -f .setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
 

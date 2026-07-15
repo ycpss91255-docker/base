@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **103 tests**.
+Integration specs under `test/bats/integration/`: **106 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -111,7 +111,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (15)
+### test/bats/integration/upgrade_spec.bats (18)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -134,6 +134,9 @@ repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
 | `upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)` | Subtree-only repos (no consumer Dockerfile) skip silently |
 | `upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)` | A second upgrade is a no-op on an already-migrated Dockerfile |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
+| `upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly` | Legacy override auto-migrated (git mv + loud warning) so it is never silently dropped |
+| `upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)` | Already-migrated repo: no move, no spurious announcement |
+| `upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist` | Conflict: root file wins, legacy kept, warned for manual reconciliation |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |

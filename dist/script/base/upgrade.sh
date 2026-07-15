@@ -99,6 +99,68 @@ _require_clean_merge_state() {
   done
 }
 
+# _migrate_legacy_setup_conf <repo_root>
+#
+# setup.conf is `just setup`-managed, not hand-edited, so it left the
+# hand-editable config/ surface: the per-repo override moved from
+# config/docker/setup.conf to the repo root as the .setup.conf dotfile.
+# Detect a downstream still carrying the legacy override and relocate it
+# so the upgrade never silently drops the user's config (same fail-loud
+# discipline the drift-warning family uses). Runs BEFORE the subtree
+# pull and commits the move, so the pull still sees a clean tree.
+#
+# Idempotent: no-op when there is no legacy file. When BOTH the legacy
+# and the new location exist, refuse to clobber — the root file wins,
+# the legacy file is kept, and the conflict is reported for manual
+# reconciliation.
+_migrate_legacy_setup_conf() {
+  local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
+  local _legacy="${_root}/config/docker/setup.conf"
+  local _new="${_root}/.setup.conf"
+
+  [[ -f "${_legacy}" ]] || return 0   # nothing to migrate
+
+  if [[ -f "${_new}" ]]; then
+    _log ""
+    _log "WARNING: found BOTH a legacy config/docker/setup.conf and a"
+    _log "         repo-root .setup.conf. The root file wins; your legacy"
+    _log "         override was NOT merged and is left in place. Reconcile"
+    _log "         and drop the legacy file manually:"
+    _log ""
+    _log "           diff -u config/docker/setup.conf .setup.conf"
+    _log "           git rm config/docker/setup.conf"
+    return 0
+  fi
+
+  _log ""
+  _log "MIGRATION: relocating per-repo setup.conf override"
+  _log "           config/docker/setup.conf -> .setup.conf"
+  _log "           (setup.conf is tool-managed; it now lives at the repo"
+  _log "            root as a dotfile, out of the hand-editable config/"
+  _log "            surface)"
+
+  # git mv when the override is tracked; plain mv + git add otherwise.
+  # Either way the relocation lands as a committed change so the
+  # subsequent subtree pull operates on a clean tree.
+  if git -C "${_root}" ls-files --error-unmatch "config/docker/setup.conf" \
+       >/dev/null 2>&1; then
+    git -C "${_root}" mv "config/docker/setup.conf" ".setup.conf"
+  else
+    mv "${_legacy}" "${_new}"
+    git -C "${_root}" add ".setup.conf"
+  fi
+
+  # Clean up the now-empty legacy dir (git tracks no empty dirs; this is
+  # a working-tree tidy so config/docker/setup.conf still present checks
+  # stay accurate).
+  rmdir "${_root}/config/docker" 2>/dev/null || true
+  rmdir "${_root}/config" 2>/dev/null || true
+
+  git -C "${_root}" commit -q \
+    -m "chore: relocate setup.conf override to repo-root .setup.conf" \
+    || _log "  (nothing staged for the setup.conf relocation)"
+}
+
 # _verify_subtree_intact <pre_head_sha>
 #   Post-pull sanity check: `${TEMPLATE_REL}/` must still contain the
 #   subtree markers. A known failure mode (older git-subtree) is to
@@ -290,8 +352,14 @@ _upgrade() {
   _require_git_identity
   _require_clean_merge_state
 
+  # Relocate a legacy config/docker/setup.conf override to the repo-root
+  # .setup.conf before anything else touches the tree, committing the
+  # move so the subtree pull below still sees a clean tree.
+  _migrate_legacy_setup_conf "${REPO_ROOT}"
+
   # Snapshot HEAD so the post-pull integrity check can roll back if
-  # git-subtree corrupts the tree.
+  # git-subtree corrupts the tree. Captured AFTER the setup.conf
+  # relocation commit so a rollback preserves the migration.
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 
@@ -310,12 +378,12 @@ _upgrade() {
   _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config" 2>/dev/null || true)"
 
   # Snapshot pre-pull setup.conf hash too. Path is the location
-  # ${TEMPLATE_REL}/dist/config/docker/setup.conf. If the upstream baseline
+  # ${TEMPLATE_REL}/dist/.setup.conf. If the upstream baseline
   # changed, the user may want to copy new sections / keys into their
   # per-repo setup.conf override ('s 2-file model makes this a
   # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
-  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config/docker/setup.conf" 2>/dev/null || true)"
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/.setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"
@@ -434,7 +502,7 @@ _warn_config_drift() {
 
 # _warn_setup_conf_drift <pre_pull_blob_hash>
 #
-# sibling of _warn_config_drift. <repo>/config/docker/setup.conf
+# sibling of _warn_config_drift. <repo>/.setup.conf
 # (path) is the user-owned override file; this script never
 # rewrites it. When the upstream template-side setup.conf changes (new
 # sections, new keys, default tweaks), surface a pointer to the diff so
@@ -443,19 +511,19 @@ _warn_config_drift() {
 _warn_setup_conf_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config/docker/setup.conf" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/.setup.conf" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/dist/config/docker/setup.conf changed upstream since the last pull."
-  _log "         Your config/docker/setup.conf is the user override and was NOT updated."
+  _log "WARNING: ${TEMPLATE_REL}/dist/.setup.conf changed upstream since the last pull."
+  _log "         Your .setup.conf is the user override and was NOT updated."
   _log "         Review the diff and copy any new sections / keys you want:"
   _log ""
-  _log "           diff -u ${TEMPLATE_REL}/dist/config/docker/setup.conf config/docker/setup.conf"
+  _log "           diff -u ${TEMPLATE_REL}/dist/.setup.conf .setup.conf"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/config/docker/setup.conf):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/config/docker/setup.conf"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/.setup.conf):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/.setup.conf"
   fi
 }
 
@@ -471,8 +539,8 @@ Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 Arguments:
   VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
-  --gen-conf    Copy ${TEMPLATE_REL}/dist/config/docker/setup.conf to
-                <repo>/config/docker/setup.conf for per-repo overrides
+  --gen-conf    Copy ${TEMPLATE_REL}/dist/.setup.conf to
+                <repo>/.setup.conf for per-repo overrides
                 (delegates to init.sh --gen-conf)
   --lang LANG   Message language (en|zh-TW|zh-CN|ja; default: auto-detect
                 from SETUP_LANG / \$LANG)

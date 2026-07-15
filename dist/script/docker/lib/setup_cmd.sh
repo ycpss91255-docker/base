@@ -181,7 +181,7 @@ _setup_set() {
   # Writes target the per-repo override file (setup.conf). Bootstrap
   # as empty when missing — `set` records only the user's intent, never
   # copies template defaults wholesale.
-  local _conf="${_base_path}/config/docker/setup.conf"
+  local _conf="${_base_path}/.setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     : > "${_conf}"
   fi
@@ -280,8 +280,8 @@ _setup_show() {
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
-  local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local _repo_conf="${_base_path}/.setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -375,8 +375,8 @@ _setup_list() {
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
-  local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local _repo_conf="${_base_path}/.setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -506,7 +506,7 @@ _setup_add() {
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
-  local _conf="${_base_path}/config/docker/setup.conf"
+  local _conf="${_base_path}/.setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     : > "${_conf}"
   fi
@@ -519,7 +519,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -687,7 +687,7 @@ _setup_remove() {
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
   # a removable input).
-  local _conf="${_base_path}/config/docker/setup.conf"
+  local _conf="${_base_path}/.setup.conf"
   if [[ ! -f "${_conf}" ]]; then
     _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
     return 1
@@ -749,7 +749,7 @@ _setup_remove() {
 #
 # Subcommand handler for `setup.sh reset [--yes]`. Overwrites the
 # repo's setup.conf with the template default, archiving the prior
-# setup.conf to setup.conf.bak and the prior .env to .env.bak so the
+# .setup.conf to .setup.conf.bak and the prior .env to .env.bak so the
 # user has a one-shot rollback path. Mirrors what `build.sh
 # --reset-conf` does today, but exposes it as a setup.sh subcommand
 # for scripted use.
@@ -807,9 +807,9 @@ _setup_reset() {
   # baseline. The workspace mount_1 is re-detected and re-written via the
   # bootstrap path on the next apply. The hand-authored .env workload
   # overlay is user-owned and intentionally left untouched by reset.
-  local _conf="${_base_path}/config/docker/setup.conf"
+  local _conf="${_base_path}/.setup.conf"
   local _env="${_base_path}/.env.generated"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
     _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
@@ -1092,7 +1092,7 @@ _setup_apply() {
   #
   # First-time bootstrap (no <repo>/setup.conf) copies the template and
   # writes mount_1 in the portable form.
-  local _repo_conf="${_base_path}/config/docker/setup.conf"
+  local _repo_conf="${_base_path}/.setup.conf"
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
   # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
   # resolves ws_path (seeded above from ${WS_PATH:-}).
