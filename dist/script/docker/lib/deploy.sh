@@ -137,6 +137,26 @@ _collect_deploy_binds() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_version <base_path>
+#
+# Echo the version stamp for a deploy bundle: `git describe --tags
+# --always --dirty` run in <base_path> -- the nearest tag (else the short
+# commit), with a `-dirty` suffix when the working tree has uncommitted
+# changes. This is the version-iteration-safe half of the image identity
+# `<repo>:<stage>-<version>`, so loading multiple field versions never
+# collides. Outside a git tree (or git absent) it degrades to `unknown`
+# rather than aborting -- the deploy tool labels honestly and never blocks;
+# a base-provided CD guard is the thing that enforces clean + tagged.
+# ════════════════════════════════════════════════════════════════════
+_resolve_deploy_version() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _v=""
+  _v="$(git -C "${_base}" describe --tags --always --dirty 2>/dev/null || true)"
+  [[ -n "${_v}" ]] || _v="unknown"
+  printf '%s\n' "${_v}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _emit_docker_run_flags <flags_assoc> <out_array>
 #
 # S6 ofmap a resolved docker-flag record to a `docker run`

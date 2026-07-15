@@ -25,6 +25,45 @@ _run_line() {
   printf '%s ' "${@}"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_version -- the version-iteration-safe stamp for the
+# image identity <repo>:<stage>-<version> (git describe --tags --always
+# --dirty; `unknown` outside a git tree).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_resolve_deploy_version: returns the tag in a tagged git tree (field-deploy)" {
+  local _d; _d="$(mktemp -d)"
+  git -C "${_d}" init -q
+  git -C "${_d}" config user.email t@t; git -C "${_d}" config user.name t
+  : > "${_d}/f"; git -C "${_d}" add f; git -C "${_d}" commit -qm init
+  git -C "${_d}" tag v1.2.3
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  assert_output "v1.2.3"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_version: appends -dirty when the tree has uncommitted changes (field-deploy)" {
+  local _d; _d="$(mktemp -d)"
+  git -C "${_d}" init -q
+  git -C "${_d}" config user.email t@t; git -C "${_d}" config user.name t
+  : > "${_d}/f"; git -C "${_d}" add f; git -C "${_d}" commit -qm init
+  git -C "${_d}" tag v1.2.3
+  echo change >> "${_d}/f"
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  assert_output "v1.2.3-dirty"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)" {
+  local _d; _d="$(mktemp -d)"
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  assert_output "unknown"
+  rm -rf "${_d}"
+}
+
 @test "_emit_docker_run_flags: privileged=true emits --privileged (#506)" {
   local -A _f=([privileged]="true")
   local -a _out=()
