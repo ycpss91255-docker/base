@@ -318,10 +318,10 @@ REMOTE
 # ════════════════════════════════════════════════════════════════════
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
-  mkdir -p "${TMP_REPO}/.base/dist/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/config/docker/setup.conf"
-  mkdir -p "${TMP_REPO}/config/docker"
-  echo "existing user config" > "${TMP_REPO}/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/dist"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  mkdir -p "${TMP_REPO}"
+  echo "existing user config" > "${TMP_REPO}/.setup.conf"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
@@ -329,27 +329,27 @@ REMOTE
 }
 
 @test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
-  mkdir -p "${TMP_REPO}/.base/dist/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/config/docker/setup.conf"
-  mkdir -p "${TMP_REPO}/config/docker"
-  echo "old user conf" > "${TMP_REPO}/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/dist"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  mkdir -p "${TMP_REPO}"
+  echo "old user conf" > "${TMP_REPO}/.setup.conf"
   _source_init
   run _gen_setup_conf "true"
   assert_success
   # new setup.conf must come from template
-  run cat "${TMP_REPO}/config/docker/setup.conf"
+  run cat "${TMP_REPO}/.setup.conf"
   assert_output --partial "rules = @basename"
   # backup must contain the pre-overwrite user content
-  assert [ -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
-  run cat "${TMP_REPO}/config/docker/setup.conf.bak"
+  assert [ -f "${TMP_REPO}/.setup.conf.bak" ]
+  run cat "${TMP_REPO}/.setup.conf.bak"
   assert_output "old user conf"
 }
 
 @test "_gen_setup_conf --force also backs up .env to .env.bak" {
-  mkdir -p "${TMP_REPO}/.base/dist/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/config/docker/setup.conf"
-  mkdir -p "${TMP_REPO}/config/docker"
-  echo "user conf" > "${TMP_REPO}/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/.base/dist"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  mkdir -p "${TMP_REPO}"
+  echo "user conf" > "${TMP_REPO}/.setup.conf"
   echo "USER_NAME=existing" > "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
@@ -363,8 +363,8 @@ REMOTE
   # A broken/partial subtree has no template setup.conf -- the exact
   # scenario --gen-conf is meant to diagnose. _gen_setup_conf must fail
   # loudly rather than copy a non-existent source.
-  rm -f "${TMP_REPO}/.base/dist/config/docker/setup.conf"
-  rm -f "${TMP_REPO}/config/docker/setup.conf"
+  rm -f "${TMP_REPO}/.base/dist/.setup.conf"
+  rm -f "${TMP_REPO}/.setup.conf"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
@@ -373,13 +373,13 @@ REMOTE
 
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
-  mkdir -p "${TMP_REPO}/.base/dist/config/docker"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/config/docker/setup.conf"
-  rm -f "${TMP_REPO}/config/docker/setup.conf" "${TMP_REPO}/.env"
+  mkdir -p "${TMP_REPO}/.base/dist"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  rm -f "${TMP_REPO}/.setup.conf" "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
   assert_success
-  assert [ ! -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
+  assert [ ! -f "${TMP_REPO}/.setup.conf.bak" ]
   assert [ ! -f "${TMP_REPO}/.env.bak" ]
 }
 
@@ -425,10 +425,10 @@ REMOTE
 # _create_new_repo .gitignore covers the *.bak siblings
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_new_repo: .gitignore includes setup.conf.bak and .env.bak" {
+@test "_create_new_repo: .gitignore includes .setup.conf.bak and .env.bak" {
   _source_init
   _create_new_repo "main"
-  run grep -Fxq setup.conf.bak "${TMP_REPO}/.gitignore"
+  run grep -Fxq .setup.conf.bak "${TMP_REPO}/.gitignore"
   assert_success
   run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
   assert_success

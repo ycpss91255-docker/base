@@ -232,8 +232,8 @@ _run_line() {
 
 _write_conf() {
   local _dir="${1}"; shift
-  mkdir -p "${_dir}/config/docker"
-  printf '%s\n' "$@" > "${_dir}/config/docker/setup.conf"
+  mkdir -p "${_dir}"
+  printf '%s\n' "$@" > "${_dir}/.setup.conf"
 }
 
 @test "_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)" {
@@ -554,9 +554,9 @@ DOCK
 
 @test "_generate_deploy_bundle: dry-run plans build --target + save + tar.xz (#506)" {
   local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
+  mkdir -p "${_d}"
   printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/.setup.conf"
   cat > "${_d}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -578,9 +578,9 @@ DOCK
 
 @test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#506/#503)" {
   local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
+  mkdir -p "${_d}"
   printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/.setup.conf"
   cat > "${_d}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -597,8 +597,8 @@ DOCK
 
 @test "_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies (#506)" {
   local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" > "${_d}/config/docker/setup.conf"
+  mkdir -p "${_d}"
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" > "${_d}/.setup.conf"
   cat > "${_d}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -619,10 +619,10 @@ DOCK
 
 _write_deploy_repo() {
   local _dir="${1}"
-  mkdir -p "${_dir}/config/docker"
+  mkdir -p "${_dir}"
   printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
-    "[security]" "privileged = true" > "${_dir}/config/docker/setup.conf"
+    "[security]" "privileged = true" > "${_dir}/.setup.conf"
   cat > "${_dir}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -656,8 +656,8 @@ DOCK
 
 @test "_setup_deploy: errors when the repo has no Dockerfile (#506)" {
   local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/config/docker/setup.conf"
+  mkdir -p "${_d}"
+  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/.setup.conf"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_failure
   assert_output --partial "no Dockerfile"

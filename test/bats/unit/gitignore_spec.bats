@@ -3,7 +3,7 @@
 # Unit tests for .base/dist/script/docker/lib/gitignore.sh.
 #
 # init.sh / upgrade.sh need to sync a canonical .gitignore set
-# (.env, .env.bak, compose.yaml, setup.conf.bak, coverage/,
+# (.env, .env.bak, compose.yaml, .setup.conf.bak, coverage/,
 # .Dockerfile.generated). The lib has three responsibilities:
 #   1. Emit the canonical list (single source of truth).
 #   2. Append-missing into a target .gitignore, idempotent, preserving
@@ -50,8 +50,8 @@ teardown() {
 .env.generated
 .env.bak
 compose.yaml
-setup.conf.bak
-setup.conf.local
+.setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -81,7 +81,7 @@ EXPECTED
   assert_line ".env"
   assert_line ".env.bak"
   assert_line "compose.yaml"
-  assert_line "setup.conf.bak"
+  assert_line ".setup.conf.bak"
   assert_line "coverage/"
   assert_line ".Dockerfile.generated"
 }
@@ -104,8 +104,8 @@ EXPECTED
 .env.generated
 .env.bak
 compose.yaml
-setup.conf.bak
-setup.conf.local
+.setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -283,10 +283,10 @@ _init_repo_with_tracked() {
 }
 
 @test "_untrack_canonical_in_repo: untracks all canonical entries that match" {
-  _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak setup.conf.bak
+  _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak .setup.conf.bak
   run _untrack_canonical_in_repo "${TMP_DIR}"
   assert_success
-  run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak setup.conf.bak
+  run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak .setup.conf.bak
   assert_output ""
 }
 
@@ -300,8 +300,8 @@ _init_repo_with_tracked() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)" {
-  mkdir -p "${TMP_DIR}/config/docker"
-  cat > "${TMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TMP_DIR}"
+  cat > "${TMP_DIR}/.setup.conf" <<'CONF'
 [logging]
 local_path = ./logs/
 CONF
@@ -321,8 +321,8 @@ CONF
 # ════════════════════════════════════════════════════════════════════
 
 _stage_logging_conf() {
-  mkdir -p "${TMP_DIR}/config/docker"
-  cat > "${TMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TMP_DIR}"
+  cat > "${TMP_DIR}/.setup.conf"
 }
 
 @test "_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)" {

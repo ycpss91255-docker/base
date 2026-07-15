@@ -516,8 +516,8 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS probe
 DOCK
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:probe]
 security.cap_add_inherit = false
 security.security_opt_inherit = false
@@ -546,8 +546,8 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS flash
 DOCK
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:flash]
 security.cap_add_1 = MKNOD
 CONF
@@ -1045,8 +1045,8 @@ FROM devel-base AS devel
 FROM devel AS devel-test
 FROM devel AS headless
 DOCK
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:headless]
 gui.mode = off
 deploy.gpu_mode = off

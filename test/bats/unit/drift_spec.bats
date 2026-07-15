@@ -46,7 +46,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   detect_gpu() { local -n _o=$1; _o="false"; }
 
   # Drop in a new per-repo setup.conf → hash differs
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = off
 EOF

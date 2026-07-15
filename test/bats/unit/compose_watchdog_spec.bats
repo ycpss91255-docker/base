@@ -85,11 +85,11 @@ _gcy_wd() {
 # ════════════════════════════════════════════════════════════════════
 
 _write_conf() {
-  cat > "${TEMP_DIR}/config/docker/setup.conf"
+  cat > "${TEMP_DIR}/.setup.conf"
 }
 
 @test "_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
+  mkdir -p "${TEMP_DIR}"
   _write_conf <<'EOF'
 [lifecycle]
 restart = no
@@ -101,7 +101,7 @@ EOF
 }
 
 @test "_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
+  mkdir -p "${TEMP_DIR}"
   _write_conf <<'EOF'
 [lifecycle]
 restart = on-failure
