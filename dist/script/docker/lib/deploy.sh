@@ -24,6 +24,119 @@ fi
 _DOCKER_LIB_DEPLOY_SOURCED=1
 
 # ════════════════════════════════════════════════════════════════════
+# _parse_deploy_manifest <manifest_path> <stage> <out_paths_array>
+#
+# Field-deploy tunable manifest parser (the per-component, per-stage
+# declaration of operator-tunable config). A manifest is a committed,
+# downstream-owned `config/<component>/deploy.manifest` with INI-lite
+# per-stage sections, each listing the CONTAINER-INTERNAL absolute paths
+# that a field operator may override without a rebuild:
+#
+#   [runtime]  /camera_config.yaml
+#   [stream]   /etc/app/host.yaml
+#   # unlisted paths (launch/, udev/, ...) = baked-only (fail-safe default)
+#
+# base DELIVERS files, it does not parse their content: this reads only the
+# path declarations for <stage> into <out_paths_array>. Semantics:
+#   - a MISSING manifest is NOT an error -> empty array, return 0 (nothing
+#     tunable = everything baked, the fail-safe default);
+#   - a MALFORMED manifest fails LOUD (return 1): a bad `[section]` header,
+#     a content line that is not a container-internal absolute path, or a
+#     path declared before any `[section]` header;
+#   - only the entries under `[<stage>]` are returned; entries for other
+#     stages are ignored (a path unlisted for <stage> stays baked-only).
+# Leading/trailing whitespace is trimmed; blank + `#` comment lines skipped.
+# ════════════════════════════════════════════════════════════════════
+_parse_deploy_manifest() {
+  local _mf="${1:?"${FUNCNAME[0]}: missing manifest path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local -n _pdm_out="${3:?"${FUNCNAME[0]}: missing out array"}"
+  _pdm_out=()
+  # Missing manifest = nothing tunable (fail-safe), not an error.
+  [[ -f "${_mf}" ]] || return 0
+
+  local _line _trimmed _cur="" _lineno=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    # Trim surrounding whitespace.
+    _trimmed="${_line#"${_line%%[![:space:]]*}"}"
+    _trimmed="${_trimmed%"${_trimmed##*[![:space:]]}"}"
+    [[ -z "${_trimmed}" ]] && continue
+    [[ "${_trimmed}" == '#'* ]] && continue
+
+    # Section header: `[<name>]`. Name must be a stage-shaped token.
+    if [[ "${_trimmed}" == '['*']' ]]; then
+      local _sec="${_trimmed#\[}"; _sec="${_sec%\]}"
+      if [[ ! "${_sec}" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+        _log_err setup deploy_manifest_malformed \
+          "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: bad section header '${_trimmed}'" \
+          "path=${_mf}" "line=${_lineno}"
+        return 1
+      fi
+      _cur="${_sec}"
+      continue
+    fi
+
+    # Content line: must be a CONTAINER-INTERNAL absolute path.
+    if [[ "${_trimmed}" != /* ]]; then
+      _log_err setup deploy_manifest_malformed \
+        "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: expected an absolute container path, got '${_trimmed}'" \
+        "path=${_mf}" "line=${_lineno}"
+      return 1
+    fi
+    if [[ -z "${_cur}" ]]; then
+      _log_err setup deploy_manifest_malformed \
+        "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: path '${_trimmed}' declared before any [stage] section" \
+        "path=${_mf}" "line=${_lineno}"
+      return 1
+    fi
+    [[ "${_cur}" == "${_stage}" ]] && _pdm_out+=("${_trimmed}")
+  done < "${_mf}"
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _collect_deploy_binds <base_path> <stage> <out_assoc>
+#
+# Aggregate every component's tunable declarations for <stage> into a
+# single basename -> container-path map. Globs `<base>/config/*/deploy.manifest`,
+# parses each via _parse_deploy_manifest (propagating a malformed-manifest
+# failure), and keys the result by the path BASENAME -- the name the file
+# takes in the deploy bundle's editable `config/` folder and in the compose
+# bind `./config/<basename>:<container-path>`.
+#
+# A DUPLICATE basename across components (two tunable files that would both
+# land as `config/<basename>`) is a config error that fails LOUD (return 1):
+# the bind target would be ambiguous. No manifests / no declared paths ->
+# empty map, return 0 (nothing tunable, all baked).
+# ════════════════════════════════════════════════════════════════════
+_collect_deploy_binds() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local -n _cdb_out="${3:?"${FUNCNAME[0]}: missing out assoc"}"
+  _cdb_out=()
+  local _mf
+  for _mf in "${_base}"/config/*/deploy.manifest; do
+    # Unmatched glob yields the literal pattern; the -f guard skips it.
+    [[ -f "${_mf}" ]] || continue
+    local -a _paths=()
+    _parse_deploy_manifest "${_mf}" "${_stage}" _paths || return 1
+    local _p _bn
+    for _p in "${_paths[@]}"; do
+      _bn="${_p##*/}"
+      if [[ -n "${_cdb_out["${_bn}"]:-}" ]]; then
+        _log_err setup deploy_manifest_dup_basename \
+          "display=[setup] deploy: duplicate tunable basename '${_bn}' (${_cdb_out["${_bn}"]} and ${_p}); rename one so the bundle config/ mapping is unambiguous" \
+          "basename=${_bn}"
+        return 1
+      fi
+      _cdb_out["${_bn}"]="${_p}"
+    done
+  done
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _emit_docker_run_flags <flags_assoc> <out_array>
 #
 # S6 ofmap a resolved docker-flag record to a `docker run`

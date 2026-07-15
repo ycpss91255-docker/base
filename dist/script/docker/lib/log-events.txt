@@ -49,6 +49,8 @@ deploy_needs_yes
 deploy_aborted
 deploy_failed
 deploy_done
+deploy_manifest_malformed
+deploy_manifest_dup_basename
 
 # build.sh
 build_started
