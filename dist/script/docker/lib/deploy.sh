@@ -586,7 +586,7 @@ cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" || exit 1
 IMAGE_ARCHIVE="image.tar.xz"
 
 _cmd="${1:-up}"
-[[ $# -gt 0 ]] && shift
+if (( $# > 0 )); then shift; fi
 
 case "${_cmd}" in
   up)

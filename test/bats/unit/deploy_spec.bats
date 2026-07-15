@@ -302,6 +302,30 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+@test "_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)" {
+  # Regression: the launcher runs under `set -euo pipefail`; a `[[ $# -gt 0 ]]
+  # && shift` guard returns non-zero on the no-arg (default `up`) path and
+  # would abort before compose. Prove no-arg reaches `compose up -d`.
+  local _d; _d="$(mktemp -d)"
+  local _bundle="${_d}/bundle"; mkdir -p "${_bundle}"
+  _generate_deploy_launcher "${_bundle}/deploy.sh" runtime
+  local _shim="${_d}/bin"; mkdir -p "${_shim}"
+  cat > "${_shim}/docker" <<'SH'
+#!/usr/bin/env bash
+printf 'docker %s\n' "$*" >> "${DOCKER_LOG}"
+exit 0
+SH
+  chmod +x "${_shim}/docker"
+  export DOCKER_LOG="${_d}/log"
+  export PATH="${_shim}:${PATH}"
+  # No image.tar.xz -> load is skipped; no args -> defaults to up.
+  run bash "${_bundle}/deploy.sh"
+  assert_success
+  run cat "${_d}/log"
+  assert_output --partial "docker compose up -d"
+  rm -rf "${_d}"
+}
+
 @test "_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
   local _d; _d="$(mktemp -d)"

@@ -17,6 +17,10 @@
 # the docker compose plugin + xz in the test-tools image). Auto-skips when
 # the socket / plugin / xz is absent so accidental invocation via the default
 # `ci` service is harmless. Run it with `just test system`.
+#
+# Plain-bash assertions only (status / output), matching the sibling
+# runtime_test_smoke_spec.bats: the system bats environment ships no
+# bats-assert / bats-support and loads no test_helper.
 
 setup_file() {
   if [[ ! -S /var/run/docker.sock ]]; then
@@ -59,16 +63,20 @@ DOCK
   printf '%s\n' "[runtime]" "/etc/app/host.yaml" \
     > "${REPO}/config/app_cfg/deploy.manifest"
 
-  # Generate the bundle for real (docker build + save | xz + config extract).
-  if ! _setup_deploy --base-path "${REPO}" --stage runtime -y -q; then
-    skip "system test: bundle generation failed (docker build/pull unavailable?)"
-  fi
-
   VERSION="$(_resolve_deploy_version "${REPO}")"
   BUNDLE="${REPO}/deploy/deploydemo-runtime-${VERSION}"
   CNAME="deploydemo-runtime"
   IMAGE="deploydemo:runtime-${VERSION}"
   export TMP_ROOT REPO BUNDLE CNAME IMAGE VERSION
+
+  # Generate the bundle for real (docker build + save | xz + config extract).
+  # A failure here is a genuine deploy bug (the socket/plugin/xz are present),
+  # so fail loudly with the captured output rather than skipping.
+  local _gen_out=""
+  if ! _gen_out="$(_setup_deploy --base-path "${REPO}" --stage runtime -y -q 2>&1)"; then
+    printf 'bundle generation FAILED:\n%s\n' "${_gen_out}" >&2
+    return 1
+  fi
 }
 
 teardown_file() {
@@ -84,40 +92,43 @@ teardown_file() {
   [ -f "${BUNDLE}/image.tar.xz" ]
   [ -x "${BUNDLE}/deploy.sh" ]
   [ -f "${BUNDLE}/config/host.yaml" ]
+
   run cat "${BUNDLE}/compose.yaml"
-  assert_success
-  refute_output --partial '${'
-  assert_output --partial "image: ${IMAGE}"
-  assert_output --partial "restart: unless-stopped"
-  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml"
+  [ "${status}" -eq 0 ]
+  # Fully resolved -- no compose variable interpolation survives.
+  [[ "${output}" != *'${'* ]]
+  [[ "${output}" == *"image: ${IMAGE}"* ]]
+  [[ "${output}" == *"restart: unless-stopped"* ]]
+  [[ "${output}" == *"- ./config/host.yaml:/etc/app/host.yaml"* ]]
 }
 
 @test "field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies" {
-  # Real load + compose up.
+  # Real load + compose up. Echo output on failure so a genuine deploy bug
+  # is debuggable in the CI log rather than a bare non-zero status.
   run "${BUNDLE}/deploy.sh" up
-  [ "${status}" -eq 0 ]
+  [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
 
   # The container is actually running.
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'
-  assert_output --partial "${CNAME}"
+  [[ "${output}" == *"${CNAME}"* ]] || { echo "container not running; docker ps: ${output}"; false; }
 
   # The mounted editable copy carries the image's baked default.
   run docker exec "${CNAME}" cat /etc/app/host.yaml
-  assert_success
-  assert_output --partial "baked-default"
+  [ "${status}" -eq 0 ] || { echo "exec failed: ${output}"; false; }
+  [[ "${output}" == *"baked-default"* ]]
 
   # Edit the bundle config in the "field" and re-up: the mount wins over the
   # baked default, so the container now sees the edited value (no rebuild).
   printf 'edited-in-field\n' > "${BUNDLE}/config/host.yaml"
   run "${BUNDLE}/deploy.sh" up
-  [ "${status}" -eq 0 ]
+  [ "${status}" -eq 0 ] || { echo "deploy.sh re-up failed (status=${status}):"; echo "${output}"; false; }
   run docker exec "${CNAME}" cat /etc/app/host.yaml
-  assert_success
-  assert_output --partial "edited-in-field"
+  [ "${status}" -eq 0 ] || { echo "exec after override failed: ${output}"; false; }
+  [[ "${output}" == *"edited-in-field"* ]] || { echo "override not applied; got: ${output}"; false; }
 
   # deploy.sh down stops it.
   run "${BUNDLE}/deploy.sh" down
-  [ "${status}" -eq 0 ]
+  [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'
-  refute_output --partial "${CNAME}"
+  [[ "${output}" != *"${CNAME}"* ]]
 }

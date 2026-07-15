@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2235 tests**.
+Unit specs under `test/bats/unit/`: **2236 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1365,7 +1365,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (29)
+### test/bats/unit/deploy_spec.bats (30)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1398,6 +1398,7 @@ mocked via `_dry_run_cmd`, no real daemon).
 | `_generate_resolved_compose: per-stage [stage:runtime] override is applied` | per-stage override |
 | `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc` | ipc/shm literals |
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher` | launcher shape |
+| `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit` | no-arg default up |
 | `_generate_deploy_launcher: generated launcher is ShellCheck-clean` | shellcheck-clean output |
 | `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
 | `_bake_config_copy: handles src == out in place` | in-place bake |
