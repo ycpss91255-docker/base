@@ -106,22 +106,22 @@ teardown() { rm -rf "${TMP_DIR}"; }
 }
 
 @test "_transcript_enabled: false when wrapper_transcript = false (#606)" {
-  mkdir -p "${TMP_DIR}/config/docker"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
   FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)" {
-  mkdir -p "${TMP_DIR}/config/docker"
-  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
   WRAPPER_TRANSCRIPT=false FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=true env wins over conf=false (#622)" {
-  mkdir -p "${TMP_DIR}/config/docker"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
   WRAPPER_TRANSCRIPT=true FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_success
 }
@@ -173,9 +173,9 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # The validator rejects 0 (>=1) but the Apply/read path does not
   # revalidate; the read-side guard must reject an out-of-range 0 so a
   # hand-edited setup.conf cannot drive prune with keep=0 (wipe-all).
-  mkdir -p "${TMP_DIR}/config/docker"
+  mkdir -p "${TMP_DIR}"
   printf '[logging]\nwrapper_transcript_keep = 0\n' \
-    > "${TMP_DIR}/config/docker/setup.conf"
+    > "${TMP_DIR}/.setup.conf"
   run bash -c "
     export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
     source ${LOG_SH}; source ${TRANSCRIPT_SH}
@@ -279,8 +279,8 @@ _run_transcript_harness() {  # <verb> <extra-env...>
 }
 
 @test "transcript: wrapper_transcript=false is a complete no-op (no file) (#606)" {
-  mkdir -p "${TMP_DIR}/config/docker"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/config/docker/setup.conf"
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
   _run_transcript_harness build
   assert_success
   assert_output --partial "plain stdout line"

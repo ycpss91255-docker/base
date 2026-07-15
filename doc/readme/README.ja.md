@@ -384,8 +384,8 @@ assertion helpers のセットを提供します。ダウンストリーム repo
            [logging.<svc>] で個別 service に key-level override 可能
 ```
 
-テンプレート既定値は `.base/dist/config/docker/setup.conf`；repo ごとの上書きは
-`<repo>/config/docker/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
+テンプレート既定値は `.base/dist/.setup.conf`；repo ごとの上書きは
+`<repo>/.setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
 section があれば template の section を全置換；無ければ template 既定値を継承。
 
 初回の `setup.sh` 実行時（repo 側の setup.conf がまだ無い状態）、
@@ -398,7 +398,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
 ./setup_tui.sh volumes              # 特定 section に直接ジャンプ
 ./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
-./.base/dist/script/base/init.sh --gen-conf # .base/dist/config/docker/setup.conf を repo ルートに単純コピー
+./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
 ```
 
 ### ホスト側へのログ出力
@@ -549,7 +549,7 @@ docker load < image.tar
 | `list [<section>]` | INI スタイルでダンプ |
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除 |
-| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `setup.conf` → `setup.conf.bak`、旧 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | 自己完結型のフィールドバンドル（image + 生成 `deploy.sh` の `tar.xz`）を生成。stage `S` は既定 `runtime`；build 前に解決済みランチャをプレビューして確認。[フィールド配備](#フィールド配備setupsh-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。

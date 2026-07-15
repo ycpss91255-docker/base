@@ -128,7 +128,7 @@ _wrapper_setup_sync() {
   # rule (ADR-00000011 sec.4), not a base special-case; consumers always
   # carry a `.base/` subtree so this never fires for them.
   if [[ ! -d "${_file_path}/.base" \
-        && ! -f "${_file_path}/config/docker/setup.conf" ]]; then
+        && ! -f "${_file_path}/.setup.conf" ]]; then
     return 0
   fi
 
@@ -163,7 +163,7 @@ _wrapper_setup_sync() {
   if [[ "${RUN_SETUP:-false}" == true ]]; then
     _run_interactive
   elif [[ ! -f "${_file_path}/.env.generated" ]] \
-      || [[ ! -f "${_file_path}/config/docker/setup.conf" ]] \
+      || [[ ! -f "${_file_path}/.setup.conf" ]] \
       || [[ ! -f "${_file_path}/compose.yaml" ]]; then
     _log_info "${_verb}" "${_verb}_bootstrap" "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"

@@ -36,7 +36,7 @@ teardown() {
 @test "init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)" {
   bash .base/dist/script/base/init.sh
   local _entry
-  for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak .setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
@@ -52,7 +52,7 @@ teardown() {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.dockerignore" ]
   local _entry
-  for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak .setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.dockerignore"
     assert_success
   done
@@ -108,7 +108,7 @@ EOF
   assert_success
   run grep -xF '.env.bak' "${REPO_DIR}/.gitignore"
   assert_success
-  run grep -xF 'setup.conf.bak' "${REPO_DIR}/.gitignore"
+  run grep -xF '.setup.conf.bak' "${REPO_DIR}/.gitignore"
   assert_success
   run grep -xF 'coverage/' "${REPO_DIR}/.gitignore"
   assert_success
@@ -132,27 +132,27 @@ EOF
 }
 
 @test "init.sh existing-repo: setup.conf stays committed across init runs (#201)" {
-  # <repo>/config/docker/setup.conf is the user's committed override.
+  # <repo>/.setup.conf is the user's committed override.
   # init.sh must NOT untrack it on existing-repo init; .gitignore sync
   # must NOT add it.
   _seed_existing_repo
-  mkdir -p "${REPO_DIR}/config/docker"
-  cat > "${REPO_DIR}/config/docker/setup.conf" <<'EOF'
+  mkdir -p "${REPO_DIR}"
+  cat > "${REPO_DIR}/.setup.conf" <<'EOF'
 [network]
 mode = bridge
 [volumes]
 mount_1 = ${WS_PATH}:/home/${USER_NAME}/work
 EOF
-  git -C "${REPO_DIR}" add config/docker/setup.conf
+  git -C "${REPO_DIR}" add .setup.conf
   git -C "${REPO_DIR}" commit -q -m "track setup.conf"
 
   bash .base/dist/script/base/init.sh
 
   # setup.conf still tracked by git
-  run git -C "${REPO_DIR}" ls-files config/docker/setup.conf
-  assert_output "config/docker/setup.conf"
+  run git -C "${REPO_DIR}" ls-files .setup.conf
+  assert_output ".setup.conf"
   # Content unchanged
-  run grep -F 'mode = bridge' "${REPO_DIR}/config/docker/setup.conf"
+  run grep -F 'mode = bridge' "${REPO_DIR}/.setup.conf"
   assert_success
   # Not in .gitignore
   run grep -E '^setup\.conf$' "${REPO_DIR}/.gitignore"

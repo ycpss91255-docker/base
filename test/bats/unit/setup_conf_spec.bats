@@ -21,7 +21,7 @@ EOF
 }
 
 @test "_load_setup_conf uses per-repo setup.conf when section present" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = force
 EOF
@@ -31,9 +31,37 @@ EOF
   assert_equal "${_v[0]}" "force"
 }
 
+@test "_load_setup_conf reads the per-repo override from repo-root .setup.conf" {
+  # The tool-managed override lives at the repo root as a dotfile,
+  # out of the hand-editable config/ surface.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gpu]
+mode = force
+EOF
+  unset SETUP_CONF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_load_setup_conf ignores a legacy config/docker/setup.conf override" {
+  # After the relocation the old nested path is dead: an override left
+  # there must NOT win over the template default.
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = legacy_should_be_ignored
+EOF
+  unset SETUP_CONF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  # Template default [gui] mode = auto -- proves the legacy file is unread.
+  assert_equal "${_v[0]}" "auto"
+}
+
 @test "_load_setup_conf falls back to template when section absent per-repo" {
   # Per-repo setup.conf has [gpu] but NOT [gui]
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = force
 EOF
@@ -46,7 +74,7 @@ EOF
 
 @test "_load_setup_conf replace strategy: per-repo section fully replaces template section" {
   # Template [gpu] has mode+count+capabilities; per-repo only sets mode=off
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = off
 EOF

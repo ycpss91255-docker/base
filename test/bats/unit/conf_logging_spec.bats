@@ -76,8 +76,8 @@ CONF
 # ════════════════════════════════════════════════════════════════════
 
 @test "_collect_logging reads global [logging] from per-repo setup.conf" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [logging]
 driver = local
 max_size = 20m
@@ -90,8 +90,8 @@ CONF
 }
 
 @test "_collect_logging reads per-service [logging.<svc>] sections" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [logging]
 driver = json-file
 
@@ -106,14 +106,14 @@ CONF
 }
 
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [image]
 rule_1 = @basename
 CONF
   local _g="" _p=""
   # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a
-  # path whose ../../config/docker/setup.conf does not exist).
+  # path whose ../../.setup.conf does not exist).
   local _save="${_SETUP_SCRIPT_DIR:-}"
   _SETUP_SCRIPT_DIR="${TEMP_DIR}/nonexistent/docker"
   _collect_logging "${TEMP_DIR}" _g _p

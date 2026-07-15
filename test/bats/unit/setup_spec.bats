@@ -10,14 +10,14 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 @test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
   # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
-  run grep -E '^device_1 = /dev:/dev$' /source/dist/config/docker/setup.conf
+  run grep -E '^device_1 = /dev:/dev$' /source/dist/.setup.conf
   assert_failure
-  run grep -E '^# device_1 = /dev:/dev$' /source/dist/config/docker/setup.conf
+  run grep -E '^# device_1 = /dev:/dev$' /source/dist/.setup.conf
   assert_success
 }
 
 @test "[devices] opt-in (#466): empty section + slim template emits no devices block" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [devices]
 EOF
   unset SETUP_CONF
@@ -35,14 +35,14 @@ EOF
   # compute + utility + graphics out of the box (no need to tick boxes
   # in TUI). Users narrow it down via ./setup_tui.sh deploy if they want
   # a minimal reservation.
-  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/dist/config/docker/setup.conf
+  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/dist/.setup.conf
   assert_success
 }
 
 @test "setup.sh apply emits top-level name: in compose.yaml (#472)" {
   # End-to-end: apply renders a top-level name: with the literal compose
   # vars so non-wrapper tools resolve the wrapper's project name.
-  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -55,7 +55,7 @@ EOF
 
 # ── [lifecycle] restart policy ─────────────────────────────────────────
 @test "[lifecycle] restart = always emits restart: always under devel (#478)" {
-  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -67,7 +67,7 @@ EOF
 }
 
 @test "[lifecycle] restart = no (default) emits no restart: field (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -79,7 +79,7 @@ EOF
 }
 
 @test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
-  printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -91,12 +91,12 @@ EOF
 }
 
 @test "template setup.conf ships [lifecycle] restart = no (#478)" {
-  run grep -E '^restart = no$' /source/dist/config/docker/setup.conf
+  run grep -E '^restart = no$' /source/dist/.setup.conf
   assert_success
 }
 
 @test "setup.sh set lifecycle.restart rejects an invalid policy (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -108,7 +108,7 @@ EOF
 # ── [lifecycle] init (PID1 reaper) ─────────────────────────────────────
 @test "[lifecycle] init defaults ON: emits init: true under devel (#792)" {
   # conf has no [lifecycle] init key -> code default true -> init: true.
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -120,7 +120,7 @@ EOF
 }
 
 @test "[lifecycle] init = false omits init: field (#792)" {
-  printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -132,12 +132,12 @@ EOF
 }
 
 @test "template setup.conf ships [lifecycle] init = true (#792)" {
-  run grep -E '^init = true$' /source/dist/config/docker/setup.conf
+  run grep -E '^init = true$' /source/dist/.setup.conf
   assert_success
 }
 
 @test "setup.sh set lifecycle.init rejects a non-boolean (#792)" {
-  printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -147,7 +147,7 @@ EOF
 }
 
 @test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   local _v
   for _v in no always unless-stopped on-failure on-failure:3; do
@@ -162,7 +162,7 @@ EOF
 # ── [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
 @test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/config/docker/setup.conf"
+    > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
@@ -180,7 +180,7 @@ EOF
 
 @test "[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/config/docker/setup.conf"
+    > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS=''
@@ -194,7 +194,7 @@ EOF
 
 @test "[deploy] dri_groups = off emits no group_add even with GUI (#496)" {
   printf '[deploy]\ndri_groups = off\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/config/docker/setup.conf"
+    > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
@@ -208,7 +208,7 @@ EOF
 
 @test "[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = off\n' \
-    > "${TEMP_DIR}/config/docker/setup.conf"
+    > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
@@ -221,13 +221,13 @@ EOF
 }
 
 @test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
-  run grep -E '^dri_groups = auto$' /source/dist/config/docker/setup.conf
+  run grep -E '^dri_groups = auto$' /source/dist/.setup.conf
   assert_success
 }
 
 # ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
 @test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
-  printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -239,7 +239,7 @@ EOF
 }
 
 @test "[deploy] legacy runtime key still works + warns (#481 W3 alias)" {
-  printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -258,7 +258,7 @@ EOF
 
 @test "[deploy] gpu_runtime wins when both keys present (#481)" {
   printf '[deploy]\ngpu_runtime = nvidia\nruntime = off\n' \
-    > "${TEMP_DIR}/config/docker/setup.conf"
+    > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -270,9 +270,9 @@ EOF
 }
 
 @test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
-  run grep -E '^gpu_runtime = auto$' /source/dist/config/docker/setup.conf
+  run grep -E '^gpu_runtime = auto$' /source/dist/.setup.conf
   assert_success
-  run grep -E '^runtime = ' /source/dist/config/docker/setup.conf
+  run grep -E '^runtime = ' /source/dist/.setup.conf
   assert_failure
 }
 
@@ -298,7 +298,7 @@ EOF
   # SLIM template and gets NO cap_add block -- privileges are opt-in, not
   # silently inherited. Repos that need caps declare them explicitly
   # (covered by the regression test below).
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -317,7 +317,7 @@ EOF
 @test "[security] security_opt opt-in (#466): empty section + slim template emits no security_opt" {
   # F2: template no longer ships security_opt_1 = seccomp:unconfined,
   # so an empty [security] section yields no security_opt block.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -337,7 +337,7 @@ EOF
   # The slim template makes caps opt-in; the opt-in path is the wrapper,
   # not hand-editing commented lines. `setup.sh add` writes the entry into
   # the per-repo setup.conf, and the next apply emits it.
-  printf '[security]\n' > "${TEMP_DIR}/config/docker/setup.conf"
+  printf '[security]\n' > "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -353,7 +353,7 @@ EOF
   # A repo that declares [security] (e.g. for cap_add) but omits the
   # privileged key must NOT silently get privileged=true. flips the
   # default to false so privilege is opt-in across the board.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
 cap_add_1 = SYS_ADMIN
 EOF
@@ -371,7 +371,7 @@ EOF
   # Repos that need privileges declare them (e.g. via `setup.sh add
   # security.cap_add SYS_ADMIN` or the TUI). The slim template only
   # changes the DEFAULT -- an explicit cap_add must still emit.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
 privileged = false
 cap_add_1 = SYS_ADMIN
@@ -393,7 +393,7 @@ EOF
   # Default template setup.conf has [additional_contexts] section but no
   # entries. Generated compose.yaml must NOT contain `additional_contexts:`
   # so existing repos see zero diff.
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -411,7 +411,7 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [additional_contexts]
 context_1 = repo=..
 context_2 = vendor=../third_party
@@ -443,7 +443,7 @@ FROM scratch AS sys
 FROM sys AS runtime
 FROM sys AS devel-test
 EOF
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [additional_contexts]
 context_1 = repo=..
 EOF
@@ -459,7 +459,7 @@ EOF
 }
 
 @test "[additional_contexts] entries sort by numeric suffix (context_2 / context_10)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [additional_contexts]
 context_10 = ten=../ten
 context_2 = two=../two
@@ -490,7 +490,7 @@ EOF
 }
 
 @test "[additional_contexts] empty value (cleared slot) is skipped" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [additional_contexts]
 context_1 = repo=..
 context_2 =
@@ -509,7 +509,7 @@ EOF
 }
 
 @test "set logging.driver round-trips via show (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.driver journald --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.driver --base-path "${TEMP_DIR}"
@@ -518,7 +518,7 @@ EOF
 }
 
 @test "set logging.compress accepts true/false; rejects others (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.compress true --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.compress maybe --base-path "${TEMP_DIR}"
@@ -527,7 +527,7 @@ EOF
 }
 
 @test "set logging.max_file rejects non-positive integers (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.max_file 5 --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_file 0 --base-path "${TEMP_DIR}"
@@ -539,7 +539,7 @@ EOF
 }
 
 @test "set logging.max_size accepts num+unit; rejects malformed (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.max_size 50m --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_size 1g --base-path "${TEMP_DIR}"
@@ -551,7 +551,7 @@ EOF
 }
 
 @test "set logging.driver rejects whitespace/empty-shape names (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.driver "bad name" --base-path "${TEMP_DIR}"
   assert_failure
   run main set logging.driver "1starts-with-digit" --base-path "${TEMP_DIR}"
@@ -559,14 +559,14 @@ EOF
 }
 
 @test "set logging.<svc>.<key> writes to per-service section (#328)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [logging]
 driver = json-file
 EOF
   run main set logging.runtime.driver journald --base-path "${TEMP_DIR}"
   assert_success
   # Per-service section now exists with the override.
-  run grep -F "[logging.runtime]" "${TEMP_DIR}/config/docker/setup.conf"
+  run grep -F "[logging.runtime]" "${TEMP_DIR}/.setup.conf"
   assert_success
   run main show logging.runtime.driver --base-path "${TEMP_DIR}"
   assert_success
@@ -574,7 +574,7 @@ EOF
 }
 
 @test "remove logging.<svc>.<key> deletes the per-service key (#328)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [logging]
 driver = json-file
 
@@ -584,15 +584,15 @@ max_file = 7
 EOF
   run main remove logging.runtime.driver --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F "driver = journald" "${TEMP_DIR}/config/docker/setup.conf"
+  run grep -F "driver = journald" "${TEMP_DIR}/.setup.conf"
   assert_failure
   # Sibling key untouched.
-  run grep -F "max_file = 7" "${TEMP_DIR}/config/docker/setup.conf"
+  run grep -F "max_file = 7" "${TEMP_DIR}/.setup.conf"
   assert_success
 }
 
 @test "show logging prints the whole resolved [logging] section (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main show logging --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "driver"
@@ -602,7 +602,7 @@ EOF
 }
 
 @test "set logging.local_path accepts relative path (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.local_path ./logs/ --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -611,7 +611,7 @@ EOF
 }
 
 @test "set logging.local_path accepts absolute path (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.local_path /srv/app-logs --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -620,20 +620,20 @@ EOF
 }
 
 @test "set logging.local_path rejects whitespace-only value (#328)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set logging.local_path "   " --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set logging.<svc>.local_path writes to per-service section (#328)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [logging]
 driver = json-file
 EOF
   run main set logging.devel.local_path ./devel-logs/ --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F "[logging.devel]" "${TEMP_DIR}/config/docker/setup.conf"
+  run grep -F "[logging.devel]" "${TEMP_DIR}/.setup.conf"
   assert_success
   run main show logging.devel.local_path --base-path "${TEMP_DIR}"
   assert_success
@@ -643,7 +643,7 @@ EOF
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
 privileged = false
 cap_add_1 = ALL
@@ -682,7 +682,7 @@ EOF
 }
 
 @test "apply --lang zh-TW sets Chinese messages for full run" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -693,7 +693,7 @@ EOF
 
 # ── Per-repo setup.conf missing / empty INFO ────────────────
 @test "apply prints WARN when per-repo setup.conf is missing (#186)" {
-  # No TEMP_DIR/config/docker/setup.conf created — apply should fall back to template
+  # No TEMP_DIR/.setup.conf created — apply should fall back to template
   # default and announce it once on stderr at WARN level.
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -710,7 +710,7 @@ EOF
 
 @test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
   # Comments-only file counts as effectively empty: nothing to override.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 # only comments, no [section] headers
 # template defaults apply for every section
 EOF
@@ -726,7 +726,7 @@ EOF
 @test "apply stays silent when per-repo setup.conf has at least one section" {
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = auto
 EOF
@@ -767,7 +767,7 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/* \
     "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/lib/"
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/dist/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/sandbox_repo/.base/dist/.setup.conf"
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/wrapper/setup.sh" apply
   assert_success
@@ -778,7 +778,7 @@ EOF
 # .env.generated cache + .env workload overlay (A2 file roles,)
 # ════════════════════════════════════════════════════════════════════
 @test "apply writes the derived cache to .env.generated (not .env)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   assert [ -f "${TEMP_DIR}/.env.generated" ]
@@ -787,7 +787,7 @@ EOF
 }
 
 @test "apply scaffolds a .env workload overlay when absent" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   refute [ -f "${TEMP_DIR}/.env" ]
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -798,7 +798,7 @@ EOF
 }
 
 @test "apply does NOT overwrite an existing hand-authored .env overlay" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -807,7 +807,7 @@ EOF
 }
 
 @test "apply migrates a legacy .env cache to .env.generated + backs it up" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   # layout: .env IS the cache (carries the auto-gen marker) and
   # .env.generated does not exist yet.
   cat > "${TEMP_DIR}/.env" <<'EOF'
@@ -827,7 +827,7 @@ EOF
 }
 
 @test "apply emits env_file: - .env on the devel service (#502 overlay)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
@@ -839,7 +839,7 @@ EOF
 # config/app/ structured app-config dev bind-mount (S4,)
 # ════════════════════════════════════════════════════════════════════
 @test "apply dev-binds config/app/ into the devel service when present (#504)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   mkdir -p "${TEMP_DIR}/config/app"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -848,7 +848,7 @@ EOF
 }
 
 @test "apply omits the config/app bind when the directory is absent (#504)" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -F '/opt/app/config' "${TEMP_DIR}/compose.yaml"
@@ -856,13 +856,13 @@ EOF
 }
 
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
-  rm -f "${TEMP_DIR}/config/docker/setup.conf" "${TEMP_DIR}/config/docker/setup.conf"
+  rm -f "${TEMP_DIR}/.setup.conf" "${TEMP_DIR}/.setup.conf"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
   # First-time bootstrap is a no-op: no override existed, no snapshot
   # existed, so nothing to clear and no .bak files written.
-  refute [ -f "${TEMP_DIR}/config/docker/setup.conf.bak" ]
-  refute [ -f "${TEMP_DIR}/config/docker/setup.conf.bak" ]
+  refute [ -f "${TEMP_DIR}/.setup.conf.bak" ]
+  refute [ -f "${TEMP_DIR}/.setup.conf.bak" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -917,7 +917,7 @@ EOF
 # [build] section (arg_N KEY=VALUE schema)
 # ════════════════════════════════════════════════════════════════════
 @test "[build] template defaults ship TW mirrors via arg_N" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -930,10 +930,10 @@ EOF
 }
 
 @test "[build] arg_N override replaces TW default when set" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_1 \
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_1 \
     "APT_MIRROR_UBUNTU=archive.ubuntu.com"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_2 \
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_2 \
     "APT_MIRROR_DEBIAN=deb.debian.org"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -949,7 +949,7 @@ EOF
 @test "[build] back-compat: old apt_mirror_* named keys still read" {
   # Legacy repo setup.conf with the pre-arg_N schema must keep working
   # so users can upgrade template without rewriting setup.conf first.
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [build]
 apt_mirror_ubuntu = mirror.example.com
 tz = Asia/Tokyo
@@ -969,8 +969,8 @@ EOF
   # Dockerfile with `ARG PYTHON_VERSION` can pick up a user-added
   # build arg. Extra args land in .env so compose build.args can
   # reference them.
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build arg_9 \
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_9 \
     "PYTHON_VERSION=3.12"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -982,8 +982,8 @@ EOF
 }
 
 @test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch arm64
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build target_arch arm64
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -994,9 +994,9 @@ EOF
 }
 
 @test "[build] target_arch empty omits TARGET_ARCH from .env" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   # Explicit empty value (the template's default)
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build target_arch ""
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build target_arch ""
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1008,8 +1008,8 @@ EOF
 }
 
 @test "[build] network = host writes BUILD_NETWORK to .env" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network host
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build network host
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1020,8 +1020,8 @@ EOF
 }
 
 @test "[build] network empty omits BUILD_NETWORK from .env" {
-  cp /source/dist/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/config/docker/setup.conf" build network ""
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build network ""
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1046,8 +1046,8 @@ EOF
     main apply --base-path '${_repo}' 2>&1
   "
   assert_success
-  assert [ -f "${_repo}/config/docker/setup.conf" ]
-  run grep '^mount_1' "${_repo}/config/docker/setup.conf"
+  assert [ -f "${_repo}/.setup.conf" ]
+  run grep '^mount_1' "${_repo}/.setup.conf"
   assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
 }
 
@@ -1064,7 +1064,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env.generated'
-    grep '^mount_1' '${_repo}/config/docker/setup.conf'
+    grep '^mount_1' '${_repo}/.setup.conf'
   "
   assert_success
   # WS_PATH is a non-empty absolute path — exact value depends on the
@@ -1083,7 +1083,7 @@ EOF
     >/dev/null 2>&1
   # user pins go into the override file (.local), not the
   # materialized snapshot.
-  cat > "${_repo}/config/docker/setup.conf" <<EOF
+  cat > "${_repo}/.setup.conf" <<EOF
 [volumes]
 mount_1 = ${_pin}:/home/\${USER_NAME}/work
 EOF
@@ -1091,7 +1091,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env.generated'
-    grep '^mount_1' '${_repo}/config/docker/setup.conf'
+    grep '^mount_1' '${_repo}/.setup.conf'
   "
   assert_success
   # Effective WS_PATH on this machine is the user-pinned absolute path.
@@ -1114,7 +1114,7 @@ EOF
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   sed -i 's|^mount_1.*|mount_1 = /nonexistent/stale/ws:/home/${USER_NAME}/work|' \
-    "${_repo}/config/docker/setup.conf"
+    "${_repo}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
@@ -1128,11 +1128,11 @@ EOF
 }
 
 @test "fresh bootstrap: empty dir + main apply emits workspace mount in compose.yaml (#201 regression)" {
-  # bug: bootstrap wrote mount_1 to <repo>/config/docker/setup.conf, then
+  # bug: bootstrap wrote mount_1 to <repo>/.setup.conf, then
   # immediately reloaded via _load_setup_conf which only consulted
-  # setup.conf.local (empty) + template (empty mount_1). The just-written
+  # .setup.conf.local (empty) + template (empty mount_1). The just-written
   # value was lost and compose.yaml omitted the workspace mount.
-  # (2-file model): bootstrap writes to <repo>/config/docker/setup.conf and
+  # (2-file model): bootstrap writes to <repo>/.setup.conf and
   # _load_setup_conf reads from the same file, so the reload picks up
   # the freshly-written mount_1.
   local _repo="${TEMP_DIR}/fresh"
@@ -1154,11 +1154,11 @@ EOF
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # User clears mount_1 (opt-out)
-  sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/config/docker/setup.conf"
+  sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/.setup.conf"
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # mount_1 stays empty (not re-populated)
-  run grep '^mount_1' "${_repo}/config/docker/setup.conf"
+  run grep '^mount_1' "${_repo}/.setup.conf"
   assert_equal "${output}" "mount_1 ="
   # compose.yaml has no workspace mount
   run grep ':/home/${USER_NAME}/work' "${_repo}/compose.yaml"
@@ -1202,7 +1202,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
   "
-  run cat "${TEMP_DIR}/config/docker/setup.conf"
+  run cat "${TEMP_DIR}/.setup.conf"
   assert_success
   assert_output --partial "arg_4 = ROS2_DISTRO=jazzy"
 }
@@ -1228,7 +1228,7 @@ EOF
 }
 
 @test "setup.sh remove: prints 3-line confirmation by default" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+  cat > "${TEMP_DIR}/.setup.conf" <<EOC
 [build]
 arg_1 = HARDWARE=arm64
 EOC
@@ -1243,7 +1243,7 @@ EOC
 }
 
 @test "setup.sh remove --quiet: produces empty stdout" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+  cat > "${TEMP_DIR}/.setup.conf" <<EOC
 [build]
 arg_1 = HARDWARE=arm64
 EOC
@@ -1256,7 +1256,7 @@ EOC
 }
 
 @test "setup.sh reset --yes: prints next: hint and file: by default" {
-  : > "${TEMP_DIR}/config/docker/setup.conf"
+  : > "${TEMP_DIR}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main reset --yes --base-path '${TEMP_DIR}'
@@ -1268,7 +1268,7 @@ EOC
 }
 
 @test "setup.sh reset --yes --quiet: produces empty stdout" {
-  : > "${TEMP_DIR}/config/docker/setup.conf"
+  : > "${TEMP_DIR}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main reset --yes --quiet --base-path '${TEMP_DIR}'
@@ -1295,7 +1295,7 @@ EOC
 # setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
 # ════════════════════════════════════════════════════════════════════
 @test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = force
 EOF
@@ -1319,7 +1319,7 @@ EOF
 }
 
 @test "apply --gui=force enables GUI even when setup.conf says off (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = off
 EOF
@@ -1342,7 +1342,7 @@ EOF
 }
 
 @test "apply --print-resolved prints KEY=VALUE state without writing .env (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = off
 [deploy]
@@ -1369,7 +1369,7 @@ EOC
 }
 
 @test "apply --print-resolved respects --gui override in the dump (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 EOF
@@ -1388,7 +1388,7 @@ EOC
 }
 
 @test "apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 EOF
@@ -1406,7 +1406,7 @@ EOC
 }
 
 @test "apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 EOF
@@ -1424,7 +1424,7 @@ EOC
 }
 
 @test "apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = force
 EOF
@@ -1443,7 +1443,7 @@ EOC
 }
 
 @test "apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 EOF
@@ -1465,8 +1465,8 @@ EOC
 # P2: propagation + non-privileged guard
 # ════════════════════════════════════════════════════════════════════
 @test "apply warns when device propagation used without privileged (#450 P2)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [security]
 privileged = false
 [devices]
@@ -1482,8 +1482,8 @@ EOC
 }
 
 @test "apply suppresses propagation warning when privileged is true (#450 P2)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [security]
 privileged = true
 [devices]
@@ -1501,8 +1501,8 @@ EOC
 # P4: duplicate device/volume target path detection
 # ════════════════════════════════════════════════════════════════════
 @test "apply warns when device and volume have same target path (#450 P4)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [devices]
 device_1 = /dev:/dev:rslave
 [volumes]
@@ -1517,8 +1517,8 @@ EOC
 }
 
 @test "apply does NOT warn duplicate when device and volume targets differ (#450 P4)" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [devices]
 device_1 = /dev:/dev:rslave
 [volumes]
@@ -1537,7 +1537,7 @@ EOC
 # still reaches compose.yaml (and is baked as ENV for the field via S3).
 # ════════════════════════════════════════════════════════════════════
 @test "apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)" {
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOC'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [environment]
 env_1 = FOO=bar
 env_2 = BAR=${FOO}_x

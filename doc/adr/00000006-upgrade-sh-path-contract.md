@@ -27,6 +27,18 @@
   symlinks are dropped and re-pointed). `dockerfile_migrate` migration 4 was
   widened to match `(downstream/|dist/)?` so a consumer Dockerfile on either
   historical path heals to the `dist/` target.
+- **Amended:** 2026-07-15 by #831 -- `setup.conf` is `just setup`-managed,
+  not hand-edited, so it left the hand-editable `config/` surface: the
+  per-repo override moved from `<repo>/config/docker/setup.conf` to the
+  repo-root dotfile `<repo>/.setup.conf`, and the template default from
+  `${TEMPLATE_REL}/dist/config/docker/setup.conf` to
+  `${TEMPLATE_REL}/dist/.setup.conf`. Per this ADR's discipline the move
+  was lockstep: Region B's `_warn_setup_conf_drift` blob-hash path
+  re-points to `dist/.setup.conf`, and a new `_migrate_legacy_setup_conf`
+  step `git mv`s a legacy override to the root and warns loudly (never
+  silently drops it). See the re-pointed frozen-path list note below.
+  This reverses #262, which had nested setup.conf under `config/docker/`
+  for layout uniformity.
 
 ## Context
 
@@ -113,7 +125,11 @@ re-checking #492's trigger checklist):
   via `upgrade.sh`'s walk-up to the subtree root rather than frozen at the
   root; see the Region A amendment above.)*
 - `.base/config/` and `.base/config/docker/setup.conf` -- hashed by
-  Region B's drift detection.
+  Region B's drift detection. *(Re-pointed 2026-07-15 by #831: the
+  setup.conf blob is now `.base/dist/.setup.conf` (template default) with
+  the downstream override at the repo-root `<repo>/.setup.conf`; the
+  `.base/dist/config/` tree hash still guards the hand-editable shell
+  config. #714 first moved these under `dist/`.)*
 - `.base/script/docker/lib/` and the `.base/script/docker/*.sh` umbrella
   loaders -- targeted by Region C's Dockerfile auto-patch.
 

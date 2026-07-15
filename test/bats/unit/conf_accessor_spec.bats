@@ -24,7 +24,7 @@ EOF
   # ${TEMP_DIR}/config/docker/; mirror the path setup the shared
   # setup_spec_helper provides so those tests resolve their conf files.
   TEMP_DIR="$(mktemp -d)"
-  mkdir -p "${TEMP_DIR}/config/docker"
+  mkdir -p "${TEMP_DIR}"
 }
 
 teardown() {
@@ -411,7 +411,7 @@ EOF
 # _parse_ini_section
 # ════════════════════════════════════════════════════════════════════
 @test "_parse_ini_section reads keys and values for one section" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [gpu]
 mode = auto
@@ -428,7 +428,7 @@ EOF
 }
 
 @test "_parse_ini_section isolates sections (entries from other sections ignored)" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [gpu]
 mode = auto
@@ -444,7 +444,7 @@ EOF
 }
 
 @test "_parse_ini_section skips comment and empty lines" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 # top comment
 [network]
@@ -463,7 +463,7 @@ EOF
 }
 
 @test "_parse_ini_section trims whitespace around key and value" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   printf '[gpu]\n  mode  =  force  \n' > "${_conf}"
   local -a _k=() _v=()
   _parse_ini_section "${_conf}" "gpu" _k _v
@@ -479,7 +479,7 @@ EOF
 }
 
 @test "_parse_ini_section returns empty arrays for absent section" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [gpu]
 mode = auto
@@ -494,7 +494,7 @@ EOF
 # prefix-based. conf_logging.sh relies on this: it reads the global
 # [logging] block and per-service [logging.<svc>] blocks separately.
 @test "_parse_ini_section does not absorb dotted sub-sections" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [logging]
 driver = json-file
@@ -510,7 +510,7 @@ EOF
 }
 
 @test "_parse_ini_section reads a dotted section name" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [logging]
 driver = json-file
@@ -531,7 +531,7 @@ EOF
 # Duplicate keys and a reopened section are preserved in file order
 # (the original single-pass reader appended every matching line).
 @test "_parse_ini_section preserves duplicate keys and reopened sections in order" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [volumes]
 mount_1 = a:a
@@ -558,7 +558,7 @@ EOF
 # _ini_tokenize (shared single-pass core)
 # ════════════════════════════════════════════════════════════════════
 @test "_ini_tokenize tracks the owning section per entry and dedups headers" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [gpu]
 mode = auto
@@ -585,7 +585,7 @@ EOF
 }
 
 @test "_ini_tokenize keeps dotted keys verbatim (per-stage override keys)" {
-  local _conf="${TEMP_DIR}/config/docker/setup.conf"
+  local _conf="${TEMP_DIR}/.setup.conf"
   cat > "${_conf}" <<'EOF'
 [stage:headless]
 gui.mode = off

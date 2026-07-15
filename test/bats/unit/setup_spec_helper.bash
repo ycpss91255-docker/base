@@ -17,11 +17,9 @@ setup() {
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
-  # Ensure the per-repo config/docker/ path exists; setup.conf relocated
-  # under #262 lives at ${BASE_PATH}/config/docker/config/docker/setup.conf, so fixtures
-  # that write a sandbox setup.conf rely on the parent dir already being
-  # there.
-  mkdir -p "${TEMP_DIR}/config/docker"
+  # The per-repo setup.conf override is a repo-root dotfile
+  # (${BASE_PATH}/.setup.conf), so sandbox fixtures write straight to
+  # ${TEMP_DIR}/.setup.conf with no nested parent dir to pre-create.
 }
 
 teardown() {

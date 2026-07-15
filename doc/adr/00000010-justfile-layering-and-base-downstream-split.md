@@ -7,6 +7,17 @@
 - **Status:** Accepted
 - **Amends:** ADR-00000006 (frozen `.base/` interior paths move; see below)
 - **Builds on:** ADR-00000005 (`just` as the user-facing entry)
+- **Amended:** 2026-07-15 by #831 -- the tool-managed `setup.conf` leaves
+  the config-layer. It is `just setup`-managed, not hand-edited, so the
+  per-repo override moves out of `<repo>/config/docker/setup.conf` to the
+  repo-root dotfile `<repo>/.setup.conf` (template default
+  `dist/config/docker/setup.conf` -> `dist/.setup.conf`). This makes the
+  criterion explicit: `config/` is the HAND-EDITABLE surface (shell
+  config) only; the tool-managed file is a root dotfile. Region B's
+  drift-hash path re-points in the same lockstep slice (see the Region B
+  note below), and `upgrade.sh` auto-migrates a legacy override.
+  Reverses #262, which had nested it under `config/docker/` for layout
+  uniformity.
 
 ## Context
 
@@ -158,7 +169,11 @@ region, in the slice that moves each path:
   (`HEAD:${TEMPLATE_REL}/config`,
   `.../config/docker/setup.conf`) move to
   `${TEMPLATE_REL}/dist/config[/docker/setup.conf]` in the same
-  slice that relocates `config/`.
+  slice that relocates `config/`. *(Amended 2026-07-15 by #831: the
+  setup.conf blob snapshot further moves to
+  `${TEMPLATE_REL}/dist/.setup.conf` and the downstream override to
+  `<repo>/.setup.conf`, as setup.conf leaves the config-layer; the
+  `config/` tree hash keeps guarding the hand-editable shell config.)*
 - **Region C (Dockerfile lint-stage auto-patch)** -- `script/docker/lib/`
   and the `script/docker/*.sh` umbrella loaders move under
   `dist/script/docker/`. The grep+sed source paths
