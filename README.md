@@ -612,9 +612,9 @@ into a field deployment that ships just the image:
 
 | Parameter kind | Examples | Where it lives | Dev host | Field |
 |---|---|---|---|---|
-| machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | inlined as `docker run` flags in a generated `deploy.sh` |
-| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | baked `ENV` defaults (+ optional launcher `-e`) |
-| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked into the image |
+| machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
+| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | baked `ENV` defaults (+ optional field-side override) |
+| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults that get baked into the runtime image as
@@ -622,54 +622,96 @@ machine-bound env defaults that get baked into the runtime image as
 needs only `just docker run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
 drift, no git churn).
 
-> The `.env` overlay, the runtime-stage `ENV` bake, and the generated
-> `deploy.sh` field launcher are rolling out across the
+> The `.env` overlay, the runtime-stage `ENV` bake, and the self-contained
+> field-deploy bundle land through the
 > [#497](https://github.com/ycpss91255-docker/base/issues/497) epic; this
 > section documents the routing model they implement.
 
-### Field deployment (`setup.sh deploy`)
+### Field deployment (`just docker setup deploy`)
 
-`./setup.sh deploy` builds a self-contained field bundle from the same
-`setup.conf` -- the deploy half of the routing model above. It targets a
-stage (default `runtime`) and produces a single `tar.xz` carrying just two
-things: the immutable image and a generated `deploy.sh` launcher.
+`just docker setup deploy` (or the direct `./setup.sh deploy`) builds a
+self-contained field-deploy **folder** from the same `setup.conf` -- the
+deploy half of the routing model above
+([ADR-00000023](doc/adr/00000023-config-field-override-and-field-deploy-contract.md),
+amending [ADR-00000003](doc/adr/00000003-env-vs-workload-param-boundary.md);
+[PRD invariant 8](doc/PRD.md)). It targets a *field-oriented* stage (default
+`runtime`; **never** `devel` or a `*-test` stage) and produces a folder
+carrying everything the target host needs -- the host never sees base's
+toolchain, source tree, or `setup.conf`.
 
 ```bash
-./setup.sh deploy                       # build runtime bundle (prompts first)
-./setup.sh deploy --dry-run             # print the build plan, build nothing
-./setup.sh deploy --stage runtime -y    # skip the confirmation prompt
-./setup.sh deploy -o /tmp/robot.tar.xz  # custom output path
+just docker setup deploy                      # build the runtime bundle (prompts first)
+just docker setup deploy --stage runtime      # explicit field stage
+just docker setup deploy --dry-run            # print the build plan, build nothing
+just docker setup deploy --stage runtime -y   # skip the confirmation prompt
+just docker setup deploy -o /tmp/robot-bundle # custom output folder
 ```
+
+The bundle lands at `deploy/<repo>-<stage>-<version>/` (the repo-root
+`deploy/` folder is gitignored; `<version>` = `git describe --tags --always
+--dirty`, and the image is tagged `<repo>:<stage>-<version>` so loading
+several field versions on one host never collides). It contains:
+
+| File | What it is |
+|---|---|
+| `image.tar.xz` | the `xz`-compressed image (`deploy.sh` `docker load`s it) |
+| `compose.yaml` | fully-resolved, self-contained compose -- literal values, **no `${VAR}` interpolation** (except a GUI stage's `${DISPLAY}` host passthrough), no `setup.conf` / `.env` dependency; carries `restart: unless-stopped` |
+| `config/` | editable copies of each operator-tunable file (see below) |
+| `deploy.sh` | thin `up` / `down` / `logs` launcher |
+| `README` | field-operator instructions |
 
 What it does, in order:
 
 1. bake the `[environment]` defaults into the image as real `ENV` (S3) and
    `COPY` `config/app/` into it when present (S4) -- so the field image is
    self-contained (no env file, no config bind travels);
-2. `docker build --target <stage>` the immutable image;
-3. generate `deploy.sh` -- a `docker run` launcher with every machine-bound
-   docker-level flag inlined (privileged / gpus / runtime / network / ipc /
-   pid / devices / caps / shm / restart / group-add), resolved from the
-   chosen stage exactly as `compose.yaml` would for dev;
-4. `docker save` the image and `tar -cJf` `{image.tar, deploy.sh}` into the
-   bundle.
+2. `docker build --target <stage>` the immutable image, tagged
+   `<repo>:<stage>-<version>`;
+3. `docker save | xz` it into `image.tar.xz`;
+4. write the fully-resolved `compose.yaml` (same shared resolver `apply` uses,
+   so the field never drifts from dev), the `deploy.sh` launcher and the
+   `README`, then extract each tunable file's baked default into `config/`.
 
-Before building, it prints the resolved launcher so you can review every
-inlined flag, then prompts (skip with `-y`; `--dry-run` prints the plan and
-the launcher without building; a non-interactive shell without `-y`
-refuses). On the field machine:
+Before building it prints the resolved `compose.yaml` so you can review every
+resolved parameter, then prompts (skip with `-y`; `--dry-run` prints the plan
+without building; a non-interactive shell without `-y` refuses).
+
+**On the field machine** -- copy the folder over, then drive it with the
+`deploy.sh` launcher (it loads the image and drives `docker compose`; no
+`docker run`, no `setup.conf`, no base toolchain):
 
 ```bash
-tar -xJf <name>-runtime.tar.xz
-docker load < image.tar
-./deploy.sh                 # or: DEPLOY_IMAGE=... DEPLOY_CONTAINER_NAME=... ./deploy.sh
+cd <repo>-runtime-<version>
+./deploy.sh up      # unxz | docker load the image, then docker compose up -d
+./deploy.sh logs    # docker compose logs (add -f to follow)
+./deploy.sh down    # docker compose down
 ```
 
-The launcher carries docker-level flags only by design: workload env vars
-are baked `ENV` (override at run time with `-e` after `./deploy.sh`), and
-the dev workspace bind is intentionally dropped (the field image ships its
-own code). `--group-add` GIDs (iGPU `/dev/dri`) are read from the
-generating host and may need adjusting on a different field machine.
+`restart: unless-stopped` means the container auto-starts on host reboot; stop
+it with `./deploy.sh down`.
+
+**Adjusting config in the field (no rebuild).** A component declares which
+container-internal paths a field operator may retune in a committed
+`config/<component>/deploy.manifest` (INI-lite, per-stage sections each listing
+absolute container paths). The bundle ships an editable copy of each declared
+file under `config/`, and the resolved `compose.yaml` bind-mounts it over the
+image's baked default (**mount-wins**). Edit a file under `config/` and re-run
+`./deploy.sh up` -- the mounted copy wins, no rebuild. Paths **not** declared
+stay baked-only. The image must bake a default file at every declared path,
+else deploy generation fails loud with an actionable message.
+
+Workload env vars ride as baked `ENV` defaults (a GUI stage additionally reads
+`${DISPLAY}` / `${XAUTHORITY}` etc. from the field host's own shell); the dev
+workspace bind is intentionally dropped (the field image ships its own code).
+`--group-add` GIDs (iGPU `/dev/dri`) are resolved on the generating host and
+may need adjusting on a different field machine.
+
+**Continuous deployment.** The deploy tool labels honestly and never blocks --
+it stamps a `-dirty` / short-commit `<version>` so a review deploy of any tree
+state is possible. For automated CD, call the base-shipped guard first:
+`./.base/dist/deploy/cd-guard.sh` refuses to deploy unless the working tree is
+clean **and** HEAD sits on a tag, so a shipped field bundle is always traceable
+to a released version.
 
 ### Logging output to host
 
@@ -860,7 +902,7 @@ These are first-class operator knobs, not test-only hooks. See
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match |
 | `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field bundle (`tar.xz` of image + generated `deploy.sh`) for stage `S` (default `runtime`); previews the resolved launcher and prompts before building. See [Field deployment](#field-deployment-setupsh-deploy) |
+| `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
 
