@@ -244,16 +244,19 @@ Subcommands:
                 setup.conf / .env are saved to .setup.conf.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
-  deploy [--stage S] [--output F] [--dry-run] [-y|--yes]
-                Build a self-contained field bundle for stage S (default
-                runtime): bake [environment] as ENV + COPY config/app
-                into the image, docker build --target S, generate
-                deploy.sh, docker save, and tar.xz {image, deploy.sh}.
-                Previews the resolved launcher (every inlined docker
-                flag) and prompts before building; --dry-run prints the
+  deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
+                Build a self-contained field-deploy FOLDER for stage S
+                (default runtime): docker build --target S tagged
+                <name>:<stage>-<version>, docker save | xz, a fully-
+                resolved self-contained compose.yaml (no variable
+                interpolation, no setup.conf/.env dep, dev-host binds
+                stripped, restart added, tunable-manifest config bound),
+                a thin up/down/logs deploy.sh, editable config/, and a
+                README. Previews the resolved compose (every resolved
+                param) and prompts before building; --dry-run prints the
                 plan only; -y skips the prompt. Default output is
-                <base-path>/deploy/<name>-<stage>.tar.xz. Field flow:
-                extract, docker load < image.tar, ./deploy.sh.
+                <base-path>/deploy/<name>-<stage>-<version>/. Field flow:
+                copy the folder to the target, ./deploy.sh up.
 
 Options:
   -h, --help            Show this help and exit.

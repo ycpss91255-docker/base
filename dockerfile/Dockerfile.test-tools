@@ -113,7 +113,11 @@ FROM alpine:${ALPINE_VERSION}
 # shared libs the source-built kcov binary (copied below) links against;
 # they are the runtime counterparts of the -dev packages used in the
 # kcov-builder stage. Without them kcov would fail to load at runtime.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx mawk gawk \
+# docker-cli-compose + xz: the field-deploy system test
+# (test/bats/system/deploy_bundle_e2e_spec.bats) runs the generated
+# deploy.sh up (real `docker compose up -d`) and unxz's the bundled
+# image.tar.xz; the generator itself xz-compresses the saved image.
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats

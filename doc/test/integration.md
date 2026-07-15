@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **106 tests**.
+Integration specs under `test/bats/integration/`: **111 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -178,3 +178,22 @@ that granted it passes, and the default `gha` caller passes even without
 the permission (backward compatible); `--list` self-describes the build
 contract, annotating packages as registry-conditional.
 
+
+### test/bats/integration/deploy_bundle_flow_spec.bats (5)
+
+The field-deploy generator end-to-end across components (ADR-00000023):
+a fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime`
+stage, a `config/<component>/deploy.manifest` declaring one tunable path)
+drives the real `_setup_deploy` -> `_generate_deploy_bundle` flow with a
+docker + xz PATH-shim (no real daemon), and asserts the produced output
+folder `deploy/<repo>-<stage>-<version>/` is correct. Distinct from the
+isolated-function unit specs: this exercises the manifest -> resolve ->
+resolved-compose -> bundle-files wiring as a flow.
+
+| Test | Description |
+|------|-------------|
+| `deploy flow: produces the version-named output folder with all bundle files` | folder + files |
+| `deploy flow: the resolved compose is self-contained and pins the versioned image` | self-contained compose |
+| `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind` | tunable delivery |
+| `deploy flow: the thin launcher drives docker load + compose up/down` | launcher shape |
+| `deploy flow: the README names the versioned image + the tunable config workflow` | README template |

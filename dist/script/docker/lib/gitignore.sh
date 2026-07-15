@@ -27,6 +27,7 @@ coverage/
 .Dockerfile.generated
 .docker.xauth
 log/
+/deploy/
 EOF
 }
 

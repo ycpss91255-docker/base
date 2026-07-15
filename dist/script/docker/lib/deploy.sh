@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 #
-# deploy.sh - field deploy.sh generator + the shared deploy-context resolver.
+# deploy.sh - self-contained field-deploy bundle generator + shared resolver.
 #
 # Provides:
-#   _emit_docker_run_flags    : resolved flag record -> `docker run` argv fragment
+#   _parse_deploy_manifest    : per-stage tunable-config path declarations
+#   _collect_deploy_binds     : aggregate a stage's tunable paths by basename
+#   _resolve_deploy_version   : git-describe bundle stamp (image identity)
 #   _resolve_deploy_context   : setup.conf -> the conf-derived resolution shared
 #                               by `apply` (compose) and the deploy generator
-#   _generate_deploy_sh       : write the self-contained field launcher
+#   _generate_resolved_compose: write the self-contained, fully-resolved compose
+#   _generate_deploy_launcher : write the thin up/down/logs deploy.sh
+#   _render_deploy_readme     : write the generic bundle README
 #   _bake_config_copy         : COPY structured config into the runtime stage
-#   _generate_deploy_bundle   : build --target -> docker save -> tar.xz bundle
+#   _generate_deploy_bundle   : build -> save|xz -> resolved compose folder
 #   _expand_env_cross_refs    : expand ${VAR} cross-refs in env values
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). These call
@@ -24,128 +28,136 @@ fi
 _DOCKER_LIB_DEPLOY_SOURCED=1
 
 # ════════════════════════════════════════════════════════════════════
-# _emit_docker_run_flags <flags_assoc> <out_array>
+# _parse_deploy_manifest <manifest_path> <stage> <out_paths_array>
 #
-# S6 ofmap a resolved docker-flag record to a `docker run`
-# argv fragment for the self-contained field launcher (`deploy.sh`). The
-# deploy generator resolves the chosen stage's flags through the S5
-# layer (_resolve_docker_flags) and merges in the top-level-only fields,
-# then calls this to turn that record into runnable `docker run` args.
+# Field-deploy tunable manifest parser (the per-component, per-stage
+# declaration of operator-tunable config). A manifest is a committed,
+# downstream-owned `config/<component>/deploy.manifest` with INI-lite
+# per-stage sections, each listing the CONTAINER-INTERNAL absolute paths
+# that a field operator may override without a rebuild:
 #
-# <flags_assoc> recognised keys (all optional; absent = unset):
-#   privileged          "true" -> --privileged
-#   gpu / gpu_count / gpu_caps
-#                       gpu="true" -> --gpus (count>0 -> count=N[,capabilities=csv];
-#                       else "all")
-#   runtime             non-empty & not off/auto -> --runtime=<v>
-#   net_mode / net_name host -> --network=host; bridge+name -> --network=<name>
-#   ipc_mode            non-empty & != private -> --ipc=<v>
-#   pid_mode            host -> --pid=host
-#   shm_size            set & ipc_mode != host -> --shm-size=<v>
-#   restart             set & != no -> --restart=<v>
-#   volumes (nl list)   each -> -v <entry>
-#   ports (nl list)     each -> -p <entry>  (only when net_mode=bridge)
-#   devices (nl list)   plain -> --device <entry>; entry with a propagation
-#                       mode (rslave/rshared/...) -> -v <entry> (docker run
-#                       --device has no propagation, mirroring compose)
-#   cap_add (nl list)   each -> --cap-add <cap>
-#   cap_drop (nl list)  each -> --cap-drop <cap>
-#   security_opt (nl)   each -> --security-opt <opt>
-#   dri_groups (space)  each gid -> --group-add <gid>
-#   cgroup_rules (nl)   each -> --device-cgroup-rule <rule>
+#   [runtime]  /camera_config.yaml
+#   [stream]   /etc/app/host.yaml
+#   # unlisted paths (launch/, udev/, ...) = baked-only (fail-safe default)
 #
-# Deliberately NOT mapped: [environment] (baked into the image as ENV by
-# S3, so the launcher carries only docker-level flags) and gui / X11 (the
-# field launcher targets headless run; GUI is a dev-only compose concern).
-# Each flag and its value are pushed as SEPARATE array elements so the
-# caller can quote them individually when writing deploy.sh.
+# base DELIVERS files, it does not parse their content: this reads only the
+# path declarations for <stage> into <out_paths_array>. Semantics:
+#   - a MISSING manifest is NOT an error -> empty array, return 0 (nothing
+#     tunable = everything baked, the fail-safe default);
+#   - a MALFORMED manifest fails LOUD (return 1): a bad `[section]` header,
+#     a content line that is not a container-internal absolute path, or a
+#     path declared before any `[section]` header;
+#   - only the entries under `[<stage>]` are returned; entries for other
+#     stages are ignored (a path unlisted for <stage> stays baked-only).
+# Leading/trailing whitespace is trimmed; blank + `#` comment lines skipped.
 # ════════════════════════════════════════════════════════════════════
-_emit_docker_run_flags() {
-  local -n _edrf_f="${1:?"${FUNCNAME[0]}: missing flags assoc"}"
-  local -n _edrf_out="${2:?"${FUNCNAME[0]}: missing out array"}"
-  local _item
+_parse_deploy_manifest() {
+  local _mf="${1:?"${FUNCNAME[0]}: missing manifest path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local -n _pdm_out="${3:?"${FUNCNAME[0]}: missing out array"}"
+  _pdm_out=()
+  # Missing manifest = nothing tunable (fail-safe), not an error.
+  [[ -f "${_mf}" ]] || return 0
 
-  # Push "<flag> <item>" for each non-empty line of a newline-list value.
-  _edrf_push_list() {
-    local _flag="${1}" _list="${2}"
-    [[ -n "${_list}" ]] || return 0
-    while IFS= read -r _item; do
-      [[ -n "${_item}" ]] || continue
-      _edrf_out+=("${_flag}" "${_item}")
-    done <<< "${_list}"
-  }
+  local _line _trimmed _cur="" _lineno=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    # Trim surrounding whitespace.
+    _trimmed="${_line#"${_line%%[![:space:]]*}"}"
+    _trimmed="${_trimmed%"${_trimmed##*[![:space:]]}"}"
+    [[ -z "${_trimmed}" ]] && continue
+    [[ "${_trimmed}" == '#'* ]] && continue
 
-  [[ "${_edrf_f["privileged"]:-}" == "true" ]] && _edrf_out+=("--privileged")
-
-  if [[ "${_edrf_f["gpu"]:-}" == "true" ]]; then
-    local _gc="${_edrf_f["gpu_count"]:-}" _gcaps="${_edrf_f["gpu_caps"]:-}" _spec
-    if [[ "${_gc}" =~ ^[0-9]+$ ]] && (( _gc > 0 )); then
-      _spec="count=${_gc}"
-      [[ -n "${_gcaps}" ]] && _spec+=",capabilities=${_gcaps// /,}"
-    else
-      _spec="all"
-    fi
-    _edrf_out+=("--gpus" "${_spec}")
-  fi
-
-  local _rt="${_edrf_f["runtime"]:-}"
-  if [[ -n "${_rt}" && "${_rt}" != "off" && "${_rt}" != "auto" ]]; then
-    _edrf_out+=("--runtime=${_rt}")
-  fi
-
-  local _nm="${_edrf_f["net_mode"]:-}" _nn="${_edrf_f["net_name"]:-}"
-  if [[ "${_nm}" == "host" ]]; then
-    _edrf_out+=("--network=host")
-  elif [[ "${_nm}" == "bridge" && -n "${_nn}" ]]; then
-    _edrf_out+=("--network=${_nn}")
-  fi
-
-  local _ipc="${_edrf_f["ipc_mode"]:-}"
-  [[ -n "${_ipc}" && "${_ipc}" != "private" ]] && _edrf_out+=("--ipc=${_ipc}")
-
-  [[ "${_edrf_f["pid_mode"]:-}" == "host" ]] && _edrf_out+=("--pid=host")
-
-  local _shm="${_edrf_f["shm_size"]:-}"
-  [[ -n "${_shm}" && "${_ipc}" != "host" ]] && _edrf_out+=("--shm-size=${_shm}")
-
-  local _rs="${_edrf_f["restart"]:-}"
-  [[ -n "${_rs}" && "${_rs}" != "no" ]] && _edrf_out+=("--restart=${_rs}")
-
-  _edrf_push_list "-v" "${_edrf_f["volumes"]:-}"
-
-  if [[ "${_nm}" == "bridge" ]]; then
-    _edrf_push_list "-p" "${_edrf_f["ports"]:-}"
-  fi
-
-  # Devices: a propagation mode in the 3rd colon field cannot ride on
-  # `docker run --device`, so route those to `-v` (mirrors the compose
-  # device->volume redirect from); plain devices stay on --device.
-  local _dev
-  if [[ -n "${_edrf_f["devices"]:-}" ]]; then
-    while IFS= read -r _dev; do
-      [[ -n "${_dev}" ]] || continue
-      if [[ "${_dev}" =~ :(rslave|rshared|rprivate|slave|shared|private)([,:]|$) ]]; then
-        _edrf_out+=("-v" "${_dev}")
-      else
-        _edrf_out+=("--device" "${_dev}")
+    # Section header: `[<name>]`. Name must be a stage-shaped token.
+    if [[ "${_trimmed}" == '['*']' ]]; then
+      local _sec="${_trimmed#\[}"; _sec="${_sec%\]}"
+      if [[ ! "${_sec}" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+        _log_err setup deploy_manifest_malformed \
+          "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: bad section header '${_trimmed}'" \
+          "path=${_mf}" "line=${_lineno}"
+        return 1
       fi
-    done <<< "${_edrf_f["devices"]}"
-  fi
+      _cur="${_sec}"
+      continue
+    fi
 
-  _edrf_push_list "--cap-add" "${_edrf_f["cap_add"]:-}"
-  _edrf_push_list "--cap-drop" "${_edrf_f["cap_drop"]:-}"
-  _edrf_push_list "--security-opt" "${_edrf_f["security_opt"]:-}"
+    # Content line: must be a CONTAINER-INTERNAL absolute path.
+    if [[ "${_trimmed}" != /* ]]; then
+      _log_err setup deploy_manifest_malformed \
+        "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: expected an absolute container path, got '${_trimmed}'" \
+        "path=${_mf}" "line=${_lineno}"
+      return 1
+    fi
+    if [[ -z "${_cur}" ]]; then
+      _log_err setup deploy_manifest_malformed \
+        "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: path '${_trimmed}' declared before any [stage] section" \
+        "path=${_mf}" "line=${_lineno}"
+      return 1
+    fi
+    [[ "${_cur}" == "${_stage}" ]] && _pdm_out+=("${_trimmed}")
+  done < "${_mf}"
+  return 0
+}
 
-  local _gid
-  if [[ -n "${_edrf_f["dri_groups"]:-}" ]]; then
-    for _gid in ${_edrf_f["dri_groups"]}; do
-      _edrf_out+=("--group-add" "${_gid}")
+# ════════════════════════════════════════════════════════════════════
+# _collect_deploy_binds <base_path> <stage> <out_assoc>
+#
+# Aggregate every component's tunable declarations for <stage> into a
+# single basename -> container-path map. Globs `<base>/config/*/deploy.manifest`,
+# parses each via _parse_deploy_manifest (propagating a malformed-manifest
+# failure), and keys the result by the path BASENAME -- the name the file
+# takes in the deploy bundle's editable `config/` folder and in the compose
+# bind `./config/<basename>:<container-path>`.
+#
+# A DUPLICATE basename across components (two tunable files that would both
+# land as `config/<basename>`) is a config error that fails LOUD (return 1):
+# the bind target would be ambiguous. No manifests / no declared paths ->
+# empty map, return 0 (nothing tunable, all baked).
+# ════════════════════════════════════════════════════════════════════
+_collect_deploy_binds() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local -n _cdb_out="${3:?"${FUNCNAME[0]}: missing out assoc"}"
+  _cdb_out=()
+  local _mf
+  for _mf in "${_base}"/config/*/deploy.manifest; do
+    # Unmatched glob yields the literal pattern; the -f guard skips it.
+    [[ -f "${_mf}" ]] || continue
+    local -a _paths=()
+    _parse_deploy_manifest "${_mf}" "${_stage}" _paths || return 1
+    local _p _bn
+    for _p in "${_paths[@]}"; do
+      _bn="${_p##*/}"
+      if [[ -n "${_cdb_out["${_bn}"]:-}" ]]; then
+        _log_err setup deploy_manifest_dup_basename \
+          "display=[setup] deploy: duplicate tunable basename '${_bn}' (${_cdb_out["${_bn}"]} and ${_p}); rename one so the bundle config/ mapping is unambiguous" \
+          "basename=${_bn}"
+        return 1
+      fi
+      _cdb_out["${_bn}"]="${_p}"
     done
-  fi
+  done
+  return 0
+}
 
-  _edrf_push_list "--device-cgroup-rule" "${_edrf_f["cgroup_rules"]:-}"
-
-  unset -f _edrf_push_list
+# ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_version <base_path>
+#
+# Echo the version stamp for a deploy bundle: `git describe --tags
+# --always --dirty` run in <base_path> -- the nearest tag (else the short
+# commit), with a `-dirty` suffix when the working tree has uncommitted
+# changes. This is the version-iteration-safe half of the image identity
+# `<repo>:<stage>-<version>`, so loading multiple field versions never
+# collides. Outside a git tree (or git absent) it degrades to `unknown`
+# rather than aborting -- the deploy tool labels honestly and never blocks;
+# a base-provided CD guard is the thing that enforces clean + tagged.
+# ════════════════════════════════════════════════════════════════════
+_resolve_deploy_version() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _v=""
+  _v="$(git -C "${_base}" describe --tags --always --dirty 2>/dev/null || true)"
+  [[ -n "${_v}" ]] || _v="unknown"
+  printf '%s\n' "${_v}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -316,61 +328,69 @@ _resolve_deploy_context() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_deploy_sh <base_path> <stage> <image_ref> <container_name> <out> [<ctx_assoc>]
+# _generate_resolved_compose <base> <stage> <image_ref> <container> <out>
+#                            [<binds_assoc>] [<ctx_assoc>]
 #
-# S6b-gen ofwrite a self-contained `docker run` field
-# launcher (`deploy.sh`) for the baked <stage> image. Ties the three
-# resolution layers together:
-#   _resolve_deploy_context  (global conf, S6b) -> the stage parent
-#   _resolve_docker_flags    (per-stage overrides, S5) -> effective record
-#   _emit_docker_run_flags   (S6a) -> the `docker run` argv fragment
+# Write the self-contained, FULLY-RESOLVED field compose.yaml (ADR-00000023
+# sec.3, amending ADR-00000003's "compose does not travel"). Unlike the
+# dev compose (generate_compose_yaml), this carries literal resolved values
+# -- NO `${VAR}` interpolation, NO env_file / setup.conf / .env.generated
+# dependency, NO build section (the image is pre-built + docker-loaded), and
+# NO dev-host workspace bind -- so it runs on a field host that never had
+# base's toolchain. It ties the shared resolvers together exactly as apply
+# does (so the field never drifts from dev):
+#   _resolve_deploy_context (global conf) -> the stage parent
+#   _resolve_docker_flags   (per-stage [stage:*] overrides) -> effective record
+# then emits a run-only service reusing compose_emit's leaf emitters.
 #
-# The launcher carries only docker-level flags. By design it omits:
-#   - environment (-e): [environment] is baked into the image as ENV (S3);
-#   - volumes (-v): bind mounts reference dev-host paths absent in the
-#     field, and structured config is COPY-baked (S4); so the field image
-#     is self-contained.
-# GPU enablement is resolved with the generating host's detection (same as
-# apply); the runtime stage's [stage:runtime] overrides still apply. The
-# image / container name are overridable at run time via DEPLOY_IMAGE /
-# DEPLOY_CONTAINER_NAME, and trailing args are appended to the container
-# command. The generated file is chmod +x and ShellCheck-clean.
-#
-# Consumed by the S6 bundle orchestrator (S6c): build --target <stage> ->
-# docker save -> tar.xz {image, deploy.sh}.
+# It FOLLOWS THE STAGE (does not blanket-strip GUI/X11): gui/gpu/network are
+# the deployed stage's resolved values (a headless runtime stage resolves
+# gui off; a gui stage keeps its X11 host-env passthrough). `restart:
+# unless-stopped` is added for auto-start on reboot. When <binds_assoc>
+# (basename -> container-path, from _collect_deploy_binds) is non-empty each
+# tunable file is bound `./config/<basename>:<container-path>` (mount-wins
+# over the baked default, ADR-00000023 sec.2). host-user (USER_UID) handling
+# is unchanged (a separate field-user follow-up owns it).
 # ════════════════════════════════════════════════════════════════════
-_generate_deploy_sh() {
+_generate_resolved_compose() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   local _image_ref="${3:?"${FUNCNAME[0]}: missing image_ref"}"
-  local _container_name="${4:?"${FUNCNAME[0]}: missing container_name"}"
+  local _container="${4:?"${FUNCNAME[0]}: missing container_name"}"
   local _out="${5:?"${FUNCNAME[0]}: missing out path"}"
-  # optional pre-resolved context. The bundle orchestrator resolves
-  # _resolve_deploy_context once (for the Dockerfile env bake) and threads
-  # it in here so the field launcher consumes the same canonical record
-  # rather than re-resolving setup.conf a second time within one deploy.
-  local _ctx_src="${6:-}"
+  local _binds_src="${6:-}"
+  local _ctx_src="${7:-}"
 
-  # Global conf context (shared with apply via S6b). Consume the passed
-  # record when given, else resolve standalone (direct callers / tests).
-  # The working var is function-prefixed (_gds_ctx) so a caller passing an
-  # assoc literally named `_ctx` is not shadowed by this local nameref bind.
-  local -A _gds_ctx=()
+  # Global conf context (shared with apply). Consume a passed record when
+  # given, else resolve standalone (direct callers / tests).
+  local -A _grc_ctx=()
   if [[ -n "${_ctx_src}" ]]; then
-    local -n _gds_ctx_in="${_ctx_src}"
-    local _gds_k
-    for _gds_k in "${!_gds_ctx_in[@]}"; do
-      _gds_ctx["${_gds_k}"]="${_gds_ctx_in[${_gds_k}]}"
-    done
+    local -n _grc_ctx_in="${_ctx_src}"
+    local _gk
+    for _gk in "${!_grc_ctx_in[@]}"; do _grc_ctx["${_gk}"]="${_grc_ctx_in[${_gk}]}"; done
   else
-    _resolve_deploy_context "${_base}" _gds_ctx
+    _resolve_deploy_context "${_base}" _grc_ctx
+  fi
+
+  # Tunable-manifest binds (basename -> container-path), sorted for a
+  # deterministic compose.
+  local -a _bind_names=()
+  if [[ -n "${_binds_src}" ]]; then
+    local -n _grc_binds="${_binds_src}"
+    local _bk
+    while IFS= read -r _bk; do
+      [[ -n "${_bk}" ]] && _bind_names+=("${_bk}")
+    done < <(printf '%s\n' "${!_grc_binds[@]}" | sort)
   fi
 
   # Detection-dependent enabled state + runtime, resolved like apply does.
-  local _gpu_detected="" _gpu_enabled="" _runtime_resolved=""
+  # gui FOLLOWS THE STAGE (not forced off): conf gui_mode + host detection.
+  local _gpu_detected="" _gpu_enabled="" _runtime_resolved="" _gui_detected="" _gui_enabled=""
   detect_gpu _gpu_detected
-  _resolve_gpu "${_gds_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
-  _resolve_runtime "${_gds_ctx["gpu_runtime_mode"]}" _runtime_resolved
+  _resolve_gpu "${_grc_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
+  _resolve_runtime "${_grc_ctx["gpu_runtime_mode"]}" _runtime_resolved
+  detect_gui _gui_detected
+  _resolve_gui "${_grc_ctx["gui_mode"]}" "${_gui_detected}" _gui_enabled
 
   # Per-stage [stage:<stage>] overrides, filtered to the allowlist.
   local -a _so_k=() _so_v=() _sof_k=() _sof_v=()
@@ -383,107 +403,258 @@ _generate_deploy_sh() {
     fi
   done
 
-  # Parent record for the per-stage resolver. gui is forced off (the field
-  # launcher is headless); volumes_top / env_top are empty so the field run
-  # carries no bind mounts and no -e (baked ENV instead).
+  # Parent for the per-stage resolver. volumes_top / env_top are empty (the
+  # field image bakes ENV and carries no dev binds); gui carries the
+  # resolved value so a [stage:*] gui.mode can still force it on / off.
   local -A _parent=(
-    [gui]="false"
+    [gui]="${_gui_enabled}"
     [gpu]="${_gpu_enabled}"
-    [gpu_count]="${_gds_ctx["gpu_count"]}"
-    [gpu_caps]="${_gds_ctx["gpu_caps"]}"
+    [gpu_count]="${_grc_ctx["gpu_count"]}"
+    [gpu_caps]="${_grc_ctx["gpu_caps"]}"
     [runtime]="${_runtime_resolved}"
-    [net_mode]="${_gds_ctx["net_mode"]}"
-    [ipc_mode]="${_gds_ctx["ipc_mode"]}"
-    [pid_mode]="${_gds_ctx["pid_mode"]}"
-    [net_name]="${_gds_ctx["network_name"]}"
+    [net_mode]="${_grc_ctx["net_mode"]}"
+    [ipc_mode]="${_grc_ctx["ipc_mode"]}"
+    [pid_mode]="${_grc_ctx["pid_mode"]}"
+    [net_name]="${_grc_ctx["network_name"]}"
     [volumes_top]=""
     [env_top]=""
-    [ports_top]="${_gds_ctx["ports_str"]}"
-    [cap_add_top]="${_gds_ctx["cap_add_str"]}"
-    [cap_drop_top]="${_gds_ctx["cap_drop_str"]}"
-    [sec_opt_top]="${_gds_ctx["sec_opt_str"]}"
+    [ports_top]="${_grc_ctx["ports_str"]}"
+    [cap_add_top]="${_grc_ctx["cap_add_str"]}"
+    [cap_drop_top]="${_grc_ctx["cap_drop_str"]}"
+    [sec_opt_top]="${_grc_ctx["sec_opt_str"]}"
   )
   local -A _eff=()
   _resolve_docker_flags _sof_k _sof_v _parent _eff
 
-  # Merge the per-stage effective scalars with the top-level-only fields
-  # (devices / caps / security_opt / shm / dri / cgroup / restart) into the
-  # record _emit_docker_run_flags maps. volumes / environment are omitted.
-  # privileged: _resolve_docker_flags only fills it from a [stage:*]
-  # security.privileged override (empty otherwise, since compose carries the
-  # global value via the devel `${PRIVILEGED}` env var). The field launcher
-  # has no such env layer, so fall back to the global [security] privileged.
-  local -A _flags=(
-    [privileged]="${_eff["privileged"]:-${_gds_ctx["privileged"]}}"
-    [gpu]="${_eff["gpu"]}"
-    [gpu_count]="${_eff["gpu_count"]}"
-    [gpu_caps]="${_eff["gpu_caps"]}"
-    [runtime]="${_eff["runtime"]}"
-    [net_mode]="${_eff["net_mode"]}"
-    [net_name]="${_eff["net_name"]}"
-    [ipc_mode]="${_eff["ipc_mode"]}"
-    [pid_mode]="${_eff["pid_mode"]}"
-    [ports]="${_eff["ports"]}"
-    [shm_size]="${_gds_ctx["shm_size"]}"
-    [restart]="${_gds_ctx["restart_policy"]}"
-    [devices]="${_gds_ctx["devices_str"]}"
-    [cap_add]="${_eff["cap_add"]}"
-    [cap_drop]="${_eff["cap_drop"]}"
-    [security_opt]="${_eff["security_opt"]}"
-    [dri_groups]="${_gds_ctx["dri_groups_str"]}"
-    [cgroup_rules]="${_gds_ctx["cgroup_rule_str"]}"
-  )
-  local -a _argv=()
-  _emit_docker_run_flags _flags _argv
+  local _eff_gui="${_eff["gui"]}"
+  local _eff_net_mode="${_eff["net_mode"]}"
+  local _eff_net_name="${_eff["net_name"]}"
+  local _eff_ipc="${_eff["ipc_mode"]}"
+  local _eff_pid="${_eff["pid_mode"]}"
+  local _eff_runtime="${_eff["runtime"]}"
+  local _priv="${_eff["privileged"]:-${_grc_ctx["privileged"]}}"
+  local _devices_str="${_grc_ctx["devices_str"]}"
+  local _shm="${_grc_ctx["shm_size"]}"
 
-  # %q-quote the IMAGE / CONTAINER_NAME defaults so a name bearing a `"`,
-  # `$(...)`, or backtick lands as a single literal token in the generated
-  # launcher instead of breaking the assignment or command-substituting at
-  # field run time. This mirrors the per-flag %q protection below; the seam
-  # used to inline these as a bare heredoc default expansion.
-  local _image_ref_q _container_name_q
-  printf -v _image_ref_q '%q' "${_image_ref}"
-  printf -v _container_name_q '%q' "${_container_name}"
+  {
+    printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
+    printf '# Fully resolved (no variable interpolation, no setup.conf/.env dep);\n'
+    printf '# run via ./deploy.sh up|down|logs. Regenerate: just setup deploy %s\n' "${_stage}"
+    printf 'name: %s\n' "${_container}"
+    printf 'services:\n'
+    printf '  %s:\n' "${_stage}"
+    printf '    image: %s\n' "${_image_ref}"
+    printf '    container_name: %s\n' "${_container}"
+    # Auto-start on host reboot (field-deploy default).
+    printf '    restart: unless-stopped\n'
+    # init (PID1 reaper) unless the conf disabled it.
+    [[ "${_grc_ctx["init"]:-true}" != "false" ]] && printf '    init: true\n'
+    # privileged (literal; the field has no ${PRIVILEGED} env layer).
+    [[ "${_priv}" == "true" ]] && printf '    privileged: true\n'
+    # ipc: literal; the private default is omitted.
+    [[ -n "${_eff_ipc}" && "${_eff_ipc}" != "private" ]] && printf '    ipc: %s\n' "${_eff_ipc}"
+    # pid: only host is a valid literal.
+    [[ "${_eff_pid}" == "host" ]] && printf '    pid: host\n'
+    # runtime: only when explicitly set / non-auto / non-off.
+    if [[ -n "${_eff_runtime}" && "${_eff_runtime}" != "off" && "${_eff_runtime}" != "auto" ]]; then
+      printf '    runtime: %s\n' "${_eff_runtime}"
+    fi
+    # network: literal host, or a named bridge network (declared below).
+    if [[ "${_eff_net_mode}" == "bridge" && -n "${_eff_net_name}" ]]; then
+      printf '    networks:\n      - %s\n' "${_eff_net_name}"
+    elif [[ "${_eff_net_mode}" == "host" ]]; then
+      printf '    network_mode: host\n'
+    fi
+    # caps / security_opt + group_add (dri, gui-gated) -- shared emitters.
+    _emit_caps_block "${_eff["cap_add"]}" "${_eff["cap_drop"]}" "${_eff["security_opt"]}"
+    _emit_group_add_block "${_eff_gui}" "${_grc_ctx["dri_groups_str"]}"
+    # environment: GUI X11 host-env passthrough only when the stage resolves
+    # gui on (the baked [environment] is ENV in the image, not re-emitted).
+    # ${DISPLAY:-} etc. read the field host's own shell, not .env.generated.
+    if [[ "${_eff_gui}" == "true" ]]; then
+      printf '    environment:\n'
+      cat <<'YAML'
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+      - XAUTHORITY=/tmp/.docker.xauth
+YAML
+    fi
+    # ports: literal host:container, only under bridge.
+    if [[ -n "${_eff["ports"]}" && "${_eff_net_mode}" == "bridge" ]]; then
+      printf '    ports:\n'
+      local _sp
+      while IFS= read -r _sp; do
+        [[ -z "${_sp}" ]] && continue
+        printf '      - "%s"\n' "${_sp}"
+      done <<< "${_eff["ports"]}"
+    fi
+    # volumes: GUI X11 binds (when gui) + tunable-manifest config binds +
+    # propagation devices (long-form). Emitted iff any are present.
+    local _any_prop=false _d
+    if [[ -n "${_devices_str}" ]]; then
+      while IFS= read -r _d; do
+        [[ -z "${_d}" ]] && continue
+        if _device_has_propagation "${_d}"; then _any_prop=true; break; fi
+      done <<< "${_devices_str}"
+    fi
+    if [[ "${_eff_gui}" == "true" ]] || (( ${#_bind_names[@]} > 0 )) || [[ "${_any_prop}" == "true" ]]; then
+      printf '    volumes:\n'
+      if [[ "${_eff_gui}" == "true" ]]; then
+        cat <<'YAML'
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
+      - ${XAUTHORITY:-/dev/null}:/tmp/.docker.xauth:ro
+YAML
+      fi
+      # tunable-manifest binds: the editable copy in the bundle wins over the
+      # baked default (mount-wins, ADR-00000023 sec.2).
+      local _bn
+      for _bn in "${_bind_names[@]}"; do
+        printf '      - ./config/%s:%s\n' "${_bn}" "${_grc_binds["${_bn}"]}"
+      done
+      if [[ -n "${_devices_str}" ]]; then
+        while IFS= read -r _d; do
+          [[ -z "${_d}" ]] && continue
+          _device_has_propagation "${_d}" && _emit_device_as_volume "${_d}" "    "
+        done <<< "${_devices_str}"
+      fi
+    fi
+    # devices: plain entries only (no propagation).
+    if [[ -n "${_devices_str}" ]]; then
+      local _has_plain=false
+      while IFS= read -r _d; do
+        [[ -z "${_d}" ]] && continue
+        _device_has_propagation "${_d}" && continue
+        if [[ "${_has_plain}" != "true" ]]; then printf '    devices:\n'; _has_plain=true; fi
+        printf '      - %s\n' "${_d}"
+      done <<< "${_devices_str}"
+    fi
+    _emit_cgroup_rules_block "${_grc_ctx["cgroup_rule_str"]}"
+    _emit_tmpfs_block "${_grc_ctx["tmpfs_str"]}"
+    # shm_size only when ipc != host.
+    [[ -n "${_shm}" && "${_eff_ipc}" != "host" ]] && printf '    shm_size: %s\n' "${_shm}"
+    # GPU reservation block (shared emitter) when gpu resolves on.
+    if [[ "${_eff["gpu"]}" == "true" ]]; then
+      local -a _caps_arr=(); read -ra _caps_arr <<< "${_eff["gpu_caps"]}"
+      local _caps_yaml="[" _cf=1 _c
+      for _c in "${_caps_arr[@]}"; do
+        if (( _cf )); then _caps_yaml+="${_c}"; _cf=0; else _caps_yaml+=", ${_c}"; fi
+      done
+      _caps_yaml+="]"
+      _emit_gpu_deploy_block "${_eff["gpu"]}" "${_eff["gpu_count"]}" "${_caps_yaml}"
+    fi
+    # Top-level networks: declare the named bridge so the field host creates
+    # it (self-contained; no external prerequisite).
+    if [[ "${_eff_net_mode}" == "bridge" && -n "${_eff_net_name}" ]]; then
+      printf '\nnetworks:\n  %s:\n    driver: bridge\n' "${_eff_net_name}"
+    fi
+  } > "${_out}"
+}
 
-  # Emit deploy.sh. Runtime-expanded vars / backticks are escaped so they
-  # land literally in the generated script; per-arg %q quoting keeps each
-  # flag a single, safely-quoted token.
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_launcher <out> <stage>
+#
+# Write the thin, arg-driven field launcher (`deploy.sh`). It carries NO
+# inlined docker flags (the resolved compose.yaml carries everything); it
+# only loads the bundled image and drives compose. cd's to its own bundle
+# dir so it runs from anywhere. chmod +x, ShellCheck-clean.
+#   ./deploy.sh up    -> docker load < image (unxz) then docker compose up -d
+#   ./deploy.sh down  -> docker compose down
+#   ./deploy.sh logs  -> docker compose logs
+# ════════════════════════════════════════════════════════════════════
+_generate_deploy_launcher() {
+  local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   {
     cat <<EOF
 #!/usr/bin/env bash
-# AUTO-GENERATED field deployment launcher (setup.sh S6,). DO NOT EDIT.
+# AUTO-GENERATED field deploy launcher. DO NOT EDIT.
+# Regenerate via: just setup deploy ${_stage}
 #
-# Self-contained \`docker run\` launcher for the baked \`${_stage}\` image.
-# The docker-level flags below are inlined from the resolved \`${_stage}\`
-# stage of setup.conf; [environment] defaults and structured config are
-# baked into the image (S3/S4), so no env file or config bind travels.
-# Field flow: \`docker load < <image>.tar\` then \`./deploy.sh\`.
-#
-# Overrides: DEPLOY_IMAGE / DEPLOY_CONTAINER_NAME env vars; any args after
-# \`./deploy.sh\` are appended to the container command. Note: --group-add
-# GIDs (iGPU /dev/dri) are from the generating host and may need adjusting
-# on a different field machine.
+# Self-contained: loads the bundled image, then drives the resolved
+# compose.yaml. Runs from anywhere (cd's to its own bundle dir).
+#   ./deploy.sh up      docker load the image, then docker compose up -d
+#   ./deploy.sh down    docker compose down
+#   ./deploy.sh logs    docker compose logs (add -f to follow)
+EOF
+    cat <<'EOF'
 set -euo pipefail
 
-IMAGE=\${DEPLOY_IMAGE:-${_image_ref_q}}
-CONTAINER_NAME=\${DEPLOY_CONTAINER_NAME:-${_container_name_q}}
+cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" || exit 1
 
-exec docker run \\
-  --detach \\
-  --name "\${CONTAINER_NAME}" \\
+IMAGE_ARCHIVE="image.tar.xz"
+
+_cmd="${1:-up}"
+if (( $# > 0 )); then shift; fi
+
+case "${_cmd}" in
+  up)
+    if [[ -f "${IMAGE_ARCHIVE}" ]]; then
+      unxz -c "${IMAGE_ARCHIVE}" | docker load
+    fi
+    docker compose up -d "$@"
+    ;;
+  down)
+    docker compose down "$@"
+    ;;
+  logs)
+    docker compose logs "$@"
+    ;;
+  *)
+    {
+      printf 'usage: %s {up|down|logs} [args]\n' "$0"
+    } >&2
+    exit 2
+    ;;
+esac
 EOF
-    local _a
-    for _a in "${_argv[@]}"; do
-      printf '  %q \\\n' "${_a}"
-    done
-    # SC2016: the ${IMAGE} / "$@" tokens are emitted verbatim into the
-    # generated deploy.sh and expand at field run time, not here.
-    # shellcheck disable=SC2016
-    printf '  "${IMAGE}" \\\n'
-    # shellcheck disable=SC2016
-    printf '  "$@"\n'
   } > "${_out}"
   chmod +x "${_out}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _render_deploy_readme <out> <repo> <stage> <image_ref>
+#
+# Write the bundle's generic README from the base-shipped template
+# (dist/deploy/README, @IMAGE@ / @REPO@ / @STAGE@ substituted). Falls back
+# to a minimal inline README when the template is unreachable, so the
+# generator stays self-sufficient. base owns the generic template; it
+# carries no per-repo knowledge.
+# ════════════════════════════════════════════════════════════════════
+_render_deploy_readme() {
+  local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
+  local _name="${2:?"${FUNCNAME[0]}: missing repo name"}"
+  local _stage="${3:?"${FUNCNAME[0]}: missing stage"}"
+  local _image="${4:?"${FUNCNAME[0]}: missing image_ref"}"
+  local _tpl="${_SETUP_SCRIPT_DIR:-}/../../../deploy/README"
+  if [[ -n "${_SETUP_SCRIPT_DIR:-}" && -f "${_tpl}" ]]; then
+    sed -e "s|@IMAGE@|${_image}|g" -e "s|@REPO@|${_name}|g" \
+        -e "s|@STAGE@|${_stage}|g" "${_tpl}" > "${_out}"
+  else
+    cat > "${_out}" <<EOF
+# ${_name} field deploy bundle (${_stage})
+
+Self-contained deploy of the image ${_image}.
+
+  ./deploy.sh up      load the image + docker compose up -d
+  ./deploy.sh down    docker compose down
+  ./deploy.sh logs    docker compose logs (add -f to follow)
+
+Contents:
+  image.tar.xz   the container image (deploy.sh docker-loads it)
+  compose.yaml   fully-resolved, self-contained (do NOT edit)
+  config/        operator-tunable config copies (edit, then ./deploy.sh up)
+  deploy.sh      this launcher
+  README         this file
+
+Caution: compose.yaml is machine-generated and fully resolved. To adjust a
+tunable value in the field, edit the matching file under config/ (a mounted
+copy wins over the baked default) and re-run ./deploy.sh up -- do not edit
+compose.yaml. restart: unless-stopped means the container auto-starts on
+host reboot; use ./deploy.sh down to stop it.
+EOF
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -513,45 +684,56 @@ _bake_config_copy() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_deploy_bundle <base_path> <stage> <out_bundle>
+# _generate_deploy_bundle <base_path> <stage> <out_dir>
 #
-# S6c oforchestrate the self-contained field bundle.
-#   1. resolve image name + [environment] defaults
-#   2. _generate_runtime_dockerfile -> baked-ENV Dockerfile (S3); falls
-#      back to the plain Dockerfile when there is no runtime stage / no
-#      [environment]
-#   3. _bake_config_copy -> COPY config/app into the image when present (S4)
-#   4. docker build --target <stage> -t <name>:<stage>
-#   5. _generate_deploy_sh -> deploy.sh (S6b-gen)
-#   6. docker save -> image.tar
-#   7. tar -cJf <out_bundle> image.tar deploy.sh  (the tar.xz field bundle)
+# Orchestrate the self-contained field-deploy FOLDER (ADR-00000023 sec.3;
+# supersedes the raw-run tar.xz{image, docker-run deploy.sh}). Produces, under
+# <out_dir> (the caller's `deploy/<repo>-<stage>-<version>/`):
+#   image.tar.xz   the image (deploy.sh docker-loads it), tagged
+#                  <repo>:<stage>-<version> so field versions never collide
+#   compose.yaml   fully-resolved, self-contained (no ${VAR} / setup.conf dep)
+#   config/        editable copies of each tunable file (baked default, the
+#                  compose binds them mount-wins), from _collect_deploy_binds
+#   deploy.sh      thin up/down/logs launcher
+#   README         generic base template
 #
-# The generated Dockerfile + deploy.sh are written under a temp dir (no
-# repo side effect; `docker build -f <tmp> <base>` keeps the build context
-# at the repo). The docker / tar steps go through _dry_run_cmd, so
-# DRY_RUN=true prints the plan without building. Field flow: extract the
-# bundle, `docker load < image.tar`, `./deploy.sh`.
+# Steps: resolve name/version/image -> collect tunable binds (fail loud on a
+# malformed / duplicate-basename manifest) -> bake [environment] ENV (S3) +
+# COPY config/app (S4) into a temp Dockerfile -> docker build --target ->
+# docker save | xz -> extract each tunable's baked default into config/ ->
+# generate compose.yaml + deploy.sh + README -> install into <out_dir>.
+#
+# The compose / deploy.sh / README are written docker-free up front (so the
+# plan is inspectable), while the docker / xz / cp / install steps run
+# through _dry_run_cmd, so DRY_RUN=true prints the plan without building and
+# leaves no side effect (the temp workdir is removed).
 # ════════════════════════════════════════════════════════════════════
 _generate_deploy_bundle() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
-  local _bundle="${3:?"${FUNCNAME[0]}: missing out_bundle"}"
+  local _out_dir="${3:?"${FUNCNAME[0]}: missing out_dir"}"
 
   local _name=""
   BASE_PATH="${_base}" detect_image_name _name "${_base}"
-  local _image="${_name}:${_stage}"
+  local _version; _version="$(_resolve_deploy_version "${_base}")"
+  local _image="${_name}:${_stage}-${_version}"
   local _container="${_name}-${_stage}"
 
   local -A _ctx=()
   _resolve_deploy_context "${_base}" _ctx
 
+  # Tunable-manifest binds; a malformed / duplicate-basename manifest fails
+  # loud BEFORE any build side effect.
+  local -A _binds=()
+  _collect_deploy_binds "${_base}" "${_stage}" _binds || return 1
+
   local _work
   _work="$(mktemp -d)"
+  mkdir -p "${_work}/config"
   local _gen="${_work}/Dockerfile.deploy"
   local _build_dockerfile="${_base}/Dockerfile"
 
-  # Bake [environment] as ENV into the runtime stage (S3). On no-op (no
-  # runtime stage / empty env) keep the plain Dockerfile.
+  # Bake [environment] as ENV (S3); no-op keeps the plain Dockerfile.
   if _generate_runtime_dockerfile "${_base}/Dockerfile" "${_ctx["env_str"]}" "${_gen}"; then
     _build_dockerfile="${_gen}"
   fi
@@ -561,18 +743,59 @@ _generate_deploy_bundle() {
     _build_dockerfile="${_gen}"
   fi
 
-  # Generate the field launcher up front so the plan is inspectable even
-  # under DRY_RUN (the docker/tar steps below are the only guarded ones).
-  _generate_deploy_sh "${_base}" "${_stage}" "${_image}" "${_container}" "${_work}/deploy.sh" _ctx
+  # Deterministic, docker-free artifacts up front (inspectable under DRY_RUN).
+  _generate_resolved_compose "${_base}" "${_stage}" "${_image}" "${_container}" \
+    "${_work}/compose.yaml" _binds _ctx
+  _generate_deploy_launcher "${_work}/deploy.sh" "${_stage}"
+  _render_deploy_readme "${_work}/README" "${_name}" "${_stage}" "${_image}"
 
   local _rc=0
+  # Build the image tagged <repo>:<stage>-<version> so the field docker load
+  # aligns with the compose image ref.
   _dry_run_cmd docker build --target "${_stage}" \
     -f "${_build_dockerfile}" -t "${_image}" "${_base}" || _rc=$?
+  # Save + xz-compress into the bundle (deploy.sh unxz | docker loads it).
   if (( _rc == 0 )); then
     _dry_run_cmd docker save -o "${_work}/image.tar" "${_image}" || _rc=$?
   fi
   if (( _rc == 0 )); then
-    _dry_run_cmd tar -C "${_work}" -cJf "${_bundle}" image.tar deploy.sh || _rc=$?
+    _dry_run_cmd xz -f "${_work}/image.tar" || _rc=$?
+  fi
+  # Extract each tunable's baked default into the editable config/ folder via
+  # one throwaway container. The image MUST bake a FILE at every declared
+  # tunable path: the field bind mounts config/<basename> OVER that baked
+  # default (mount-wins), and a bind whose target does not exist as a file
+  # fails at `deploy.sh up` with a cryptic runc "mount a directory onto a
+  # file" error. Catch it here at generate time with a clear, actionable
+  # message instead (never-fail-silently, PRD invariant 2).
+  if (( _rc == 0 )) && (( ${#_binds[@]} > 0 )); then
+    local _xc="${_container}-cfgextract"
+    _dry_run_cmd docker create --name "${_xc}" "${_image}" || _rc=$?
+    local _bn _cp_ok
+    for _bn in "${!_binds[@]}"; do
+      (( _rc == 0 )) || break
+      _cp_ok=1
+      _dry_run_cmd docker cp "${_xc}:${_binds["${_bn}"]}" "${_work}/config/${_bn}" || _cp_ok=0
+      # A real run must land a regular file. DRY_RUN only plans (docker cp is
+      # echoed, nothing is written), so skip the existence check there.
+      if [[ "${DRY_RUN:-false}" != "true" ]] \
+         && { (( ! _cp_ok )) || [[ ! -f "${_work}/config/${_bn}" ]]; }; then
+        _log_err setup deploy_manifest_no_baked_default \
+          "display=[setup] deploy: config/<component>/deploy.manifest declares ${_binds["${_bn}"]} as tunable, but the ${_stage} image bakes no file there. The Dockerfile must COPY or create a default file at ${_binds["${_bn}"]} (the field bind mounts an editable copy over that baked default; ADR-00000023)." \
+          "path=${_binds["${_bn}"]}" "stage=${_stage}"
+        _rc=1
+        break
+      fi
+    done
+    _dry_run_cmd docker rm -f "${_xc}" || true
+  fi
+
+  # Install the assembled bundle into the output folder.
+  if (( _rc == 0 )); then
+    _dry_run_cmd mkdir -p "${_out_dir}" || _rc=$?
+  fi
+  if (( _rc == 0 )); then
+    _dry_run_cmd cp -a "${_work}/." "${_out_dir}/" || _rc=$?
   fi
 
   rm -rf "${_work}"

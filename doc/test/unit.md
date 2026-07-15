@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2244 tests**.
+Unit specs under `test/bats/unit/`: **2237 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1365,67 +1365,80 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (49)
+### test/bats/unit/deploy_spec.bats (31)
 
-Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
-the pure mapping from a resolved docker-flag record to a `docker run`
-argv fragment for the self-contained `deploy.sh` field launcher. Asserts
-each flag mapping plus the conditional gates that mirror the compose
-emit (shm only when ipc != host, ports only under bridge, gpu `all` vs
-`count=N,capabilities`, device propagation -> `-v`, runtime off/auto
-skipped, ipc `private` skipped) and the deliberate omissions
-(`[environment]` baked, gui dev-only).
+Covers the self-contained field-deploy generator (#832; ADR-3 amended by
+ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
+self-contained `docker compose` (superseding the #497 raw `docker run`
+tar.xz): `_resolve_deploy_version` (the `<repo>:<stage>-<version>` image
+stamp), `_resolve_deploy_context` (the conf-resolution shared with apply),
+`_generate_resolved_compose` (the resolved `compose.yaml` -- no variable
+interpolation, no `setup.conf`/`.env` dependency, dev-host workspace bind
+stripped, `restart: unless-stopped` added, tunable-manifest paths bound,
+per-stage params carried, follows the stage for GUI/X11),
+`_generate_deploy_launcher` (the thin up/down/logs `deploy.sh`), and
+`_generate_deploy_bundle` (the folder orchestrator; docker/xz/cp steps
+mocked via `_dry_run_cmd`, no real daemon).
 
 | Test | Description |
 |------|-------------|
-| `privileged=true emits --privileged` | privileged |
-| `gpu count=0 emits --gpus all` | gpu all |
-| `gpu count>0 emits count+capabilities spec` | gpu partition |
-| `gpu=false emits no --gpus` | gpu off |
-| `runtime=nvidia emits --runtime=nvidia` | runtime on |
-| `runtime off/auto/empty emits no --runtime` | runtime skip |
-| `net host emits --network=host` | net host |
-| `net bridge + name emits --network=<name>` | net named bridge |
-| `net bridge without name emits no --network` | default bridge |
-| `ipc host emits --ipc=host; private is skipped` | ipc gate |
-| `pid host emits --pid=host` | pid host |
-| `shm_size emitted only when ipc != host` | shm gate |
-| `restart emitted only when set and != no` | restart gate |
-| `volumes each emit -v` | volumes |
-| `ports emit -p only under bridge` | ports gate |
-| `plain device -> --device, propagation device -> -v` | device split |
-| `caps + security_opt map to docker run flags` | caps/secopt |
-| `dri_groups (space-sep) each map to --group-add` | group-add |
-| `cgroup_rules map to --device-cgroup-rule` | cgroup rules |
-| `environment and gui are NOT mapped (baked / dev-only)` | omissions |
-| `empty record emits nothing` | empty no-op |
+| `_resolve_deploy_version: returns the tag in a tagged git tree` | version tag |
+| `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes` | dirty stamp |
+| `_resolve_deploy_version: degrades to 'unknown' outside a git tree` | non-git fallback |
 | `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
 | `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
 | `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
 | `_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override` | dri auto |
 | `_resolve_deploy_context: dri_groups off yields empty` | dri off |
-| `_generate_deploy_sh: writes an executable launcher with the expected skeleton` | launcher skeleton |
-| `_generate_deploy_sh: inlines global [security] privileged + caps + devices` | global security/devices |
-| `_generate_deploy_sh: gpu force inlines --gpus count + capabilities + runtime` | gpu inline |
-| `_generate_deploy_sh: network host inlines --network=host` | network inline |
-| `_generate_deploy_sh: omits -e (env baked) and -v (no dev binds)` | env/volume omission |
-| `_generate_deploy_sh: [lifecycle] restart inlines --restart` | restart inline |
-| `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
-| `_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)` | per-stage caps clear |
-| `_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append |
-| `_generate_deploy_sh: consumes a passed pre-resolved ctx instead of re-resolving (#563)` | resolve-once seam |
-| `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
+| `_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned` | resolved + self-contained |
+| `_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e)` | dev-host strip |
+| `_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default` | tunable binds |
+| `_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices)` | per-stage params |
+| `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11` | follow-stage GUI |
+| `_generate_resolved_compose: per-stage [stage:runtime] override is applied` | per-stage override |
+| `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc` | ipc/shm literals |
+| `_generate_deploy_launcher: writes an executable up/down/logs launcher` | launcher shape |
+| `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit` | no-arg default up |
+| `_generate_deploy_launcher: generated launcher is ShellCheck-clean` | shellcheck-clean output |
 | `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
 | `_bake_config_copy: handles src == out in place` | in-place bake |
-| `_generate_deploy_bundle: dry-run plans build --target + save + tar.xz` | bundle plan |
+| `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
-| `_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies` | plain build |
-| `_setup_deploy: --dry-run previews the launcher + prints the build plan` | deploy dry-run |
+| `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path` | tunable extract |
+| `_generate_deploy_bundle: a malformed manifest fails loud before building` | fail-loud guard |
+| `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path` | missing baked default |
+| `_setup_deploy: --dry-run previews the resolved compose + prints the build plan` | deploy dry-run |
 | `_setup_deploy: refuses in a non-interactive shell without -y` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag` | arg validation |
 | `_setup_deploy: --stage selects the target stage` | stage select |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
+
+### test/bats/unit/deploy_manifest_spec.bats (11)
+
+Covers the per-component tunable-config manifest primitives (#833;
+ADR-00000023 sec.5): `_parse_deploy_manifest` (a committed,
+downstream-owned `config/<component>/deploy.manifest` declaring the
+container-internal paths an operator may override per stage) and
+`_collect_deploy_binds` (aggregating every component's declarations by
+basename, the name the file takes in the bundle `config/` + its compose
+bind). base delivers files; it does not parse content. A missing manifest
+is nothing-tunable (fail-safe); a malformed manifest, or a duplicate
+basename across components, fails loud.
+
+| Test | Description |
+|------|-------------|
+| `_parse_deploy_manifest: returns only the requested stage's paths` | per-stage selection |
+| `_parse_deploy_manifest: a path unlisted for the stage stays baked-only` | unlisted = baked |
+| `_parse_deploy_manifest: skips blank + comment lines and trims whitespace` | lexing |
+| `_parse_deploy_manifest: a missing manifest is not an error -> empty` | missing = empty |
+| `_parse_deploy_manifest: a malformed section header fails loud` | bad section |
+| `_parse_deploy_manifest: a non-absolute content line fails loud` | non-absolute path |
+| `_parse_deploy_manifest: a path before any section fails loud` | orphan path |
+| `_collect_deploy_binds: aggregates every component's stage paths keyed by basename` | aggregation |
+| `_collect_deploy_binds: no manifests -> empty map (nothing tunable)` | nothing tunable |
+| `_collect_deploy_binds: duplicate basename across components fails loud` | basename collision |
+| `_collect_deploy_binds: propagates a malformed manifest failure` | fail propagation |
 
 ### test/bats/unit/compose_logging_spec.bats (19)
 
