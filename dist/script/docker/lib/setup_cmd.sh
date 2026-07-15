@@ -1332,18 +1332,18 @@ _setup_apply() {
 # _setup_deploy [-h] [--base-path P] [--lang L] [--stage S]
 #               [--output|-o F] [--dry-run] [-y|--yes] [-q|--quiet]
 #
-# S6d ofuser-facing entry for the self-contained field
-# deploy bundle. Previews the resolved field launcher (every inlined
-# docker-level flag -- the per-parameter review), asks for confirmation,
-# then calls _generate_deploy_bundle (S6c) to build the immutable image
-# and write the tar.xz bundle. `--dry-run` prints the build plan without
-# building (and skips the prompt); `-y` skips the prompt; a non-tty shell
-# without `-y` refuses (mirrors `reset`). Default stage is `runtime`;
-# default output is <base>/deploy/<name>-<stage>.tar.xz.
+# User-facing entry for the self-contained field-deploy FOLDER
+# (ADR-00000023). Previews the fully-resolved compose.yaml (the field
+# artifact -- every resolved param, no ${VAR}), asks for confirmation, then
+# calls _generate_deploy_bundle to build the immutable image and assemble
+# the bundle folder. `--dry-run` prints the plan without building (and skips
+# the prompt); `-y` skips the prompt; a non-tty shell without `-y` refuses
+# (mirrors `reset`). Default stage is `runtime`; default output is
+# <base>/deploy/<name>-<stage>-<version>/ (version = git describe).
 #
 # Note: the graphical per-param TUI page (setup_tui.sh) is an optional
 # fast-follow -- this plain-text preview already surfaces every resolved
-# flag and is script / CI friendly (the issue invited the lighter flow).
+# param and is script / CI friendly (the issue invited the lighter flow).
 # ════════════════════════════════════════════════════════════════════
 _setup_deploy() {
   local _base_path="" _stage="runtime" _output="" _yes=0 _quiet=0 _dry=0
@@ -1376,17 +1376,21 @@ _setup_deploy() {
 
   local _name=""
   BASE_PATH="${_base_path}" detect_image_name _name "${_base_path}"
-  [[ -z "${_output}" ]] && _output="${_base_path}/deploy/${_name}-${_stage}.tar.xz"
+  local _version; _version="$(_resolve_deploy_version "${_base_path}")"
+  local _image="${_name}:${_stage}-${_version}"
+  [[ -z "${_output}" ]] && _output="${_base_path}/deploy/${_name}-${_stage}-${_version}"
 
-  # Per-parameter review: generate the launcher to a temp file and print
-  # it so the user sees every inlined docker-level flag before building.
+  # Per-parameter review: render the resolved compose to a temp file and
+  # print it so the user sees every resolved field param before building.
   if (( ! _quiet )); then
     local _preview
     _preview="$(mktemp)"
-    _generate_deploy_sh "${_base_path}" "${_stage}" "${_name}:${_stage}" "${_name}-${_stage}" "${_preview}"
-    printf '[setup] deploy plan: stage=%s image=%s:%s bundle=%s\n' \
-      "${_stage}" "${_name}" "${_stage}" "${_output}"
-    printf '[setup] field launcher to be generated (review every flag):\n'
+    local -A _pv_binds=()
+    _collect_deploy_binds "${_base_path}" "${_stage}" _pv_binds || { rm -f "${_preview}"; return 1; }
+    _generate_resolved_compose "${_base_path}" "${_stage}" "${_image}" "${_name}-${_stage}" "${_preview}" _pv_binds
+    printf '[setup] deploy plan: stage=%s image=%s bundle=%s\n' \
+      "${_stage}" "${_image}" "${_output}"
+    printf '[setup] resolved compose.yaml to be generated (review every param):\n'
     sed 's/^/    /' "${_preview}"
     rm -f "${_preview}"
   fi
@@ -1410,7 +1414,6 @@ _setup_deploy() {
     esac
   fi
 
-  mkdir -p "$(dirname -- "${_output}")"
   local _rc=0
   if (( _dry )); then
     DRY_RUN=true _generate_deploy_bundle "${_base_path}" "${_stage}" "${_output}" || _rc=$?
@@ -1424,7 +1427,7 @@ _setup_deploy() {
 
   if (( ! _quiet )) && (( ! _dry )); then
     _log_info setup deploy_done "display=[setup] deploy bundle written: ${_output}"
-    printf "[setup] field flow: tar -xJf %s && docker load < image.tar && ./deploy.sh\n" \
+    printf "[setup] field flow: copy %s to the target, then run ./deploy.sh up\n" \
       "$(basename -- "${_output}")"
   fi
   return 0

@@ -1,0 +1,39 @@
+# @REPO@ field deploy bundle (@STAGE@)
+
+A self-contained deploy of the image `@IMAGE@`. Everything needed to run it
+in the field travels in this folder; the target host does NOT need base's
+toolchain, source tree, or `setup.conf`.
+
+## Run it
+
+    ./deploy.sh up      load the image, then `docker compose up -d`
+    ./deploy.sh down    `docker compose down`
+    ./deploy.sh logs    `docker compose logs` (add `-f` to follow)
+
+`up` docker-loads `image.tar.xz` then starts the resolved `compose.yaml`.
+The service uses `restart: unless-stopped`, so it auto-starts on host
+reboot; stop it with `./deploy.sh down`.
+
+## Contents
+
+    image.tar.xz   the container image (deploy.sh docker-loads it)
+    compose.yaml   fully-resolved, self-contained compose (do NOT edit)
+    config/        operator-tunable config copies (see below)
+    deploy.sh      this launcher
+    README         this file
+
+## Adjusting config in the field (no rebuild)
+
+`config/` holds an editable copy of each file the component declared as
+operator-tunable (`config/<component>/deploy.manifest`). Edit a file under
+`config/`, then re-run `./deploy.sh up`: the mounted copy wins over the
+image's baked default. Files NOT under `config/` are baked-only and require
+a rebuild to change.
+
+Do not edit `compose.yaml` -- it is machine-generated and fully resolved.
+Adjust behavior through `config/` instead.
+
+## Image identity
+
+The image is tagged `@IMAGE@` (`<repo>:<stage>-<version>`, version from
+`git describe`), so loading multiple versions on one host never collides.

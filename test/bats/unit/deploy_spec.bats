@@ -1,15 +1,17 @@
 #!/usr/bin/env bats
 #
-# Tests for the S6 deploy-generator primitives in
-# dist/script/docker/wrapper/setup.sh. S6a delivers _emit_docker_run_flags:
-# the pure mapping from a resolved docker-flag record (the
-# _resolve_docker_flags S5 output, plus the top-level-only fields
-# devices / caps / security_opt / shm_size / dri_groups / cgroup_rules /
-# restart) to a `docker run` argv fragment for the field launcher.
-#
-# [environment] is intentionally NOT mapped (it is baked into the image
-# as ENV by S3), and gui is out of scope (the field launcher targets
-# headless run; gui / X11 is a dev-only compose concern).
+# Tests for the self-contained field-deploy generator in
+# dist/script/docker/lib/deploy.sh. The deploy model produces an output
+# FOLDER run via a fully-resolved, self-contained docker compose (ADR-3
+# amended by ADR-00000023): _resolve_deploy_version (image-identity stamp),
+# _resolve_deploy_context (the conf-resolution shared with apply),
+# _generate_resolved_compose (the resolved compose.yaml -- no variable
+# interpolation, no setup.conf/.env dep, dev-host binds stripped, restart
+# added, tunable-manifest paths bound, per-stage params carried),
+# _generate_deploy_launcher (the thin up/down/logs deploy.sh), and
+# _generate_deploy_bundle (the folder orchestrator; docker steps mocked via
+# _dry_run_cmd, no real daemon). The tunable-manifest parser lives in its
+# sibling deploy_manifest_spec.bats.
 
 bats_require_minimum_version 1.5.0
 
@@ -19,10 +21,10 @@ setup() {
   source /source/dist/script/docker/wrapper/setup.sh
 }
 
-# Helper: join the emitted argv array into a single space-separated line
-# so tests can assert on substrings without caring about element count.
-_run_line() {
-  printf '%s ' "${@}"
+_write_conf() {
+  local _dir="${1}"; shift
+  mkdir -p "${_dir}/config/docker"
+  printf '%s\n' "$@" > "${_dir}/config/docker/setup.conf"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -64,216 +66,11 @@ _run_line() {
   rm -rf "${_d}"
 }
 
-@test "_emit_docker_run_flags: privileged=true emits --privileged (#506)" {
-  local -A _f=([privileged]="true")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--privileged"
-}
-
-@test "_emit_docker_run_flags: gpu count=0 emits --gpus all (#506)" {
-  local -A _f=([gpu]="true" [gpu_count]="0" [gpu_caps]="gpu")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--gpus all"
-}
-
-@test "_emit_docker_run_flags: gpu count>0 emits count+capabilities spec (#506)" {
-  local -A _f=([gpu]="true" [gpu_count]="2" [gpu_caps]="gpu compute")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--gpus count=2,capabilities=gpu,compute"
-}
-
-@test "_emit_docker_run_flags: gpu=false emits no --gpus (#506)" {
-  local -A _f=([gpu]="false" [gpu_count]="2")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  refute_output --partial "--gpus"
-}
-
-@test "_emit_docker_run_flags: runtime=nvidia emits --runtime=nvidia (#506)" {
-  local -A _f=([runtime]="nvidia")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--runtime=nvidia"
-}
-
-@test "_emit_docker_run_flags: runtime off/auto/empty emits no --runtime (#506)" {
-  local _m
-  for _m in "off" "auto" ""; do
-    local -A _f=([runtime]="${_m}")
-    local -a _out=()
-    _emit_docker_run_flags _f _out
-    run _run_line "${_out[@]}"
-    refute_output --partial "--runtime"
-  done
-}
-
-@test "_emit_docker_run_flags: net host emits --network=host (#506)" {
-  local -A _f=([net_mode]="host")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--network=host"
-}
-
-@test "_emit_docker_run_flags: net bridge + name emits --network=<name> (#506)" {
-  local -A _f=([net_mode]="bridge" [net_name]="mynet")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--network=mynet"
-}
-
-@test "_emit_docker_run_flags: net bridge without name emits no --network (default bridge) (#506)" {
-  local -A _f=([net_mode]="bridge")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  refute_output --partial "--network"
-}
-
-@test "_emit_docker_run_flags: ipc host emits --ipc=host; private is skipped (#506)" {
-  local -A _f=([ipc_mode]="host")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--ipc=host"
-  local -A _f2=([ipc_mode]="private")
-  local -a _out2=()
-  _emit_docker_run_flags _f2 _out2
-  run _run_line "${_out2[@]}"
-  refute_output --partial "--ipc"
-}
-
-@test "_emit_docker_run_flags: pid host emits --pid=host (#506)" {
-  local -A _f=([pid_mode]="host")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--pid=host"
-}
-
-@test "_emit_docker_run_flags: shm_size emitted only when ipc \!= host (#506)" {
-  local -A _f=([shm_size]="256m" [ipc_mode]="private")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--shm-size=256m"
-  local -A _f2=([shm_size]="256m" [ipc_mode]="host")
-  local -a _out2=()
-  _emit_docker_run_flags _f2 _out2
-  run _run_line "${_out2[@]}"
-  refute_output --partial "--shm-size"
-}
-
-@test "_emit_docker_run_flags: restart emitted only when set and \!= no (#506)" {
-  local -A _f=([restart]="on-failure")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--restart=on-failure"
-  local -A _f2=([restart]="no")
-  local -a _out2=()
-  _emit_docker_run_flags _f2 _out2
-  run _run_line "${_out2[@]}"
-  refute_output --partial "--restart"
-}
-
-@test "_emit_docker_run_flags: volumes each emit -v (#506)" {
-  local -A _f=([volumes]=$'./a:/a\nstate:/srv/state')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "-v ./a:/a"
-  assert_output --partial "-v state:/srv/state"
-}
-
-@test "_emit_docker_run_flags: ports emit -p only under bridge (#506)" {
-  local -A _f=([net_mode]="bridge" [ports]=$'8080:80')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "-p 8080:80"
-  local -A _f2=([net_mode]="host" [ports]=$'8080:80')
-  local -a _out2=()
-  _emit_docker_run_flags _f2 _out2
-  run _run_line "${_out2[@]}"
-  refute_output --partial "-p 8080:80"
-}
-
-@test "_emit_docker_run_flags: plain device -> --device, propagation device -> -v (#506)" {
-  local -A _f=([devices]=$'/dev/ttyUSB0\n/dev:/dev:rslave')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--device /dev/ttyUSB0"
-  assert_output --partial "-v /dev:/dev:rslave"
-  refute_output --partial "--device /dev:/dev:rslave"
-}
-
-@test "_emit_docker_run_flags: caps + security_opt map to docker run flags (#506)" {
-  local -A _f=([cap_add]=$'SYS_ADMIN\nNET_ADMIN' [cap_drop]=$'MKNOD' [security_opt]=$'seccomp:unconfined')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--cap-add SYS_ADMIN"
-  assert_output --partial "--cap-add NET_ADMIN"
-  assert_output --partial "--cap-drop MKNOD"
-  assert_output --partial "--security-opt seccomp:unconfined"
-}
-
-@test "_emit_docker_run_flags: dri_groups (space-sep) each map to --group-add (#506)" {
-  local -A _f=([dri_groups]="44 110")
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--group-add 44"
-  assert_output --partial "--group-add 110"
-}
-
-@test "_emit_docker_run_flags: cgroup_rules map to --device-cgroup-rule (#506)" {
-  local -A _f=([cgroup_rules]=$'c 81:* rmw')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  assert_output --partial "--device-cgroup-rule c 81:* rmw"
-}
-
-@test "_emit_docker_run_flags: environment and gui are NOT mapped (baked / dev-only) (#506)" {
-  local -A _f=([gui]="true" [environment]=$'FOO=bar')
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  run _run_line "${_out[@]}"
-  refute_output --partial "FOO=bar"
-  refute_output --partial "DISPLAY"
-  refute_output --partial "X11"
-}
-
-@test "_emit_docker_run_flags: empty record emits nothing (#506)" {
-  local -A _f=()
-  local -a _out=()
-  _emit_docker_run_flags _f _out
-  assert_equal "${#_out[@]}" "0"
-}
-
 # ════════════════════════════════════════════════════════════════════
-# _resolve_deploy_context (S6b,) — the shared conf-resolution layer
-# used by both apply and the deploy generator. Loads setup.conf sections
-# and resolves the docker/build scalars + list strings into one record.
+# _resolve_deploy_context -- the conf-resolution layer shared by both apply
+# and the deploy generator. Loads setup.conf sections and resolves the
+# docker/build scalars + list strings into one record.
 # ════════════════════════════════════════════════════════════════════
-
-_write_conf() {
-  local _dir="${1}"; shift
-  mkdir -p "${_dir}/config/docker"
-  printf '%s\n' "$@" > "${_dir}/config/docker/setup.conf"
-}
 
 @test "_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)" {
   local _d; _d="$(mktemp -d)"
@@ -304,11 +101,6 @@ _write_conf() {
 }
 
 @test "_resolve_deploy_context: applies effective defaults for a minimal repo conf (#506)" {
-  # A repo conf that omits [deploy]/[network]/... still resolves through
-  # the template-merged effective config (_load_setup_conf merges template
-  # + per-repo), matching what apply produces. gpu_capabilities is omitted
-  # here because its value is template-driven (not a bare _get_conf_value
-  # fallback); the keys below are stable across template + bare default.
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[image_name]" "name = placeholder"
   local -A _ctx=()
@@ -334,12 +126,6 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
-# SETUP_DETECT_DRI_GROUPS is a documented, supported operator override of
-# the /dev/dri host probe (README "Host-detection overrides" + setup.sh
-# --help). These deploy specs use it to pin host detection to a known
-# value -- a real value to assert the auto path emits group_add, or the
-# empty string to pin "no host /dev/dri groups" so the launcher output is
-# deterministic regardless of the test host's actual GPU devices.
 @test "_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override (#506/#496)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "dri_groups = auto"
@@ -359,203 +145,176 @@ _write_conf() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_deploy_sh (S6b-gen,) — writes the self-contained field
-# launcher by tying _resolve_deploy_context + _resolve_docker_flags +
-# _emit_docker_run_flags together. Generated file is chmod +x and
-# ShellCheck-clean; carries docker-level flags only (no -e / no -v).
+# _generate_resolved_compose -- the fully-resolved, self-
+# contained field compose.yaml. No variable interpolation, no
+# setup.conf/.env dependency, no build section, dev-host binds stripped;
+# restart: unless-stopped added; tunable-manifest paths bound; per-stage
+# resolved params carried; follows the stage (does not blanket-strip GUI).
 # ════════════════════════════════════════════════════════════════════
 
-@test "_generate_deploy_sh: writes an executable launcher with the expected skeleton (#506)" {
+# Deterministic headless conf: no gpu, no dri, gui off -> the resolved
+# compose carries only literals (nothing host- or display-dependent).
+_write_headless_conf() {
+  _write_conf "${1}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off"
+}
+
+@test "_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned (#832)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
+  _write_headless_conf "${_d}"
+  local _out="${_d}/compose.yaml"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "local/myrepo:runtime-v1.2.3" "myrepo-runtime" "${_out}" _binds
+  run cat "${_out}"
+  assert_success
+  # Fully resolved: no compose variable interpolation survives.
+  refute_output --partial '${'
+  assert_output --partial "image: local/myrepo:runtime-v1.2.3"
+  assert_output --partial "container_name: myrepo-runtime"
+  assert_output --partial "restart: unless-stopped"
+  assert_output --partial "network_mode: host"
+  # No build section / env_file / setup.conf dependency travels.
+  refute_output --partial "build:"
+  refute_output --partial "env_file"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e) (#832)" {
+  local _d; _d="$(mktemp -d)"
+  # SC2016: literal ${WS_PATH} is the portable workspace-bind form in
+  # setup.conf, not a shell expansion.
+  # shellcheck disable=SC2016
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[environment]" "env_1 = FOO=bar" \
+    "[volumes]" 'mount_1 = ${WS_PATH}:/work'
+  local _out="${_d}/compose.yaml"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_out}" _binds
+  run cat "${_out}"
+  refute_output --partial "WS_PATH"
+  refute_output --partial ":/work"
+  refute_output --partial "FOO=bar"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default (#833)" {
+  local _d; _d="$(mktemp -d)"
+  _write_headless_conf "${_d}"
+  local _out="${_d}/compose.yaml"
+  local -A _binds=([host.yaml]="/etc/app/host.yaml" [camera.yaml]="/camera_config.yaml")
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_out}" _binds
+  run cat "${_out}"
+  assert_output --partial "volumes:"
+  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml"
+  assert_output --partial "- ./config/camera.yaml:/camera_config.yaml"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices) (#832)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
+    "gpu_capabilities = gpu compute" "dri_groups = off" "[gui]" "mode = off" \
+    "[security]" "privileged = true" \
+    "[devices]" "device_1 = /dev/ttyUSB0"
+  local _out="${_d}/compose.yaml"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_out}" _binds
+  run cat "${_out}"
+  assert_output --partial "privileged: true"
+  assert_output --partial "driver: nvidia"
+  assert_output --partial "count: 2"
+  assert_output --partial "devices:"
+  assert_output --partial "- /dev/ttyUSB0"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)" {
+  local _d; _d="$(mktemp -d)"
+  # gui off -> no X11.
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/off.yaml" _binds
+  run cat "${_d}/off.yaml"
+  refute_output --partial "DISPLAY"
+  refute_output --partial "X11-unix"
+  # gui force -> X11 passthrough travels (a gui stage is not stripped).
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = force"
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/on.yaml" _binds
+  run cat "${_d}/on.yaml"
+  assert_output --partial "DISPLAY"
+  assert_output --partial "/tmp/.X11-unix:/tmp/.X11-unix:ro"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[network]" "mode = host" \
+    "[stage:runtime]" "network.mode = bridge" "network.network_name = fieldnet"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run cat "${_d}/compose.yaml"
+  assert_output --partial "- fieldnet"
+  assert_output --partial "driver: bridge"
+  refute_output --partial "network_mode: host"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[network]" "ipc = private" "[resources]" "shm_size = 256m"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run cat "${_d}/compose.yaml"
+  assert_output --partial "shm_size: 256m"
+  refute_output --partial '${'
+  rm -rf "${_d}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_launcher -- the thin up/down/logs deploy.sh.
+# No inlined docker flags; loads the image + drives compose. chmod +x,
+# ShellCheck-clean.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)" {
+  local _d; _d="$(mktemp -d)"
   local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "local/myrepo:runtime" "myrepo-field" "${_out}"
+  _generate_deploy_launcher "${_out}" runtime
   [ -x "${_out}" ]
   run cat "${_out}"
   assert_output --partial "/usr/bin/env bash"
   assert_output --partial "set -euo pipefail"
-  # %q-quoted default (no outer double-quotes); a clean name needs no
-  # escaping so it reads as the bare token.
-  assert_output --partial 'IMAGE=${DEPLOY_IMAGE:-local/myrepo:runtime}'
-  assert_output --partial 'CONTAINER_NAME=${DEPLOY_CONTAINER_NAME:-myrepo-field}'
-  assert_output --partial "exec docker run"
-  assert_output --partial '"${IMAGE}"'
-  assert_output --partial '"$@"'
+  assert_output --partial "docker load"
+  assert_output --partial "docker compose up -d"
+  assert_output --partial "docker compose down"
+  assert_output --partial "docker compose logs"
+  # No inlined docker run flags (the compose carries everything).
+  refute_output --partial "docker run"
   rm -rf "${_d}"
 }
 
-@test "_generate_deploy_sh: inlines global [security] privileged + caps + devices (#506)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[security]" "privileged = true" "cap_add_1 = SYS_ADMIN" \
-    "[devices]" "device_1 = /dev/ttyUSB0"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "--privileged"
-  assert_output --partial "--cap-add"
-  assert_output --partial "SYS_ADMIN"
-  assert_output --partial "--device"
-  assert_output --partial "/dev/ttyUSB0"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: gpu force inlines --gpus count + capabilities + runtime (#506)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
-    "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" "dri_groups = off"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "--gpus"
-  assert_output --partial "count=2"
-  # %q escapes the comma in the generated file (count=2\,capabilities=gpu\,compute);
-  # the shell unescapes it back to a comma at field run time.
-  assert_output --partial "capabilities=gpu"
-  assert_output --partial "--runtime=nvidia"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: network host inlines --network=host (#506)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[network]" "mode = host"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "--network=host"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: omits -e (env baked) and -v (no dev binds) (#506)" {
-  local _d; _d="$(mktemp -d)"
-  # SC2016: the literal ${WS_PATH} is intentional -- it is the portable
-  # workspace-bind form written verbatim into setup.conf, not a shell expansion.
-  # shellcheck disable=SC2016
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[environment]" "env_1 = FOO=bar" \
-    "[volumes]" 'mount_1 = ${WS_PATH}:/work'
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  refute_output --partial "FOO=bar"
-  refute_output --partial " -e "
-  refute_output --partial " -v "
-  refute_output --partial "/work"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: [lifecycle] restart inlines --restart (#506)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[lifecycle]" "restart = on-failure"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "--restart=on-failure"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: per-stage [stage:runtime] override is applied (#506)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[network]" "mode = host" \
-    "[stage:runtime]" "network.mode = bridge" "network.network_name = fieldnet"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "--network=fieldnet"
-  refute_output --partial "--network=host"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[security]" "cap_add_1 = SYS_ADMIN" "security_opt_1 = seccomp:unconfined" \
-    "[stage:runtime]" "security.cap_add_inherit = false" "security.security_opt_inherit = false"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  refute_output --partial "SYS_ADMIN"
-  refute_output --partial "seccomp:unconfined"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)" {
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[security]" "cap_add_1 = SYS_ADMIN" \
-    "[stage:runtime]" "security.cap_add_1 = MKNOD"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
-  run cat "${_out}"
-  assert_output --partial "SYS_ADMIN"
-  assert_output --partial "MKNOD"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: consumes a passed pre-resolved ctx instead of re-resolving (#563)" {
-  local _d; _d="$(mktemp -d)"
-  # On-disk conf carries no [lifecycle], so a fresh resolve yields restart
-  # "no" (-> no --restart line). Resolve once, mutate the canonical record,
-  # and feed it through: the seam must consume THIS value, proving the deploy
-  # bundle resolves the context once and shares it rather than re-resolving.
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
-  local -A _ctx=()
-  SETUP_DETECT_DRI_GROUPS="" _resolve_deploy_context "${_d}" _ctx
-  _ctx[restart_policy]="on-failure"
-  local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}" _ctx
-  run cat "${_out}"
-  assert_output --partial "--restart=on-failure"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: generated launcher is ShellCheck-clean (#506)" {
+@test "_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
-    "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" "dri_groups = off" \
-    "[security]" "privileged = true" "cap_add_1 = SYS_ADMIN" \
-    "[devices]" "device_1 = /dev:/dev:rslave" \
-    "[lifecycle]" "restart = on-failure"
   local _out="${_d}/deploy.sh"
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh "${_d}" "runtime" "img" "name" "${_out}"
+  _generate_deploy_launcher "${_out}" runtime
   run shellcheck "${_out}"
   assert_success
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_sh: image_ref / container_name with metachars stay ShellCheck-clean + literal (#688)" {
-  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
-  local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off"
-  local _out="${_d}/deploy.sh"
-  # The docker-run flags are %q-quoted, but IMAGE / CONTAINER_NAME were
-  # inlined into the heredoc as a bare default expansion -- a `"` breaks
-  # the generated assignment and a `$(...)` would command-substitute at
-  # field run time. Feed both metachar shapes and assert the launcher is
-  # still ShellCheck-clean and the names survive literally.
-  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_sh \
-    "${_d}" "runtime" 'img$(id)' 'na"me' "${_out}"
-  run shellcheck "${_out}"
-  assert_success
-  # The names resolve at field run time to the exact literal strings (no
-  # command substitution, no broken quote). Evaluate just the IMAGE /
-  # CONTAINER_NAME assignment lines in a clean shell and echo them back.
-  run bash -c "
-    eval \"\$(grep -E '^(IMAGE|CONTAINER_NAME)=' '${_out}')\"
-    printf '%s\n%s\n' \"\${IMAGE}\" \"\${CONTAINER_NAME}\"
-  "
-  assert_success
-  assert_line --index 0 'img$(id)'
-  assert_line --index 1 'na"me'
   rm -rf "${_d}"
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _bake_config_copy (S4 deploy half) + _generate_deploy_bundle (S6c,)
-# orchestrator. The bundle orchestration's docker / tar steps run through
-# _dry_run_cmd, so DRY_RUN=true asserts the plan without building.
+# _bake_config_copy -- splice COPY config/app into the target
+# stage of the deploy Dockerfile.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_bake_config_copy: splices COPY config/app into the target stage (#506/#504)" {
@@ -569,7 +328,6 @@ DOCK
   _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out"
   run cat "${_d}/out"
   assert_output --partial "COPY config/app /opt/app/config"
-  # COPY lands inside the runtime stage (after its FROM, before CMD).
   local _from _copy _cmd
   _from="$(grep -n 'AS runtime' "${_d}/out" | head -1 | cut -d: -f1)"
   _copy="$(grep -n 'COPY config/app' "${_d}/out" | head -1 | cut -d: -f1)"
@@ -591,75 +349,16 @@ DOCK
   rm -rf "${_d}"
 }
 
-@test "_generate_deploy_bundle: dry-run plans build --target + save + tar.xz (#506)" {
-  local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
-  cat > "${_d}/Dockerfile" <<'DOCK'
-FROM scratch AS sys
-FROM sys AS devel
-FROM devel AS runtime
-CMD ["/app"]
-DOCK
-  local _bundle="${_d}/myrepo-runtime.deploy.tar.xz"
-  export DRY_RUN=true
-  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_bundle}"
-  unset DRY_RUN
-  assert_success
-  assert_output --partial "docker build --target runtime"
-  assert_output --partial "docker save"
-  assert_output --partial "tar -C"
-  assert_output --partial "-cJf"
-  assert_output --partial "${_bundle}"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#506/#503)" {
-  local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" > "${_d}/config/docker/setup.conf"
-  cat > "${_d}/Dockerfile" <<'DOCK'
-FROM scratch AS sys
-FROM sys AS devel
-FROM devel AS runtime
-CMD ["/app"]
-DOCK
-  export DRY_RUN=true
-  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/b.tar.xz"
-  unset DRY_RUN
-  assert_success
-  assert_output --partial "Dockerfile.deploy"
-  rm -rf "${_d}"
-}
-
-@test "_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies (#506)" {
-  local _d; _d="$(mktemp -d)"
-  mkdir -p "${_d}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" > "${_d}/config/docker/setup.conf"
-  cat > "${_d}/Dockerfile" <<'DOCK'
-FROM scratch AS sys
-FROM sys AS devel
-DOCK
-  export DRY_RUN=true
-  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "devel" "${_d}/b.tar.xz"
-  unset DRY_RUN
-  assert_success
-  assert_output --partial "-f ${_d}/Dockerfile "
-  refute_output --partial "Dockerfile.deploy"
-  rm -rf "${_d}"
-}
-
 # ════════════════════════════════════════════════════════════════════
-# _setup_deploy (S6d,) — the `setup.sh deploy` subcommand: preview +
-# confirmation + _generate_deploy_bundle. Plus dispatch wiring in main.
+# _generate_deploy_bundle -- the folder orchestrator. Docker / xz /
+# cp steps run through _dry_run_cmd, so DRY_RUN=true asserts the plan
+# without a real daemon.
 # ════════════════════════════════════════════════════════════════════
 
 _write_deploy_repo() {
   local _dir="${1}"
   mkdir -p "${_dir}/config/docker"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
+  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
     "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
     "[security]" "privileged = true" > "${_dir}/config/docker/setup.conf"
   cat > "${_dir}/Dockerfile" <<'DOCK'
@@ -670,21 +369,85 @@ CMD ["/app"]
 DOCK
 }
 
-@test "_setup_deploy: --dry-run previews the launcher + prints the build plan (#506)" {
+@test "_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  local _out_dir="${_d}/deploy/out"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_out_dir}"
+  unset DRY_RUN
+  assert_success
+  # Image tagged <repo>:<stage>-<version> (version from git describe;
+  # `unknown` outside a git tree here).
+  assert_output --partial "docker build --target runtime"
+  assert_output --partial ":runtime-"
+  assert_output --partial "docker save"
+  assert_output --partial "xz -f"
+  assert_output --partial "mkdir -p ${_out_dir}"
+  assert_output --partial "cp -a"
+  # No tar.xz single-file bundle anymore.
+  refute_output --partial "-cJf"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
+  unset DRY_RUN
+  assert_success
+  assert_output --partial "Dockerfile.deploy"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/config/camera"
+  printf '%s\n' "[runtime]" "/camera_config.yaml" > "${_d}/config/camera/deploy.manifest"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
+  unset DRY_RUN
+  assert_success
+  assert_output --partial "docker create"
+  assert_output --partial "docker cp"
+  assert_output --partial ":/camera_config.yaml"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: a malformed manifest fails loud before building (#833)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/config/camera"
+  printf '%s\n' "[runtime]" "not-absolute" > "${_d}/config/camera/deploy.manifest"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
+  unset DRY_RUN
+  assert_failure
+  refute_output --partial "docker build"
+  rm -rf "${_d}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_deploy -- the `setup.sh deploy` subcommand: resolved-compose
+# preview + confirmation + _generate_deploy_bundle (folder output).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_success
   assert_output --partial "deploy plan: stage=runtime"
-  assert_output --partial "field launcher to be generated"
-  assert_output --partial "--privileged"
+  assert_output --partial "resolved compose.yaml to be generated"
+  assert_output --partial "restart: unless-stopped"
   assert_output --partial "docker build --target runtime"
   assert_output --partial "docker save"
-  assert_output --partial "-cJf"
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: refuses in a non-interactive shell without -y (#506)" {
+@test "_setup_deploy: refuses in a non-interactive shell without -y (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}"
@@ -693,7 +456,7 @@ DOCK
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: errors when the repo has no Dockerfile (#506)" {
+@test "_setup_deploy: errors when the repo has no Dockerfile (#832)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/docker"
   printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/config/docker/setup.conf"
@@ -703,7 +466,7 @@ DOCK
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: rejects an unknown flag (#506)" {
+@test "_setup_deploy: rejects an unknown flag (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --bogus
@@ -711,7 +474,7 @@ DOCK
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: --stage selects the target stage (#506)" {
+@test "_setup_deploy: --stage selects the target stage (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel --dry-run
@@ -720,7 +483,7 @@ DOCK
   rm -rf "${_d}"
 }
 
-@test "main deploy routes to _setup_deploy (#506 dispatch)" {
+@test "main deploy routes to _setup_deploy (#832 dispatch)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run main deploy --base-path "${_d}" --dry-run
