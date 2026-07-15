@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **5 tests**.
+System specs under `test/bats/system/`: **7 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -65,3 +65,22 @@ default context.
 | `runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)` | `${var:offset:length}` works (would fail under `sh -c`) |
 | `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
 | `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
+
+### test/bats/system/deploy_bundle_e2e_spec.bats (2)
+
+A REAL field deploy end-to-end (ADR-00000023; System level, E2E type).
+Generates the bundle for real (`docker build` + `docker save | xz`),
+docker-loads the image, runs the generated `deploy.sh up` (real
+`docker compose up -d`), asserts the container is Up, then asserts the
+tunable-config override applies at the mounted container path (edit the
+bundle `config/`, re-up, read it back inside the container), and tears
+down with `deploy.sh down`. A tiny alpine `runtime` stage keeps it fast;
+the point is the orchestration (build -> save -> load -> compose up ->
+mount-wins override -> down), not a heavy image. Needs the `ci-system`
+service's docker.sock plus the `docker compose` plugin + `xz` baked into
+the test-tools image; auto-skips cleanly when any is absent.
+
+| Test | Description |
+|------|-------------|
+| `field-deploy e2e: the generator produced a self-contained bundle folder` | real bundle output |
+| `field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies` | run + mount-wins override |

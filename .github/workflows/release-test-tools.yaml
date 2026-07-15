@@ -249,6 +249,11 @@ jobs:
           # not a standalone binary.
           docker run --rm "${image}" docker --version
           docker run --rm "${image}" docker buildx version
+          # docker-cli-compose + xz: the field-deploy system test runs the
+          # generated deploy.sh (real `docker compose up -d`) and unxz's the
+          # bundled image.tar.xz; the generator xz-compresses the saved image.
+          docker run --rm "${image}" docker compose version
+          docker run --rm "${image}" xz --version
           # mawk + gawk (#576): added alongside busybox awk so the issueref
           # awk program's portability unit test exercises all three engines
           # in the alpine `just test` loop (closes the kcov debian/mawk
