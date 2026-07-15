@@ -51,6 +51,7 @@ deploy_failed
 deploy_done
 deploy_manifest_malformed
 deploy_manifest_dup_basename
+deploy_manifest_no_baked_default
 
 # build.sh
 build_started

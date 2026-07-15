@@ -43,7 +43,16 @@ setup_file() {
   # Fixture repo: the dir basename becomes the image name (detect_image_name
   # @basename rule). A tiny runtime stage that bakes one tunable config file
   # and runs a long-lived process.
-  TMP_ROOT="$(mktemp -d -t deploy-e2e-XXXXXX)"
+  #
+  # Build the bundle under the SAME-PATH host mount (see compose.yaml
+  # ci-system): the generated deploy.sh runs `docker compose up`, whose
+  # bind-mount sources the HOST daemon resolves -- a bundle in this
+  # container's private /tmp is invisible to that daemon. Placing it at a
+  # path mounted identically on host + container makes the config bind
+  # resolve. Outside ci-system (a plain local daemon) it is just a temp dir.
+  local _align="/tmp/base-deploy-e2e"
+  mkdir -p "${_align}"
+  TMP_ROOT="$(mktemp -d "${_align}/e2e-XXXXXX")"
   REPO="${TMP_ROOT}/deploydemo"
   mkdir -p "${REPO}/config/app_cfg"
 

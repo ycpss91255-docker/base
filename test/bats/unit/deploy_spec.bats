@@ -453,6 +453,41 @@ DOCK
   rm -rf "${_d}"
 }
 
+@test "_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)" {
+  # The baked-default + mount-wins model requires the image to bake a FILE at
+  # each manifest path; a bind whose target is missing fails at up with a
+  # cryptic runc mount error. Prove the generator catches it at build time
+  # with a clear message. docker cp is shimmed to fail (image lacks the path).
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/config/camera"
+  printf '%s\n' "[runtime]" "/etc/app/missing.yaml" \
+    > "${_d}/config/camera/deploy.manifest"
+  local _shim="${_d}/bin"; mkdir -p "${_shim}"
+  cat > "${_shim}/docker" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  save) shift; while [[ $# -gt 0 ]]; do [[ "$1" == "-o" ]] && : > "$2"; shift; done; exit 0 ;;
+  cp) exit 1 ;;   # image bakes no file at the declared path
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "${_shim}/docker"
+  cat > "${_shim}/xz" <<'SH'
+#!/usr/bin/env bash
+_f=""; for _a in "$@"; do _f="${_a}"; done
+[[ -f "${_f}" ]] && mv "${_f}" "${_f}.xz"; exit 0
+SH
+  chmod +x "${_shim}/xz"
+  export PATH="${_shim}:${PATH}"
+  # Real run (not DRY_RUN) so the extraction + existence check actually fire.
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
+  assert_failure
+  assert_output --partial "bakes no file"
+  assert_output --partial "/etc/app/missing.yaml"
+  rm -rf "${_d}"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _setup_deploy -- the `setup.sh deploy` subcommand: resolved-compose
 # preview + confirmation + _generate_deploy_bundle (folder output).

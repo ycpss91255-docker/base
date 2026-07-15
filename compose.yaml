@@ -50,6 +50,14 @@ services:
     volumes:
       - .:/source
       - /var/run/docker.sock:/var/run/docker.sock
+      # Same-path host mount for the field-deploy e2e (deploy_bundle_e2e_spec):
+      # the generated deploy.sh runs `docker compose up` whose bind-mount
+      # sources are resolved by the HOST daemon, not inside this container. A
+      # bundle built under the container's private /tmp is invisible to the
+      # host daemon (it would silently create an empty dir and fail the
+      # file-over-baked-default mount). Mounting this path identically on host
+      # and container makes the bundle's config binds resolve correctly.
+      - /tmp/base-deploy-e2e:/tmp/base-deploy-e2e
     working_dir: /source
     environment:
       - HOST_UID=${HOST_UID:-1000}

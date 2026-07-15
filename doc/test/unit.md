@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2236 tests**.
+Unit specs under `test/bats/unit/`: **2237 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1365,7 +1365,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (30)
+### test/bats/unit/deploy_spec.bats (31)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1406,6 +1406,7 @@ mocked via `_dry_run_cmd`, no real daemon).
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path` | tunable extract |
 | `_generate_deploy_bundle: a malformed manifest fails loud before building` | fail-loud guard |
+| `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path` | missing baked default |
 | `_setup_deploy: --dry-run previews the resolved compose + prints the build plan` | deploy dry-run |
 | `_setup_deploy: refuses in a non-interactive shell without -y` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |

@@ -762,15 +762,30 @@ _generate_deploy_bundle() {
     _dry_run_cmd xz -f "${_work}/image.tar" || _rc=$?
   fi
   # Extract each tunable's baked default into the editable config/ folder via
-  # one throwaway container. docker cp fails loud when the image lacks a
-  # declared path (a downstream manifest bug).
+  # one throwaway container. The image MUST bake a FILE at every declared
+  # tunable path: the field bind mounts config/<basename> OVER that baked
+  # default (mount-wins), and a bind whose target does not exist as a file
+  # fails at `deploy.sh up` with a cryptic runc "mount a directory onto a
+  # file" error. Catch it here at generate time with a clear, actionable
+  # message instead (never-fail-silently, PRD invariant 2).
   if (( _rc == 0 )) && (( ${#_binds[@]} > 0 )); then
     local _xc="${_container}-cfgextract"
     _dry_run_cmd docker create --name "${_xc}" "${_image}" || _rc=$?
-    local _bn
+    local _bn _cp_ok
     for _bn in "${!_binds[@]}"; do
       (( _rc == 0 )) || break
-      _dry_run_cmd docker cp "${_xc}:${_binds["${_bn}"]}" "${_work}/config/${_bn}" || _rc=$?
+      _cp_ok=1
+      _dry_run_cmd docker cp "${_xc}:${_binds["${_bn}"]}" "${_work}/config/${_bn}" || _cp_ok=0
+      # A real run must land a regular file. DRY_RUN only plans (docker cp is
+      # echoed, nothing is written), so skip the existence check there.
+      if [[ "${DRY_RUN:-false}" != "true" ]] \
+         && { (( ! _cp_ok )) || [[ ! -f "${_work}/config/${_bn}" ]]; }; then
+        _log_err setup deploy_manifest_no_baked_default \
+          "display=[setup] deploy: config/<component>/deploy.manifest declares ${_binds["${_bn}"]} as tunable, but the ${_stage} image bakes no file there. The Dockerfile must COPY or create a default file at ${_binds["${_bn}"]} (the field bind mounts an editable copy over that baked default; ADR-00000023)." \
+          "path=${_binds["${_bn}"]}" "stage=${_stage}"
+        _rc=1
+        break
+      fi
     done
     _dry_run_cmd docker rm -f "${_xc}" || true
   fi
