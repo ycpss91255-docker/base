@@ -1118,11 +1118,16 @@ EOF
 # Dockerfile.example: TEST_TOOLS_IMAGE ARG + named stage
 # ════════════════════════════════════════════════════════════════════
 
-@test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default" {
+@test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default" {
   local _df="/source/dist/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^ARG TEST_TOOLS_IMAGE="test-tools:local"' "${_df}"
+  # No bare, version-agnostic default: build.sh (local) and CI both pass
+  # a version-scoped TEST_TOOLS_IMAGE explicitly, so an unset value fails
+  # the build loudly instead of silently reusing a stale test-tools:local.
+  run grep -E '^ARG TEST_TOOLS_IMAGE$' "${_df}"
   assert_success
+  run grep -E '^ARG TEST_TOOLS_IMAGE=' "${_df}"
+  assert_failure
 }
 
 @test "Dockerfile.example FROM \${TEST_TOOLS_IMAGE} AS test-tools-stage" {

@@ -89,7 +89,7 @@ usage() {
                  rmi 它，避免 dangling <none>:<none> 累積。--no-prune 保留舊
                  image 供 rollback / debug。Buildx cache 不受影響（要清用
                  prune.sh --builder）。
-  --clean-tools  build 結束後移除 test-tools:local image（預設保留以加速下次 build）
+  --clean-tools  build 結束後移除本地 test-tools image（預設保留以加速下次 build）
   --dry-run      只印出將執行的 docker 指令，不實際執行
   -v, --verbose  詳細 docker 輸出（BUILDKIT_PROGRESS=plain）。build 卡住時用 —
                  即時顯示每個 RUN 步驟的 stdout/stderr，不再收斂成單行進度條。
@@ -128,7 +128,7 @@ EOF
                  rmi 它，避免 dangling <none>:<none> 累积。--no-prune 保留旧
                  image 供 rollback / debug。Buildx cache 不受影响（要清用
                  prune.sh --builder）。
-  --clean-tools  build 结束后移除 test-tools:local image（默认保留以加速下次 build）
+  --clean-tools  build 结束后移除本地 test-tools image（默认保留以加速下次 build）
   --dry-run      只打印将执行的 docker 命令，不实际执行
   -v, --verbose  详细 docker 输出（BUILDKIT_PROGRESS=plain）。build 卡住时用 —
                  实时显示每个 RUN 步骤的 stdout/stderr，不再收敛成单行进度条。
@@ -170,7 +170,7 @@ EOF
                  `<none>:<none>` の累積を防ぎます。--no-prune は旧 image を残
                  し、ロールバック / 比較デバッグに使えます。Buildx cache は触れ
                  ません（`prune.sh --builder` を使用）。
-  --clean-tools  build 終了後に test-tools:local image を削除（デフォルトは保持）
+  --clean-tools  build 終了後にローカル test-tools image を削除（デフォルトは保持）
   --dry-run      実行される docker コマンドを表示するのみ（実行はしない）
   -v, --verbose  docker の詳細出力（BUILDKIT_PROGRESS=plain）。build がハング
                  した時に使用 — 各 RUN ステップの stdout/stderr をリアルタイム
@@ -218,7 +218,7 @@ Options:
                  --no-prune to keep the previous image for rollback /
                  diff-debug. Buildx cache is never touched (use
                  `prune.sh --builder` for that).
-  --clean-tools  Remove test-tools:local image after build (default: keep for faster next build)
+  --clean-tools  Remove the local test-tools image after build (default: keep for faster next build)
   --dry-run      Print the docker commands that would run, but do not execute
   -v, --verbose  Verbose docker output (BUILDKIT_PROGRESS=plain). Use when a
                  build appears hung — surfaces every RUN step's real-time
@@ -424,15 +424,22 @@ main() {
   # signalled it has its own test-tools provisioning via TEST_TOOLS_IMAGE.
   #
   # The downstream Dockerfile.example consumes TEST_TOOLS_IMAGE as a
-  # build-arg (default `test-tools:local`) and `FROM ${TEST_TOOLS_IMAGE}`
-  # for its lint/test stage. If the caller pre-builds or pulls the image
-  # outside build.sh (CI workflows do this for cache-share / rolling-tag
-  # reasons, P2), the internal `docker build` here is wasted
-  # work — skip it. The caller is responsible for ensuring the value of
-  # TEST_TOOLS_IMAGE resolves to a runnable image (either a locally tagged
-  # `test-tools:local` or a registry-addressable tag the docker daemon
-  # can pull on demand).
+  # build-arg and `FROM ${TEST_TOOLS_IMAGE}` for its lint/test stage. If
+  # the caller pre-builds or pulls the image outside build.sh (CI
+  # workflows do this for cache-share / rolling-tag reasons, P2), the
+  # internal `docker build` here is wasted work — skip it. The caller is
+  # responsible for ensuring the value of TEST_TOOLS_IMAGE resolves to a
+  # runnable image (either a locally tagged tag or a registry-addressable
+  # tag the docker daemon can pull on demand).
+  #
+  # The LOCAL tag is version-scoped by the pinned base subtree version
+  # (.base/.version), mirroring the version-scoped GHCR tag CI uses
+  # (ghcr.io/ycpss91255-docker/test-tools:<version>) minus the registry
+  # prefix. Two base versions (or two downstream repos pinning different
+  # versions) on one host therefore get two distinct tags instead of
+  # silently clobbering a single, version-agnostic `test-tools:local`.
   local _tools_dockerfile="${FILE_PATH}/.base/dockerfile/Dockerfile.test-tools"
+  local _tools_version_file="${FILE_PATH}/.base/.version"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
   # Forward user's TARGETARCH override when set. Empty = leave unset so
@@ -446,22 +453,44 @@ main() {
   if [[ -n "${BUILD_NETWORK:-}" ]]; then
     _tools_args+=(--network "${BUILD_NETWORK}")
   fi
-  if [[ -z "${TEST_TOOLS_IMAGE:-}" ]] && [[ -f "${_tools_dockerfile}" ]]; then
+  # Resolve the effective test-tools image. Caller-pinned value wins
+  # (CI passes the version-scoped GHCR tag); otherwise derive the local
+  # version-scoped tag and build it.
+  local _test_tools_image="${TEST_TOOLS_IMAGE:-}"
+  if [[ -z "${_test_tools_image}" ]] && [[ -f "${_tools_dockerfile}" ]]; then
+    local _tt_ver=""
+    [[ -f "${_tools_version_file}" ]] && \
+      _tt_ver="$(tr -d '[:space:]' < "${_tools_version_file}")"
+    # Fail loud rather than silently falling back to a bare, version-
+    # agnostic tag that could reuse another version's stale image.
+    if [[ -z "${_tt_ver}" ]]; then
+      _log_err build build_test_tools_version_missing \
+        "display=cannot resolve base version for the local test-tools tag -- '${_tools_version_file}' missing or empty (no bare test-tools:local fallback)." \
+        "file=${_tools_version_file}"
+      exit 1
+    fi
+    _test_tools_image="test-tools:${_tt_ver}"
     if [[ "${DRY_RUN}" == true ]]; then
       printf '[dry-run] docker build'
-      printf ' %q' "${_tools_args[@]}" -t test-tools:local \
+      printf ' %q' "${_tools_args[@]}" -t "${_test_tools_image}" \
         -f "${_tools_dockerfile}" "${FILE_PATH}" -q
       printf '\n'
     else
       docker build "${_tools_args[@]}" \
-        -t test-tools:local \
+        -t "${_test_tools_image}" \
         -f "${_tools_dockerfile}" \
         "${FILE_PATH}" -q >/dev/null
     fi
   fi
 
   if [[ "${CLEAN_TOOLS}" == true ]]; then
-    _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
+    # Bake the resolved tag into a global so the atexit handler (which
+    # fires after main() returns, when locals are gone) can reference it.
+    _CLEAN_TOOLS_IMAGE="${_test_tools_image}"
+    _cleanup() {
+      [[ -n "${_CLEAN_TOOLS_IMAGE:-}" ]] || return 0
+      docker rmi "${_CLEAN_TOOLS_IMAGE}" 2>/dev/null || true
+    }
     # register via the transcript-owned atexit registry instead of
     # `trap ... EXIT`, which would clobber the transcript finalize.
     _atexit _cleanup
@@ -469,6 +498,12 @@ main() {
 
   local _compose_args=()
   [[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
+  # Forward the resolved (version-scoped) test-tools image so the
+  # downstream Dockerfile's `FROM ${TEST_TOOLS_IMAGE}` resolves it; the
+  # Dockerfile has no bare-tag default to silently fall back on. Empty
+  # only in base self-use, where compose.yaml carries its own image.
+  [[ -n "${_test_tools_image}" ]] && \
+    _compose_args+=(--build-arg "TEST_TOOLS_IMAGE=${_test_tools_image}")
 
   # snapshot the existing tag's image ID before the build, so a
   # successful rebuild that displaces the tag (`old_id != new_id`) can

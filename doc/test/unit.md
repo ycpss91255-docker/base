@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2237 tests**.
+Unit specs under `test/bats/unit/`: **2238 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -905,7 +905,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
 | migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
 
-### test/bats/unit/build_sh_spec.bats (53)
+### test/bats/unit/build_sh_spec.bats (54)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -922,7 +922,10 @@ positional `TARGET`, **`-t` / `--target TARGET` alias** (#280: short +
 long form, last-wins resolution against positional `[TARGET]` in both
 orderings, `-t` value-required guard, usage help mention), `--lang`
 argument validation, fallback `_detect_lang` branches (zh_TW/zh_CN/ja),
-real (non-dry-run) docker build invocation, **runtime log-line i18n**
+real (non-dry-run) docker build invocation, **version-scoped local
+test-tools tag** (#828: the internal build derives `test-tools:<version>`
+from `.base/.version` and forwards it as the `TEST_TOOLS_IMAGE` build-arg;
+fails loud on a missing version, no bare-tag fallback), **runtime log-line i18n**
 (bootstrap / drift-regen / err_no_env messages translate in all four
 languages via the local `_msg()` table; English remains the default),
 and **`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
@@ -1665,7 +1668,7 @@ builds the env block only for the knobs the conf sets.
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
 | `build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs` | build-arg wiring |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
-| `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
+| `Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default` | version-scoped tag: no bare-tag ARG default (#828) |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |

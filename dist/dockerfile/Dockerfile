@@ -2,9 +2,11 @@
 #
 # Copy this file to your repo root as "Dockerfile" and customize.
 # The test-tools image (ShellCheck, Hadolint, Bats) is consumed via the
-# TEST_TOOLS_IMAGE build arg. Default `test-tools:local` works for the
-# local `./build.sh` flow (builds Dockerfile.test-tools into the host
-# Docker daemon). CI overrides this to
+# TEST_TOOLS_IMAGE build arg, always passed explicitly (no bare-tag
+# default). The local `./build.sh` flow builds Dockerfile.test-tools into
+# the host Docker daemon and passes a version-scoped
+# `test-tools:<base-version>` (mirroring the CI tag minus the registry
+# prefix, so two base versions never collide on one host). CI passes
 # `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z` so buildx can pull the
 # arch-correct pre-built image without the cross-step image-store
 # isolation that broke the old test-tools:local CI pattern.
@@ -58,7 +60,12 @@
 # rollout). They will be removed from the blocklist in a future major.
 
 ARG BASE_IMAGE="ubuntu:24.04"
-ARG TEST_TOOLS_IMAGE="test-tools:local"
+# No bare-tag default (was `test-tools:local`): build.sh (local) passes a
+# version-scoped `test-tools:<base-version>` and CI passes
+# `ghcr.io/ycpss91255-docker/test-tools:<version>`, both explicitly. An
+# unset value resolves an empty base image and fails the build loudly
+# rather than silently reusing a stale, wrong-version local image.
+ARG TEST_TOOLS_IMAGE
 
 ############################## sys ##############################
 # hadolint ignore=DL3006
@@ -228,7 +235,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
 ############################## devel-test ##############################
-# Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+# Resolves to test-tools:<base-version> (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
 # hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
@@ -482,7 +489,7 @@ RUN bats /smoke_test/
 # runtime-test's build graph, so its build must receive the pinned
 # `TEST_TOOLS_IMAGE` build-arg too (not just devel-test). build-worker's
 # "Build runtime-test stage" step forwards it; a local `./build.sh`
-# falls back to the `test-tools:local` default.
+# forwards its version-scoped `test-tools:<base-version>` tag.
 #
 # Default smoke command is generic install-check (USER set + bash on
 # PATH). Override per repo via `build_args: RUNTIME_SMOKE_CMD=<command>`
