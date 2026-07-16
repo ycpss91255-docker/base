@@ -34,6 +34,10 @@ setup() {
   # Symlink (not copy) so kcov attributes coverage to /source/dist/script/docker/wrapper/build.sh.
   ln -s /source/dist/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
   touch "${SANDBOX}/.base/dockerfile/Dockerfile.test-tools"
+  # Pinned base subtree version -- build.sh version-scopes the local
+  # test-tools tag by this file so two base versions never collide on
+  # one host (tag derivation asserted below).
+  printf 'v9.9.9-test\n' > "${SANDBOX}/.base/.version"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
@@ -460,7 +464,32 @@ EOS
   bash "${SANDBOX}/build.sh"
   run cat "${DOCKER_LOG}"
   assert_output --partial "docker build"
-  assert_output --partial "-t test-tools:local"
+  # Local tag is version-scoped by .base/.version (not a bare
+  # test-tools:local), so different base versions never collide on
+  # one host.
+  assert_output --partial "-t test-tools:v9.9.9-test"
+  refute_output --partial "-t test-tools:local"
+  # The resolved tag is forwarded to the compose build so the
+  # downstream Dockerfile's FROM ${TEST_TOOLS_IMAGE} resolves it.
+  assert_output --partial "TEST_TOOLS_IMAGE=test-tools:v9.9.9-test"
+}
+
+@test "build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)" {
+  # No silent fallback to a bare, version-agnostic tag: if build.sh
+  # must build the local test-tools image but cannot resolve the base
+  # version, it aborts rather than tagging test-tools:local.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+  rm -f "${SANDBOX}/.base/.version"
+
+  run bash "${SANDBOX}/build.sh"
+  assert_failure
+  run cat "${DOCKER_LOG}"
+  refute_output --partial "-t test-tools:local"
 }
 
 @test "build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)" {
@@ -480,6 +509,9 @@ EOS
   TEST_TOOLS_IMAGE=test-tools:local bash "${SANDBOX}/build.sh"
   run cat "${DOCKER_LOG}"
   refute_output --partial "-t test-tools:local"
+  # The caller-pinned value is still forwarded to the compose build so
+  # the Dockerfile's FROM ${TEST_TOOLS_IMAGE} resolves the pinned image.
+  assert_output --partial "TEST_TOOLS_IMAGE=test-tools:local"
 }
 
 # ── i18n log lines (bootstrap / drift / err_no_env) ────────────────────────
@@ -645,6 +677,7 @@ EOS
   cp "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" "${ALT}/.base/dist/script/docker/wrapper/setup.sh"
   chmod +x "${ALT}/.base/dist/script/docker/wrapper/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
+  printf 'v9.9.9-test\n' > "${ALT}/.base/.version"
 
   run bash "${SANDBOX}/build.sh" -C "${ALT}" --dry-run
   assert_success
@@ -663,6 +696,7 @@ EOS
   cp "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" "${ALT}/.base/dist/script/docker/wrapper/setup.sh"
   chmod +x "${ALT}/.base/dist/script/docker/wrapper/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
+  printf 'v9.9.9-test\n' > "${ALT}/.base/.version"
 
   run bash "${SANDBOX}/build.sh" --chdir "${ALT}" --dry-run
   assert_success

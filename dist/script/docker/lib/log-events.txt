@@ -61,6 +61,7 @@ build_prune_displaced
 build_prune_skip_tagged
 build_no_env
 build_rerun_setup
+build_test_tools_version_missing
 
 # run.sh
 run_started
