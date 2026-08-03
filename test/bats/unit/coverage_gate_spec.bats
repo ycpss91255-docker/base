@@ -56,6 +56,39 @@ _make_cobertura() {
   } > "${_path}"
 }
 
+# Write a kcov-style cobertura report at $1 from one or more class specs,
+# each given as `<filename>:<valid>:<lo>:<hi>`: a <class> with <valid>
+# per-line <line> elements of which lines lo..hi carry hits="1" (lo=0 =>
+# none covered). Unlike _make_cobertura this emits SEVERAL classes per
+# report, which is what kcov does and what the path-alias cases need. The
+# root lines-covered / lines-valid counters are deliberately omitted: the
+# gate merges by per-line union and never reads them.
+_make_multi_cobertura() {
+  local _path="${1}"
+  shift
+  mkdir -p "$(dirname "${_path}")"
+  {
+    echo '<?xml version="1.0" ?>'
+    echo '<coverage version="1.9" timestamp="0">'
+    echo '  <packages><package name="p"><classes>'
+    local _spec _fn _valid _lo _hi _i
+    for _spec in "$@"; do
+      IFS=: read -r _fn _valid _lo _hi <<< "${_spec}"
+      echo "  <class name=\"c\" filename=\"${_fn}\"><lines>"
+      for (( _i = 1; _i <= _valid; _i++ )); do
+        if (( _lo > 0 && _i >= _lo && _i <= _hi )); then
+          echo "    <line number=\"${_i}\" hits=\"1\"/>"
+        else
+          echo "    <line number=\"${_i}\" hits=\"0\"/>"
+        fi
+      done
+      echo '  </lines></class>'
+    done
+    echo '  </classes></package></packages>'
+    echo '</coverage>'
+  } > "${_path}"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Floor pass / fail
 # ════════════════════════════════════════════════════════════════════
@@ -142,6 +175,95 @@ _make_cobertura() {
   [ "${status}" -eq 0 ]
   # (25*4)/(100*4) = 25.00%
   [[ "${output}" == *"25.00"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# kcov path aliases: one source file is reported under several
+# prefix-truncated filenames, so the union key must be canonicalised
+# (longest observed path-suffix match) before it is counted
+# ════════════════════════════════════════════════════════════════════
+
+@test "coverage_gate: prefix path aliases of one file are counted once (#853)" {
+  # kcov emits the SAME source file under several prefix truncations. Each
+  # alias is a different union key, so each contributes its own full copy of
+  # the file's lines to the denominator while only the alias that recorded
+  # hits contributes to the numerator. One 100-line file, 50 lines covered
+  # under the fully-qualified alias -> 50/100 = 50.00%, NOT 50/400 = 12.50%.
+  _make_multi_cobertura "${SCRATCH}/a/cobertura.xml" \
+    "dist/script/docker/lib/_lib.sh:100:1:50" \
+    "script/docker/lib/_lib.sh:100:0:0" \
+    "docker/lib/_lib.sh:100:0:0" \
+    "lib/_lib.sh:100:0:0"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"50.00"* ]]
+  [[ "${output}" != *"12.50"* ]]
+}
+
+@test "coverage_gate: different files sharing a basename stay separate (#853)" {
+  # The trap that rules basename-only keying out: distinct files legitimately
+  # share a basename (a shipped lib deploy.sh and the generated field
+  # launcher). Neither name is a path suffix of the other, so they must keep
+  # separate keys: 80/200 = 40.00%, NOT the merged 80/100 = 80.00%.
+  _make_multi_cobertura "${SCRATCH}/a/cobertura.xml" \
+    "dist/script/docker/lib/deploy.sh:100:1:80" \
+    "deploy/robot-field-1.0.0/deploy.sh:100:0:0"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"40.00"* ]]
+  [[ "${output}" != *"80.00"* ]]
+}
+
+@test "coverage_gate: rate is unchanged when the suite is resharded under other aliases (#853)" {
+  # The invariant the union already claimed but aliasing broke: which alias a
+  # file appears under depends on which shard executed it, and shard
+  # membership is recomputed from the spec-file list -- so adding one spec
+  # reshuffles the shards and moved the reported rate. The SAME suite (one
+  # 100-line file, lines 1-60 covered) split two ways must report the same
+  # rate: 60/100 = 60.00%.
+  _make_multi_cobertura "${SCRATCH}/two/s1/cobertura.xml" \
+    "script/docker/lib/_lib.sh:100:1:30"
+  _make_multi_cobertura "${SCRATCH}/two/s2/cobertura.xml" \
+    "lib/_lib.sh:100:31:60"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}"/two/s*/cobertura.xml
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"60.00"* ]]
+
+  _make_multi_cobertura "${SCRATCH}/four/s1/cobertura.xml" \
+    "dist/script/docker/lib/_lib.sh:100:1:15"
+  _make_multi_cobertura "${SCRATCH}/four/s2/cobertura.xml" \
+    "script/docker/lib/_lib.sh:100:16:30"
+  _make_multi_cobertura "${SCRATCH}/four/s3/cobertura.xml" \
+    "docker/lib/_lib.sh:100:31:45"
+  _make_multi_cobertura "${SCRATCH}/four/s4/cobertura.xml" \
+    "lib/_lib.sh:100:46:60"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}"/four/s*/cobertura.xml
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"60.00"* ]]
+}
+
+@test "coverage_gate: reports the collapsed-alias count as a diagnostic (#853)" {
+  # A regression in kcov's path reporting must be visible, not silent: the
+  # gate states how many observed filenames collapsed into a canonical one.
+  # Four aliases of one file plus one unaliased file -> 3 collapsed.
+  _make_multi_cobertura "${SCRATCH}/a/cobertura.xml" \
+    "dist/script/docker/lib/_lib.sh:10:1:5" \
+    "script/docker/lib/_lib.sh:10:0:0" \
+    "docker/lib/_lib.sh:10:0:0" \
+    "lib/_lib.sh:10:0:0" \
+    "dist/script/docker/lib/deploy.sh:10:1:5"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"collapsed 3"* ]]
+}
+
+@test "coverage_gate: reports zero collapsed aliases when nothing is aliased (#853)" {
+  _make_multi_cobertura "${SCRATCH}/a/cobertura.xml" \
+    "dist/script/docker/lib/_lib.sh:10:1:5" \
+    "dist/script/docker/lib/deploy.sh:10:1:5"
+  run env COVERAGE_MIN=0 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"collapsed 0"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
