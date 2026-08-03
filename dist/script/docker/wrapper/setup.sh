@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # setup.sh - Auto-detect system parameters and generate .env + compose.yaml
 #
-# Reads <repo>/setup.conf (or .base/setup.conf default) for the repo's
-# runtime configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
+# Reads the per-repo <repo>/.setup.conf override (falling back to the
+# .base/dist/.setup.conf template default) for the repo's runtime
+# configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
 #   - <repo>/.env          (variable values + SETUP_* metadata for drift detection)
@@ -10,7 +11,7 @@
 #
 # Both output files are derived artifacts (gitignored). Source of truth is
 # setup.conf + system detection. WS_PATH is detected once and written back
-# to <repo>/setup.conf [volumes] mount_1; subsequent runs read mount_1.
+# to <repo>/.setup.conf [volumes] mount_1; subsequent runs read mount_1.
 #
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 

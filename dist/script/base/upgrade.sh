@@ -142,9 +142,16 @@ _migrate_legacy_setup_conf() {
   # git mv when the override is tracked; plain mv + git add otherwise.
   # Either way the relocation lands as a committed change so the
   # subsequent subtree pull operates on a clean tree.
+  #
+  # Collect the paths the migration actually touches so the commit below
+  # can be scoped to them. The legacy path is only nameable to `git
+  # commit` when git tracked it; in the untracked case it exists in
+  # neither HEAD nor the working tree and git rejects the pathspec.
+  local -a _commit_paths=(".setup.conf")
   if git -C "${_root}" ls-files --error-unmatch "config/docker/setup.conf" \
        >/dev/null 2>&1; then
     git -C "${_root}" mv "config/docker/setup.conf" ".setup.conf"
+    _commit_paths+=("config/docker/setup.conf")
   else
     mv "${_legacy}" "${_new}"
     git -C "${_root}" add ".setup.conf"
@@ -156,8 +163,14 @@ _migrate_legacy_setup_conf() {
   rmdir "${_root}/config/docker" 2>/dev/null || true
   rmdir "${_root}/config" 2>/dev/null || true
 
+  # Scoped to the migrated paths: the pre-flight deliberately does not
+  # demand a clean index (only a clean merge state), so an unscoped
+  # commit would sweep a user's unrelated staged work into a commit
+  # labelled as the relocation. The pathspec form also leaves that
+  # staged work staged, exactly as the user left it.
   git -C "${_root}" commit -q \
     -m "chore: relocate setup.conf override to repo-root .setup.conf" \
+    -- "${_commit_paths[@]}" \
     || _log "  (nothing staged for the setup.conf relocation)"
 }
 
@@ -461,9 +474,9 @@ COMMIT
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
-  # Same pattern for .base/setup.conf: the user's per-repo
-  # setup.conf is the override file (committed, never overwritten by
-  # template upgrades). When the upstream .base/setup.conf adds new
+  # Same pattern for .base/dist/.setup.conf: the user's per-repo
+  # .setup.conf is the override file (committed, never overwritten by
+  # template upgrades). When the upstream .base/dist/.setup.conf adds new
   # sections / keys / changes defaults, point the user at the diff so
   # they can opt in.
   _warn_setup_conf_drift "${_pre_setup_conf_hash}"
