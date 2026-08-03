@@ -1394,3 +1394,14 @@ EOF
   run _is_deployable_stage ""
   assert_failure
 }
+
+@test "_is_deployable_stage rejects the build-intermediate baseline stages (#841)" {
+  # sys / devel-base carry no runnable service at all, so deploying one is
+  # broken rather than merely ill-advised; `base` is devel-base's legacy alias.
+  run _is_deployable_stage sys
+  assert_failure
+  run _is_deployable_stage devel-base
+  assert_failure
+  run _is_deployable_stage base
+  assert_failure
+}

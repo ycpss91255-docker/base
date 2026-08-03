@@ -90,7 +90,9 @@ _hint_args() {
 @test "the launcher hint's args are accepted by the deploy arg parser (#843)" {
   local _d; _d="$(mktemp -d)"
   _write_hint_repo "${_d}"
-  _generate_deploy_launcher "${_d}/deploy.sh" devel
+  # The stage must be a deployable one: the hint is replayed through the
+  # real parser, which enforces stage eligibility (PRD invariant 8).
+  _generate_deploy_launcher "${_d}/deploy.sh" runtime
   local _hint _args
   _hint="$(grep -m1 'Regenerate' "${_d}/deploy.sh")"
   _args="$(_hint_args "${_hint}")"
@@ -98,6 +100,6 @@ _hint_args() {
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" ${_args} --dry-run
   assert_success
   refute_output --partial "unknown arg"
-  assert_output --partial "deploy plan: stage=devel"
+  assert_output --partial "deploy plan: stage=runtime"
   rm -rf "${_d}"
 }

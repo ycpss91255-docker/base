@@ -45,6 +45,7 @@ conf_mount_stale_path
 stage_devel_reserved
 env_drift_detail
 deploy_no_dockerfile
+deploy_stage_not_deployable
 deploy_needs_yes
 deploy_aborted
 deploy_failed
