@@ -75,6 +75,29 @@ _validate_stage_name() {
   return 0
 }
 
+# _is_deployable_stage <stage>
+#
+# ADR-00000023 sec.4's stage-eligibility predicate, `deployable = not
+# devel and not *-test`, as one shared function. Returns 0 when <stage>
+# is a field-oriented stage, 1 otherwise (including an empty name).
+#
+# Why the two exclusions differ in kind:
+#   - `devel` IS the interactive shell -- the container lives exactly as
+#     long as that shell, so any service-shaped policy applied to it
+#     (auto-restart above all) fights the developer instead of helping;
+#   - a `*-test` stage exists to run, assert and EXIT, so a policy that
+#     reacts to exit turns a green test run into a restart loop.
+# The legacy bare service name `test` (the compose service `devel-test`
+# is emitted under) is excluded for the same reason as `*-test`.
+_is_deployable_stage() {
+  local _stage="${1-}"
+  [[ -n "${_stage}" ]] || return 1
+  case "${_stage}" in
+    devel|test|*-test) return 1 ;;
+  esac
+  return 0
+}
+
 # _parse_dockerfile_stages <dockerfile_path>
 #
 # Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,

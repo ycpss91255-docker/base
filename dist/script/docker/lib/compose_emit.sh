@@ -184,12 +184,21 @@ _emit_runtime_line() {
   printf '    runtime: %s\n' "${_runtime}"
 }
 
-# restart emitter: [lifecycle] restart policy on the devel service.
-# Default `no` emits nothing (zero-diff). Stages that `extends: devel`
-# inherit the value via compose. `on-failure:N` is quoted because the `:`
-# would otherwise read as a YAML mapping.
+# restart emitter: [lifecycle] restart policy, DEPLOY-scoped.
+#
+# Emitted only for a deployable stage service (_is_deployable_stage:
+# not devel, not `*-test`) and for the field bundle's resolved compose.
+# devel deliberately never carries it -- a devel container is the
+# interactive shell, so `always` / `unless-stopped` on it relaunches the
+# container the moment the developer types `exit`, forever. That is also
+# why devel must not carry it for `extends: devel` stages to inherit:
+# the qualifying stage services emit it themselves.
+#
+# `no` emits nothing -- that IS Docker's no-restart default, so the
+# operator's choice is honoured by omission. `on-failure:N` is quoted
+# because the `:` would otherwise read as a YAML mapping.
 _emit_restart_line() {
-  local _restart="${1-no}"
+  local _restart="${1-}"
   [[ "${_restart}" == "no" ]] && return 0
   # apply does no schema revalidation, so a hand-edited setup.conf can feed
   # a malformed policy here. Drop anything _validate_restart rejects rather
@@ -566,7 +575,14 @@ _emit_stage_service() {
   local _shm_size="${_ess_ctx[shm_size]-}"
   local _dri_groups_str="${_ess_ctx[dri_groups]-}"
   local _init="${_ess_ctx[init]-true}"
+  local _restart="${_ess_ctx[restart]-}"
   local _watchdog_env_str="${_ess_ctx[watchdog_env]-}"
+
+  # [lifecycle] restart is DEPLOY-scoped: emitted here, on the qualifying
+  # stage services, and never on devel for `extends: devel` to inherit
+  # (see _emit_restart_line / _is_deployable_stage). A non-deployable
+  # stage resolves to the empty policy, which every emit path drops.
+  _is_deployable_stage "${_emit_stage}" || _restart=""
   local _logging_global_str="${_ess_ctx[logging_global]-}"
   local _logging_per_svc_str="${_ess_ctx[logging_per_svc]-}"
   local _net_mode="${_ess_ctx[net_mode]-host}"
@@ -598,6 +614,9 @@ YAML
     profiles:
       - ${_svc}
 YAML
+    # restart: the `extends: devel` merge has nothing to inherit (devel
+    # carries no policy), so a deployable stage emits its own.
+    _emit_restart_line "${_restart}"
     # per-stage LOG_FILE_PATH + volume mount when [logging] /
     # [logging.<stage>] local_path is set. compose's `extends` merge
     # inherits devel's environment / volumes lists, then concatenates the
@@ -721,8 +740,10 @@ YAML
      [[ "${_eff_runtime}" != "auto" ]]; then
     echo "    runtime: ${_eff_runtime}"
   fi
-  # init: standalone block has no `extends: devel` to inherit from, so
-  # re-emit the [lifecycle] init toggle (default on).
+  # restart / init: the standalone block has no `extends: devel` to
+  # inherit from, so re-emit the [lifecycle] toggles. restart is dropped
+  # for a non-deployable stage (resolved to the empty policy above).
+  _emit_restart_line "${_restart}"
   _emit_init_line "${_init}"
   # cap_add / cap_drop / security_opt: effective per-stage lists —
   # a stage can override / clear inherited caps via [stage:*]
@@ -903,7 +924,9 @@ generate_compose_yaml() {
   local _additional_contexts_str="${25:-}"
   local _logging_global_str="${26:-}"
   local _logging_per_svc_str="${27:-}"
-  local _restart="${28:-no}"
+  # Matches the template .setup.conf default (like _init below), so an
+  # arg-less caller renders what a stock conf renders.
+  local _restart="${28:-unless-stopped}"
   local _dri_groups_str="${29:-}"
   local _init="${30:-true}"
   local _watchdog_env_str="${31:-}"
@@ -1054,7 +1077,8 @@ YAML
     # Workload overlay: devel emits it; extends:devel stages inherit.
     _emit_env_file_block
     _emit_runtime_line "${_runtime}"
-    _emit_restart_line "${_restart}"
+    # No restart: on devel -- see _emit_restart_line. The deployable
+    # stage services below emit it themselves instead of inheriting.
     _emit_init_line "${_init}"
     # cap_add / cap_drop / security_opt + group_add (shared emitters).
     _emit_caps_block "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}"
@@ -1250,6 +1274,7 @@ YAML
       [shm_size]="${_shm_size}"
       [dri_groups]="${_dri_groups_str}"
       [init]="${_init}"
+      [restart]="${_restart}"
       [watchdog_env]="${_watchdog_env_str}"
       [logging_global]="${_logging_global_str}"
       [logging_per_svc]="${_logging_per_svc_str}"

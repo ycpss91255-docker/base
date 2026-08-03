@@ -43,6 +43,8 @@ EOS
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_migrate_lifecycle_restart_default() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_trim_ws() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_lifecycle_restart_is() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
 }
 
 # _seed_restart_repo <dir> <vendored_template_restart> <repo_restart_block...>

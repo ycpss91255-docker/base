@@ -241,12 +241,11 @@ _resolve_deploy_context() {
   # privileged opt-in -- default false when the key is absent.
   _conf_get_into _RDC_CONF security privileged  false   _tmp; _rdc_out["privileged"]="${_tmp}"
 
-  # [lifecycle] restart policy, reported RAW: an empty string means the key
-  # is ABSENT. dev and field want different defaults for it (dev `no`, field
-  # `unless-stopped` for auto-start on reboot), so folding a default in here
-  # would collapse "absent" into "explicitly no" and silently override an
-  # operator who asked for `no`. Each consumer applies its own default.
-  _conf_get_into _RDC_CONF lifecycle restart "" _tmp; _rdc_out["restart_policy"]="${_tmp}"
+  # [lifecycle] restart policy. DEPLOY-scoped (never devel, never a
+  # `*-test` stage -- see _is_deployable_stage), so a single default
+  # serves both consumers: the template ships `unless-stopped` literally
+  # and this fallback only covers a conf hand-stripped of the key.
+  _conf_get_into _RDC_CONF lifecycle restart unless-stopped _tmp; _rdc_out["restart_policy"]="${_tmp}"
   # [lifecycle] init toggle -- compose `init: true` (PID1 reaper). Default
   # ON: key-absent / cleared conf resolves to true (compose-level only; the
   # generated deploy.sh run flags do not carry it).
@@ -351,8 +350,8 @@ _resolve_deploy_context() {
 # It FOLLOWS THE STAGE (does not blanket-strip GUI/X11): gui/gpu/network are
 # the deployed stage's resolved values (a headless runtime stage resolves
 # gui off; a gui stage keeps its X11 host-env passthrough). `restart:`
-# defaults to `unless-stopped` for auto-start on reboot, but an explicitly
-# configured [lifecycle] restart wins. The [lifecycle] WATCHDOG_* env is
+# carries the [lifecycle] policy (shipped default `unless-stopped`, so the
+# container auto-starts on host reboot). The [lifecycle] WATCHDOG_* env is
 # emitted into `environment:` exactly as the dev compose does -- restart:
 # only recovers a container that EXITS, the watchdog is the only mechanism
 # that recovers a service that is alive but wedged. When <binds_assoc>
@@ -446,15 +445,15 @@ _generate_resolved_compose() {
   local _shm="${_grc_ctx["shm_size"]}"
   local _watchdog_env_str="${_grc_ctx["watchdog_env_str"]:-}"
 
-  # restart: the field default is unless-stopped (auto-start on host reboot),
-  # but an explicitly configured [lifecycle] restart wins -- an operator who
-  # asked for `on-failure:5` / `no` gets it instead of a silent override.
-  # _resolve_deploy_context reports the key RAW, so empty means absent.
-  # apply does no schema revalidation, so a hand-edited value is validated
-  # here and a malformed one falls back to the field default rather than
-  # breaking `docker compose up` (mirrors _emit_restart_line's guard).
+  # restart: the bundle is a service-shaped container meant to run
+  # forever, so `unless-stopped` (auto-start on host reboot) is the
+  # shipped default; an explicitly configured [lifecycle] restart wins --
+  # an operator who asked for `on-failure:5` / `no` gets it instead of a
+  # silent override. apply does no schema revalidation, so a hand-edited
+  # value is validated here and a malformed one falls back to the default
+  # rather than breaking `docker compose up` (mirrors _emit_restart_line).
   local _restart="${_grc_ctx["restart_policy"]:-}"
-  if [[ -z "${_restart}" ]] || ! _validate_restart "${_restart}"; then
+  if ! _validate_restart "${_restart}"; then
     _restart="unless-stopped"
   fi
 
@@ -467,8 +466,9 @@ _generate_resolved_compose() {
     printf '  %s:\n' "${_stage}"
     printf '    image: %s\n' "${_image_ref}"
     printf '    container_name: %s\n' "${_container}"
-    # Auto-start on host reboot (field-deploy default) unless the conf set a
-    # policy. `on-failure:N` is quoted; a bare `:` would read as a mapping.
+    # Always emitted: the resolved compose leaves nothing implicit, so even
+    # an explicit `no` is written out rather than dropped.
+    # `on-failure:N` is quoted; a bare `:` would read as a YAML mapping.
     case "${_restart}" in
       on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
       *)            printf '    restart: %s\n'   "${_restart}" ;;

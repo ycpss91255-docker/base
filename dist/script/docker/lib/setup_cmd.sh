@@ -1061,10 +1061,10 @@ _setup_apply() {
   local pid_mode="${_dctx[pid_mode]}"
   local network_name="${_dctx[network_name]}"
   local privileged="${_dctx[privileged]}"
-  # The shared resolver reports [lifecycle] restart raw (empty = key absent)
-  # because dev and field want different defaults; dev's is `no` (zero-diff
-  # compose, the developer drives the container by hand).
-  local restart_policy="${_dctx[restart_policy]:-no}"
+  # [lifecycle] restart is deploy-scoped: generate_compose_yaml routes it to
+  # the deployable stage services only, never to devel (a devel container is
+  # the interactive shell -- see _emit_restart_line / _is_deployable_stage).
+  local restart_policy="${_dctx[restart_policy]}"
   local init="${_dctx[init]}"
   local watchdog_env_str="${_dctx[watchdog_env_str]}"
   local dri_groups_str="${_dctx[dri_groups_str]}"
