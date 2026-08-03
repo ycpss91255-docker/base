@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2265 tests**.
+Unit specs under `test/bats/unit/`: **2270 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -270,7 +270,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (83)
+#### test/bats/unit/stage_spec.bats (84)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -1374,7 +1374,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (38)
+### test/bats/unit/deploy_spec.bats (42)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
