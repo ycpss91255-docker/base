@@ -54,20 +54,61 @@ EOF
 }
 
 # ── [lifecycle] restart policy ─────────────────────────────────────────
-@test "[lifecycle] restart = always emits restart: always under devel (#478)" {
+#
+# The key is DEPLOY-scoped: a devel container is the interactive shell
+# itself, so a restart policy on it relaunches the shell on every `exit`.
+# Only deployable stages (ADR-00000023 sec.4) carry `restart:`.
+
+# A minimal Dockerfile carrying one deployable stage next to devel, so
+# apply has somewhere legitimate to emit the policy.
+_write_deployable_dockerfile() {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+DOCK
+}
+
+@test "[lifecycle] restart = always lands on the deployable stage, never on devel (#478, #840)" {
   printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
+  _write_deployable_dockerfile
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -E '^    restart: always$' "${TEMP_DIR}/compose.yaml"
-  assert_success
+  run grep -cE '^    restart: always$' "${TEMP_DIR}/compose.yaml"
+  assert_output "1"
+  # The single occurrence belongs to the runtime service; devel carries
+  # none for `extends: devel` to inherit.
+  run bash -c "
+    sed -n '/^  devel:/,/^  runtime:/p' '${TEMP_DIR}/compose.yaml' \
+      | grep -cE '^    restart:'
+  "
+  assert_output "0"
 }
 
-@test "[lifecycle] restart = no (default) emits no restart: field (#478)" {
+@test "[lifecycle] restart = always emits nothing when no stage is deployable (#840)" {
+  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+DOCK
+  unset SETUP_CONF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -E '^    restart:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
+}
+
+@test "[lifecycle] restart = no emits no restart: field (#478)" {
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
+  _write_deployable_dockerfile
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -80,6 +121,7 @@ EOF
 
 @test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
   printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/.setup.conf"
+  _write_deployable_dockerfile
   unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -90,8 +132,12 @@ EOF
   assert_success
 }
 
-@test "template setup.conf ships [lifecycle] restart = no (#478)" {
-  run grep -E '^restart = no$' /source/dist/.setup.conf
+@test "template setup.conf ships [lifecycle] restart = unless-stopped (#478, #840)" {
+  # The default is ON and written LITERALLY so an operator can see it:
+  # a deployable stage / field bundle is meant to run forever, including
+  # across a host reboot. Scoping (never devel, never *-test) is what
+  # keeps the default safe, not an absent key.
+  run grep -E '^restart = unless-stopped$' /source/dist/.setup.conf
   assert_success
 }
 

@@ -144,6 +144,79 @@ teardown() {
   refute_output --partial "docker run"
 }
 
+@test "deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)" {
+  # Re-run the real flow over a conf that sets the [lifecycle] knobs, so the
+  # resolve -> resolved-compose -> bundle wiring is exercised, not just the
+  # isolated emitter.
+  printf '%s\n' \
+    "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[gui]" "mode = off" \
+    "[lifecycle]" "restart = on-failure:5" "watchdog_check = pgrep -f my_node" \
+    "watchdog_interval = 30" \
+    > "${REPO}/.setup.conf"
+  run _setup_deploy --base-path "${REPO}" --stage runtime -y
+  assert_success
+  # The tree is now dirty, so the version stamp gains the -dirty suffix.
+  local _bundle="${REPO}/deploy/fielddemo-runtime-v0.0.1-dirty"
+  run cat "${_bundle}/compose.yaml"
+  assert_success
+  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
+  assert_output --partial "WATCHDOG_INTERVAL=30"
+  assert_output --partial 'restart: "on-failure:5"'
+  refute_output --partial "restart: unless-stopped"
+}
+
+@test "deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)" {
+  # Capture the Dockerfile the generator hands to `docker build -f`, so the
+  # ENV bake is observable (the generated Dockerfile lives in a temp dir).
+  cat > "${SHIM}/docker" <<SH
+#!/usr/bin/env bash
+case "\$1" in
+  build)
+    shift
+    while [[ \$# -gt 0 ]]; do
+      [[ "\$1" == "-f" ]] && cp "\$2" "${TMP_ROOT}/build.Dockerfile"
+      shift
+    done
+    exit 0 ;;
+  save)
+    shift
+    while [[ \$# -gt 0 ]]; do
+      [[ "\$1" == "-o" ]] && printf 'fake-image-archive\n' > "\$2"
+      shift
+    done
+    exit 0 ;;
+  create) echo fakecid ; exit 0 ;;
+  cp) printf 'baked-default\n' > "\$3" ; exit 0 ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "${SHIM}/docker"
+  cat > "${REPO}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM sys AS field
+CMD ["/app"]
+DOCK
+  printf '%s\n' \
+    "[deploy]" "gpu_mode = off" "dri_groups = off" \
+    "[gui]" "mode = off" \
+    "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
+    > "${REPO}/.setup.conf"
+  # The manifest declares runtime paths only; scope it to the new stage so
+  # the bundle's config extraction still has something to do.
+  printf '%s\n' "[field]" "/etc/app/camera.yaml" \
+    > "${REPO}/config/camera/deploy.manifest"
+  run _setup_deploy --base-path "${REPO}" --stage field -y
+  assert_success
+  run cat "${TMP_ROOT}/build.Dockerfile"
+  assert_success
+  assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
+  run grep -A 2 '^FROM sys AS field$' "${TMP_ROOT}/build.Dockerfile"
+  assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
+}
+
 @test "deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)" {
   run cat "${BUNDLE}/README"
   assert_success
