@@ -47,6 +47,10 @@ readonly _STALE_SETUP_CONF_BASENAME='setup.conf'
 readonly _STALE_SETUP_CONF_LEGACY="config/docker/${_STALE_SETUP_CONF_BASENAME}"
 readonly _STALE_SETUP_CONF_REPLACEMENT=".${_STALE_SETUP_CONF_BASENAME}"
 
+# The scanned tree, repo-root-relative. Must exist: a missing root would
+# make the scan pass vacuously.
+readonly _STALE_SETUP_CONF_SCAN_ROOT='dist'
+
 # Region markers for the explicit opt-out (see the header note).
 readonly _STALE_SETUP_CONF_ALLOW_BEGIN='stale-path-lint: allow-begin'
 readonly _STALE_SETUP_CONF_ALLOW_END='stale-path-lint: allow-end'
@@ -56,10 +60,19 @@ _run_stale_setup_conf() {
   local _violations=0
   local _file _rel _line _lineno _in_allow _begin_line
 
+  # Fail loudly on a missing scan root: an empty find root would pass
+  # vacuously and silently disable the lint if the shipped tree ever moves.
+  local _scan_root="${REPO_ROOT}/${_STALE_SETUP_CONF_SCAN_ROOT}"
+  if [[ ! -d "${_scan_root}" ]]; then
+    _die ci_stale_setup_conf_path \
+      "scan root '${_STALE_SETUP_CONF_SCAN_ROOT}/' not found under ${REPO_ROOT} -- the lint would pass vacuously. Point it at the shipped runtime tree."
+    return 1
+  fi
+
   local -a _files=()
   while IFS= read -r -d '' _file; do
     _files+=("${_file}")
-  done < <(find "${REPO_ROOT}/dist" -name '*.sh' -type f -print0 2>/dev/null \
+  done < <(find "${_scan_root}" -name '*.sh' -type f -print0 2>/dev/null \
     | sort -z)
 
   for _file in "${_files[@]}"; do
