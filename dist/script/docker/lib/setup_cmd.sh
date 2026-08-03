@@ -1093,7 +1093,7 @@ _setup_apply() {
   #   - empty — user opted out; skip the mount but still detect WS_PATH
   #     so .env remains populated.
   #
-  # First-time bootstrap (no <repo>/setup.conf) copies the template and
+  # First-time bootstrap (no <repo>/.setup.conf) copies the template and
   # writes mount_1 in the portable form.
   local _repo_conf="${_base_path}/.setup.conf"
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
