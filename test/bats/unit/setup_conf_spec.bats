@@ -67,15 +67,14 @@ EOF
   # all four heredocs must advertise the dotfile the TUI actually edits.
   local _lang
   for _lang in zh-TW zh-CN ja en; do
-    # `set +u` is required, not merely omitted: the coverage shard exports
-    # SHELLOPTS, so nounset is INHERITED by this child shell even though
-    # nothing here enables it. The wrapper reads ${BASH_SOURCE[0]} unguarded
-    # at load time to locate its siblings, and the kcov-instrumented bash
-    # does not populate that array for a sourced file -- under nounset the
-    # source aborts before usage() is ever defined. `run` already captures
-    # the status assert_success checks, so `set -e` would add nothing.
+    # Deliberately does NOT relax nounset: the wrapper enables `set -euo
+    # pipefail` itself before resolving its own path, so the source has to
+    # survive nounset on its own merits. That makes this a regression test
+    # for the BASH_SOURCE default as well as for the help text -- an
+    # instrumented bash (kcov's, in the coverage shard) leaves BASH_SOURCE
+    # unpopulated for a sourced file, and without the default the file
+    # cannot be loaded at all.
     run bash -c "
-      set +u
       # shellcheck disable=SC1091
       source /source/dist/script/docker/wrapper/setup_tui.sh
       _LANG='${_lang}' usage

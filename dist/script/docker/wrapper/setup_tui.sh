@@ -19,7 +19,13 @@ set -euo pipefail
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
 # FILE_PATH detection covers root-symlink, script/-subfolder
 # and direct invocation — see build.sh for the heuristic.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# BASH_SOURCE is defaulted to $0 because this file is meant to be sourceable
+# (the bottom guard runs main only when executed directly, "for testing"), and
+# an instrumented bash — kcov's, in the coverage shard — does not populate
+# BASH_SOURCE for a sourced file. `set -euo pipefail` above is already in
+# effect here, so an unguarded read aborts the source outright and the file
+# cannot be loaded at all. Under direct execution both expand identically.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
@@ -30,7 +36,7 @@ fi
 unset _FILE_PATH_INVOKE_DIR
 readonly FILE_PATH
 
-_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
 _TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
 _TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"
