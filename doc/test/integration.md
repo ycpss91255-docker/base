@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **111 tests**.
+Integration specs under `test/bats/integration/`: **113 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -179,7 +179,7 @@ the permission (backward compatible); `--list` self-describes the build
 contract, annotating packages as registry-conditional.
 
 
-### test/bats/integration/deploy_bundle_flow_spec.bats (5)
+### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 
 The field-deploy generator end-to-end across components (ADR-00000023):
 a fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime`
