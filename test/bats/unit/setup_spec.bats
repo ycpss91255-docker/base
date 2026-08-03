@@ -90,8 +90,14 @@ EOF
   assert_success
 }
 
-@test "template setup.conf ships [lifecycle] restart = no (#478)" {
-  run grep -E '^restart = no$' /source/dist/.setup.conf
+@test "template setup.conf leaves [lifecycle] restart unset (#478, #840)" {
+  # The key is shipped commented out on purpose: dev and the field apply
+  # opposite defaults (`no` vs `unless-stopped`) and tell them apart by the
+  # key being ABSENT, so a baked-in `restart = no` would collapse the two
+  # and silently deny every field bundle its auto-start on reboot.
+  run grep -E '^restart = ' /source/dist/.setup.conf
+  assert_failure
+  run grep -E '^# restart =$' /source/dist/.setup.conf
   assert_success
 }
 
