@@ -185,7 +185,8 @@ _resolve_deploy_version() {
 #
 # Populated keys: build_network gpu_mode gpu_count gpu_caps
 #   gpu_runtime_mode gui_mode net_mode ipc_mode pid_mode network_name
-#   privileged restart_policy init dri_groups_str devices_str cgroup_rule_str
+#   privileged restart_policy init watchdog_env_str dri_groups_str
+#   devices_str cgroup_rule_str
 #   env_str tmpfs_str ports_str cap_add_str cap_drop_str sec_opt_str
 #   shm_size  (assoc subscripts quoted so ShellCheck does not read them
 #   as arithmetic refs (SC2154) -- the out-param is a nameref).
@@ -240,8 +241,11 @@ _resolve_deploy_context() {
   # privileged opt-in -- default false when the key is absent.
   _conf_get_into _RDC_CONF security privileged  false   _tmp; _rdc_out["privileged"]="${_tmp}"
 
-  # [lifecycle] restart policy (default no).
-  _conf_get_into _RDC_CONF lifecycle restart no _tmp; _rdc_out["restart_policy"]="${_tmp}"
+  # [lifecycle] restart policy. DEPLOY-scoped (never devel, never a
+  # `*-test` stage -- see _is_deployable_stage), so a single default
+  # serves both consumers: the template ships `unless-stopped` literally
+  # and this fallback only covers a conf hand-stripped of the key.
+  _conf_get_into _RDC_CONF lifecycle restart unless-stopped _tmp; _rdc_out["restart_policy"]="${_tmp}"
   # [lifecycle] init toggle -- compose `init: true` (PID1 reaper). Default
   # ON: key-absent / cleared conf resolves to true (compose-level only; the
   # generated deploy.sh run flags do not carry it).
@@ -345,8 +349,12 @@ _resolve_deploy_context() {
 #
 # It FOLLOWS THE STAGE (does not blanket-strip GUI/X11): gui/gpu/network are
 # the deployed stage's resolved values (a headless runtime stage resolves
-# gui off; a gui stage keeps its X11 host-env passthrough). `restart:
-# unless-stopped` is added for auto-start on reboot. When <binds_assoc>
+# gui off; a gui stage keeps its X11 host-env passthrough). `restart:`
+# carries the [lifecycle] policy (shipped default `unless-stopped`, so the
+# container auto-starts on host reboot). The [lifecycle] WATCHDOG_* env is
+# emitted into `environment:` exactly as the dev compose does -- restart:
+# only recovers a container that EXITS, the watchdog is the only mechanism
+# that recovers a service that is alive but wedged. When <binds_assoc>
 # (basename -> container-path, from _collect_deploy_binds) is non-empty each
 # tunable file is bound `./config/<basename>:<container-path>` (mount-wins
 # over the baked default, ADR-00000023 sec.2). host-user (USER_UID) handling
@@ -435,6 +443,19 @@ _generate_resolved_compose() {
   local _priv="${_eff["privileged"]:-${_grc_ctx["privileged"]}}"
   local _devices_str="${_grc_ctx["devices_str"]}"
   local _shm="${_grc_ctx["shm_size"]}"
+  local _watchdog_env_str="${_grc_ctx["watchdog_env_str"]:-}"
+
+  # restart: the bundle is a service-shaped container meant to run
+  # forever, so `unless-stopped` (auto-start on host reboot) is the
+  # shipped default; an explicitly configured [lifecycle] restart wins --
+  # an operator who asked for `on-failure:5` / `no` gets it instead of a
+  # silent override. apply does no schema revalidation, so a hand-edited
+  # value is validated here and a malformed one falls back to the default
+  # rather than breaking `docker compose up` (mirrors _emit_restart_line).
+  local _restart="${_grc_ctx["restart_policy"]:-}"
+  if ! _validate_restart "${_restart}"; then
+    _restart="unless-stopped"
+  fi
 
   {
     printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
@@ -445,8 +466,13 @@ _generate_resolved_compose() {
     printf '  %s:\n' "${_stage}"
     printf '    image: %s\n' "${_image_ref}"
     printf '    container_name: %s\n' "${_container}"
-    # Auto-start on host reboot (field-deploy default).
-    printf '    restart: unless-stopped\n'
+    # Always emitted: the resolved compose leaves nothing implicit, so even
+    # an explicit `no` is written out rather than dropped.
+    # `on-failure:N` is quoted; a bare `:` would read as a YAML mapping.
+    case "${_restart}" in
+      on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
+      *)            printf '    restart: %s\n'   "${_restart}" ;;
+    esac
     # init (PID1 reaper) unless the conf disabled it.
     [[ "${_grc_ctx["init"]:-true}" != "false" ]] && printf '    init: true\n'
     # privileged (literal; the field has no ${PRIVILEGED} env layer).
@@ -468,17 +494,27 @@ _generate_resolved_compose() {
     # caps / security_opt + group_add (dri, gui-gated) -- shared emitters.
     _emit_caps_block "${_eff["cap_add"]}" "${_eff["cap_drop"]}" "${_eff["security_opt"]}"
     _emit_group_add_block "${_eff_gui}" "${_grc_ctx["dri_groups_str"]}"
-    # environment: GUI X11 host-env passthrough only when the stage resolves
-    # gui on (the baked [environment] is ENV in the image, not re-emitted).
-    # ${DISPLAY:-} etc. read the field host's own shell, not .env.generated.
-    if [[ "${_eff_gui}" == "true" ]]; then
+    # environment: the GUI X11 host-env passthrough (only when the stage
+    # resolves gui on) plus the [lifecycle] WATCHDOG_* block (only when the
+    # conf armed the watchdog); the baked [environment] is ENV in the image
+    # and is not re-emitted. The watchdog is delivered through compose, not
+    # baked ENV, so the values stay visible and adjustable in the
+    # self-contained bundle -- and it is the ONLY mechanism that recovers a
+    # service that is alive but wedged (restart: only catches a container
+    # that actually exits). ${DISPLAY:-} etc. read the field host's own
+    # shell, not .env.generated. The header is emitted once for whichever
+    # of the two is present.
+    if [[ "${_eff_gui}" == "true" || -n "${_watchdog_env_str}" ]]; then
       printf '    environment:\n'
-      cat <<'YAML'
+      if [[ "${_eff_gui}" == "true" ]]; then
+        cat <<'YAML'
       - DISPLAY=${DISPLAY:-}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
 YAML
+      fi
+      _emit_watchdog_env "${_watchdog_env_str}"
     fi
     # ports: literal host:container, only under bridge.
     if [[ -n "${_eff["ports"]}" && "${_eff_net_mode}" == "bridge" ]]; then
@@ -651,8 +687,10 @@ Contents:
 Caution: compose.yaml is machine-generated and fully resolved. To adjust a
 tunable value in the field, edit the matching file under config/ (a mounted
 copy wins over the baked default) and re-run ./deploy.sh up -- do not edit
-compose.yaml. restart: unless-stopped means the container auto-starts on
-host reboot; use ./deploy.sh down to stop it.
+compose.yaml. The compose restart: policy carries the repo's
+[lifecycle] restart setting; at its default (unless-stopped) the container
+auto-starts again after a crash and after a host reboot -- use
+./deploy.sh down to stop it for good.
 EOF
   fi
 }
@@ -733,8 +771,9 @@ _generate_deploy_bundle() {
   local _gen="${_work}/Dockerfile.deploy"
   local _build_dockerfile="${_base}/Dockerfile"
 
-  # Bake [environment] as ENV (S3); no-op keeps the plain Dockerfile.
-  if _generate_runtime_dockerfile "${_base}/Dockerfile" "${_ctx["env_str"]}" "${_gen}"; then
+  # Bake [environment] as ENV (S3) into the stage actually being built;
+  # no-op (the stage declares no such FROM) keeps the plain Dockerfile.
+  if _generate_runtime_dockerfile "${_base}/Dockerfile" "${_ctx["env_str"]}" "${_gen}" "${_stage}"; then
     _build_dockerfile="${_gen}"
   fi
   # Bake config/app into the image (S4 deploy half) when the repo ships it.
