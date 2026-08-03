@@ -80,20 +80,33 @@ _validate_stage_name() {
 # ADR-00000023 sec.4's stage-eligibility predicate, `deployable = not
 # devel and not *-test`, as one shared function. Returns 0 when <stage>
 # is a field-oriented stage, 1 otherwise (including an empty name).
+# Two callers share it, and must keep sharing it so the rule has exactly
+# one definition: the compose emitter (which `restart:` services get a
+# policy) and the deploy subcommand (which stages may be built into a
+# field bundle at all).
 #
-# Why the two exclusions differ in kind:
+# The exclusions differ in kind:
 #   - `devel` IS the interactive shell -- the container lives exactly as
 #     long as that shell, so any service-shaped policy applied to it
-#     (auto-restart above all) fights the developer instead of helping;
+#     (auto-restart above all) fights the developer instead of helping,
+#     and shipping a toolchain image designed to bind host source to the
+#     field ships the wrong artifact;
 #   - a `*-test` stage exists to run, assert and EXIT, so a policy that
-#     reacts to exit turns a green test run into a restart loop.
-# The legacy bare service name `test` (the compose service `devel-test`
-# is emitted under) is excluded for the same reason as `*-test`.
+#     reacts to exit turns a green test run into a restart loop;
+#   - `sys` / `devel-base` are build intermediates with no runnable
+#     service at all -- there is nothing to deploy and nothing to keep
+#     alive, so a bundle built from one is simply broken.
+# The legacy aliases the v0.21.x transition still accepts (`test` for
+# `devel-test`, the bare service name it is emitted under, and `base`
+# for `devel-base`) are excluded alongside the names that replaced them.
+# The remaining baseline names, `devel-test` and `runtime-test`, are
+# already covered by `*-test`.
 _is_deployable_stage() {
   local _stage="${1-}"
   [[ -n "${_stage}" ]] || return 1
   case "${_stage}" in
     devel|test|*-test) return 1 ;;
+    sys|devel-base|base) return 1 ;;
   esac
   return 0
 }

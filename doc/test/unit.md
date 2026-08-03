@@ -283,8 +283,10 @@ per-stage flag-resolution layer (#505/#526, relocated from the compose
 spec in P1a), `_generate_runtime_dockerfile` ENV-bake (#503/#688,
 relocated from setup_emit in P1a), and `_is_deployable_stage`, the
 ADR-00000023 sec.4 stage-eligibility predicate
-(`deployable = not devel and not *-test`) the deploy-scoped
-`[lifecycle] restart` emission gates on.
+(`deployable = not devel and not *-test`, widened in #841 to the whole
+template-managed baseline incl. the `sys` / `devel-base` build
+intermediates) that both the deploy-scoped `[lifecycle] restart`
+emission and the `setup deploy` stage guard gate on.
 
 ### test/bats/unit/tui_spec.bats (132)
 
@@ -1387,7 +1389,11 @@ stripped, `restart: unless-stopped` added, tunable-manifest paths bound,
 per-stage params carried, follows the stage for GUI/X11),
 `_generate_deploy_launcher` (the thin up/down/logs `deploy.sh`), and
 `_generate_deploy_bundle` (the folder orchestrator; docker/xz/cp steps
-mocked via `_dry_run_cmd`, no real daemon).
+mocked via `_dry_run_cmd`, no real daemon). Also covers `_setup_deploy`'s
+stage-eligibility guard (#841): the `--stage` a user names must satisfy
+`_is_deployable_stage` (PRD invariant 8 / ADR-00000023 sec.4), so the
+template-managed baseline, the legacy aliases and any `*-test` stage are
+refused before any build or bundle step.
 
 | Test | Description |
 |------|-------------|
@@ -1421,6 +1427,10 @@ mocked via `_dry_run_cmd`, no real daemon).
 | `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag` | arg validation |
 | `_setup_deploy: --stage selects the target stage` | stage select |
+| `_setup_deploy: refuses a template-baseline stage` | stage eligibility (baseline) |
+| `_setup_deploy: refuses a legacy baseline alias` | stage eligibility (legacy alias) |
+| `_setup_deploy: refuses a downstream-shaped <x>-test stage` | stage eligibility (*-test) |
+| `_setup_deploy: a refused stage writes no bundle even with -y` | guard fires before build |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
 
 ### test/bats/unit/deploy_manifest_spec.bats (11)
