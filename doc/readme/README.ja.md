@@ -306,7 +306,7 @@ Override 可能な key (v1)：
 
 | Section | Keys |
 |---|---|
-| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime`（旧名 `runtime` も引き続き受理） |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
@@ -513,28 +513,53 @@ Main
 
 `--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
 
-### フィールド配備（`setup.sh deploy`）
+### フィールド配備（`just docker setup deploy`）
 
-`./setup.sh deploy` は同じ `setup.conf` から自己完結型のフィールドバンドルを生成します（ルーティングモデルの deploy 側）。あるステージ（既定 `runtime`）を対象に、不変イメージと生成された `deploy.sh` ランチャの 2 つだけを含む単一の `tar.xz` を出力します。
-
-```bash
-./setup.sh deploy                       # runtime バンドルを生成（先に確認）
-./setup.sh deploy --dry-run             # build plan を表示するだけで build しない
-./setup.sh deploy --stage runtime -y    # 確認プロンプトをスキップ
-./setup.sh deploy -o /tmp/robot.tar.xz  # 出力パスを指定
-```
-
-順に: (1) `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、`config/app/` があればイメージへ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）; (2) `docker build --target <stage>`; (3) `deploy.sh` を生成 —— マシン依存の docker レベルフラグ（privileged / gpus / runtime / network / ipc / pid / devices / caps / shm / restart / group-add）をすべて inline した `docker run` ランチャで、当該ステージから dev の `compose.yaml` と同じ解決を行う; (4) `docker save` して `{image.tar, deploy.sh}` を `tar -cJf` でバンドル。
-
-build 前に解決済みランチャを表示し、各 inline フラグを確認してから進めます（`-y` でスキップ；`--dry-run` は plan とランチャを表示するだけで build しない；非対話シェルで `-y` なしは拒否）。フィールドマシン側:
+`just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
 
 ```bash
-tar -xJf <name>-runtime.tar.xz
-docker load < image.tar
-./deploy.sh                 # または: DEPLOY_IMAGE=... DEPLOY_CONTAINER_NAME=... ./deploy.sh
+just docker setup deploy                      # runtime バンドルを生成（先に確認）
+just docker setup deploy --stage runtime      # フィールドステージを明示
+just docker setup deploy --dry-run            # build plan を表示するだけで build しない
+just docker setup deploy --stage runtime -y   # 確認プロンプトをスキップ
+just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指定
 ```
 
-ランチャは設計上 docker レベルフラグのみを持ちます: workload の環境変数は `ENV` として焼き込み済み（実行時に `./deploy.sh` の後ろに `-e` で上書き可）、dev の workspace bind は意図的に外しています（フィールドイメージは自身のコードを同梱）。`--group-add` の GID（iGPU `/dev/dri`）は生成ホスト由来で、別のフィールドマシンでは調整が必要な場合があります。
+バンドルは `deploy/<repo>-<stage>-<version>/` に出力されます（repo 直下の `deploy/` は gitignore 済み；`<version>` は `git describe --tags --always --dirty`、イメージ tag は `<repo>:<stage>-<version>` なので、1 台のホストに複数のフィールドバージョンを load しても衝突しません）。中身:
+
+| ファイル | 内容 |
+|---|---|
+| `image.tar.xz` | `xz` 圧縮したイメージ（`deploy.sh` が `docker load` する） |
+| `compose.yaml` | 完全に解決済みの自己完結 compose —— すべてリテラル値で **`${VAR}` 展開なし**（GUI ステージの `${DISPLAY}` ホストパススルーは例外）、`setup.conf` / `.env` に依存しない；`restart: unless-stopped` 付き |
+| `config/` | オペレータが調整可能な各ファイルの編集用コピー（後述） |
+| `deploy.sh` | 薄い `up` / `down` / `logs` ランチャ |
+| `README` | フィールドオペレータ向けの手順 |
+
+処理は順に:
+
+1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、`config/app/` があればイメージへ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
+2. `docker build --target <stage>` で不変イメージを build し、`<repo>:<stage>-<version>` を tag;
+3. `docker save | xz` で `image.tar.xz` を作成;
+4. 完全に解決済みの `compose.yaml`（`apply` と同じ resolver を共用するため、フィールドが dev からドリフトしない）、`deploy.sh` ランチャ、`README` を書き出し、調整可能な各ファイルの焼き込み済みデフォルトを `config/` へ取り出す。
+
+build 前に解決済みの `compose.yaml` を表示するので、解決された各パラメータを確認してから進められます（`-y` でスキップ；`--dry-run` は plan を表示するだけで build しない；非対話シェルで `-y` なしは拒否）。
+
+**フィールドマシン側** —— ディレクトリごとコピーし、`deploy.sh` ランチャで操作します（イメージを load して `docker compose` を駆動します；`docker run` も `setup.conf` も base のツールチェーンも不要）:
+
+```bash
+cd <repo>-runtime-<version>
+./deploy.sh up      # unxz | docker load してから docker compose up -d
+./deploy.sh logs    # docker compose logs（-f で追従）
+./deploy.sh down    # docker compose down
+```
+
+`restart: unless-stopped` によりホスト再起動後もコンテナは自動起動します。停止するには `./deploy.sh down` を使います。
+
+**フィールドでの設定変更（リビルド不要）**: コンポーネントは、フィールドオペレータが再調整してよいコンテナ内パスを、コミット済みの `config/<component>/deploy.manifest`（INI-lite、ステージごとの section にコンテナ内絶対パスを列挙）で宣言します。バンドルは宣言された各ファイルの編集用コピーを `config/` に同梱し、解決済み `compose.yaml` がそれをイメージ内の焼き込みデフォルトへ bind mount で被せます（**mount-wins**）。`config/` 配下のファイルを編集して `./deploy.sh up` を再実行すれば反映されます —— マウントされたコピーが勝ち、リビルドは不要です。宣言され**ていない**パスは焼き込みのみのままです。イメージは宣言されたすべてのパスにデフォルトファイルを焼き込んでいる必要があり、欠けていれば deploy 生成時に対処方法付きで明示的に失敗します。
+
+workload の環境変数は焼き込み済み `ENV` のデフォルトとして運ばれます（GUI ステージは加えてフィールドホスト自身のシェルから `${DISPLAY}` / `${XAUTHORITY}` などを読みます）。dev の workspace bind は意図的に外しています（フィールドイメージは自身のコードを同梱）。`--group-add` の GID（iGPU `/dev/dri`）は生成ホスト由来で、別のフィールドマシンでは調整が必要な場合があります。
+
+**継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
 ### setup.sh のサブコマンド（v0.11.0+）
 
@@ -550,7 +575,7 @@ docker load < image.tar
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除 |
 | `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 自己完結型のフィールドバンドル（image + 生成 `deploy.sh` の `tar.xz`）を生成。stage `S` は既定 `runtime`；build 前に解決済みランチャをプレビューして確認。[フィールド配備](#フィールド配備setupsh-deploy)参照 |
+| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
 
@@ -865,11 +890,10 @@ just --list  # CI ターゲット表示
 ├── .dockerignore                       # canonical な ignore セット（consumer へ同期）
 ├── dist/                         # 出荷されるツール + コンテンツ（single source of truth）
 │   ├── .hadolint.yaml                  # 共有 Hadolint ルール（consumer へ symlink）
+│   ├── .setup.conf                     # ランタイム設定テンプレート（<repo>/.setup.conf の元）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 用マルチステージ Dockerfile テンプレート
-│   ├── config/                         # コンテナ内部のシェル/ツール設定
-│   │   ├── docker/
-│   │   │   └── setup.conf              # テンプレートランタイム設定のデフォルト
+│   ├── config/                         # コンテナ内部のシェル/ツール設定（手編集可）
 │   │   └── shell/
 │   │       ├── bashrc
 │   │       ├── bashrc.d/               # インタラクティブシェル bootstrap drop-in
