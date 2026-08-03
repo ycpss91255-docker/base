@@ -58,6 +58,23 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+@test "_resolve_deploy_version: falls back to the short commit SHA in a tagless clone (#844)" {
+  # The middle branch of `git describe --tags --always --dirty`: a real repo
+  # with commits but no tags, where --always is what keeps the stamp
+  # meaningful. Without it describe fails and every untagged repo silently
+  # deploys as 'unknown', collapsing the version-collision avoidance.
+  local _d; _d="$(mktemp -d)"
+  git -C "${_d}" init -q
+  git -C "${_d}" config user.email t@t; git -C "${_d}" config user.name t
+  : > "${_d}/f"; git -C "${_d}" add f; git -C "${_d}" commit -qm init
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  refute_output "unknown"
+  refute_output ""
+  assert_output --regexp '^[0-9a-f]{7,}$'
+  rm -rf "${_d}"
+}
+
 @test "_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   run _resolve_deploy_version "${_d}"
