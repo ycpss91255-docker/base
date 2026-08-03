@@ -13,6 +13,12 @@
 # orchestration (build -> save -> load -> compose up -> mount-wins override
 # -> down), not a heavy image.
 #
+# The fixture repo is a REAL git tree with a tag, and its basename is
+# run-unique: the deploy stamp then resolves to that tag instead of the
+# `unknown` fallback (so the version-scoped image identity is what gets
+# built, loaded and asserted), and no container left behind by a crashed
+# earlier run can share this run's `docker ps --filter name=` namespace.
+#
 # Requires the ci-system compose service (mounts host /var/run/docker.sock +
 # the docker compose plugin + xz in the test-tools image). Auto-skips when
 # the socket / plugin / xz is absent so accidental invocation via the default
@@ -52,8 +58,19 @@ setup_file() {
   # resolve. Outside ci-system (a plain local daemon) it is just a temp dir.
   local _align="/tmp/base-deploy-e2e"
   mkdir -p "${_align}"
+  # The same-path mount is shared across runs and teardown_file only removes
+  # this run's TMP_ROOT, so fixture dirs left behind by a crashed run would
+  # accumulate on the host forever. Prune the old ones, age-bounded so a
+  # concurrently running invocation's live dir is never touched.
+  find "${_align}" -maxdepth 1 -type d -name 'e2e-*' -mmin +120 \
+    -exec rm -rf {} + >/dev/null 2>&1 || true
   TMP_ROOT="$(mktemp -d "${_align}/e2e-XXXXXX")"
-  REPO="${TMP_ROOT}/deploydemo"
+  # Run-unique repo basename: it becomes BOTH the image name and the
+  # container name, so a container leaked by a crashed earlier run can never
+  # satisfy (or break) this run's `docker ps --filter name=` assertions.
+  # Lowercased because an image reference must be lowercase.
+  local _uniq; _uniq="$(printf '%s' "${TMP_ROOT##*/e2e-}" | tr '[:upper:]' '[:lower:]')"
+  REPO="${TMP_ROOT}/deploydemo-${_uniq}"
   mkdir -p "${REPO}/config/app_cfg"
 
   printf '%s\n' \
@@ -72,11 +89,32 @@ DOCK
   printf '%s\n' "[runtime]" "/etc/app/host.yaml" \
     > "${REPO}/config/app_cfg/deploy.manifest"
 
+  # Make the fixture a REAL tagged git tree so _resolve_deploy_version
+  # resolves the tag and the whole e2e exercises the version-scoped image
+  # identity `<repo>:<stage>-<version>` -- the collision avoidance the stamp
+  # exists for. Left un-inited it degraded to `unknown`, so the one real
+  # end-to-end test only ever covered the fallback. Everything is committed
+  # before the stamp is read, so the tree is clean (no `-dirty` suffix); the
+  # generated deploy/ folder lands untracked, which `describe --dirty`
+  # ignores.
+  FIXTURE_TAG="v1.4.2"
+  git -C "${REPO}" init -q
+  git -C "${REPO}" config user.email e2e@test
+  git -C "${REPO}" config user.name e2e
+  git -C "${REPO}" add -A
+  git -C "${REPO}" commit -qm "e2e fixture"
+  git -C "${REPO}" tag "${FIXTURE_TAG}"
+
+  local _repo_name="${REPO##*/}"
   VERSION="$(_resolve_deploy_version "${REPO}")"
-  BUNDLE="${REPO}/deploy/deploydemo-runtime-${VERSION}"
-  CNAME="deploydemo-runtime"
-  IMAGE="deploydemo:runtime-${VERSION}"
-  export TMP_ROOT REPO BUNDLE CNAME IMAGE VERSION
+  BUNDLE="${REPO}/deploy/${_repo_name}-runtime-${VERSION}"
+  CNAME="${_repo_name}-runtime"
+  IMAGE="${_repo_name}:runtime-${VERSION}"
+  export TMP_ROOT REPO BUNDLE CNAME IMAGE VERSION FIXTURE_TAG
+
+  # Belt and braces on top of the run-unique name: never inherit a container
+  # that some earlier run left holding this exact name.
+  docker rm -f "${CNAME}" >/dev/null 2>&1 || true
 
   # Generate the bundle for real (docker build + save | xz + config extract).
   # A failure here is a genuine deploy bug (the socket/plugin/xz are present),
@@ -92,8 +130,20 @@ teardown_file() {
   if [[ -n "${BUNDLE:-}" && -f "${BUNDLE}/deploy.sh" ]]; then
     "${BUNDLE}/deploy.sh" down >/dev/null 2>&1 || true
   fi
+  # The run-unique name means nothing else can own it -- remove it even when
+  # deploy.sh down could not (a half-created container leaks otherwise).
+  [[ -n "${CNAME:-}" ]] && docker rm -f "${CNAME}" >/dev/null 2>&1 || true
   [[ -n "${IMAGE:-}" ]] && docker rmi -f "${IMAGE}" >/dev/null 2>&1 || true
   [[ -n "${TMP_ROOT:-}" ]] && rm -rf "${TMP_ROOT}"
+}
+
+@test "field-deploy e2e: the image identity is version-stamped, not the 'unknown' fallback" {
+  # The stamp is the collision avoidance for loading multiple field versions
+  # on one host, so the e2e must run against a real tagged tree.
+  [ "${VERSION}" = "${FIXTURE_TAG}" ]
+  [[ "${IMAGE}" == *":runtime-${FIXTURE_TAG}" ]]
+  [[ "${IMAGE}" != *"unknown"* ]]
+  [[ "${BUNDLE}" == *"-runtime-${FIXTURE_TAG}" ]]
 }
 
 @test "field-deploy e2e: the generator produced a self-contained bundle folder" {
@@ -116,6 +166,10 @@ teardown_file() {
   # is debuggable in the CI log rather than a bare non-zero status.
   run "${BUNDLE}/deploy.sh" up
   [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
+
+  # The image the field host loaded really carries the version-scoped ref.
+  run docker image inspect "${IMAGE}"
+  [ "${status}" -eq 0 ] || { echo "loaded image ${IMAGE} not present: ${output}"; false; }
 
   # The container is actually running.
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'

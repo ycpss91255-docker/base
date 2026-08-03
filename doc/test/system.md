@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **7 tests**.
+System specs under `test/bats/system/`: **8 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -66,7 +66,7 @@ default context.
 | `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
 | `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
 
-### test/bats/system/deploy_bundle_e2e_spec.bats (2)
+### test/bats/system/deploy_bundle_e2e_spec.bats (3)
 
 A REAL field deploy end-to-end (ADR-00000023; System level, E2E type).
 Generates the bundle for real (`docker build` + `docker save | xz`),
@@ -80,7 +80,14 @@ mount-wins override -> down), not a heavy image. Needs the `ci-system`
 service's docker.sock plus the `docker compose` plugin + `xz` baked into
 the test-tools image; auto-skips cleanly when any is absent.
 
+The fixture repo is a real git tree carrying a tag, with a run-unique
+basename: the deploy stamp resolves to that tag rather than the `unknown`
+fallback (so the version-scoped image identity `<repo>:<stage>-<version>`
+is what actually gets built, loaded and asserted), and no container leaked
+by a crashed earlier run can share this run's name namespace.
+
 | Test | Description |
 |------|-------------|
+| `field-deploy e2e: the image identity is version-stamped, not the 'unknown' fallback` | tagged fixture -> real version stamp |
 | `field-deploy e2e: the generator produced a self-contained bundle folder` | real bundle output |
 | `field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies` | run + mount-wins override |
