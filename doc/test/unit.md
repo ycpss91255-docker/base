@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2238 tests**.
+Unit specs under `test/bats/unit/`: **2248 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1827,6 +1827,32 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
+
+### test/bats/unit/stale_setup_conf_lint_spec.bats (10)
+
+Unit tests for `script/test/drivers/stale_setup_conf.sh`
+(`_run_stale_setup_conf`, refs #845), the "no stale
+`config/docker/setup.conf` path in runtime shell code" lint. The per-repo
+override and the template default now live at the repo-root `.setup.conf`
+dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location that
+no longer exists and silently ignores the repo's knobs. The legacy-migration
+block in `dist/script/base/upgrade.sh` is the one legitimate consumer and
+opts out via explicit `allow-begin` / `allow-end` markers. Driven over
+throwaway fixture `dist/` trees, plus a real-tree guard that the live
+`dist/` passes today.
+
+| Test | Description |
+|------|-------------|
+| `_run_stale_setup_conf: FAILS on a stale path in a dist/ script, naming file and line (#845)` | Stale path fails, file:line named |
+| `_run_stale_setup_conf: names the replacement path in the failure message (#845)` | Message points at `.setup.conf` |
+| `_run_stale_setup_conf: FAILS on a stale path inside a comment too (#845)` | Comments are in scope, not exempt |
+| `_run_stale_setup_conf: FAILS on a stale path AFTER an allow-end (region does not leak) (#845)` | Allow region ends at the end marker |
+| `_run_stale_setup_conf: FAILS on an unterminated allow-begin region (#845)` | Unbalanced begin marker fails loudly |
+| `_run_stale_setup_conf: FAILS on an allow-end with no matching allow-begin (#845)` | Unmatched end marker fails loudly |
+| `_run_stale_setup_conf: EXEMPTS a stale path inside an allow-begin/allow-end region (#845)` | Marked migration block exempt |
+| `_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)` | `.setup.conf` tree clean |
+| `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
+| `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
