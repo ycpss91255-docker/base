@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **111 tests**.
+Integration specs under `test/bats/integration/`: **115 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -111,7 +111,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (18)
+### test/bats/integration/upgrade_spec.bats (20)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -123,7 +123,10 @@ bug and asserts the repo is restored), and Step 5's declarative
 Dockerfile/entrypoint migration pass (#567 / #579) — sourcing
 `lib/dockerfile_migrate.sh` and running `apply_migrations` over the
 repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
-{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`).
+{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`),
+plus the pre-pull `.setup.conf` migrations (legacy override relocation and
+the `[lifecycle] restart` default retirement) observed through a real
+upgrade run.
 
 | Test | Description |
 |------|-------------|
@@ -179,7 +182,7 @@ the permission (backward compatible); `--list` self-describes the build
 contract, annotating packages as registry-conditional.
 
 
-### test/bats/integration/deploy_bundle_flow_spec.bats (5)
+### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 
 The field-deploy generator end-to-end across components (ADR-00000023):
 a fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime`

@@ -5,6 +5,10 @@
 
 - **Date:** 2026-07-07
 - **Status:** Accepted
+- **Amended:** 2026-08-03 -- the restart policy is scoped to *deployable*
+  stages only; `devel` and `*-test` never carry one, and its default flips
+  to ON (`unless-stopped`). See "Lifecycle capabilities are not uniform
+  across stages" below.
 - **Relates to:** issues #478 (restart policy), #792 (init / PID1
   reaping), #797 (generic watchdog / supervised restart), #805 (durable
   log persistence), and ADR-00000019 (network host default + usable
@@ -62,6 +66,46 @@ lifecycle-defaults family.
 This ADR records the *axiom and ownership rationale*. The concrete
 mechanism for each capability is specified in its own issue (the
 watchdog's design lives in #797, not here).
+
+### Lifecycle capabilities are not uniform across stages (amendment, 2026-08-03)
+
+The umbrella above treats the lifecycle as a property of "the one
+service". That holds for init, the watchdog, and log persistence, but
+**not** for the restart policy: whether a stopped container should come
+back depends on whether the container is a *service* or a *session*.
+
+A `devel` container is a session. Its life *is* the interactive shell, so
+a restart policy means typing `exit` immediately relaunches it — there is
+no way to leave. A `*-test` stage is likewise designed to exit, and an
+exit-0 stage inheriting devel's policy is precisely the restart loop
+#493 hit. A deployable stage and a field bundle are the opposite: they
+run a service that is meant never to stop, so coming back — after a
+crash, and after a host reboot — is exactly right.
+
+Decision:
+
+- **The restart policy applies only to deployable stages and the field
+  bundle.** `devel` and any `*-test` stage never emit one. The previous
+  mechanism (emit on `devel`, let `extends: devel` stages inherit) is
+  removed; qualifying stage services emit it themselves.
+- **"Deployable" is not a second definition.** It binds to the existing
+  rule in ADR-00000023 sec.4 (`deployable = not devel and not *-test`),
+  hoisted into a single shared predicate so there is one place to change.
+- **The default flips from `no` to `unless-stopped`**, and is shipped
+  literally in the template so it is visible rather than implicit. Once
+  the key no longer straddles dev and field, the two consumers no longer
+  want opposite defaults, so no absent-vs-explicit distinction is needed:
+  an explicit value is honoured verbatim wherever the key applies.
+
+This refines, and does not contradict, the "default ON only where absence
+is a footgun" rule in Consequences: after the rescope, every context the
+key still reaches is one where a container that fails to come back *is*
+the footgun.
+
+Note that the ownership axiom is unchanged — `base` still owns the
+restart policy. What changed is the recognition that a lifecycle
+capability can be stage-scoped, which is the first case where the
+umbrella needed qualifying.
 
 ## Alternatives considered
 

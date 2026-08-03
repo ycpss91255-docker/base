@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2250 tests**.
+Unit specs under `test/bats/unit/`: **2277 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -198,7 +198,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (113)
+#### test/bats/unit/setup_spec.bats (114)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -270,7 +270,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (76)
+#### test/bats/unit/stage_spec.bats (83)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -280,8 +280,11 @@ apply` auto-emit of non-baseline stages (#215), per-stage overrides #220
 `_resolve_stage_list` + compose-emit integration, incl. #493
 `devel-test` override surface), the `_resolve_docker_flags` single
 per-stage flag-resolution layer (#505/#526, relocated from the compose
-spec in P1a), and `_generate_runtime_dockerfile` ENV-bake (#503/#688,
-relocated from setup_emit in P1a).
+spec in P1a), `_generate_runtime_dockerfile` ENV-bake (#503/#688,
+relocated from setup_emit in P1a), and `_is_deployable_stage`, the
+ADR-00000023 sec.4 stage-eligibility predicate
+(`deployable = not devel and not *-test`) the deploy-scoped
+`[lifecycle] restart` emission gates on.
 
 ### test/bats/unit/tui_spec.bats (132)
 
@@ -1305,14 +1308,17 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (75)
+### test/bats/unit/compose_emit/gen_spec.bats (81)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
 references, conditional pid emission (only for `host`; omitted for
 `private` since Docker rejects the literal), `test` service presence,
-image name threading, and conditional GPU deploy block + GUI
-env/volumes + extra volumes from `[volumes]` section.
+image name threading, conditional GPU deploy block + GUI
+env/volumes + extra volumes from `[volumes]` section, and the
+deploy-scoped `[lifecycle] restart` emission (never on devel, on a
+deployable stage in both the `extends: devel` and the standalone
+shapes, absent on any `*-test` stage).
 
 | Test | Description |
 |------|-------------|
@@ -1368,7 +1374,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (31)
+### test/bats/unit/deploy_spec.bats (38)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2031,7 +2037,7 @@ no-ops, and the ldd-skip + accumulate-all behaviour (#692).
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/upgrade_spec.bats (41)
+### test/bats/unit/upgrade_spec.bats (47)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -2051,7 +2057,11 @@ structural invariant + target-version match (catches destructive
 fast-forward, empty subtree, malformed `.version`, and wrong-tag
 pulls), and the SemVer §11-aware `_semver_cmp` + `_check`
 behavior added for issue #156 (prerelease ahead of latest stable
-must not be reported as "needing downgrade").
+must not be reported as "needing downgrade"), and
+`_migrate_lifecycle_restart_default`, which retires the stale
+devel-scoped `[lifecycle] restart = no` the old template seeded into
+every downstream repo (gated on the pre-pull vendored template, so a
+deliberately chosen policy is never rewritten).
 
 | Test | Description |
 |------|-------------|
