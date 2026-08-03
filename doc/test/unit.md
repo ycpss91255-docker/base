@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2287 tests**.
+Unit specs under `test/bats/unit/`: **2293 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1426,6 +1426,24 @@ mocked via `_dry_run_cmd`, no real daemon).
 | `_setup_deploy: --stage selects the target stage` | stage select |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
 
+### test/bats/unit/deploy_hint_spec.bats (5)
+
+Covers the "regenerate this artifact" hints stamped into what the deploy
+generator emits -- the resolved `compose.yaml` header and the `deploy.sh`
+launcher -- plus the sibling hint in the shipped `dist/deploy/cd-guard.sh`
+(#843). The hints used to print a bare positional stage, which
+`_setup_deploy` rejects as an unknown arg, so the printed command failed
+when copy-pasted; these specs replay the emitted hint's own argument list
+through the real parser instead of asserting a hand-copied duplicate.
+
+| Test | Description |
+|------|-------------|
+| `resolved compose header hint uses --stage, not a bare positional stage` | compose header hint |
+| `deploy.sh launcher hint uses --stage, not a bare positional stage` | launcher hint |
+| `cd-guard.sh documents the --stage form of the deploy command` | cd-guard hint |
+| `the compose-header hint's args are accepted by the deploy arg parser` | hint replayed through parser |
+| `the launcher hint's args are accepted by the deploy arg parser` | hint replayed through parser |
+
 ### test/bats/unit/deploy_manifest_spec.bats (11)
 
 Covers the per-component tunable-config manifest primitives (#833;
@@ -1784,7 +1802,7 @@ builds the env block only for the knobs the conf sets.
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
 | `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
 
-### test/bats/unit/doc_counts_spec.bats (7)
+### test/bats/unit/doc_counts_spec.bats (8)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs

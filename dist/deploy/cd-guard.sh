@@ -8,7 +8,7 @@
 # CD: refuse to deploy unless the tree is clean AND sits on a tag, so a
 # shipped field bundle is always traceable to a released version.
 #
-# Usage (from the repo root, before `just setup deploy <stage>`):
+# Usage (from the repo root, before `just setup deploy --stage <stage>`):
 #   ./.base/dist/deploy/cd-guard.sh
 # Exits 0 when clean + tagged; non-zero (with a reason) otherwise.
 set -euo pipefail
