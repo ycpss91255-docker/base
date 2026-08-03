@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2238 tests**.
+Unit specs under `test/bats/unit/`: **2243 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -240,13 +240,16 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (14)
+#### test/bats/unit/setup_conf_spec.bats (17)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 replace strategy) resolving the per-repo override from the repo-root
 `.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
 read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip),
-and the `_rule_basename` image-rule helper.
+and the `_rule_basename` image-rule helper. Also guards the shipped
+`dist/` prose against pre-relocation path names: the four `setup_tui.sh`
+usage heredocs must advertise `.setup.conf`, and no shipped text may
+still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 #### test/bats/unit/env_emit_spec.bats (4)
 
@@ -1562,7 +1565,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (151)
+### test/bats/unit/template_spec.bats (153)
 
 | Test | Description |
 |------|-------------|
@@ -1696,6 +1699,8 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example copies _entrypoint_logging.sh to /usr/local/lib/base/ in devel stage (#368)` | In-image helper COPY + devel-stage placement |
 | `Dockerfile.example commented runtime stage shows _entrypoint_logging.sh COPY example (#368)` | Runtime opt-in scaffold |
 | `_entrypoint_logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | Helper Usage docstring positive + negative regression guards |
+| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
+| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
 
 ### test/bats/unit/bashrc_spec.bats (15)
 

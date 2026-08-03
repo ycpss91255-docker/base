@@ -326,6 +326,33 @@ _seed_entry() {
   grep -Fq "mode = root_wins" .setup.conf
 }
 
+@test "upgrade.sh relocation commit carries only the moved paths, not unrelated staged work" {
+  cd "${DOWN_DIR}"
+  mkdir -p config/docker
+  printf '[gpu]\nmode = force\n' > config/docker/setup.conf
+  git add config/docker/setup.conf
+  git commit -q -m "add legacy setup.conf override"
+
+  # Work the user happened to stage before running the upgrade. The
+  # pre-flight does not require a clean index, so the relocation commit
+  # must scope itself instead of sweeping this in under its own label.
+  printf 'unrelated\n' > UNRELATED.txt
+  git add UNRELATED.txt
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+
+  local _sha
+  _sha="$(git log --format=%H --grep='relocate setup.conf override' -1)"
+  [ -n "${_sha}" ]
+  run git show --no-renames --name-only --format= "${_sha}"
+  assert_output --partial ".setup.conf"
+  refute_output --partial "UNRELATED.txt"
+
+  # The user's staged work survives untouched, still staged.
+  run git diff --cached --name-only
+  assert_output --partial "UNRELATED.txt"
+}
+
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
 @test "upgrade.sh fails fast when git identity is missing" {

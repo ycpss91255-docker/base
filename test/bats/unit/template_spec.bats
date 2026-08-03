@@ -788,6 +788,33 @@ _stage_lint_layout() {
   (( _log_line < _wd_line ))
 }
 
+@test "runtime/entrypoint.sh guards both lib sources with a readability test (#842)" {
+  # The runtime stage's logging/watchdog COPYs are opt-in and init.sh seeds
+  # this entrypoint verbatim into every repo, so an image that skipped them
+  # must not source a missing file on every start. Same `[[ -r ]]` shape the
+  # libs already use for their own sibling logrotate.sh source.
+  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  run grep -F 'if [[ -r /usr/local/lib/base/logging.sh ]]; then' "${_ep}"
+  assert_success
+  run grep -F 'if [[ -r /usr/local/lib/base/watchdog.sh ]]; then' "${_ep}"
+  assert_success
+}
+
+@test "runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)" {
+  # The observable half of the guard: with neither helper installed the
+  # entrypoint must still reach `exec` -- no missing-file stderr, and no
+  # abort for a consumer running the documented strict-mode entrypoint.
+  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  if [[ -e /usr/local/lib/base/logging.sh || -e /usr/local/lib/base/watchdog.sh ]]; then
+    skip "runtime libs installed in this image -- absent-lib path not observable"
+  fi
+  local _err="${BATS_TEST_TMPDIR}/entrypoint.err"
+  run bash -c 'bash -euo pipefail "$1" printf ok 2>"$2"' _ "${_ep}" "${_err}"
+  assert_success
+  assert_output "ok"
+  assert_equal "$(cat "${_err}")" ""
+}
+
 @test "Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)" {
   # The optional runtime stage is a fresh BASE_IMAGE (no devel inherit), so
   # a repo enabling host-side log tee there must COPY BOTH logging.sh and
