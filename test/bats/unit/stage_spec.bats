@@ -1360,3 +1360,37 @@ EOF
   assert_failure
   refute [ -f "${_out}" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _is_deployable_stage -- the stage-eligibility predicate of
+# ADR-00000023 sec.4 (`deployable = not devel and not *-test`).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_is_deployable_stage accepts a field-oriented stage (#840)" {
+  _is_deployable_stage runtime
+  _is_deployable_stage headless
+  _is_deployable_stage field
+  _is_deployable_stage runtime-base
+}
+
+@test "_is_deployable_stage rejects devel -- a devel container is an interactive shell (#840)" {
+  run _is_deployable_stage devel
+  assert_failure
+}
+
+@test "_is_deployable_stage rejects every *-test stage -- they exit by design (#840)" {
+  run _is_deployable_stage devel-test
+  assert_failure
+  run _is_deployable_stage runtime-test
+  assert_failure
+  run _is_deployable_stage foo-test
+  assert_failure
+  # The legacy bare service name devel-test is emitted under.
+  run _is_deployable_stage test
+  assert_failure
+}
+
+@test "_is_deployable_stage rejects an empty stage name (#840)" {
+  run _is_deployable_stage ""
+  assert_failure
+}

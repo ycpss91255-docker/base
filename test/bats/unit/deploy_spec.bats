@@ -113,20 +113,20 @@ _write_conf() {
   assert_equal "${_ctx[ipc_mode]}" "host"
   assert_equal "${_ctx[pid_mode]}" "private"
   assert_equal "${_ctx[privileged]}" "false"
-  # restart is reported RAW: empty means "key absent", so each consumer can
-  # apply its own default (dev `no`, field `unless-stopped`).
-  assert_equal "${_ctx[restart_policy]}" ""
+  # The template ships `restart = unless-stopped`; a conf hand-stripped of
+  # the key still resolves to that same default.
+  assert_equal "${_ctx[restart_policy]}" "unless-stopped"
   rm -rf "${_d}"
 }
 
-@test "_resolve_deploy_context: distinguishes an absent [lifecycle] restart from an explicit no (#840)" {
+@test "_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)" {
   local _d; _d="$(mktemp -d)"
-  # Absent -> empty, so the deploy path may apply its field default.
+  # Hand-stripped conf -> the template's own default, not an empty policy.
   _write_conf "${_d}" "[image_name]" "name = placeholder"
   local -A _absent=()
   _resolve_deploy_context "${_d}" _absent
-  assert_equal "${_absent[restart_policy]}" ""
-  # Explicitly `no` -> the operator's choice survives, not collapsed to absent.
+  assert_equal "${_absent[restart_policy]}" "unless-stopped"
+  # An explicitly configured value is honoured verbatim.
   _write_conf "${_d}" "[lifecycle]" "restart = no"
   local -A _explicit=()
   _resolve_deploy_context "${_d}" _explicit
@@ -359,7 +359,7 @@ _write_headless_conf() {
 @test "_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)" {
   local _d; _d="$(mktemp -d)"
   local -A _binds=()
-  # No [lifecycle] restart -> field default (auto-start on host reboot).
+  # No [lifecycle] restart -> the shipped default (auto-start on reboot).
   _write_headless_conf "${_d}"
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/absent.yaml" _binds
