@@ -298,13 +298,35 @@ _make_multi_cobertura() {
 # COVERAGE_MIN default + visibility
 # ════════════════════════════════════════════════════════════════════
 
-@test "coverage_gate: default COVERAGE_MIN does not false-fail at ~52.9%" {
-  # The current measured rate (~52.9%) must clear the built-in default
-  # floor. Model it with a report just at that rate and assert pass with
-  # NO COVERAGE_MIN override.
-  _make_cobertura "${SCRATCH}/a/cobertura.xml" 529 1000
+@test "coverage_gate: default COVERAGE_MIN does not false-fail at the measured 84.72%" {
+  # The rate CI measures on main (84.72%, 5907/6972 lines) must clear the
+  # built-in default floor. Model it with a report at that rate and assert
+  # pass with NO COVERAGE_MIN override.
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 5907 6972
   run bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
   [ "${status}" -eq 0 ]
+  [[ "${output}" == *"84.72"* ]]
+}
+
+@test "coverage_gate: default COVERAGE_MIN is 80 -- a report exactly at 80 passes" {
+  # Pin the floor VALUE from below: 80.00% is the lowest rate the built-in
+  # default accepts. Asserted with NO override so the constant itself is
+  # under test, and the reported floor is read back out of the verdict
+  # line so a silent re-base cannot pass unnoticed.
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 8000 10000
+  run bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"floor 80% -> PASS"* ]]
+}
+
+@test "coverage_gate: default COVERAGE_MIN is 80 -- a report just under 80 fails" {
+  # Pin the same value from above: 79.99% must FAIL on the built-in
+  # default. Together with the boundary-pass case this fixes the floor at
+  # exactly 80, so lowering it back silently breaks a test.
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 7999 10000
+  run bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"floor 80% -> FAIL"* ]]
 }
 
 @test "coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set" {

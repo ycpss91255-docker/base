@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2275 tests**.
+Unit specs under `test/bats/unit/`: **2277 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2163,7 +2163,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/bats/unit/coverage_gate_spec.bats (19)
+### test/bats/unit/coverage_gate_spec.bats (21)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2187,7 +2187,9 @@ own full copy of the file's lines to the denominator.
 | `coverage_gate: errors when a named report file is missing` | Missing-file error |
 | `coverage_gate: errors when total valid lines is zero (empty report)` | Empty-report error |
 | `coverage_gate: errors on a report missing the line counters` | Malformed-report error |
-| `coverage_gate: default COVERAGE_MIN does not false-fail at ~52.9%` | Built-in default does not false-fail |
+| `coverage_gate: default COVERAGE_MIN does not false-fail at the measured 84.72%` | Built-in default does not false-fail |
+| `coverage_gate: default COVERAGE_MIN is 80 -- a report exactly at 80 passes` | Floor value pinned from below |
+| `coverage_gate: default COVERAGE_MIN is 80 -- a report just under 80 fails` | Floor value pinned from above |
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate: prefix path aliases of one file are counted once (#853)` | Alias-inflated denominator (the bug) |
 | `coverage_gate: different files sharing a basename stay separate (#853)` | Basename-only keying is wrong (the trap) |
