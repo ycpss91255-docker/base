@@ -873,6 +873,18 @@ SH
   assert_output --partial "Unknown LINT_TOOL"
 }
 
+@test "main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)" {
+  # Wiring guard: the lint must reach the CI gate, not only an Edit-time
+  # hook. An unwired tool falls through to the ci_unknown_lint_tool branch
+  # (the test above), so a passing run here proves the dispatch case exists.
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL=stale-setup-conf main --ci
+  '
+  assert_success
+  assert_output --partial "stale setup.conf path lint: clean"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
