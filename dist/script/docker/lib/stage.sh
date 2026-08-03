@@ -265,7 +265,7 @@ _generate_runtime_dockerfile() {
 # ════════════════════════════════════════════════════════════════════
 # Per-stage overrides
 #
-# `[stage:<name>]` sections in <repo>/setup.conf override top-level
+# `[stage:<name>]` sections in <repo>/.setup.conf override top-level
 # settings on a per-stage basis. Only the v1 allowlist (gui.mode, the
 # whole [deploy] / [network] blocks, security.privileged, [volumes]
 # mounts, [environment] env_*) is honored — anything else is WARN'd
