@@ -99,6 +99,12 @@ _require_clean_merge_state() {
   done
 }
 
+# stale-path-lint: allow-begin -- the legacy-migration block must name the
+# pre-relocation override path in order to relocate a downstream still
+# carrying it. Every other mention of that path in runtime code is a defect
+# (the override lives at the repo-root .setup.conf dotfile), so the opt-out
+# is scoped to this block and ends at the matching allow-end below.
+#
 # _migrate_legacy_setup_conf <repo_root>
 #
 # setup.conf is `just setup`-managed, not hand-edited, so it left the
@@ -173,6 +179,7 @@ _migrate_legacy_setup_conf() {
     -- "${_commit_paths[@]}" \
     || _log "  (nothing staged for the setup.conf relocation)"
 }
+# stale-path-lint: allow-end
 
 # _migrate_lifecycle_restart_default <repo_root>
 #
@@ -465,9 +472,11 @@ _upgrade() {
   _require_git_identity
   _require_clean_merge_state
 
-  # Relocate a legacy config/docker/setup.conf override to the repo-root
+  # Relocate a legacy per-repo setup.conf override to the repo-root
   # .setup.conf before anything else touches the tree, committing the
-  # move so the subtree pull below still sees a clean tree.
+  # move so the subtree pull below still sees a clean tree. The old path
+  # is spelled out in _migrate_legacy_setup_conf, the one block allowed to
+  # name it (see the stale-path-lint markers there).
   _migrate_legacy_setup_conf "${REPO_ROOT}"
 
   # Retire the stale devel-scoped `[lifecycle] restart = no` the old
