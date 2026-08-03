@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2277 tests**.
+Unit specs under `test/bats/unit/`: **2301 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -273,7 +273,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (83)
+#### test/bats/unit/stage_spec.bats (84)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -286,8 +286,10 @@ per-stage flag-resolution layer (#505/#526, relocated from the compose
 spec in P1a), `_generate_runtime_dockerfile` ENV-bake (#503/#688,
 relocated from setup_emit in P1a), and `_is_deployable_stage`, the
 ADR-00000023 sec.4 stage-eligibility predicate
-(`deployable = not devel and not *-test`) the deploy-scoped
-`[lifecycle] restart` emission gates on.
+(`deployable = not devel and not *-test`, widened in #841 to the whole
+template-managed baseline incl. the `sys` / `devel-base` build
+intermediates) that both the deploy-scoped `[lifecycle] restart`
+emission and the `setup deploy` stage guard gate on.
 
 ### test/bats/unit/tui_spec.bats (132)
 
@@ -1377,7 +1379,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (38)
+### test/bats/unit/deploy_spec.bats (43)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1390,12 +1392,17 @@ stripped, `restart: unless-stopped` added, tunable-manifest paths bound,
 per-stage params carried, follows the stage for GUI/X11),
 `_generate_deploy_launcher` (the thin up/down/logs `deploy.sh`), and
 `_generate_deploy_bundle` (the folder orchestrator; docker/xz/cp steps
-mocked via `_dry_run_cmd`, no real daemon).
+mocked via `_dry_run_cmd`, no real daemon). Also covers `_setup_deploy`'s
+stage-eligibility guard (#841): the `--stage` a user names must satisfy
+`_is_deployable_stage` (PRD invariant 8 / ADR-00000023 sec.4), so the
+template-managed baseline, the legacy aliases and any `*-test` stage are
+refused before any build or bundle step.
 
 | Test | Description |
 |------|-------------|
 | `_resolve_deploy_version: returns the tag in a tagged git tree` | version tag |
 | `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes` | dirty stamp |
+| `_resolve_deploy_version: falls back to the short commit SHA in a tagless clone` | tagless `--always` fallback |
 | `_resolve_deploy_version: degrades to 'unknown' outside a git tree` | non-git fallback |
 | `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
 | `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
@@ -1424,7 +1431,29 @@ mocked via `_dry_run_cmd`, no real daemon).
 | `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag` | arg validation |
 | `_setup_deploy: --stage selects the target stage` | stage select |
+| `_setup_deploy: refuses a template-baseline stage` | stage eligibility (baseline) |
+| `_setup_deploy: refuses a legacy baseline alias` | stage eligibility (legacy alias) |
+| `_setup_deploy: refuses a downstream-shaped <x>-test stage` | stage eligibility (*-test) |
+| `_setup_deploy: a refused stage writes no bundle even with -y` | guard fires before build |
 | `main deploy routes to _setup_deploy` | dispatch wiring |
+
+### test/bats/unit/deploy_hint_spec.bats (5)
+
+Covers the "regenerate this artifact" hints stamped into what the deploy
+generator emits -- the resolved `compose.yaml` header and the `deploy.sh`
+launcher -- plus the sibling hint in the shipped `dist/deploy/cd-guard.sh`
+(#843). The hints used to print a bare positional stage, which
+`_setup_deploy` rejects as an unknown arg, so the printed command failed
+when copy-pasted; these specs replay the emitted hint's own argument list
+through the real parser instead of asserting a hand-copied duplicate.
+
+| Test | Description |
+|------|-------------|
+| `resolved compose header hint uses --stage, not a bare positional stage` | compose header hint |
+| `deploy.sh launcher hint uses --stage, not a bare positional stage` | launcher hint |
+| `cd-guard.sh documents the --stage form of the deploy command` | cd-guard hint |
+| `the compose-header hint's args are accepted by the deploy arg parser` | hint replayed through parser |
+| `the launcher hint's args are accepted by the deploy arg parser` | hint replayed through parser |
 
 ### test/bats/unit/deploy_manifest_spec.bats (11)
 
@@ -1726,7 +1755,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (60)
+### test/bats/unit/ci_spec.bats (61)
 
 | Test | Description |
 |------|-------------|
@@ -1748,6 +1777,7 @@ builds the env block only for the knobs the conf sets.
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
+| `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
@@ -1783,7 +1813,7 @@ builds the env block only for the knobs the conf sets.
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
 | `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
 
-### test/bats/unit/doc_counts_spec.bats (7)
+### test/bats/unit/doc_counts_spec.bats (8)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs
@@ -1838,6 +1868,33 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
+
+### test/bats/unit/stale_setup_conf_lint_spec.bats (11)
+
+Unit tests for `script/test/drivers/stale_setup_conf.sh`
+(`_run_stale_setup_conf`, refs #845), the "no stale
+`config/docker/setup.conf` path in runtime shell code" lint. The per-repo
+override and the template default now live at the repo-root `.setup.conf`
+dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location that
+no longer exists and silently ignores the repo's knobs. The legacy-migration
+block in `dist/script/base/upgrade.sh` is the one legitimate consumer and
+opts out via explicit `allow-begin` / `allow-end` markers. Driven over
+throwaway fixture `dist/` trees, plus a real-tree guard that the live
+`dist/` passes today.
+
+| Test | Description |
+|------|-------------|
+| `_run_stale_setup_conf: FAILS on a stale path in a dist/ script, naming file and line (#845)` | Stale path fails, file:line named |
+| `_run_stale_setup_conf: names the replacement path in the failure message (#845)` | Message points at `.setup.conf` |
+| `_run_stale_setup_conf: FAILS on a stale path inside a comment too (#845)` | Comments are in scope, not exempt |
+| `_run_stale_setup_conf: FAILS on a stale path AFTER an allow-end (region does not leak) (#845)` | Allow region ends at the end marker |
+| `_run_stale_setup_conf: FAILS on an unterminated allow-begin region (#845)` | Unbalanced begin marker fails loudly |
+| `_run_stale_setup_conf: FAILS on an allow-end with no matching allow-begin (#845)` | Unmatched end marker fails loudly |
+| `_run_stale_setup_conf: EXEMPTS a stale path inside an allow-begin/allow-end region (#845)` | Marked migration block exempt |
+| `_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)` | `.setup.conf` tree clean |
+| `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
+| `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
+| `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 

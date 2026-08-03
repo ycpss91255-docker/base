@@ -78,6 +78,8 @@ source "${SCRIPT_DIR}/drivers/bats.sh"
 source "${SCRIPT_DIR}/drivers/issueref.sh"
 # shellcheck source=script/test/drivers/adr_numbering.sh
 source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
+# shellcheck source=script/test/drivers/stale_setup_conf.sh
+source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -105,6 +107,10 @@ Options:
   --adr-numbering         With --lint: run only the ADR-numbering lint
                           (doc/adr/ duplicate-free + well-formed; gaps
                           warned, not failed)
+  --stale-setup-conf      With --lint: run only the stale setup.conf path
+                          lint (no legacy config/docker/setup.conf in
+                          dist/**/*.sh; the override lives at the repo-root
+                          .setup.conf dotfile)
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -254,6 +260,7 @@ main() {
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
       --adr-numbering) lint_tool="adr-numbering"; shift ;;
+      --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -365,8 +372,9 @@ main() {
           hadolint)   _run_hadolint ;;
           issueref)   _run_issueref ;;
           adr-numbering) _run_adr_numbering ;;
-          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | empty)." ;;
+          stale-setup-conf) _run_stale_setup_conf ;;
+          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | empty)." ;;
         esac
         return 0
       fi
@@ -384,6 +392,7 @@ main() {
         _run_hadolint
         _run_issueref
         _run_adr_numbering
+        _run_stale_setup_conf
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =

@@ -1369,6 +1369,16 @@ _setup_deploy() {
     esac
   done
 
+  # Stage eligibility, checked the moment the stage is known -- before the
+  # repo is even located, so a forbidden stage can never reach a preview, a
+  # build or a bundle. ADR-00000023 sec.4 / PRD invariant 8:
+  # `deployable = not devel and not *-test`, shared with the compose
+  # emitter as _is_deployable_stage so the rule has one definition.
+  if ! _is_deployable_stage "${_stage}"; then
+    _log_err setup deploy_stage_not_deployable "display=[setup] deploy: '${_stage}' is not a deployable stage; the development / test baseline (sys, devel-base, devel, devel-test, runtime-test, the legacy aliases base / test, and any *-test stage) is never a deploy target." "stage=${_stage}"
+    return 1
+  fi
+
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi

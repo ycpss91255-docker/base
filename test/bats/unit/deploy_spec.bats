@@ -58,6 +58,23 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+@test "_resolve_deploy_version: falls back to the short commit SHA in a tagless clone (#844)" {
+  # The middle branch of `git describe --tags --always --dirty`: a real repo
+  # with commits but no tags, where --always is what keeps the stamp
+  # meaningful. Without it describe fails and every untagged repo silently
+  # deploys as 'unknown', collapsing the version-collision avoidance.
+  local _d; _d="$(mktemp -d)"
+  git -C "${_d}" init -q
+  git -C "${_d}" config user.email t@t; git -C "${_d}" config user.name t
+  : > "${_d}/f"; git -C "${_d}" add f; git -C "${_d}" commit -qm init
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  refute_output "unknown"
+  refute_output ""
+  assert_output --regexp '^[0-9a-f]{7,}$'
+  rm -rf "${_d}"
+}
+
 @test "_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   run _resolve_deploy_version "${_d}"
@@ -650,12 +667,74 @@ SH
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: --stage selects the target stage (#832)" {
+@test "_setup_deploy: --stage selects the target stage (#832/#841)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel --dry-run
+  # A second deployable stage, so the assertion proves --stage steers the
+  # build target rather than re-asserting the `runtime` default.
+  printf '%s\n' "FROM runtime AS field" 'CMD ["/app"]' >> "${_d}/Dockerfile"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage field --dry-run
   assert_success
-  assert_output --partial "docker build --target devel"
+  assert_output --partial "deploy plan: stage=field"
+  assert_output --partial "docker build --target field"
+  rm -rf "${_d}"
+}
+
+# ── Stage eligibility: `deployable = not devel and not *-test` ──────────
+# (ADR-00000023 sec.4 / PRD invariant 8), enforced in _setup_deploy via
+# the shared _is_deployable_stage predicate.
+
+@test "_setup_deploy: refuses a template-baseline stage (#841)" {
+  local _d _s
+  for _s in sys devel-base devel devel-test runtime-test; do
+    _d="$(mktemp -d)"
+    _write_deploy_repo "${_d}"
+    SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage "${_s}" --dry-run
+    assert_failure
+    assert_output --partial "not a deployable stage"
+    assert_output --partial "${_s}"
+    refute_output --partial "docker build"
+    rm -rf "${_d}"
+  done
+}
+
+@test "_setup_deploy: refuses a legacy baseline alias (#841)" {
+  local _d _s
+  for _s in base test; do
+    _d="$(mktemp -d)"
+    _write_deploy_repo "${_d}"
+    SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage "${_s}" --dry-run
+    assert_failure
+    assert_output --partial "not a deployable stage"
+    refute_output --partial "docker build"
+    rm -rf "${_d}"
+  done
+}
+
+@test "_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '%s\n' "FROM runtime AS field-test" 'CMD ["/run-tests"]' >> "${_d}/Dockerfile"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage field-test --dry-run
+  assert_failure
+  assert_output --partial "not a deployable stage"
+  refute_output --partial "docker build"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: a refused stage writes no bundle even with -y (#841)" {
+  # -y skips the confirmation prompt, so this is the shape that would have
+  # produced a real field bundle from a devel image. The guard must fire
+  # before any build / bundle step.
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel -y
+  unset DRY_RUN
+  assert_failure
+  refute_output --partial "docker build"
+  refute_output --partial "docker save"
+  refute [ -d "${_d}/deploy" ]
   rm -rf "${_d}"
 }
 

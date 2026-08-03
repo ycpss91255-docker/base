@@ -460,7 +460,7 @@ _generate_resolved_compose() {
   {
     printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
     printf '# Fully resolved (no variable interpolation, no setup.conf/.env dep);\n'
-    printf '# run via ./deploy.sh up|down|logs. Regenerate: just setup deploy %s\n' "${_stage}"
+    printf '# run via ./deploy.sh up|down|logs. Regenerate: just setup deploy --stage %s\n' "${_stage}"
     printf 'name: %s\n' "${_container}"
     printf 'services:\n'
     printf '  %s:\n' "${_stage}"
@@ -606,7 +606,7 @@ _generate_deploy_launcher() {
     cat <<EOF
 #!/usr/bin/env bash
 # AUTO-GENERATED field deploy launcher. DO NOT EDIT.
-# Regenerate via: just setup deploy ${_stage}
+# Regenerate via: just setup deploy --stage ${_stage}
 #
 # Self-contained: loads the bundled image, then drives the resolved
 # compose.yaml. Runs from anywhere (cd's to its own bundle dir).

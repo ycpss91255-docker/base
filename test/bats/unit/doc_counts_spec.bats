@@ -131,3 +131,24 @@ setup() {
   assert_output --partial "[system.md](system.md) | system | 3 "
   assert_output --partial "[acceptance.md](acceptance.md) | acceptance | 0 "
 }
+
+@test "_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)" {
+  # Regression: only the table rows and per-level headers were regenerated,
+  # so TEST.md's hand-written "System (N) and smoke (N)" prose drifted and
+  # ended up contradicting the table sitting right below it.
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/system" "${root}/dist/test/bats/smoke" \
+             "${root}/doc/test"
+    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
+    printf "@test \"k\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/k.bats"
+    printf "%s\n" "> System (99) and smoke (98) tests are tracked here too." \
+      > "${root}/doc/test/TEST.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/TEST.md"
+  '
+  assert_success
+  assert_output --partial "System (2) and smoke (1) tests"
+  refute_output --partial "System (99)"
+}
