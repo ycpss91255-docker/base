@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2249 tests**.
+Unit specs under `test/bats/unit/`: **2250 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1829,7 +1829,7 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
-### test/bats/unit/stale_setup_conf_lint_spec.bats (10)
+### test/bats/unit/stale_setup_conf_lint_spec.bats (11)
 
 Unit tests for `script/test/drivers/stale_setup_conf.sh`
 (`_run_stale_setup_conf`, refs #845), the "no stale
@@ -1853,6 +1853,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: EXEMPTS a stale path inside an allow-begin/allow-end region (#845)` | Marked migration block exempt |
 | `_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)` | `.setup.conf` tree clean |
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
+| `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)

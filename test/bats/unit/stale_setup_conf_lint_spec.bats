@@ -137,6 +137,19 @@ _write() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_stale_setup_conf: scan-root guard
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)" {
+  # An empty find root passes vacuously, silently disabling the lint if
+  # dist/ is ever relocated. Fail loudly on a missing scan root instead.
+  rm -rf "${SCRATCH}/dist"
+  run _run_stale_setup_conf
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_stale_setup_conf: real tree guard
 # ════════════════════════════════════════════════════════════════════
 
