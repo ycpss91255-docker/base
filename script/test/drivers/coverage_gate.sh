@@ -80,28 +80,82 @@ _coverage_gate_run() {
   # double-counts that shared source, so the rate drifts DOWN as the shard
   # count grows (4 shards ~52.9%, 8 shards 42% on the SAME suite). A line is
   # covered if ANY shard executed it (hits>0); valid = distinct source lines
-  # (key = <class filename> + <line number>) -- shard-count-invariant.
-  local _parsed _sum_covered _sum_valid
+  # -- shard-count-invariant.
+  #
+  # PATH-ALIAS CANONICALISATION (the second half of that invariant): the
+  # union key must NOT be the raw kcov `filename`, because kcov reports the
+  # SAME source file under several prefix-truncated aliases in the same
+  # report set -- e.g. lib/_lib.sh, docker/lib/_lib.sh,
+  # script/docker/lib/_lib.sh and dist/script/docker/lib/_lib.sh are all one
+  # file. Each alias is a distinct key prefix, so each contributed its own
+  # full copy of the file's lines to `valid` while only the aliases that
+  # recorded hits contributed to `cov`: the denominator was inflated and,
+  # because which alias appears depends on which shard ran the file, adding
+  # ONE spec reshuffled the shards and moved the reported rate.
+  #
+  # The aliases are pure prefix truncations of one another, so a
+  # longest-path-SUFFIX-wins normalisation is exact and needs no filesystem
+  # access: the canonical name of a filename is the LONGEST filename in the
+  # report set of which it is a path suffix (matched on "/" component
+  # boundaries, so lib/_lib.sh is a suffix of docker/lib/_lib.sh but
+  # ib/_lib.sh is not). Basename-only keying would be WRONG: distinct files
+  # legitimately share a basename (dist/script/docker/lib/deploy.sh and the
+  # generated field launcher deploy.sh) and merging them would overstate
+  # coverage. Observations are collected keyed on the raw filename in one
+  # pass, then re-keyed on the canonical name at END, since the canonical
+  # map is only knowable once every filename has been seen.
+  local _parsed _sum_covered _sum_valid _alias_collapsed
   _parsed="$(awk '
+    # 1 when short is a path suffix of long on a "/" component boundary
+    # (a strict suffix: identical names are not aliases of each other).
+    function is_path_suffix(short, long,   d) {
+      d = length(long) - length(short)
+      if (d < 1) return 0
+      return (substr(long, d + 1) == short && substr(long, d, 1) == "/")
+    }
     match($0, /<class [^>]*filename="[^"]*"/) {
       s = substr($0, RSTART, RLENGTH); sub(/.*filename="/, "", s); sub(/".*/, "", s)
-      cur = s; next
+      cur = s
+      if (!(cur in seen)) { seen[cur] = 1; names[++n_names] = cur }
+      next
     }
     match($0, /<line number="[0-9]+" hits="[0-9]+"/) {
       ln = substr($0, RSTART, RLENGTH)
       n = ln; sub(/.*number="/, "", n); sub(/".*/, "", n)
       h = ln; sub(/.*hits="/, "", h); sub(/".*/, "", h)
-      k = cur ":" n; valid[k] = 1; if (h + 0 > 0) cov[k] = 1
+      k = cur SUBSEP n; valid[k] = 1; if (h + 0 > 0) cov[k] = 1
     }
-    END { c = 0; v = 0; for (k in valid) v++; for (k in cov) c++; printf "%d %d", c, v }
+    END {
+      collapsed = 0
+      for (i = 1; i <= n_names; i++) {
+        best = names[i]
+        for (j = 1; j <= n_names; j++) {
+          if (is_path_suffix(names[i], names[j]) && length(names[j]) > length(best)) {
+            best = names[j]
+          }
+        }
+        canon[names[i]] = best
+        if (best != names[i]) collapsed++
+      }
+      for (k in valid) { split(k, p, SUBSEP); u_valid[canon[p[1]] ":" p[2]] = 1 }
+      for (k in cov)   { split(k, p, SUBSEP); u_cov[canon[p[1]] ":" p[2]] = 1 }
+      c = 0; v = 0
+      for (k in u_valid) v++
+      for (k in u_cov) c++
+      printf "%d %d %d", c, v, collapsed
+    }
   ' "$@")"
-  _sum_covered="${_parsed% *}"
-  _sum_valid="${_parsed#* }"
+  read -r _sum_covered _sum_valid _alias_collapsed <<< "${_parsed}"
 
   if (( _sum_valid == 0 )); then
     echo "coverage_gate: total valid lines is zero (no <line> data in report set)" >&2
     return 2
   fi
+
+  # Always reported, including the 0 case, so a future change in how kcov
+  # reports paths shows up as a moved number instead of failing silently.
+  echo "coverage_gate: collapsed ${_alias_collapsed} kcov path alias(es)" \
+       "into their canonical filenames" >&2
 
   # Union project rate covered/valid, as a percentage.
   local _rate
