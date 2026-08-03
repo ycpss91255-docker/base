@@ -1393,6 +1393,7 @@ mocked via `_dry_run_cmd`, no real daemon).
 |------|-------------|
 | `_resolve_deploy_version: returns the tag in a tagged git tree` | version tag |
 | `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes` | dirty stamp |
+| `_resolve_deploy_version: falls back to the short commit SHA in a tagless clone` | tagless `--always` fallback |
 | `_resolve_deploy_version: degrades to 'unknown' outside a git tree` | non-git fallback |
 | `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
 | `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
