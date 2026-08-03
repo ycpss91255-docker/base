@@ -67,14 +67,15 @@ EOF
   # all four heredocs must advertise the dotfile the TUI actually edits.
   local _lang
   for _lang in zh-TW zh-CN ja en; do
-    # No `set -u` inside: the wrapper reads ${BASH_SOURCE[0]} unguarded at
-    # load time to locate its siblings, and under the kcov-instrumented
-    # bash of the coverage shard that array is not populated for a sourced
-    # file -- with nounset the source aborts before usage() is defined.
-    # Sourcing a wrapper without nounset is the established pattern here
-    # (see setup_detect_spec.bats); `run` already captures the status that
-    # assert_success checks, so `set -e` would add nothing.
+    # `set +u` is required, not merely omitted: the coverage shard exports
+    # SHELLOPTS, so nounset is INHERITED by this child shell even though
+    # nothing here enables it. The wrapper reads ${BASH_SOURCE[0]} unguarded
+    # at load time to locate its siblings, and the kcov-instrumented bash
+    # does not populate that array for a sourced file -- under nounset the
+    # source aborts before usage() is ever defined. `run` already captures
+    # the status assert_success checks, so `set -e` would add nothing.
     run bash -c "
+      set +u
       # shellcheck disable=SC1091
       source /source/dist/script/docker/wrapper/setup_tui.sh
       _LANG='${_lang}' usage
