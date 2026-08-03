@@ -75,6 +75,42 @@ _validate_stage_name() {
   return 0
 }
 
+# _is_deployable_stage <stage>
+#
+# ADR-00000023 sec.4's stage-eligibility predicate, `deployable = not
+# devel and not *-test`, as one shared function. Returns 0 when <stage>
+# is a field-oriented stage, 1 otherwise (including an empty name).
+# Two callers share it, and must keep sharing it so the rule has exactly
+# one definition: the compose emitter (which `restart:` services get a
+# policy) and the deploy subcommand (which stages may be built into a
+# field bundle at all).
+#
+# The exclusions differ in kind:
+#   - `devel` IS the interactive shell -- the container lives exactly as
+#     long as that shell, so any service-shaped policy applied to it
+#     (auto-restart above all) fights the developer instead of helping,
+#     and shipping a toolchain image designed to bind host source to the
+#     field ships the wrong artifact;
+#   - a `*-test` stage exists to run, assert and EXIT, so a policy that
+#     reacts to exit turns a green test run into a restart loop;
+#   - `sys` / `devel-base` are build intermediates with no runnable
+#     service at all -- there is nothing to deploy and nothing to keep
+#     alive, so a bundle built from one is simply broken.
+# The legacy aliases the v0.21.x transition still accepts (`test` for
+# `devel-test`, the bare service name it is emitted under, and `base`
+# for `devel-base`) are excluded alongside the names that replaced them.
+# The remaining baseline names, `devel-test` and `runtime-test`, are
+# already covered by `*-test`.
+_is_deployable_stage() {
+  local _stage="${1-}"
+  [[ -n "${_stage}" ]] || return 1
+  case "${_stage}" in
+    devel|test|*-test) return 1 ;;
+    sys|devel-base|base) return 1 ;;
+  esac
+  return 0
+}
+
 # _parse_dockerfile_stages <dockerfile_path>
 #
 # Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,
@@ -148,20 +184,26 @@ _compute_dockerfile_hash() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _generate_runtime_dockerfile <dockerfile> <env_str> <out>
+# _generate_runtime_dockerfile <dockerfile> <env_str> <out> <stage>
 #
 # S3 ofbake the `[environment]` defaults as `ENV` into the
-# runtime stage so a bare `docker run <runtime-image>` carries sane
+# deployed stage so a bare `docker run <image>` carries sane
 # defaults with no env file -- delivery channel 1 (the only one that
 # reaches the field). Copies <dockerfile> to <out>, inserting an
-# `ENV KEY="VALUE"` block immediately after the `FROM ... AS runtime`
+# `ENV KEY="VALUE"` block immediately after the `FROM ... AS <stage>`
 # line. <env_str> is the newline-separated `KEY=VALUE` [environment]
 # list; cross-refs (`${KEY}`) are expanded against earlier siblings, the
 # same way the compose `environment:` block does.
 #
+# <stage> is REQUIRED and is the stage actually being built: `runtime` is
+# only the template's example name, and a downstream repo names its
+# deployable stage whatever it likes. Hardcoding `runtime` here silently
+# dropped every [environment] value for such a repo, while the sibling
+# `_bake_config_copy` / `docker build --target` already followed the stage.
+#
 # Returns 0 and writes <out> only when the Dockerfile declares an
-# `AS runtime` stage AND <env_str> is non-empty; returns 1 (writes
-# nothing) otherwise, so a repo with no runtime stage keeps building from
+# `AS <stage>` stage AND <env_str> is non-empty; returns 1 (writes
+# nothing) otherwise, so a repo with no such stage keeps building from
 # the plain Dockerfile (zero behaviour change). The dev `.env` overlay
 # (S2) and `deploy.sh -e` (S6) still override these baked defaults at run
 # time, because container env_file / environment beats image `ENV`.
@@ -170,17 +212,23 @@ _generate_runtime_dockerfile() {
   local _dockerfile="${1:?}"
   local _env_str="${2:-}"
   local _out="${3:?}"
+  local _stage="${4:?"${FUNCNAME[0]}: missing stage"}"
 
   [[ -f "${_dockerfile}" && -n "${_env_str}" ]] || return 1
 
-  local _line _has_runtime=0
+  # Capture the stage token and compare it literally, rather than splicing
+  # <stage> into the pattern -- a stage name reaches here straight from the
+  # conf / CLI, and a literal compare cannot be turned into a regex.
+  local _from_re='^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]]+)[[:space:]]*$'
+
+  local _line _has_stage=0
   while IFS= read -r _line; do
-    if [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$ ]]; then
-      _has_runtime=1
+    if [[ "${_line}" =~ ${_from_re} && "${BASH_REMATCH[1]}" == "${_stage}" ]]; then
+      _has_stage=1
       break
     fi
   done < "${_dockerfile}"
-  (( _has_runtime )) || return 1
+  (( _has_stage )) || return 1
 
   local -a _env_expanded=()
   _expand_env_cross_refs "${_env_str}" _env_expanded
@@ -189,7 +237,7 @@ _generate_runtime_dockerfile() {
   _tmp="$(mktemp "${_out}.XXXXXX")"
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     printf '%s\n' "${_line}" >> "${_tmp}"
-    if [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$ ]]; then
+    if [[ "${_line}" =~ ${_from_re} && "${BASH_REMATCH[1]}" == "${_stage}" ]]; then
       printf '# >>> [environment] baked defaults (generated by setup.sh, #503) <<<\n' >> "${_tmp}"
       local _kv _k _v
       for _kv in "${_env_expanded[@]}"; do
@@ -217,7 +265,7 @@ _generate_runtime_dockerfile() {
 # ════════════════════════════════════════════════════════════════════
 # Per-stage overrides
 #
-# `[stage:<name>]` sections in <repo>/setup.conf override top-level
+# `[stage:<name>]` sections in <repo>/.setup.conf override top-level
 # settings on a per-stage basis. Only the v1 allowlist (gui.mode, the
 # whole [deploy] / [network] blocks, security.privileged, [volumes]
 # mounts, [environment] env_*) is honored — anything else is WARN'd

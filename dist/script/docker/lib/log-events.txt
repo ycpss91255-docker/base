@@ -45,6 +45,7 @@ conf_mount_stale_path
 stage_devel_reserved
 env_drift_detail
 deploy_no_dockerfile
+deploy_stage_not_deployable
 deploy_needs_yes
 deploy_aborted
 deploy_failed
@@ -138,6 +139,7 @@ ci_bats_path_coverage
 ci_mixed_test_layout
 ci_issueref_in_comment
 ci_adr_numbering
+ci_stale_setup_conf_path
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

@@ -1008,6 +1008,106 @@ DOCK
   assert_output "0"
 }
 
+# ── [lifecycle] restart is deploy-scoped ────────────────────────────
+#
+# A devel container IS the interactive shell: it lives exactly as long as
+# that shell, so a restart policy on it means typing `exit` relaunches it
+# forever. Service-shaped containers (a deployable stage, the field
+# bundle) are the opposite -- they are meant to run forever. So `restart:`
+# is emitted ONLY for deployable stages (ADR-00000023 sec.4: not devel and
+# not `*-test`), never on devel and never inherited through `extends`.
+
+# Drive generate_compose_yaml with only the [lifecycle] restart tuned
+# (positional 28); every other knob keeps its default.
+_gen_restart() {
+  local _restart="$1"
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras \
+    "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" "" \
+    "${_restart}"
+}
+
+@test "generate_compose_yaml never emits restart: on the devel service (#840)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+DOCK
+  _gen_restart "unless-stopped"
+  run grep -cE '^    restart:' "${COMPOSE_OUT}"
+  assert_output "0"
+}
+
+@test "generate_compose_yaml emits restart: on a deployable stage service (#840)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+DOCK
+  _gen_restart "unless-stopped"
+  # Exactly one restart: line, and it sits inside the runtime service --
+  # devel must not carry one for `extends: devel` to inherit.
+  run grep -cE '^    restart: unless-stopped$' "${COMPOSE_OUT}"
+  assert_output "1"
+  local _svc _restart
+  _svc="$(grep -n '^  runtime:' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _restart="$(grep -n '^    restart:' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  (( _svc < _restart ))
+}
+
+@test "generate_compose_yaml omits restart: on a *-test stage -- it exits by design (#840)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+FROM devel AS smoke-test
+DOCK
+  _gen_restart "always"
+  run grep -cE '^    restart:' "${COMPOSE_OUT}"
+  assert_output "0"
+}
+
+@test "generate_compose_yaml emits restart: on a deployable stage that carries overrides (#840)" {
+  # The standalone (no `extends: devel`) shape re-emits every inherited
+  # field itself, so it needs its own restart: line.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS headless
+DOCK
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:headless]
+gui.mode = off
+CONF
+  _gen_restart "unless-stopped"
+  run grep -cE '^    restart: unless-stopped$' "${COMPOSE_OUT}"
+  assert_output "1"
+  run grep -F 'service: devel' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml quotes an on-failure:N policy on the deployable stage (#840)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+DOCK
+  _gen_restart "on-failure:5"
+  run grep -F -- '    restart: "on-failure:5"' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml emits no restart: field at all for restart = no (#840)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+DOCK
+  _gen_restart "no"
+  run grep -cE '^    restart:' "${COMPOSE_OUT}"
+  assert_output "0"
+}
+
 # ── P3: per-stage device propagation redirect ───────────────
 
 @test "generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)" {

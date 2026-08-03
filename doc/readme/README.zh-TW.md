@@ -294,7 +294,7 @@ deploy.gpu_capabilities = gpu compute utility graphics video
 
 | Section | Keys |
 |---|---|
-| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime`（舊名 `runtime` 仍接受） |
 | `[gui]` | `mode` |
 | `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
@@ -480,28 +480,53 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env` + `compose.yaml`。
 
-### Field 部署（`setup.sh deploy`）
+### Field 部署（`just docker setup deploy`）
 
-`./setup.sh deploy` 用同一份 `setup.conf` 打包出自帶式 field bundle —— 即路由模型的 deploy 半邊。它針對某個 stage（預設 `runtime`）產出單一 `tar.xz`，內含兩樣東西：不可變映像檔，與生成的 `deploy.sh` 啟動器。
-
-```bash
-./setup.sh deploy                       # 打包 runtime bundle（會先確認）
-./setup.sh deploy --dry-run             # 只印 build plan，不實際 build
-./setup.sh deploy --stage runtime -y    # 跳過確認提示
-./setup.sh deploy -o /tmp/robot.tar.xz  # 自訂輸出路徑
-```
-
-依序：(1) 把 `[environment]` 預設烤成映像的真 `ENV`（S3）、有 `config/app/` 就 `COPY` 進映像（S4），使 field 映像自帶（不帶 env 檔、不帶 config bind）；(2) `docker build --target <stage>`；(3) 生成 `deploy.sh` —— 一支把所有機器綁定的 docker 層級旗標（privileged / gpus / runtime / network / ipc / pid / devices / caps / shm / restart / group-add）inline 進去的 `docker run` 啟動器，解析自該 stage、與 dev 的 `compose.yaml` 一致；(4) `docker save` 並 `tar -cJf` 出 `{image.tar, deploy.sh}`。
-
-build 前會印出解析後的啟動器讓你逐項檢視每個 inline 旗標再確認（`-y` 跳過；`--dry-run` 只印 plan 與啟動器不 build；非互動 shell 未帶 `-y` 會拒絕）。field 機器上：
+`just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
 
 ```bash
-tar -xJf <name>-runtime.tar.xz
-docker load < image.tar
-./deploy.sh                 # 或：DEPLOY_IMAGE=... DEPLOY_CONTAINER_NAME=... ./deploy.sh
+just docker setup deploy                      # 打包 runtime bundle（會先確認）
+just docker setup deploy --stage runtime      # 顯式指定 field stage
+just docker setup deploy --dry-run            # 只印 build plan，不實際 build
+just docker setup deploy --stage runtime -y   # 跳過確認提示
+just docker setup deploy -o /tmp/robot-bundle # 自訂輸出資料夾
 ```
 
-啟動器刻意只帶 docker 層級旗標：workload 環境變數已烤成 `ENV`（執行時可在 `./deploy.sh` 後用 `-e` 覆寫），dev 的 workspace bind 刻意捨棄（field 映像自帶程式碼）。`--group-add` 的 GID（iGPU `/dev/dri`）讀自生成主機，換到不同 field 機器可能需調整。
+Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料夾已被 gitignore；`<version>` = `git describe --tags --always --dirty`，映像 tag 為 `<repo>:<stage>-<version>`，所以同一台主機載入多個 field 版本不會互撞）。內含：
+
+| 檔案 | 是什麼 |
+|---|---|
+| `image.tar.xz` | `xz` 壓縮過的映像（`deploy.sh` 會 `docker load` 它） |
+| `compose.yaml` | 完全解析、自帶式的 compose —— 全是字面值、**沒有 `${VAR}` 插值**（GUI stage 的 `${DISPLAY}` host passthrough 除外），不依賴 `setup.conf` / `.env`；帶 `restart: unless-stopped` |
+| `config/` | 每個可由操作者調整之檔案的可編輯副本（見下） |
+| `deploy.sh` | 輕薄的 `up` / `down` / `logs` 啟動器 |
+| `README` | 給 field 操作者的說明 |
+
+依序做這些事：
+
+1. 把 `[environment]` 預設烤成映像的真 `ENV`（S3），有 `config/app/` 就 `COPY` 進映像（S4）—— 使 field 映像自帶（不帶 env 檔、不帶 config bind）；
+2. `docker build --target <stage>` 出不可變映像，tag 為 `<repo>:<stage>-<version>`；
+3. `docker save | xz` 成 `image.tar.xz`；
+4. 寫出完全解析的 `compose.yaml`（與 `apply` 共用同一支 resolver，所以 field 永遠不會跟 dev 漂移）、`deploy.sh` 啟動器與 `README`，再把每個可調整檔案 baked 的預設抽出來放進 `config/`。
+
+build 前會印出解析後的 `compose.yaml`，讓你逐項檢視每個解析後的參數再確認（`-y` 跳過；`--dry-run` 只印 plan 不 build；非互動 shell 未帶 `-y` 會拒絕）。
+
+**在 field 機器上** —— 把整個資料夾複製過去，再用 `deploy.sh` 啟動器操作（它會載入映像並驅動 `docker compose`；不用 `docker run`、不用 `setup.conf`、不用 base 工具鏈）：
+
+```bash
+cd <repo>-runtime-<version>
+./deploy.sh up      # unxz | docker load 映像，再 docker compose up -d
+./deploy.sh logs    # docker compose logs（加 -f 可跟隨）
+./deploy.sh down    # docker compose down
+```
+
+`restart: unless-stopped` 表示主機重開機後容器會自動起來；要停掉請用 `./deploy.sh down`。
+
+**在 field 調整設定（免 rebuild）**：元件在 committed 的 `config/<component>/deploy.manifest`（INI-lite，每個 stage 一個 section，各自列出容器內絕對路徑）宣告哪些容器內路徑允許 field 操作者重新調整。Bundle 會為每個宣告的檔案附上一份可編輯副本放在 `config/`，解析後的 `compose.yaml` 再把它 bind mount 蓋過映像裡 baked 的預設（**mount-wins**）。改完 `config/` 底下的檔案，重跑 `./deploy.sh up` 即可 —— 掛載的副本勝出，不用 rebuild。**沒有**宣告的路徑維持只有 baked 版本。映像必須在每個宣告的路徑都 bake 一份預設檔，否則 deploy 產生階段會明確報錯並給出可行的修法。
+
+workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另外會從 field 主機自己的 shell 讀 `${DISPLAY}` / `${XAUTHORITY}` 等）；dev 的 workspace bind 刻意捨棄（field 映像自帶程式碼）。`--group-add` 的 GID（iGPU `/dev/dri`）讀自生成主機，換到不同 field 機器可能需調整。
+
+**持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
 ### setup.sh 子指令（v0.11.0+）
 
@@ -517,7 +542,7 @@ docker load < image.tar
 | `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除 |
 | `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自帶式 field bundle（image + 生成 `deploy.sh` 的 `tar.xz`），stage `S` 預設 `runtime`；build 前先預覽解析後的啟動器並確認。見 [Field 部署](#field-部署setupsh-deploy) |
+| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。見 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
 
@@ -817,11 +842,10 @@ just --list  # 顯示 CI 指令
 ├── .dockerignore                       # Canonical ignore 集（同步進各 consumer）
 ├── dist/                         # 出貨的工具 + 內容（single source of truth）
 │   ├── .hadolint.yaml                  # 共用 Hadolint 規則（symlink 進各 consumer）
+│   ├── .setup.conf                     # Template runtime 配置預設（產生 <repo>/.setup.conf）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 的多階段 Dockerfile 範本
-│   ├── config/                         # Container 內部 shell / 工具設定
-│   │   ├── docker/
-│   │   │   └── setup.conf              # Template runtime 配置預設
+│   ├── config/                         # Container 內部 shell / 工具設定（可手改）
 │   │   └── shell/
 │   │       ├── bashrc
 │   │       ├── bashrc.d/               # 互動式 shell bootstrap drop-in

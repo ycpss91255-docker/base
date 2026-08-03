@@ -1061,6 +1061,9 @@ _setup_apply() {
   local pid_mode="${_dctx[pid_mode]}"
   local network_name="${_dctx[network_name]}"
   local privileged="${_dctx[privileged]}"
+  # [lifecycle] restart is deploy-scoped: generate_compose_yaml routes it to
+  # the deployable stage services only, never to devel (a devel container is
+  # the interactive shell -- see _emit_restart_line / _is_deployable_stage).
   local restart_policy="${_dctx[restart_policy]}"
   local init="${_dctx[init]}"
   local watchdog_env_str="${_dctx[watchdog_env_str]}"
@@ -1090,7 +1093,7 @@ _setup_apply() {
   #   - empty — user opted out; skip the mount but still detect WS_PATH
   #     so .env remains populated.
   #
-  # First-time bootstrap (no <repo>/setup.conf) copies the template and
+  # First-time bootstrap (no <repo>/.setup.conf) copies the template and
   # writes mount_1 in the portable form.
   local _repo_conf="${_base_path}/.setup.conf"
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
@@ -1365,6 +1368,16 @@ _setup_deploy() {
         ;;
     esac
   done
+
+  # Stage eligibility, checked the moment the stage is known -- before the
+  # repo is even located, so a forbidden stage can never reach a preview, a
+  # build or a bundle. ADR-00000023 sec.4 / PRD invariant 8:
+  # `deployable = not devel and not *-test`, shared with the compose
+  # emitter as _is_deployable_stage so the rule has one definition.
+  if ! _is_deployable_stage "${_stage}"; then
+    _log_err setup deploy_stage_not_deployable "display=[setup] deploy: '${_stage}' is not a deployable stage; the development / test baseline (sys, devel-base, devel, devel-test, runtime-test, the legacy aliases base / test, and any *-test stage) is never a deploy target." "stage=${_stage}"
+    return 1
+  fi
 
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"

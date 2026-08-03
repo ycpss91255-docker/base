@@ -1257,7 +1257,7 @@ FROM sys AS devel
 FROM ubuntu AS runtime
 USER app
 EOF
-  run _generate_runtime_dockerfile "${_df}" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug' "${_out}" runtime
   assert_success
   assert [ -f "${_out}" ]
   run cat "${_out}"
@@ -1268,7 +1268,7 @@ EOF
 @test "_generate_runtime_dockerfile expands cross-refs in baked ENV" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS runtime\n' > "${_df}"
-  run _generate_runtime_dockerfile "${_df}" $'NS=robot\nTOPIC=${NS}/cmd' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" $'NS=robot\nTOPIC=${NS}/cmd' "${_out}" runtime
   assert_success
   run grep -E '^ENV TOPIC=' "${_out}"
   assert_output 'ENV TOPIC="robot/cmd"'
@@ -1283,7 +1283,7 @@ EOF
   # quote lands literally inside a single balanced double-quoted token.
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS runtime\n' > "${_df}"
-  run _generate_runtime_dockerfile "${_df}" 'MSG=say "hi"' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" 'MSG=say "hi"' "${_out}" runtime
   assert_success
   # Exactly one ENV MSG line, and its value region is a single balanced
   # "...": the inner quote must be backslash-escaped, not bare.
@@ -1298,7 +1298,7 @@ EOF
   # baked default is the literal string the user configured.
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS runtime\n' > "${_df}"
-  run _generate_runtime_dockerfile "${_df}" 'X=$(id)' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" 'X=$(id)' "${_out}" runtime
   assert_success
   run grep -E '^ENV X=' "${_out}"
   # The `$` is backslash-escaped so docker build does not expand it.
@@ -1308,7 +1308,7 @@ EOF
 @test "_generate_runtime_dockerfile returns 1 when no runtime stage" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS sys\nFROM sys AS devel\n' > "${_df}"
-  run _generate_runtime_dockerfile "${_df}" 'ROS_DOMAIN_ID=42' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" 'ROS_DOMAIN_ID=42' "${_out}" runtime
   assert_failure
   refute [ -f "${_out}" ]
 }
@@ -1316,6 +1316,92 @@ EOF
 @test "_generate_runtime_dockerfile returns 1 when [environment] empty" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS runtime\n' > "${_df}"
-  run _generate_runtime_dockerfile "${_df}" '' "${_out}"
+  run _generate_runtime_dockerfile "${_df}" '' "${_out}" runtime
+  assert_failure
+}
+
+@test "_generate_runtime_dockerfile bakes ENV into the caller's stage, not a literal runtime (#840)" {
+  # `runtime` is only the template's example stage name; a downstream repo
+  # names its deployable stage whatever it likes, and the bake must follow
+  # the stage actually being built.
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  cat > "${_df}" <<'EOF'
+FROM ubuntu AS sys
+FROM sys AS devel
+FROM sys AS field
+CMD ["/app"]
+EOF
+  run _generate_runtime_dockerfile "${_df}" 'ROS_DOMAIN_ID=42' "${_out}" field
+  assert_success
+  # The ENV lands immediately after the named stage's FROM line.
+  run grep -A 2 '^FROM sys AS field$' "${_out}"
+  assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
+}
+
+@test "_generate_runtime_dockerfile bakes into the named stage only, leaving siblings untouched (#840)" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  cat > "${_df}" <<'EOF'
+FROM ubuntu AS runtime
+FROM ubuntu AS field
+EOF
+  run _generate_runtime_dockerfile "${_df}" 'K=v' "${_out}" field
+  assert_success
+  run grep -c '^ENV K=' "${_out}"
+  assert_output "1"
+  # Nothing is spliced after the unrelated `runtime` stage.
+  run grep -A 1 '^FROM ubuntu AS runtime$' "${_out}"
+  assert_output $'FROM ubuntu AS runtime\nFROM ubuntu AS field'
+}
+
+@test "_generate_runtime_dockerfile returns 1 when the named stage is absent (#840)" {
+  local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
+  printf 'FROM ubuntu AS sys\nFROM sys AS runtime\n' > "${_df}"
+  run _generate_runtime_dockerfile "${_df}" 'K=v' "${_out}" field
+  assert_failure
+  refute [ -f "${_out}" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _is_deployable_stage -- the stage-eligibility predicate of
+# ADR-00000023 sec.4 (`deployable = not devel and not *-test`).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_is_deployable_stage accepts a field-oriented stage (#840)" {
+  _is_deployable_stage runtime
+  _is_deployable_stage headless
+  _is_deployable_stage field
+  _is_deployable_stage runtime-base
+}
+
+@test "_is_deployable_stage rejects devel -- a devel container is an interactive shell (#840)" {
+  run _is_deployable_stage devel
+  assert_failure
+}
+
+@test "_is_deployable_stage rejects every *-test stage -- they exit by design (#840)" {
+  run _is_deployable_stage devel-test
+  assert_failure
+  run _is_deployable_stage runtime-test
+  assert_failure
+  run _is_deployable_stage foo-test
+  assert_failure
+  # The legacy bare service name devel-test is emitted under.
+  run _is_deployable_stage test
+  assert_failure
+}
+
+@test "_is_deployable_stage rejects an empty stage name (#840)" {
+  run _is_deployable_stage ""
+  assert_failure
+}
+
+@test "_is_deployable_stage rejects the build-intermediate baseline stages (#841)" {
+  # sys / devel-base carry no runnable service at all, so deploying one is
+  # broken rather than merely ill-advised; `base` is devel-base's legacy alias.
+  run _is_deployable_stage sys
+  assert_failure
+  run _is_deployable_stage devel-base
+  assert_failure
+  run _is_deployable_stage base
   assert_failure
 }

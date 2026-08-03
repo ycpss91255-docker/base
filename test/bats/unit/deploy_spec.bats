@@ -58,6 +58,23 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+@test "_resolve_deploy_version: falls back to the short commit SHA in a tagless clone (#844)" {
+  # The middle branch of `git describe --tags --always --dirty`: a real repo
+  # with commits but no tags, where --always is what keeps the stamp
+  # meaningful. Without it describe fails and every untagged repo silently
+  # deploys as 'unknown', collapsing the version-collision avoidance.
+  local _d; _d="$(mktemp -d)"
+  git -C "${_d}" init -q
+  git -C "${_d}" config user.email t@t; git -C "${_d}" config user.name t
+  : > "${_d}/f"; git -C "${_d}" add f; git -C "${_d}" commit -qm init
+  run _resolve_deploy_version "${_d}"
+  assert_success
+  refute_output "unknown"
+  refute_output ""
+  assert_output --regexp '^[0-9a-f]{7,}$'
+  rm -rf "${_d}"
+}
+
 @test "_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   run _resolve_deploy_version "${_d}"
@@ -113,7 +130,35 @@ _write_conf() {
   assert_equal "${_ctx[ipc_mode]}" "host"
   assert_equal "${_ctx[pid_mode]}" "private"
   assert_equal "${_ctx[privileged]}" "false"
-  assert_equal "${_ctx[restart_policy]}" "no"
+  # The template ships `restart = unless-stopped`; a conf hand-stripped of
+  # the key still resolves to that same default.
+  assert_equal "${_ctx[restart_policy]}" "unless-stopped"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)" {
+  local _d; _d="$(mktemp -d)"
+  # Hand-stripped conf -> the template's own default, not an empty policy.
+  _write_conf "${_d}" "[image_name]" "name = placeholder"
+  local -A _absent=()
+  _resolve_deploy_context "${_d}" _absent
+  assert_equal "${_absent[restart_policy]}" "unless-stopped"
+  # An explicitly configured value is honoured verbatim.
+  _write_conf "${_d}" "[lifecycle]" "restart = no"
+  local -A _explicit=()
+  _resolve_deploy_context "${_d}" _explicit
+  assert_equal "${_explicit[restart_policy]}" "no"
+  rm -rf "${_d}"
+}
+
+@test "_resolve_deploy_context: builds the WATCHDOG_* env block from [lifecycle] watchdog_* (#840)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[lifecycle]" "watchdog_check = pgrep -f my_node" \
+    "watchdog_interval = 30" "watchdog_on_fail = restart"
+  local -A _ctx=()
+  _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[watchdog_env_str]}" \
+    $'WATCHDOG_CHECK=pgrep -f my_node\nWATCHDOG_INTERVAL=30\nWATCHDOG_ON_FAIL=restart'
   rm -rf "${_d}"
 }
 
@@ -276,6 +321,95 @@ _write_headless_conf() {
   run cat "${_d}/compose.yaml"
   assert_output --partial "shm_size: 256m"
   refute_output --partial '${'
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)" {
+  # restart: only recovers a container that EXITS; the watchdog is the only
+  # thing that recovers a service that is alive but wedged, so the field
+  # bundle must carry the same WATCHDOG_* env the dev compose emits.
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[lifecycle]" "watchdog_check = pgrep -f my_node" "watchdog_interval = 30" \
+    "watchdog_on_fail = restart"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run cat "${_d}/compose.yaml"
+  assert_success
+  assert_output --partial "environment:"
+  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
+  assert_output --partial "WATCHDOG_INTERVAL=30"
+  assert_output --partial "WATCHDOG_ON_FAIL=restart"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)" {
+  local _d; _d="$(mktemp -d)"
+  _write_headless_conf "${_d}"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run cat "${_d}/compose.yaml"
+  assert_success
+  refute_output --partial "environment:"
+  refute_output --partial "WATCHDOG_"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = force" \
+    "[lifecycle]" "watchdog_check = pgrep -f my_node"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run grep -c '^    environment:$' "${_d}/compose.yaml"
+  assert_success
+  assert_output "1"
+  run cat "${_d}/compose.yaml"
+  assert_output --partial "DISPLAY"
+  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)" {
+  local _d; _d="$(mktemp -d)"
+  local -A _binds=()
+  # No [lifecycle] restart -> the shipped default (auto-start on reboot).
+  _write_headless_conf "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/absent.yaml" _binds
+  run grep -E '^    restart:' "${_d}/absent.yaml"
+  assert_output "    restart: unless-stopped"
+  # Explicit `no` -> honoured instead of silently overridden.
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[lifecycle]" "restart = no"
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/no.yaml" _binds
+  run grep -E '^    restart:' "${_d}/no.yaml"
+  assert_output "    restart: no"
+  # on-failure:N -> honoured, YAML-quoted (a bare `:` would read as a mapping).
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[lifecycle]" "restart = on-failure:5"
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/onfail.yaml" _binds
+  run grep -E '^    restart:' "${_d}/onfail.yaml"
+  assert_output '    restart: "on-failure:5"'
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)" {
+  # apply does no schema revalidation, so a hand-edited conf can feed a
+  # bogus policy here; it must not reach `docker compose up`.
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[lifecycle]" "restart = bogus"
+  local -A _binds=()
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
+  run grep -E '^    restart:' "${_d}/compose.yaml"
+  assert_output "    restart: unless-stopped"
   rm -rf "${_d}"
 }
 
@@ -533,12 +667,74 @@ SH
   rm -rf "${_d}"
 }
 
-@test "_setup_deploy: --stage selects the target stage (#832)" {
+@test "_setup_deploy: --stage selects the target stage (#832/#841)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel --dry-run
+  # A second deployable stage, so the assertion proves --stage steers the
+  # build target rather than re-asserting the `runtime` default.
+  printf '%s\n' "FROM runtime AS field" 'CMD ["/app"]' >> "${_d}/Dockerfile"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage field --dry-run
   assert_success
-  assert_output --partial "docker build --target devel"
+  assert_output --partial "deploy plan: stage=field"
+  assert_output --partial "docker build --target field"
+  rm -rf "${_d}"
+}
+
+# ── Stage eligibility: `deployable = not devel and not *-test` ──────────
+# (ADR-00000023 sec.4 / PRD invariant 8), enforced in _setup_deploy via
+# the shared _is_deployable_stage predicate.
+
+@test "_setup_deploy: refuses a template-baseline stage (#841)" {
+  local _d _s
+  for _s in sys devel-base devel devel-test runtime-test; do
+    _d="$(mktemp -d)"
+    _write_deploy_repo "${_d}"
+    SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage "${_s}" --dry-run
+    assert_failure
+    assert_output --partial "not a deployable stage"
+    assert_output --partial "${_s}"
+    refute_output --partial "docker build"
+    rm -rf "${_d}"
+  done
+}
+
+@test "_setup_deploy: refuses a legacy baseline alias (#841)" {
+  local _d _s
+  for _s in base test; do
+    _d="$(mktemp -d)"
+    _write_deploy_repo "${_d}"
+    SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage "${_s}" --dry-run
+    assert_failure
+    assert_output --partial "not a deployable stage"
+    refute_output --partial "docker build"
+    rm -rf "${_d}"
+  done
+}
+
+@test "_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '%s\n' "FROM runtime AS field-test" 'CMD ["/run-tests"]' >> "${_d}/Dockerfile"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage field-test --dry-run
+  assert_failure
+  assert_output --partial "not a deployable stage"
+  refute_output --partial "docker build"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: a refused stage writes no bundle even with -y (#841)" {
+  # -y skips the confirmation prompt, so this is the shape that would have
+  # produced a real field bundle from a devel image. The guard must fire
+  # before any build / bundle step.
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage devel -y
+  unset DRY_RUN
+  assert_failure
+  refute_output --partial "docker build"
+  refute_output --partial "docker save"
+  refute [ -d "${_d}/deploy" ]
   rm -rf "${_d}"
 }
 

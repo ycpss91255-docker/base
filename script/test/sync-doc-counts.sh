@@ -73,7 +73,10 @@ _sync_type_total() {
 }
 
 # _sync_test_md_index <root> -- rewrite TEST.md's derived figures (grand total,
-# per-type table, "not in the N figure") from the per-type totals.
+# per-type table, "not in the N figure", and the blockquote prose "System (N)
+# and smoke (N)" pair) from the per-type totals. The prose pair is regenerated
+# too: hand-maintaining it let it drift out of step with the table it sits
+# next to.
 _sync_test_md_index() {
   local _root="$1"
   local _t="${_root}/doc/test/TEST.md"
@@ -93,6 +96,9 @@ _sync_test_md_index() {
     "s/\*\*[0-9]+ tests\*\* total \([0-9]+ unit \+ [0-9]+ integration\)/**${_tot} tests** total (${_u} unit + ${_i} integration)/" \
     "${_t}"
   sed -i -E "s/not\*\* in the [0-9]+ figure/not** in the ${_tot} figure/" "${_t}"
+  sed -i -E \
+    "s/System \([0-9]+\) and smoke \([0-9]+\)/System (${_sy}) and smoke (${_sm})/" \
+    "${_t}"
   sed -i -E "s#(\[unit\.md\]\(unit\.md\).*\| )[0-9]+ #\1${_u} #" "${_t}"
   sed -i -E "s#(\[integration\.md\]\(integration\.md\).*\| )[0-9]+ #\1${_i} #" "${_t}"
   sed -i -E "s#(\[system\.md\]\(system\.md\).*\| )[0-9]+ #\1${_sy} #" "${_t}"

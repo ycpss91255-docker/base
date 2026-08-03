@@ -58,13 +58,24 @@ reaping / signal forwarding), restart policy, health supervision (watchdog),
 and log persistence. A downstream gets a correct lifecycle for free; it never
 re-implements one.
 
-*Why it is fixed:* this is base's product shape. Every lifecycle feature is an
-instance of it, and a change that broke it (multiple services per container, or
-lifecycle pushed piecemeal into downstreams) would collapse the model and
-everything built on it.
+**A lifecycle capability that presupposes a long-running service applies only
+to deployable stages.** A `devel` or `*-test` container is a *session*, not a
+service: its life is the interactive shell or the test run, and it is meant to
+exit. So the **restart policy is emitted only for deployable stages and the
+field bundle -- never for `devel`, never for `*-test`** (which stages are
+deployable is invariant 8's rule, not a second definition). Because every
+context the policy still reaches is one where a container failing to come back
+*is* the footgun, its default is ON.
 
-*Serves / established by:* ADR-00000020; realised by restart (#478), init
-(#792), watchdog (#797), per-start logs (#805, ADR-00000021).
+*Why it is fixed:* auto-restart on a session container makes it impossible to
+leave -- `exit` relaunches it forever. Auto-restart on a field service is the
+whole point: it must survive a crash and a host reboot unattended. The same
+setting is therefore correct in one place and broken in the other, so the scope
+is not a tuning choice that a future decision may widen back.
+
+*Serves / established by:* ADR-00000020 (incl. its 2026-08-03 stage-scoping
+amendment); realised by restart (#478), init (#792), watchdog (#797), per-start
+logs (#805, ADR-00000021).
 
 ### 2. Never fail silently
 

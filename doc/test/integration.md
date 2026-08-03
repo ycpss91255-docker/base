@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **111 tests**.
+Integration specs under `test/bats/integration/`: **116 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -111,7 +111,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 
-### test/bats/integration/upgrade_spec.bats (18)
+### test/bats/integration/upgrade_spec.bats (21)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -123,7 +123,10 @@ bug and asserts the repo is restored), and Step 5's declarative
 Dockerfile/entrypoint migration pass (#567 / #579) — sourcing
 `lib/dockerfile_migrate.sh` and running `apply_migrations` over the
 repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
-{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`).
+{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`),
+plus the pre-pull `.setup.conf` migrations (legacy override relocation and
+the `[lifecycle] restart` default retirement) observed through a real
+upgrade run.
 
 | Test | Description |
 |------|-------------|
@@ -137,6 +140,7 @@ repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
 | `upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly` | Legacy override auto-migrated (git mv + loud warning) so it is never silently dropped |
 | `upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)` | Already-migrated repo: no move, no spurious announcement |
 | `upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist` | Conflict: root file wins, legacy kept, warned for manual reconciliation |
+| `upgrade.sh relocation commit carries only the moved paths, not unrelated staged work` | Migration commit is pathspec-scoped; pre-staged user work stays staged |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
@@ -179,7 +183,7 @@ the permission (backward compatible); `--list` self-describes the build
 contract, annotating packages as registry-conditional.
 
 
-### test/bats/integration/deploy_bundle_flow_spec.bats (5)
+### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 
 The field-deploy generator end-to-end across components (ADR-00000023):
 a fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime`
