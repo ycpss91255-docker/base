@@ -687,9 +687,10 @@ Contents:
 Caution: compose.yaml is machine-generated and fully resolved. To adjust a
 tunable value in the field, edit the matching file under config/ (a mounted
 copy wins over the baked default) and re-run ./deploy.sh up -- do not edit
-compose.yaml. The compose restart: policy (unless-stopped unless the repo
-configured another) auto-starts the container on host reboot; use
-./deploy.sh down to stop it.
+compose.yaml. The compose restart: policy carries the repo's
+[lifecycle] restart setting; at its default (unless-stopped) the container
+auto-starts again after a crash and after a host reboot -- use
+./deploy.sh down to stop it for good.
 EOF
   fi
 }
