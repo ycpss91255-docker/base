@@ -294,3 +294,26 @@ without weakening the gate (coverage stays a required PR check):
   is a future refinement, not built here.
 
 The "coverage is a gating PR check via `ci-rollup`" posture is unchanged.
+
+## Amendment (#853 / #855): the floor is re-based to 80
+
+Section 3 set `COVERAGE_MIN` to **50**, "just below the current measured
+project rate (~52.9%)", and said it was meant to ratchet up. It is now
+**80**.
+
+The ratchet is not the whole story: the measurement itself was wrong. The
+per-line union key of the previous amendment was the RAW `<class
+filename>` kcov emits, and kcov reports one source file under several
+prefix-truncated aliases, so every alias re-counted that file's lines
+into the denominator. #853 canonicalises the filename before it becomes
+part of the key, which moved the SAME suite from ~51% to **84.72%**
+(`5907/6972` lines on `main`, run `30814141976`) -- the project rate had
+been understated by roughly 33 points, and a 50 floor against an 85%
+reality left about 35 points of dead slack in a required check.
+
+80 leaves **4.72 points** of margin below the measured rate: wide enough
+that ordinary per-PR churn does not false-fail the gate, narrow enough
+that a real regression trips it instead of being absorbed. The v1
+absolute-floor posture is unchanged -- this re-bases the number, it does
+not adopt the v2 regression-vs-main-baseline gate, which remains the
+documented follow-up.

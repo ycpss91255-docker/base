@@ -29,10 +29,16 @@
 # it is meant to RATCHET UP as coverage improves (the v2 regression-vs-
 # main-baseline gate is a documented follow-up, not built here).
 
-# Default floor (percent). Set just under the current measured project
-# rate (~52.9 at adoption) so it passes today; raise it as coverage
-# climbs. Overridable via the COVERAGE_MIN env var.
-: "${COVERAGE_MIN:=50}"
+# Default floor (percent). BASIS: the last CI run on main measured the
+# merged project rate at 84.72% (5907/6972 lines), so an 80 floor leaves
+# 4.72 points of margin -- enough that ordinary churn in a single PR does
+# not trip the gate, tight enough that a real regression is visible. The
+# floor was re-based from 50 to 80 once the alias double-counting was
+# fixed and the rate meant what it said: before that fix the same suite
+# read ~51%, understating the project by roughly 33 points, and a 50
+# floor against an 85% reality left ~35 points of dead slack. Raise it as
+# coverage climbs. Overridable via the COVERAGE_MIN env var.
+: "${COVERAGE_MIN:=80}"
 
 # Append the coverage summary table to $GITHUB_STEP_SUMMARY when set
 # (GitHub Actions built-in, no SaaS). A no-op elsewhere (e.g. GitLab,
