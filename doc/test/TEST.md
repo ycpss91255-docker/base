@@ -3,7 +3,7 @@
 Template self-tests: **2387 tests** total (2271 unit + 116 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
-> `Self Test` CI job. System (5) and smoke (40) tests are tracked here
+> `Self Test` CI job. System (8) and smoke (40) tests are tracked here
 > too but are **not** in the 2387 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
