@@ -64,8 +64,10 @@ _Avoid_: ci image, builder image.
 
 **consumer image (devel / runtime)**:
 What a downstream repo builds via `just docker build` from
-`dist/dockerfile/Dockerfile` — the actual deployable artifact (a `devel` or
-`runtime` **stage**).
+`dist/dockerfile/Dockerfile` — the repo's own product image, built at a
+given **stage**. `devel` is the dev-host workstation stage and is never a
+deploy target; the field-deployable artifact is a field stage (`runtime`),
+never `devel` or a `*-test` stage (PRD invariant 8, ADR-00000023 sec. 4).
 _Avoid_: app image (acceptable informally), product image.
 
 **template repo**:
