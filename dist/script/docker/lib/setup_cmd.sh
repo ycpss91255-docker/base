@@ -1061,6 +1061,9 @@ _setup_apply() {
   local pid_mode="${_dctx[pid_mode]}"
   local network_name="${_dctx[network_name]}"
   local privileged="${_dctx[privileged]}"
+  # [lifecycle] restart is deploy-scoped: generate_compose_yaml routes it to
+  # the deployable stage services only, never to devel (a devel container is
+  # the interactive shell -- see _emit_restart_line / _is_deployable_stage).
   local restart_policy="${_dctx[restart_policy]}"
   local init="${_dctx[init]}"
   local watchdog_env_str="${_dctx[watchdog_env_str]}"

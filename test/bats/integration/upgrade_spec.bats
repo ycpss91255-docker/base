@@ -353,6 +353,40 @@ _seed_entry() {
   assert_output --partial "UNRELATED.txt"
 }
 
+@test "upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default" {
+  cd "${DOWN_DIR}"
+  # The vendored template still carries the OLD default, so this upgrade is
+  # the one that crosses the devel -> deploy rescope of the key.
+  mkdir -p .base/dist
+  printf '[lifecycle]\nrestart = no\n' > .base/dist/.setup.conf
+  printf '[lifecycle]\nrestart = no\ninit = true\n' > .setup.conf
+  git add -A
+  git commit -q -m "seed a stale devel-scoped restart default"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "MIGRATION"
+  assert_output --partial "restart = unless-stopped"
+
+  grep -Fxq "restart = unless-stopped" .setup.conf
+  grep -Fxq "init = true" .setup.conf
+  # Committed, so the subtree pull that follows it still saw a clean tree.
+  refute_output --partial "dirty"
+}
+
+@test "upgrade.sh leaves a deliberately configured restart policy alone" {
+  cd "${DOWN_DIR}"
+  mkdir -p .base/dist
+  printf '[lifecycle]\nrestart = no\n' > .base/dist/.setup.conf
+  printf '[lifecycle]\nrestart = on-failure:5\n' > .setup.conf
+  git add -A
+  git commit -q -m "seed a deliberate restart policy"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  grep -Fxq "restart = on-failure:5" .setup.conf
+}
+
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
 @test "upgrade.sh fails fast when git identity is missing" {

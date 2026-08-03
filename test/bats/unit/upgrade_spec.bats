@@ -42,6 +42,25 @@ EOS
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_migrate_lifecycle_restart_default() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_trim_ws() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_lifecycle_restart_is() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+}
+
+# _seed_restart_repo <dir> <vendored_template_restart> <repo_restart_block...>
+#   A downstream git repo carrying a vendored template `.setup.conf`
+#   (the pre-pull baseline the migration reads to decide whether this
+#   upgrade crosses the rescope) plus its own committed `.setup.conf`.
+_seed_restart_repo() {
+  local _dir="$1" _tpl_restart="$2"; shift 2
+  mkdir -p "${_dir}/.base/dist"
+  git -C "${_dir}" init -q -b main
+  git -C "${_dir}" config user.email t@t
+  git -C "${_dir}" config user.name t
+  printf '[lifecycle]\n%s\n' "${_tpl_restart}" > "${_dir}/.base/dist/.setup.conf"
+  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  git -C "${_dir}" add -A
+  git -C "${_dir}" commit -q -m seed
 }
 
 teardown() {
@@ -624,4 +643,90 @@ _mk_subtree_repo() {
   assert_failure
   assert_output --partial "downgrade"
   refute_output --partial "FATAL"
+}
+
+# ── _migrate_lifecycle_restart_default ──────────────────────────────────────
+#
+# `[lifecycle] restart` was devel-scoped and shipped as a literal
+# `restart = no`; init.sh --gen-conf copies the WHOLE template, so every
+# downstream repo carries that literal. The key is now deploy-scoped with a
+# shipped default of `unless-stopped`, which makes the copied `no` stale by
+# construction -- left alone it silently denies the field bundle its
+# auto-start on host reboot.
+
+@test "_migrate_lifecycle_restart_default rewrites the stale template default, loudly" {
+  local _r="${TEMP_DIR}/stale"
+  _seed_restart_repo "${_r}" "restart = no" "[lifecycle]" "restart = no" "init = true"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  assert_output --partial "MIGRATION"
+  assert_output --partial "restart = unless-stopped"
+
+  run grep -Fx "restart = unless-stopped" "${_r}/.setup.conf"
+  assert_success
+  # Unrelated keys survive untouched.
+  run grep -Fx "init = true" "${_r}/.setup.conf"
+  assert_success
+  # The rewrite is committed, so the subsequent subtree pull sees a clean tree.
+  run git -C "${_r}" status --porcelain
+  assert_output ""
+}
+
+@test "_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone" {
+  local _r="${TEMP_DIR}/chosen"
+  _seed_restart_repo "${_r}" "restart = no" "[lifecycle]" "restart = on-failure:5"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  refute_output --partial "MIGRATION"
+  run grep -Fx "restart = on-failure:5" "${_r}/.setup.conf"
+  assert_success
+}
+
+@test "_migrate_lifecycle_restart_default is inert once the vendored template ships the new default" {
+  # Post-rescope the repo owns its `no`; a later deliberate choice of `no`
+  # must never be rewritten again.
+  local _r="${TEMP_DIR}/post"
+  _seed_restart_repo "${_r}" "restart = unless-stopped" "[lifecycle]" "restart = no"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  refute_output --partial "MIGRATION"
+  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  assert_success
+}
+
+@test "_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]" {
+  local _r="${TEMP_DIR}/othersection"
+  _seed_restart_repo "${_r}" "restart = no" "[stage:runtime]" "restart = no"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  refute_output --partial "MIGRATION"
+  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  assert_success
+}
+
+@test "_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf" {
+  local _r="${TEMP_DIR}/noconf"
+  mkdir -p "${_r}/.base/dist"
+  printf '[lifecycle]\nrestart = no\n' > "${_r}/.base/dist/.setup.conf"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  assert_output ""
+}
+
+@test "_migrate_lifecycle_restart_default is a no-op without a vendored template baseline" {
+  # Cannot tell whether this upgrade crosses the rescope -> touch nothing.
+  local _r="${TEMP_DIR}/notpl"
+  mkdir -p "${_r}"
+  printf '[lifecycle]\nrestart = no\n' > "${_r}/.setup.conf"
+
+  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
+  assert_success
+  refute_output --partial "MIGRATION"
+  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  assert_success
 }
