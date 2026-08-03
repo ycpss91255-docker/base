@@ -9,7 +9,7 @@
 #   ./setup_tui.sh -h | --help     # show help
 #   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
-# On save, setup_tui.sh writes <repo>/setup.conf and execs setup.sh to
+# On save, setup_tui.sh writes <repo>/.setup.conf and execs setup.sh to
 # regenerate .env + compose.yaml. Cancel / Esc exits 0 without saving.
 #
 # Style: Google Shell Style Guide.
@@ -1010,7 +1010,7 @@ usage() {
       cat >&2 <<'EOF'
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-互動式編輯 <repo>/setup.conf，完成後自動呼叫 setup.sh 重新產生
+互動式編輯 <repo>/.setup.conf，完成後自動呼叫 setup.sh 重新產生
 .env 與 compose.yaml。需要已安裝 dialog 或 whiptail。
 
 SECTION（可直接跳至特定區段）:
@@ -1026,7 +1026,7 @@ EOF
       cat >&2 <<'EOF'
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-交互式编辑 <repo>/setup.conf，完成后自动调用 setup.sh 重新生成
+交互式编辑 <repo>/.setup.conf，完成后自动调用 setup.sh 重新生成
 .env 和 compose.yaml。需要已安装 dialog 或 whiptail。
 
 SECTION（可直接跳至指定区段）:
@@ -1042,7 +1042,7 @@ EOF
       cat >&2 <<'EOF'
 使用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-<repo>/setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
+<repo>/.setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
 .env と compose.yaml を再生成します。dialog または whiptail が必要。
 
 SECTION（特定セクションへ直接移動）:
@@ -1058,7 +1058,7 @@ EOF
       cat >&2 <<'EOF'
 Usage: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-Interactively edit <repo>/setup.conf. On save, setup.sh is invoked
+Interactively edit <repo>/.setup.conf. On save, setup.sh is invoked
 automatically to regenerate .env and compose.yaml. Requires dialog
 or whiptail.
 

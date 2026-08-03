@@ -38,7 +38,7 @@ _DOCKER_LIB_SETUP_CONF_SOURCED=1
 # otherwise fall back to the template's section. SETUP_CONF env var forces
 # a specific file (skips the merge entirely).
 #
-# collapsed back to 2-file model. <repo>/setup.conf is the user
+# collapsed back to 2-file model. <repo>/.setup.conf is the user
 # override (committed, not gitignored, survives template upgrade because
 # template subtree pull never touches it — it lives outside .base).
 _load_setup_conf() {
