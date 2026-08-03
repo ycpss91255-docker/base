@@ -365,9 +365,6 @@ _reconcile_workspace_path() {
     local _tpl_conf
     _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
-      # Ensure config/docker/ parent dir exists before cp
-      # path; first-time bootstrap on a fresh repo will not have it).
-      mkdir -p "$(dirname "${_rwp_repo_conf}")"
       cp "${_tpl_conf}" "${_rwp_repo_conf}"
       _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
         "${_ws_portable_form}"
