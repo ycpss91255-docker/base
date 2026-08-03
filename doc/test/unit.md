@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2282 tests**.
+Unit specs under `test/bats/unit/`: **2287 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2191,7 +2191,7 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
 
-### test/bats/unit/coverage_gate_spec.bats (14)
+### test/bats/unit/coverage_gate_spec.bats (19)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2200,6 +2200,9 @@ reports into ONE line-weighted project rate (summing covered/valid lines
 across shards, NOT averaging the per-shard rates) and exits non-zero when
 the merged rate is below `COVERAGE_MIN`. Driven against controlled
 cobertura fixtures so the spec is independent of any live kcov run.
+Since #853 the union key is CANONICALISED first: kcov reports one source
+file under several prefix-truncated aliases, and each alias used to add its
+own full copy of the file's lines to the denominator.
 
 | Test | Description |
 |------|-------------|
@@ -2214,6 +2217,11 @@ cobertura fixtures so the spec is independent of any live kcov run.
 | `coverage_gate: errors on a report missing the line counters` | Malformed-report error |
 | `coverage_gate: default COVERAGE_MIN does not false-fail at ~52.9%` | Built-in default does not false-fail |
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
+| `coverage_gate: prefix path aliases of one file are counted once (#853)` | Alias-inflated denominator (the bug) |
+| `coverage_gate: different files sharing a basename stay separate (#853)` | Basename-only keying is wrong (the trap) |
+| `coverage_gate: rate is unchanged when the suite is resharded under other aliases (#853)` | Shard-membership invariance |
+| `coverage_gate: reports the collapsed-alias count as a diagnostic (#853)` | Alias-collapse diagnostic |
+| `coverage_gate: reports zero collapsed aliases when nothing is aliased (#853)` | Diagnostic reports 0, not silence |
 
 ### test/bats/unit/build_sh_base_self_spec.bats (2)
 
