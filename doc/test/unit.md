@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2281 tests**.
+Unit specs under `test/bats/unit/`: **2282 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1377,7 +1377,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (38)
+### test/bats/unit/deploy_spec.bats (39)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1396,6 +1396,7 @@ mocked via `_dry_run_cmd`, no real daemon).
 |------|-------------|
 | `_resolve_deploy_version: returns the tag in a tagged git tree` | version tag |
 | `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes` | dirty stamp |
+| `_resolve_deploy_version: falls back to the short commit SHA in a tagless clone` | tagless `--always` fallback |
 | `_resolve_deploy_version: degrades to 'unknown' outside a git tree` | non-git fallback |
 | `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
 | `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
