@@ -654,6 +654,21 @@ SH
   rm -rf "${_d}"
 }
 
+@test "_setup_deploy: the preview shows each tunable bind at its declared access (#870)" {
+  # The preview is what the operator reviews before agreeing to build, so it
+  # has to carry the same access modes the generated bundle will.
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/config/app_cfg"
+  printf '%s\n' "[runtime]" "/etc/app/host.yaml" "/var/lib/app/calib.yaml rw" \
+    > "${_d}/config/app_cfg/deploy.manifest"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_success
+  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml:ro"
+  assert_output --partial "- ./config/calib.yaml:/var/lib/app/calib.yaml:rw"
+  rm -rf "${_d}"
+}
+
 @test "_setup_deploy: refuses in a non-interactive shell without -y (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
