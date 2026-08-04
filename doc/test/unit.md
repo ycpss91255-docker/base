@@ -1,10 +1,42 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2331 tests**.
+Unit specs under `test/bats/unit/`: **2355 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
 > the self-test grand total.
+
+## How this catalogue is maintained
+
+**The catalogue is exhaustive, and it is generated.** Every spec file has a
+`### <path> (N)` section, and every section that carries a
+`| Test | Description |` table carries **one row per `@test`** — never a
+selection. Both are produced by `script/test/sync-doc-counts.sh`
+(`just test sync-docs`) and validated by its read-only twin
+`script/test/check_test_md_drift.sh` (`just test sync-docs-check`), so an
+incomplete catalogue is drift and fails the gate. Before the rows were
+generated they were hand-written next to a generated count, and they rotted
+silently: `deploy_spec.bats` carried 36 rows for 43 tests with both gates
+reporting "in sync".
+
+What that means when you edit:
+
+- **Descriptions are yours.** A row is keyed on the test name exactly as bats
+  reports it, so prose you write survives regeneration. A test with no
+  description shows `-`; filling one in is welcome and never required.
+- **Do not hand-add or hand-delete rows or sections.** Add the `@test`, run
+  `just test sync-docs`, then write the description. Deleting a test removes
+  its row on the next run.
+- **Renaming a test loses its description** (a rename is indistinguishable
+  from delete-plus-add). To carry the prose across, rename the row here in the
+  same commit, then regenerate.
+- **Rows follow spec file order**, so the table reads the way the spec reads.
+- A section may summarise instead, with a `| Category | Tests |` table or plain
+  prose, for specs where a per-test row each is noise. That is an explicit
+  editorial choice for that section, not a licence for a per-test table to be
+  partial.
+- A generated section lands at the end of the file; move it into its thematic
+  group freely — every pass keys on the heading, not the position.
 
 ## Test Files
 
@@ -22,28 +54,42 @@ Unit specs under `test/bats/unit/`: **2331 tests**.
 | `conf_logging.sh self-sources its conf.sh dependency in isolation (#568)` | Self-sourcing (load order not load-bearing) |
 | `_lib.sh is idempotent when sourced twice` | Double-source guard |
 | `_load_env exports variables from a .env file` | Env loader works |
+| `_load_env errors when no path is given` | Required arg check |
 | `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
 | `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
-| `_load_env errors when no path is given` | Required arg check |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
+| `_compose_project omits --env-file when .env.generated is absent (self-managed repo)` | - |
 | `_sanitize_lang accepts en / zh-TW / zh-CN / ja unchanged` | Lang validator pass-through |
-| `_sanitize_lang warns and falls back to 'en' for unsupported values` | Unknown lang fallback |
+| `_sanitize_lang warns and falls back to 'en' for unsupported values (English default)` | Unknown lang fallback |
 | `_sanitize_lang warns for the old bare 'zh' code (post zh→zh-TW rename)` | Legacy lang rejection |
+| `_sanitize_lang warning is localized to system LANG (zh-TW)` | - |
+| `_sanitize_lang warning is localized to system LANG (zh-CN)` | - |
+| `_sanitize_lang warning is localized to system LANG (ja)` | - |
 | `_dump_conf_section extracts keys from the named section` | INI section dump |
 | `_dump_conf_section stops at the next section header` | Section boundary |
 | `_dump_conf_section returns silent empty for missing file` | Missing file |
 | `_dump_conf_section returns silent empty for unknown section` | Missing section |
+| `_dump_conf_section hides keys with empty values (using default)` | - |
 | `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
 | `_print_config_summary prints Variables block mapping setup.conf placeholders to detected values` | Variables block populated |
 | `_print_config_summary Variables block falls back to '-' for unset values` | Variables fallback |
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
-| `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
+| `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
+| `_lib_msg returns English by default` | - |
+| `_lib_msg returns zh-TW translations` | - |
+| `_lib_msg returns zh-CN translations` | - |
+| `_lib_msg returns ja translations` | - |
+| `_lib_msg returns count / caps across all languages` | - |
+| `_lib_msg falls back to English for unknown _LANG value` | - |
+| `_print_config_summary uses zh-TW labels when _LANG=zh-TW` | - |
+| `_print_config_summary uses ja labels when _LANG=ja` | - |
+| `_print_config_summary conf_missing hint is translated (zh-TW)` | - |
 
 ### test/bats/unit/log_spec.bats (69)
 
@@ -135,26 +181,32 @@ registered keys derived from `SCHEMA_VALIDATOR`).
 
 | Test | Description |
 |------|-------------|
-| `routes network.port_N to _validate_port_mapping (accept/reject)` | list prefix dispatch |
-| `routes deploy.gpu_count to _validate_gpu_count (accept/reject)` | scalar dispatch |
-| `rejects empty deploy.gpu_count (empty policy = validate)` | empty exception |
-| `routes logging.driver to _validate_log_driver (accept/reject)` | logging scalar |
-| `allows empty logging.driver (empty policy = allow)` | empty default |
-| `normalises logging.<svc> to the logging key set (accept/reject)` | per-service section |
-| `accepts every registered key's valid sample` | union coverage (accept) |
-| `rejects every registered key's invalid sample` | union coverage (reject) |
-| `allows empty (clear) for every list + clearable scalar key` | clear-key semantics |
-| `accepts free-form (unregistered) keys` | default-accept |
-| `SCHEMA_SECTIONS lists every setup.conf section in file order` | ordered section list (#561) |
-| `_schema_is_section accepts a registered section with typed keys` | membership accept (#561) |
-| `_schema_is_section accepts a free-form-only section (image)` | membership accept, no keys (#561) |
-| `_schema_is_section rejects an unknown section` | membership reject (#561) |
-| `_schema_is_section rejects a per-service logging variant` | logging.<svc> not a base section (#561) |
-| `_schema_is_section tracks SCHEMA_SECTIONS additions` | single source (#561) |
-| `_schema_section_keys returns scalar+list keys for build` | keys by prefix (#561) |
-| `_schema_section_keys returns all logging keys` | keys by prefix (#561) |
-| `_schema_section_keys returns deploy keys incl. legacy alias` | keys incl. runtime alias (#561) |
-| `_schema_section_keys is empty for a free-form-only section (image)` | empty for no-validator section (#561) |
+| `_schema_validate routes network.port_N to _validate_port_mapping (accept)` | - |
+| `_schema_validate routes network.port_N to _validate_port_mapping (reject)` | - |
+| `_schema_validate routes deploy.gpu_count to _validate_gpu_count (accept)` | - |
+| `_schema_validate routes deploy.gpu_count to _validate_gpu_count (reject)` | - |
+| `_schema_validate rejects empty deploy.gpu_count (empty policy = validate)` | empty exception |
+| `_schema_validate routes logging.driver to _validate_log_driver (accept)` | - |
+| `_schema_validate routes logging.driver to _validate_log_driver (reject)` | - |
+| `_schema_validate allows empty logging.driver (empty policy = allow)` | empty default |
+| `_schema_validate normalises logging.<svc> to the logging key set (reject)` | - |
+| `_schema_validate normalises logging.<svc> to the logging key set (accept)` | - |
+| `_schema_validate accepts every registered key's valid sample` | union coverage (accept) |
+| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject) |
+| `_schema_validate rejects embedded-newline values (YAML injection) (#687)` | - |
+| `_schema_validate numeric validators are shape-only, not range-bound (#687)` | - |
+| `_schema_validate allows empty (clear) for every list + clearable scalar key` | clear-key semantics |
+| `_schema_validate accepts free-form (unregistered) keys` | default-accept |
+| `SCHEMA_SECTIONS lists every setup.conf section in file order (#561)` | ordered section list (#561) |
+| `_schema_is_section accepts a registered section with typed keys (#561)` | membership accept (#561) |
+| `_schema_is_section accepts a free-form-only section (image) (#561)` | membership accept, no keys (#561) |
+| `_schema_is_section rejects an unknown section (#561)` | membership reject (#561) |
+| `_schema_is_section rejects a per-service logging variant (#561)` | logging.<svc> not a base section (#561) |
+| `_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)` | single source (#561) |
+| `_schema_section_keys returns scalar+list keys for build (#561)` | keys by prefix (#561) |
+| `_schema_section_keys returns all logging keys (#561, #606)` | keys by prefix (#561) |
+| `_schema_section_keys returns deploy keys incl. legacy alias (#561)` | keys incl. runtime alias (#561) |
+| `_schema_section_keys is empty for a free-form-only section (image) (#561)` | empty for no-validator section (#561) |
 
 ### test/bats/unit/schema_coverage_spec.bats (8)
 
@@ -168,14 +220,14 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 
 | Test | Description |
 |------|-------------|
-| `every SCHEMA_VALIDATOR validator name resolves to a defined function` | no ghost validators (#562) |
-| `SCHEMA_SECTIONS matches the setup.conf template headers in file order` | registry/template drift (#562) |
-| `every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key` | no dead empty-policy entries (#562) |
-| `every registered key is reachable via SCHEMA_SECTIONS` | no key stranded under an unlisted section (#562) |
-| `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry` | i18n-index is complete (#591) |
-| `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key` | no orphan index rows (#591) |
-| `every SCHEMA_I18N message key exists in all four locale tables` | no missing translation in any locale (#591) |
-| `_schema_i18n_key resolves scalar + list keys, falls back when free-form` | accessor the TUI routes through (#591) |
+| `every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)` | no ghost validators (#562) |
+| `SCHEMA_SECTIONS matches the setup.conf template headers in file order (#562)` | registry/template drift (#562) |
+| `every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key (#562)` | no dead empty-policy entries (#562) |
+| `every registered key is reachable via SCHEMA_SECTIONS (#562)` | no key stranded under an unlisted section (#562) |
+| `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)` | i18n-index is complete (#591) |
+| `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
+| `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
+| `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
 
 ### setup.sh-derived unit specs (386, mirroring source libs)
 
@@ -904,14 +956,47 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `apply_migrations is the public dispatcher entry (#567)` | Small interface exists |
 | `apply_migrations skips cleanly when path does not exist (#567)` | No-Dockerfile skip |
 | `_MIGRATIONS is a non-empty ordered list (#567)` | Data-driven table is seeded |
-| migration 1 (wrapper-copy): shape A `COPY *.sh /lint/`, shape B `COPY .base/script/docker/*.sh /lint/` -> `wrapper/*.sh`, idempotent, detect-false | 4 |
-| migration 2 (pip-helper): drop retired `${CONFIG_DIR}/pip/requirements.txt` install line + comment, detect-false | 2 |
-| migration 3 (explicit-copy): drop single-line + backslash-continued explicit top-level `.sh` lint COPYs, detect-false on lib/wrapper dir COPYs | 3 |
-| migration 4 (logging-rename): rewrite Dockerfile COPY + sibling entrypoint source `_entrypoint_logging.sh` -> `runtime/logging.sh`, detect-false on new name, heal a stale entrypoint when the Dockerfile is already migrated (#692) | 4 |
-| migration 5 (hadolint): DL3007 pin tags, DL3046 `useradd -l`, DL3003 `WORKDIR /lint`, DL3042 `--no-cache-dir`, DL4006 alpine SHELL pipefail, DL3006 inline ignore (+idempotent), detect-false on clean | 8 |
-| migration 6 (sc1090): broaden entrypoint `SC1091` -> `SC1090,SC1091`, idempotent, detect-false without entrypoint | 3 |
-| migration 7 (arg-user, #579): `ARG USER` -> `ARG USER="${USER_NAME}"`, idempotent, leaves unrelated ARGs | 3 |
-| migration 8 (nounset-source, #579): bracket entrypoint ROS `setup.bash` source with `set +u`/`set -u`, idempotent, detect-false without `set -u` | 3 |
+| `migration 0 (downstream-to-dist): rewrites lib/wrapper COPY sources to .base/dist/ (#714)` | - |
+| `migration 0 (downstream-to-dist): detect false when no .base/downstream/ reference (#714)` | - |
+| `migration 0 (downstream-to-dist): idempotent — second run is a no-op (#714)` | - |
+| `migration 1 (wrapper-copy): rewrites shape A 'COPY *.sh /lint/' (#567)` | - |
+| `migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)` | - |
+| `migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)` | - |
+| `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
+| `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
+| `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
+| `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
+| `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
+| `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |
+| `migration 4 (logging-rename): rewrites the Dockerfile COPY to runtime/logging.sh (#567)` | - |
+| `migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)` | - |
+| `migration 4 (logging-rename): detect false when already on new name (#567)` | - |
+| `migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)` | - |
+| `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
+| `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
+| `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
+| `migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)` | - |
+| `migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)` | - |
+| `migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)` | - |
+| `migration (watchdog-copy): detect false when no logging.sh COPY present (#797)` | - |
+| `migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)` | - |
+| `migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)` | - |
+| `migration 5 (hadolint): DL3046 adds useradd -l (#567)` | - |
+| `migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)` | - |
+| `migration 5 (hadolint): DL3042 adds pip --no-cache-dir (#567)` | - |
+| `migration 5 (hadolint): DL4006 adds SHELL pipefail to alpine lint-tools (#567)` | - |
+| `migration 5 (hadolint): DL3006 inline ignore before parameterized FROM (#567)` | - |
+| `migration 5 (hadolint): DL3006 idempotent — does not double-insert (#567)` | - |
+| `migration 5 (hadolint): detect false on a clean Dockerfile (#567)` | - |
+| `migration 6 (sc1090): broadens the entrypoint directive to SC1090,SC1091 (#567)` | - |
+| `migration 6 (sc1090): idempotent when already SC1090,SC1091 (#567)` | - |
+| `migration 6 (sc1090): detect false when no sibling entrypoint (#567)` | - |
+| `migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)` | - |
+| `migration 7 (arg-user): idempotent — already defaulted is not detected (#579)` | - |
+| `migration 7 (arg-user): does not touch an unrelated ARG (#579)` | - |
+| `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
+| `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
+| `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
 
 ### test/bats/unit/build_sh_spec.bats (54)
 
@@ -1153,24 +1238,39 @@ guard + the release smoke check).
 
 | Test | Description |
 |------|-------------|
-| `just docker build forwards positional args` | `just docker build test` -> build.sh test |
-| `just docker build passes flags through verbatim` | no `--` separator needed |
-| `just docker exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
-| `just docker run / stop / prune / setup forward` | wrapper dispatch |
-| `just docker setup-tui forwards to setup_tui.sh` | hyphenated recipe |
-| `just base upgrade forwards to .base/upgrade.sh` | #652 -- base ns upgrade dispatch |
-| `just base update runs upgrade.sh --check` | #652 -- apt-aligned check |
-| `just base init forwards to .base/init.sh` | #653 -- base ns init dispatch |
-| `just base completions forwards to script/base/completions.sh` | #653 -- opt-in completions installer dispatch |
-| `bare just lists namespaces` | replaces `make help`; lists `docker`/`base`/... |
-| `bare just docker lists the docker verbs` | #655 -- namespace help via module default (source_file() --list) |
-| `bare just base lists the base verbs` | #655 -- namespace help via module default |
-| `just docker build --help forwards --help to the backing script` | #655 -- recipe `--help` reaches the script as an arg |
-| `just docker build --lang ja forwards --lang to the backing script` | #655 -- recipe `--lang` forwarded |
-| `just base completions --lang forwards --lang to completions.sh` | #655 -- base ns recipe `--lang` forwarded |
-| `repo-local group via script/local/justfile.local resolves as a top-level namespace` | #632 `import?` registry + `mod?` group |
-| `just template new <name> scaffolds a working repo-local group` | #633 / closes #594 -- scaffold + immediately usable |
-| `bare just template prints help` | #633 -- module default recipe |
+| `just docker build forwards positional args to ./script/build.sh` | `just docker build test` -> build.sh test |
+| `just docker build passes flags through verbatim (no -- separator needed)` | no `--` separator needed |
+| `just docker exec passes = -bearing Kit-style args through (no EXEC_ARGS shim, #469)` | no EXEC_ARGS shim (#469) |
+| `just docker run / stop / prune / setup forward to their wrappers` | wrapper dispatch |
+| `just docker setup-tui forwards to ./script/setup_tui.sh` | - |
+| `just docker start --help prints composite usage and does NOT build or run (#779)` | - |
+| `just docker start -h short-circuits like --help (#779)` | - |
+| `just base upgrade forwards to ./.base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)` | - |
+| `just base update runs upgrade.sh --check (apt-aligned, #652)` | #652 -- apt-aligned check |
+| `just base init forwards to ./.base/dist/script/base/init.sh (#653, #654, ADR-00000011)` | - |
+| `just base completions forwards to script/base/completions.sh (#653, ADR-00000011)` | #653 -- opt-in completions installer dispatch |
+| `bare just lists namespaces (replaces make help)` | replaces `make help`; lists `docker`/`base`/... |
+| `bare just docker lists the docker verbs (namespace help, #655)` | #655 -- namespace help via module default (source_file() --list) |
+| `bare just base lists the base verbs (namespace help, #655)` | #655 -- namespace help via module default |
+| `just docker build --help forwards --help to the backing script (#655)` | #655 -- recipe `--help` reaches the script as an arg |
+| `just docker build --lang ja forwards --lang to the backing script (#655)` | #655 -- recipe `--lang` forwarded |
+| `just base completions --lang forwards --lang to completions.sh (#655)` | #655 -- base ns recipe `--lang` forwarded |
+| `just base update --help reaches upgrade.sh usage, not the check (#789)` | - |
+| `just base update -h reaches upgrade.sh usage (#789)` | - |
+| `just docker help + h alias list the docker verbs (#789)` | - |
+| `just base help + h alias list the base verbs (#789)` | - |
+| `just template help + h alias print the template usage (#789)` | - |
+| `just docker help renders zh-TW recipe summaries under LANG=zh-TW (i18n)` | - |
+| `just docker help renders Japanese recipe summaries under LANG=ja (i18n)` | - |
+| `just docker help --lang overrides LANG for the listing (i18n)` | - |
+| `just docker help English default still renders the translated listing (i18n)` | - |
+| `just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)` | - |
+| `just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)` | - |
+| `dashed just <ns> --help errors but hints 'help' (documented just limit, #789)` | - |
+| `just template new --help shows the recipe usage (recipe-level help, #789)` | - |
+| `repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)` | #632 `import?` registry + `mod?` group |
+| `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
+| `bare just template prints help (#633)` | #633 -- module default recipe |
 
 ### test/bats/unit/template_new_spec.bats (9)
 
@@ -1189,6 +1289,8 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh does not duplicate the registry line on a second distinct group` | one mod? per group |
 | `new.sh rejects an invalid group name` | name validation |
 | `new.sh errors with usage when no name given` | arg guard |
+| `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
+| `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
 ### test/bats/unit/justfile_spec.bats (15)
 
@@ -1202,18 +1304,20 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | Test | Description |
 |------|-------------|
 | `layered entry + docker module exist` | both files present |
-| `docker module declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui `*args` |
-| `docker module no longer carries upgrade/upgrade-check (moved to base ns)` | #652 -- upgrade is a .base op |
-| `docker module recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
-| `base module declares upgrade + update (apt-aligned) forwarding to .base/upgrade.sh` | #652 / ADR-00000011 |
-| `base module declares init + completions recipes` | #653 -- init -> .base/init.sh, completions -> script/base/completions.sh |
-| `docker module owns a default recipe + pins cwd to repo root` | #652 -- mod default + `set working-directory := '../..'` |
-| `entry mods the docker namespace + default recipe lists recipes` | #652 -- `mod? docker` + `default: @just --list` |
-| `entry mods the base namespace` | #652 -- `mod? base` |
-| `test / release namespaces own a default recipe (bare-namespace help)` | #655 -- bare `just test` / `just release` |
-| `test / release namespaces are English-only -- no --lang plumbing` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
-| `consumer entry: every top-level mod? has one adjacent one-line doc comment` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
-| `base root justfile: every top-level mod? has one adjacent one-line doc comment` | #720 -- same invariant for base's self-dev entry |
+| `docker module declares args-passthrough recipes for every wrapper verb (#545)` | build/run/exec/stop/prune/setup/setup-tui `*args` |
+| `docker module no longer carries upgrade/upgrade-check (moved to base ns, #652)` | #652 -- upgrade is a .base op |
+| `docker module recipes forward to ./script/<wrapper>.sh with {{args}} (#545)` | forwarding bodies |
+| `base module declares upgrade + update (apt-aligned) forwarding to .base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)` | - |
+| `base update recipe forwards -h\|--help to upgrade.sh usage without the check (#789)` | - |
+| `every shipped namespace module ships a help recipe + h alias (#789)` | - |
+| `base module declares init + completions recipes (#653, ADR-00000011)` | #653 -- init -> .base/init.sh, completions -> script/base/completions.sh |
+| `entry mods the base namespace (#652, ADR-00000011)` | #652 -- `mod? base` |
+| `docker module owns a default recipe + pins cwd to repo root (#652, ADR-00000011)` | #652 -- mod default + `set working-directory := '../..'` |
+| `entry mods the docker namespace + default recipe lists recipes (#652, ADR-00000011)` | #652 -- `mod? docker` + `default: @just --list` |
+| `test / release namespaces own a default recipe (bare-namespace help, #655)` | #655 -- bare `just test` / `just release` |
+| `test / release namespaces are English-only -- no --lang plumbing (#655)` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
+| `consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
+| `base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- same invariant for base's self-dev entry |
 
 ### test/bats/unit/help_lang_spec.bats (19)
 
@@ -1234,19 +1338,19 @@ justfile_user_spec.bats.
 | `upgrade.sh --help exits 0 and prints usage` | base ns usage |
 | `completions.sh --help exits 0 and prints usage` | base ns usage |
 | `completions.sh -h exits 0 and prints usage` | short flag |
-| `new.sh --help exits 0 and prints usage` | #655 -- new.sh gained -h/--help |
+| `new.sh --help exits 0 and prints usage (#655: gained -h/--help)` | #655 -- new.sh gained -h/--help |
 | `new.sh -h exits 0 and prints usage` | short flag |
-| `init.sh --help advertises --lang` | i18n namespace |
-| `upgrade.sh --help advertises --lang` | i18n namespace |
-| `completions.sh --help advertises --lang` | i18n namespace |
-| `new.sh --help advertises --lang` | i18n namespace |
-| `init.sh accepts a valid --lang without error` | flag stripped before dispatch |
+| `init.sh --help advertises --lang (#655 i18n namespace)` | i18n namespace |
+| `upgrade.sh --help advertises --lang (#655 i18n namespace)` | i18n namespace |
+| `completions.sh --help advertises --lang (#655 i18n namespace)` | i18n namespace |
+| `new.sh --help advertises --lang (#655 i18n namespace)` | i18n namespace |
+| `init.sh accepts a valid --lang without error (flag is stripped)` | flag stripped before dispatch |
 | `upgrade.sh accepts a valid --lang without error` | flag stripped before dispatch |
 | `completions.sh accepts a valid --lang without error` | flag accepted |
 | `new.sh accepts a valid --lang and still scaffolds` | flag + positional name |
 | `init.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
-| `test.sh rejects --lang (test namespace is English-only)` | machine/CI namespace, no i18n |
+| `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
 ### test/bats/unit/completions_spec.bats (13)
 
@@ -1290,23 +1394,24 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
 | `_emit_env_file_block: emits the .env workload overlay block` | #502 env_file |
-| `_emit_target_arch_line: empty omits; set emits literal TARGET_ARCH ref` | TARGETARCH |
+| `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
 | `_emit_build_network_line: empty omits; set emits network line` | build.network |
 | `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
 | `_emit_restart_line: 'no' omits; plain value plain; on-failure:N quoted` | #478 restart |
+| `_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)` | - |
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
 | `_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids` | #496 group_add |
 | `_emit_user_build_args: empty omits; entries emit KEY: ${KEY} pairs` | build args |
-| `_logging_svc_kv: seeds from global then overlays per-service` | logging merge |
+| `_logging_svc_kv: seeds from global then overlays per-service (key-level merge)` | logging merge |
 | `_logging_svc_kv: a different service does not pick up another svc overlay` | svc keying |
 | `_emit_logging_block: empty global + per-svc emits nothing` | logging off |
 | `_emit_logging_block: driver + rotation maps to compose options block` | logging opts |
 | `_emit_logging_block: keys off the service name for per-svc overrides` | per-svc |
 | `_logging_svc_local_path_mount: empty local_path yields empty mount` | #328 off |
-| `_logging_svc_local_path_mount: relative path resolves against base` | rel path |
-| `_logging_svc_local_path_mount: absolute path passed verbatim` | abs path |
+| `_logging_svc_local_path_mount: relative path resolves against base, mounts /var/log/<name>` | rel path |
+| `_logging_svc_local_path_mount: absolute path passed verbatim (trailing slash stripped)` | abs path |
 | `_emit_stage_service: zero-diff stage emits the extends:devel shape` | #215 zero-diff |
 | `_emit_stage_service: zero-diff stage with per-svc logging override emits logging block` | zero-diff logging |
 | `_emit_stage_service: stage with overrides emits a standalone block (no extends)` | #220 standalone |
@@ -1327,39 +1432,87 @@ shapes, absent on any `*-test` stage).
 
 | Test | Description |
 |------|-------------|
-| `outputs AUTO-GENERATED header` | Header check |
-| `always emits workspace volume` | Baseline |
-| `emits network_mode/ipc/privileged via env var` | env-var baked |
-| `omits pid when default private` | pid omit |
-| `emits pid env-var ref when host` | pid host |
-| `emits test service with profiles: [test]` | test service |
-| `image field contains repo name` | Image name |
-| `does NOT emit /dev:/dev by default (not in baseline)` | Baseline scope |
-| `GPU enabled => deploy block present` | GPU on |
-| `GPU disabled => no deploy block` | GPU off |
-| `GPU with specific count and capabilities` | GPU args |
-| `GUI enabled => DISPLAY env + X11 volumes present` | GUI on |
-| `GUI: xauth mounts at fixed neutral target, not host abs path` | #582 mount target |
-| `GUI: container XAUTHORITY points at the fixed mount target` | #582 env sync |
-| `GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
-| `extra volumes appended after baseline` | volumes list |
-| `empty extras => no extra mount lines` | empty list |
-| `with GUI+GPU+extras => all sections present` | fully loaded |
-| `emits runtime service when Dockerfile has AS runtime` | #108 auto-emit |
-| `skips runtime service when Dockerfile lacks AS runtime` | opt-out by absence |
-| `skips runtime service when Dockerfile is absent` | no-Dockerfile guard |
-| `runtime service extends devel and overrides target/image/tty/profile` | compose extends shape |
-| `runtime service appears between devel and test blocks` | ordering |
-| `runtime detection is robust against weird whitespace` | regex tolerance |
-| `runtime detection ignores non-runtime stage names` | strict match |
+| `generate_compose_yaml outputs AUTO-GENERATED header` | Header check |
+| `generate_compose_yaml emits top-level name: with literal compose vars (#472)` | - |
+| `generate_compose_yaml top-level name: precedes services: (#472)` | - |
+| `generate_compose_yaml emits exactly one top-level name: (#472)` | - |
+| `generate_compose_yaml named volume mount emits top-level volumes: stub (#482)` | - |
+| `generate_compose_yaml bind mounts never enter top-level volumes: (#482)` | - |
+| `generate_compose_yaml bind-only repo is zero-diff (no top-level volumes:) (#482)` | - |
+| `generate_compose_yaml named volume with :mode strips mode from top-level name (#482)` | - |
+| `generate_compose_yaml dedups a named volume referenced twice (#482)` | - |
+| `generate_compose_yaml top-level volumes: stub has no driver/labels (#482)` | - |
+| `generate_compose_yaml emits volumes: before networks: (#482)` | - |
+| `generate_compose_yaml emits workspace mount when present in extras` | - |
+| `generate_compose_yaml omits workspace when extras is empty (opt-out)` | - |
+| `generate_compose_yaml default (no network_name) keeps network_mode env var` | - |
+| `generate_compose_yaml with network_name emits networks list + bridge driver block (compose self-managed)` | - |
+| `generate_compose_yaml omits devices block when both inputs empty` | - |
+| `generate_compose_yaml emits devices: block from device list` | - |
+| `generate_compose_yaml accepts /dev:/dev (full /dev tree bind)` | - |
+| `generate_compose_yaml: device with propagation emits to volumes long-form (#450 P1)` | - |
+| `generate_compose_yaml: device without propagation stays in devices: (#450 P1)` | - |
+| `generate_compose_yaml: mixed devices split correctly (#450 P1)` | - |
+| `generate_compose_yaml: device rw,rslave emits combined propagation (#450 P1)` | - |
+| `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
+| `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
+| `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
+| `generate_compose_yaml emits environment block from env_ list` | - |
 | `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
 | `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
-| `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
+| `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
+| `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
+| `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
+| `generate_compose_yaml emits cap_add from security list` | - |
+| `generate_compose_yaml emits cap_drop from security list` | - |
+| `generate_compose_yaml emits security_opt from security list` | - |
+| `generate_compose_yaml omits cap_add / cap_drop / security_opt blocks when empty` | - |
 | `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
 | `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
+| `generate_compose_yaml emits network_mode/ipc/privileged via env var` | env-var baked |
+| `generate_compose_yaml omits pid when default private` | pid omit |
+| `generate_compose_yaml emits pid env-var ref when host` | pid host |
+| `generate_compose_yaml emits test service with profiles: [test]` | test service |
+| `generate_compose_yaml image field contains repo name` | Image name |
+| `generate_compose_yaml emits TZ build arg with Asia/Taipei default` | - |
+| `generate_compose_yaml emits TARGETARCH build arg on devel (test inherits via extends, #493)` | - |
+| `generate_compose_yaml omits TARGETARCH line when target_arch empty (BuildKit auto-fill)` | - |
+| `generate_compose_yaml emits build.network on devel (test inherits via extends, #493)` | - |
+| `generate_compose_yaml omits build.network line when build_network empty` | - |
+| `generate_compose_yaml does NOT emit /dev:/dev by default (not in baseline)` | Baseline scope |
+| `generate_compose_yaml GPU enabled => deploy block present` | GPU on |
+| `generate_compose_yaml GPU disabled => no deploy block` | GPU off |
+| `generate_compose_yaml GPU with specific count and capabilities` | GPU args |
+| `generate_compose_yaml GUI enabled => DISPLAY env + X11 volumes present` | GUI on |
+| `generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)` | #582 mount target |
+| `generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)` | #582 env sync |
+| `generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
+| `generate_compose_yaml extra volumes appended after baseline` | volumes list |
+| `generate_compose_yaml empty extras => no extra mount lines` | empty list |
+| `generate_compose_yaml with GUI+GPU+extras => all sections present` | fully loaded |
+| `generate_compose_yaml emits device_cgroup_rules: when cgroup rules provided` | - |
+| `generate_compose_yaml omits device_cgroup_rules: when rules list is empty` | - |
+| `generate_compose_yaml omits runtime: when runtime arg is empty (desktop default)` | - |
+| `generate_compose_yaml emits runtime: nvidia under devel when runtime=nvidia` | - |
+| `generate_compose_yaml placement: runtime: appears between tty and cap_add region` | - |
+| `generate_compose_yaml emits runtime service when Dockerfile has AS runtime` | #108 auto-emit |
+| `generate_compose_yaml skips runtime service when Dockerfile lacks AS runtime` | opt-out by absence |
+| `generate_compose_yaml skips runtime service when Dockerfile is absent` | no-Dockerfile guard |
+| `runtime service extends devel and overrides target/image/tty/profile` | compose extends shape |
+| `runtime service appears between devel and test blocks` | ordering |
+| `runtime detection is robust against weird whitespace` | regex tolerance |
+| `runtime detection ignores non-runtime stage names` | strict match |
+| `generate_compose_yaml never emits restart: on the devel service (#840)` | - |
+| `generate_compose_yaml emits restart: on a deployable stage service (#840)` | - |
+| `generate_compose_yaml omits restart: on a *-test stage -- it exits by design (#840)` | - |
+| `generate_compose_yaml emits restart: on a deployable stage that carries overrides (#840)` | - |
+| `generate_compose_yaml quotes an on-failure:N policy on the deployable stage (#840)` | - |
+| `generate_compose_yaml emits no restart: field at all for restart = no (#840)` | - |
+| `generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)` | - |
+| `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
 ### test/bats/unit/compose_emit/overlay_guard_spec.bats (6)
 
@@ -1400,42 +1553,49 @@ refused before any build or bundle step.
 
 | Test | Description |
 |------|-------------|
-| `_resolve_deploy_version: returns the tag in a tagged git tree` | version tag |
-| `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes` | dirty stamp |
-| `_resolve_deploy_version: falls back to the short commit SHA in a tagless clone` | tagless `--always` fallback |
-| `_resolve_deploy_version: degrades to 'unknown' outside a git tree` | non-git fallback |
-| `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
-| `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
-| `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
-| `_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override` | dri auto |
-| `_resolve_deploy_context: dri_groups off yields empty` | dri off |
-| `_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned` | resolved + self-contained |
-| `_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e)` | dev-host strip |
-| `_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default` | tunable binds |
-| `_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices)` | per-stage params |
-| `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11` | follow-stage GUI |
-| `_generate_resolved_compose: per-stage [stage:runtime] override is applied` | per-stage override |
-| `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc` | ipc/shm literals |
-| `_generate_deploy_launcher: writes an executable up/down/logs launcher` | launcher shape |
-| `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit` | no-arg default up |
-| `_generate_deploy_launcher: generated launcher is ShellCheck-clean` | shellcheck-clean output |
-| `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
-| `_bake_config_copy: handles src == out in place` | in-place bake |
-| `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install` | bundle plan |
-| `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
-| `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path` | tunable extract |
-| `_generate_deploy_bundle: a malformed manifest fails loud before building` | fail-loud guard |
-| `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path` | missing baked default |
-| `_setup_deploy: --dry-run previews the resolved compose + prints the build plan` | deploy dry-run |
-| `_setup_deploy: refuses in a non-interactive shell without -y` | non-tty refuse |
-| `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
-| `_setup_deploy: rejects an unknown flag` | arg validation |
-| `_setup_deploy: --stage selects the target stage` | stage select |
-| `_setup_deploy: refuses a template-baseline stage` | stage eligibility (baseline) |
-| `_setup_deploy: refuses a legacy baseline alias` | stage eligibility (legacy alias) |
-| `_setup_deploy: refuses a downstream-shaped <x>-test stage` | stage eligibility (*-test) |
-| `_setup_deploy: a refused stage writes no bundle even with -y` | guard fires before build |
-| `main deploy routes to _setup_deploy` | dispatch wiring |
+| `_resolve_deploy_version: returns the tag in a tagged git tree (field-deploy)` | version tag |
+| `_resolve_deploy_version: appends -dirty when the tree has uncommitted changes (field-deploy)` | dirty stamp |
+| `_resolve_deploy_version: falls back to the short commit SHA in a tagless clone (#844)` | tagless `--always` fallback |
+| `_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)` | non-git fallback |
+| `_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)` | full resolution |
+| `_resolve_deploy_context: applies effective defaults for a minimal repo conf (#506)` | template-merged defaults |
+| `_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)` | - |
+| `_resolve_deploy_context: builds the WATCHDOG_* env block from [lifecycle] watchdog_* (#840)` | - |
+| `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode (#506/#481)` | legacy alias |
+| `_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override (#506/#496)` | dri auto |
+| `_resolve_deploy_context: dri_groups off yields empty (#506/#496)` | dri off |
+| `_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned (#832)` | resolved + self-contained |
+| `_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e) (#832)` | dev-host strip |
+| `_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default (#833)` | tunable binds |
+| `_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices) (#832)` | per-stage params |
+| `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)` | follow-stage GUI |
+| `_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)` | per-stage override |
+| `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)` | ipc/shm literals |
+| `_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)` | - |
+| `_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)` | - |
+| `_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)` | - |
+| `_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)` | - |
+| `_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)` | - |
+| `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
+| `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)` | no-arg default up |
+| `_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)` | shellcheck-clean output |
+| `_bake_config_copy: splices COPY config/app into the target stage (#506/#504)` | config COPY bake |
+| `_bake_config_copy: handles src == out in place (#506/#504)` | in-place bake |
+| `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
+| `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
+| `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
+| `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
+| `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)` | missing baked default |
+| `_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)` | deploy dry-run |
+| `_setup_deploy: refuses in a non-interactive shell without -y (#832)` | non-tty refuse |
+| `_setup_deploy: errors when the repo has no Dockerfile (#832)` | no-Dockerfile guard |
+| `_setup_deploy: rejects an unknown flag (#832)` | arg validation |
+| `_setup_deploy: --stage selects the target stage (#832/#841)` | stage select |
+| `_setup_deploy: refuses a template-baseline stage (#841)` | stage eligibility (baseline) |
+| `_setup_deploy: refuses a legacy baseline alias (#841)` | stage eligibility (legacy alias) |
+| `_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)` | stage eligibility (*-test) |
+| `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
+| `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 
 ### test/bats/unit/deploy_hint_spec.bats (5)
 
@@ -1449,11 +1609,11 @@ through the real parser instead of asserting a hand-copied duplicate.
 
 | Test | Description |
 |------|-------------|
-| `resolved compose header hint uses --stage, not a bare positional stage` | compose header hint |
-| `deploy.sh launcher hint uses --stage, not a bare positional stage` | launcher hint |
-| `cd-guard.sh documents the --stage form of the deploy command` | cd-guard hint |
-| `the compose-header hint's args are accepted by the deploy arg parser` | hint replayed through parser |
-| `the launcher hint's args are accepted by the deploy arg parser` | hint replayed through parser |
+| `resolved compose header hint uses --stage, not a bare positional stage (#843)` | compose header hint |
+| `deploy.sh launcher hint uses --stage, not a bare positional stage (#843)` | launcher hint |
+| `cd-guard.sh documents the --stage form of the deploy command (#843)` | cd-guard hint |
+| `the compose-header hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
+| `the launcher hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
 
 ### test/bats/unit/deploy_manifest_spec.bats (11)
 
@@ -1469,17 +1629,17 @@ basename across components, fails loud.
 
 | Test | Description |
 |------|-------------|
-| `_parse_deploy_manifest: returns only the requested stage's paths` | per-stage selection |
-| `_parse_deploy_manifest: a path unlisted for the stage stays baked-only` | unlisted = baked |
-| `_parse_deploy_manifest: skips blank + comment lines and trims whitespace` | lexing |
-| `_parse_deploy_manifest: a missing manifest is not an error -> empty` | missing = empty |
-| `_parse_deploy_manifest: a malformed section header fails loud` | bad section |
-| `_parse_deploy_manifest: a non-absolute content line fails loud` | non-absolute path |
-| `_parse_deploy_manifest: a path before any section fails loud` | orphan path |
-| `_collect_deploy_binds: aggregates every component's stage paths keyed by basename` | aggregation |
-| `_collect_deploy_binds: no manifests -> empty map (nothing tunable)` | nothing tunable |
-| `_collect_deploy_binds: duplicate basename across components fails loud` | basename collision |
-| `_collect_deploy_binds: propagates a malformed manifest failure` | fail propagation |
+| `_parse_deploy_manifest: returns only the requested stage's paths (tunable-manifest)` | per-stage selection |
+| `_parse_deploy_manifest: a path unlisted for the stage stays baked-only (tunable-manifest)` | unlisted = baked |
+| `_parse_deploy_manifest: skips blank + comment lines and trims whitespace (tunable-manifest)` | lexing |
+| `_parse_deploy_manifest: a missing manifest is not an error -> empty (tunable-manifest)` | missing = empty |
+| `_parse_deploy_manifest: a malformed section header fails loud (tunable-manifest)` | bad section |
+| `_parse_deploy_manifest: a non-absolute content line fails loud (tunable-manifest)` | non-absolute path |
+| `_parse_deploy_manifest: a path before any section fails loud (tunable-manifest)` | orphan path |
+| `_collect_deploy_binds: aggregates every component's stage paths keyed by basename (tunable-manifest)` | aggregation |
+| `_collect_deploy_binds: no manifests -> empty map (nothing tunable) (tunable-manifest)` | nothing tunable |
+| `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
+| `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
 ### test/bats/unit/compose_logging_spec.bats (19)
 
@@ -1492,34 +1652,21 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 
 | Test | Description |
 |------|-------------|
-| `omits logging: block when both inputs empty (back-compat)` | Empty inputs no-op |
-| `emits logging: block on devel from global [logging]` | Global → devel |
-| `test service inherits global logging via extends:devel (#493)` | Global logging emitted once on devel; test inherits via extends |
-| `driver-only [logging] omits options: block` | No rotation keys |
-| `partial options emits only set keys` | Sparse override |
-| `per-svc [logging.<svc>] overrides global key on that svc` | Override semantics |
-| `per-svc [logging.<svc>] inherits keys absent in override` | Key-level merge |
-| `_parse_logging_svc_sections enumerates services in file order` | Parser order |
-| `_parse_logging_svc_sections ignores plain [logging] section` | Section discrimination |
-| `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file guard |
-| `_collect_logging reads global [logging] from per-repo setup.conf` | Per-repo source |
-| `_collect_logging reads per-service [logging.<svc>] sections` | Per-svc source |
-| `_collect_logging returns empty when no [logging] sections anywhere` | Total absence |
+| `generate_compose_yaml omits logging: block when both inputs empty (back-compat)` | Empty inputs no-op |
+| `generate_compose_yaml emits logging: block on devel from global [logging]` | Global → devel |
+| `generate_compose_yaml test service inherits global logging via extends:devel (#493)` | Global logging emitted once on devel; test inherits via extends |
+| `generate_compose_yaml driver-only [logging] omits options: block` | No rotation keys |
+| `generate_compose_yaml partial options emits only set keys` | Sparse override |
+| `generate_compose_yaml per-svc [logging.<svc>] overrides global key on that svc` | Override semantics |
+| `generate_compose_yaml per-svc [logging.<svc>] inherits keys absent in override` | Key-level merge |
 | `local_path on global emits volumes mount + LOG_FILE_PATH env for devel (#328)` | Mount + env on devel |
 | `local_path empty omits mount + env (back-compat) (#328)` | Empty fallback |
+| `local_path emits CONTAINER_LOG_KEEP/DAYS retention env, default fallback (#805)` | - |
+| `local_path retention env honors container_log_keep/days overrides (#805)` | - |
 | `local_path on per-svc [logging.<svc>] emits LOG_FILE_PATH for that svc only (#328)` | Per-service emit |
 | `local_path absolute path is passed through verbatim (#328)` | Absolute path |
 | `local_path is NOT emitted as a logging.options key (driver-only options) (#328)` | local_path NOT a docker option |
 | `local_path on test service emits standalone volumes block + env (#328)` | test service |
-| `_sync_logging_local_paths_gitignore appends relative local_path to .gitignore (#328)` | gitignore append |
-| `_sync_logging_local_paths_gitignore skips absolute paths (#328)` | Absolute skip |
-| `_sync_logging_local_paths_gitignore skips ~ paths (#328)` | Tilde skip |
-| `_sync_logging_local_paths_gitignore is idempotent (#328)` | Re-run no-op |
-| `_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)` | Multi-source |
-| `_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)` | Empty no-op |
-| `_sync_logging_local_paths_gitignore prunes stale managed entries on value change (#390)` | Rename prune |
-| `_sync_logging_local_paths_gitignore drops marker + entries when candidates become empty (#390)` | Feature-off cleanup |
-| `_sync_logging_local_paths_gitignore preserves user entries outside managed block (#390)` | User-owned untouched |
 | `setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
 | `generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)` | Per-svc LOG_FILE_PATH on auto-emitted extends-only stage |
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
@@ -1553,13 +1700,17 @@ the host file content and the inherited stdout (preserving
 | Test | Description |
 |------|-------------|
 | `entrypoint_logging is no-op when LOG_FILE_PATH unset (#328)` | Back-compat: do nothing |
-| `entrypoint_logging tees stdout to LOG_FILE_PATH when set (#328)` | Happy path |
-| `entrypoint_logging truncates LOG_FILE_PATH on each run (#328)` | Fresh container = fresh log |
+| `entrypoint_logging writes a per-start file + points the stable symlink at it (#805)` | - |
+| `entrypoint_logging second start adds a new per-start file + repoints symlink, keeps the old (#805)` | - |
+| `entrypoint_logging same wall-clock second: second start bumps suffix, never truncates the first (#805)` | - |
+| `entrypoint_logging captures stderr along with stdout in the per-start file (#328)` | 2>&1 redirect |
 | `entrypoint_logging creates parent dir if missing (#328)` | mkdir -p safety net |
-| `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback (truncate-fail branch) |
+| `entrypoint_logging retention honors CONTAINER_LOG_KEEP, never the symlink (#805)` | - |
+| `entrypoint_logging retention honors CONTAINER_LOG_DAYS by age (#805)` | - |
+| `entrypoint_logging clamps a non-positive CONTAINER_LOG_KEEP back to the default (#805)` | - |
+| `entrypoint_logging bumps past an occupied base per-start name, still tees (#805)` | - |
 | `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
-| `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
 ### test/bats/unit/watchdog_spec.bats (18)
 
@@ -1617,9 +1768,7 @@ builds the env block only for the knobs the conf sets.
 | `justfile.test has lint recipe` | just recipe |
 | `justfile.test lint recipe forwards args + runs all linters by default (#650)` | `lint *args` forwards --shellcheck/--hadolint |
 | `justfile.test has coverage recipe` | just recipe |
-| `justfile.test upgrade recipe forwards {{args}} to ./upgrade.sh` | args passthrough |
-| `justfile.test upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on justfile.test |
-| `Dockerfile.test-tools no longer installs make into the final image (single runner: just)` | dead make dependency stays out of final image |
+| `justfile.test carries no stale init/upgrade recipes at nonexistent root scripts (#779)` | - |
 | `dist smoke test_helper.bash exists under shared/` | Directory structure |
 | `dist smoke shared entrypoint spec exists under shared/` | Directory structure |
 | `dist smoke script_help.bats exists under devel-test/` | Directory structure |
@@ -1629,8 +1778,8 @@ builds the env block only for the knobs the conf sets.
 | `doc/readme/ directory exists` | Directory structure |
 | `doc/test/ directory exists` | Directory structure |
 | `doc/changelog/ directory exists` | Directory structure |
-| `build.sh references template/script/docker/setup.sh` | Path reference |
-| `run.sh references template/script/docker/setup.sh` | Path reference |
+| `lib/wrapper.sh references .base/dist/script/docker/wrapper/setup.sh (#565)` | - |
+| `build.sh + run.sh route setup/drift through _wrapper_setup_sync (#565)` | - |
 | `build.sh uses set -euo pipefail` | Shell convention |
 | `build.sh supports --no-cache flag` | Force rebuild flag |
 | `build.sh passes --no-cache to docker compose build when set` | NO_CACHE forwarded |
@@ -1640,22 +1789,15 @@ builds the env block only for the knobs the conf sets.
 | `run.sh uses set -euo pipefail` | Shell convention |
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
-| `_lib.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME` | Shared derivation |
-| `_lib.sh _compose_project wraps -p with PROJECT_NAME` | Shared compose wrapper |
-| `_lib.sh defines _load_env helper` | Shared env loader |
-| `_lib.sh defines _compute_project_name helper` | Shared helper |
-| `_lib.sh defines _compose wrapper` | Shared compose wrapper |
-| `build.sh routes compose call through _compose_project` | Uses shared lib |
-| `run.sh routes compose calls through _compose_project` | Uses shared lib |
-| `exec.sh routes compose call through _compose_project` | Uses shared lib |
-| `stop.sh routes compose call through _compose_project` | Uses shared lib |
+| `lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME` | - |
 | `exec.sh loads .env via _load_env helper` | Uses shared lib |
 | `stop.sh loads .env via _load_env helper` | Uses shared lib |
+| `lib/env.sh defines _load_env helper` | - |
+| `lib/compose.sh defines _compute_project_name helper` | - |
+| `lib/compose.sh defines _compose wrapper` | - |
 | `stop.sh no longer needs orphan cleanup (run.sh devel uses up not run)` | No more orphan |
 | `run.sh devel target uses compose up -d (not compose run --name)` | up + exec model |
 | `run.sh devel branch uses compose exec to enter shell` | up + exec model |
-| `run.sh devel branch installs trap to auto-down on exit` | Auto cleanup |
-| `run.sh _devel_cleanup uses short timeout to avoid 10s grace period` | Fast exit |
 | `run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)` | One-shot stages: no-CMD up, CMD run --rm |
 | `run.sh devel branch does not use 'compose run --name'` | Old pattern gone |
 | `run.sh refuses when the default container is already running` | collision |
@@ -1673,12 +1815,18 @@ builds the env block only for the knobs the conf sets.
 | `exec.sh precheck error mentions run.sh hint` | friendly hint |
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
-| `script/docker/i18n.sh exists` | i18n module exists |
+| `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
+| `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
 | `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
 | `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
+| `Dockerfile.test-tools no longer installs make into the final image (single runner: just)` | dead make dependency stays out of final image |
+| `Dockerfile.test-tools declares ARG TARGETARCH` | - |
 | `Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)` | multi-arch build regression |
+| `Dockerfile.test-tools curl release downloads retry on transient failure (#550)` | - |
+| `Dockerfile.test-tools branches case for amd64 and arm64` | - |
+| `Dockerfile.test-tools fails loud on unsupported TARGETARCH` | - |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
 | `build.sh sources _lib.sh` | build.sh uses shared lib |
 | `run.sh sources _lib.sh` | run.sh uses shared lib |
@@ -1686,13 +1834,31 @@ builds the env block only for the knobs the conf sets.
 | `stop.sh sources _lib.sh` | stop.sh uses shared lib |
 | `_lib.sh sources i18n.sh (delegates language detection)` | _lib delegates i18n |
 | `setup.sh sources i18n.sh` | setup.sh uses shared i18n |
-| `build.sh -h works when i18n.sh is missing (consumer Dockerfile /lint scenario)` | i18n fallback |
-| `run.sh -h works when i18n.sh is missing` | i18n fallback |
-| `exec.sh -h works when i18n.sh is missing` | i18n fallback |
-| `stop.sh -h works when i18n.sh is missing` | i18n fallback |
+| `build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)` | - |
+| `run.sh -h works in /lint/ layout` | - |
+| `exec.sh -h works in /lint/ layout` | - |
+| `stop.sh -h works in /lint/ layout` | - |
+| `build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)` | - |
+| `Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)` | - |
+| `Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)` | - |
+| `Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)` | - |
+| `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
+| `Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)` | - |
+| `Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)` | - |
+| `Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)` | - |
+| `runtime/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
+| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
+| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
+| `Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)` | - |
+| `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
+| `setup.sh defines _setup_msg, not _msg (closes #101)` | - |
+| `build.sh _msg keys survive sourcing setup.sh (#101 behavioral)` | - |
+| `build.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `run.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `lib/wrapper.sh uses subprocess check-drift (#49 Phase B-1, #565)` | - |
 | `.version file exists in template root` | Version file check |
-| `upgrade.sh reads version from template/.version` | .version path |
+| `upgrade.sh reads version from <subtree-prefix>/.version` | - |
 | `upgrade.sh does not reference legacy VERSION or .template_version` | Legacy refs purged |
 | `upgrade.sh runs init.sh after subtree pull` | Sync symlinks |
 | `upgrade.sh supports --gen-conf flag` | Flag exists |
@@ -1704,38 +1870,44 @@ builds the env block only for the knobs the conf sets.
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
 | `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
-| `build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs` | build-arg wiring |
-| `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
+| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs` | - |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default` | version-scoped tag: no bare-tag ARG default (#828) |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
-| `Dockerfile.example declares ENV TZ (matches downstream fleet, #210)` | runtime $TZ alignment |
-| `Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)` | runtime $LANGUAGE alignment |
+| `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
+| `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
+| `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |
+| `Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)` | - |
+| `Dockerfile.example runtime-test does NOT set USER root (DL3002 regression guard)` | - |
+| `Dockerfile.example top stage-list documents builder stage (#239)` | - |
+| `Dockerfile.example documents 3 builder/runtime split lessons (#239)` | - |
+| `Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)` | - |
 | `Dockerfile.example runtime documents 3-process-kinds env rationale (#657)` | PID 1 / interactive / non-interactive complementary mechanisms |
 | `Dockerfile.example runtime shows commented /etc/bash.bashrc source example (#657)` | opt-in interactive-exec env source, consumer supplies ROS line |
 | `Dockerfile.example runtime does NOT bake ROS env into ENV (#657 fragility guard)` | no ENV LD_LIBRARY_PATH / PYTHONPATH baked |
+| `template no longer ships dockerfile/setup/ (#407, reverses #261)` | - |
+| `template no longer ships config/pip/ (#261 relocation regression guard)` | - |
+| `Dockerfile.example has no SETUP_DIR or pip references (#407)` | - |
+| `Dockerfile.example declares ENV TZ (matches downstream fleet, #210)` | runtime $TZ alignment |
+| `Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)` | runtime $LANGUAGE alignment |
 | `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
 | `release-worker.yaml does not cp compose.yaml into the release archive` | v0.10.1 cp-list regression |
 | `release-worker.yaml cp-list still includes Dockerfile + scripts` | positive cp-list guard |
-| `build.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
-| `run.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
-| `build.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
-| `run.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
-| `Dockerfile.example copies _entrypoint_logging.sh to /usr/local/lib/base/ in devel stage (#368)` | In-image helper COPY + devel-stage placement |
-| `Dockerfile.example commented runtime stage shows _entrypoint_logging.sh COPY example (#368)` | Runtime opt-in scaffold |
-| `_entrypoint_logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | Helper Usage docstring positive + negative regression guards |
-| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
+| `all 7 wrappers call _run_pre_hook with their own name (#440)` | - |
+| `all 7 wrappers call _run_post_hook with their own name (#440)` | - |
+| `run.sh _app_cleanup runs post-hook before compose down (#440)` | - |
+| `lib/hook.sh skips both helpers under DRY_RUN (#440, #13)` | - |
+| `lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)` | - |
 
 ### test/bats/unit/bashrc_spec.bats (15)
 
@@ -1748,7 +1920,9 @@ builds the env block only for the knobs the conf sets.
 | `alias_func is called` | Function call |
 | `color_git_branch is called` | Function call |
 | `color_git_branch sets PS1` | PS1 setting |
-| bashrc.d bootstrap loop (sources `~/.bashrc.d/*.sh`, dir guard, `.gitkeep` present) | drop-in loader (3) |
+| `bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh` | - |
+| `bashrc.d bootstrap loop guards on directory existing` | - |
+| `bashrc.d/ directory exists in .base/dist/config/shell/` | - |
 | `host-group drop-in exists` | #589 drop-in shipped |
 | `host-group drop-in defines name_host_groups and invokes it only when interactive` | #589 structure |
 | `host-group drop-in uses getent + sudo groupadd` | #589 mechanism |
@@ -1764,21 +1938,48 @@ builds the env block only for the knobs the conf sets.
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
+| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch |
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
-| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
+| `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
+| `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)` | #615 partition invariant (each slice runs once) |
+| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
+| `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
+| `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
+| `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
+| `_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)` | #692 empty-slice guard |
+| `_spec_weight: returns the recorded seconds from SHARD_WEIGHTS_FILE (#724)` | - |
+| `_spec_weight: falls back to @test count when the spec has no recorded time (#724)` | - |
+| `_spec_weight: falls back to @test count when no SHARD_WEIGHTS_FILE is set (#724)` | - |
+| `_spec_weight: reads the default repo weights file when SHARD_WEIGHTS_FILE is unset (#733)` | - |
+| `_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)` | - |
+| `_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)` | - |
+| `_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)` | - |
+| `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
+| `_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)` | - |
+| `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
+| `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
+| `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
+| `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
+| `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
+| `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
+| `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
+| `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
+| `_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)` | #677 plain mode runs the skipped tests |
+| `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
 | `main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1` | #523 single-file dispatch |
 | `main --bats-path: accepts a directory` | #523 directory path |
 | `main --bats-path: non-existent path dies with ci_bats_path_not_found` | #523 missing-path guard |
 | `main --bats-path: test/bats/system/ path dies with a clear hint` | #523 system guard |
 | `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
-| `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
+| `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
@@ -1792,29 +1993,10 @@ builds the env block only for the knobs the conf sets.
 | `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 exactly two invocations |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
-| `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
-| `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615)` | #615 partition invariant (each slice runs once) |
-| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
-| `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
-| `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
-| `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
-| `_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)` | #692 empty-slice guard |
-| `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
-| `_run_coverage: last shard also kcov's the integration suite (#615)` | #615 integration on last shard |
-| `_run_coverage: non-last shard does NOT kcov the integration suite (#615)` | #615 no integration duplication |
-| `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
-| `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
-| `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
-| `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
-| `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
-| `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
-| `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
-| `_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)` | #677 plain mode runs the skipped tests |
-| `main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)` | #677 fragile flag dispatch |
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
 | `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
 
-### test/bats/unit/doc_counts_spec.bats (8)
+### test/bats/unit/doc_counts_spec.bats (21)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs
@@ -1823,10 +2005,27 @@ generator that derives the `doc/test/*.md` count figures from the specs
 
 | Test | Description |
 |------|-------------|
-| `_sync_doc_counts: rewrites a stale ### heading to the real @test count` | per-spec heading recompute |
+| `_sync_doc_counts: rewrites a stale ### heading to the real @test count (#727)` | per-spec heading recompute |
 | `_sync_doc_counts: rewrites a stale #### (level-4) heading too (#815)` | #815 deeper ATX depth regenerated, not just ### |
-| `_sync_doc_counts: rewrites the per-type total to the sum of the headings` | per-type total from grep-over-files |
-| `_sync_doc_counts: is idempotent on an already-synced tree` | re-run no-op |
+| `_sync_doc_counts: rewrites the per-type total to the sum of the headings (#727)` | per-type total from grep-over-files |
+| `_sync_doc_counts: is idempotent on an already-synced tree (#727)` | re-run no-op |
+| `_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)` | - |
+| `_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)` | - |
+| `_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)` | - |
+| `_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)` | - |
+| `_sync_catalog_rows: generates a row for every @test the table is missing (#859)` | - |
+| `_sync_catalog_rows: a hand-written description survives regeneration (#859)` | - |
+| `_sync_catalog_rows: the row of a deleted test goes away (#859)` | - |
+| `_sync_catalog_rows: a renamed test is a delete plus an add, prose does not follow (#859)` | - |
+| `_sync_catalog_rows: rows follow spec file order, not the old table order (#859)` | - |
+| `_sync_catalog_rows: a section without a per-test table is left alone (#859)` | - |
+| `_sync_catalog_rows: a heading whose spec path does not resolve is left alone (#859)` | - |
+| `_sync_catalog_rows: a pipe in a test name is escaped so the table stays well formed (#859)` | - |
+| `_sync_catalog_rows: backslash escapes resolve to the name bats reports (#859)` | - |
+| `_sync_catalog_rows: is idempotent on an already-generated catalog (#859)` | - |
+| `_sync_doc_sections: a spec file with no section at all gets one (#859)` | - |
+| `_sync_doc_sections: an existing section is never duplicated (#859)` | - |
+| `_sync_doc_sections: a shipped smoke spec lands in smoke.md (#859)` | - |
 
 ### test/bats/unit/issueref_lint_spec.bats (17)
 
@@ -1994,6 +2193,27 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
 | `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
+| `_gen_setup_conf default refuses to overwrite existing setup.conf` | - |
+| `_gen_setup_conf --force overwrites and backs up existing setup.conf` | - |
+| `_gen_setup_conf --force also backs up .env to .env.bak` | - |
+| `_gen_setup_conf errors when the template setup.conf is absent (#692)` | #692 missing-template _error |
+| `_gen_setup_conf --force on clean repo does not create spurious .bak` | - |
+| `TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/` | - |
+| `TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable` | - |
+| `_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)` | - |
+| `_create_new_repo: .gitignore includes .setup.conf.bak and .env.bak` | - |
+| `_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)` | - |
+| `_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)` | - |
+| `_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)` | - |
+| `_create_new_repo: includes hook stubs in new-repo layout (#440)` | - |
+| `_init_existing_repo: creates missing hook stubs on upgrade (#440)` | - |
+| `_sync_base_monitor_workflow: generates base-version-monitor.yaml` | - |
+| `_sync_base_monitor_workflow: schedules weekly + manual dispatch` | - |
+| `_sync_base_monitor_workflow: grants issues: write` | - |
+| `_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix` | - |
+| `_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file` | - |
+| `_create_new_repo: also generates base-version-monitor.yaml` | - |
+| `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
 | `_preflight_just: install hint points at the documented methods (#607)` | Warning carries install pointer |
@@ -2004,7 +2224,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)` | #692 warn-on-failure degrade |
 | `_call_setup: skips with a notice when setup.sh is absent (#692)` | #692 skip-when-absent branch |
 | `_call_setup: returns 0 on a setup.sh that succeeds (#692)` | #692 happy path no-noise |
-| `_gen_setup_conf errors when the template setup.conf is absent (#692)` | #692 missing-template _error |
+| `_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)` | - |
+| `_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)` | - |
 
 ### test/bats/unit/smoke_helper_spec.bats (19)
 
@@ -2139,12 +2360,12 @@ deliberately chosen policy is never rewritten).
 
 | Test | Description |
 |------|-------------|
-| `_warn_config_drift silent when no template/config in HEAD` | Initial setup |
+| `_warn_config_drift silent when no .base/dist/config in HEAD` | - |
 | `_warn_config_drift silent when pre and post hashes match` | No drift |
 | `_warn_config_drift prints WARNING + diff hint when hashes differ` | Drift reported |
 | `upgrade.sh defines _warn_config_drift` | Helper present |
 | `upgrade.sh invokes _warn_config_drift after subtree pull` | Call site present |
-| `upgrade.sh captures pre-pull template/config tree hash` | Snapshot taken |
+| `upgrade.sh captures pre-pull <subtree-prefix>/config tree hash` | - |
 | `_require_git_identity succeeds when name + email are set` | Happy path |
 | `_require_git_identity fails when user.email is unset` | Email guard |
 | `_require_git_identity fails when user.name is unset` | Name guard |
@@ -2152,15 +2373,17 @@ deliberately chosen policy is never rewritten).
 | `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
 | `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
 | `_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)` | R1+ happy path |
-| `_verify_subtree_intact rolls back when template/.version is missing` | Destructive-FF rollback |
-| `_verify_subtree_intact rolls back when template/ dir is missing (#477 destructive-FF detector)` | R1+ dir-missing rollback |
-| `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
+| `_verify_subtree_intact rolls back when .base/.version is missing` | - |
+| `_verify_subtree_intact rolls back when .base/ dir is missing (#477 destructive-FF detector)` | - |
+| `_verify_subtree_intact rolls back when .base/ dir is empty (#477)` | - |
 | `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
 | `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
 | `_rollback_subtree_pull surfaces a failed reset instead of falsely reporting 'restored' (#700)` | Failed-reset escalation (no false 'restored' message) |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
 | `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
+| `upgrade.sh sources lib/template_guard.sh` | - |
+| `upgrade.sh calls _assert_not_template_source with the resolved subtree root` | - |
 | `_semver_cmp: equal versions return 0` | Equality |
 | `_semver_cmp: lower core returns 1` | Behind core |
 | `_semver_cmp: higher core returns 2` | Ahead core |
@@ -2174,10 +2397,16 @@ deliberately chosen policy is never rewritten).
 | `_check: behind latest reports update available and exits 1` | Behind |
 | `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
 | `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
-| `_check: prerelease behind latest stable proposes upgrade (rc1 → 0.12.0)` | Leave prerelease |
+| `_check: prerelease behind latest stable proposes upgrade (rc1 →0.12.0)` | Leave prerelease |
 | `_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)` | Alpine bash 5.3 errexit-from-cmdsub workaround (lock the `\|\| true` guard) |
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
+| `_migrate_lifecycle_restart_default rewrites the stale template default, loudly` | - |
+| `_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone` | - |
+| `_migrate_lifecycle_restart_default is inert once the vendored template ships the new default` | - |
+| `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
+| `_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf` | - |
+| `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
 
 ### test/bats/unit/conf_accessor_spec.bats (27)
 
@@ -2199,16 +2428,33 @@ contracts on hand-edited / malformed setup.conf:
 
 | Test | Description |
 |------|-------------|
+| `_conf_get returns a value by section and key` | - |
+| `_conf_get_into writes the value into the named outvar, no subshell (#742)` | - |
+| `_conf_sections lists section names in first-appearance order` | - |
+| `_conf_list lists a section's keys in file order` | - |
+| `_conf_load_merged: repo section replaces template section wholesale` | - |
 | `_conf_get: duplicate key within a section -- last occurrence wins (#689)` | Override semantics (merge + re-save) |
 | `_conf_list: a section reopened later in the file keeps entries from both occurrences (#689)` | Reopened section appends; header deduped |
 | `_conf_get: inline '#' comment text is KEPT in the value (no inline-comment support) (#689)` | Trailing `# ...` is literal (only leading-# stripped) |
 | `_conf_sections: section header with internal whitespace is NOT trimmed ([ deploy ] != deploy) (#689)` | Interior spaces kept in captured name |
 | `_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)` | No header match -> keys lost, no crash |
+| `_conf_list_sorted returns prefix_N values in numeric order, skipping empties` | - |
 | `_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)` | Numeric-suffix guard reject path |
 | `_upsert_conf_value leaves the original file intact when mktemp fails (#700)` | Guarded mktemp -> no clobber/truncate on temp-create failure |
 | `_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)` | Temp+atomic-mv -> no in-place truncate data-loss window |
 | `_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + original unchanged |
 | `_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + destination unchanged |
+| `_parse_ini_section reads keys and values for one section` | - |
+| `_parse_ini_section isolates sections (entries from other sections ignored)` | - |
+| `_parse_ini_section skips comment and empty lines` | - |
+| `_parse_ini_section trims whitespace around key and value` | - |
+| `_parse_ini_section returns empty arrays for missing file` | - |
+| `_parse_ini_section returns empty arrays for absent section` | - |
+| `_parse_ini_section does not absorb dotted sub-sections` | - |
+| `_parse_ini_section reads a dotted section name` | - |
+| `_parse_ini_section preserves duplicate keys and reopened sections in order` | - |
+| `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
+| `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
 ### test/bats/unit/gitignore_spec.bats (29)
 
@@ -2217,7 +2463,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 7 canonical lines` | Single source of truth |
+| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832)` | - |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
 | `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
@@ -2226,16 +2472,26 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: preserves user-defined lines (bridge.yaml, .env.gpg, .claude/)` | User-line preservation |
 | `_sync_gitignore: idempotent — second invocation produces no further changes` | Idempotency |
 | `_sync_gitignore: no duplicate canonical lines after re-run` | No-dup invariant |
-| `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
 | `_sync_gitignore: documented constraint -- CRLF entries are not matched (LF-only) (#692)` | #692 LF-only presence-match constraint |
-| `_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)` | #692 `..` path wrapped as-is |
-| `_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)` | #692 space path wrapped as-is |
+| `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
 | `_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml` | 15-repo drift fix |
 | `_untrack_canonical_in_repo: leaves untracked files alone` | Scope guard |
 | `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |
 | `_untrack_canonical_in_repo: handles tracked coverage/ directory` | Directory entry |
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
+| `_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)` | - |
+| `_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)` | - |
+| `_sync_logging_gitignore skips absolute paths (#402, ex-#328)` | - |
+| `_sync_logging_gitignore skips ~ paths (#402, ex-#328)` | - |
+| `_sync_logging_gitignore is idempotent (#402, ex-#328)` | - |
+| `_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)` | #692 `..` path wrapped as-is |
+| `_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)` | #692 space path wrapped as-is |
+| `_sync_logging_gitignore collects from both global + per-svc (#402, ex-#328)` | - |
+| `_sync_logging_gitignore is no-op when no local_path keys (#402, ex-#328)` | - |
+| `_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)` | - |
+| `_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)` | - |
+| `_sync_logging_gitignore preserves user entries outside managed block (#402, ex-#390)` | - |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -2248,17 +2504,17 @@ are thin wrappers over the shared `_sync_managed_entries` mechanism.
 
 | Test | Description |
 |------|-------------|
-| `_canonical_dockerignore_entries: emits the derived-artifact set` | Membership |
-| `_canonical_dockerignore_entries: shares the single canonical source with gitignore (no drift)` | Anti-drift invariant |
-| `_canonical_dockerignore_entries: list is stable order` | Deterministic output |
-| `_canonical_dockerignore_entries: does NOT include log/ (owned by #606)` | Scope guard |
-| `_sync_dockerignore: creates the file when missing, with marker + all entries` | Greenfield |
-| `_sync_dockerignore: file with all entries already present is a no-op` | Already-synced |
-| `_sync_dockerignore: appends only missing entries when subset present` | Drift fill-in |
-| `_sync_dockerignore: preserves hand-maintained build-context lines` | User-line preservation |
-| `_sync_dockerignore: idempotent — second run leaves the file unchanged` | Idempotency |
-| `_sync_dockerignore: marker added only once across re-syncs` | Single-marker invariant |
-| `_sync_dockerignore: file without trailing newline gets one before append` | Trailing-newline guard |
+| `_canonical_dockerignore_entries: emits the derived-artifact set (#604)` | Membership |
+| `_canonical_dockerignore_entries: shares the single canonical source with gitignore (no drift) (#604)` | Anti-drift invariant |
+| `_canonical_dockerignore_entries: list is stable order (#604)` | Deterministic output |
+| `_canonical_dockerignore_entries: includes log/ via the shared canonical source (#606) (#604)` | - |
+| `_sync_dockerignore: creates the file when missing, with marker + all entries (#604)` | Greenfield |
+| `_sync_dockerignore: file with all entries already present is a no-op (#604)` | Already-synced |
+| `_sync_dockerignore: appends only missing entries when subset present (#604)` | Drift fill-in |
+| `_sync_dockerignore: preserves hand-maintained build-context lines (#604)` | User-line preservation |
+| `_sync_dockerignore: idempotent — second run leaves the file unchanged (#604)` | Idempotency |
+| `_sync_dockerignore: marker added only once across re-syncs (#604)` | Single-marker invariant |
+| `_sync_dockerignore: file without trailing newline gets one before append (#604)` | Trailing-newline guard |
 
 ### test/bats/unit/coverage_gate_spec.bats (21)
 
@@ -2278,8 +2534,14 @@ own full copy of the file's lines to the denominator.
 | `coverage_gate: passes when merged rate >= COVERAGE_MIN` | Floor pass |
 | `coverage_gate: passes at exactly the floor (boundary)` | Boundary (==) pass |
 | `coverage_gate: fails when merged rate < COVERAGE_MIN` | Floor fail (non-zero exit) |
-| `coverage_gate: merges shards by summing covered/valid, not averaging` | Line-weighted merge (unequal denominators) |
+| `coverage_gate: merges DISJOINT shards by union (= sum), not averaging` | - |
+| `coverage_gate: SHARED source across shards is unioned, not double-counted (#730)` | - |
 | `coverage_gate: four shards merge into one weighted total` | 4-shard merge total |
+| `coverage_gate: prefix path aliases of one file are counted once (#853)` | Alias-inflated denominator (the bug) |
+| `coverage_gate: different files sharing a basename stay separate (#853)` | Basename-only keying is wrong (the trap) |
+| `coverage_gate: rate is unchanged when the suite is resharded under other aliases (#853)` | Shard-membership invariance |
+| `coverage_gate: reports the collapsed-alias count as a diagnostic (#853)` | Alias-collapse diagnostic |
+| `coverage_gate: reports zero collapsed aliases when nothing is aliased (#853)` | Diagnostic reports 0, not silence |
 | `coverage_gate: errors when no report files are given` | No-args error |
 | `coverage_gate: errors when a named report file is missing` | Missing-file error |
 | `coverage_gate: errors when total valid lines is zero (empty report)` | Empty-report error |
@@ -2288,11 +2550,8 @@ own full copy of the file's lines to the denominator.
 | `coverage_gate: default COVERAGE_MIN is 80 -- a report exactly at 80 passes` | Floor value pinned from below |
 | `coverage_gate: default COVERAGE_MIN is 80 -- a report just under 80 fails` | Floor value pinned from above |
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
-| `coverage_gate: prefix path aliases of one file are counted once (#853)` | Alias-inflated denominator (the bug) |
-| `coverage_gate: different files sharing a basename stay separate (#853)` | Basename-only keying is wrong (the trap) |
-| `coverage_gate: rate is unchanged when the suite is resharded under other aliases (#853)` | Shard-membership invariance |
-| `coverage_gate: reports the collapsed-alias count as a diagnostic (#853)` | Alias-collapse diagnostic |
-| `coverage_gate: reports zero collapsed aliases when nothing is aliased (#853)` | Diagnostic reports 0, not silence |
+| `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
+| `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
 ### test/bats/unit/build_sh_base_self_spec.bats (2)
 
@@ -2310,3 +2569,101 @@ flat `script/<verb>.sh` symlinks resolving into `dist/` (no `.base/` hop),
 the `test-tools` compose service building `Dockerfile.test-tools`, and
 `just test system` building it via the docker namespace.
 
+
+### test/bats/unit/base_version_monitor_spec.bats (12)
+
+Version-compare + issue-open logic of the pull-based base version monitor:
+semver ordering (numeric, not lexical), a missing leading `v`, and the
+`run` path that opens exactly one labelled tracking issue per target version
+(dedup on an already-open one, no issue when up to date, loud failure on an
+empty API answer).
+
+| Test | Description |
+|------|-------------|
+| `compare: newer minor is behind (v0.41.0 < v0.42.0)` | - |
+| `compare: equal versions are not behind` | - |
+| `compare: older remote is not behind` | - |
+| `compare: newer patch is behind` | - |
+| `compare: numeric not lexical (v0.9.7 < v0.10.0)` | - |
+| `compare: newer major is behind (v0.41.0 < v1.0.0)` | - |
+| `compare: tolerates a missing leading v` | - |
+| `run: behind -> opens a tracking issue naming the target version` | - |
+| `run: opened issue carries the base-upgrade label` | - |
+| `run: up to date -> no issue created` | - |
+| `run: existing open issue for the target -> skip (dedup)` | - |
+| `run: empty latest from API -> fails without creating an issue` | - |
+
+### test/bats/unit/check_test_md_drift_spec.bats (10)
+
+The read-only validating twin of `sync-doc-counts.sh`: it re-derives every
+doc/test figure from the same source (`grep -c '^@test'`) and exits non-zero
+when the committed docs have drifted. Covers the in-sync / drifted verdicts, a
+short catalog table, and the unusable-scan-root guards that keep the gate from
+passing vacuously (relative root, missing root, no `doc/test/`, no specs).
+
+| Test | Description |
+|------|-------------|
+| `_check_test_md_drift: exits 0 on an in-sync tree (#782)` | - |
+| `_check_test_md_drift: exits non-zero and names the drifted doc on a stale count (#782)` | - |
+| `_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)` | - |
+| `_check_test_md_drift: a RELATIVE root gives the same verdict as the absolute one (#848)` | - |
+| `_check_test_md_drift: a RELATIVE root still detects real drift (#848)` | - |
+| `_check_test_md_drift: FAILS on a nonexistent scan root, naming it (#848)` | - |
+| `_check_test_md_drift: FAILS on a scan root with no doc/test (no vacuous pass) (#848)` | - |
+| `_check_test_md_drift: FAILS on a spec-free scan root (no vacuous pass) (#848)` | - |
+| `_check_test_md_drift: counts a shipped smoke spec as spec files (#848)` | - |
+| `_check_test_md_drift: FAILS when a spec has more tests than catalog rows (#859)` | - |
+
+### test/bats/unit/compose_emit/hostname_spec.bats (5)
+
+The GUI-under-bridge `hostname:` injection: a bridge-network GUI container
+pins its hostname to the host name so X11 authority matches, host-network and
+GUI-off cases inject nothing, and a per-stage override decides per stage.
+
+| Test | Description |
+|------|-------------|
+| `GUI + bridge injects hostname pinned to the host name on devel (#794)` | - |
+| `GUI + host mode injects NO hostname on devel (#794)` | - |
+| `GUI off + bridge injects NO hostname on devel (#794)` | - |
+| `per-stage GUI+bridge override injects hostname on that stage (#794)` | - |
+| `per-stage GUI-off under bridge injects NO hostname (#794)` | - |
+
+### test/bats/unit/logrotate_spec.bats (7)
+
+Wrapper transcript retention: `_logrotate_repoint` (the stable `latest.log`
+symlink follows the newest real file without deleting the previous one) and
+`_logrotate_prune` (keep N most recent plus an age bound, never touch the
+symlink itself or a sibling service's symlink sharing the directory, missing
+directory is a no-op).
+
+| Test | Description |
+|------|-------------|
+| `_logrotate_repoint: points the stable symlink at the newest real file (#805)` | - |
+| `_logrotate_repoint: repointing to a newer file does NOT delete the old one (#805)` | - |
+| `_logrotate_prune: keeps the N most recent real files, drops the rest (#805)` | - |
+| `_logrotate_prune: drops files older than <days> regardless of count (#805)` | - |
+| `_logrotate_prune: never removes the stable symlink itself (#805)` | - |
+| `_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)` | - |
+| `_logrotate_prune: missing dir is a no-op (best-effort) (#805)` | - |
+
+### test/bats/unit/resolve_doc_counts_spec.bats (10)
+
+Unit coverage for `script/test/resolve-doc-counts.sh` -- the one command that
+resolves a `doc/test/*.md` merge conflict. Two halves: the toil (markers go,
+figures come back regenerated from the merged spec tree) and the safety
+(a relative root, a surviving marker, an unhappy drift gate, and any
+disagreement regeneration cannot settle are all refused loudly rather than
+resolved to whichever side the collapse happened to keep).
+
+| Test | Description |
+|------|-------------|
+| `_resolve_doc_counts: FAILS on a RELATIVE root, naming it (#857)` | - |
+| `_resolve_doc_counts: FAILS on a nonexistent root, naming it (#857)` | - |
+| `_resolve_doc_counts: collapses a counter-only conflict and regenerates (#857)` | - |
+| `_resolve_doc_counts: drops the diff3 base section too (#857)` | - |
+| `_resolve_doc_counts: rescues the catalog prose from BOTH sides (#857)` | - |
+| `_resolve_doc_counts: an unconflicted tree is verified, not rewritten (#857)` | - |
+| `_resolve_doc_counts: FAILS when the two sides describe the same test differently (#857)` | - |
+| `_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)` | - |
+| `_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)` | - |
+| `_resolve_assert_no_markers: FAILS naming the file and line of a survivor (#857)` | - |

@@ -87,6 +87,15 @@ usage, not English).
 | `build.sh detects ja from LANG=ja_JP.UTF-8` | i18n detect — ja |
 | `build.sh defaults to en for LANG=en_US.UTF-8` | i18n detect — en default |
 | `build.sh SETUP_LANG overrides LANG` | i18n env override |
+| `build.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
+| `build.sh --help --lang zh-CN prints zh-CN usage (#222)` | - |
+| `build.sh --help --lang ja prints ja usage (#222)` | - |
+| `run.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
+| `run.sh --help --lang ja prints ja usage (#222)` | - |
+| `exec.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
+| `exec.sh --help --lang ja prints ja usage (#222)` | - |
+| `stop.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
+| `stop.sh --help --lang ja prints ja usage (#222)` | - |
 
 ### dist/test/bats/smoke/devel-test/display_env.bats (11)
 
