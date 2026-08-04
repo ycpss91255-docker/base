@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **116 tests**.
+Integration specs under `test/bats/integration/`: **118 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -32,22 +32,36 @@ the unit `tui_spec`.
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
 | `new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)` | default in-image helper source line + comment present; ${USER} / /home/ absent (regression guards) |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
+| `new repo: smoke tree is per-stage tool-first (shared/devel-test/runtime-test), not flat test/smoke/ (S4 items 5,8)` | - |
+| `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
+| `new repo: .github/workflows/base-version-monitor.yaml exists (#777)` | - |
 | `new repo: main.yaml grants permissions: contents: write` | #62 release perms |
 | `new repo: .gitignore exists` | gitignore |
+| `new repo: .dockerignore exists (#604)` | - |
+| `new repo: .dockerignore contains compose.yaml (derived artifact) (#604)` | - |
 | `new repo: doc/ tree exists with README translations` | i18n docs |
 | `new repo: doc/test/TEST.md exists` | TEST.md gen |
+| `new repo: TEST.md total matches the actual generated @test count (no stale 1 test) (S4 item 6)` | - |
+| `new repo: TEST.md per-file heading is level-3 (### path (N)) so sync-doc-counts can match (S4 item 6)` | - |
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink lives under script/, not root (#330)` | symlink target moved to script/build.sh |
 | `new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)` | symlink set: 7 wrappers + justfile root, no Makefile |
 | `new repo: config/ is an empty placeholder (template#254 layered override)` | config placeholder |
 | `new repo: init.sh preserves pre-existing config/ directory (no clobber)` | config preservation |
+| `new repo: script/local/justfile.local seeded (repo-local command-group registry, #632)` | #632 — repo-owned registry seeded |
+| `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber, #632)` | #632 — never clobbers repo registrations |
+| `new repo: script/local/ seeds a bash companion template alongside justfile.local (S4 item 7)` | - |
+| `new repo: init.sh preserves a pre-existing script/local/local.sh (no clobber, S4 item 7)` | - |
+| `new repo: init.sh seeds local.sh even when justfile.local already exists (independent guards, S4 item 7)` | - |
+| `new repo: script/template/ symlinks wired for the template namespace (#633)` | #633 — justfile.template + new.sh + skel symlinked |
+| `new repo: script/base/ symlink wired for the base namespace (#652, #653)` | #652, #653 — justfile.base + completions.sh symlinked; entry mods base |
 | `new repo: init.sh drops stale config symlink before creating placeholder` | config-symlink drop |
-| `Dockerfile.example references CONFIG_SRC="config" (not .base/config)` | CONFIG_SRC default |
-| `Dockerfile.example has layered config COPY chain (template#254)` | layered COPY order |
+| `Dockerfile.example references CONFIG_SRC="config" (not .base/dist/config)` | - |
+| `Dockerfile.example has layered config COPY chain (template#254): .base/dist/config first, then config` | layered COPY order |
 | `Dockerfile.example declares ENV HOME before WORKDIR ${HOME}/work (#334)` | HOME env directive |
 | `Dockerfile.example sets up bashrc.d drop-in directory (template#254)` | bashrc.d setup |
-| `new repo: Dockerfile contains _entrypoint_logging.sh in-image COPY (#368)` | End-to-end check on init.sh-generated repo |
+| `new repo: Dockerfile contains logging.sh in-image COPY (#368)` | - |
 | `new repo: .base/.version exists (no legacy VERSION / .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
 | `new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)` | setup_tui under script/ |
@@ -57,20 +71,16 @@ the unit `tui_spec`.
 | `new repo: run.sh -h works against the generated symlink` | smoke script/run.sh |
 | `new repo: exec.sh -h works against the generated symlink` | smoke script/exec.sh |
 | `new repo: stop.sh -h works against the generated symlink` | smoke script/stop.sh |
-| `new repo: setup.sh symlink under script/ → ../.base/script/docker/setup.sh` | setup.sh under script/ |
+| `new repo: setup.sh symlink under script/ → ../.base/dist/script/docker/wrapper/setup.sh` | - |
 | `new repo: setup.sh -h works against the generated symlink` | smoke script/setup.sh |
 | `init.sh --gen-conf copies setup.conf to repo root` | setup.conf gen |
 | `init.sh --gen-conf refuses to overwrite existing setup.conf` | overwrite safety |
 | `new repo: .gitignore contains compose.yaml (derived artifact)` | gitignore compose.yaml |
 | `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
-| `new repo: compose.yaml ships devices: /dev:/dev by default` | default device mount |
-| `new repo: setup.conf mount_1 is NOT empty after first init` | workspace writeback non-empty |
+| `new repo: compose.yaml omits devices block by default (#466 opt-in)` | - |
+| `new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)` | workspace writeback non-empty |
 | `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
-| `new repo: script/local/justfile.local seeded (repo-local command-group registry)` | #632 — repo-owned registry seeded |
-| `new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber)` | #632 — never clobbers repo registrations |
-| `new repo: script/template/ symlinks wired for the template namespace` | #633 — justfile.template + new.sh + skel symlinked |
-| `new repo: script/base/ symlink wired for the base namespace` | #652, #653 — justfile.base + completions.sh symlinked; entry mods base |
 | `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
 | `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
 | `init.sh refuses to run when the subtree root carries .git (base template source)` | Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse, no scaffold |
@@ -87,7 +97,7 @@ invocation — `build.sh --dry-run`).
 
 | Test | Description |
 |------|-------------|
-| `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
+| `fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)` | - |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
 ### test/bats/integration/wrapper_compose_dispatch_spec.bats (6)
@@ -130,24 +140,27 @@ upgrade run.
 
 | Test | Description |
 |------|-------------|
-| `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
+| `upgrade.sh v0.9.7: bumps .base/.version, pulls new content, updates main.yaml` | - |
 | `upgrade.sh Step 5 announces the migration pass (#567)` | Step 5 runs the declarative migration dispatcher |
 | `upgrade.sh heals a legacy wrapper-COPY Dockerfile via the migration list (#567 m1)` | End-to-end wrapper-copy heal + staged into the upgrade commit |
 | `upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)` | End-to-end entrypoint nounset guard around the ROS setup.bash source |
 | `upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)` | Subtree-only repos (no consumer Dockerfile) skip silently |
 | `upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)` | A second upgrade is a no-op on an already-migrated Dockerfile |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
+| `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
+| `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
+| `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
 | `upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly` | Legacy override auto-migrated (git mv + loud warning) so it is never silently dropped |
 | `upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)` | Already-migrated repo: no move, no spurious announcement |
 | `upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist` | Conflict: root file wins, legacy kept, warned for manual reconciliation |
 | `upgrade.sh relocation commit carries only the moved paths, not unrelated staged work` | Migration commit is pathspec-scoped; pre-staged user work stays staged |
-| `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
-| `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
-| `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
+| `upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default` | - |
+| `upgrade.sh leaves a deliberately configured restart policy alone` | - |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
+| `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
 
 ### test/bats/integration/gitignore_sync_spec.bats (13)
 
@@ -159,12 +172,17 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 
 | Test | Description |
 |------|-------------|
-| `init.sh new-repo: .gitignore contains all 7 canonical entries` | New-repo path uses lib |
+| `init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)` | - |
 | `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
+| `init.sh new-repo: .dockerignore contains all canonical derived entries (#604)` | - |
+| `init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)` | - |
+| `init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)` | - |
 | `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
 | `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
 | `init.sh existing-repo: setup.conf stays committed across init runs (#201)` | 2-file model: setup.conf is user override |
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
+| `init.sh existing-repo: appends missing canonical entries to a user .dockerignore, preserving build-context lines (#604)` | - |
+| `init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)` | - |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
 
@@ -196,8 +214,24 @@ resolved-compose -> bundle-files wiring as a flow.
 
 | Test | Description |
 |------|-------------|
-| `deploy flow: produces the version-named output folder with all bundle files` | folder + files |
-| `deploy flow: the resolved compose is self-contained and pins the versioned image` | self-contained compose |
-| `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind` | tunable delivery |
-| `deploy flow: the thin launcher drives docker load + compose up/down` | launcher shape |
-| `deploy flow: the README names the versioned image + the tunable config workflow` | README template |
+| `deploy flow: produces the version-named output folder with all bundle files (field-deploy)` | folder + files |
+| `deploy flow: the resolved compose is self-contained and pins the versioned image (field-deploy)` | self-contained compose |
+| `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind (field-deploy)` | tunable delivery |
+| `deploy flow: the thin launcher drives docker load + compose up/down (field-deploy)` | launcher shape |
+| `deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)` | - |
+| `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
+| `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
+
+### test/bats/integration/doc_counts_merge_spec.bats (2)
+
+Drives `script/test/resolve-doc-counts.sh` against a REAL git merge conflict:
+two branches that each added tests and both bumped the same generated totals,
+which is the conflict shape every branch refresh in the base review batch
+produced. Asserts the merged tree is regenerated, complete, staged and
+gate-clean -- and that a merge whose sides describe the same test differently
+is refused with nothing staged.
+
+| Test | Description |
+|------|-------------|
+| `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
+| `resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)` | - |

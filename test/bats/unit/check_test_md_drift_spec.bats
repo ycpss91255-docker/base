@@ -128,8 +128,31 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/dist/test/bats/smoke" "${root}/doc/test"
     printf "@test \"a\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/s.bats"
-    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." > "${root}/doc/test/smoke.md"
+    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." \
+      "" "### dist/test/bats/smoke/s.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" "| \`a\` | - |" \
+      > "${root}/doc/test/smoke.md"
     _check_test_md_drift "${root}"
   '
   assert_success
+}
+
+@test "_check_test_md_drift: FAILS when a spec has more tests than catalog rows (#859)" {
+  # The rot this closes: the heading count was regenerated (so the gate said
+  # in sync) while the per-test table next to it stayed short. Rows are
+  # generated now, so a short table IS drift.
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" \
+      "### test/bats/unit/x_spec.bats (2)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | only one of the two |" > "${root}/doc/test/unit.md"
+    _check_test_md_drift "${root}"
+  '
+  assert_failure
+  assert_output --partial "beta"
 }
