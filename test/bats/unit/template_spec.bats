@@ -1215,6 +1215,30 @@ EOF
   assert_success
 }
 
+# ── baked artifacts live at /opt, not under $HOME ──────────────
+
+@test "Dockerfile.example states the /opt-not-\$HOME baking convention (#799)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The convention has to be stated where a downstream author meets it --
+  # the file they edit to bake a workspace -- not only in base's own docs.
+  run grep -F 'bake self-built artifacts at an ABSOLUTE /opt/' "${_df}"
+  assert_success
+  # Rule 2: the SOURCE line must name the absolute path, never ~ / $HOME.
+  run grep -F 'source the ABSOLUTE path' "${_df}"
+  assert_success
+  # A ~/x -> /opt/x symlink is allowed for discoverability but must not be
+  # what anything sources.
+  run grep -F 'convenience symlink' "${_df}"
+  assert_success
+  # Rule 3 plus its enforcement handle, so the reader can run the gate.
+  run grep -F 'just test lint --home-literal' "${_df}"
+  assert_success
+  # The recorded rationale, so the WHY does not have to live in the comment.
+  run grep -F 'ADR-00000024' "${_df}"
+  assert_success
+}
+
 @test "build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)" {
   # When runtime-test does COPY --from=test-tools-stage, test-tools
   # enters its build graph, so its build must receive the pinned

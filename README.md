@@ -262,6 +262,40 @@ Notes:
   them per run, and sidesteps the cross-step image-store isolation that
   `docker-container` buildx drivers enforce.
 
+#### Baked artifacts live at `/opt`, not `$HOME`
+
+The container user is baked at **build** time: the `sys` stage takes the
+`USER_NAME` / `USER_UID` / `USER_GID` build args and `devel` then sets
+`ENV HOME="/home/${USER_NAME}"`. `just build` injects the local host's user,
+while CI and the release path bake `user` (UID 1000) -- so `$HOME` differs
+between two images built from the same commit.
+
+Anything an image bakes **under `$HOME`** is therefore coupled to the
+build-time username, and that only bites at deploy time: run a prebuilt /
+GHCR / `docker save`+`load` image under a different `USER_NAME`, or rebuild
+with one, and every home-relative path points at a different, **empty**
+`/home/<other>/...`. The baked workspace is invisible and
+`source ~/some_ws/install/setup.bash` fails. An absolute `/opt/...` path is
+immune -- there is no `$HOME` indirection left to resolve.
+
+The convention, stated in the shipped `Dockerfile` where you will meet it:
+
+1. Install self-built artifacts (colcon workspaces, SDKs, compiled tools) at
+   absolute `/opt/<name>`. Reserve `$HOME` for dotfiles and convenience
+   symlinks.
+2. Source the **absolute** path from the entrypoint / bashrc, never `~` or
+   `$HOME`. A `~/<name> -> /opt/<name>` symlink created in the per-user `RUN`
+   block is encouraged for interactive discoverability, but nothing may
+   *source* it.
+3. Never spell a concrete username into a path -- use `${HOME}` /
+   `${USER_NAME}`.
+
+Rule 3 is mechanical and gated: the `home-literal` lint
+(`just test lint --home-literal`, CI job `lint-static (home-literal)`) fails
+on a concrete username in a home path anywhere under `dist/` or
+`dockerfile/`. Rules 1-2 are a judgement call no grep can make. Rationale:
+[ADR-00000024](doc/adr/00000024-bake-artifacts-at-opt-not-home.md).
+
 #### Adding extra stages (#215)
 
 Any `FROM <base> AS <stage>` outside the baseline blocklist

@@ -18,9 +18,9 @@
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
-#                             # / --doc-counts-only. These are what the
-#                             # self-test.yaml lint jobs call -- no CI job
-#                             # runs the lint phase itself
+#                             # / --doc-counts-only / --home-literal-only.
+#                             # These are what the self-test.yaml lint jobs
+#                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
 #                             # (single source of truth for the self-test.yaml
 #                             # hadolint job;  ADR-00000011)
@@ -91,6 +91,8 @@ source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
 source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 # shellcheck source=script/test/drivers/doc_counts.sh
 source "${SCRIPT_DIR}/drivers/doc_counts.sh"
+# shellcheck source=script/test/drivers/home_literal.sh
+source "${SCRIPT_DIR}/drivers/home_literal.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -114,6 +116,7 @@ readonly _LINT_TOOLS=(
   stale-setup-conf
   readme-sync
   doc-counts
+  home-literal
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -134,6 +137,7 @@ _run_lint_tool() {
     stale-setup-conf) _run_stale_setup_conf ;;
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
+    home-literal)     _run_home_literal ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -189,6 +193,11 @@ Options:
                           the advisory harness PostToolUse hook -- one rule,
                           three entry points, this one being the blocking
                           one
+  --home-literal          With --lint: run only the hardcoded home path
+                          lint (no concrete username in a home path under
+                          dist/ or dockerfile/ -- the container user is a
+                          BUILD arg, so a literal breaks under a different
+                          USER_NAME; bake artifacts at /opt, ADR-00000024)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -206,6 +215,7 @@ Options:
                             --stale-setup-conf-only  pure bash
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
+                            --home-literal-only      pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -258,9 +268,11 @@ Examples:
   just test lint --hadolint       # Hadolint only
   just test lint --readme-sync    # Localized README sync lint only
   just test lint --doc-counts     # doc/test count drift gate only
+  just test lint --home-literal   # hardcoded home path lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
+  ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -364,12 +376,14 @@ main() {
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
+      --home-literal) lint_tool="home-literal"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
       --stale-setup-conf-only) host_lint="stale-setup-conf"; shift ;;
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
+      --home-literal-only) host_lint="home-literal"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -395,7 +409,8 @@ main() {
   # The host-direct lint primitives (`--shellcheck-only`,
   # `--issueref-only`, `--adr-numbering-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
-  # `--doc-counts-only`) short-circuit before any mode dispatch and run
+  # `--doc-counts-only`, `--home-literal-only`) short-circuit before any
+  # mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain
   # ubuntu-latest runner calls one of these per lint-static matrix entry,

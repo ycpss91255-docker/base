@@ -737,9 +737,10 @@ setup() {
 }
 
 @test "self-test.yaml: lint-static runs one matrix entry per host-direct lint on a plain runner (#866)" {
-  # The lint phase runs FOUR more static lints that no CI job ran: the
-  # issue-ref comment lint, the ADR-numbering lint, the stale
-  # config/docker/setup.conf path lint and the localized README sync lint.
+  # The lint phase runs the static lints no CI job ran: the issue-ref
+  # comment lint, the ADR-numbering lint, the stale
+  # config/docker/setup.conf path lint, the localized README sync lint and
+  # the hardcoded home path lint.
   # Each is pure bash over the checkout, so a plain ubuntu-latest runner
   # can call it host-direct -- no buildx, no test-tools image. One matrix
   # entry each so the checks list names WHICH lint failed.
@@ -754,13 +755,16 @@ setup() {
   assert_output --partial '- adr-numbering'
   assert_output --partial '- stale-setup-conf'
   assert_output --partial '- readme-sync'
+  # The hardcoded-home-path lint joined the same matrix: it reads the
+  # shipped image tree, so a plain runner can call it host-direct too.
+  assert_output --partial '- home-literal'
   assert_output --partial './script/test/test.sh'
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
 }
 
 @test "self-test.yaml: lint-static carries NO code_changed gate (#866)" {
-  # Ungated on purpose, like doc-counts. Two of the four matrix entries
+  # Ungated on purpose, like doc-counts. Two of the matrix entries
   # are breakable by a change classify scores as doc-only: the
   # ADR-numbering lint reads doc/adr/ filenames, and the localized README
   # sync lint reads README.md + doc/readme/**. Gating on code_changed
@@ -824,10 +828,10 @@ setup() {
   # assert nothing at all, which is the exact failure mode this test
   # exists to prevent. Pin both the size and the four lints this issue
   # wired.
-  [ "${#_tools[@]}" -ge 7 ] \
+  [ "${#_tools[@]}" -ge 8 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
-  for _t in issueref adr-numbering stale-setup-conf readme-sync; do
+  for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

@@ -103,6 +103,15 @@ A reserved stage (`devel` / `devel-test`) that is not emitted as a
 user service, as opposed to an **emittable stage**.
 _Avoid_: base stage, default stage.
 
+**Baked artifact**:
+Something an image builds into itself (a colcon workspace, an SDK, a
+compiled tool), as opposed to something bind-mounted at run time. It lives
+at an absolute `/opt/<name>` path, never under `$HOME`, because `$HOME`
+resolves to the BUILD-time `USER_NAME` (ADR-00000024). A
+`~/<name> -> /opt/<name>` symlink is a **discoverability symlink**: for
+humans, never sourced.
+_Avoid_: home workspace, `~/x_ws` (as the canonical path).
+
 ### Schema and configuration
 
 **setup.conf**:

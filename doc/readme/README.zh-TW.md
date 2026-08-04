@@ -218,6 +218,37 @@ flowchart LR
   <repo>:devel` 後會看到的內容。
 - `Dockerfile.test-tools` 建置 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 階段透過 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 預設 `test-tools:local`（對應本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 建到 host Docker daemon）。CI 則覆寫成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的預建 multi-arch image）,buildx 直接從 registry 拉對應架構的 bats / shellcheck / hadolint binary,避開 `docker-container` buildx driver 跨 step 不共享 image store 的問題。
 
+<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 -->
+#### 自建產物放在 `/opt`，不要放 `$HOME`
+
+容器使用者是在 **build** 時期烘進 image 的：`sys` 階段吃
+`USER_NAME` / `USER_UID` / `USER_GID` build arg，`devel` 接著設定
+`ENV HOME="/home/${USER_NAME}"`。`just build` 注入本機 host 的使用者，
+CI 與 release 路徑則烘 `user`（UID 1000）——所以同一個 commit 建出來的兩個
+image，`$HOME` 可能不一樣。
+
+因此凡是 image 烘在 **`$HOME` 底下** 的東西，都與 build 時期的使用者名稱綁死，
+而且只有在部署時才會爆：用不同 `USER_NAME` 跑預建 / GHCR /
+`docker save`+`load` 的 image（或用不同 `USER_NAME` 重建），每個相對於 home 的
+路徑就指到另一個**空的** `/home/<other>/...`。烘好的 workspace 看不見，
+`source ~/some_ws/install/setup.bash` 直接失敗。絕對路徑 `/opt/...` 則免疫 ——
+根本沒有 `$HOME` 這層間接。
+
+這個慣例寫在你會實際打開的那份 `Dockerfile` 裡：
+
+1. 自建產物（colcon workspace、SDK、自行編譯的工具）安裝到絕對路徑
+   `/opt/<name>`。`$HOME` 只留給 dotfile 與方便用的 symlink。
+2. entrypoint / bashrc 一律 source **絕對路徑**，不要用 `~` 或 `$HOME`。
+   在 per-user `RUN` 區塊建立 `~/<name> -> /opt/<name>` symlink 是鼓勵的
+   （方便互動時尋找），但任何東西都不可以去 *source* 它。
+3. 路徑裡永遠不要寫死具體使用者名稱 —— 用 `${HOME}` / `${USER_NAME}`。
+
+第 3 條是機械式規則，因此有 gate：`home-literal` lint
+（`just test lint --home-literal`，CI job `lint-static (home-literal)`）會在
+`dist/` 或 `dockerfile/` 底下任何 home 路徑出現具體使用者名稱時失敗。
+第 1、2 條屬於判斷題，grep 判不出來。設計理由見
+[ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
+
 <!-- sync: adding-extra-stages-215 a1b705795c6d -->
 #### 新增額外 stage（#215）
 
