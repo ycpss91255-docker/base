@@ -74,13 +74,15 @@ so explicitly.
 | 00000021 -- per-start container logs + shared logrotate | keep | invariant 1 (single-service lifecycle) -- mechanism | The #805 log-persistence lifecycle capability realising invariant 1. |
 | 00000022 -- compose<->multi_run overlay contract | elevates-invariant (3) | invariant 3 (multi_run-expandable by construction); also invariant 2 (the overlay guard) | The overlay contract + `overlay_guard_spec.bats`; PRD names it under both invariants 2 and 3. |
 | 00000023 -- config field-override + self-contained field-deploy contract | elevates-invariant (8) | invariant 8 (dev/field separation, provisioned by opposite means) -- established with ADR-00000003 | The git-tracked provisioning axis, baked-default + mount-wins `-v` override (file analog of ADR-3's env `-e`), deploy-as-resolved-self-contained-compose (amends ADR-3's "compose does not travel"), `deployable = not devel and not *-test`, and the `config/<component>/deploy.manifest` tunability channel. Reconciled with ADR-00000022 (single-file config `-v` != general volume topology). Mechanism in #831 / #832 / #833. |
+| 00000024 -- bake self-built artifacts at `/opt`, not `$HOME` | keep | invariant 8 (dev/field separation) -- mechanism; also invariant 2 via the `home-literal` lint | `ENV HOME` resolves at BUILD time, so anything baked under `$HOME` is coupled to the build-time `USER_NAME` and breaks on a rebuild / GHCR pull / `docker save`+`load` under a different user. Artifacts go to absolute `/opt`; `~/x -> /opt/x` is a discoverability symlink nothing sources. Its mechanical rule (no concrete username in a path) is gated by the `home-literal` lint. |
 
 ## Audit conclusion
 
-- **keep:** 14 (00000001, 00000002, 00000003, 00000005, 00000006,
+- **keep:** 15 (00000001, 00000002, 00000003, 00000005, 00000006,
   00000007, 00000008, 00000012, 00000013, 00000014, 00000015, 00000016,
-  00000017, 00000021) -- 00000003 is `keep (amended by 00000023)`, the
-  amendment recorded inline in-file.
+  00000017, 00000021, 00000024) -- 00000003 is `keep (amended by
+  00000023)`, the amendment recorded inline in-file. 00000024 postdates
+  the audit itself and is listed for index completeness.
 - **supersede:** 1 (00000004, by 00000012 -- already recorded)
 - **elevates-invariant:** 7 (00000010, 00000011 -> inv 6; 00000018 -> inv
   7; 00000019 -> inv 4; 00000020 -> inv 1; 00000022 -> inv 3; 00000023 ->
