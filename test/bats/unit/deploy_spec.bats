@@ -252,8 +252,22 @@ _write_headless_conf() {
     "${_d}" runtime "img" "name" "${_out}" _binds
   run cat "${_out}"
   assert_output --partial "volumes:"
-  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml"
-  assert_output --partial "- ./config/camera.yaml:/camera_config.yaml"
+  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml:ro"
+  assert_output --partial "- ./config/camera.yaml:/camera_config.yaml:ro"
+  rm -rf "${_d}"
+}
+
+@test "_generate_resolved_compose: a tunable bind is read-only unless the manifest declared rw (#870)" {
+  local _d; _d="$(mktemp -d)"
+  _write_headless_conf "${_d}"
+  local _out="${_d}/compose.yaml"
+  local -A _binds=([host.yaml]="/etc/app/host.yaml" [calib.yaml]="/var/lib/app/calib.yaml")
+  local -A _modes=([calib.yaml]="rw")
+  SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
+    "${_d}" runtime "img" "name" "${_out}" _binds "" _modes
+  run cat "${_out}"
+  assert_output --partial "- ./config/host.yaml:/etc/app/host.yaml:ro"
+  assert_output --partial "- ./config/calib.yaml:/var/lib/app/calib.yaml:rw"
   rm -rf "${_d}"
 }
 

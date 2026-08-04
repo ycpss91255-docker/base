@@ -82,11 +82,13 @@ setup_file() {
 FROM alpine:3.20 AS sys
 FROM sys AS runtime
 RUN mkdir -p /etc/app && printf 'baked-default\n' > /etc/app/host.yaml
+RUN mkdir -p /var/lib/app && printf 'baked-calib\n' > /var/lib/app/calib.yaml
 CMD ["sleep", "infinity"]
 DOCK
 
-  # Tunable-config manifest: one operator-tunable path baked in the image.
-  printf '%s\n' "[runtime]" "/etc/app/host.yaml" \
+  # Tunable-config manifest: one operator-tunable path with the default
+  # (read-only) access, one that explicitly opts into container writes.
+  printf '%s\n' "[runtime]" "/etc/app/host.yaml" "/var/lib/app/calib.yaml rw" \
     > "${REPO}/config/app_cfg/deploy.manifest"
 
   # Make the fixture a REAL tagged git tree so _resolve_deploy_version
@@ -151,6 +153,7 @@ teardown_file() {
   [ -f "${BUNDLE}/image.tar.xz" ]
   [ -x "${BUNDLE}/deploy.sh" ]
   [ -f "${BUNDLE}/config/host.yaml" ]
+  [ -f "${BUNDLE}/config/calib.yaml" ]
 
   run cat "${BUNDLE}/compose.yaml"
   [ "${status}" -eq 0 ]
@@ -158,7 +161,8 @@ teardown_file() {
   [[ "${output}" != *'${'* ]]
   [[ "${output}" == *"image: ${IMAGE}"* ]]
   [[ "${output}" == *"restart: unless-stopped"* ]]
-  [[ "${output}" == *"- ./config/host.yaml:/etc/app/host.yaml"* ]]
+  [[ "${output}" == *"- ./config/host.yaml:/etc/app/host.yaml:ro"* ]]
+  [[ "${output}" == *"- ./config/calib.yaml:/var/lib/app/calib.yaml:rw"* ]]
 }
 
 @test "field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies" {
@@ -194,4 +198,30 @@ teardown_file() {
   [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'
   [[ "${output}" != *"${CNAME}"* ]]
+}
+
+@test "field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host" {
+  # The whole point of the read-only default is that the failure is real and
+  # immediate, so this asserts the container's write, not the `:ro` string.
+  run "${BUNDLE}/deploy.sh" up
+  [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
+
+  local _before
+  _before="$(cat "${BUNDLE}/config/host.yaml")"
+
+  # Default access: the container cannot write the mounted config at all.
+  run docker exec "${CNAME}" sh -c 'printf container-wrote > /etc/app/host.yaml'
+  [ "${status}" -ne 0 ] || { echo "write to a read-only tunable SUCCEEDED: ${output}"; false; }
+  [[ "${output}" == *"ead-only file system"* ]] || { echo "unexpected write error: ${output}"; false; }
+  # ... and the operator's copy on the host is untouched.
+  [ "$(cat "${BUNDLE}/config/host.yaml")" = "${_before}" ]
+
+  # Declared `rw`: the write succeeds and reaches the host-side bundle copy.
+  run docker exec "${CNAME}" sh -c 'printf container-wrote > /var/lib/app/calib.yaml'
+  [ "${status}" -eq 0 ] || { echo "write to a declared-rw tunable failed: ${output}"; false; }
+  run cat "${BUNDLE}/config/calib.yaml"
+  [[ "${output}" == *"container-wrote"* ]] || { echo "rw write did not reach the host copy: ${output}"; false; }
+
+  run "${BUNDLE}/deploy.sh" down
+  [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
 }

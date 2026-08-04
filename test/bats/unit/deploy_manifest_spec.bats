@@ -65,6 +65,54 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+@test "_parse_deploy_manifest: an unflagged path is read-only, an explicit rw opts in (tunable-manifest)" {
+  local _d; _d="$(mktemp -d)"
+  _write_manifest "${_d}/deploy.manifest" \
+    "[runtime]" "/camera_config.yaml" "  /var/lib/app/calib.yaml   rw  "
+  local -a _paths=() _modes=("stale")
+  _parse_deploy_manifest "${_d}/deploy.manifest" runtime _paths _modes
+  assert_equal "${#_paths[@]}" "2"
+  assert_equal "${_paths[0]}" "/camera_config.yaml"
+  assert_equal "${_paths[1]}" "/var/lib/app/calib.yaml"
+  assert_equal "${#_modes[@]}" "2"
+  assert_equal "${_modes[0]}" "ro"
+  assert_equal "${_modes[1]}" "rw"
+  rm -rf "${_d}"
+}
+
+@test "_parse_deploy_manifest: an explicit ro flag is accepted (tunable-manifest)" {
+  local _d; _d="$(mktemp -d)"
+  _write_manifest "${_d}/deploy.manifest" "[runtime]" "/etc/app/host.yaml ro"
+  local -a _paths=() _modes=()
+  _parse_deploy_manifest "${_d}/deploy.manifest" runtime _paths _modes
+  assert_equal "${_paths[0]}" "/etc/app/host.yaml"
+  assert_equal "${_modes[0]}" "ro"
+  rm -rf "${_d}"
+}
+
+@test "_parse_deploy_manifest: an unknown access flag fails loud naming file and line (tunable-manifest)" {
+  local _d; _d="$(mktemp -d)"
+  _write_manifest "${_d}/deploy.manifest" \
+    "[runtime]" "/camera_config.yaml" "/etc/app/host.yaml write"
+  local -a _paths=() _modes=()
+  run _parse_deploy_manifest "${_d}/deploy.manifest" runtime _paths _modes
+  assert_failure
+  assert_output --partial "malformed manifest"
+  assert_output --partial "${_d}/deploy.manifest:3"
+  assert_output --partial "write"
+  rm -rf "${_d}"
+}
+
+@test "_parse_deploy_manifest: a trailing token after a valid flag fails loud (tunable-manifest)" {
+  local _d; _d="$(mktemp -d)"
+  _write_manifest "${_d}/deploy.manifest" "[runtime]" "/etc/app/host.yaml rw ro"
+  local -a _paths=() _modes=()
+  run _parse_deploy_manifest "${_d}/deploy.manifest" runtime _paths _modes
+  assert_failure
+  assert_output --partial "malformed manifest"
+  rm -rf "${_d}"
+}
+
 @test "_parse_deploy_manifest: a missing manifest is not an error -> empty (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   local -a _paths=("stale")
@@ -117,6 +165,18 @@ _write_manifest() {
   _collect_deploy_binds "${_d}" runtime _binds
   assert_equal "${_binds[camera_config.yaml]}" "/camera_config.yaml"
   assert_equal "${_binds[host.yaml]}" "/etc/app/host.yaml"
+  rm -rf "${_d}"
+}
+
+@test "_collect_deploy_binds: carries each path's access mode keyed by basename (tunable-manifest)" {
+  local _d; _d="$(mktemp -d)"
+  _write_manifest "${_d}/config/camera/deploy.manifest" "[runtime]" "/camera_config.yaml"
+  _write_manifest "${_d}/config/calib/deploy.manifest" "[runtime]" "/var/lib/app/calib.yaml rw"
+  local -A _binds=() _modes=([stale]=x)
+  _collect_deploy_binds "${_d}" runtime _binds _modes
+  assert_equal "${#_modes[@]}" "2"
+  assert_equal "${_modes[camera_config.yaml]}" "ro"
+  assert_equal "${_modes[calib.yaml]}" "rw"
   rm -rf "${_d}"
 }
 
