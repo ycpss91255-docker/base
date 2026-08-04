@@ -195,19 +195,23 @@ jobs:
 
   lint-static:
     # The rest of the `just test` lint phase (#866). doc-counts (#864) gave
-    # ONE lint of that phase a CI job; these are the other four, which had
+    # ONE lint of that phase a CI job; these are the others, which had
     # none either and so gated nothing on a PR:
     #
     #   issueref          no transient #NNN in code comments (ADR-00000013)
     #   adr-numbering     doc/adr/ duplicate-free + well-formed
     #   stale-setup-conf  no legacy config/docker/setup.conf under dist/
     #   readme-sync       localized READMEs still match README.md
+    #   home-literal      no concrete username in a home path under dist/ or
+    #                     dockerfile/ (ADR-00000024) -- joined the matrix on
+    #                     the day it was written, the point of the guard
+    #                     below
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
     # checks list says WHICH lint failed without opening a log, and
     # fail-fast: false means one failure does not cancel the siblings and
-    # hide the rest. The cost of the split is four ~20s plain runners --
+    # hide the rest. The cost of the split is one ~20s plain runner each --
     # every driver here is pure bash over the checkout, so no buildx, no
     # test-tools image, no compose. hadolint is NOT in this matrix: its
     # binary lives only in the test-tools image, so it keeps its own job.
@@ -233,6 +237,7 @@ jobs:
           - adr-numbering
           - stale-setup-conf
           - readme-sync
+          - home-literal
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1330,7 +1335,7 @@ jobs:
     # carries no `if:` -- the generated doc/test catalogue can be broken by
     # a doc-only edit, so gating it on code_changed would skip it on
     # exactly that PR; lint-static is ungated for the same reason (#866),
-    # two of its four matrix entries read doc/adr/ and the READMEs. The
+    # two of its matrix entries read doc/adr/ and the READMEs. The
     # post-#377 rollup has no remaining always-running test gate — bats
     # is now split into shard'd jobs that SKIP on doc-only PRs along
     # with everything else.

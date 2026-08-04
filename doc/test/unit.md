@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2371 tests**.
+Unit specs under `test/bats/unit/`: **2391 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1752,7 +1752,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (153)
+### test/bats/unit/template_spec.bats (154)
 
 | Test | Description |
 |------|-------------|
@@ -1877,6 +1877,7 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
+| `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
 | `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |
@@ -1930,7 +1931,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (69)
+### test/bats/unit/ci_spec.bats (70)
 
 | Test | Description |
 |------|-------------|
@@ -1985,6 +1986,7 @@ builds the env block only for the knobs the conf sets.
 | `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
+| `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -2675,3 +2677,37 @@ resolved to whichever side the collapse happened to keep).
 | `_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)` | - |
 | `_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)` | - |
 | `_resolve_assert_no_markers: FAILS naming the file and line of a survivor (#857)` | - |
+
+### test/bats/unit/home_literal_lint_spec.bats (18)
+
+Unit coverage for `script/test/drivers/home_literal.sh` -- the mechanical half
+of the "bake self-built artifacts at `/opt`, not under `$HOME`" convention
+(ADR-00000024). The container user is a BUILD arg, so a concrete username in a
+shipped Dockerfile / entrypoint / in-image config file breaks the moment the
+image is rebuilt or `docker save`+`load`'ed under a different `USER_NAME`. The
+parameterised `${USER_NAME}` / escaped `\${USER_NAME}` / `<placeholder>` forms
+and absolute `/opt` paths pass; a narrative mention opts out through a bracketed
+allow region that must be balanced and does not leak past its end; a missing
+scan root fails loudly instead of passing vacuously; and a final case drives the
+REAL shipped tree.
+
+| Test | Description |
+|------|-------------|
+| `_run_home_literal: FAILS on a hardcoded home path in the shipped Dockerfile, naming file and line (#799)` | - |
+| `_run_home_literal: FAILS on a hardcoded home path in a runtime entrypoint (#799)` | - |
+| `_run_home_literal: FAILS on a hardcoded home path in a non-.sh in-image config file (#799)` | - |
+| `_run_home_literal: FAILS on a hardcoded home path inside a comment too (#799)` | - |
+| `_run_home_literal: names the offending literal in the failure message (#799)` | - |
+| `_run_home_literal: points at the /opt convention in the failure message (#799)` | - |
+| `_run_home_literal: scans the repo-root dockerfile/ tree too (#799)` | - |
+| `_run_home_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#799)` | - |
+| `_run_home_literal: FAILS on an unterminated allow-begin region (#799)` | - |
+| `_run_home_literal: FAILS on an allow-end with no matching allow-begin (#799)` | - |
+| `_run_home_literal: PASSES the ${USER_NAME} build-arg form (#799)` | - |
+| `_run_home_literal: PASSES the backslash-escaped \${USER_NAME} form (#799)` | - |
+| `_run_home_literal: PASSES the angle-bracket placeholder form (#799)` | - |
+| `_run_home_literal: PASSES an absolute /opt artifact path (#799)` | - |
+| `_run_home_literal: EXEMPTS a literal inside an allow-begin/allow-end region (#799)` | - |
+| `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
+| `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
+| `_run_home_literal: the REAL shipped tree passes today (#799)` | - |

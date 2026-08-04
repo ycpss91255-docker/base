@@ -737,9 +737,10 @@ setup() {
 }
 
 @test "self-test.yaml: lint-static runs one matrix entry per host-direct lint on a plain runner (#866)" {
-  # The lint phase runs FOUR more static lints that no CI job ran: the
-  # issue-ref comment lint, the ADR-numbering lint, the stale
-  # config/docker/setup.conf path lint and the localized README sync lint.
+  # The lint phase runs the static lints no CI job ran: the issue-ref
+  # comment lint, the ADR-numbering lint, the stale
+  # config/docker/setup.conf path lint, the localized README sync lint and
+  # the hardcoded home path lint.
   # Each is pure bash over the checkout, so a plain ubuntu-latest runner
   # can call it host-direct -- no buildx, no test-tools image. One matrix
   # entry each so the checks list names WHICH lint failed.
@@ -763,7 +764,7 @@ setup() {
 }
 
 @test "self-test.yaml: lint-static carries NO code_changed gate (#866)" {
-  # Ungated on purpose, like doc-counts. Two of the four matrix entries
+  # Ungated on purpose, like doc-counts. Two of the matrix entries
   # are breakable by a change classify scores as doc-only: the
   # ADR-numbering lint reads doc/adr/ filenames, and the localized README
   # sync lint reads README.md + doc/readme/**. Gating on code_changed

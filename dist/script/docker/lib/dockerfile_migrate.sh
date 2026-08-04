@@ -345,10 +345,16 @@ _migrate_sc1090_apply() {
 #
 # v0.41.0 compose/CI pass the build args USER_NAME / USER_GROUP / USER_UID /
 # USER_GID. A downstream Dockerfile still declaring a bare `ARG USER`
-# receives no value, so the image builds the default `initial` user and its
-# /home/initial home — mismatching the compose `/home/${USER_NAME}/work`
-# bind mount. Re-declare the arg to default from USER_NAME so the existing
+# receives no value, so the image builds the default `initial` user, whose
+# home directory mismatches the compose `/home/${USER_NAME}/work` bind
+# mount. Re-declare the arg to default from USER_NAME so the existing
 # user-creation block (which references ${USER}) keeps working unchanged.
+#
+# home-literal-lint: allow-begin -- naming the WRONG home directory is the
+# whole point of the note below; it is prose about a defect, not a path any
+# shipped code reads.
+# The mismatching home directory is literally /home/initial.
+# home-literal-lint: allow-end
 _migrate_arg_user_detect() {
   local _file="$1"
   grep -Eq '^[[:space:]]*ARG[[:space:]]+USER[[:space:]]*$' "${_file}"

@@ -216,6 +216,44 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     "${CONFIG_DIR}"/shell/tmux/setup.sh && \
     sudo rm -rf "${CONFIG_DIR}"
 
+# CONVENTION: bake self-built artifacts at an ABSOLUTE /opt/... path,
+# never under $HOME.
+#
+# The `ENV HOME=` line above resolves at BUILD time, so anything this
+# image bakes under $HOME is coupled to the build-time USER_NAME. `just
+# build` injects the local host's user; CI / release bakes `user` (UID
+# 1000). Run a prebuilt / GHCR / `docker save`+`load` image under a
+# different USER_NAME -- or just rebuild with one -- and every $HOME path
+# points at a different, EMPTY home tree: the baked workspace is invisible
+# and the entrypoint's `source` fails. Content at an absolute /opt path is
+# immune, because there is no $HOME indirection to resolve.
+#
+# Three rules:
+#
+# 1. Install self-built artifacts (colcon workspaces, SDKs, compiled
+#    tools) at absolute /opt/<name>. Reserve $HOME for dotfiles and
+#    convenience symlinks.
+# 2. Have the entrypoint / bashrc source the ABSOLUTE path, never `~` or
+#    $HOME. A `~/<name> -> /opt/<name>` convenience symlink created in the
+#    per-user RUN block is fine for interactive discoverability -- it is
+#    the only user-coupled bit and is cheap to recreate -- but nothing may
+#    SOURCE it.
+# 3. Never spell a concrete username into a path. Use ${HOME} /
+#    ${USER_NAME} where a home path is genuinely needed. A shipped
+#    Dockerfile / entrypoint carrying a literal one fails base's
+#    `home-literal` lint (`just test lint --home-literal`).
+#
+# Rule 3 is mechanical and gated; rules 1-2 are a judgement call the lint
+# cannot make for you. Rationale: ADR-00000024.
+#
+# Example (uncomment and adapt):
+#RUN mkdir -p /opt/some_ws && \
+#    <build into /opt/some_ws> && \
+#    sudo chown -R "${USER}":"${GROUP}" /opt/some_ws
+#RUN ln -snf /opt/some_ws "${HOME}/some_ws"
+# then in script/entrypoint.sh:
+#   . /opt/some_ws/install/setup.bash --
+
 # (Optional) Repo-local Dockerfile-internal build helpers. Put any
 # shell helpers that should run during `docker build` under
 # <repo>/script/docker/<name>.sh, then COPY them into a build-time
