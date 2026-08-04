@@ -355,3 +355,60 @@ setup() {
   assert_success
   assert_output --partial "IDEMPOTENT"
 }
+
+# ── Missing sections ─────────────────────────────────────────────────────────
+
+@test "_sync_doc_sections: a spec file with no section at all gets one (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "@test \"zulu\" {" ":" "}" "@test \"yankee\" {" ":" "}" \
+      > "${root}/test/bats/unit/y_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **1 tests**." "" \
+      "### test/bats/unit/x_spec.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | described already |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `alpha` | described already |'
+  assert_output --partial "### test/bats/unit/y_spec.bats (2)"
+  assert_line '| `zulu` | - |'
+  assert_line '| `yankee` | - |'
+}
+
+@test "_sync_doc_sections: an existing section is never duplicated (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (1)" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    _sync_doc_counts "${root}"
+    grep -c "^### test/bats/unit/x_spec.bats" "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_output "1"
+}
+
+@test "_sync_doc_sections: a shipped smoke spec lands in smoke.md (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/dist/test/bats/smoke/shared" "${root}/doc/test"
+    printf "%s\n" "@test \"kettle\" {" ":" "}" \
+      > "${root}/dist/test/bats/smoke/shared/k.bats"
+    printf "%s\n" "Smoke specs: **0 tests**." > "${root}/doc/test/smoke.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/smoke.md"
+  '
+  assert_success
+  assert_output --partial "### dist/test/bats/smoke/shared/k.bats (1)"
+  assert_line '| `kettle` | - |'
+}
