@@ -931,6 +931,93 @@ SH
   refute_output --partial "docker should not be called"
 }
 
+@test "main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)" {
+  # CI-reachability guard, same shape as --doc-counts-only / --shellcheck-only.
+  # The lint phase is what enforces ADR-00000013, and no CI job ran that
+  # phase, so the rule gated nothing on a PR. The lint-static matrix entry
+  # calls this primitive on a plain ubuntu-latest runner; docker must not be
+  # touched on the path.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --issueref-only
+  '
+  assert_success
+  assert_output --partial "issue-ref comment lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)" {
+  # Ungated in CI on purpose: doc/adr/ filenames are a doc-only change, so a
+  # code_changed gate would skip the lint on exactly the PR that duplicates
+  # an ADR number. That only works if the lint is host-direct.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --adr-numbering-only
+  '
+  assert_success
+  assert_output --partial "ADR-numbering lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --stale-setup-conf-only
+  '
+  assert_success
+  assert_output --partial "stale setup.conf path lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)" {
+  # The clearest case for an ungated CI job: a README.md edit that leaves a
+  # translation behind is a doc-only change end to end.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --readme-sync-only
+  '
+  assert_success
+  assert_output --partial "localized README sync lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)" {
+  # Three callers used to repeat the tool list (the full phase, the
+  # in-container LINT_TOOL narrowing, the host-direct --<tool>-only
+  # primitives), so a new lint could be wired into one and missed by the
+  # others. They now share this table, which is also what the
+  # self-test.yaml completeness guard reads to prove every lint has a CI
+  # job.
+  run bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_LINT_TOOLS[@]}"
+  '
+  assert_success
+  assert_line "shellcheck"
+  assert_line "hadolint"
+  assert_line "issueref"
+  assert_line "adr-numbering"
+  assert_line "stale-setup-conf"
+  assert_line "readme-sync"
+  assert_line "doc-counts"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
