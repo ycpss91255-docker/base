@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2307 tests**.
+Unit specs under `test/bats/unit/`: **2331 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1755,7 +1755,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (61)
+### test/bats/unit/ci_spec.bats (62)
 
 | Test | Description |
 |------|-------------|
@@ -1778,6 +1778,7 @@ builds the env block only for the knobs the conf sets.
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
+| `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
@@ -1895,6 +1896,45 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
+
+### test/bats/unit/readme_sync_spec.bats (23)
+
+Unit tests for the localized-README drift guard (refs #846):
+`script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
+that stamps each translated section with the hash of the English section it
+was translated against) and `script/test/drivers/readme_sync.sh`
+(`_run_readme_sync`, the read-only lint that compares those records against
+the current `README.md`). The English author changes nothing and the
+translator never types a hash, so the guard has to answer three questions
+per translated file -- is this section stale, is it missing, is it
+deliberately untranslated. Driven over throwaway fixture trees, plus a
+real-tree pair proving `doc/readme/` is stamped and clean today.
+
+| Test | Description |
+|------|-------------|
+| `_run_readme_sync: FAILS when an English section is rewritten in place and the translation is untouched (#846)` | The drift that motivated the guard |
+| `_run_readme_sync: names the drifted SECTION, not just the file (#846)` | Per-section reporting, untouched sections silent |
+| `_run_readme_sync: FAILS on an English section with no marker in a translation (#846)` | Structural case: MISSING |
+| `_run_readme_sync: PASSES a tree the generator has just stamped (#846)` | Clean after sync |
+| `_run_readme_sync: PASSES again after an English edit + a re-run of the generator (#846)` | Re-stamp is the one-command fix |
+| `_run_readme_sync: EXEMPTS a section declared untranslated with sync-skip (#846)` | Deliberate omission, declared not forgotten |
+| `_run_readme_sync: FAILS on an UNSTAMPED marker (id written, generator never run) (#846)` | An id with no hash claims nothing |
+| `_run_readme_sync: FAILS on a marker naming an id that is not an English section (#846)` | UNKNOWN id (rename / removal / typo) |
+| `_run_readme_sync: FAILS on the same id claimed twice in one translation (#846)` | DUPLICATE claim |
+| `_run_readme_sync: FAILS on a sync marker that is not followed by a heading (#846)` | MISPLACED marker |
+| `_run_readme_sync: ignores ATX-looking lines inside fenced code blocks (#846)` | Fenced shell comments are not headings |
+| `_run_readme_sync: trailing whitespace in the English body does not flip the hash (#846)` | Hash-input normalisation |
+| `_run_readme_sync: a nested subsection is its own section, the parent body stops at it (#846)` | Section granularity |
+| `_run_readme_sync: FAILS when two English headings share one slug (ambiguous id) (#846)` | AMBIGUOUS section id |
+| `_sync_readme_hashes: stamps an id-only marker with the English section hash (#846)` | The translator writes the id, the tool writes the hash |
+| `_sync_readme_hashes: re-stamps a stale hash (#846)` | Generator updates an existing record |
+| `_sync_readme_hashes: is idempotent on an already-stamped tree (#846)` | No churn on a clean tree |
+| `_sync_readme_hashes: leaves the translated prose untouched (stamps only markers) (#846)` | Only marker lines are rewritten |
+| `_sync_readme_hashes: reports the sections a translation is still missing (#846)` | Advisory, never auto-declared |
+| `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
+| `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
+| `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
+| `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 

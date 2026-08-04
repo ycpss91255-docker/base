@@ -80,6 +80,8 @@ source "${SCRIPT_DIR}/drivers/issueref.sh"
 source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
 # shellcheck source=script/test/drivers/stale_setup_conf.sh
 source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
+# shellcheck source=script/test/drivers/readme_sync.sh
+source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -111,6 +113,11 @@ Options:
                           lint (no legacy config/docker/setup.conf in
                           dist/**/*.sh; the override lives at the repo-root
                           .setup.conf dotfile)
+  --readme-sync           With --lint: run only the localized README sync
+                          lint (each doc/readme/README.*.md section records
+                          the hash of the README.md section it was
+                          translated against; re-stamp with
+                          'just test sync-readme')
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -163,6 +170,7 @@ Examples:
   just test lint      # All linters (ShellCheck + Hadolint)
   just test lint --shellcheck     # ShellCheck only
   just test lint --hadolint       # Hadolint only
+  just test lint --readme-sync    # Localized README sync lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
@@ -261,6 +269,7 @@ main() {
       --issueref) lint_tool="issueref"; shift ;;
       --adr-numbering) lint_tool="adr-numbering"; shift ;;
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
+      --readme-sync) lint_tool="readme-sync"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -373,8 +382,9 @@ main() {
           issueref)   _run_issueref ;;
           adr-numbering) _run_adr_numbering ;;
           stale-setup-conf) _run_stale_setup_conf ;;
-          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | empty)." ;;
+          readme-sync) _run_readme_sync ;;
+          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf; _run_readme_sync ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | readme-sync | empty)." ;;
         esac
         return 0
       fi
@@ -393,6 +403,7 @@ main() {
         _run_issueref
         _run_adr_numbering
         _run_stale_setup_conf
+        _run_readme_sync
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
