@@ -981,6 +981,23 @@ SH
   refute_output --partial "docker should not be called"
 }
 
+@test "main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)" {
+  # Same CI-reachability shape as the sibling primitives: the lint-static
+  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
+  # must be pure bash over the checkout and never touch docker.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --home-literal-only
+  '
+  assert_success
+  assert_output --partial "hardcoded home path lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)" {
   # The clearest case for an ungated CI job: a README.md edit that leaves a
   # translation behind is a doc-only change end to end.
@@ -1016,6 +1033,7 @@ SH
   assert_line "stale-setup-conf"
   assert_line "readme-sync"
   assert_line "doc-counts"
+  assert_line "home-literal"
 }
 
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
