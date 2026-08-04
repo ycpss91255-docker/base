@@ -146,3 +146,5 @@ _run_issueref() {
   fi
   echo "issue-ref comment lint: clean"
 }
+
+# probe for issue-ref lint CI verification: #4242 -- reverted in the next commit
