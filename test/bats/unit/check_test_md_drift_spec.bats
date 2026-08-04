@@ -52,3 +52,84 @@ setup() {
   '
   assert_success
 }
+
+# ── Scan-root robustness ────────────────────────────────────────────────────
+#
+# The comparison copies doc/test into a temp dir and symlinks the spec trees
+# in from the scan root, so a relative root resolves against the TEMP dir on
+# that hop: every spec glob misses and every count comes back 0 -- a
+# confident wrong answer, not an error. The sibling sync-doc-counts.sh has no
+# such hop and takes a relative root fine, which is what makes passing `.` to
+# both the natural thing to do.
+
+@test "_check_test_md_drift: a RELATIVE root gives the same verdict as the absolute one (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    cd "${root}" || exit 2
+    _check_test_md_drift .
+  '
+  assert_success
+}
+
+@test "_check_test_md_drift: a RELATIVE root still detects real drift (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n@test \"c\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    cd "${root}" || exit 2
+    _check_test_md_drift .
+  '
+  assert_failure
+  assert_output --partial "unit.md"
+}
+
+@test "_check_test_md_drift: FAILS on a nonexistent scan root, naming it (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    _check_test_md_drift "${BATS_TEST_TMPDIR}/nope"
+  '
+  assert_failure
+  assert_output --partial "nope"
+}
+
+@test "_check_test_md_drift: FAILS on a scan root with no doc/test (no vacuous pass) (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit"
+    printf "@test \"a\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
+    _check_test_md_drift "${root}"
+  '
+  assert_failure
+  assert_output --partial "doc/test"
+}
+
+@test "_check_test_md_drift: FAILS on a spec-free scan root (no vacuous pass) (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/doc/test"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." > "${root}/doc/test/unit.md"
+    _check_test_md_drift "${root}"
+  '
+  assert_failure
+  assert_output --partial "${BATS_TEST_TMPDIR}/r"
+}
+
+@test "_check_test_md_drift: counts a shipped smoke spec as spec files (#848)" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/dist/test/bats/smoke" "${root}/doc/test"
+    printf "@test \"a\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/s.bats"
+    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." > "${root}/doc/test/smoke.md"
+    _check_test_md_drift "${root}"
+  '
+  assert_success
+}
