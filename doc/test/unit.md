@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2361 tests**.
+Unit specs under `test/bats/unit/`: **2371 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -529,7 +529,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (84)
+### test/bats/unit/self_test_yaml_spec.bats (89)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1930,7 +1930,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (64)
+### test/bats/unit/ci_spec.bats (69)
 
 | Test | Description |
 |------|-------------|
@@ -1982,6 +1982,11 @@ builds the env block only for the knobs the conf sets.
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
 | `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
 | `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
+| `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
+| `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
+| `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
+| `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
+| `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |

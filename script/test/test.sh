@@ -14,9 +14,13 @@
 #                             # (used by self-test.yaml's dedicated shellcheck
 #                             # job,; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
-#   ./test.sh --doc-counts-only # Run the doc/test count drift gate only, on
-#                             # the host, no compose (used by self-test.yaml's
-#                             # doc-counts job; pure bash + diff)
+#   ./test.sh --<tool>-only     # Run ONE lint of the phase on the host, no
+#                             # compose: --shellcheck-only / --issueref-only
+#                             # / --adr-numbering-only /
+#                             # --stale-setup-conf-only / --readme-sync-only
+#                             # / --doc-counts-only. These are what the
+#                             # self-test.yaml lint jobs call -- no CI job
+#                             # runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
 #                             # (single source of truth for the self-test.yaml
 #                             # hadolint job;  ADR-00000011)
@@ -88,6 +92,61 @@ source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 # shellcheck source=script/test/drivers/doc_counts.sh
 source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 
+# ── The lint phase's tool table ──────────────────────────────────────────────
+
+# Every tool the lint phase runs, in phase order. THE list: three callers
+# used to repeat it -- the full phase, the in-container LINT_TOOL
+# narrowing, and the host-direct primitives -- so a newly added lint could
+# be wired into one and silently missed by the others. They all dispatch
+# through _run_lint_tool / _run_all_lint_tools below now.
+#
+# It is also the CI-coverage manifest: self_test_yaml_spec asserts that
+# every entry here is named by a job in .github/workflows/self-test.yaml
+# (a host-direct `--<tool>-only` primitive, the in-container hadolint job,
+# or a `lint-static` matrix entry). Add a lint to this table without
+# giving it a CI job and that guard fails -- which is what stops the next
+# lint from landing local-only, the way these four did.
+readonly _LINT_TOOLS=(
+  shellcheck
+  hadolint
+  issueref
+  adr-numbering
+  stale-setup-conf
+  readme-sync
+  doc-counts
+)
+
+# Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
+# drivers are pure bash over the checkout, and shellcheck's binary ships
+# on ubuntu-latest. hadolint's binary exists only in the alpine
+# test-tools image, so its CI job runs the driver inside that image
+# (`--lint --hadolint`) instead of host-direct.
+
+# Run one lint tool by name. The single dispatch point; unknown names die
+# loudly rather than no-op'ing, so a typo in a CI job or a stale
+# LINT_TOOL export cannot silently skip a gate.
+_run_lint_tool() {
+  case "${1:-}" in
+    shellcheck)       _run_shellcheck ;;
+    hadolint)         _run_hadolint ;;
+    issueref)         _run_issueref ;;
+    adr-numbering)    _run_adr_numbering ;;
+    stale-setup-conf) _run_stale_setup_conf ;;
+    readme-sync)      _run_readme_sync ;;
+    doc-counts)       _run_doc_counts ;;
+    *) _die ci_unknown_lint_tool \
+         "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
+  esac
+}
+
+# Run the whole lint phase, in table order.
+_run_all_lint_tools() {
+  local _tool
+  for _tool in "${_LINT_TOOLS[@]}"; do
+    _run_lint_tool "${_tool}"
+  done
+}
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -130,18 +189,25 @@ Options:
                           the advisory harness PostToolUse hook -- one rule,
                           three entry points, this one being the blocking
                           one
-  --doc-counts-only       doc/test count drift gate only, directly on the
-                          host, no compose. Pure bash + diff, so a plain
-                          ubuntu-latest runner can call it. The CI half of
-                          the gate: the lint phase runs in `just test` but
-                          in no CI job (the GHA lint jobs narrow to
-                          shellcheck / hadolint, and every bats job sets
-                          BATS_ONLY=1, which skips the phase), so
-                          self-test.yaml's doc-counts job calls this
-  --shellcheck-only       ShellCheck only, directly, no compose; relies on
-                          shellcheck already being in PATH (e.g. plain
-                          ubuntu-latest GHA runner). Used by
-                          self-test.yaml's dedicated shellcheck job (#376)
+  --<tool>-only           Run ONE lint from the phase directly on this
+                          host: no compose, no test-tools image. These are
+                          the CI join for the lint phase -- no CI job runs
+                          the phase itself (the lint jobs narrow to one
+                          tool, and every bats / coverage job sets
+                          BATS_ONLY=1 / COVERAGE=1, which skip it), so
+                          self-test.yaml calls one of these per job /
+                          matrix entry, running the same driver the local
+                          phase runs. Available:
+                            --shellcheck-only        (needs shellcheck in
+                                                     PATH; ubuntu-latest
+                                                     ships it)
+                            --issueref-only          pure bash
+                            --adr-numbering-only     pure bash
+                            --stale-setup-conf-only  pure bash
+                            --readme-sync-only       pure bash
+                            --doc-counts-only        pure bash + diff
+                          (no --hadolint-only equivalent: hadolint exists
+                          only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
                           (hadolint baked into the test-tools image). Single
                           source of truth for self-test.yaml's hadolint job
@@ -194,6 +260,7 @@ Examples:
   just test lint --doc-counts     # doc/test count drift gate only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
+  ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -270,11 +337,14 @@ main() {
   local mode="compose"
   local system=0
   local bats_only=0
-  local shellcheck_only=0
   local hadolint_only=0
   local lint=0
   local lint_tool=""
-  local doc_counts_only=0
+  # The `--<tool>-only` host-direct primitives all set this one variable:
+  # they are the same operation (run ONE lint driver on this host, no
+  # compose) parameterised by tool, so they share one short-circuit rather
+  # than one boolean each.
+  local host_lint=""
   local bats_unit_shard=""
   local bats_fragile=0
   local bats_integration=0
@@ -294,8 +364,12 @@ main() {
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
-      --shellcheck-only) shellcheck_only=1; shift ;;
-      --doc-counts-only) doc_counts_only=1; shift ;;
+      --shellcheck-only) host_lint="shellcheck"; shift ;;
+      --issueref-only) host_lint="issueref"; shift ;;
+      --adr-numbering-only) host_lint="adr-numbering"; shift ;;
+      --stale-setup-conf-only) host_lint="stale-setup-conf"; shift ;;
+      --readme-sync-only) host_lint="readme-sync"; shift ;;
+      --doc-counts-only) host_lint="doc-counts"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -318,23 +392,21 @@ main() {
       "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
   fi
 
-  # --shellcheck-only short-circuits before any mode dispatch. It runs
-  # the lint phase directly on the host (no compose, no apt-install).
-  # Caller is responsible for having the linter binary in PATH — the
-  # dedicated self-test.yaml shellcheck job uses plain
-  # ubuntu-latest, which ships it pre-installed.
-  if [[ "${shellcheck_only}" == "1" ]]; then
-    _run_shellcheck
-    return 0
-  fi
-
-  # --doc-counts-only short-circuits the same way. Unlike the linters it
-  # needs no tool beyond bash + diff, so the plain ubuntu-latest runner in
-  # self-test.yaml's doc-counts job calls it without the test-tools image.
-  # It runs the SAME driver the lint phase runs, so the local gate and the
-  # CI gate cannot drift apart.
-  if [[ "${doc_counts_only}" == "1" ]]; then
-    _run_doc_counts
+  # The host-direct lint primitives (`--shellcheck-only`,
+  # `--issueref-only`, `--adr-numbering-only`,
+  # `--stale-setup-conf-only`, `--readme-sync-only`,
+  # `--doc-counts-only`) short-circuit before any mode dispatch and run
+  # ONE driver right here: no compose, no test-tools image, no
+  # apt-install. This is the CI join for the lint phase -- a plain
+  # ubuntu-latest runner calls one of these per lint-static matrix entry,
+  # running the SAME driver the local phase runs, so the local gate and
+  # the CI gate cannot drift apart. Every tool but shellcheck is pure
+  # bash over the checkout; shellcheck relies on the binary ubuntu-latest
+  # ships pre-installed. hadolint is deliberately absent: its binary
+  # exists only in the test-tools image, so its CI job uses
+  # `--lint --hadolint` inside that image instead.
+  if [[ -n "${host_lint}" ]]; then
+    _run_lint_tool "${host_lint}"
     return 0
   fi
 
@@ -411,17 +483,11 @@ main() {
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then
-        case "${LINT_TOOL:-}" in
-          shellcheck) _run_shellcheck ;;
-          hadolint)   _run_hadolint ;;
-          issueref)   _run_issueref ;;
-          adr-numbering) _run_adr_numbering ;;
-          stale-setup-conf) _run_stale_setup_conf ;;
-          readme-sync) _run_readme_sync ;;
-          doc-counts) _run_doc_counts ;;
-          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf; _run_readme_sync; _run_doc_counts ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | readme-sync | doc-counts | empty)." ;;
-        esac
+        if [[ -z "${LINT_TOOL:-}" ]]; then
+          _run_all_lint_tools
+        else
+          _run_lint_tool "${LINT_TOOL}"
+        fi
         return 0
       fi
       # Full `just test` lint phase: shellcheck THEN hadolint, so a
@@ -434,24 +500,16 @@ main() {
       # share the test-tools image, which DOES ship both linters, so this
       # is a deliberate skip, not a missing-binary workaround).
       if [[ "${BATS_ONLY:-0}" != "1" && "${COVERAGE:-0}" != "1" ]]; then
-        _run_shellcheck
-        _run_hadolint
-        _run_issueref
-        _run_adr_numbering
-        _run_stale_setup_conf
-        _run_readme_sync
-        # The doc/test count drift gate. It lives HERE, in the lint phase,
-        # rather than beside the bats run, because it is a static check on
-        # committed text (generated figures vs the specs that generate
-        # them) and shares the siblings' properties: fast, no container
-        # services, narrowable to one tool. Being in this phase is what
-        # makes it run in `just test` and therefore in CI -- it previously
-        # ran only when a human typed `just test sync-docs-check` or when
-        # the harness repo's advisory PostToolUse hook happened to fire
-        # mid-edit. That hook still calls the same script; it is kept for
-        # the fast interactive signal, and this is the blocking one. See
-        # drivers/doc_counts.sh for the full note.
-        _run_doc_counts
+        # Every tool in _LINT_TOOLS, in table order. Membership of that
+        # table is what puts a lint in the local gate; it does NOT put it
+        # in CI, because no CI job runs this phase (the lint jobs narrow
+        # to one tool, and every bats / coverage job sets BATS_ONLY=1 /
+        # COVERAGE=1, which land in the branch this guard excludes). The
+        # CI join is a job in self-test.yaml calling the tool's
+        # host-direct primitive; the completeness guard in
+        # self_test_yaml_spec is what makes that mandatory rather than
+        # remembered.
+        _run_all_lint_tools
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
