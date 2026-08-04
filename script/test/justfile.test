@@ -79,6 +79,16 @@ sync-docs:
 sync-docs-check:
     ./script/test/check_test_md_drift.sh
 
+# just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
+# command: collapse the markers, regenerate the figures from the merged spec
+# tree, verify, and stage. Replaces the hand-retyped
+# awk-collapse + sync-docs + sync-docs-check recipe. It refuses (loudly,
+# staging nothing) rather than pick a side whenever the two sides disagree
+# about something regeneration cannot justify -- notably a catalog row that
+# both sides describe differently.
+resolve-docs:
+    ./script/test/resolve-doc-counts.sh
+
 # just test sync-readme -> re-stamp each doc/readme/README.*.md section with
 # the hash of the README.md section it was translated against. Run this AFTER
 # updating a translation; never hand-edit a hash. Idempotent; it also reports

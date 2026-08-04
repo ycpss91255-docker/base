@@ -288,6 +288,97 @@ _sync_catalog_rows() {
   mv "${_tmp}" "${_doc}"
 }
 
+# _catalog_key <spec> <name> -- map key for one catalog row. Scoped by spec
+# file because the same test name legitimately appears in two specs with two
+# different descriptions.
+_catalog_key() {
+  printf '%s\t%s\n' "$1" "$2"
+}
+
+# _catalog_collect_descriptions <root> <doc> <mapvar> -- record every catalog
+# row's description into the associative array <mapvar>, keyed by
+# _catalog_key. Read-only. Used by resolve-doc-counts.sh to reconcile the two
+# sides of a merge: descriptions are the one part of a catalog table the
+# generator preserves rather than derives, so they are the one part a
+# mechanical collapse could silently drop.
+_catalog_collect_descriptions() {
+  local _root="$1" _doc="$2"
+  local -n _catalog_collect_map="$3"
+  [[ -f "${_doc}" ]] || return 0
+  local _spec='' _line _in_table=0 _rowname _rowdesc
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if (( _in_table )); then
+      if [[ "${_line}" == '|'* ]]; then
+        [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]] && continue
+        if _catalog_cell_split_into _rowname _rowdesc "${_line}"; then
+          [[ -n "${_rowname}" ]] \
+            && _catalog_collect_map["$(_catalog_key "${_spec}" "${_rowname}")"]="${_rowdesc}"
+        fi
+        continue
+      fi
+      _in_table=0
+    fi
+    if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
+      _spec=''
+      if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]] \
+        && [[ -f "${_root}/${BASH_REMATCH[1]}" ]]; then
+        _spec="${BASH_REMATCH[1]}"
+      fi
+      continue
+    fi
+    [[ -n "${_spec}" ]] \
+      && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]] \
+      && _in_table=1
+  done < "${_doc}"
+}
+
+# _catalog_apply_descriptions <root> <doc> <mapvar> -- rewrite each catalog
+# row's description from <mapvar> (rows with no entry keep what they have).
+# The inverse of _catalog_collect_descriptions.
+_catalog_apply_descriptions() {
+  local _root="$1" _doc="$2"
+  local -n _catalog_apply_map="$3"
+  [[ -f "${_doc}" ]] || return 0
+  local _tmp
+  _tmp="$(mktemp "${_doc}.XXXXXX")" || return 1
+  local _spec='' _line _in_table=0 _rowname _rowdesc _key
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if (( _in_table )); then
+      if [[ "${_line}" == '|'* ]]; then
+        if [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]]; then
+          printf '%s\n' "${_line}"
+          continue
+        fi
+        if _catalog_cell_split_into _rowname _rowdesc "${_line}" \
+          && [[ -n "${_rowname}" ]]; then
+          _key="$(_catalog_key "${_spec}" "${_rowname}")"
+          _catalog_render_row "${_rowname}" \
+            "${_catalog_apply_map[${_key}]:-${_rowdesc}}"
+          continue
+        fi
+        printf '%s\n' "${_line}"
+        continue
+      fi
+      _in_table=0
+    fi
+    if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
+      _spec=''
+      if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]] \
+        && [[ -f "${_root}/${BASH_REMATCH[1]}" ]]; then
+        _spec="${BASH_REMATCH[1]}"
+      fi
+      printf '%s\n' "${_line}"
+      continue
+    fi
+    if [[ -n "${_spec}" ]] \
+      && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]]; then
+      _in_table=1
+    fi
+    printf '%s\n' "${_line}"
+  done < "${_doc}" > "${_tmp}"
+  mv "${_tmp}" "${_doc}"
+}
+
 # _sync_type_total <doc> <count> -- rewrite the per-type `...: **N tests**.`
 # header to <count>.
 _sync_type_total() {
