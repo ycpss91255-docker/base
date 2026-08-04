@@ -25,12 +25,13 @@ default:
 
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
 # lint + ADR-numbering lint + stale setup.conf path lint + localized README
-# sync lint) via the test-tools container (hadolint has no host binary; the
-# alpine ci image bakes it in).
+# sync lint + doc/test count drift gate) via the test-tools container
+# (hadolint has no host binary; the alpine ci image bakes it in).
 # Narrow with
 # `just test lint --shellcheck` / `just test lint --hadolint`
 # / `just test lint --issueref` / `just test lint --adr-numbering`
 # / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
+# / `just test lint --doc-counts`
 # (ADR-00000011 sec.3 min->max). `--shellcheck` runs in-container too so the
 # behaviour matches the bare `lint`; the dedicated GHA shellcheck job uses
 # the host-only `test.sh --shellcheck-only` path instead.
@@ -73,11 +74,13 @@ sync-docs:
     ./script/test/sync-doc-counts.sh
 
 # just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
-# (the read-only twin of sync-docs). Non-zero exit on drift; the CI / hook
-# safety net that fails a PR which forgot to run sync-docs after adding a
-# @test.
+# (the read-only twin of sync-docs, and the same gate the default `just test`
+# lint phase runs). Non-zero exit on drift, printing the unified diff of what
+# regeneration would change. Three entry points share this one rule: this
+# recipe (on demand), the lint phase (blocking, local + CI), and the harness
+# repo's advisory PostToolUse hook (fast interactive signal, never blocks).
 sync-docs-check:
-    ./script/test/check_test_md_drift.sh
+    ./script/test/test.sh --lint --doc-counts
 
 # just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
 # command: collapse the markers, regenerate the figures from the merged spec

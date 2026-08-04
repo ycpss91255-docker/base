@@ -532,7 +532,7 @@ setup() {
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -679,6 +679,56 @@ setup() {
   refute_output --partial 'docker pull'
 }
 
+@test "self-test.yaml: declares doc-counts job (#864)" {
+  run grep -E '^  doc-counts:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)" {
+  # The generated doc/test catalogue has a gate, and it lives in the
+  # `just test` lint phase -- which NO CI job runs: the lint jobs narrow to
+  # one tool and every bats job sets BATS_ONLY=1. This job is the CI half.
+  # Pure bash + diff, so no buildx / test-tools image, same cold-start cost
+  # as the shellcheck job.
+  run awk '/^  doc-counts:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'runs-on: ubuntu-latest'
+  assert_output --partial './script/test/test.sh --doc-counts-only'
+  refute_output --partial 'docker/setup-buildx-action'
+}
+
+@test "self-test.yaml: doc-counts carries NO code_changed gate (#864)" {
+  # Deliberately ungated, unlike its sibling lint jobs: the catalogue can
+  # be broken by hand-editing doc/test/*.md, which classify scores as a
+  # doc-only change. A code_changed gate would skip the gate on exactly
+  # the PR that hand-edited a count.
+  run awk '/^  doc-counts:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  # Non-vacuity: an absent job yields an empty block, against which the
+  # refute below would pass while asserting nothing.
+  assert_output --partial './script/test/test.sh --doc-counts-only'
+  # The gate form its sibling lint jobs use. Matching on that rather than
+  # the bare word keeps the job's own comment (which explains WHY it is
+  # ungated, and so names the gate) from satisfying the refutation.
+  refute_output --partial 'if: needs.classify.outputs'
+}
+
+@test "self-test.yaml: ci-rollup treats doc-counts as hard-mandatory, not SKIPPED-tolerant (#864)" {
+  # It has no `if:` gate, so SKIPPED means a workflow bug. It must sit in
+  # the success-only loop with actionlint / classify, never in the
+  # skipped-tolerated one. The success-only loop is the one whose body
+  # compares against "success" alone; grep the two lines following the
+  # ACTIONLINT/CLASSIFY loop header to see what else it iterates.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs.doc-counts.result'
+
+  run grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  assert_success
+  assert_output --partial 'DOC_COUNTS_RESULT'
+}
+
 @test "self-test.yaml: declares hadolint job (#376)" {
   run grep -E '^  hadolint:' "${WF}"
   assert_success
@@ -714,7 +764,7 @@ setup() {
   # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────

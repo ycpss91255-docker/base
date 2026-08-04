@@ -14,6 +14,9 @@
 #                             # (used by self-test.yaml's dedicated shellcheck
 #                             # job,; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
+#   ./test.sh --doc-counts-only # Run the doc/test count drift gate only, on
+#                             # the host, no compose (used by self-test.yaml's
+#                             # doc-counts job; pure bash + diff)
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
 #                             # (single source of truth for the self-test.yaml
 #                             # hadolint job;  ADR-00000011)
@@ -82,6 +85,8 @@ source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
 source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
 # shellcheck source=script/test/drivers/readme_sync.sh
 source "${SCRIPT_DIR}/drivers/readme_sync.sh"
+# shellcheck source=script/test/drivers/doc_counts.sh
+source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -118,6 +123,21 @@ Options:
                           the hash of the README.md section it was
                           translated against; re-stamp with
                           'just test sync-readme')
+  --doc-counts            With --lint: run only the doc/test count drift
+                          gate (doc/test/*.md figures are generated from
+                          the specs; regenerate with 'just test sync-docs').
+                          Same gate as 'just test sync-docs-check' and as
+                          the advisory harness PostToolUse hook -- one rule,
+                          three entry points, this one being the blocking
+                          one
+  --doc-counts-only       doc/test count drift gate only, directly on the
+                          host, no compose. Pure bash + diff, so a plain
+                          ubuntu-latest runner can call it. The CI half of
+                          the gate: the lint phase runs in `just test` but
+                          in no CI job (the GHA lint jobs narrow to
+                          shellcheck / hadolint, and every bats job sets
+                          BATS_ONLY=1, which skips the phase), so
+                          self-test.yaml's doc-counts job calls this
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -171,7 +191,9 @@ Examples:
   just test lint --shellcheck     # ShellCheck only
   just test lint --hadolint       # Hadolint only
   just test lint --readme-sync    # Localized README sync lint only
+  just test lint --doc-counts     # doc/test count drift gate only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
+  ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -252,6 +274,7 @@ main() {
   local hadolint_only=0
   local lint=0
   local lint_tool=""
+  local doc_counts_only=0
   local bats_unit_shard=""
   local bats_fragile=0
   local bats_integration=0
@@ -270,7 +293,9 @@ main() {
       --adr-numbering) lint_tool="adr-numbering"; shift ;;
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --readme-sync) lint_tool="readme-sync"; shift ;;
+      --doc-counts) lint_tool="doc-counts"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
+      --doc-counts-only) doc_counts_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -300,6 +325,16 @@ main() {
   # ubuntu-latest, which ships it pre-installed.
   if [[ "${shellcheck_only}" == "1" ]]; then
     _run_shellcheck
+    return 0
+  fi
+
+  # --doc-counts-only short-circuits the same way. Unlike the linters it
+  # needs no tool beyond bash + diff, so the plain ubuntu-latest runner in
+  # self-test.yaml's doc-counts job calls it without the test-tools image.
+  # It runs the SAME driver the lint phase runs, so the local gate and the
+  # CI gate cannot drift apart.
+  if [[ "${doc_counts_only}" == "1" ]]; then
+    _run_doc_counts
     return 0
   fi
 
@@ -383,8 +418,9 @@ main() {
           adr-numbering) _run_adr_numbering ;;
           stale-setup-conf) _run_stale_setup_conf ;;
           readme-sync) _run_readme_sync ;;
-          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf; _run_readme_sync ;;
-          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | readme-sync | empty)." ;;
+          doc-counts) _run_doc_counts ;;
+          "")         _run_shellcheck; _run_hadolint; _run_issueref; _run_adr_numbering; _run_stale_setup_conf; _run_readme_sync; _run_doc_counts ;;
+          *)          _die ci_unknown_lint_tool "Unknown LINT_TOOL '${LINT_TOOL}' (expected shellcheck | hadolint | issueref | adr-numbering | stale-setup-conf | readme-sync | doc-counts | empty)." ;;
         esac
         return 0
       fi
@@ -404,6 +440,18 @@ main() {
         _run_adr_numbering
         _run_stale_setup_conf
         _run_readme_sync
+        # The doc/test count drift gate. It lives HERE, in the lint phase,
+        # rather than beside the bats run, because it is a static check on
+        # committed text (generated figures vs the specs that generate
+        # them) and shares the siblings' properties: fast, no container
+        # services, narrowable to one tool. Being in this phase is what
+        # makes it run in `just test` and therefore in CI -- it previously
+        # ran only when a human typed `just test sync-docs-check` or when
+        # the harness repo's advisory PostToolUse hook happened to fire
+        # mid-edit. That hook still calls the same script; it is kept for
+        # the fast interactive signal, and this is the blocking one. See
+        # drivers/doc_counts.sh for the full note.
+        _run_doc_counts
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =

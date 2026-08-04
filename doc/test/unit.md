@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2355 tests**.
+Unit specs under `test/bats/unit/`: **2361 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -529,7 +529,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (80)
+### test/bats/unit/self_test_yaml_spec.bats (84)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -759,6 +759,7 @@ thirteen cumulative invariants:
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
 | `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + `coverage-gate` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
+| `doc-counts` job declared + `needs: [actionlint, classify]` + runs `test.sh --doc-counts-only` on plain ubuntu-latest with no buildx + carries NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864) | 4 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
 | `bats-fragile` declared + is a single job (no shard matrix) + invokes `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677) | 4 |
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |
@@ -1929,7 +1930,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (62)
+### test/bats/unit/ci_spec.bats (64)
 
 | Test | Description |
 |------|-------------|
@@ -1979,6 +1980,8 @@ builds the env block only for the knobs the conf sets.
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
+| `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
+| `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |

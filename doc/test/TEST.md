@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **2473 tests** total (2355 unit + 118 integration).
+Template self-tests: **2479 tests** total (2361 unit + 118 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (8) and smoke (40) tests are tracked here
-> too but are **not** in the 2473 figure: System specs need host docker
+> too but are **not** in the 2479 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2355 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2361 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 118 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 8 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 40 |
 
-Self-test grand total (unit + integration): **2473**.
+Self-test grand total (unit + integration): **2479**.
 
 ## Maintaining these docs
 
@@ -34,6 +34,23 @@ Every figure and every catalog row in this directory is derived from the specs
 themselves. Regenerate with `just test sync-docs`; validate without writing
 with `just test sync-docs-check`. Never hand-edit a count or hand-add a row --
 see [unit.md](unit.md) for the full contract.
+
+**Where the check is enforced (one rule, three entry points).** All three run
+the same `script/test/check_test_md_drift.sh`; they differ only in when they
+speak and whether they can stop you:
+
+| Entry point | When | Blocking? |
+|-------------|------|-----------|
+| `just test` lint phase (`just test lint --doc-counts`) | every local full gate | **yes** -- this is the gate |
+| the `doc-counts` CI job (`test.sh --doc-counts-only`) | every CI run, ungated (a hand-edited count is a doc-only change) | **yes** -- same driver, hard-mandatory in `ci-rollup` |
+| `just test sync-docs-check` | on demand | yes, but only if a human runs it |
+| harness repo `.claude/hooks/check_test_md_drift.sh` (PostToolUse) | seconds after the Edit that caused the drift, in an interactive session only | no -- advisory |
+
+The hook duplicates the gate deliberately: its value is latency, not
+authority. It holds no rule of its own, so it cannot drift from the gate, and
+if it is ever removed nothing is lost but the early warning. When the two
+disagree, the lint phase is authoritative -- it is the one that can fail a
+branch.
 
 **Merging a branch into these files:** both sides bump the same generated
 counters, so `doc/test/*.md` conflicts on almost every branch refresh. Do not
