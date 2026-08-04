@@ -168,6 +168,31 @@ jobs:
       - name: Run ShellCheck
         run: ./script/test/test.sh --shellcheck-only
 
+  doc-counts:
+    # Dedicated doc/test count drift gate (#864). doc/test/*.md figures and
+    # catalogue rows are GENERATED from the specs; this fails the PR when a
+    # branch adds or removes a @test without running `just test sync-docs`.
+    #
+    # Why a job of its own rather than a step in an existing one: the gate
+    # lives in the `just test` lint phase, but NO CI job runs that phase --
+    # the two lint jobs narrow to one tool (--shellcheck-only,
+    # --lint --hadolint) and every bats job sets BATS_ONLY=1, which skips
+    # it. So the local gate and the CI gate needed an explicit join, and
+    # this is it, calling the same driver the lint phase calls.
+    #
+    # Ungated on purpose (no `if: code_changed`): the catalogue can also be
+    # broken by editing doc/test/*.md by hand, which is not a code change.
+    # It is pure bash + diff on a plain runner, so it costs seconds and
+    # needs no buildx / test-tools image.
+    needs: [actionlint, classify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run the doc/test count drift gate
+        run: ./script/test/test.sh --doc-counts-only
+
   hadolint:
     # Dedicated Hadolint job (#376). Lints the two template-owned
     # Dockerfiles (dist/dockerfile/Dockerfile +
@@ -1250,8 +1275,11 @@ jobs:
     # change to track new sub-jobs. Pattern mirrors ros1_bridge's
     # `ci-summary` and env/* `ci-passed`.
     #
-    # Hard-mandatory jobs (actionlint / classify) must succeed: SKIPPED
-    # there indicates a workflow bug, not an intentional gate. The
+    # Hard-mandatory jobs (actionlint / classify / doc-counts) must
+    # succeed: SKIPPED there indicates a workflow bug, not an intentional
+    # gate. doc-counts is hard-mandatory because it carries no `if:` --
+    # the generated doc/test catalogue can be broken by a doc-only edit,
+    # so gating it on code_changed would skip it on exactly that PR. The
     # post-#377 rollup has no remaining always-running test gate — bats
     # is now split into shard'd jobs that SKIP on doc-only PRs along
     # with everything else.
@@ -1271,7 +1299,7 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1280,6 +1308,7 @@ jobs:
           ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
@@ -1293,6 +1322,7 @@ jobs:
           echo "actionlint:       ${ACTIONLINT_RESULT}"
           echo "classify:         ${CLASSIFY_RESULT}"
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
+          echo "doc-counts:       ${DOC_COUNTS_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
@@ -1302,7 +1332,11 @@ jobs:
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           fail=0
-          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
+          # doc-counts carries no `if:` gate, so SKIPPED means a workflow
+          # bug, not an intentional skip -- it is hard-mandatory like
+          # actionlint / classify.
+          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
+                   "${DOC_COUNTS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
@@ -1315,7 +1349,7 @@ jobs:
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
+    needs: [shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

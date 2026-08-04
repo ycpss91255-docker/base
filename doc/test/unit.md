@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2357 tests**.
+Unit specs under `test/bats/unit/`: **2361 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -529,7 +529,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (80)
+### test/bats/unit/self_test_yaml_spec.bats (84)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -759,6 +759,7 @@ thirteen cumulative invariants:
 | `ci-rollup` DOES need `coverage` now (#615 amends #377) | 1 |
 | `ci-rollup` verify step consumes every `needs.<job>.result` incl `coverage` + `coverage-gate` + SKIPPED treated as pass for conditional jobs + `success` required for hard-mandatory jobs (#337 + #376 + #377 + #615 + #677 + #710) | 3 |
 | `shellcheck` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain ubuntu-latest with no buildx (#376) | 3 |
+| `doc-counts` job declared + `needs: [actionlint, classify]` + runs `test.sh --doc-counts-only` on plain ubuntu-latest with no buildx + carries NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864) | 4 |
 | `hadolint` job declared + `needs: [actionlint, classify]` + `if: code_changed == 'true'` + lints both template-owned Dockerfiles via `hadolint-action` (#376) | 3 |
 | `bats-fragile` declared + is a single job (no shard matrix) + invokes `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677) | 4 |
 | `bats-integration` declared + invokes `test.sh --bats-integration` (#377) | 2 |

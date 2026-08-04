@@ -14,6 +14,9 @@
 #                             # (used by self-test.yaml's dedicated shellcheck
 #                             # job,; plain ubuntu-latest runner with
 #                             # pre-installed shellcheck)
+#   ./test.sh --doc-counts-only # Run the doc/test count drift gate only, on
+#                             # the host, no compose (used by self-test.yaml's
+#                             # doc-counts job; pure bash + diff)
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
 #                             # (single source of truth for the self-test.yaml
 #                             # hadolint job;  ADR-00000011)
@@ -127,6 +130,14 @@ Options:
                           the advisory harness PostToolUse hook -- one rule,
                           three entry points, this one being the blocking
                           one
+  --doc-counts-only       doc/test count drift gate only, directly on the
+                          host, no compose. Pure bash + diff, so a plain
+                          ubuntu-latest runner can call it. The CI half of
+                          the gate: the lint phase runs in `just test` but
+                          in no CI job (the GHA lint jobs narrow to
+                          shellcheck / hadolint, and every bats job sets
+                          BATS_ONLY=1, which skips the phase), so
+                          self-test.yaml's doc-counts job calls this
   --shellcheck-only       ShellCheck only, directly, no compose; relies on
                           shellcheck already being in PATH (e.g. plain
                           ubuntu-latest GHA runner). Used by
@@ -182,6 +193,7 @@ Examples:
   just test lint --readme-sync    # Localized README sync lint only
   just test lint --doc-counts     # doc/test count drift gate only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
+  ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -262,6 +274,7 @@ main() {
   local hadolint_only=0
   local lint=0
   local lint_tool=""
+  local doc_counts_only=0
   local bats_unit_shard=""
   local bats_fragile=0
   local bats_integration=0
@@ -282,6 +295,7 @@ main() {
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --shellcheck-only) shellcheck_only=1; shift ;;
+      --doc-counts-only) doc_counts_only=1; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -311,6 +325,16 @@ main() {
   # ubuntu-latest, which ships it pre-installed.
   if [[ "${shellcheck_only}" == "1" ]]; then
     _run_shellcheck
+    return 0
+  fi
+
+  # --doc-counts-only short-circuits the same way. Unlike the linters it
+  # needs no tool beyond bash + diff, so the plain ubuntu-latest runner in
+  # self-test.yaml's doc-counts job calls it without the test-tools image.
+  # It runs the SAME driver the lint phase runs, so the local gate and the
+  # CI gate cannot drift apart.
+  if [[ "${doc_counts_only}" == "1" ]]; then
+    _run_doc_counts
     return 0
   fi
 
