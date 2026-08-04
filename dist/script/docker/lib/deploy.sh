@@ -765,7 +765,12 @@ Contents:
 Caution: compose.yaml is machine-generated and fully resolved. To adjust a
 tunable value in the field, edit the matching file under config/ (a mounted
 copy wins over the baked default) and re-run ./deploy.sh up -- do not edit
-compose.yaml. The compose restart: policy carries the repo's
+compose.yaml. You edit these files on the host and the container only reads
+them: each config bind ends in its access mode and is :ro unless the
+component declared that path writable (<path> rw in its manifest). Read-only
+is the default because a writable mount would quietly depend on the
+container's user id matching whoever unpacked this folder. The compose
+restart: policy carries the repo's
 [lifecycle] restart setting; at its default (unless-stopped) the container
 auto-starts again after a crash and after a host reboot -- use
 ./deploy.sh down to stop it for good.

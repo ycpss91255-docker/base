@@ -499,7 +499,7 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 2f84da03f478 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
@@ -543,6 +543,16 @@ cd <repo>-runtime-<version>
 `restart: unless-stopped` 表示主機重開機後容器會自動起來；要停掉請用 `./deploy.sh down`。
 
 **在 field 調整設定（免 rebuild）**：元件在 committed 的 `config/<component>/deploy.manifest`（INI-lite，每個 stage 一個 section，各自列出容器內絕對路徑）宣告哪些容器內路徑允許 field 操作者重新調整。Bundle 會為每個宣告的檔案附上一份可編輯副本放在 `config/`，解析後的 `compose.yaml` 再把它 bind mount 蓋過映像裡 baked 的預設（**mount-wins**）。改完 `config/` 底下的檔案，重跑 `./deploy.sh up` 即可 —— 掛載的副本勝出，不用 rebuild。**沒有**宣告的路徑維持只有 baked 版本。映像必須在每個宣告的路徑都 bake 一份預設檔，否則 deploy 產生階段會明確報錯並給出可行的修法。
+
+這些 bind **預設是唯讀（`:ro`）**：由操作者在 host 上編輯、容器只負責讀。要讓容器可寫，必須在路徑後面明確加上 `rw` flag，讓例外變成可 review 的資料而不是一律放行：
+
+```ini
+[runtime]
+/etc/myapp/camera.yaml                  # 唯讀，預設值
+/var/lib/myapp/calibration.yaml rw      # 這一個容器可以寫
+```
+
+路徑後面出現其他東西（打錯字、多一個 token）一律視為 manifest 格式錯誤，明確報錯並指出檔名與行號 —— 不會靜默略過，也不會靜默退回唯讀。預設不放寬的理由是：「操作者調整某個值」本來就不需要容器寫入，而可寫的 mount 會悄悄依賴容器 build 時 bake 的 user id 剛好等於在 field 主機解開 bundle 的人：讀都沒問題，寫則會在最要命的那台機器上失敗。改成唯讀後，這件事會在開發階段就立刻、明顯地失敗，同時把 user id 的問題限縮在真正宣告 `rw` 的那幾個路徑（見 [#870](https://github.com/ycpss91255-docker/base/issues/870)）。
 
 workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另外會從 field 主機自己的 shell 讀 `${DISPLAY}` / `${XAUTHORITY}` 等）；dev 的 workspace bind 刻意捨棄（field 映像自帶程式碼）。`--group-add` 的 GID（iGPU `/dev/dri`）讀自生成主機，換到不同 field 機器可能需調整。
 
