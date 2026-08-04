@@ -532,7 +532,7 @@ setup() {
   # bats-unit matrix is replaced with a single bats-fragile job.
   run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -729,6 +729,115 @@ setup() {
   assert_output --partial 'DOC_COUNTS_RESULT'
 }
 
+# ── lint-static matrix (the rest of the lint phase) ────────────
+
+@test "self-test.yaml: declares lint-static job (#866)" {
+  run grep -E '^  lint-static:' "${WF}"
+  assert_success
+}
+
+@test "self-test.yaml: lint-static runs one matrix entry per host-direct lint on a plain runner (#866)" {
+  # The lint phase runs FOUR more static lints that no CI job ran: the
+  # issue-ref comment lint, the ADR-numbering lint, the stale
+  # config/docker/setup.conf path lint and the localized README sync lint.
+  # Each is pure bash over the checkout, so a plain ubuntu-latest runner
+  # can call it host-direct -- no buildx, no test-tools image. One matrix
+  # entry each so the checks list names WHICH lint failed.
+  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'runs-on: ubuntu-latest'
+  # fail-fast off: one failing lint must not cancel the sibling entries,
+  # or a branch fixes them one round-trip at a time.
+  assert_output --partial 'fail-fast: false'
+  assert_output --partial '- issueref'
+  assert_output --partial '- adr-numbering'
+  assert_output --partial '- stale-setup-conf'
+  assert_output --partial '- readme-sync'
+  assert_output --partial './script/test/test.sh'
+  refute_output --partial 'docker/setup-buildx-action'
+  refute_output --partial 'docker pull'
+}
+
+@test "self-test.yaml: lint-static carries NO code_changed gate (#866)" {
+  # Ungated on purpose, like doc-counts. Two of the four matrix entries
+  # are breakable by a change classify scores as doc-only: the
+  # ADR-numbering lint reads doc/adr/ filenames, and the localized README
+  # sync lint reads README.md + doc/readme/**. Gating on code_changed
+  # would skip them on exactly the PR they exist to catch. A matrix
+  # shares ONE job-level `if:`, so the gate would be all-or-nothing
+  # anyway.
+  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  # Non-vacuity: an absent job yields an empty block, against which the
+  # refute below would pass while asserting nothing.
+  assert_output --partial '- readme-sync'
+  refute_output --partial 'if: needs.classify.outputs'
+}
+
+@test "self-test.yaml: ci-rollup treats lint-static as hard-mandatory, not SKIPPED-tolerant (#866)" {
+  # No `if:` gate, so SKIPPED means a workflow bug -- same contract as
+  # doc-counts. It must sit in the success-only loop, never the
+  # skipped-tolerated one.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'needs.lint-static.result'
+
+  run grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  assert_success
+  assert_output --partial 'LINT_STATIC_RESULT'
+}
+
+@test "self-test.yaml: every lint the just test lint phase runs has a CI join (#866)" {
+  # The anti-rot guard, and the answer to "which lints are CI-enforced":
+  # script/test/test.sh's _LINT_TOOLS table is the one list of tools the
+  # lint phase runs, and every entry in it must be named by a CI job --
+  # a host-direct primitive (--<tool>-only), the in-container hadolint
+  # job (--lint --hadolint), or a lint-static matrix entry (- <tool>).
+  # Adding a lint to the phase without giving it a CI join fails HERE,
+  # instead of quietly shipping a local-only rule.
+  #
+  # The claim is STATIC -- a table literal in one file versus job names
+  # in another -- so the table is PARSED, never sourced. Sourcing
+  # test.sh dragged in the whole lib chain, which reads BASH_SOURCE
+  # unguarded; under the kcov-instrumented bash of the coverage shard
+  # BASH_SOURCE is not populated for a sourced file, so the source
+  # aborted and its stderr got parsed as if it were a lint name (the
+  # same failure that hit setup_tui.sh). Parsing keeps the guard
+  # running under coverage instead of skipping it there.
+  local _test_sh="/source/script/test/test.sh"
+  [[ -f "${_test_sh}" ]] || skip "test.sh not at expected path"
+  run awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "${_test_sh}"
+  assert_success
+
+  local -a _tools=()
+  mapfile -t _tools <<<"${output}"
+  # Non-vacuity: an empty / truncated table would make the loop below
+  # assert nothing at all, which is the exact failure mode this test
+  # exists to prevent. Pin both the size and the four lints this issue
+  # wired.
+  [ "${#_tools[@]}" -ge 7 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  local _t
+  for _t in issueref adr-numbering stale-setup-conf readme-sync; do
+    printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
+      || fail "_LINT_TOOLS does not list '${_t}'"
+  done
+
+  for _t in "${_tools[@]}"; do
+    grep -qE -- "--${_t}-only|--lint --${_t}|^ +- ${_t}\$" "${WF}" \
+      || fail "lint '${_t}' runs in the just test lint phase but NO job in self-test.yaml runs it -- it would gate nothing on a PR"
+  done
+}
+
 @test "self-test.yaml: declares hadolint job (#376)" {
   run grep -E '^  hadolint:' "${WF}"
   assert_success
@@ -764,7 +873,7 @@ setup() {
   # the release chain.
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────

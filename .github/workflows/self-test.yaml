@@ -193,6 +193,55 @@ jobs:
       - name: Run the doc/test count drift gate
         run: ./script/test/test.sh --doc-counts-only
 
+  lint-static:
+    # The rest of the `just test` lint phase (#866). doc-counts (#864) gave
+    # ONE lint of that phase a CI job; these are the other four, which had
+    # none either and so gated nothing on a PR:
+    #
+    #   issueref          no transient #NNN in code comments (ADR-00000013)
+    #   adr-numbering     doc/adr/ duplicate-free + well-formed
+    #   stale-setup-conf  no legacy config/docker/setup.conf under dist/
+    #   readme-sync       localized READMEs still match README.md
+    #
+    # A matrix rather than one lint-static job running the whole phase:
+    # each entry is its own check ("lint-static (readme-sync)"), so the
+    # checks list says WHICH lint failed without opening a log, and
+    # fail-fast: false means one failure does not cancel the siblings and
+    # hide the rest. The cost of the split is four ~20s plain runners --
+    # every driver here is pure bash over the checkout, so no buildx, no
+    # test-tools image, no compose. hadolint is NOT in this matrix: its
+    # binary lives only in the test-tools image, so it keeps its own job.
+    #
+    # Ungated on purpose (no `if: code_changed`), like doc-counts: the
+    # ADR-numbering lint reads doc/adr/ filenames and the README sync lint
+    # reads README.md + doc/readme/**, both of which classify scores as a
+    # doc-only change, so a code_changed gate would skip them on exactly
+    # the PR they exist to catch. A matrix shares one job-level `if:`, so
+    # the choice is all-or-nothing anyway.
+    #
+    # Adding a lint to the phase without adding it here fails the
+    # completeness guard in test/bats/unit/self_test_yaml_spec.bats, which
+    # reads test.sh's _LINT_TOOLS table -- that is what keeps the next
+    # lint from landing local-only the way these four did.
+    needs: [actionlint, classify]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lint:
+          - issueref
+          - adr-numbering
+          - stale-setup-conf
+          - readme-sync
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run the ${{ matrix.lint }} lint
+        env:
+          LINT: ${{ matrix.lint }}
+        run: ./script/test/test.sh "--${LINT}-only"
+
   hadolint:
     # Dedicated Hadolint job (#376). Lints the two template-owned
     # Dockerfiles (dist/dockerfile/Dockerfile +
@@ -1275,11 +1324,13 @@ jobs:
     # change to track new sub-jobs. Pattern mirrors ros1_bridge's
     # `ci-summary` and env/* `ci-passed`.
     #
-    # Hard-mandatory jobs (actionlint / classify / doc-counts) must
-    # succeed: SKIPPED there indicates a workflow bug, not an intentional
-    # gate. doc-counts is hard-mandatory because it carries no `if:` --
-    # the generated doc/test catalogue can be broken by a doc-only edit,
-    # so gating it on code_changed would skip it on exactly that PR. The
+    # Hard-mandatory jobs (actionlint / classify / doc-counts /
+    # lint-static) must succeed: SKIPPED there indicates a workflow bug,
+    # not an intentional gate. doc-counts is hard-mandatory because it
+    # carries no `if:` -- the generated doc/test catalogue can be broken by
+    # a doc-only edit, so gating it on code_changed would skip it on
+    # exactly that PR; lint-static is ungated for the same reason (#866),
+    # two of its four matrix entries read doc/adr/ and the READMEs. The
     # post-#377 rollup has no remaining always-running test gate — bats
     # is now split into shard'd jobs that SKIP on doc-only PRs along
     # with everything else.
@@ -1299,7 +1350,7 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1309,6 +1360,7 @@ jobs:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
+          LINT_STATIC_RESULT: ${{ needs.lint-static.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
@@ -1323,6 +1375,7 @@ jobs:
           echo "classify:         ${CLASSIFY_RESULT}"
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
           echo "doc-counts:       ${DOC_COUNTS_RESULT}"
+          echo "lint-static:      ${LINT_STATIC_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
@@ -1332,11 +1385,13 @@ jobs:
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           fail=0
-          # doc-counts carries no `if:` gate, so SKIPPED means a workflow
-          # bug, not an intentional skip -- it is hard-mandatory like
-          # actionlint / classify.
+          # doc-counts and lint-static carry no `if:` gate, so SKIPPED
+          # means a workflow bug, not an intentional skip -- they are
+          # hard-mandatory like actionlint / classify. lint-static is a
+          # matrix; its entries fold into one result, so a single failing
+          # lint fails the rollup.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
-                   "${DOC_COUNTS_RESULT}"; do
+                   "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
@@ -1349,7 +1404,7 @@ jobs:
           exit "${fail}"
 
   release:
-    needs: [shellcheck, doc-counts, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
+    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
