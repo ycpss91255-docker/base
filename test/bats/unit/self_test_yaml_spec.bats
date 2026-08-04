@@ -796,11 +796,26 @@ setup() {
   # job (--lint --hadolint), or a lint-static matrix entry (- <tool>).
   # Adding a lint to the phase without giving it a CI join fails HERE,
   # instead of quietly shipping a local-only rule.
-  run bash -c '
-    set -uo pipefail
-    source /source/script/test/test.sh
-    printf "%s\n" "${_LINT_TOOLS[@]}"
-  '
+  #
+  # The claim is STATIC -- a table literal in one file versus job names
+  # in another -- so the table is PARSED, never sourced. Sourcing
+  # test.sh dragged in the whole lib chain, which reads BASH_SOURCE
+  # unguarded; under the kcov-instrumented bash of the coverage shard
+  # BASH_SOURCE is not populated for a sourced file, so the source
+  # aborted and its stderr got parsed as if it were a lint name (the
+  # same failure that hit setup_tui.sh). Parsing keeps the guard
+  # running under coverage instead of skipping it there.
+  local _test_sh="/source/script/test/test.sh"
+  [[ -f "${_test_sh}" ]] || skip "test.sh not at expected path"
+  run awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "${_test_sh}"
   assert_success
 
   local -a _tools=()
