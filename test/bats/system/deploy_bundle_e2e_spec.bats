@@ -29,6 +29,12 @@
 # bats-assert / bats-support and loads no test_helper.
 
 setup_file() {
+  # Every test in this file drives ONE bundle and ONE container name, so they
+  # must not run concurrently with each other: two `deploy.sh up` calls racing
+  # for the same container name make the loser fail with a name conflict. The
+  # suite still parallelizes across FILES.
+  export BATS_NO_PARALLELIZE_WITHIN_FILE=true
+
   if [[ ! -S /var/run/docker.sock ]]; then
     skip "system test: /var/run/docker.sock not mounted (run via 'just test system')"
   fi

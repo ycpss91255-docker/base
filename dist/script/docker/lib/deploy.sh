@@ -29,33 +29,57 @@ _DOCKER_LIB_DEPLOY_SOURCED=1
 
 # ════════════════════════════════════════════════════════════════════
 # _parse_deploy_manifest <manifest_path> <stage> <out_paths_array>
+#                        [<out_modes_array>]
 #
 # Field-deploy tunable manifest parser (the per-component, per-stage
 # declaration of operator-tunable config). A manifest is a committed,
 # downstream-owned `config/<component>/deploy.manifest` with INI-lite
 # per-stage sections, each listing the CONTAINER-INTERNAL absolute paths
-# that a field operator may override without a rebuild:
+# that a field operator may override without a rebuild, optionally
+# followed by ONE access flag:
 #
-#   [runtime]  /camera_config.yaml
-#   [stream]   /etc/app/host.yaml
+#   [runtime]  /camera_config.yaml                # read-only, the default
+#   [runtime]  /var/lib/app/calibration.yaml rw   # container may write
+#   [stream]   /etc/app/host.yaml ro              # the default, spelled out
 #   # unlisted paths (launch/, udev/, ...) = baked-only (fail-safe default)
 #
+# The manifest's semantics are "a human edits the copy in the bundle, the
+# container reads it", so the mount is READ-ONLY unless the component
+# declares otherwise: a container write then fails immediately in
+# development instead of on a field host whose UIDs happen not to line up.
+# `rw` turns that exception into reviewable data -- it shows in a diff, and
+# someone had to write down that they meant it.
+#
 # base DELIVERS files, it does not parse their content: this reads only the
-# path declarations for <stage> into <out_paths_array>. Semantics:
+# path declarations for <stage> into <out_paths_array>, and (when given)
+# the matching `ro` / `rw` access mode into <out_modes_array> at the same
+# index. Semantics:
 #   - a MISSING manifest is NOT an error -> empty array, return 0 (nothing
 #     tunable = everything baked, the fail-safe default);
 #   - a MALFORMED manifest fails LOUD (return 1): a bad `[section]` header,
-#     a content line that is not a container-internal absolute path, or a
-#     path declared before any `[section]` header;
+#     a content line that is not a container-internal absolute path, a path
+#     declared before any `[section]` header, or an access flag that is
+#     neither `ro` nor `rw` (including a second trailing token). A bad flag
+#     is never skipped and never silently downgraded to read-only -- the
+#     error names the file and the line, like every other defect here;
 #   - only the entries under `[<stage>]` are returned; entries for other
 #     stages are ignored (a path unlisted for <stage> stays baked-only).
 # Leading/trailing whitespace is trimmed; blank + `#` comment lines skipped.
+# The flag grammar splits on whitespace, so a declared path may not itself
+# contain whitespace (such a line reads as a bad flag and fails loud).
 # ════════════════════════════════════════════════════════════════════
 _parse_deploy_manifest() {
   local _mf="${1:?"${FUNCNAME[0]}: missing manifest path"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   local -n _pdm_out="${3:?"${FUNCNAME[0]}: missing out array"}"
   _pdm_out=()
+  # Access modes are an opt-in out-param: callers that only need the paths
+  # (and the fail-loud grammar check) pass three arguments as before.
+  local _pdm_modes_ref="${4:-}"
+  if [[ -n "${_pdm_modes_ref}" ]]; then
+    local -n _pdm_modes="${_pdm_modes_ref}"
+    _pdm_modes=()
+  fi
   # Missing manifest = nothing tunable (fail-safe), not an error.
   [[ -f "${_mf}" ]] || return 0
 
@@ -81,8 +105,13 @@ _parse_deploy_manifest() {
       continue
     fi
 
-    # Content line: must be a CONTAINER-INTERNAL absolute path.
-    if [[ "${_trimmed}" != /* ]]; then
+    # Content line: `<absolute container path> [ro|rw]`, the flag optional
+    # and defaulting to read-only.
+    local _path _flag
+    _path="${_trimmed%%[[:space:]]*}"
+    _flag="${_trimmed#"${_path}"}"
+    _flag="${_flag#"${_flag%%[![:space:]]*}"}"
+    if [[ "${_path}" != /* ]]; then
       _log_err setup deploy_manifest_malformed \
         "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: expected an absolute container path, got '${_trimmed}'" \
         "path=${_mf}" "line=${_lineno}"
@@ -94,20 +123,37 @@ _parse_deploy_manifest() {
         "path=${_mf}" "line=${_lineno}"
       return 1
     fi
-    [[ "${_cur}" == "${_stage}" ]] && _pdm_out+=("${_trimmed}")
+    # An unrecognised flag is a defect, not a hint: refusing here is what
+    # keeps a typo from silently mounting read-only (or read-write).
+    if [[ -n "${_flag}" && "${_flag}" != "ro" && "${_flag}" != "rw" ]]; then
+      _log_err setup deploy_manifest_malformed \
+        "display=[setup] deploy: malformed manifest ${_mf}:${_lineno}: bad access flag '${_flag}' after '${_path}' (expected 'rw', 'ro', or nothing -- paths are mounted read-only by default)" \
+        "path=${_mf}" "line=${_lineno}"
+      return 1
+    fi
+    if [[ "${_cur}" == "${_stage}" ]]; then
+      _pdm_out+=("${_path}")
+      if [[ -n "${_pdm_modes_ref}" ]]; then
+        _pdm_modes+=("${_flag:-ro}")
+      fi
+    fi
   done < "${_mf}"
   return 0
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _collect_deploy_binds <base_path> <stage> <out_assoc>
+# _collect_deploy_binds <base_path> <stage> <out_assoc> [<out_modes_assoc>]
 #
 # Aggregate every component's tunable declarations for <stage> into a
 # single basename -> container-path map. Globs `<base>/config/*/deploy.manifest`,
 # parses each via _parse_deploy_manifest (propagating a malformed-manifest
 # failure), and keys the result by the path BASENAME -- the name the file
 # takes in the deploy bundle's editable `config/` folder and in the compose
-# bind `./config/<basename>:<container-path>`.
+# bind `./config/<basename>:<container-path>:<mode>`.
+#
+# When <out_modes_assoc> is given it is filled with the same keys mapped to
+# the declared access mode (`ro` -- the default -- or `rw`), so the compose
+# emitter can mount each bind at the access its component asked for.
 #
 # A DUPLICATE basename across components (two tunable files that would both
 # land as `config/<basename>`) is a config error that fails LOUD (return 1):
@@ -119,14 +165,20 @@ _collect_deploy_binds() {
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   local -n _cdb_out="${3:?"${FUNCNAME[0]}: missing out assoc"}"
   _cdb_out=()
+  local _cdb_modes_ref="${4:-}"
+  if [[ -n "${_cdb_modes_ref}" ]]; then
+    local -n _cdb_modes="${_cdb_modes_ref}"
+    _cdb_modes=()
+  fi
   local _mf
   for _mf in "${_base}"/config/*/deploy.manifest; do
     # Unmatched glob yields the literal pattern; the -f guard skips it.
     [[ -f "${_mf}" ]] || continue
-    local -a _paths=()
-    _parse_deploy_manifest "${_mf}" "${_stage}" _paths || return 1
-    local _p _bn
-    for _p in "${_paths[@]}"; do
+    local -a _paths=() _pmodes=()
+    _parse_deploy_manifest "${_mf}" "${_stage}" _paths _pmodes || return 1
+    local _i _p _bn
+    for (( _i = 0; _i < ${#_paths[@]}; _i++ )); do
+      _p="${_paths[_i]}"
       _bn="${_p##*/}"
       if [[ -n "${_cdb_out["${_bn}"]:-}" ]]; then
         _log_err setup deploy_manifest_dup_basename \
@@ -135,6 +187,9 @@ _collect_deploy_binds() {
         return 1
       fi
       _cdb_out["${_bn}"]="${_p}"
+      if [[ -n "${_cdb_modes_ref}" ]]; then
+        _cdb_modes["${_bn}"]="${_pmodes[_i]}"
+      fi
     done
   done
   return 0
@@ -333,7 +388,7 @@ _resolve_deploy_context() {
 
 # ════════════════════════════════════════════════════════════════════
 # _generate_resolved_compose <base> <stage> <image_ref> <container> <out>
-#                            [<binds_assoc>] [<ctx_assoc>]
+#                            [<binds_assoc>] [<ctx_assoc>] [<modes_assoc>]
 #
 # Write the self-contained, FULLY-RESOLVED field compose.yaml (ADR-00000023
 # sec.3, amending ADR-00000003's "compose does not travel"). Unlike the
@@ -356,9 +411,14 @@ _resolve_deploy_context() {
 # only recovers a container that EXITS, the watchdog is the only mechanism
 # that recovers a service that is alive but wedged. When <binds_assoc>
 # (basename -> container-path, from _collect_deploy_binds) is non-empty each
-# tunable file is bound `./config/<basename>:<container-path>` (mount-wins
-# over the baked default, ADR-00000023 sec.2). host-user (USER_UID) handling
-# is unchanged (a separate field-user follow-up owns it).
+# tunable file is bound `./config/<basename>:<container-path>:<mode>`
+# (mount-wins over the baked default, ADR-00000023 sec.2). <mode> comes from
+# the optional <modes_assoc> (same keys, from _collect_deploy_binds) and is
+# `ro` for anything the manifest did not explicitly declare `rw` -- the
+# operator writes on the host, the container reads, so a container write
+# fails at once in development instead of on a field host whose UIDs happen
+# not to line up. host-user (USER_UID) handling is unchanged (a separate
+# field-user follow-up owns it).
 # ════════════════════════════════════════════════════════════════════
 _generate_resolved_compose() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
@@ -368,6 +428,7 @@ _generate_resolved_compose() {
   local _out="${5:?"${FUNCNAME[0]}: missing out path"}"
   local _binds_src="${6:-}"
   local _ctx_src="${7:-}"
+  local _modes_src="${8:-}"
 
   # Global conf context (shared with apply). Consume a passed record when
   # given, else resolve standalone (direct callers / tests).
@@ -389,6 +450,21 @@ _generate_resolved_compose() {
     while IFS= read -r _bk; do
       [[ -n "${_bk}" ]] && _bind_names+=("${_bk}")
     done < <(printf '%s\n' "${!_grc_binds[@]}" | sort)
+  fi
+  # Per-bind access mode. Read-only is the default for anything the modes
+  # record does not declare `rw` -- an omitted / absent record can only
+  # tighten the mount, never loosen it. The local is `_grc_`-prefixed like
+  # every other nameref target here: a local sharing the CALLER's variable
+  # name would shadow the nameref and silently resolve to itself.
+  local -A _grc_bind_mode=()
+  if [[ -n "${_modes_src}" ]]; then
+    local -n _grc_modes="${_modes_src}"
+    local _mk
+    for _mk in "${!_grc_modes[@]}"; do
+      if [[ "${_grc_modes["${_mk}"]}" == "rw" ]]; then
+        _grc_bind_mode["${_mk}"]="rw"
+      fi
+    done
   fi
 
   # Detection-dependent enabled state + runtime, resolved like apply does.
@@ -544,10 +620,12 @@ YAML
 YAML
       fi
       # tunable-manifest binds: the editable copy in the bundle wins over the
-      # baked default (mount-wins, ADR-00000023 sec.2).
+      # baked default (mount-wins, ADR-00000023 sec.2), read-only unless the
+      # manifest declared the path `rw`.
       local _bn
       for _bn in "${_bind_names[@]}"; do
-        printf '      - ./config/%s:%s\n' "${_bn}" "${_grc_binds["${_bn}"]}"
+        printf '      - ./config/%s:%s:%s\n' \
+          "${_bn}" "${_grc_binds["${_bn}"]}" "${_grc_bind_mode["${_bn}"]:-ro}"
       done
       if [[ -n "${_devices_str}" ]]; then
         while IFS= read -r _d; do
@@ -760,10 +838,10 @@ _generate_deploy_bundle() {
   local -A _ctx=()
   _resolve_deploy_context "${_base}" _ctx
 
-  # Tunable-manifest binds; a malformed / duplicate-basename manifest fails
-  # loud BEFORE any build side effect.
-  local -A _binds=()
-  _collect_deploy_binds "${_base}" "${_stage}" _binds || return 1
+  # Tunable-manifest binds + their declared access modes; a malformed /
+  # duplicate-basename manifest fails loud BEFORE any build side effect.
+  local -A _binds=() _bind_modes=()
+  _collect_deploy_binds "${_base}" "${_stage}" _binds _bind_modes || return 1
 
   local _work
   _work="$(mktemp -d)"
@@ -784,7 +862,7 @@ _generate_deploy_bundle() {
 
   # Deterministic, docker-free artifacts up front (inspectable under DRY_RUN).
   _generate_resolved_compose "${_base}" "${_stage}" "${_image}" "${_container}" \
-    "${_work}/compose.yaml" _binds _ctx
+    "${_work}/compose.yaml" _binds _ctx _bind_modes
   _generate_deploy_launcher "${_work}/deploy.sh" "${_stage}"
   _render_deploy_readme "${_work}/README" "${_name}" "${_stage}" "${_image}"
 
