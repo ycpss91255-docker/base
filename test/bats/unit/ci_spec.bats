@@ -911,6 +911,26 @@ SH
   assert_output --partial "doc/test count drift gate: clean"
 }
 
+@test "main --doc-counts-only: runs the drift gate on the host, no compose (#864)" {
+  # CI-reachability guard. The lint phase runs in `just test`, but no CI job
+  # runs it: the GHA lint jobs are shellcheck (--shellcheck-only) and
+  # hadolint (--lint --hadolint), and every bats job passes BATS_ONLY=1,
+  # which skips the phase. So the gate needs a host-direct primitive the
+  # plain ubuntu-latest runner can call -- the same shape as
+  # --shellcheck-only. Docker must not be touched on this path.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --doc-counts-only
+  '
+  assert_success
+  assert_output --partial "doc/test count drift gate: clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
