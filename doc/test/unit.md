@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2371 tests**.
+Unit specs under `test/bats/unit/`: **2378 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1533,7 +1533,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (43)
+### test/bats/unit/deploy_spec.bats (45)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1568,6 +1568,7 @@ refused before any build or bundle step.
 | `_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned (#832)` | resolved + self-contained |
 | `_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e) (#832)` | dev-host strip |
 | `_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default (#833)` | tunable binds |
+| `_generate_resolved_compose: a tunable bind is read-only unless the manifest declared rw (#870)` | :ro default, :rw when declared |
 | `_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices) (#832)` | per-stage params |
 | `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)` | follow-stage GUI |
 | `_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)` | per-stage override |
@@ -1588,6 +1589,7 @@ refused before any build or bundle step.
 | `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
 | `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)` | missing baked default |
 | `_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)` | deploy dry-run |
+| `_setup_deploy: the preview shows each tunable bind at its declared access (#870)` | preview matches the bundle |
 | `_setup_deploy: refuses in a non-interactive shell without -y (#832)` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile (#832)` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag (#832)` | arg validation |
@@ -1616,7 +1618,7 @@ through the real parser instead of asserting a hand-copied duplicate.
 | `the compose-header hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
 | `the launcher hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
 
-### test/bats/unit/deploy_manifest_spec.bats (11)
+### test/bats/unit/deploy_manifest_spec.bats (16)
 
 Covers the per-component tunable-config manifest primitives (#833;
 ADR-00000023 sec.5): `_parse_deploy_manifest` (a committed,
@@ -1626,18 +1628,26 @@ container-internal paths an operator may override per stage) and
 basename, the name the file takes in the bundle `config/` + its compose
 bind). base delivers files; it does not parse content. A missing manifest
 is nothing-tunable (fail-safe); a malformed manifest, or a duplicate
-basename across components, fails loud.
+basename across components, fails loud. Each declaration also carries an
+access mode (#870): no flag means read-only, `rw` opts that one path into
+container writes, and any other trailing token is malformed -- reported
+with file and line, never skipped and never downgraded in silence.
 
 | Test | Description |
 |------|-------------|
 | `_parse_deploy_manifest: returns only the requested stage's paths (tunable-manifest)` | per-stage selection |
 | `_parse_deploy_manifest: a path unlisted for the stage stays baked-only (tunable-manifest)` | unlisted = baked |
 | `_parse_deploy_manifest: skips blank + comment lines and trims whitespace (tunable-manifest)` | lexing |
+| `_parse_deploy_manifest: an unflagged path is read-only, an explicit rw opts in (tunable-manifest)` | access mode: ro default, rw opt-in |
+| `_parse_deploy_manifest: an explicit ro flag is accepted (tunable-manifest)` | the default spelled out |
+| `_parse_deploy_manifest: an unknown access flag fails loud naming file and line (tunable-manifest)` | bad flag, not a silent skip |
+| `_parse_deploy_manifest: a trailing token after a valid flag fails loud (tunable-manifest)` | one flag only |
 | `_parse_deploy_manifest: a missing manifest is not an error -> empty (tunable-manifest)` | missing = empty |
 | `_parse_deploy_manifest: a malformed section header fails loud (tunable-manifest)` | bad section |
 | `_parse_deploy_manifest: a non-absolute content line fails loud (tunable-manifest)` | non-absolute path |
 | `_parse_deploy_manifest: a path before any section fails loud (tunable-manifest)` | orphan path |
 | `_collect_deploy_binds: aggregates every component's stage paths keyed by basename (tunable-manifest)` | aggregation |
+| `_collect_deploy_binds: carries each path's access mode keyed by basename (tunable-manifest)` | mode aggregation |
 | `_collect_deploy_binds: no manifests -> empty map (nothing tunable) (tunable-manifest)` | nothing tunable |
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |

@@ -532,7 +532,7 @@ Main
 
 `--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 2f84da03f478 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -576,6 +576,16 @@ cd <repo>-runtime-<version>
 `restart: unless-stopped` によりホスト再起動後もコンテナは自動起動します。停止するには `./deploy.sh down` を使います。
 
 **フィールドでの設定変更（リビルド不要）**: コンポーネントは、フィールドオペレータが再調整してよいコンテナ内パスを、コミット済みの `config/<component>/deploy.manifest`（INI-lite、ステージごとの section にコンテナ内絶対パスを列挙）で宣言します。バンドルは宣言された各ファイルの編集用コピーを `config/` に同梱し、解決済み `compose.yaml` がそれをイメージ内の焼き込みデフォルトへ bind mount で被せます（**mount-wins**）。`config/` 配下のファイルを編集して `./deploy.sh up` を再実行すれば反映されます —— マウントされたコピーが勝ち、リビルドは不要です。宣言され**ていない**パスは焼き込みのみのままです。イメージは宣言されたすべてのパスにデフォルトファイルを焼き込んでいる必要があり、欠けていれば deploy 生成時に対処方法付きで明示的に失敗します。
+
+これらの bind は**デフォルトで読み取り専用（`:ro`）**です: ホスト側でオペレータが編集し、コンテナは読むだけです。コンテナから書き込ませたい場合はパスの後ろに `rw` フラグを明示します。例外を一律の許可ではなくレビュー可能なデータにするためです:
+
+```ini
+[runtime]
+/etc/myapp/camera.yaml                  # 読み取り専用、デフォルト
+/var/lib/myapp/calibration.yaml rw      # これはコンテナが書き込んでよい
+```
+
+パスの後ろにそれ以外のもの（打ち間違い、余分なトークン）が現れた場合は manifest の書式エラーとして、ファイル名と行番号を示して明示的に失敗します —— 黙って読み飛ばすことも、黙って読み取り専用へ落とすこともしません。デフォルトを緩めない理由は、「オペレータが値を再調整する」ためにコンテナ側の書き込みは本来不要であり、書き込み可能な mount はビルド時に焼き込まれたコンテナの user id が、フィールドホストでバンドルを展開した人と一致することに暗黙に依存するからです: 読み取りはどちらでも成功し、書き込みだけが最も重要なマシンで失敗します。読み取り専用にすれば、それが開発段階で即座に、はっきりと失敗するようになり、user id の問題も実際に `rw` を宣言したパスだけに閉じ込められます（[#870](https://github.com/ycpss91255-docker/base/issues/870) 参照）。
 
 workload の環境変数は焼き込み済み `ENV` のデフォルトとして運ばれます（GUI ステージは加えてフィールドホスト自身のシェルから `${DISPLAY}` / `${XAUTHORITY}` などを読みます）。dev の workspace bind は意図的に外しています（フィールドイメージは自身のコードを同梱）。`--group-add` の GID（iGPU `/dev/dri`）は生成ホスト由来で、別のフィールドマシンでは調整が必要な場合があります。
 
