@@ -24,12 +24,13 @@ default:
     ./script/test/test.sh
 
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
-# lint + ADR-numbering lint + stale setup.conf path lint) via the test-tools
-# container (hadolint has no host binary; the alpine ci image bakes it in).
+# lint + ADR-numbering lint + stale setup.conf path lint + localized README
+# sync lint) via the test-tools container (hadolint has no host binary; the
+# alpine ci image bakes it in).
 # Narrow with
 # `just test lint --shellcheck` / `just test lint --hadolint`
 # / `just test lint --issueref` / `just test lint --adr-numbering`
-# / `just test lint --stale-setup-conf`
+# / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
 # (ADR-00000011 sec.3 min->max). `--shellcheck` runs in-container too so the
 # behaviour matches the bare `lint`; the dedicated GHA shellcheck job uses
 # the host-only `test.sh --shellcheck-only` path instead.
@@ -77,3 +78,18 @@ sync-docs:
 # @test.
 sync-docs-check:
     ./script/test/check_test_md_drift.sh
+
+# just test sync-readme -> re-stamp each doc/readme/README.*.md section with
+# the hash of the README.md section it was translated against. Run this AFTER
+# updating a translation; never hand-edit a hash. Idempotent; it also reports
+# the English sections a translation still accounts for neither way (no
+# `<!-- sync: <id> -->` marker, no `<!-- sync-skip: <id> -- <why> -->`).
+sync-readme:
+    ./script/test/sync-readme-hashes.sh
+
+# just test sync-readme-check -> validate the translation markers WITHOUT
+# writing (the read-only twin of sync-readme, and the same lint the default
+# `just test` lint phase runs). Non-zero exit naming the FILE and the SECTION
+# that drifted.
+sync-readme-check:
+    ./script/test/test.sh --lint --readme-sync
