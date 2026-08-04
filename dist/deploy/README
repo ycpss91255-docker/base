@@ -30,8 +30,26 @@ operator-tunable (`config/<component>/deploy.manifest`). Edit a file under
 image's baked default. Files NOT under `config/` are baked-only and require
 a rebuild to change.
 
+**You edit these on the host; the container only reads them.** Each bind in
+`compose.yaml` ends in its access mode, and it is `:ro` unless the component
+explicitly declared that path writable (`<path> rw` in its manifest):
+
+    volumes:
+      - ./config/host.yaml:/etc/app/host.yaml:ro     # you edit, app reads
+      - ./config/calibration.yaml:/etc/app/calibration.yaml:rw   # app writes too
+
+Read-only is the default because nothing in "the operator retunes a value"
+needs the application to write, and a writable mount would quietly depend on
+the container's user id matching whoever unpacked this folder -- which fails
+on the field host, not on the bench. A `:rw` path is one someone deliberately
+declared writable (a calibration file the app updates itself, say); its
+contents can change under you, and it is the one place where that user-id
+mismatch can still bite.
+
 Do not edit `compose.yaml` -- it is machine-generated and fully resolved.
-Adjust behavior through `config/` instead.
+Adjust behavior through `config/` instead. If the application needs to write
+a path that is mounted `:ro`, that is a source change (declare it `rw` in the
+component's manifest and regenerate the bundle), not a `compose.yaml` edit.
 
 ## Image identity
 

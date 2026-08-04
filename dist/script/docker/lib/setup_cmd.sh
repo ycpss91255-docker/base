@@ -1398,9 +1398,11 @@ _setup_deploy() {
   if (( ! _quiet )); then
     local _preview
     _preview="$(mktemp)"
-    local -A _pv_binds=()
-    _collect_deploy_binds "${_base_path}" "${_stage}" _pv_binds || { rm -f "${_preview}"; return 1; }
-    _generate_resolved_compose "${_base_path}" "${_stage}" "${_image}" "${_name}-${_stage}" "${_preview}" _pv_binds
+    local -A _pv_binds=() _pv_bind_modes=()
+    _collect_deploy_binds "${_base_path}" "${_stage}" _pv_binds _pv_bind_modes \
+      || { rm -f "${_preview}"; return 1; }
+    _generate_resolved_compose "${_base_path}" "${_stage}" "${_image}" "${_name}-${_stage}" \
+      "${_preview}" _pv_binds "" _pv_bind_modes
     printf '[setup] deploy plan: stage=%s image=%s bundle=%s\n' \
       "${_stage}" "${_image}" "${_output}"
     printf '[setup] resolved compose.yaml to be generated (review every param):\n'

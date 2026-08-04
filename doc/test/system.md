@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **8 tests**.
+System specs under `test/bats/system/`: **9 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -66,7 +66,7 @@ default context.
 | `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
 | `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
 
-### test/bats/system/deploy_bundle_e2e_spec.bats (3)
+### test/bats/system/deploy_bundle_e2e_spec.bats (4)
 
 A REAL field deploy end-to-end (ADR-00000023; System level, E2E type).
 Generates the bundle for real (`docker build` + `docker save | xz`),
@@ -86,8 +86,18 @@ fallback (so the version-scoped image identity `<repo>:<stage>-<version>`
 is what actually gets built, loaded and asserted), and no container leaked
 by a crashed earlier run can share this run's name namespace.
 
+It declares one default-access and one `rw` tunable so the read-only
+default (#870) is proven by BEHAVIOUR, not by grepping `:ro` out of the
+generated compose: a real `docker exec` write to the default-access mount
+must fail with a read-only filesystem error and leave the operator's host
+copy untouched, while the declared-`rw` write must succeed and land in the
+bundle's `config/`. Every test here drives the one bundle and the one
+container name, so the file pins `BATS_NO_PARALLELIZE_WITHIN_FILE` --
+concurrent `deploy.sh up` calls would race for that name.
+
 | Test | Description |
 |------|-------------|
 | `field-deploy e2e: the image identity is version-stamped, not the 'unknown' fallback` | tagged fixture -> real version stamp |
 | `field-deploy e2e: the generator produced a self-contained bundle folder` | real bundle output |
 | `field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies` | run + mount-wins override |
+| `field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host` | read-only default proven by a real write |

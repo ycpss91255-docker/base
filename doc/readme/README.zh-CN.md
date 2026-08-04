@@ -531,7 +531,7 @@ Main
 
 带 `--setup` 重跑以重新生成 `.env` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 2f84da03f478 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接调用 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自带式的 field 部署**目录** —— 即上述路由模型的 deploy 半边（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修订 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它针对 *field 导向* 的 stage（默认 `runtime`；**绝不**是 `devel` 或任何 `*-test` stage），产出的目录带齐目标主机需要的一切 —— field 主机不会看到 base 的工具链、源码树或 `setup.conf`。
@@ -575,6 +575,16 @@ cd <repo>-runtime-<version>
 `restart: unless-stopped` 表示主机重启后容器会自动起来；要停掉请用 `./deploy.sh down`。
 
 **在 field 调整配置（免 rebuild）**：组件在 committed 的 `config/<component>/deploy.manifest`（INI-lite，每个 stage 一个 section，各自列出容器内绝对路径）声明哪些容器内路径允许 field 操作者重新调整。Bundle 会为每个声明的文件附上一份可编辑副本放在 `config/`，解析后的 `compose.yaml` 再把它 bind mount 盖过镜像里 baked 的默认（**mount-wins**）。改完 `config/` 下的文件，重跑 `./deploy.sh up` 即可 —— 挂载的副本胜出，不用 rebuild。**没有**声明的路径维持只有 baked 版本。镜像必须在每个声明的路径都 bake 一份默认文件，否则 deploy 生成阶段会明确报错并给出可行的修法。
+
+这些 bind **默认是只读（`:ro`）**：由操作者在 host 上编辑、容器只负责读。要让容器可写，必须在路径后面明确加上 `rw` flag，让例外变成可 review 的数据而不是一律放行：
+
+```ini
+[runtime]
+/etc/myapp/camera.yaml                  # 只读，默认值
+/var/lib/myapp/calibration.yaml rw      # 这一个容器可以写
+```
+
+路径后面出现其他东西（打错字、多一个 token）一律视为 manifest 格式错误，明确报错并指出文件名与行号 —— 不会静默跳过，也不会静默退回只读。默认不放宽的理由是：「操作者调整某个值」本来就不需要容器写入，而可写的 mount 会悄悄依赖容器 build 时 bake 的 user id 刚好等于在 field 主机解开 bundle 的人：读都没问题，写则会在最要命的那台机器上失败。改成只读后，这件事会在开发阶段就立刻、明显地失败，同时把 user id 的问题限缩在真正声明 `rw` 的那几个路径（见 [#870](https://github.com/ycpss91255-docker/base/issues/870)）。
 
 workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另外会从 field 主机自己的 shell 读 `${DISPLAY}` / `${XAUTHORITY}` 等）；dev 的 workspace bind 刻意舍弃（field 镜像自带代码）。`--group-add` 的 GID（iGPU `/dev/dri`）读自生成主机，换到不同 field 机器可能需调整。
 

@@ -734,6 +734,27 @@ image's baked default (**mount-wins**). Edit a file under `config/` and re-run
 stay baked-only. The image must bake a default file at every declared path,
 else deploy generation fails loud with an actionable message.
 
+Those binds are **read-only by default**: the operator edits on the host, the
+container reads. A path opts into container writes with an explicit `rw` flag,
+so the exception is reviewable data rather than a blanket permission:
+
+```ini
+[runtime]
+/etc/myapp/camera.yaml                  # read-only, the default
+/var/lib/myapp/calibration.yaml rw      # the container may write this one
+```
+
+Anything else after the path (a typo, a second token) is a malformed manifest
+and fails loud naming the file and the line -- never a silent skip, never a
+silent downgrade to read-only. The default is not permissive because nothing
+in "the operator retunes a value" requires the container to write, and a
+writable mount quietly depends on the container's baked-in user id matching
+whoever unpacked the bundle on the field host: reads work either way, writes
+fail on the machine that matters. Read-only turns that into an immediate,
+obvious failure in development instead, and confines the user-id question to
+the paths actually declared `rw` (see
+[#870](https://github.com/ycpss91255-docker/base/issues/870)).
+
 Workload env vars ride as baked `ENV` defaults (a GUI stage additionally reads
 `${DISPLAY}` / `${XAUTHORITY}` etc. from the field host's own shell); the dev
 workspace bind is intentionally dropped (the field image ships its own code).
