@@ -35,6 +35,22 @@ themselves. Regenerate with `just test sync-docs`; validate without writing
 with `just test sync-docs-check`. Never hand-edit a count or hand-add a row --
 see [unit.md](unit.md) for the full contract.
 
+**Where the check is enforced (one rule, three entry points).** All three run
+the same `script/test/check_test_md_drift.sh`; they differ only in when they
+speak and whether they can stop you:
+
+| Entry point | When | Blocking? |
+|-------------|------|-----------|
+| `just test` lint phase (`just test lint --doc-counts`) | every local full gate, and every CI `Self Test` run | **yes** -- this is the gate |
+| `just test sync-docs-check` | on demand | yes, but only if a human runs it |
+| harness repo `.claude/hooks/check_test_md_drift.sh` (PostToolUse) | seconds after the Edit that caused the drift, in an interactive session only | no -- advisory |
+
+The hook duplicates the gate deliberately: its value is latency, not
+authority. It holds no rule of its own, so it cannot drift from the gate, and
+if it is ever removed nothing is lost but the early warning. When the two
+disagree, the lint phase is authoritative -- it is the one that can fail a
+branch.
+
 **Merging a branch into these files:** both sides bump the same generated
 counters, so `doc/test/*.md` conflicts on almost every branch refresh. Do not
 resolve it by hand and do not collapse it with an ad-hoc `awk`: run
