@@ -128,7 +128,10 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/dist/test/bats/smoke" "${root}/doc/test"
     printf "@test \"a\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/s.bats"
-    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." > "${root}/doc/test/smoke.md"
+    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." \
+      "" "### dist/test/bats/smoke/s.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" "| \`a\` | - |" \
+      > "${root}/doc/test/smoke.md"
     _check_test_md_drift "${root}"
   '
   assert_success

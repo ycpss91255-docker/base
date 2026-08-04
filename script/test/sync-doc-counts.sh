@@ -53,6 +53,59 @@ _dir_test_count() {
   printf '%s\n' "${_sum}"
 }
 
+# _doc_spec_glob <doc-basename> -- the root-relative spec glob the named
+# doc/test catalogue covers, or nothing for a doc that is not a per-level
+# catalogue (TEST.md is the index). Single source for "which specs belong in
+# which doc", used by the per-type totals and by the missing-section sweep.
+_doc_spec_glob() {
+  case "$1" in
+    unit.md) printf '%s\n' 'test/bats/unit/**/*_spec.bats' ;;
+    integration.md) printf '%s\n' 'test/bats/integration/**/*_spec.bats' ;;
+    system.md) printf '%s\n' 'test/bats/system/**/*_spec.bats' ;;
+    acceptance.md) printf '%s\n' 'test/bats/acceptance/**/*_spec.bats' ;;
+    smoke.md) printf '%s\n' 'dist/test/bats/smoke/**/*.bats' ;;
+    *) return 0 ;;
+  esac
+}
+
+# _sync_doc_sections <root> <doc> -- append a catalogue section for every spec
+# file <doc>'s level covers but never mentions.
+#
+# Generating the ROWS makes a table complete; it cannot help a spec file that
+# never got a `### <path> (N)` heading in the first place, which is the same
+# rot one level up and just as invisible to a gate that only re-derives what
+# the doc already mentions. So the section is generated too, for the same
+# reason the rows are: the author enriches the prose, nobody has to remember
+# the scaffolding. New sections land at the end of the doc; move one into its
+# thematic group freely, the generator keys on the heading, not the position.
+_sync_doc_sections() {
+  local _root="$1" _doc="$2" _glob
+  [[ -f "${_doc}" ]] || return 0
+  _glob="$(_doc_spec_glob "$(basename -- "${_doc}")")"
+  [[ -n "${_glob}" ]] || return 0
+
+  # An appended heading must start its own line even if the doc did not end
+  # with a newline.
+  [[ -s "${_doc}" && -n "$(tail -c1 "${_doc}")" ]] && printf '\n' >> "${_doc}"
+
+  local _globstar_was_set=0
+  shopt -q globstar && _globstar_was_set=1
+  shopt -s globstar
+  local _f _rel
+  for _f in "${_root}"/${_glob}; do
+    [[ -f "${_f}" ]] || continue
+    _rel="${_f#"${_root}"/}"
+    grep -qE "^#{3,6}[[:space:]]+${_rel//./\\.}[[:space:]]+\([0-9]+\)[[:space:]]*$" \
+      "${_doc}" && continue
+    {
+      printf '\n### %s (0)\n\n' "${_rel}"
+      printf '| Test | Description |\n|------|-------------|\n'
+    } >> "${_doc}"
+  done
+  (( _globstar_was_set )) || shopt -u globstar
+  return 0
+}
+
 # _sync_headings <root> <doc> -- rewrite each `<hashes> <relpath> (N)` heading's
 # N from grep -c '^@test' on <root>/<relpath> (leaving headings whose path does
 # not resolve untouched). Any ATX depth is matched (### and #### and deeper) and
@@ -426,21 +479,16 @@ _sync_test_md_index() {
 _sync_doc_counts() {
   local _root="${1:-${REPO_ROOT:-.}}"
   local _doc
+  local _glob
   for _doc in "${_root}"/doc/test/*.md; do
     [[ -f "${_doc}" ]] || continue
+    _sync_doc_sections "${_root}" "${_doc}"
     _sync_headings "${_root}" "${_doc}"
     _sync_catalog_rows "${_root}" "${_doc}"
+    _glob="$(_doc_spec_glob "$(basename -- "${_doc}")")"
+    [[ -n "${_glob}" ]] || continue
+    _sync_type_total "${_doc}" "$(_dir_test_count "${_root}" "${_glob}")"
   done
-  _sync_type_total "${_root}/doc/test/unit.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
-  _sync_type_total "${_root}/doc/test/integration.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
-  _sync_type_total "${_root}/doc/test/system.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/system/**/*_spec.bats')"
-  _sync_type_total "${_root}/doc/test/acceptance.md" \
-    "$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
-  _sync_type_total "${_root}/doc/test/smoke.md" \
-    "$(_dir_test_count "${_root}" 'dist/test/bats/smoke/**/*.bats')"
   _sync_test_md_index "${_root}"
 }
 
