@@ -898,6 +898,19 @@ SH
   assert_output --partial "localized README sync lint: clean"
 }
 
+@test "main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)" {
+  # Wiring guard: the doc-count drift gate must reach the CI gate, not only
+  # `just test sync-docs-check` and the advisory harness hook. An unwired
+  # tool falls through to the ci_unknown_lint_tool branch, so a passing run
+  # here proves the dispatch case exists.
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL=doc-counts main --ci
+  '
+  assert_success
+  assert_output --partial "doc/test count drift gate: clean"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
