@@ -4,6 +4,12 @@
 # generator that derives the test-count figures in doc/test/*.md from the
 # specs themselves (grep -c '^@test'), so the counts stop being hand-edited
 # every PR. The check_test_md_drift.sh hook remains the validating safety net.
+#
+# Second half of the file covers the per-test CATALOG ROWS (`| Test |
+# Description |` tables): the heading count was generated while the rows next
+# to it were hand-written, so the rows rotted silently under a green gate.
+# The rows are generated too now, and these cases pin the contract --
+# preservation, deletion, rename, ordering, opt-out, escaping.
 
 bats_require_minimum_version 1.5.0
 
@@ -151,4 +157,201 @@ setup() {
   assert_success
   assert_output --partial "System (2) and smoke (1) tests"
   refute_output --partial "System (99)"
+}
+
+
+# ── Per-test catalog rows ────────────────────────────────────────────────────
+#
+# Fixtures build the spec files with printf, never a heredoc: a literal
+# `@test ...` at column 0 anywhere in this file -- heredoc body included --
+# is picked up by bats own preprocessor as a test definition of THIS file.
+
+@test "_sync_catalog_rows: generates a row for every @test the table is missing (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+      "@test \"gamma\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (3)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | first one |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `alpha` | first one |'
+  assert_line '| `beta` | - |'
+  assert_line '| `gamma` | - |'
+}
+
+@test "_sync_catalog_rows: a hand-written description survives regeneration (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (2)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`beta\` | carefully worded prose |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `beta` | carefully worded prose |'
+  assert_line '| `alpha` | - |'
+}
+
+@test "_sync_catalog_rows: the row of a deleted test goes away (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | still here |" \
+      "| \`gone\` | described a test that no longer exists |" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `alpha` | still here |'
+  refute_output --partial 'no longer exists'
+}
+
+@test "_sync_catalog_rows: a renamed test is a delete plus an add, prose does not follow (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha renamed\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | prose written against the old name |" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `alpha renamed` | - |'
+  refute_output --partial 'the old name'
+}
+
+@test "_sync_catalog_rows: rows follow spec file order, not the old table order (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"zulu\" {" ":" "}" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (2)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | second in the spec |" \
+      "| \`zulu\` | first in the spec |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    grep "^| .zulu\|^| .alpha" "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line --index 0 --partial 'zulu'
+  assert_line --index 1 --partial 'alpha'
+}
+
+@test "_sync_catalog_rows: a section without a per-test table is left alone (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (2)" "" \
+      "| Category | Tests |" "|----------|-------|" \
+      "| Everything, summarised by hand | 2 |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| Everything, summarised by hand | 2 |'
+  refute_output --partial 'alpha'
+}
+
+@test "_sync_catalog_rows: a heading whose spec path does not resolve is left alone (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/gone_spec.bats (4)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`historic\` | for a spec no longer in the tree |" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `historic` | for a spec no longer in the tree |'
+}
+
+@test "_sync_catalog_rows: a pipe in a test name is escaped so the table stays well formed (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"forwards -h|--help to usage\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    a=$(cat "${root}/doc/test/unit.md")
+    _sync_doc_counts "${root}"
+    b=$(cat "${root}/doc/test/unit.md")
+    [[ "${a}" == "${b}" ]] || echo NOT-IDEMPOTENT
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `forwards -h\|--help to usage` | - |'
+  refute_output --partial 'NOT-IDEMPOTENT'
+}
+
+@test "_sync_catalog_rows: backslash escapes resolve to the name bats reports (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"escaping \\\\ then \\\" and \\\$X\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (1)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cat "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_line '| `escaping \ then " and $X` | - |'
+}
+
+@test "_sync_catalog_rows: is idempotent on an already-generated catalog (#859)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "### test/bats/unit/x_spec.bats (2)" "" \
+      "| Test | Description |" "|------|-------------|" \
+      "| \`alpha\` | one |" "| \`beta\` | two |" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    a=$(cat "${root}/doc/test/unit.md")
+    _sync_doc_counts "${root}"
+    b=$(cat "${root}/doc/test/unit.md")
+    [[ "${a}" == "${b}" ]] && echo IDEMPOTENT
+  '
+  assert_success
+  assert_output --partial "IDEMPOTENT"
 }
