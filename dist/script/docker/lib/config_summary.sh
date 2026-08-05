@@ -29,6 +29,8 @@ _DOCKER_LIB_CONFIG_SUMMARY_SOURCED=1
 _config_summary_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "${_config_summary_dir}/conf.sh"
+# shellcheck source=dist/script/docker/lib/setup_conf.sh
+source "${_config_summary_dir}/setup_conf.sh"
 # shellcheck disable=SC1091
 source "${_config_summary_dir}/log.sh"
 unset _config_summary_dir
@@ -178,6 +180,17 @@ _print_config_summary() {
   _summary_print "${_tag}" dim  "${_line}"
   _summary_print "${_tag}" bold "$(_lib_msg files)"
   printf "[%s]   setup.conf   : %s\n"   "${_tag}" "${_conf}"
+  # A config layer nobody else can see must not be invisible in the run that
+  # uses it. Printed only when it actually supplies sections, and it names
+  # WHICH -- under section-replace those are precisely the sections whose
+  # committed values this run is not using.
+  local -a _pcs_local=()
+  _setup_conf_local_sections "${_fp}" _pcs_local
+  if (( ${#_pcs_local[@]} > 0 )); then
+    local _pcs_list="${_pcs_local[*]}"
+    printf "[%s]   local override: %s (replaces: %s)\n" \
+      "${_tag}" "${_fp}/.setup.conf.local" "${_pcs_list// /, }"
+  fi
   printf "[%s]   .env         : %s\n"   "${_tag}" "${_fp}/.env"
   printf "[%s]   compose.yaml : %s\n"   "${_tag}" "${_fp}/compose.yaml"
   _summary_print "${_tag}" bold "$(_lib_msg identity)"

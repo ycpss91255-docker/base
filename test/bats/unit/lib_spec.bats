@@ -497,6 +497,41 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
+@test "_print_config_summary names an active .setup.conf.local and its sections (#893)" {
+  # A config layer nobody else can see must never be invisible in the run
+  # that uses it: the summary is the one place the user is told which files
+  # this invocation resolved from.
+  local _fp="${BATS_TEST_TMPDIR}/withlocal"
+  mkdir -p "${_fp}"
+  _write_sample_conf "${_fp}/.setup.conf"
+  printf '[gui]\nmode = off\n[network]\nmode = bridge\n' > "${_fp}/.setup.conf.local"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  assert_output --partial "${_fp}/.setup.conf.local"
+  assert_output --partial "gui, network"
+}
+
+@test "_print_config_summary says nothing about a .setup.conf.local that is absent (#893)" {
+  local _fp="${BATS_TEST_TMPDIR}/nolocal"
+  mkdir -p "${_fp}"
+  _write_sample_conf "${_fp}/.setup.conf"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  refute_output --partial ".setup.conf.local"
+}
+
 @test "_print_config_summary prints Variables block mapping setup.conf placeholders to detected values" {
   # The Identity block already shows resolved user/workspace, but the
   # setup.conf [volumes] dump prints raw `${WS_PATH}` / `${USER_NAME}`
