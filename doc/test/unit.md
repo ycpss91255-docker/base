@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2456 tests**.
+Unit specs under `test/bats/unit/`: **2467 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -332,7 +332,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (90)
+#### test/bats/unit/stage_spec.bats (100)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -408,7 +408,7 @@ space-bearing path rejection (#687).
 | `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
 | `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
 
-### test/bats/unit/tui_flow_spec.bats (105)
+### test/bats/unit/tui_flow_spec.bats (106)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
