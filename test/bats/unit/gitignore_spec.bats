@@ -336,7 +336,7 @@ CONF
   _sync_logging_gitignore "${TMP_DIR}"
   run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
   assert_success
-  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${TMP_DIR}/.gitignore"
+  run grep -xF "# managed by template: [logging] local_path begin (do not remove)" "${TMP_DIR}/.gitignore"
   assert_success
 }
 
