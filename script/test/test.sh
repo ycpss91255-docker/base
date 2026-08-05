@@ -276,6 +276,15 @@ Options:
                           shard. Used by the coverage matrix in
                           self-test.yaml (#615). Codecov merges the
                           per-shard uploads into one project figure.
+  --test-tools-image      Print the local test-tools tag this checkout
+                          resolves (a content hash of
+                          dockerfile/Dockerfile.test-tools) and exit.
+                          TEST_TOOLS_IMAGE, when set, is echoed verbatim.
+  --compose-project-name  Print the compose project name this checkout
+                          resolves (a hash of its absolute path, so two
+                          checkouts sharing a directory basename do not
+                          share a project) and exit. COMPOSE_PROJECT_NAME,
+                          when set, is echoed verbatim.
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -327,6 +336,134 @@ _fix_permissions() {
   fi
 }
 
+# ── Local test-tools tag ─────────────────────────────────────────────────────
+#
+# The local tooling tag used to be the fixed literal `test-tools:local`,
+# written identically by every checkout on the host. Nothing errors when a
+# sibling run rebuilds it: it silently displaces the image a live run is
+# already using, and a coverage pass whose image lost kcov mid-run still
+# reports green. The tag is now keyed to the build inputs, so identical
+# inputs resolve to ONE tag (a build-cache hit, not a rebuild) and any
+# difference resolves to a tag that cannot clobber the other.
+
+# The tooling Dockerfile is the only build input of the test-tools image.
+# The compose service passes `context: .`, but the Dockerfile never reads
+# it: every COPY in it is `COPY --from=<stage>` (bats-src /
+# bats-extensions / lint-tools / kcov-builder) and it has no ADD, so no
+# file of the checkout can reach a layer. Hashing the context would make
+# the tag churn on every unrelated source edit -- defeating the build
+# cache -- while changing nothing about the image. The tool versions
+# (BATS_VERSION / ALPINE_VERSION / KCOV_VERSION, the pinned shellcheck and
+# hadolint release URLs) all live INSIDE this file, so an upgrade does move
+# the tag. What the digest cannot see is upstream drift behind a floating
+# reference (`apk add` package versions, the alpine tag) -- unchanged from
+# the old literal, and not the thing that collides between two concurrent
+# checkouts.
+readonly _TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
+
+# _compute_test_tools_hash <dockerfile> <outvar>
+#
+# sha256 of the WHOLE tooling Dockerfile. Deliberately not the stage-list
+# projection dist/script/docker/lib/stage.sh's _compute_dockerfile_hash
+# takes: that hash answers "did the set of compose services change?" and so
+# must ignore RUN lines, while this one answers "is this the same image?"
+# -- and a RUN line is exactly what dropped kcov out of the image.
+#
+# Empty output if the Dockerfile is missing (caller decides what to do).
+_compute_test_tools_hash() {
+  local _dockerfile="${1:?_compute_test_tools_hash requires <dockerfile>}"
+  local -n _ctth_out="${2:?_compute_test_tools_hash requires <outvar>}"
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _ctth_out=""
+    return 0
+  fi
+  # Redirected stdin (not `sha256sum <file>`) so the PATH never enters the
+  # digest: the same content in two checkouts must produce one tag.
+  _ctth_out="$(sha256sum < "${_dockerfile}" | cut -d' ' -f1)"
+  return 0
+}
+
+# _resolve_test_tools_image [dockerfile]
+#
+# Prints the tag the local test-tools build writes and its consumers read.
+# TEST_TOOLS_IMAGE wins verbatim: CI pins published, version-scoped GHCR
+# tags through it (build-worker / publish-worker / release-test-tools) and
+# self-test.yaml pins `test-tools:local`; the derivation is a LOCAL default
+# only and must never rewrite a caller-pinned value.
+#
+# Fails loud when the Dockerfile is missing rather than falling back to a
+# bare literal that would resolve to whatever another checkout last built
+# -- the same no-silent-fallback rule the shipped wrapper
+# (dist/script/docker/wrapper/build.sh) applies to its version-scoped local
+# tag.
+# shellcheck disable=SC2120  # production callers pass no args; tests pass a dockerfile
+_resolve_test_tools_image() {
+  if [[ -n "${TEST_TOOLS_IMAGE:-}" ]]; then
+    printf '%s\n' "${TEST_TOOLS_IMAGE}"
+    return 0
+  fi
+  local _dockerfile="${1:-${REPO_ROOT}/${_TEST_TOOLS_DOCKERFILE_REL}}"
+  local _hash=""
+  _compute_test_tools_hash "${_dockerfile}" _hash
+  if [[ -z "${_hash}" ]]; then
+    _die ci_test_tools_dockerfile_missing \
+      "cannot derive the local test-tools tag: '${_dockerfile}' is missing (no bare test-tools:local fallback)."
+  fi
+  # 12 hex digits: the tag has to stay readable in `docker images`, and the
+  # collision surface is the handful of checkouts on one host.
+  printf 'test-tools:%s\n' "${_hash:0:12}"
+  return 0
+}
+
+# ── Compose project name ─────────────────────────────────────────────────────
+
+# _compute_compose_project_name <repo_root> <outvar>
+#
+# Compose accepts only `[a-z0-9][a-z0-9_-]*` as a project name, and a
+# checkout path may hold anything -- spaces, uppercase, punctuation,
+# non-ASCII, a leading dot. Sanitising the path TEXT would have to
+# enumerate every such case and would still have to answer what a path that
+# sanitises to nothing becomes; hashing it cannot fail to: the name is the
+# constant prefix plus 12 hex digits, which satisfies the grammar by
+# construction for ANY input path.
+#
+# Keyed to the PATH, not the commit: two worktrees are routinely branched
+# from the same commit, so a commit-keyed name would collide in exactly the
+# concurrent case this exists to separate. The path is also stable across
+# commits, so a checkout keeps one project (and one network) instead of
+# churning a fresh one per commit.
+_compute_compose_project_name() {
+  local _root="${1:?_compute_compose_project_name requires <repo_root>}"
+  local -n _ccpn_out="${2:?_compute_compose_project_name requires <outvar>}"
+  local _hash
+  _hash="$(printf '%s' "${_root}" | sha256sum | cut -d' ' -f1)"
+  # A short/empty digest (sha256sum or cut missing) would degrade to the
+  # bare prefix -- a name EVERY checkout resolves, i.e. the collision this
+  # exists to prevent, reintroduced silently. Fail loud instead.
+  if [[ ! "${_hash}" =~ ^[0-9a-f]{12} ]]; then
+    _die ci_project_name_digest_failed \
+      "cannot derive a compose project name for '${_root}': sha256sum produced no usable digest."
+  fi
+  _ccpn_out="base-${_hash:0:12}"
+  return 0
+}
+
+# _resolve_compose_project_name
+#
+# Prints the project name `_run_via_compose` passes to `docker compose -p`.
+# COMPOSE_PROJECT_NAME wins verbatim so CI can key the project to its run
+# id; the derivation is a local default only.
+_resolve_compose_project_name() {
+  if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    printf '%s\n' "${COMPOSE_PROJECT_NAME}"
+    return 0
+  fi
+  local _name=""
+  _compute_compose_project_name "${REPO_ROOT}" _name
+  printf '%s\n' "${_name}"
+  return 0
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -352,9 +489,20 @@ _run_via_compose() {
   # LINT_ONLY=1 runs the linters and returns; LINT_TOOL narrows to one
   # ('shellcheck' | 'hadolint'), empty = all. hadolint has no host binary,
   # so even shellcheck-via-lint runs in-container for behaviour parity.
+  #
+  # `-p` is explicit. Without it compose falls back to the project
+  # directory's BASENAME, so two checkouts whose directories happen to share
+  # a name silently share one project -- one set of containers, one network.
+  # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
-  docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
+  # Resolved into a local first, not inline in the argument list: a failing
+  # command substitution inside an argument does not abort the command, so
+  # an inline form would hand compose an empty -p and let the run continue.
+  local _project
+  _project="$(_resolve_compose_project_name)"
+  docker compose -p "${_project}" \
+    -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
@@ -425,6 +573,13 @@ main() {
       --coverage) mode="coverage"; shift ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --system) system=1; shift ;;
+      # Name-resolution primitives. They print one line and stop -- the
+      # `just test system` recipe reads them so that the build-only
+      # test-tools service and the ci-system consumer resolve the SAME tag
+      # (a mismatch there is silent: the consumer would quietly pull the
+      # published image while the local build sat unused).
+      --test-tools-image) _resolve_test_tools_image; return 0 ;;
+      --compose-project-name) _resolve_compose_project_name; return 0 ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
