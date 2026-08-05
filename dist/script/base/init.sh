@@ -31,7 +31,7 @@ fi
 # subtree root regardless of how deep the script is nested. The subtree
 # prefix is its basename, used DIRECTLY as the symlink-target prefix below,
 # so a downstream rename still works without code changes.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
 TEMPLATE_DIR="${SCRIPT_DIR}"
 while [[ "${TEMPLATE_DIR}" != "/" ]]; do

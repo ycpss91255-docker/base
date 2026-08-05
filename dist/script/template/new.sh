@@ -18,7 +18,7 @@ set -euo pipefail
 # are still English-only pending the localized-message pass. Located
 # relative to this script's real path so it resolves through the consumer
 # symlink into .base/dist/script/template/new.sh.
-_new_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_new_self="$(readlink -f -- "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 # shellcheck source=dist/script/docker/lib/i18n.sh
 source "$(dirname -- "${_new_self}")/../docker/lib/i18n.sh"
 unset _new_self
@@ -72,7 +72,7 @@ main() {
   fi
 
   local self_dir skel dest reg line
-  self_dir="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)"
+  self_dir="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" && pwd -P)"
   skel="${self_dir}/skel"
   dest="script/local/${name}"
   reg="script/local/justfile.local"

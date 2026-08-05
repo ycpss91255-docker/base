@@ -26,7 +26,7 @@ fi
 _DOCKER_LIB_CONFIG_SUMMARY_SOURCED=1
 
 # Pull in _dump_conf_section + _log_color_enabled. Idempotent — each has its own guard.
-_config_summary_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_config_summary_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "${_config_summary_dir}/conf.sh"
 # shellcheck disable=SC1091

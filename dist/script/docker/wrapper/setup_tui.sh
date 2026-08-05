@@ -14,12 +14,21 @@
 #
 # Style: Google Shell Style Guide.
 
-set -euo pipefail
+# Only set strict mode when running directly; when sourced, respect caller's
+# settings. Leaving nounset on for the caller is what made this file
+# unsourceable under the kcov-instrumented shell: kcov's PS4 expands
+# ${BASH_SOURCE}, which is empty at the top level of a `bash -c` string, so
+# the caller's next command aborted inside the instrumentation. Every
+# sibling sourceable script (setup.sh, init.sh, test.sh, ...) already
+# gates it this way.
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
 # FILE_PATH detection covers root-symlink, script/-subfolder
 # and direct invocation — see build.sh for the heuristic.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
@@ -30,7 +39,7 @@ fi
 unset _FILE_PATH_INVOKE_DIR
 readonly FILE_PATH
 
-_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
 _TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
 _TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"

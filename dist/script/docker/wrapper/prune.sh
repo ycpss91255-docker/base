@@ -25,7 +25,7 @@ set -euo pipefail
 # and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
 # locator rationale. (Also unifies prune's stale flat `_lib.sh` fallback
 # onto the `lib/_lib.sh` path.)
-_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 for _bootstrap_cand in \
   "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
   "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \

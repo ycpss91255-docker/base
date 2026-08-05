@@ -40,7 +40,7 @@
 # dist/test/bats/smoke/**). An unusable scan root -- missing, no doc/test/,
 # no specs -- is an error there rather than a vacuous pass here.
 
-_DOC_COUNTS_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_DOC_COUNTS_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _DOC_COUNTS_DRIVER_DIR
 
 # shellcheck source=script/test/check_test_md_drift.sh

@@ -27,7 +27,7 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-_CHECK_DRIFT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_CHECK_DRIFT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
 # Reuse the generator as the single source of truth: rather than re-implement
 # the count parsing (and risk the validator and generator disagreeing), run

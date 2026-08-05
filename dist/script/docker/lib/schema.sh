@@ -23,7 +23,7 @@ if [[ -n "${_DOCKER_SCHEMA_SOURCED:-}" ]]; then
 fi
 _DOCKER_SCHEMA_SOURCED=1
 
-_schema_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_schema_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/_tui_conf.sh
 source "${_schema_dir}/_tui_conf.sh"
 unset _schema_dir

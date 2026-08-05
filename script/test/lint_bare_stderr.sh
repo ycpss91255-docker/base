@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+repo_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)}"
 
 # Files excluded entirely (log.sh itself, i18n, entrypoint, TUI).
 _is_excluded_file() {

@@ -46,7 +46,7 @@
 # roots must exist and at least one translation must be found: an empty scan
 # would pass vacuously and silently disable the guard.
 
-_README_SYNC_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_README_SYNC_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _README_SYNC_DRIVER_DIR
 
 # shellcheck source=script/test/sync-readme-hashes.sh

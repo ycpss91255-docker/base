@@ -135,11 +135,20 @@ printf 'LOADED\n'"
 
 # _load_without_bash_source <file> -- run <file>'s text in a fresh bash
 # where BASH_SOURCE does NOT describe it, with $0 pointing at the real
-# path, under the strict mode a caller would have set. `eval` pushes no
-# source frame, so this reproduces "the code runs, BASH_SOURCE is empty"
-# with no instrumented shell required.
+# path. `eval` pushes no source frame, so this reproduces "the code runs,
+# BASH_SOURCE is empty" with no instrumented shell required.
+#
+# errexit but deliberately NOT nounset: kcov drives its counter from
+# xtrace with a PS4 that expands ${BASH_SOURCE}, so nounset at the top
+# level of ANY `bash -c` string aborts inside the instrumentation before
+# reaching the subject -- the harness cannot host that combination, and a
+# test that demanded it would be untestable under coverage rather than
+# informative. Nounset is not needed to see the defect: with the read
+# undefaulted the self-location resolves to the CWD instead, every sibling
+# `source` below it misses, and errexit turns that into the failure this
+# asserts.
 _load_without_bash_source() {
-  bash -c 'set -uo pipefail
+  bash -c 'set -eo pipefail
 _text="$(cat -- "$0")"
 eval "${_text}"
 printf "LOADED\n"' "${1}"
@@ -154,6 +163,7 @@ printf "LOADED\n"' "${1}"
   assert_success
   [ "${output}" = "LOADED" ]
   [[ "${stderr}" != *"unbound variable"* ]] || fail "stderr: ${stderr}"
+  [[ "${stderr}" != *"No such file"* ]] || fail "stderr: ${stderr}"
 }
 
 @test "self-location: the TUI wrapper loads with BASH_SOURCE unpopulated (#869)" {
@@ -162,6 +172,7 @@ printf "LOADED\n"' "${1}"
   assert_success
   [ "${output}" = "LOADED" ]
   [[ "${stderr}" != *"unbound variable"* ]] || fail "stderr: ${stderr}"
+  [[ "${stderr}" != *"No such file"* ]] || fail "stderr: ${stderr}"
 }
 
 @test "self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)" {
@@ -170,6 +181,7 @@ printf "LOADED\n"' "${1}"
   assert_success
   [ "${output}" = "LOADED" ]
   [[ "${stderr}" != *"unbound variable"* ]] || fail "stderr: ${stderr}"
+  [[ "${stderr}" != *"No such file"* ]] || fail "stderr: ${stderr}"
 }
 
 @test "self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)" {
@@ -177,6 +189,7 @@ printf "LOADED\n"' "${1}"
   assert_success
   [ "${output}" = "LOADED" ]
   [[ "${stderr}" != *"unbound variable"* ]] || fail "stderr: ${stderr}"
+  [[ "${stderr}" != *"No such file"* ]] || fail "stderr: ${stderr}"
 }
 
 @test "self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)" {
@@ -194,5 +207,7 @@ printf "LOADED\n"' "${1}"
       || fail "${_f#"${SRC}/"}: ${output} ${stderr}"
     [[ "${stderr}" != *"unbound variable"* ]] \
       || fail "${_f#"${SRC}/"}: ${stderr}"
+    [[ "${stderr}" != *"No such file"* ]] \
+      || fail "${_f#"${SRC}/"} resolved its siblings against the wrong dir: ${stderr}"
   done
 }
