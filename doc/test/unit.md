@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2426 tests**.
+Unit specs under `test/bats/unit/`: **2513 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -163,7 +163,7 @@ match real transcript lines and the 5 levels via `grep -P`).
 | Every declared sample matches the pattern | 1 |
 | `log.lnav-format.json` (JSON) still coexists unchanged | 1 |
 
-### test/bats/unit/schema_spec.bats (26)
+### test/bats/unit/schema_spec.bats (30)
 
 Covers the setup.conf validation registry (`lib/schema.sh`, #560): the
 single `_schema_validate <section> <key> <value>` gate that both
@@ -206,9 +206,13 @@ registered keys derived from `SCHEMA_VALIDATOR`).
 | `_schema_section_keys returns scalar+list keys for build (#561)` | keys by prefix (#561) |
 | `_schema_section_keys returns all logging keys (#561, #606)` | keys by prefix (#561) |
 | `_schema_section_keys returns deploy keys incl. legacy alias (#561)` | keys incl. runtime alias (#561) |
-| `_schema_section_keys is empty for a free-form-only section (image) (#561)` | empty for no-validator section (#561) |
+| `_schema_section_keys returns the rule_ list key for image (#561, #876)` | - |
+| `_schema_validate gates gui.mode the way the --gui flag does (#876)` | - |
+| `_schema_validate gates the [deploy] keys the resolver reads (#876)` | - |
+| `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
+| `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/schema_coverage_spec.bats (8)
+### test/bats/unit/schema_coverage_spec.bats (11)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry
 must stay internally consistent and in sync with the `setup.conf`
@@ -228,6 +232,9 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
+| `every shipped setup.conf key is registered or an explicit free-form opt-out (#876)` | - |
+| `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
+| `no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)` | - |
 
 ### setup.sh-derived unit specs (386, mirroring source libs)
 
@@ -325,7 +332,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (84)
+#### test/bats/unit/stage_spec.bats (100)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -341,7 +348,13 @@ ADR-00000023 sec.4 stage-eligibility predicate
 (`deployable = not devel and not *-test`, widened in #841 to the whole
 template-managed baseline incl. the `sys` / `devel-base` build
 intermediates) that both the deploy-scoped `[lifecycle] restart`
-emission and the `setup deploy` stage guard gate on.
+emission and the `setup deploy` stage guard gate on. Also carries the
+#875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+"which line declares stage `<S>`" matcher: instead of testing each
+reader against its own regex — the shape that let three regexes drift
+apart until a `FROM --platform=... AS <stage>` line was a stage to one
+call site and invisible to the others — it drives every call site off a
+single FROM line and asserts one verdict per site.
 
 ### test/bats/unit/tui_spec.bats (132)
 
@@ -401,7 +414,7 @@ space-bearing path rejection (#687).
 | `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
 | `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
 
-### test/bats/unit/tui_flow_spec.bats (105)
+### test/bats/unit/tui_flow_spec.bats (106)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
@@ -1419,7 +1432,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (81)
+### test/bats/unit/compose_emit/gen_spec.bats (87)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1491,6 +1504,12 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)` | #582 mount target |
 | `generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)` | #582 env sync |
 | `generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR env (Wayland socket dir)` | - |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR mounted rw at the same path` | - |
+| `generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount` | - |
+| `generate_compose_yaml emits no duplicate key within a service (GUI on)` | - |
+| `generate_compose_yaml emits no duplicate key within a service (GUI off)` | - |
+| `the duplicate-key detector actually fires on a duplicated service key` | - |
 | `generate_compose_yaml extra volumes appended after baseline` | volumes list |
 | `generate_compose_yaml empty extras => no extra mount lines` | empty list |
 | `generate_compose_yaml with GUI+GPU+extras => all sections present` | fully loaded |
@@ -1533,7 +1552,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (45)
+### test/bats/unit/deploy_spec.bats (46)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1599,6 +1618,7 @@ refused before any build or bundle step.
 | `_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)` | stage eligibility (*-test) |
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
+| `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
 
 ### test/bats/unit/deploy_hint_spec.bats (5)
 
@@ -1941,12 +1961,13 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (70)
+### test/bats/unit/ci_spec.bats (71)
 
 | Test | Description |
 |------|-------------|
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
+| `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
@@ -2198,7 +2219,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (49)
+### test/bats/unit/init_spec.bats (52)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2258,8 +2279,11 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_call_setup: returns 0 on a setup.sh that succeeds (#692)` | #692 happy path no-noise |
 | `_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)` | - |
 | `_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)` | - |
+| `_error: carries a registered event id under LOG_FORMAT=json (#876)` | - |
+| `_error: text output is framed like every other init record (#876)` | - |
+| `_error: the human message rides the display attribute (#876)` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (19)
+### test/bats/unit/smoke_helper_spec.bats (28)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -2286,6 +2310,15 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `assert_pip_pkg passes when pip show returns 0` | Package installed |
 | `assert_pip_pkg fails when pip show returns non-zero` | Package missing |
 | `assert_pip_pkg fails when pip is not installed` | pip itself missing |
+| `run_wrapper_xhost: wayland session grants +SI:localuser to the .env user` | - |
+| `run_wrapper_xhost: x11 session grants +local:` | - |
+| `run_wrapper_xhost: an unset XDG_SESSION_TYPE falls back to the X11 grant` | - |
+| `run_wrapper_xhost: reports every xhost call, one per line` | - |
+| `run_wrapper_xhost: fails loudly when the wrapper makes no xhost call` | - |
+| `run_wrapper_xhost: fails when the wrapper exits non-zero` | - |
+| `run_wrapper_xhost: fails when the wrapper path does not exist` | - |
+| `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | - |
+| `run_wrapper_xhost: errors when the wrapper path arg is missing` | - |
 
 ### test/bats/unit/runtime_smoke_spec.bats (8)
 
@@ -2488,7 +2521,7 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (29)
+### test/bats/unit/gitignore_spec.bats (39)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -2524,6 +2557,16 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)` | - |
 | `_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)` | - |
 | `_sync_logging_gitignore preserves user entries outside managed block (#402, ex-#390)` | - |
+| `_sync_logging_gitignore: emits an explicit end marker bounding the block (#876)` | - |
+| `_sync_logging_gitignore: preserves a user entry BELOW the managed block (#876)` | - |
+| `_sync_logging_gitignore: user entry below the block survives a value change (#876)` | - |
+| `_sync_logging_gitignore: an unterminated managed block is an error (#876)` | - |
+| `_sync_logging_gitignore: an end marker with no begin marker is an error (#876)` | - |
+| `_sync_logging_gitignore: migrates a legacy begin-marker-only block (#876)` | - |
+| `_sync_logging_gitignore: legacy migration keeps a following canonical entry (#876)` | - |
+| `_sync_logging_gitignore: legacy migration reports orphaned entries (#876)` | - |
+| `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
+| `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -2734,20 +2777,50 @@ REAL shipped tree.
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (20)
+### test/bats/unit/cd_guard_spec.bats (7)
 
-Unit coverage for `script/test/drivers/derived_figures.sh` -- the lint that
-pins the two figures documents kept repeating wrongly against the code that
-defines them. The baseline stage blocklist is derived from
-`_validate_stage_name`'s own `return 2` case arms and each extracted name is
-probed back through the predicate, so a bad extraction fails loudly instead of
-pinning prose to a wrong set; `devel-test` is deliberately absent because the
-predicate emits it as the `test` service. The setup.conf overview's section
-count AND ordered list are derived from `SCHEMA_SECTIONS`. Detection covers
-sets wrapped across markdown lines and across an escaped `\n` inside a shell
-string (both live drift shapes), ignores `${VAR}` expansions and non-baseline
-brace sets, fails loudly on a missing scan surface instead of passing
-vacuously, and a final case drives the REAL tree.
+Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
+(ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
+sits on a tag, so an automated field bundle is always traceable to a
+released version. Four `mktemp` git fixtures drive the real script and
+assert exit status **and** the specific refusal message — a status-only
+check passes with the conditions inverted (dirty reported as untagged and
+vice versa). Pure git + filesystem, no docker.
+
+| Test | Description |
+|------|-------------|
+| `cd-guard: ships executable, so the documented ./.base/... invocation works` | - |
+| `cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')` | - |
+| `cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')` | - |
+| `cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')` | - |
+| `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | - |
+| `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
+| `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
+
+### test/bats/unit/bash_source_guard_lint_spec.bats (18)
+
+| Test | Description |
+|------|-------------|
+| `_run_bash_source_guard: FAILS on a bare indexed read, naming file and line (#869)` | - |
+| `_run_bash_source_guard: FAILS on a suffix-stripped read (${BASH_SOURCE[0]%/*}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a caller-frame read (${BASH_SOURCE[1]}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a subscript-less read (${BASH_SOURCE}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read in base's own tooling tree, not just dist/ (#869)` | - |
+| `_run_bash_source_guard: names the default form in the failure message (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read AFTER an allow-end (region does not leak) (#869)` | - |
+| `_run_bash_source_guard: FAILS on an unterminated allow-begin region (#869)` | - |
+| `_run_bash_source_guard: FAILS on an allow-end with no matching allow-begin (#869)` | - |
+| `_run_bash_source_guard: PASSES the $0-defaulted read (#869)` | - |
+| `_run_bash_source_guard: PASSES the empty-defaulted sourced-vs-executed guard (#869)` | - |
+| `_run_bash_source_guard: PASSES a defaulted higher frame (${BASH_SOURCE[2]:-unknown}) (#869)` | - |
+| `_run_bash_source_guard: PASSES whole-array expansions, which nounset tolerates (#869)` | - |
+| `_run_bash_source_guard: PASSES a comment that merely names the array (#869)` | - |
+| `_run_bash_source_guard: EXEMPTS a read inside an allow-begin/allow-end region (#869)` | - |
+| `_run_bash_source_guard: ignores non-.sh files and files outside the scanned trees (#869)` | - |
+| `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
+| `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
+
+### test/bats/unit/derived_figures_lint_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -2771,3 +2844,16 @@ vacuously, and a final case drives the REAL tree.
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
+
+### test/bats/unit/sourceable_scripts_spec.bats (8)
+
+| Test | Description |
+|------|-------------|
+| `sourceable scripts: the discovered set is non-empty and covers the known entry points (#869)` | - |
+| `sourceable scripts: none leaves nounset or errexit on in its caller (#869)` | - |
+| `sourceable scripts: each loads and returns control to the caller (#869)` | - |
+| `self-location: the lib umbrella loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the TUI wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)` | - |

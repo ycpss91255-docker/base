@@ -758,6 +758,8 @@ setup() {
   # The hardcoded-home-path lint joined the same matrix: it reads the
   # shipped image tree, so a plain runner can call it host-direct too.
   assert_output --partial '- home-literal'
+  # Same for the unguarded-BASH_SOURCE lint: pure bash over dist/ + script/.
+  assert_output --partial '- bash-source-guard'
   assert_output --partial './script/test/test.sh'
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
@@ -828,10 +830,11 @@ setup() {
   # assert nothing at all, which is the exact failure mode this test
   # exists to prevent. Pin both the size and the four lints this issue
   # wired.
-  [ "${#_tools[@]}" -ge 8 ] \
+  [ "${#_tools[@]}" -ge 9 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
-  for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal; do
+  for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal \
+    bash-source-guard; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

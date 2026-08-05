@@ -120,3 +120,112 @@ assert_pip_pkg() {
       | fail
   fi
 }
+
+# ── Wrapper drivers ─────────────────────────────────────────────────────────
+
+# Drive a real wrapper script through `--dry-run` with a logging `xhost` shim
+# first on PATH, and print the argument list of every `xhost` call it made
+# (one invocation per line).
+#
+# Usage: run_wrapper_xhost <wrapper_path> [NAME=VALUE ...]
+#
+#   run run_wrapper_xhost /lint/run.sh XDG_SESSION_TYPE=wayland
+#   assert_success
+#   assert_output --partial '+SI:localuser:smokeuser'
+#
+# Why a driver and not a grep: the host-ACL branch is four lines of run.sh
+# that decide whether a GUI container can reach the display at all. A spec
+# that re-states those four lines inline and asserts its own copy stays green
+# when the real branch is deleted or inverted, so it tests nothing. This
+# executes the shipped wrapper.
+#
+# How it reaches the branch without docker: the ACL grant happens before any
+# daemon contact, and `--dry-run` short-circuits every step that needs one.
+# The sandbox is a directory holding a symlink to the wrapper plus a symlink
+# to its lib/ chain and a minimal `.env.generated`; the wrapper resolves
+# FILE_PATH from its invocation directory, finds no `.base/` and no
+# `.setup.conf` there, and therefore skips the whole setup/drift lifecycle.
+#
+# Fails (rather than printing an empty list) when the wrapper exits non-zero
+# or never calls xhost at all -- otherwise a wrapper that died early, or one
+# with the branch deleted, would satisfy every `refute_output` assertion.
+run_wrapper_xhost() {
+  local _wrapper="${1:?run_wrapper_xhost: missing wrapper path}"; shift
+  if [[ ! -f "${_wrapper}" ]]; then
+    batslib_print_kv_single 10 "wrapper" "${_wrapper}" \
+      | batslib_decorate "wrapper script does not exist" \
+      | fail
+    return 1
+  fi
+
+  # Locate the wrapper's lib/ the way its own bootstrap preamble does:
+  # `<dir>/../lib` in the source / .base layout, `<dir>/lib` in the flat
+  # /lint layout the devel-test stage builds.
+  local _real _wdir _libdir="" _cand
+  _real="$(readlink -f -- "${_wrapper}" 2>/dev/null || printf '%s' "${_wrapper}")"
+  _wdir="$(cd -- "$(dirname -- "${_real}")" && pwd -P)"
+  for _cand in "${_wdir}/../lib" "${_wdir}/lib"; do
+    if [[ -f "${_cand}/bootstrap.sh" ]]; then
+      _libdir="$(cd -- "${_cand}" && pwd -P)"
+      break
+    fi
+  done
+  if [[ -z "${_libdir}" ]]; then
+    batslib_print_kv_single 10 "wrapper" "${_wrapper}" \
+      | batslib_decorate "cannot locate the wrapper's lib/ directory" \
+      | fail
+    return 1
+  fi
+
+  local _root _sandbox _bin _log
+  _root="${BATS_TEST_TMPDIR:-/tmp}"
+  _sandbox="$(mktemp -d "${_root}/wrapper-xhost.XXXXXX")"
+  _bin="${_sandbox}/bin"
+  _log="${_sandbox}/xhost.log"
+  mkdir -p "${_bin}"
+
+  ln -s "${_real}" "${_sandbox}/run.sh"
+  ln -s "${_libdir}" "${_sandbox}/lib"
+
+  # Minimal derived env. USER_NAME is what the Wayland grant interpolates,
+  # so it is deliberately distinctive: a hard-coded `+SI:localuser:` suffix
+  # in the wrapper would not match it.
+  {
+    printf 'USER_NAME=smokeuser\n'
+    printf 'IMAGE_NAME=smokeimage\n'
+    printf 'DOCKER_HUB_USER=smokeowner\n'
+  } > "${_sandbox}/.env.generated"
+
+  cat > "${_bin}/xhost" <<SHIM
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${_log}"
+SHIM
+  chmod +x "${_bin}/xhost"
+  : > "${_log}"
+
+  # env -u first so an unset-XDG_SESSION_TYPE case is genuinely unset even
+  # when the build environment exports one; caller assignments follow and win.
+  local _status=0
+  env -u XDG_SESSION_TYPE \
+    PATH="${_bin}:${PATH}" \
+    QUIET=1 \
+    "$@" \
+    bash "${_sandbox}/run.sh" --dry-run >/dev/null 2>&1 || _status=$?
+
+  if (( _status != 0 )); then
+    batslib_print_kv_single_or_multi 10 \
+      "wrapper" "${_wrapper}" \
+      "status"  "${_status}" \
+      | batslib_decorate "wrapper exited non-zero under --dry-run" \
+      | fail
+    return 1
+  fi
+  if [[ ! -s "${_log}" ]]; then
+    batslib_print_kv_single 10 "wrapper" "${_wrapper}" \
+      | batslib_decorate "wrapper made no xhost call at all" \
+      | fail
+    return 1
+  fi
+
+  cat "${_log}"
+}

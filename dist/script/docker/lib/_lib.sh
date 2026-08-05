@@ -15,7 +15,7 @@ if [[ -n "${_DOCKER_LIB_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_SOURCED=1
 
-_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
 # shellcheck disable=SC1091
 source "${_lib_dir}/i18n.sh"

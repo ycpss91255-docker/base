@@ -25,7 +25,7 @@ set -euo pipefail
 # English-only pending the localized pass. Located relative to this
 # script's real path so it resolves through the consumer symlink into
 # .base/dist/script/base/completions.sh.
-_completions_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_completions_self="$(readlink -f -- "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 # shellcheck source=dist/script/docker/lib/i18n.sh
 source "$(dirname -- "${_completions_self}")/../docker/lib/i18n.sh"
 unset _completions_self

@@ -177,3 +177,88 @@ teardown() {
   assert_output --partial "command not found on PATH"
   assert_output --partial "pip"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# run_wrapper_xhost
+#
+# The shipped smoke spec dist/test/bats/smoke/devel-test/display_env.bats
+# calls this against /lint/run.sh, which only exists inside a downstream
+# `-test` image. Driving the same helper against the wrapper at its source
+# path puts the real xhost branch under base's own gate, so a deletion or
+# an inversion goes red here and not only in a consumer's build.
+# ════════════════════════════════════════════════════════════════════
+
+_WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
+
+@test "run_wrapper_xhost: wayland session grants +SI:localuser to the .env user" {
+  run run_wrapper_xhost "${_WRAPPER_UNDER_TEST}" XDG_SESSION_TYPE=wayland
+  assert_success
+  assert_output "+SI:localuser:smokeuser"
+}
+
+@test "run_wrapper_xhost: x11 session grants +local:" {
+  run run_wrapper_xhost "${_WRAPPER_UNDER_TEST}" XDG_SESSION_TYPE=x11
+  assert_success
+  assert_output "+local:"
+}
+
+@test "run_wrapper_xhost: an unset XDG_SESSION_TYPE falls back to the X11 grant" {
+  # env -u inside the helper, so this holds even when the CI container
+  # exports a session type of its own.
+  run run_wrapper_xhost "${_WRAPPER_UNDER_TEST}"
+  assert_success
+  assert_output "+local:"
+}
+
+@test "run_wrapper_xhost: reports every xhost call, one per line" {
+  # The count is what makes 'exactly one host ACL per invocation' assertable
+  # downstream; a helper that collapsed or deduplicated calls would hide a
+  # both-branches regression.
+  run run_wrapper_xhost "${_WRAPPER_UNDER_TEST}" XDG_SESSION_TYPE=wayland
+  assert_success
+  assert_equal "${#lines[@]}" 1
+}
+
+@test "run_wrapper_xhost: fails loudly when the wrapper makes no xhost call" {
+  # Without this guard an empty capture would satisfy every refute_output
+  # assertion in the shipped spec, so deleting the branch would read green.
+  local _w="${TEMP_DIR}/wrapper"
+  mkdir -p "${_w}" "${TEMP_DIR}/lib"
+  : > "${TEMP_DIR}/lib/bootstrap.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${_w}/run.sh"
+  run run_wrapper_xhost "${_w}/run.sh"
+  assert_failure
+  assert_output --partial "wrapper made no xhost call at all"
+}
+
+@test "run_wrapper_xhost: fails when the wrapper exits non-zero" {
+  local _w="${TEMP_DIR}/wrapper"
+  mkdir -p "${_w}" "${TEMP_DIR}/lib"
+  : > "${TEMP_DIR}/lib/bootstrap.sh"
+  printf '#!/usr/bin/env bash\nexit 3\n' > "${_w}/run.sh"
+  run run_wrapper_xhost "${_w}/run.sh"
+  assert_failure
+  assert_output --partial "wrapper exited non-zero"
+  assert_output --partial "3"
+}
+
+@test "run_wrapper_xhost: fails when the wrapper path does not exist" {
+  run run_wrapper_xhost "${TEMP_DIR}/no_such_wrapper.sh"
+  assert_failure
+  assert_output --partial "wrapper script does not exist"
+}
+
+@test "run_wrapper_xhost: fails when the wrapper's lib/ cannot be located" {
+  local _w="${TEMP_DIR}/orphan"
+  mkdir -p "${_w}"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${_w}/run.sh"
+  run run_wrapper_xhost "${_w}/run.sh"
+  assert_failure
+  assert_output --partial "cannot locate the wrapper's lib/ directory"
+}
+
+@test "run_wrapper_xhost: errors when the wrapper path arg is missing" {
+  run run_wrapper_xhost
+  assert_failure
+  assert_output --partial "missing wrapper path"
+}

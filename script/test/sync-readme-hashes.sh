@@ -242,7 +242,7 @@ _readme_sections() {
     fi
     _head="${_lines[${_hidx[_j]}]%%+([[:space:]])}"
     _body=()
-    for (( _k = ${_hidx[_j]} + 1; _k <= _end; _k++ )); do
+    for (( _k = _hidx[_j] + 1; _k <= _end; _k++ )); do
       _bline="${_lines[_k]%%+([[:space:]])}"
       [[ "${_bline}" =~ ${_README_SYNC_MARKER_RE} ]] && continue
       [[ "${_bline}" =~ ${_README_SYNC_SKIP_RE} ]] && continue
@@ -257,7 +257,7 @@ _readme_sections() {
     _hash="$(printf '%s\n' "${_head}" "${_body[@]}" \
       | sha256sum | cut -c "1-${_README_SYNC_HASH_LEN}")"
     printf '%s\t%s\t%s\n' \
-      "$(( ${_hidx[_j]} + 1 ))" "${_hash}" "${_hslug[_j]}"
+      "$(( _hidx[_j] + 1 ))" "${_hash}" "${_hslug[_j]}"
   done
 
   [[ "${_extglob_was_set}" -eq 1 ]] || shopt -u extglob

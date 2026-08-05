@@ -18,8 +18,8 @@
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
-#                             # / --doc-counts-only / --home-literal-only
-#                             # / --derived-figures-only.
+#                             # / --doc-counts-only / --home-literal-only /
+#                             # --bash-source-guard-only / --derived-figures-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -56,7 +56,7 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
@@ -94,6 +94,8 @@ source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 # shellcheck source=script/test/drivers/home_literal.sh
 source "${SCRIPT_DIR}/drivers/home_literal.sh"
+# shellcheck source=script/test/drivers/bash_source_guard.sh
+source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 # shellcheck source=script/test/drivers/derived_figures.sh
 source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 
@@ -120,6 +122,7 @@ readonly _LINT_TOOLS=(
   readme-sync
   doc-counts
   home-literal
+  bash-source-guard
   derived-figures
 )
 
@@ -142,6 +145,7 @@ _run_lint_tool() {
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
     home-literal)     _run_home_literal ;;
+    bash-source-guard) _run_bash_source_guard ;;
     derived-figures)  _run_derived_figures ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
@@ -205,6 +209,11 @@ Options:
                           dist/ or dockerfile/ -- the container user is a
                           BUILD arg, so a literal breaks under a different
                           USER_NAME; bake artifacts at /opt, ADR-00000024)
+  --bash-source-guard     With --lint: run only the unguarded BASH_SOURCE
+                          read lint (a self-locating read under dist/ or
+                          script/ must default to $0; undefaulted it aborts
+                          under the script's own nounset wherever bash does
+                          not populate the array, e.g. the kcov shard)
   --derived-figures       With --lint: run only the derived-figure lint (a
                           figure a document repeats must match the code
                           that defines it -- the baseline stage blocklist
@@ -229,6 +238,7 @@ Options:
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
                             --home-literal-only      pure bash
+                            --bash-source-guard-only pure bash
                             --derived-figures-only   pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
@@ -283,10 +293,12 @@ Examples:
   just test lint --readme-sync    # Localized README sync lint only
   just test lint --doc-counts     # doc/test count drift gate only
   just test lint --home-literal   # hardcoded home path lint only
+  just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
+  ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
@@ -392,6 +404,7 @@ main() {
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --home-literal) lint_tool="home-literal"; shift ;;
+      --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
@@ -400,6 +413,7 @@ main() {
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
       --home-literal-only) host_lint="home-literal"; shift ;;
+      --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -427,8 +441,8 @@ main() {
   # `--issueref-only`, `--adr-numbering-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`,
-  # `--derived-figures-only`) short-circuit before any
-  # mode dispatch and run
+  # `--bash-source-guard-only`, `--derived-figures-only`) short-circuit
+  # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain
   # ubuntu-latest runner calls one of these per lint-static matrix entry,

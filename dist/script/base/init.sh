@@ -31,7 +31,7 @@ fi
 # subtree root regardless of how deep the script is nested. The subtree
 # prefix is its basename, used DIRECTLY as the symlink-target prefix below,
 # so a downstream rename still works without code changes.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
 TEMPLATE_DIR="${SCRIPT_DIR}"
 while [[ "${TEMPLATE_DIR}" != "/" ]]; do
@@ -671,7 +671,14 @@ _call_setup() {
   fi
 }
 
-_error() { _log_err init "$*"; exit 1; }
+# _error <message>
+#
+# The shared fatal path. _log_* takes a REGISTERED EVENT ID as its
+# second argument and the human text as a display= attribute -- passing
+# the message positionally made every init.sh failure print the logger's
+# own unregistered-body complaint instead of the error. Same shape as
+# upgrade.sh's sibling.
+_error() { _log_err init init_failed "display=$*"; exit 1; }
 
 # ── just runner host preflight ───────────────────────────────────────
 #

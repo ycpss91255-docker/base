@@ -30,7 +30,8 @@ if [[ -n "${_DOCKER_LIB_LOG_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_LOG_SOURCED=1
 
-readonly _LOG_LIB_DIR="${BASH_SOURCE[0]%/*}"
+_LOG_LIB_DIR="$(dirname -- "${BASH_SOURCE[0]:-$0}")"
+readonly _LOG_LIB_DIR
 readonly _LOG_EVENTS_FILE="${_LOG_LIB_DIR}/log-events.txt"
 
 # ── Event registry ─────────────────────────────────────────────────

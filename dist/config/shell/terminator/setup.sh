@@ -21,7 +21,7 @@ check_deps() {
 main() {
   local -r _username="${1:-"${USER:-$(id -un)}"}"
   local -r _usergroup="${2:-"$(id -gn "${_username}")"}"
-  local -r _script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  local -r _script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
   mkdir -p -- "${HOME}/.config/terminator"
   cp -r "${_script_path}/config" "${HOME}/.config/terminator/config"
