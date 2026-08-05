@@ -75,6 +75,29 @@ teardown() {
   done
 }
 
+@test "_run_shellcheck: picks up every .sh file in script/test/ (#876)" {
+  # The driver used to name script/test/*.sh one by one, so
+  # check_test_md_drift.sh, lint_bare_stderr.sh and the 333-line
+  # sync-readme-hashes.sh generator went unlinted -- and the same batch
+  # that added resolve-doc-counts.sh to the list forgot them. A find
+  # sweep makes a new gate script linted the moment it exists.
+  local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
+  mock_cmd "shellcheck" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_shellcheck
+  '
+  assert_success
+
+  local _f _missing=""
+  while IFS= read -r _f; do
+    grep -qF "${_f}" "${_log}" || _missing+=" ${_f}"
+  done < <(find /source/script/test -name '*.sh' -type f | sort)
+  [ -z "${_missing}" ] || { echo "script/test scripts never linted:${_missing}"; false; }
+}
+
 @test "_run_shellcheck: exits non-zero when shellcheck fails on any script" {
   # Simulate a lint violation on init.sh specifically.
   mock_cmd "shellcheck" '

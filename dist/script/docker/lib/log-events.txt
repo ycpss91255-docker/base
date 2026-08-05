@@ -121,6 +121,13 @@ init_missing_required_arg
 init_progress
 init_just_missing
 init_bootstrap_just
+init_failed
+
+# gitignore.sh (managed .gitignore blocks; emitted under the init service
+# because init.sh / upgrade.sh are the only callers)
+gitignore_managed_block_invalid
+gitignore_managed_block_migrated
+gitignore_managed_block_orphans
 
 # template_guard.sh (init/upgrade self-run guard)
 base_self_run_refused
