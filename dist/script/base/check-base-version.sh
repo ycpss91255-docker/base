@@ -74,7 +74,7 @@ _local_version() {
     return 0
   fi
   local _dir
-  _dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  _dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
   while [[ "${_dir}" != "/" ]]; do
     [[ -f "${_dir}/.version" && -d "${_dir}/dist" ]] && {
       tr -d '[:space:]' < "${_dir}/.version"
@@ -154,7 +154,7 @@ main() {
     compare) shift; cmd_compare "$@" ;;
     run)     shift || true; cmd_run ;;
     -h|--help|help)
-      grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      grep -E '^#( |$)' "${BASH_SOURCE[0]:-$0}" | sed 's/^# \{0,1\}//'
       ;;
     *) echo "check-base-version.sh: unknown subcommand '${_cmd}'" >&2; return 2 ;;
   esac

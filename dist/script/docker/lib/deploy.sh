@@ -696,7 +696,7 @@ EOF
     cat <<'EOF'
 set -euo pipefail
 
-cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" || exit 1
+cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]:-$0}")")" || exit 1
 
 IMAGE_ARCHIVE="image.tar.xz"
 

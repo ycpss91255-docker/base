@@ -1,6 +1,12 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2467 tests**.
+<<<<<<< HEAD
+Unit specs under `test/bats/unit/`: **2493 tests**.
+||||||| 5474eb5
+Unit specs under `test/bats/unit/`: **2493 tests**.
+=======
+Unit specs under `test/bats/unit/`: **2493 tests**.
+>>>>>>> origin/main
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -348,7 +354,13 @@ ADR-00000023 sec.4 stage-eligibility predicate
 (`deployable = not devel and not *-test`, widened in #841 to the whole
 template-managed baseline incl. the `sys` / `devel-base` build
 intermediates) that both the deploy-scoped `[lifecycle] restart`
-emission and the `setup deploy` stage guard gate on.
+emission and the `setup deploy` stage guard gate on. Also carries the
+#875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+"which line declares stage `<S>`" matcher: instead of testing each
+reader against its own regex — the shape that let three regexes drift
+apart until a `FROM --platform=... AS <stage>` line was a stage to one
+call site and invisible to the others — it drives every call site off a
+single FROM line and asserts one verdict per site.
 
 ### test/bats/unit/tui_spec.bats (132)
 
@@ -2771,7 +2783,80 @@ REAL shipped tree.
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
 
+<<<<<<< HEAD
+### test/bats/unit/bash_source_guard_lint_spec.bats (18)
+
+Unit coverage for `script/test/drivers/bash_source_guard.sh` -- the mechanical
+half of "a self-locating read must carry a default". `${BASH_SOURCE[0]}` with
+no default aborts under the `nounset` the script itself just enabled, in every
+context where bash does not populate the array for the running file -- most
+sharply the kcov-instrumented shell of the coverage shard, where the failure is
+environment-specific and so surfaces in CI rather than locally. Undefaulted
+indexed reads fail, including the `%/*` dirname shorthand and the caller-frame
+`[1]` form; the defaulted `:-$0` / `:-` spellings and the whole-array `[@]` /
+`[*]` / `${#...[@]}` expansions pass (bash yields an empty list for those on an
+unset array even under `set -u`, so they are not the hazard); comment lines
+pass, or the rule would be unwritable in its own terms. A deliberate read opts
+out through a bracketed allow region that must be balanced and does not leak
+past its end; a missing scan root fails loudly rather than passing vacuously;
+and a final case drives the real `dist/` + `script/` trees. The behavioural
+half is `sourceable_scripts_spec.bats`.
+
+| Test | Description |
+|------|-------------|
+| `_run_bash_source_guard: FAILS on a bare indexed read, naming file and line (#869)` | - |
+| `_run_bash_source_guard: FAILS on a suffix-stripped read (${BASH_SOURCE[0]%/*}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a caller-frame read (${BASH_SOURCE[1]}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a subscript-less read (${BASH_SOURCE}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read in base's own tooling tree, not just dist/ (#869)` | - |
+| `_run_bash_source_guard: names the default form in the failure message (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read AFTER an allow-end (region does not leak) (#869)` | - |
+| `_run_bash_source_guard: FAILS on an unterminated allow-begin region (#869)` | - |
+| `_run_bash_source_guard: FAILS on an allow-end with no matching allow-begin (#869)` | - |
+| `_run_bash_source_guard: PASSES the $0-defaulted read (#869)` | - |
+| `_run_bash_source_guard: PASSES the empty-defaulted sourced-vs-executed guard (#869)` | - |
+| `_run_bash_source_guard: PASSES a defaulted higher frame (${BASH_SOURCE[2]:-unknown}) (#869)` | - |
+| `_run_bash_source_guard: PASSES whole-array expansions, which nounset tolerates (#869)` | - |
+| `_run_bash_source_guard: PASSES a comment that merely names the array (#869)` | - |
+| `_run_bash_source_guard: EXEMPTS a read inside an allow-begin/allow-end region (#869)` | - |
+| `_run_bash_source_guard: ignores non-.sh files and files outside the scanned trees (#869)` | - |
+| `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
+| `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
+
+### test/bats/unit/sourceable_scripts_spec.bats (8)
+
+The behavioural half of the same contract: these files must actually LOAD,
+which no grep can prove. Two hazards, both invisible outside the coverage
+shard. (1) A file that enables `set -euo pipefail` unconditionally leaves
+`nounset` on for its CALLER; kcov's `PS4` expands an array that is empty at the
+top level of a `bash -c` string, so the caller's next command dies inside the
+instrumentation -- after the `source` already succeeded, which is why these
+tests assert a marker AFTER the load rather than just its exit status. (2) An
+undefaulted self-location read resolves to the CWD instead, so every sibling
+`source` below it misses. The sourceable set is discovered, not pinned (every
+guard-carrying script plus every `lib/*.sh`), with a floor on the discovery so
+a broken expression cannot make the loops assert nothing.
+
+| Test | Description |
+|------|-------------|
+| `sourceable scripts: the discovered set is non-empty and covers the known entry points (#869)` | - |
+| `sourceable scripts: none leaves nounset or errexit on in its caller (#869)` | - |
+| `sourceable scripts: each loads and returns control to the caller (#869)` | - |
+| `self-location: the lib umbrella loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the TUI wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)` | - |
+=======
 ### test/bats/unit/cd_guard_spec.bats (7)
+
+Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
+(ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
+sits on a tag, so an automated field bundle is always traceable to a
+released version. Four `mktemp` git fixtures drive the real script and
+assert exit status **and** the specific refusal message — a status-only
+check passes with the conditions inverted (dirty reported as untagged and
+vice versa). Pure git + filesystem, no docker.
 
 | Test | Description |
 |------|-------------|
@@ -2782,3 +2867,4 @@ REAL shipped tree.
 | `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | - |
 | `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
 | `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
+>>>>>>> origin/main

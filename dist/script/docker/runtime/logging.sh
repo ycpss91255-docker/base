@@ -56,7 +56,7 @@
 # from the source tree (bats unit specs). Defensive: a missing helper
 # (e.g. a partially-upgraded downstream image) must not abort a caller
 # running under `set -e` -- the tee then degrades without rotation/prune.
-_logging_helper_dir="${BASH_SOURCE[0]%/*}"
+_logging_helper_dir="$(dirname -- "${BASH_SOURCE[0]:-$0}")"
 if [[ -r "${_logging_helper_dir}/logrotate.sh" ]]; then
   # shellcheck source=dist/script/docker/runtime/logrotate.sh
   . "${_logging_helper_dir}/logrotate.sh"

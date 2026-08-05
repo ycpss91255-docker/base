@@ -19,7 +19,7 @@
 # Resolve the symlink (<repo>/setup.sh → .base/dist/script/docker/setup.sh)
 # so sibling sources (i18n.sh / _tui_conf.sh) are located in the
 # template directory regardless of how the script was invoked.
-_SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 _SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
 _SETUP_LIB_DIR="$(cd -- "${_SETUP_SCRIPT_DIR}/../lib" && pwd -P)"
 # shellcheck disable=SC1091

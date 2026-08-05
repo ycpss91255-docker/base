@@ -538,9 +538,11 @@ teardown() {
 # input and hands it to this helper, which opens a visible msgbox
 # before entering the main menu.
 #
-# Source setup_tui.sh directly (not via `bash -c`) because kcov's
-# injected tracking code trips `set -u` on BASH_SOURCE when a nested
-# bash -c sources a file that enables `set -euo pipefail`.
+# Source setup_tui.sh directly rather than through a nested `bash -c`:
+# one process fewer, and the helpers under test are then callable in this
+# shell. (The wrapper is sourceable from either now -- it no longer leaves
+# strict mode on for its caller, which is what used to make the nested
+# form die inside kcov's PS4; see sourceable_scripts_spec.bats.)
 
 @test "_warn_if_lang_rejected opens a msgbox when given a bad input" {
   # shellcheck disable=SC1091

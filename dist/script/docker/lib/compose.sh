@@ -19,7 +19,7 @@ _DOCKER_LIB_COMPOSE_SOURCED=1
 # _dry_run_cmd (-B), so pull log.sh in directly (idempotent via its
 # own double-source guard) -- mirrors config_summary.sh. Keeps compose.sh
 # self-sufficient when a caller sources it without the full _lib.sh.
-_compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_compose_dir}/log.sh"
 

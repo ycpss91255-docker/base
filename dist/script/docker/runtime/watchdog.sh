@@ -79,7 +79,7 @@
 # Sourced defensively from the sibling in-image path; a missing helper
 # (partially-upgraded image) must not abort a caller under `set -e` -- the
 # watchdog then logs to stderr only, without the rotated file.
-_watchdog_helper_dir="${BASH_SOURCE[0]%/*}"
+_watchdog_helper_dir="$(dirname -- "${BASH_SOURCE[0]:-$0}")"
 if [[ -r "${_watchdog_helper_dir}/logrotate.sh" ]]; then
   # shellcheck source=dist/script/docker/runtime/logrotate.sh
   . "${_watchdog_helper_dir}/logrotate.sh"

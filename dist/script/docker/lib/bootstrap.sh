@@ -41,7 +41,7 @@ _bootstrap() {
   # Find the caller wrapper's source: the first BASH_SOURCE frame above
   # this one that is not bootstrap.sh itself (robust against an extra
   # call layer between the wrapper and _bootstrap).
-  local _self="${BASH_SOURCE[0]}"
+  local _self="${BASH_SOURCE[0]:-$0}"
   local _caller="" _frame
   for _frame in "${BASH_SOURCE[@]:1}"; do
     if [[ "${_frame}" != "${_self}" ]]; then
@@ -49,7 +49,11 @@ _bootstrap() {
       break
     fi
   done
-  : "${_caller:=${BASH_SOURCE[1]}}"
+  # Last resorts, in order: the immediate caller frame, then $0. Both
+  # defaults are load-bearing -- reached from a top-level context there is
+  # no frame 1 at all, and an unguarded read would abort the wrapper under
+  # the nounset it just enabled.
+  : "${_caller:=${BASH_SOURCE[1]:-$0}}"
 
   local _tag
   _tag="$(basename -- "${_caller}" .sh)"
@@ -148,7 +152,7 @@ _bootstrap() {
   # full _lib.sh helper set (_log_*, _load_env, _compose_project, ...) it
   # builds on is already in scope.
   local _wrapper_lib
-  _wrapper_lib="$(dirname -- "${BASH_SOURCE[0]}")/wrapper.sh"
+  _wrapper_lib="$(dirname -- "${BASH_SOURCE[0]:-$0}")/wrapper.sh"
   if [[ -f "${_wrapper_lib}" ]]; then
     # shellcheck source=dist/script/docker/lib/wrapper.sh
     source "${_wrapper_lib}"

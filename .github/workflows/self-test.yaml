@@ -206,6 +206,9 @@ jobs:
     #                     dockerfile/ (ADR-00000024) -- joined the matrix on
     #                     the day it was written, the point of the guard
     #                     below
+    #   bash-source-guard no undefaulted BASH_SOURCE self-location read
+    #                     under dist/ or script/ -- likewise joined here on
+    #                     the day it was written
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -238,6 +241,7 @@ jobs:
           - stale-setup-conf
           - readme-sync
           - home-literal
+          - bash-source-guard
     steps:
       - name: Checkout
         uses: actions/checkout@v7
