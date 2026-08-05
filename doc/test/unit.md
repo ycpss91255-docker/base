@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2398 tests**.
+Unit specs under `test/bats/unit/`: **2426 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -163,7 +163,7 @@ match real transcript lines and the 5 levels via `grep -P`).
 | Every declared sample matches the pattern | 1 |
 | `log.lnav-format.json` (JSON) still coexists unchanged | 1 |
 
-### test/bats/unit/schema_spec.bats (26)
+### test/bats/unit/schema_spec.bats (30)
 
 Covers the setup.conf validation registry (`lib/schema.sh`, #560): the
 single `_schema_validate <section> <key> <value>` gate that both
@@ -206,9 +206,13 @@ registered keys derived from `SCHEMA_VALIDATOR`).
 | `_schema_section_keys returns scalar+list keys for build (#561)` | keys by prefix (#561) |
 | `_schema_section_keys returns all logging keys (#561, #606)` | keys by prefix (#561) |
 | `_schema_section_keys returns deploy keys incl. legacy alias (#561)` | keys incl. runtime alias (#561) |
-| `_schema_section_keys is empty for a free-form-only section (image) (#561)` | empty for no-validator section (#561) |
+| `_schema_section_keys returns the rule_ list key for image (#561, #876)` | - |
+| `_schema_validate gates gui.mode the way the --gui flag does (#876)` | - |
+| `_schema_validate gates the [deploy] keys the resolver reads (#876)` | - |
+| `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
+| `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/schema_coverage_spec.bats (8)
+### test/bats/unit/schema_coverage_spec.bats (11)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry
 must stay internally consistent and in sync with the `setup.conf`
@@ -228,6 +232,9 @@ zh-CN / ja) -- a missing translation in any locale fails CI.
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
+| `every shipped setup.conf key is registered or an explicit free-form opt-out (#876)` | - |
+| `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
+| `no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)` | - |
 
 ### setup.sh-derived unit specs (386, mirroring source libs)
 
@@ -325,7 +332,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (84)
+#### test/bats/unit/stage_spec.bats (90)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -1533,7 +1540,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (45)
+### test/bats/unit/deploy_spec.bats (46)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1599,6 +1606,7 @@ refused before any build or bundle step.
 | `_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)` | stage eligibility (*-test) |
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
+| `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
 
 ### test/bats/unit/deploy_hint_spec.bats (5)
 
@@ -1941,12 +1949,13 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (70)
+### test/bats/unit/ci_spec.bats (71)
 
 | Test | Description |
 |------|-------------|
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
+| `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
@@ -2186,7 +2195,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (49)
+### test/bats/unit/init_spec.bats (52)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2246,6 +2255,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_call_setup: returns 0 on a setup.sh that succeeds (#692)` | #692 happy path no-noise |
 | `_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)` | - |
 | `_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)` | - |
+| `_error: carries a registered event id under LOG_FORMAT=json (#876)` | - |
+| `_error: text output is framed like every other init record (#876)` | - |
+| `_error: the human message rides the display attribute (#876)` | - |
 
 ### test/bats/unit/smoke_helper_spec.bats (19)
 
@@ -2476,7 +2488,7 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (29)
+### test/bats/unit/gitignore_spec.bats (39)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -2512,6 +2524,16 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)` | - |
 | `_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)` | - |
 | `_sync_logging_gitignore preserves user entries outside managed block (#402, ex-#390)` | - |
+| `_sync_logging_gitignore: emits an explicit end marker bounding the block (#876)` | - |
+| `_sync_logging_gitignore: preserves a user entry BELOW the managed block (#876)` | - |
+| `_sync_logging_gitignore: user entry below the block survives a value change (#876)` | - |
+| `_sync_logging_gitignore: an unterminated managed block is an error (#876)` | - |
+| `_sync_logging_gitignore: an end marker with no begin marker is an error (#876)` | - |
+| `_sync_logging_gitignore: migrates a legacy begin-marker-only block (#876)` | - |
+| `_sync_logging_gitignore: legacy migration keeps a following canonical entry (#876)` | - |
+| `_sync_logging_gitignore: legacy migration reports orphaned entries (#876)` | - |
+| `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
+| `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
