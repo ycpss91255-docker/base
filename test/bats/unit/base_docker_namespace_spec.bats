@@ -58,3 +58,32 @@ setup() {
   run grep -nE 'docker build -t test-tools:local -f' "${ROOT}/script/test/justfile.test"
   assert_failure
 }
+
+@test "base compose.yaml test-tools service takes the resolved tag, not a fixed literal (#891)" {
+  # A hardcoded `image: test-tools:local` makes every checkout on the host
+  # write one tag, so a sibling build silently displaces the image a live
+  # run is using. The service must read the same TEST_TOOLS_IMAGE the ci /
+  # ci-system / coverage consumers read, so build and consumers cannot
+  # resolve different images.
+  run grep -nE '^ {4}image: \$\{TEST_TOOLS_IMAGE:-' "${ROOT}/compose.yaml"
+  assert_success
+  run grep -nE '^ {4}image: test-tools:local *$' "${ROOT}/compose.yaml"
+  assert_failure
+}
+
+@test "just test system derives the local test-tools tag instead of hardcoding it (#891)" {
+  run grep -nE 'TEST_TOOLS_IMAGE=test-tools:local' "${ROOT}/script/test/justfile.test"
+  assert_failure
+  run grep -nE 'test\.sh --test-tools-image' "${ROOT}/script/test/justfile.test"
+  assert_success
+}
+
+@test "just test system names the compose project instead of inheriting the basename (#891)" {
+  # Its `docker compose run --rm ci-system` is a second call site with the
+  # same defect test.sh had: no -p and no COMPOSE_PROJECT_NAME means compose
+  # falls back to the checkout directory's basename.
+  run grep -nE 'test\.sh --compose-project-name' "${ROOT}/script/test/justfile.test"
+  assert_success
+  run grep -nE '^ +export COMPOSE_PROJECT_NAME$' "${ROOT}/script/test/justfile.test"
+  assert_success
+}

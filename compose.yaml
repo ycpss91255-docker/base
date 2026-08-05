@@ -2,14 +2,26 @@ services:
   # test-tools: base's own tooling image (ADR-00000011 sec.2/4).
   # `just docker build --target test-tools` builds it from the standalone
   # Dockerfile.test-tools via the shared docker wrapper, replacing the raw
-  # `docker build -f` one-liner. The ci / coverage / system services
-  # below consume the resulting `test-tools:local` tag via image: (set
-  # TEST_TOOLS_IMAGE=test-tools:local). build-only service: never `run`.
+  # `docker build -f` one-liner. build-only service: never `run`.
+  #
+  # The tag comes from the SAME `TEST_TOOLS_IMAGE` the ci / ci-system /
+  # coverage services below read, so what this service writes and what they
+  # consume cannot diverge -- a divergence there is silent (the consumers
+  # would quietly pull the published image while the local build sat
+  # unused). It used to be the fixed literal `test-tools:local`, which every
+  # checkout on the host wrote: a sibling run rebuilding it displaced the
+  # image a live run was already using, with no error (a coverage pass whose
+  # image lost kcov mid-run still reported green). `just test system` now
+  # sets TEST_TOOLS_IMAGE to a content hash of the tooling Dockerfile
+  # (`./script/test/test.sh --test-tools-image`) -- identical inputs share a
+  # tag and hit the build cache, different inputs cannot clobber. The
+  # `test-tools:local` fallback below is what CI pins explicitly
+  # (self-test.yaml) and stays for a bare `docker compose build test-tools`.
   test-tools:
     build:
       context: .
       dockerfile: dockerfile/Dockerfile.test-tools
-    image: test-tools:local
+    image: ${TEST_TOOLS_IMAGE:-test-tools:local}
 
   # Fast CI: ShellCheck + Bats only. Uses the prebuilt test-tools image
   # (alpine: bash + bats + bats-{support,assert,mock} + shellcheck +
