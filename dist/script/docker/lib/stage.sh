@@ -365,8 +365,7 @@ _parse_stage_sections() {
 # Reads the `[stage:<stage>]` section from <base_path>/setup.conf into
 # parallel arrays. Stage sections only live in the per-repo file
 # (template's setup.conf doesn't carry stage overrides — it doesn't
-# know which Dockerfile stages exist downstream). Honors SETUP_CONF
-# the same way _load_setup_conf does.
+# know which Dockerfile stages exist downstream).
 _load_stage_overrides() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
@@ -375,12 +374,7 @@ _load_stage_overrides() {
   _lso_keys=()
   _lso_values=()
 
-  local _conf
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf="${SETUP_CONF}"
-  else
-    _conf="${_base}/.setup.conf"
-  fi
+  local _conf="${_base}/.setup.conf"
   [[ -f "${_conf}" ]] || return 0
   _parse_ini_section "${_conf}" "stage:${_stage}" _lso_keys _lso_values
 }

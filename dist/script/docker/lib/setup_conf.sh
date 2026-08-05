@@ -35,23 +35,18 @@ _DOCKER_LIB_SETUP_CONF_SOURCED=1
 #
 # Merges per-repo setup.conf with template default, section-replace
 # strategy: if per-repo setup.conf has the section, use its entries;
-# otherwise fall back to the template's section. SETUP_CONF env var forces
-# a specific file (skips the merge entirely).
+# otherwise fall back to the template's section.
 #
-# collapsed back to 2-file model. <repo>/.setup.conf is the user
-# override (committed, not gitignored, survives template upgrade because
-# template subtree pull never touches it — it lives outside .base).
+# <repo>/.setup.conf is the user override (committed, not gitignored,
+# survives template upgrade because template subtree pull never touches it
+# — it lives outside .base). The conf surface is that fixed pair of paths:
+# there is no env var that relocates it, because a relocation lever is a
+# second, unchecked resolution path that silently wins over the real one.
 _load_setup_conf() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _section="${2:?"${FUNCNAME[0]}: missing section"}"
   local -n _lsc_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
   local -n _lsc_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-
-  # If SETUP_CONF is set, only read from it (no merge)
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _parse_ini_section "${SETUP_CONF}" "${_section}" _lsc_keys _lsc_values
-    return 0
-  fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
   local _template_conf="${_self_dir}/../../../.setup.conf"
@@ -74,19 +69,14 @@ _load_setup_conf() {
 
 # _setup_conf_handle <base> <handle>
 #
-# Load the effective setup.conf into an opaque conf.sh <handle>: honours the
-# SETUP_CONF override (single file, no merge), otherwise the template +
-# per-repo section-replace merge (same precedence as _load_setup_conf, but as
+# Load the effective setup.conf into an opaque conf.sh <handle>: the template
+# + per-repo section-replace merge (same precedence as _load_setup_conf, but as
 # one queryable handle for the _conf_get / _conf_list_sorted accessors). The
-# single place that resolves the template / repo / SETUP_CONF paths for the
-# accessor readers.
+# single place that resolves the template / repo paths for the accessor
+# readers.
 _setup_conf_handle() {
   local _base="${1:?"${FUNCNAME[0]}: missing base"}"
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf_load "${SETUP_CONF}" "${_h}"
-    return 0
-  fi
   _conf_load_merged \
     "${_SETUP_SCRIPT_DIR}/../../../.setup.conf" \
     "${_base}/.setup.conf" \

@@ -1032,7 +1032,7 @@ _setup_apply() {
   # read [build] / [security] / [additional_contexts] from it via the
   # _conf_get_into / _conf_list_sorted accessors -- replacing three
   # per-section _load_setup_conf calls that each re-tokenized the whole conf
-  # (same merge precedence + SETUP_CONF override). [volumes] is NOT read from
+  # (same merge precedence). [volumes] is NOT read from
   # this handle: _reconcile_workspace_path mutates its parallel arrays in
   # place and reloads them after a mount_1 rewrite (bootstrap / stale path),
   # so it keeps a dedicated single-section load that stays in sync with the

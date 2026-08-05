@@ -162,7 +162,6 @@ _compute_conf_hash() {
     {
       [[ -f "${_template_conf}" ]] && cat "${_template_conf}"
       [[ -f "${_repo_conf}"     ]] && cat "${_repo_conf}"
-      [[ -n "${SETUP_CONF:-}"   ]] && [[ -f "${SETUP_CONF}" ]] && cat "${SETUP_CONF}"
       true
     } | sha256sum | cut -d' ' -f1
   )"

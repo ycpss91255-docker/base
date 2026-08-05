@@ -253,7 +253,7 @@ _resolve_deploy_context() {
   # Parse the section-replace-merged conf ONCE into an opaque handle, then read
   # every scalar/list from it -- replacing the former 10x per-section
   # _load_setup_conf re-parse (each call re-tokenized the whole conf). Same
-  # merge precedence + SETUP_CONF override (ADR-00000008 follow-up).
+  # merge precedence (ADR-00000008 follow-up).
   _setup_conf_handle "${_rdc_base}" _RDC_CONF
 
   local _tmp=""

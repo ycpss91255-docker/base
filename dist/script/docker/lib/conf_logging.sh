@@ -86,12 +86,7 @@ _collect_logging() {
   _cl_global=""
   _cl_per_svc=""
 
-  local _conf
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf="${SETUP_CONF}"
-  else
-    _conf="${_base}/.setup.conf"
-  fi
+  local _conf="${_base}/.setup.conf"
 
   # Global [logging] -- per-repo first, fall back to template if absent.
   local -a _g_keys=() _g_vals=()
