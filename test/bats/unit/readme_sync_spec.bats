@@ -91,6 +91,35 @@ _stamped() {
   _sync_readme_hashes "${SCRATCH}" >/dev/null
 }
 
+# _en_beta_rewritten -- the English fixture with Beta's body rewritten in
+# place. The heading survives, so only a content fingerprint sees it.
+_en_beta_rewritten() {
+  _en \
+    '# Title' \
+    '' \
+    'Intro body.' \
+    '' \
+    '## Alpha' \
+    '' \
+    'Alpha body.' \
+    '' \
+    '## Beta' \
+    '' \
+    'Beta body, completely rewritten in place.'
+}
+
+# _tr_edit <lang> <old> <new> -- edit translated prose in place, the way a
+# translator does: the stamped markers around it survive untouched.
+_tr_edit() {
+  local _lang="${1}" _old="${2}" _new="${3}"
+  sed -i "s/${_old}/${_new}/" "${SCRATCH}/doc/readme/README.${_lang}.md"
+}
+
+# _marker <id> -- the stamped marker line for <id> in the zh-TW fixture.
+_marker() {
+  grep -E "^<!-- sync: ${1} " "${SCRATCH}/doc/readme/README.zh-TW.md"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_readme_sync: the failure that motivated the guard
 # ════════════════════════════════════════════════════════════════════
@@ -444,6 +473,116 @@ _stamped() {
   run _sync_readme_hashes "${SCRATCH}"
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"alpha"* ]]
+  [[ "${output}" == *"beta"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _sync_readme_hashes: a re-stamp has to mean something
+#
+# The generator records the ENGLISH hash. On its own that makes "I updated
+# the translation, then synced" indistinguishable from "I synced so the gate
+# would stop complaining". These cases PERFORM the silencing attempt and
+# assert it does not end in a green tree.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_sync_readme_hashes: REFUSES to re-stamp a section whose English moved while the translation did not (#873)" {
+  _stamped
+  before="$(_marker beta)"
+  _en_beta_rewritten
+  run _sync_readme_hashes "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"beta"* ]]
+  # The recorded hash must NOT have moved: a refusal that still wrote the
+  # new hash would be the silencing case with extra steps.
+  [[ "$(_marker beta)" == "${before}" ]]
+}
+
+@test "_sync_readme_hashes: an English-only edit plus a sync run leaves the lint RED (#873)" {
+  _stamped
+  _en_beta_rewritten
+  run _sync_readme_hashes "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  # The whole point: running the generator did not buy a green tree.
+  run _run_readme_sync
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"beta"* ]]
+}
+
+@test "_sync_readme_hashes: refusing one section still stamps the untouched ones (#873)" {
+  _en_default
+  _tr_default
+  _sync_readme_hashes "${SCRATCH}" >/dev/null
+  _en_beta_rewritten
+  run _sync_readme_hashes "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  # alpha never drifted, so it stays stamped and is not named.
+  [[ "${output}" != *"'alpha'"* ]]
+  run _run_readme_sync
+  [[ "${output}" != *"'alpha'"* ]]
+}
+
+@test "_sync_readme_hashes: re-stamps when the translation moved together with the English (#873)" {
+  _stamped
+  _en_beta_rewritten
+  _tr_edit zh-TW '乙本文。' '乙本文，已重寫。'
+  run _sync_readme_hashes "${SCRATCH}"
+  [ "${status}" -eq 0 ]
+  run _run_readme_sync
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_sync_readme_hashes: --accept records a reviewed no-op and clears the lint (#873)" {
+  # The accepted cost from the guard's introduction: an English typo fix
+  # marks the translations stale and the human confirms nothing needs
+  # re-translating. That must stay one command -- an EXPLICIT one.
+  _stamped
+  _en_beta_rewritten
+  run _sync_readme_hashes "${SCRATCH}" beta
+  [ "${status}" -eq 0 ]
+  run _run_readme_sync
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_sync_readme_hashes: --accept clears only the section it names (#873)" {
+  _stamped
+  _en \
+    '# Title' \
+    '' \
+    'Intro body.' \
+    '' \
+    '## Alpha' \
+    '' \
+    'Alpha body, rewritten too.' \
+    '' \
+    '## Beta' \
+    '' \
+    'Beta body, completely rewritten in place.'
+  run _sync_readme_hashes "${SCRATCH}" beta
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"alpha"* ]]
+  run _run_readme_sync
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"alpha"* ]]
+}
+
+@test "_sync_readme_hashes: records the translation's own hash beside the English one (#873)" {
+  _stamped
+  run grep -E '^<!-- sync: beta [0-9a-f]{12} [0-9a-f]{12} -->$' \
+    "${SCRATCH}/doc/readme/README.zh-TW.md"
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_readme_sync: FAILS when the translated prose changed since it was stamped (#873)" {
+  # Without this the recorded translation hash goes stale, and a later
+  # English edit would read the un-stamped translation edit as evidence of
+  # a re-translation it never was.
+  _stamped
+  _tr_edit zh-TW '乙本文。' '乙本文，微調過。'
+  run _run_readme_sync
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"UNRECORDED"* ]]
   [[ "${output}" == *"beta"* ]]
 }
 
