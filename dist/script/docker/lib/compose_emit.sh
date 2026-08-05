@@ -939,7 +939,8 @@ generate_compose_yaml() {
   local _host_name="${HOSTNAME:-$(uname -n 2>/dev/null || true)}"
 
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
-  # blocklist {sys, base, devel, test} as a compose service that
+  # blocklist {sys, devel-base, devel, runtime-test} (legacy
+  # {base, test}) as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
   # stdin_open / tty / profiles. generalized the v0.10.0
   # `runtime`-only detection so any user-added stage gets a

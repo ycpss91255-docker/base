@@ -62,7 +62,9 @@ _write_readme() {
       printf '[%s]    key = value\n' "${_section}"
     done
     printf '```\n\n'
-    [[ $# -gt 0 ]] && printf '%s\n' "$@"
+    if [[ $# -gt 0 ]]; then
+      printf '%s\n' "$@"
+    fi
   } > "${SCRATCH}/README.md"
 }
 
@@ -155,6 +157,29 @@ _append() {
   [[ "${output}" == *"dist/script/docker/lib/sample.sh:"* ]]
 }
 
+@test "_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)" {
+  # stage.sh's own docstring wraps the set over a `#` continuation, so the
+  # comment marker has to be dropped before the join or it lands inside
+  # the set and the whole literal reads as prose.
+  _append "dist/script/docker/lib/sample.sh" \
+    '# filters out the baseline blocklist {sys, devel-base, devel,' \
+    '# devel-test, runtime-test} and echoes the rest.'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:"* ]]
+}
+
+@test "_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)" {
+  # `test/bats/smoke/{shared,devel-test,runtime-test}/` is a real directory
+  # layout, not a prose set -- rewriting it to the baseline would be
+  # nonsense.
+  _append "dist/script/docker/lib/sample.sh" \
+    'Specs live under test/bats/smoke/{shared,devel-test,runtime-test}/.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 @test "_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)" {
   printf '%s\n' '# CONTEXT' 'A baseline stage is `{devel, devel-test}`.' \
     > "${SCRATCH}/CONTEXT.md"
@@ -206,11 +231,10 @@ _append() {
 }
 
 @test "_run_derived_figures: FAILS when the listed sections are out of template order (#874)" {
-  local _tmp="${SCRATCH}/README.md.reordered"
-  sed 's/^\[image\]    key = value$/[build]    key = value/;
-       s/^\[build\]    key = value$/[image]    key = value/' \
-    "${SCRATCH}/README.md" > "${_tmp}"
-  mv "${_tmp}" "${SCRATCH}/README.md"
+  # Swap the first two entries through a sentinel, so the second
+  # expression cannot undo the first.
+  sed -i 's/^\[image\]/[swap]/; s/^\[build\]/[image]/; s/^\[swap\]/[build]/' \
+    "${SCRATCH}/README.md"
   run _run_derived_figures
   [ "${status}" -ne 0 ]
 }

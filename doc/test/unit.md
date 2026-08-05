@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2424 tests**.
+Unit specs under `test/bats/unit/`: **2426 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2734,7 +2734,7 @@ REAL shipped tree.
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (18)
+### test/bats/unit/derived_figures_lint_spec.bats (20)
 
 Unit coverage for `script/test/drivers/derived_figures.sh` -- the lint that
 pins the two figures documents kept repeating wrongly against the code that
@@ -2759,6 +2759,8 @@ vacuously, and a final case drives the REAL tree.
 | `_run_derived_figures: ignores a brace set that names no baseline stage (#874)` | - |
 | `_run_derived_figures: catches a stale set wrapped across markdown lines (#874)` | - |
 | `_run_derived_figures: catches a stale set split by an escaped newline in a shell string (#874)` | - |
+| `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
+| `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
 | `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
 | `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
 | `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |

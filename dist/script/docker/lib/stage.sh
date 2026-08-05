@@ -31,10 +31,11 @@ _DOCKER_LIB_STAGE_SOURCED=1
 #   0 — valid; auto-emit as compose service
 #   1 — invalid format (caller WARNs + skips, continues parsing other stages)
 #   2 — collides with template-managed baseline
-#       {sys, devel-base, devel, devel-test, runtime-test}; hard error
-#       (caller exits non-zero). For backward compatibility during the
-#       v0.21.x transition the legacy names {base, test} are also
-#       accepted as baseline (downstream Dockerfiles renamed to
+#       {sys, devel-base, devel, runtime-test}; hard error
+#       (caller exits non-zero). `devel-test` is deliberately NOT in
+#       that set -- see the note in the body. For backward compatibility
+#       during the v0.21.x transition the legacy names {base, test} are
+#       also accepted as baseline (downstream Dockerfiles renamed to
 #       devel-base / devel-test over a coordinated rollout); they will
 #       be removed from the blocklist in a future major release.
 #   3 — collides with template-controlled image-tag namespace
@@ -115,9 +116,11 @@ _is_deployable_stage() {
 #
 # Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,
 # filters out the baseline blocklist {sys, devel-base, devel,
-# devel-test, runtime-test} (plus the legacy {base, test} accepted
-# during the v0.21.x transition), and echoes the surviving stages
-# one per line preserving file order.
+# runtime-test} (plus the legacy {base, test} accepted during the
+# v0.21.x transition), and echoes the surviving stages one per line
+# preserving file order. `devel-test` is deliberately NOT filtered: it
+# survives the parse and is emitted as the `test` service, matching
+# _validate_stage_name's blocklist exactly.
 #
 # Match rules:
 #   - Line must start with `FROM` (case-sensitive — Docker spec is
