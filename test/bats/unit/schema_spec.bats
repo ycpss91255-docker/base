@@ -120,8 +120,13 @@ _assert_schema() {
   _assert_schema build target_arch "arm64" ok
   _assert_schema build network "host" ok
   _assert_schema build arg_1 "FOO=bar" ok
+  _assert_schema deploy gpu_mode "force" ok
+  _assert_schema deploy gpu_capabilities "gpu compute" ok
   _assert_schema deploy gpu_runtime "nvidia" ok
   _assert_schema deploy runtime "auto" ok
+  _assert_schema deploy dri_groups "auto" ok
+  _assert_schema gui mode "off" ok
+  _assert_schema image rule_1 "@basename" ok
   _assert_schema network network_name "my_net" ok
   _assert_schema network mode "host" ok
   _assert_schema network mode "container:db" ok
@@ -143,6 +148,8 @@ _assert_schema() {
   _assert_schema additional_contexts context_1 "repo=.." ok
   _assert_schema security cap_add_1 "SYS_ADMIN" ok
   _assert_schema security cap_drop_1 "NET_RAW" ok
+  _assert_schema security privileged "false" ok
+  _assert_schema security security_opt_1 "seccomp:unconfined" ok
 }
 
 @test "_schema_validate rejects every registered key's invalid sample" {
@@ -159,8 +166,13 @@ _assert_schema() {
   _assert_schema build target_arch "sparc" fail
   _assert_schema build network "carrier-pigeon" fail
   _assert_schema build arg_1 "1BAD=x" fail
+  _assert_schema deploy gpu_mode "on" fail
+  _assert_schema deploy gpu_capabilities "gpu bogus" fail
   _assert_schema deploy gpu_runtime "podman" fail
   _assert_schema deploy runtime "podman" fail
+  _assert_schema deploy dri_groups "on" fail
+  _assert_schema gui mode "of" fail
+  _assert_schema image rule_1 "whatever" fail
   _assert_schema network network_name "-bad" fail
   _assert_schema network mode "foo: bar" fail
   _assert_schema network mode "bogus" fail
@@ -181,6 +193,8 @@ _assert_schema() {
   _assert_schema additional_contexts context_1 "noequals" fail
   _assert_schema security cap_add_1 "lowercase" fail
   _assert_schema security cap_drop_1 "has space" fail
+  _assert_schema security privileged "yes" fail
+  _assert_schema security security_opt_1 "anything goes" fail
 }
 
 # Embedded-newline values must be rejected by every value-bearing
@@ -233,9 +247,11 @@ _assert_schema() {
 }
 
 @test "_schema_validate accepts free-form (unregistered) keys" {
+  # security.security_opt_ and image.rule_ used to sit here: both have a
+  # closed value set their consumer dispatches on, so both are registered
+  # now and the free-form default no longer covers them.
   _assert_schema tmpfs tmpfs_1 "/run:size=64m" ok
-  _assert_schema security security_opt_1 "anything goes" ok
-  _assert_schema image rule_1 "whatever" ok
+  _assert_schema environment not_a_registered_key "anything goes" ok
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -306,11 +322,66 @@ _sorted_keys() {
 }
 
 @test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {
-  [ "$(_sorted_keys deploy)" = "gpu_count gpu_runtime runtime " ]
+  [ "$(_sorted_keys deploy)" = "dri_groups gpu_capabilities gpu_count gpu_mode gpu_runtime runtime " ]
 }
 
-@test "_schema_section_keys is empty for a free-form-only section (image) (#561)" {
-  local -a _k=()
-  _schema_section_keys image _k
-  [ "${#_k[@]}" -eq 0 ]
+@test "_schema_section_keys returns the rule_ list key for image (#561, #876)" {
+  # [image] was free-form-only until rule_N got a validator; it now
+  # yields exactly the one registered list key.
+  [ "$(_sorted_keys image)" = "rule_ " ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Registry completeness: keys whose resolver has a fixed value set
+#
+# An unregistered key was accepted with ANY value and the resolver then
+# discarded it in a catch-all branch, so `setup set gui.mode of` exited
+# 0, printed a success line and left the GUI following host detection.
+# The same value passed as `--gui of` was rejected. These pin the
+# conf/CLI-set path to the resolver's real value set.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_validate gates gui.mode the way the --gui flag does (#876)" {
+  _assert_schema gui mode "auto" ok
+  _assert_schema gui mode "force" ok
+  _assert_schema gui mode "off" ok
+  _assert_schema gui mode "of" fail
+  _assert_schema gui mode "true" fail
+}
+
+@test "_schema_validate gates the [deploy] keys the resolver reads (#876)" {
+  _assert_schema deploy gpu_mode "auto" ok
+  _assert_schema deploy gpu_mode "force" ok
+  _assert_schema deploy gpu_mode "off" ok
+  _assert_schema deploy gpu_mode "on" fail
+  _assert_schema deploy gpu_capabilities "gpu compute utility graphics" ok
+  _assert_schema deploy gpu_capabilities "all" ok
+  _assert_schema deploy gpu_capabilities "gpu bogus" fail
+  _assert_schema deploy dri_groups "auto" ok
+  _assert_schema deploy dri_groups "off" ok
+  _assert_schema deploy dri_groups "on" fail
+}
+
+@test "_schema_validate gates the [security] keys the resolver reads (#876)" {
+  _assert_schema security privileged "true" ok
+  _assert_schema security privileged "false" ok
+  _assert_schema security privileged "yes" fail
+  _assert_schema security security_opt_1 "seccomp:unconfined" ok
+  _assert_schema security security_opt_1 "apparmor=unconfined" ok
+  _assert_schema security security_opt_1 "no-new-privileges:true" ok
+  _assert_schema security security_opt_1 "anything goes" fail
+  _assert_schema security security_opt_1 "noseparator" fail
+}
+
+@test "_schema_validate gates image.rule_N against the dispatch prefixes (#876)" {
+  _assert_schema image rule_1 "prefix:docker_" ok
+  _assert_schema image rule_1 "suffix:_ws" ok
+  _assert_schema image rule_1 "string:my-image" ok
+  _assert_schema image rule_1 "@basename" ok
+  _assert_schema image rule_1 "@default:fallback" ok
+  # detect_image_name has no branch for these: they are skipped in
+  # silence and the run ends on the 'unknown' fallback.
+  _assert_schema image rule_1 "whatever" fail
+  _assert_schema image rule_1 "prefix:" fail
+  _assert_schema image rule_1 "@basename-ish" fail
 }

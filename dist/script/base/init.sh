@@ -671,7 +671,14 @@ _call_setup() {
   fi
 }
 
-_error() { _log_err init "$*"; exit 1; }
+# _error <message>
+#
+# The shared fatal path. _log_* takes a REGISTERED EVENT ID as its
+# second argument and the human text as a display= attribute -- passing
+# the message positionally made every init.sh failure print the logger's
+# own unregistered-body complaint instead of the error. Same shape as
+# upgrade.sh's sibling.
+_error() { _log_err init init_failed "display=$*"; exit 1; }
 
 # ── just runner host preflight ───────────────────────────────────────
 #

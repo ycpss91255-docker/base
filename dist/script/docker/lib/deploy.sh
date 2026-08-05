@@ -270,18 +270,19 @@ _resolve_deploy_context() {
   _conf_get_into _RDC_CONF deploy gpu_capabilities gpu  _tmp; _rdc_out["gpu_caps"]="${_tmp}"
   # gpu_runtime is the canonical key; legacy `runtime` is a permanent
   # alias (W3) consumed with a deprecation warning, removed at v1.0.0.
-  local _gpu_runtime_mode=""
+  # The warning fires on the legacy key's PRESENCE, not only when it is
+  # consumed: a conf that sets both has a half-finished migration, and
+  # that is exactly the state the user needs told about. _resolve_docker_flags
+  # applies the identical rule to a [stage:*] section.
+  local _gpu_runtime_mode="" _legacy_runtime=""
   _conf_get_into _RDC_CONF deploy gpu_runtime "" _gpu_runtime_mode
+  _conf_get_into _RDC_CONF deploy runtime     "" _legacy_runtime
+  if [[ -n "${_legacy_runtime}" ]]; then
+    _log_warn setup conf_runtime_key_deprecated \
+      "display=$(_setup_msg deploy runtime_deprecated)"
+  fi
   if [[ -z "${_gpu_runtime_mode}" ]]; then
-    local _legacy_runtime=""
-    _conf_get_into _RDC_CONF deploy runtime "" _legacy_runtime
-    if [[ -n "${_legacy_runtime}" ]]; then
-      _gpu_runtime_mode="${_legacy_runtime}"
-      _log_warn setup conf_runtime_key_deprecated \
-        "display=$(_setup_msg deploy runtime_deprecated)"
-    else
-      _gpu_runtime_mode="auto"
-    fi
+    _gpu_runtime_mode="${_legacy_runtime:-auto}"
   fi
   _rdc_out["gpu_runtime_mode"]="${_gpu_runtime_mode}"
 

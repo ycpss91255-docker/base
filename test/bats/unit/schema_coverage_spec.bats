@@ -156,3 +156,78 @@ _load_locale_tables() {
   assert_success
   assert_output "fallback.key"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Template / registry completeness
+#
+# Registering the five missing validators one by one is a fix for
+# today's gap and nothing more -- the next key added to the template
+# reopens it, which is exactly how gui.mode / deploy.gpu_mode /
+# gpu_capabilities / dri_groups / security_opt_ got in. This guard makes
+# an unregistered template key structurally impossible: every key the
+# shipped setup.conf ships (live or as a commented example) must resolve
+# to a SCHEMA_VALIDATOR entry, or be listed in SCHEMA_FREEFORM with a
+# written reason.
+# ════════════════════════════════════════════════════════════════════
+
+# Emit "<section> <key>" for every key the shipped template declares:
+# live `key = value` lines plus commented `# key = value` examples, which
+# are documented knobs users uncomment.
+_template_keys() {
+  local _tpl="/source/dist/.setup.conf"
+  local _section="" _line _key
+  while IFS= read -r _line; do
+    if [[ "${_line}" =~ ^\[([a-z_]+)\]$ ]]; then
+      _section="${BASH_REMATCH[1]}"
+      continue
+    fi
+    [[ -n "${_section}" ]] || continue
+    # Strict shape only: `key = value` / `key =`, optionally behind a
+    # single leading `# `. Prose comments never match.
+    [[ "${_line}" =~ ^#?[[:space:]]*([a-z][a-z0-9_]*)[[:space:]]*= ]] || continue
+    _key="${BASH_REMATCH[1]}"
+    printf '%s %s\n' "${_section}" "${_key}"
+  done < "${_tpl}"
+}
+
+# Opt-out lookup that tolerates the map not existing at all, so a
+# missing SCHEMA_FREEFORM surfaces as "this key has no opt-out" rather
+# than a bash arithmetic-subscript error.
+_is_freeform() {
+  declare -p SCHEMA_FREEFORM >/dev/null 2>&1 || return 1
+  [[ -v "SCHEMA_FREEFORM[${1}]" ]]
+}
+
+@test "every shipped setup.conf key is registered or an explicit free-form opt-out (#876)" {
+  local _section _key _canon _pfx _missing=""
+  while read -r _section _key; do
+    _schema_canonical_key "${_section}" "${_key}" _canon
+    [[ -n "${_canon}" ]] && continue
+    _is_freeform "${_section}.${_key}" && continue
+    if [[ "${_key}" =~ ^(.+_)[0-9]+$ ]]; then
+      _pfx="${BASH_REMATCH[1]}"
+      _is_freeform "${_section}.${_pfx}" && continue
+    fi
+    _missing+=" ${_section}.${_key}"
+  done < <(_template_keys)
+  [ -z "${_missing}" ] || {
+    echo "template keys with no validator and no SCHEMA_FREEFORM opt-out:${_missing}"
+    false
+  }
+}
+
+@test "every SCHEMA_FREEFORM entry carries a written reason (#876)" {
+  local _k _blank=""
+  for _k in "${!SCHEMA_FREEFORM[@]}"; do
+    [[ -n "${SCHEMA_FREEFORM[${_k}]}" ]] || _blank+=" ${_k}"
+  done
+  [ -z "${_blank}" ] || { echo "opt-outs with an empty reason:${_blank}"; false; }
+}
+
+@test "no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)" {
+  local _k _both=""
+  for _k in "${!SCHEMA_FREEFORM[@]}"; do
+    [[ -v "SCHEMA_VALIDATOR[${_k}]" ]] && _both+=" ${_k}"
+  done
+  [ -z "${_both}" ] || { echo "registered AND opted out:${_both}"; false; }
+}
