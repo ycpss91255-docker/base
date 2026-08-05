@@ -669,6 +669,84 @@ SH
   rm -rf "${_d}"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# .setup.conf.local and the field bundle (PRD invariant: an artifact
+# built for the field must not silently depend on a config layer that is
+# not under version control)
+#
+# The refusal is the default because the failure it prevents is silent and
+# remote: a bundle whose values came from a gitignored file cannot be
+# reproduced from a clean checkout, and nothing about the bundle would say
+# so. The escape hatch exists because there are legitimate one-off field
+# builds; what it must never be is quiet.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_setup_deploy: refuses while .setup.conf.local is present (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_failure
+  assert_output --partial ".setup.conf.local"
+  assert_output --partial "gui"
+  assert_output --partial "--allow-local-override"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run \
+    --allow-local-override
+  assert_success
+  assert_output --partial "deploy plan: stage=runtime"
+  assert_output --partial ".setup.conf.local"
+  rm -rf "${_d}"
+}
+
+@test "_setup_deploy: no refusal when there is no local override (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_success
+  refute_output --partial ".setup.conf.local"
+  rm -rf "${_d}"
+}
+
+@test "_render_deploy_readme: records the untracked sections a bundle was built from (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 "gui network"
+  run cat "${_d}/README"
+  assert_success
+  assert_output --partial ".setup.conf.local"
+  assert_output --partial "gui, network"
+  rm -rf "${_d}"
+}
+
+@test "_render_deploy_readme: says nothing about local overrides when there were none (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 ""
+  run cat "${_d}/README"
+  assert_success
+  refute_output --partial ".setup.conf.local"
+  rm -rf "${_d}"
+}
+
+@test "_generate_deploy_bundle: the bundle README records an accepted local override (#893)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  local _out_dir="${_d}/deploy/out"
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_out_dir}"
+  unset DRY_RUN
+  assert_success
+  run grep -F '.setup.conf.local' "${_out_dir}/README"
+  assert_success
+  rm -rf "${_d}"
+}
+
 @test "_setup_deploy: refuses in a non-interactive shell without -y (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"

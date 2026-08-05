@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2603 tests**.
+Unit specs under `test/bats/unit/`: **2618 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -322,7 +322,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (111)
+#### test/bats/unit/setup_cmd_spec.bats (120)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -1558,7 +1558,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (46)
+### test/bats/unit/deploy_spec.bats (52)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1615,6 +1615,12 @@ refused before any build or bundle step.
 | `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)` | missing baked default |
 | `_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)` | deploy dry-run |
 | `_setup_deploy: the preview shows each tunable bind at its declared access (#870)` | preview matches the bundle |
+| `_setup_deploy: refuses while .setup.conf.local is present (#893)` | - |
+| `_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)` | - |
+| `_setup_deploy: no refusal when there is no local override (#893)` | - |
+| `_render_deploy_readme: records the untracked sections a bundle was built from (#893)` | - |
+| `_render_deploy_readme: says nothing about local overrides when there were none (#893)` | - |
+| `_generate_deploy_bundle: the bundle README records an accepted local override (#893)` | - |
 | `_setup_deploy: refuses in a non-interactive shell without -y (#832)` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile (#832)` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag (#832)` | arg validation |

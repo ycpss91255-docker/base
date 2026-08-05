@@ -257,6 +257,106 @@ EOF
   assert_success
 }
 
+# ════════════════════════════════════════════════════════════════════
+# --local: which file a write lands in, and saying so when it will not
+# be the file that is read
+#
+# The default target stays .setup.conf -- the committed, shared value.
+# --local targets the gitignored .setup.conf.local. Writing the committed
+# file while .local already defines that section is NOT refused: under
+# section-replace the write is provably inert ON THIS MACHINE, but the
+# value is still the one CI and every other checkout uses. It is warned,
+# as a certainty rather than a possibility, naming the section.
+#
+# A write that lands where the read path does not look is the failure #201
+# died of, which is why this is a hard requirement and not a nicety.
+# ════════════════════════════════════════════════════════════════════
+
+@test "set --local writes .setup.conf.local and leaves .setup.conf alone (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F 'myrepo-wt2' "${TEMP_DIR}/.setup.conf.local"
+  assert_success
+  run grep -F 'myrepo-wt2' "${TEMP_DIR}/.setup.conf"
+  assert_failure
+}
+
+@test "set without --local still writes .setup.conf (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name myrepo --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F 'myrepo' "${TEMP_DIR}/.setup.conf"
+  assert_success
+  [[ ! -e "${TEMP_DIR}/.setup.conf.local" ]] \
+    || fail "a plain set created the local override file"
+}
+
+@test "set --local reports the gitignored file it created (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial ".setup.conf.local"
+}
+
+@test "set warns, names the section and points at --local when .local shadows it (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set network.mode host --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "network"
+  assert_output --partial ".setup.conf.local"
+  assert_output --partial "--local"
+  # Warned, NOT refused: the value is still what CI and every other
+  # checkout of this repo will use.
+  run grep -E '^mode = host$' "${TEMP_DIR}/.setup.conf"
+  assert_success
+}
+
+@test "set does not warn about a section the local layer does not define (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set gui.mode off --base-path "${TEMP_DIR}"
+  assert_success
+  refute_output --partial ".setup.conf.local"
+}
+
+@test "set --local does not warn about the file it is writing (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set --local network.mode host --base-path "${TEMP_DIR}"
+  assert_success
+  refute_output --partial "will NOT"
+}
+
+@test "add --local appends to the local layer's section (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main add --local volumes.mount /tmp/wt2:/data --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf"
+  assert_failure
+}
+
+@test "remove --local removes from the local layer (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main remove --local volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  assert_failure
+}
+
+@test "add warns when the local layer shadows the section it appends to (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main add volumes.mount /tmp/shared:/data --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "volumes"
+  assert_output --partial "--local"
+}
+
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set bogus.key value --base-path "${TEMP_DIR}"
