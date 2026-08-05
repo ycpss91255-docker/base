@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2398 tests**.
+Unit specs under `test/bats/unit/`: **2424 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2721,3 +2721,39 @@ REAL shipped tree.
 | `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
+
+### test/bats/unit/bash_source_guard_lint_spec.bats (18)
+
+| Test | Description |
+|------|-------------|
+| `_run_bash_source_guard: FAILS on a bare indexed read, naming file and line (#869)` | - |
+| `_run_bash_source_guard: FAILS on a suffix-stripped read (${BASH_SOURCE[0]%/*}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a caller-frame read (${BASH_SOURCE[1]}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a subscript-less read (${BASH_SOURCE}) (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read in base's own tooling tree, not just dist/ (#869)` | - |
+| `_run_bash_source_guard: names the default form in the failure message (#869)` | - |
+| `_run_bash_source_guard: FAILS on a read AFTER an allow-end (region does not leak) (#869)` | - |
+| `_run_bash_source_guard: FAILS on an unterminated allow-begin region (#869)` | - |
+| `_run_bash_source_guard: FAILS on an allow-end with no matching allow-begin (#869)` | - |
+| `_run_bash_source_guard: PASSES the $0-defaulted read (#869)` | - |
+| `_run_bash_source_guard: PASSES the empty-defaulted sourced-vs-executed guard (#869)` | - |
+| `_run_bash_source_guard: PASSES a defaulted higher frame (${BASH_SOURCE[2]:-unknown}) (#869)` | - |
+| `_run_bash_source_guard: PASSES whole-array expansions, which nounset tolerates (#869)` | - |
+| `_run_bash_source_guard: PASSES a comment that merely names the array (#869)` | - |
+| `_run_bash_source_guard: EXEMPTS a read inside an allow-begin/allow-end region (#869)` | - |
+| `_run_bash_source_guard: ignores non-.sh files and files outside the scanned trees (#869)` | - |
+| `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
+| `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
+
+### test/bats/unit/sourceable_scripts_spec.bats (8)
+
+| Test | Description |
+|------|-------------|
+| `sourceable scripts: the discovered set is non-empty and covers the known entry points (#869)` | - |
+| `sourceable scripts: none leaves nounset or errexit on in its caller (#869)` | - |
+| `sourceable scripts: each loads and returns control to the caller (#869)` | - |
+| `self-location: the lib umbrella loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the TUI wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)` | - |
+| `self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)` | - |

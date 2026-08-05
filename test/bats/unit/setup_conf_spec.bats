@@ -66,16 +66,14 @@ EOF
   # Help that names a path the user cannot find is worse than no help:
   # all four heredocs must advertise the dotfile the TUI actually edits.
   #
-  # Driving usage() means SOURCING the wrapper, and the wrapper (like every
-  # sibling in lib/) resolves its own location from an unguarded
-  # ${BASH_SOURCE[0]} after enabling `set -euo pipefail` itself. The
-  # kcov-instrumented bash does not populate that array for a sourced file,
-  # so under kcov the source aborts before usage() exists -- no caller-side
-  # `set +u` can prevent it, and the whole lib chain fails the same way.
-  # The skip enrols this file in the plain bats-fragile job, which runs
-  # exactly these tests with COVERAGE unset, so the assertion is preserved
-  # rather than dropped.
-  [ "${COVERAGE:-0}" = 1 ] && skip "sourcing a wrapper needs BASH_SOURCE, unpopulated under the kcov wrapper (#613)"
+  # Driving usage() means SOURCING the wrapper. That used to be
+  # kcov-only-fatal and carried a COVERAGE skip here: the wrapper enabled
+  # `set -euo pipefail` unconditionally, so the strict mode outlived the
+  # source and the NEXT top-level command in this `bash -c` died inside
+  # kcov's own PS4 (which expands an array that is empty at that level).
+  # The wrapper now gates its strict mode on being executed directly, like
+  # every sibling, so the skip is gone and this assertion runs in the
+  # coverage shard too -- sourceable_scripts_spec.bats holds that property.
   local _lang
   for _lang in zh-TW zh-CN ja en; do
     run bash -c "
