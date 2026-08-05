@@ -173,9 +173,14 @@ environment cleanly apart, and provides the same config by opposite means:
 
 The developer-vs-user split follows **git-tracking**: committed = the
 developer's default (baked); gitignored / not in the repo = the
-user/operator-editable overlay. The **`devel` and `*-test` stages are never
-deploy targets** -- only field-oriented stages deploy; every downstream repo
-follows this.
+user/operator-editable overlay. Only a **deployable stage** deploys; every
+downstream repo follows this. `_is_deployable_stage` (`lib/stage.sh`) is the
+one predicate that enforces it, and it rejects more than the two obvious
+cases: **`devel`** (the interactive shell), **any `*-test` stage** (it exists
+to run, assert and exit), **`sys` and `devel-base`** (build intermediates with
+no runnable service at all), and the legacy aliases `base` / `test`. The
+invariant is whatever that predicate says -- stated here in full so the two
+cannot disagree.
 
 *Why fixed:* base's value is that a downstream inherits one correct dev->field
 path. A devel/test image is not a field artifact (binds source, carries the

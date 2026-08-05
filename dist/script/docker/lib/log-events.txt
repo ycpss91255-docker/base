@@ -152,6 +152,7 @@ ci_readme_sync
 ci_doc_counts
 ci_home_literal
 ci_bash_source_guard
+ci_derived_figures
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

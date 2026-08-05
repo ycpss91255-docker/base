@@ -1,12 +1,6 @@
 # Unit Tests
 
-<<<<<<< HEAD
-Unit specs under `test/bats/unit/`: **2493 tests**.
-||||||| 5474eb5
-Unit specs under `test/bats/unit/`: **2493 tests**.
-=======
-Unit specs under `test/bats/unit/`: **2493 tests**.
->>>>>>> origin/main
+Unit specs under `test/bats/unit/`: **2513 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2783,24 +2777,27 @@ REAL shipped tree.
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
 
-<<<<<<< HEAD
-### test/bats/unit/bash_source_guard_lint_spec.bats (18)
+### test/bats/unit/cd_guard_spec.bats (7)
 
-Unit coverage for `script/test/drivers/bash_source_guard.sh` -- the mechanical
-half of "a self-locating read must carry a default". `${BASH_SOURCE[0]}` with
-no default aborts under the `nounset` the script itself just enabled, in every
-context where bash does not populate the array for the running file -- most
-sharply the kcov-instrumented shell of the coverage shard, where the failure is
-environment-specific and so surfaces in CI rather than locally. Undefaulted
-indexed reads fail, including the `%/*` dirname shorthand and the caller-frame
-`[1]` form; the defaulted `:-$0` / `:-` spellings and the whole-array `[@]` /
-`[*]` / `${#...[@]}` expansions pass (bash yields an empty list for those on an
-unset array even under `set -u`, so they are not the hazard); comment lines
-pass, or the rule would be unwritable in its own terms. A deliberate read opts
-out through a bracketed allow region that must be balanced and does not leak
-past its end; a missing scan root fails loudly rather than passing vacuously;
-and a final case drives the real `dist/` + `script/` trees. The behavioural
-half is `sourceable_scripts_spec.bats`.
+Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
+(ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
+sits on a tag, so an automated field bundle is always traceable to a
+released version. Four `mktemp` git fixtures drive the real script and
+assert exit status **and** the specific refusal message — a status-only
+check passes with the conditions inverted (dirty reported as untagged and
+vice versa). Pure git + filesystem, no docker.
+
+| Test | Description |
+|------|-------------|
+| `cd-guard: ships executable, so the documented ./.base/... invocation works` | - |
+| `cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')` | - |
+| `cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')` | - |
+| `cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')` | - |
+| `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | - |
+| `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
+| `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
+
+### test/bats/unit/bash_source_guard_lint_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -2823,19 +2820,32 @@ half is `sourceable_scripts_spec.bats`.
 | `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
 | `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
 
-### test/bats/unit/sourceable_scripts_spec.bats (8)
+### test/bats/unit/derived_figures_lint_spec.bats (20)
 
-The behavioural half of the same contract: these files must actually LOAD,
-which no grep can prove. Two hazards, both invisible outside the coverage
-shard. (1) A file that enables `set -euo pipefail` unconditionally leaves
-`nounset` on for its CALLER; kcov's `PS4` expands an array that is empty at the
-top level of a `bash -c` string, so the caller's next command dies inside the
-instrumentation -- after the `source` already succeeded, which is why these
-tests assert a marker AFTER the load rather than just its exit status. (2) An
-undefaulted self-location read resolves to the CWD instead, so every sibling
-`source` below it misses. The sourceable set is discovered, not pinned (every
-guard-carrying script plus every `lib/*.sh`), with a floor on the discovery so
-a broken expression cannot make the loops assert nothing.
+| Test | Description |
+|------|-------------|
+| `_derived_baseline_renderings: derives the forward-looking and legacy sets from _validate_stage_name (#874)` | - |
+| `_derived_baseline_renderings: does NOT include devel-test -- the predicate emits it as a service (#874)` | - |
+| `_derived_baseline_renderings: every derived name probes back as a baseline collision (#874)` | - |
+| `_run_derived_figures: FAILS on a README baseline set that lists devel-test, naming file and line (#874)` | - |
+| `_run_derived_figures: PASSES on the canonical forward-looking and legacy renderings (#874)` | - |
+| `_run_derived_figures: ignores a brace set that names no baseline stage (#874)` | - |
+| `_run_derived_figures: catches a stale set wrapped across markdown lines (#874)` | - |
+| `_run_derived_figures: catches a stale set split by an escaped newline in a shell string (#874)` | - |
+| `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
+| `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
+| `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
+| `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
+| `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
+| `_run_derived_figures: FAILS when the listed sections differ from SCHEMA_SECTIONS (#874)` | - |
+| `_run_derived_figures: FAILS when the listed sections are out of template order (#874)` | - |
+| `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: the REAL tree passes today (#874)` | - |
+
+### test/bats/unit/sourceable_scripts_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
@@ -2847,24 +2857,3 @@ a broken expression cannot make the loops assert nothing.
 | `self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
 | `self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)` | - |
 | `self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)` | - |
-=======
-### test/bats/unit/cd_guard_spec.bats (7)
-
-Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
-(ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
-sits on a tag, so an automated field bundle is always traceable to a
-released version. Four `mktemp` git fixtures drive the real script and
-assert exit status **and** the specific refusal message — a status-only
-check passes with the conditions inverted (dirty reported as untagged and
-vice versa). Pure git + filesystem, no docker.
-
-| Test | Description |
-|------|-------------|
-| `cd-guard: ships executable, so the documented ./.base/... invocation works` | - |
-| `cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')` | - |
-| `cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')` | - |
-| `cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')` | - |
-| `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | - |
-| `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
-| `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
->>>>>>> origin/main

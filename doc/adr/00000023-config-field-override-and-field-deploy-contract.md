@@ -67,6 +67,21 @@ used. This is the exact file analog of ADR-00000003's env-row `deploy.sh -e`:
 a self-contained default that a deployment can adjust **without a rebuild**,
 restoring the symmetry between the two routing-table rows.
 
+**Amendment (#870): the override mount is read-only by default, `rw` is
+declared.** As first written this section said nothing about writability, and
+the implementation defaulted to a writable bind. That default was wrong in
+both directions. Nothing in "the operator retunes a value" requires the
+*container* to write -- the operator edits the copy in the bundle on the host
+and the container reads it -- and a writable bind quietly makes the mount
+depend on the container's build-time user id matching whoever unpacked the
+bundle on the field host: reads work under any id, writes fail, months later,
+on the one machine that matters. So each `deploy.manifest` path mounts `:ro`
+unless it declares `rw`, which makes the exception reviewable data rather than
+a blanket grant, and an unrecognised token on a manifest line is a malformed
+manifest that fails loud naming file and line -- never a silent skip, never a
+silent downgrade. An absent access record can only tighten a mount, never
+loosen one.
+
 ### 3. Deploy travels as a fully-resolved, self-contained compose
 
 ADR-00000003 said "the compose does not travel" -- only the image did, and the
@@ -87,6 +102,14 @@ carries the toolchain, and a test image exists to be tested, not shipped.
 Formally, `deployable = not devel and not *-test`; every downstream repo binds
 to this rule (it is the stage-eligibility half of PRD invariant 8, and the
 convention #826 / #827 make downstream-explicit).
+
+**Amendment (#841 / #874): the implementing predicate rejects two more
+names.** `_is_deployable_stage` (`lib/stage.sh`) also rejects **`sys` and
+`devel-base`** -- build intermediates with no runnable service, so a bundle
+built from one is simply broken, not merely inadvisable -- alongside the
+legacy aliases `base` / `test` the v0.21.x transition still accepts. The
+formula above was the reasoning; the predicate is the rule, and PRD invariant
+8 now states it in full so prose and predicate cannot disagree.
 
 ### 5. Per-stage tunability via `config/<component>/deploy.manifest`
 

@@ -209,6 +209,9 @@ jobs:
     #   bash-source-guard no undefaulted BASH_SOURCE self-location read
     #                     under dist/ or script/ -- likewise joined here on
     #                     the day it was written
+    #   derived-figures   the baseline stage set and the setup.conf section
+    #                     list, as documents repeat them, still match the
+    #                     code that defines them
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -242,6 +245,7 @@ jobs:
           - readme-sync
           - home-literal
           - bash-source-guard
+          - derived-figures
     steps:
       - name: Checkout
         uses: actions/checkout@v7
