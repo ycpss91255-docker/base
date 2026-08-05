@@ -7,17 +7,85 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
 # _load_setup_conf (per-repo replace / template fallback)
 # ════════════════════════════════════════════════════════════════════
-@test "_load_setup_conf honors SETUP_CONF env var override" {
-  local _override="${TEMP_DIR}/override.conf"
-  cat > "${_override}" <<'EOF'
+@test "_load_setup_conf returns every entry of the per-repo section" {
+  # Was the SETUP_CONF fixture seam; the conf surface is the fixed pair of
+  # real files, so the fixture is a real file at the path the resolver reads.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = off
 count = 0
 EOF
   local -a _k=() _v=()
-  SETUP_CONF="${_override}" _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${#_k[@]}" "2"
   assert_equal "${_v[0]}" "off"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# An ambient SETUP_CONF must not steer config resolution
+#
+# SETUP_CONF was a test seam that replaced the WHOLE resolution with one
+# unchecked path. The two assertions below are the two ways that bites a
+# user: a stale value silently swaps the config out from under the repo,
+# and a path that does not exist silently resolves to an EMPTY config --
+# a silent failure, which invariant 2 forbids.
+# ════════════════════════════════════════════════════════════════════
+@test "_load_setup_conf ignores an ambient SETUP_CONF pointing at another file" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  local -a _k=() _v=()
+  SETUP_CONF="${TEMP_DIR}/typo-nowhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_setup_conf_handle ignores an ambient SETUP_CONF" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _setup_conf_handle "${TEMP_DIR}" _SCH
+  run _conf_get _SCH gui mode
+  assert_success
+  assert_output "force"
+}
+
+@test "_compute_conf_hash ignores an ambient SETUP_CONF" {
+  # The hash names the config that was actually resolved. Folding a file
+  # resolution never read into it makes the drift signal describe something
+  # else entirely.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  local _plain="" _ambient=""
+  _compute_conf_hash "${TEMP_DIR}" _plain
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _compute_conf_hash "${TEMP_DIR}" _ambient
+  assert_equal "${_ambient}" "${_plain}"
 }
 
 @test "_load_setup_conf uses per-repo setup.conf when section present" {

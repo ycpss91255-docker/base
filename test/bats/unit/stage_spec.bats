@@ -626,6 +626,23 @@ EOF
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
 }
 
+@test "_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)" {
+  # An ambient value used to REPLACE the file this reads, so a leftover
+  # export silently swapped every per-stage override for another file's.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[stage:headless]
+gui.mode = force
+EOF
+  local -a _keys=() _values=()
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" \
+    _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
+}
+
 @test "_load_stage_overrides: missing setup.conf → empty arrays" {
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values

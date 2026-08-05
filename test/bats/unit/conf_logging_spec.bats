@@ -105,6 +105,21 @@ CONF
   [[ "${_p}" == *"runtime:compress=false"* ]]
 }
 
+@test "_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[logging]
+driver = local
+CONF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'CONF'
+[logging]
+driver = journald
+CONF
+  local _g="" _p=""
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_g}" == *"driver=local"* ]] || { echo "got: ${_g}"; return 1; }
+}
+
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
