@@ -120,6 +120,7 @@ init_missing_required_arg
 init_progress
 init_just_missing
 init_bootstrap_just
+init_failed
 
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
