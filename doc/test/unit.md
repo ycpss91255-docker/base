@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2398 tests**.
+Unit specs under `test/bats/unit/`: **2420 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1419,7 +1419,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (81)
+### test/bats/unit/compose_emit/gen_spec.bats (87)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1491,6 +1491,12 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)` | #582 mount target |
 | `generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)` | #582 env sync |
 | `generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR env (Wayland socket dir)` | Relocated from the unreachable smoke gate; Wayland socket dir env under gui=true |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR mounted rw at the same path` | Mirrored path + rw, so the socket handshake works |
+| `generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount` | Negative side, so gui=off can fail too |
+| `generate_compose_yaml emits no duplicate key within a service (GUI on)` | Two identical keys in one service is a hard `docker compose up` parse error |
+| `generate_compose_yaml emits no duplicate key within a service (GUI off)` | GUI-independent structural property; runs on every CI run |
+| `the duplicate-key detector actually fires on a duplicated service key` | Known-bad document, so a checker that never fires cannot pass silently |
 | `generate_compose_yaml extra volumes appended after baseline` | volumes list |
 | `generate_compose_yaml empty extras => no extra mount lines` | empty list |
 | `generate_compose_yaml with GUI+GPU+extras => all sections present` | fully loaded |
@@ -2247,7 +2253,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)` | - |
 | `_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (19)
+### test/bats/unit/smoke_helper_spec.bats (28)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -2274,6 +2280,15 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `assert_pip_pkg passes when pip show returns 0` | Package installed |
 | `assert_pip_pkg fails when pip show returns non-zero` | Package missing |
 | `assert_pip_pkg fails when pip is not installed` | pip itself missing |
+| `run_wrapper_xhost: wayland session grants +SI:localuser to the .env user` | Drives the real wrapper at its source path (shipped smoke driver) |
+| `run_wrapper_xhost: x11 session grants +local:` | X11 branch of the real wrapper |
+| `run_wrapper_xhost: an unset XDG_SESSION_TYPE falls back to the X11 grant` | `env -u` inside the driver, so the CI container's own value cannot leak in |
+| `run_wrapper_xhost: reports every xhost call, one per line` | Makes the one-grant-per-invocation assertion possible downstream |
+| `run_wrapper_xhost: fails loudly when the wrapper makes no xhost call` | Without it an empty capture would satisfy every `refute_output` |
+| `run_wrapper_xhost: fails when the wrapper exits non-zero` | An early death must not read as 'no grant emitted' |
+| `run_wrapper_xhost: fails when the wrapper path does not exist` | Guard on the path argument |
+| `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | Guard on the `../lib` / `lib` resolution |
+| `run_wrapper_xhost: errors when the wrapper path arg is missing` | Guard on a missing argument |
 
 ### test/bats/unit/runtime_smoke_spec.bats (8)
 
@@ -2721,3 +2736,23 @@ REAL shipped tree.
 | `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
+
+### test/bats/unit/cd_guard_spec.bats (7)
+
+Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
+(ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
+sits on a tag, so an automated field bundle is always traceable to a
+released version. Four `mktemp` git fixtures drive the real script and
+assert exit status **and** the specific refusal message — a status-only
+check passes with the conditions inverted (dirty reported as untagged and
+vice versa). Pure git + filesystem, no docker.
+
+| Test | Description |
+|------|-------------|
+| `cd-guard: ships executable, so the documented ./.base/... invocation works` | Mode bit is part of the shipped contract; every README documents `./.base/dist/deploy/cd-guard.sh` |
+| `cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')` | Non-repo fixture |
+| `cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')` | Tagged + dirty: pins the refusal to the porcelain test |
+| `cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')` | Clean + untagged: pins the refusal to the describe test |
+| `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | Commits past the tag; pins `--exact-match` |
+| `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | The only accepting outcome |
+| `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | Stream split, so a CD pipeline surfaces the reason |
