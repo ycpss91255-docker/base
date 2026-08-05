@@ -223,6 +223,11 @@ declare -gA SCHEMA_EMPTY=(
 # Opting out is a deliberate, reviewable statement -- not a default.
 #
 # Currently empty: every shipped key has a value set worth enforcing.
+#
+# Declarative data, read by schema_coverage_spec's completeness gate
+# rather than by any function in this lib -- so the unused-variable
+# warning is expected here and nowhere else in the file.
+# shellcheck disable=SC2034
 declare -gA SCHEMA_FREEFORM=()
 
 # ════════════════════════════════════════════════════════════════════

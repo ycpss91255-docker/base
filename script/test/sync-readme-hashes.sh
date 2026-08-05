@@ -169,7 +169,7 @@ _readme_index() {
     fi
     _head="${_lines[${_hidx[_j]}]%%+([[:space:]])}"
     _body=()
-    for (( _k = ${_hidx[_j]} + 1; _k <= _end; _k++ )); do
+    for (( _k = _hidx[_j] + 1; _k <= _end; _k++ )); do
       _body+=( "${_lines[_k]%%+([[:space:]])}" )
     done
     while [[ "${#_body[@]}" -gt 0 && -z "${_body[0]}" ]]; do
