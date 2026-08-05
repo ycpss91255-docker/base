@@ -1074,12 +1074,18 @@ generate_compose_yaml() {
 # Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
 HEADER
     # top-level name: so non-wrapper tools (lazydocker / docker compose
-    # ps / IDE panels) resolve the same project name the wrapper pins via -p.
-    # Literal vars -> compose interpolates from .env at parse time; matches
-    # lib/compose.sh PROJECT_NAME. base is single-instance: one
-    # fixed-name project per repo.
+    # ps / IDE panels) resolve the same project name the wrapper pins via
+    # -p. It is the SAME value, not a second computation of it: setup
+    # resolves [project] name once into .env.generated as PROJECT_NAME, the
+    # wrapper passes that to -p, and compose interpolates it here from the
+    # same --env-file. Re-assembling the hub / image pair here is what
+    # made this a second answerer to one question.
+    #
+    # An interpolation rather than the resolved literal, per ADR-00000022:
+    # the project name is a per-instance field, so it stays
+    # overlay-overridable.
     cat <<'YAML'
-name: ${DOCKER_HUB_USER}-${IMAGE_NAME}
+name: ${PROJECT_NAME}
 YAML
     cat <<YAML
 services:

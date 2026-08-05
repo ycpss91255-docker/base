@@ -237,11 +237,27 @@ setup() {
 # Docker compose project name (-p)
 # ════════════════════════════════════════════════════════════════════
 
-@test "lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME" {
-  # Project name derivation lives in lib/compose.sh (split out of _lib.sh)
-  # and is shared by all callers via the _lib.sh umbrella.
-  run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/dist/script/docker/lib/compose.sh
+@test "lib/compose.sh is the ONLY producer of a project name (#893)" {
+  # One question, one answerer. Every project name in the product comes out
+  # of _resolve_project_name in lib/compose.sh: setup's apply calls it to
+  # record PROJECT_NAME in .env.generated, and the wrapper calls it only
+  # when there is no .env.generated to read at all. A second place that
+  # assembles `<hub>-<image>` is the shape this replaces, so no other
+  # shipped file may build one.
+  run grep -E '^_resolve_project_name\(\)' /source/dist/script/docker/lib/compose.sh
   assert_success
+
+  # The shape being outlawed is the JOIN itself -- `${...HUB...}-${...IMAGE...}`
+  # in either order. An image TAG (`${HUB}/${IMAGE}`) is a different figure
+  # and stays where it is.
+  local _hit
+  _hit="$(grep -rlE '(DOCKER_HUB_USER[^}]*\}-\$\{[^}]*IMAGE_NAME)|(IMAGE_NAME[^}]*\}-\$\{[^}]*DOCKER_HUB_USER)' \
+            /source/dist --include='*.sh' --include='*.yaml' \
+          | grep -v '/lib/compose\.sh$' || true)"
+  [[ -z "${_hit}" ]] || {
+    echo "a second place assembles a project name: ${_hit}"
+    false
+  }
 }
 
 # Wrapper -> compose dispatch is asserted by observed behaviour in

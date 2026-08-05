@@ -362,27 +362,19 @@ _parse_stage_sections() {
 
 # _load_stage_overrides <base_path> <stage> <keys_outvar> <values_outvar>
 #
-# Reads the `[stage:<stage>]` section from <base_path>/setup.conf into
-# parallel arrays. Stage sections only live in the per-repo file
-# (template's setup.conf doesn't carry stage overrides — it doesn't
-# know which Dockerfile stages exist downstream). Honors SETUP_CONF
-# the same way _load_setup_conf does.
+# Reads the `[stage:<stage>]` section through the conf chain into parallel
+# arrays, same section-replace rule as every other section: the highest
+# layer that defines `[stage:<stage>]` supplies all of it. In practice the
+# template carries no stage overrides (it does not know which Dockerfile
+# stages exist downstream), so the contest is between the repo's committed
+# override and the per-worktree `.setup.conf.local`. The local layer may
+# override ANY section -- a per-stage section is not a special case.
 _load_stage_overrides() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   local -n _lso_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
   local -n _lso_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-  _lso_keys=()
-  _lso_values=()
-
-  local _conf
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf="${SETUP_CONF}"
-  else
-    _conf="${_base}/.setup.conf"
-  fi
-  [[ -f "${_conf}" ]] || return 0
-  _parse_ini_section "${_conf}" "stage:${_stage}" _lso_keys _lso_values
+  _load_setup_conf "${_base}" "stage:${_stage}" _lso_keys _lso_values
 }
 
 # _validate_stage_override_key <key>

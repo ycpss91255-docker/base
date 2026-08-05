@@ -30,6 +30,7 @@ _DOCKER_LIB_ENV_EMIT_SOURCED=1
 #                  <gpu_count> <gpu_caps>
 #                  <gui_detected> <conf_hash>
 #                  [<network_name>] [<user_build_args>] [<target_arch>]
+#                  [<build_network>] [<ssh_x11_xauth>] [<project_name>]
 #
 # user_build_args is a newline-separated list of "KEY=VALUE" pairs
 # from `[build] arg_N` entries outside the three known keys
@@ -72,7 +73,12 @@ write_env() {
   # SSH X11 forwarding cookie override. Empty when not in an
   # SSH X11 session, in which case host's XAUTHORITY flows through to
   # compose unchanged.
-  local _ssh_x11_xauth="${1:-}"
+  local _ssh_x11_xauth="${1:-}"; shift || true
+  # The resolved compose project name (lib/compose.sh _resolve_project_name).
+  # Recorded here because .env.generated is the ONE place both consumers
+  # read it from: the wrapper's `-p` (via _load_env) and compose.yaml's
+  # `name: ${PROJECT_NAME}` (via --env-file).
+  local _project_name="${1:-}"
 
   local _comment=""
   _comment="$(_setup_msg env comment)"
@@ -89,6 +95,9 @@ HARDWARE=${_hardware}
 DOCKER_HUB_USER=${_docker_hub_user}
 GPU_ENABLED=${_gpu_detected}
 IMAGE_NAME=${_image_name}
+
+# ── Compose project (from [project] name; empty = derived) ──
+PROJECT_NAME=${_project_name}
 
 # ── Workspace ────────────────────────────────
 WS_PATH=${_ws_path}

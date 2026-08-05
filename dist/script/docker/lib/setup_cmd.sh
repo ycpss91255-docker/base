@@ -89,11 +89,8 @@ _setup_warn_ports_inert() {
     *) return 0 ;;
   esac
 
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   local -a _wpi_sections=() _wpi_keys=() _wpi_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _wpi_sections _wpi_keys _wpi_values
+  _setup_effective_full "${_base_path}" _wpi_sections _wpi_keys _wpi_values
 
   local _i _mode="host" _ports=""
   for (( _i=0; _i<${#_wpi_keys[@]}; _i++ )); do
@@ -108,6 +105,74 @@ _setup_warn_ports_inert() {
   done
 
   _warn_ports_inert "${_ports}" "${_mode}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_write_target <base_path> <local_flag> <outvar>
+#
+# Resolve which file a write verb lands in: <base>/.setup.conf by default,
+# <base>/.setup.conf.local when --local was passed. Bootstraps the file as
+# empty when missing -- a write verb records only the user's intent, never a
+# wholesale copy of template defaults. Announces the creation of the local
+# override the first time, because a file that is gitignored and read by
+# every later resolution should not appear without a word.
+# ════════════════════════════════════════════════════════════════════
+_setup_write_target() {
+  local _base_path="${1:?}"
+  local _is_local="${2:-0}"
+  local -n _swt_out="${3:?}"
+
+  if (( _is_local )); then
+    _swt_out="$(_setup_conf_local_path "${_base_path}")"
+  else
+    _swt_out="${_base_path}/.setup.conf"
+  fi
+  if [[ ! -f "${_swt_out}" ]]; then
+    : > "${_swt_out}"
+    if (( _is_local )); then
+      _log_info setup conf_local_created \
+        "display=[setup] created ${_swt_out} -- the gitignored per-worktree override. Every section it defines REPLACES the committed .setup.conf's, on this machine only; 'setup.sh deploy' refuses to build a field bundle while it exists." \
+        "file=${_swt_out}"
+    fi
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_warn_shadowed_write <base_path> <section> <is_local>
+#
+# The store-time half of "a write must land where the read path looks".
+# When a write targets the COMMITTED .setup.conf and .setup.conf.local
+# already defines that section, section-replace makes the write inert on
+# this machine -- so say so, by name.
+#
+# Stated as a certainty, not a possibility: under section-replace there is
+# no case in which the write takes effect here. But it is a WARNING, not a
+# refusal, and that asymmetry is deliberate -- the value is still the
+# committed, shared setting CI and every other checkout use, so refusing
+# would block a legitimate write on the grounds that one machine cannot see
+# its effect.
+#
+# No-op when the write already targets the local layer, and no-op for a
+# section .setup.conf.local does not define.
+# ════════════════════════════════════════════════════════════════════
+_setup_warn_shadowed_write() {
+  local _base_path="${1-}" _section="${2-}" _is_local="${3:-0}"
+  (( _is_local )) && return 0
+
+  local -a _wsw_sections=()
+  _setup_conf_local_sections "${_base_path}" _wsw_sections
+  local _s _shadowed=0
+  for _s in "${_wsw_sections[@]+"${_wsw_sections[@]}"}"; do
+    [[ "${_s}" == "${_section}" ]] && { _shadowed=1; break; }
+  done
+  (( _shadowed )) || return 0
+
+  local _local
+  _local="$(_setup_conf_local_path "${_base_path}")"
+  _log_warn setup conf_write_shadowed \
+    "display=[setup] [${_section}] is also defined in ${_local}, which REPLACES the whole section. This write will NOT affect anything on this machine. It is still the committed value CI and every other checkout of this repo use -- pass --local to change what runs here instead." \
+    "section=${_section}" "file=${_local}"
+  return 0
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -126,6 +191,7 @@ _setup_set() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
   local _quiet=0
+  local _is_local=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured the next bare arg is the value, even if
@@ -133,7 +199,7 @@ _setup_set() {
     # invalid value path that the validator must reject — not a flag).
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-q|--quiet|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help|--local)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -156,6 +222,12 @@ _setup_set() {
         ;;
       -q|--quiet)
         _quiet=1
+        shift
+        ;;
+      --local)
+        # Target the gitignored per-worktree override instead of the
+        # committed .setup.conf.
+        _is_local=1
         shift
         ;;
       --)
@@ -225,13 +297,10 @@ _setup_set() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # Writes target the per-repo override file (setup.conf). Bootstrap
-  # as empty when missing — `set` records only the user's intent, never
-  # copies template defaults wholesale.
-  local _conf="${_base_path}/.setup.conf"
-  if [[ ! -f "${_conf}" ]]; then
-    : > "${_conf}"
-  fi
+  # Writes target the committed per-repo override (.setup.conf) by
+  # default; --local targets the gitignored .setup.conf.local.
+  local _conf=""
+  _setup_write_target "${_base_path}" "${_is_local}" _conf
 
   # Propagate writer refusal (e.g. a newline-bearing value) instead
   # of printing a misleading success message over a no-op / partial write.
@@ -246,8 +315,9 @@ _setup_set() {
     printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 
-  # Diagnostic, not chatter: --quiet drops the receipt, never the warning
+  # Diagnostics, not chatter: --quiet drops the receipt, never a warning
   # that the value just stored will not take effect.
+  _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
   _setup_warn_ports_inert "${_base_path}" "${_section}" "${_key}"
 }
 
@@ -328,14 +398,12 @@ _setup_show() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # show reads the merged view (template baseline ← repo override).
-  # This is what `apply` would produce, so users see effective values
-  # without having to re-run apply after every set/add/remove.
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  # show reads the resolved view of the whole chain (template baseline <-
+  # repo override <- local override). This is what `apply` would produce, so
+  # users see effective values without having to re-run apply after every
+  # set/add/remove -- and see the local layer's values where it has any.
   local -a _ss_sections=() _ss_keys=() _ss_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _ss_sections _ss_keys _ss_values
+  _setup_effective_full "${_base_path}" _ss_sections _ss_keys _ss_values
 
   local _i _ns_key="${_section}.${_key}"
   if [[ -n "${_key}" ]]; then
@@ -424,13 +492,10 @@ _setup_list() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # list reads the merged view (template ← repo override) — same
-  # rationale as `show`. Reflects what `apply` would materialize.
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  # list reads the resolved view of the whole chain -- same rationale as
+  # `show`. Reflects what `apply` would materialize.
   local -a _ll_sections=() _ll_keys=() _ll_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _ll_sections _ll_keys _ll_values
+  _setup_effective_full "${_base_path}" _ll_sections _ll_keys _ll_values
 
   local _si _ki _sect _first=1
   for _sect in "${_ll_sections[@]}"; do
@@ -472,6 +537,7 @@ _setup_add() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
   local _quiet=0
+  local _is_local=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured, the next bare arg is the value, even if
@@ -479,7 +545,7 @@ _setup_add() {
     # flags). Same shape as _setup_set.
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-q|--quiet|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help|--local)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -502,6 +568,12 @@ _setup_add() {
         ;;
       -q|--quiet)
         _quiet=1
+        shift
+        ;;
+      --local)
+        # Target the gitignored per-worktree override instead of the
+        # committed .setup.conf.
+        _is_local=1
         shift
         ;;
       --)
@@ -555,12 +627,10 @@ _setup_add() {
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
-  # Writes target the per-repo override (setup.conf); bootstrap as
-  # empty when missing — `add` records only the user's intent.
-  local _conf="${_base_path}/.setup.conf"
-  if [[ ! -f "${_conf}" ]]; then
-    : > "${_conf}"
-  fi
+  # Writes target the committed per-repo override (.setup.conf) by
+  # default; --local targets the gitignored .setup.conf.local.
+  local _conf=""
+  _setup_write_target "${_base_path}" "${_is_local}" _conf
 
   # Scan keys[] for "<section>.<list>_<digits>". Pick the first slot
   # whose value is empty (reuses placeholder slots from the template
@@ -630,7 +700,9 @@ _setup_add() {
     printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 
-  # Same diagnostic as `set` -- `add network.port` is the other way in.
+  # Same diagnostics as `set` -- `add network.port` is the other way in,
+  # and an append to a shadowed section is just as inert as an assignment.
+  _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
   _setup_warn_ports_inert "${_base_path}" "${_section}" "${_new_key}"
 }
 
@@ -657,11 +729,12 @@ _setup_remove() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
   local _quiet=0
+  local _is_local=0
 
   while [[ $# -gt 0 ]]; do
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-q|--quiet|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help|--local)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -684,6 +757,12 @@ _setup_remove() {
         ;;
       -q|--quiet)
         _quiet=1
+        shift
+        ;;
+      --local)
+        # Target the gitignored per-worktree override instead of the
+        # committed .setup.conf.
+        _is_local=1
         shift
         ;;
       --)
@@ -738,10 +817,12 @@ _setup_remove() {
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
-  # remove only operates on the per-repo override. If setup.conf
-  # doesn't exist, there's nothing to remove (template baseline isn't
-  # a removable input).
+  # remove operates on ONE layer: the committed .setup.conf by default,
+  # .setup.conf.local under --local. If that file doesn't exist there is
+  # nothing to remove -- neither the template baseline nor the other layer
+  # is a removable input from here.
   local _conf="${_base_path}/.setup.conf"
+  (( _is_local )) && _conf="$(_setup_conf_local_path "${_base_path}")"
   if [[ ! -f "${_conf}" ]]; then
     _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
     return 1
@@ -796,6 +877,8 @@ _setup_remove() {
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
+
+  _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1032,7 +1115,7 @@ _setup_apply() {
   # read [build] / [security] / [additional_contexts] from it via the
   # _conf_get_into / _conf_list_sorted accessors -- replacing three
   # per-section _load_setup_conf calls that each re-tokenized the whole conf
-  # (same merge precedence + SETUP_CONF override). [volumes] is NOT read from
+  # (same merge precedence). [volumes] is NOT read from
   # this handle: _reconcile_workspace_path mutates its parallel arrays in
   # place and reloads them after a mount_1 rewrite (bootstrap / stale path),
   # so it keeps a dedicated single-section load that stays in sync with the
@@ -1250,6 +1333,16 @@ _setup_apply() {
   _resolve_gpu "${gpu_mode}" "${gpu_detected}" gpu_enabled_eff
   _resolve_gui "${gui_mode}" "${gui_detected}" gui_enabled_eff
 
+  # ── [project] name -> the resolved compose project name ──
+  # Resolved ONCE, here, by the single producer in lib/compose.sh. It goes
+  # into .env.generated as PROJECT_NAME, which is what BOTH the wrapper's
+  # `-p` and the emitted `name: ${PROJECT_NAME}` read -- so the two cannot
+  # be two computations that agree.
+  local _project_name_conf="" project_name=""
+  _conf_get_into _APPLY_CONF project name "" _project_name_conf
+  _resolve_project_name "${_project_name_conf}" "${docker_hub_user}" \
+    "${image_name}" "${_base_path}" project_name
+
   # ── Compute hashes for drift detection ──
   local conf_hash=""
   _compute_conf_hash "${_base_path}" conf_hash
@@ -1297,6 +1390,7 @@ _setup_apply() {
     printf 'NETWORK_NAME=%s\n' "${network_name}"
     printf 'TARGET_ARCH=%s\n' "${target_arch}"
     printf 'BUILD_NETWORK=%s\n' "${build_network}"
+    printf 'PROJECT_NAME=%s\n' "${project_name}"
     printf 'SSH_X11=%s\n' "$(_is_ssh_x11 && echo true || echo false)"
     printf 'X11_COOKIE_SKIP=%s\n' "$(( _no_x11_cookie ))"
     return 0
@@ -1335,7 +1429,8 @@ _setup_apply() {
     "${_user_build_args_str}" \
     "${target_arch}" \
     "${build_network}" \
-    "${_ssh_x11_xauth}"
+    "${_ssh_x11_xauth}" \
+    "${project_name}"
 
   # Create the hand-authored .env workload overlay on first apply.
   # Idempotent: never overwrites an existing user-owned overlay.
@@ -1404,9 +1499,11 @@ _setup_apply() {
 # ════════════════════════════════════════════════════════════════════
 _setup_deploy() {
   local _base_path="" _stage="runtime" _output="" _yes=0 _quiet=0 _dry=0
+  local _allow_local=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)     usage ;;
+      --allow-local-override) _allow_local=1; shift ;;
       --base-path)   _base_path="${2:?"--base-path requires a value"}"; shift 2 ;;
       --lang)        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"; _sanitize_lang _LANG "setup"; shift 2 ;;
       --stage)       _stage="${2:?"--stage requires a value"}"; shift 2 ;;
@@ -1439,6 +1536,31 @@ _setup_deploy() {
   if [[ ! -f "${_base_path}/Dockerfile" ]]; then
     _log_err setup deploy_no_dockerfile "display=[setup] deploy: no Dockerfile at ${_base_path}; cannot build the field image." "path=${_base_path}"
     return 1
+  fi
+
+  # PRD invariant: an artifact built for the field must not silently depend
+  # on a config layer that is not under version control. .setup.conf.local
+  # is gitignored, so a bundle whose values came from it cannot be rebuilt
+  # from a clean checkout and nothing in the bundle would say why. Refused
+  # by default, BEFORE the preview and before any build side effect, so a
+  # --dry-run reports the refusal too rather than previewing a plan that
+  # would not be allowed to run.
+  local -a _dep_local_sections=()
+  _setup_conf_local_sections "${_base_path}" _dep_local_sections
+  local _dep_local_list=""
+  if (( ${#_dep_local_sections[@]} > 0 )); then
+    _dep_local_list="${_dep_local_sections[*]}"
+    local _dep_local_file
+    _dep_local_file="$(_setup_conf_local_path "${_base_path}")"
+    if (( ! _allow_local )); then
+      _log_err setup deploy_local_override_refused \
+        "display=[setup] deploy: ${_dep_local_file} is present and supplies section(s): ${_dep_local_list// /, }. It is gitignored, so a bundle built from it cannot be reproduced from a clean checkout. Remove it, or pass --allow-local-override to build anyway (the bundle's README records which sections came from it)." \
+        "file=${_dep_local_file}" "sections=${_dep_local_list}"
+      return 1
+    fi
+    _log_warn setup deploy_local_override_accepted \
+      "display=[setup] deploy: --allow-local-override accepted; section(s) ${_dep_local_list// /, } come from the untracked ${_dep_local_file}. This bundle is NOT reproducible from a clean checkout; its README records the fact." \
+      "file=${_dep_local_file}" "sections=${_dep_local_list}"
   fi
 
   local _name=""

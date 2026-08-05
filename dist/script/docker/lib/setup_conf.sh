@@ -4,7 +4,7 @@
 #
 # The readers setup.sh and the other libs use to query the effective
 # setup.conf: the per-section merge loader (_load_setup_conf), the parse-once
-# handle model (_setup_conf_handle / _setup_load_merged_full) feeding the
+# handle model (_setup_conf_handle / _setup_effective_full) feeding the
 # _conf_get / _conf_list_sorted accessors in lib/conf.sh, the convenience
 # scalar/list getters (_get_conf_value / _get_conf_list_sorted), and the
 # [image]-rule applicators (_rule_prefix / _rule_suffix / _rule_basename) used
@@ -22,6 +22,17 @@ if [[ -n "${_DOCKER_LIB_SETUP_CONF_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_SETUP_CONF_SOURCED=1
 
+# The layer resolvers below are thin wrappers over conf.sh's INI
+# primitives (_parse_ini_section / _ini_tokenize / _conf_load_layers), so
+# pull conf.sh in directly (idempotent via its own double-source guard)
+# rather than depending on _lib.sh's load order -- same shape as schema.sh
+# pulling in _tui_conf.sh. Keeps this file sourceable on its own by the
+# lighter callers (init.sh / upgrade.sh reach it through conf_logging.sh).
+_setup_conf_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=dist/script/docker/lib/conf.sh
+source "${_setup_conf_lib_dir}/conf.sh"
+unset _setup_conf_lib_dir
+
 # ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
 #
@@ -31,144 +42,178 @@ _DOCKER_LIB_SETUP_CONF_SOURCED=1
 # conf.sh in the umbrella loader near setup.sh's top).
 # ════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════
+# The conf layer chain
+#
+# Three files, lowest precedence first:
+#
+#   <template>/.setup.conf        the shipped default (inside .base)
+#   <repo>/.setup.conf            the repo's committed override -- ours,
+#                                 shared, what CI and every other checkout
+#                                 of this repo uses
+#   <repo>/.setup.conf.local      the operator's per-worktree override --
+#                                 gitignored, never touched by tooling,
+#                                 visible only on this machine
+#
+# The `.local` suffix means exactly what the repo's file-naming convention
+# says it means: the standard name is ours, a suffix marks the operator's
+# local variant. `.setup.conf.local` is the local variant OF `.setup.conf`
+# and therefore shares its grammar -- same sections, same keys, same
+# section-replace rule -- rather than being a second schema.
+#
+# It acts BEFORE compose.yaml is generated (one compose.yaml per worktree),
+# which is what distinguishes it from the ADR-00000022 runtime `.env`
+# overlay that isolates multi_run's Nth instance on ONE already-generated
+# compose.yaml. Neither substitutes for the other.
+# ════════════════════════════════════════════════════════════════════
+
+# _setup_conf_layers <base_path> <outarray>
+#
+# Fill <outarray> with the chain's paths in INCREASING precedence. Paths
+# are returned whether or not they exist -- an absent layer contributes
+# nothing, and every reader passes the whole chain unconditionally so the
+# precedence lives in exactly one place.
+#
+# The template layer is OMITTED when _SETUP_SCRIPT_DIR is unset (init.sh /
+# upgrade.sh reach the readers via conf_logging.sh without sourcing
+# setup.sh). Omitted rather than left to resolve: an empty prefix would
+# make the path `/../../../.setup.conf`, i.e. `/.setup.conf` -- a real,
+# readable path that has nothing to do with this repo.
+_setup_conf_layers() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _scl_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _scl_out=()
+  [[ -n "${_SETUP_SCRIPT_DIR:-}" ]] \
+    && _scl_out+=("${_SETUP_SCRIPT_DIR}/../../../.setup.conf")
+  _scl_out+=(
+    "${_base}/.setup.conf"
+    "${_base}/.setup.conf.local"
+  )
+}
+
+# _setup_conf_local_path <base_path>
+#
+# Echo the per-worktree override path. One spelling of the filename for
+# every caller that has to name it in a message.
+_setup_conf_local_path() {
+  printf '%s/.setup.conf.local' "${1:?"${FUNCNAME[0]}: missing base_path"}"
+}
+
+# _setup_conf_local_sections <base_path> <outarray>
+#
+# Fill <outarray> with the sections <base>/.setup.conf.local actually
+# DEFINES (>=1 entry), in file order; empty when the file is absent or
+# defines nothing. Under section-replace these are exactly the sections in
+# which the local layer wins, so this is the list every "your write is
+# shadowed" / "a local layer is in effect" message names. A section is
+# never silently shadowed: the section list, not a boolean, is what makes
+# the message actionable.
+_setup_conf_local_sections() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _scls_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _scls_out=()
+
+  local _local
+  _local="$(_setup_conf_local_path "${_base}")"
+  [[ -f "${_local}" ]] || return 0
+
+  local -a _scls_s=() _scls_es=() _scls_k=() _scls_v=()
+  _ini_tokenize "${_local}" _scls_s _scls_es _scls_k _scls_v
+
+  local _sec _i _has
+  for _sec in "${_scls_s[@]+"${_scls_s[@]}"}"; do
+    _has=0
+    for (( _i = 0; _i < ${#_scls_es[@]}; _i++ )); do
+      [[ "${_scls_es[_i]}" == "${_sec}" ]] && { _has=1; break; }
+    done
+    (( _has )) && _scls_out+=("${_sec}")
+  done
+  return 0
+}
+
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
-# Merges per-repo setup.conf with template default, section-replace
-# strategy: if per-repo setup.conf has the section, use its entries;
-# otherwise fall back to the template's section. SETUP_CONF env var forces
-# a specific file (skips the merge entirely).
+# Resolve one section through the layer chain, section-replace: the highest
+# layer that defines the section supplies ALL of its entries; the layers
+# below contribute nothing to it. Sections a layer omits fall through.
 #
-# collapsed back to 2-file model. <repo>/.setup.conf is the user
-# override (committed, not gitignored, survives template upgrade because
-# template subtree pull never touches it — it lives outside .base).
+# The chain's surface is the fixed set of paths _setup_conf_layers names.
+# There is no env var that relocates it: a relocation lever is a second,
+# unchecked resolution path that silently wins over the real one.
 _load_setup_conf() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _section="${2:?"${FUNCNAME[0]}: missing section"}"
   local -n _lsc_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
   local -n _lsc_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
 
-  # If SETUP_CONF is set, only read from it (no merge)
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _parse_ini_section "${SETUP_CONF}" "${_section}" _lsc_keys _lsc_values
-    return 0
-  fi
+  _lsc_keys=()
+  _lsc_values=()
 
-  local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../.setup.conf"
-  local _repo_conf="${_base}/.setup.conf"
+  local -a _lsc_layers=()
+  _setup_conf_layers "${_base}" _lsc_layers
 
-  # Try per-repo setup.conf first; if the section exists there, use it.
-  if [[ -f "${_repo_conf}" ]]; then
+  # Walk highest precedence first and stop at the first layer that defines
+  # the section -- the section-replace rule, expressed as a search.
+  local _i
+  for (( _i = ${#_lsc_layers[@]} - 1; _i >= 0; _i-- )); do
+    [[ -f "${_lsc_layers[_i]}" ]] || continue
     local -a __lsc_k=() __lsc_v=()
-    _parse_ini_section "${_repo_conf}" "${_section}" __lsc_k __lsc_v
+    _parse_ini_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
     if (( ${#__lsc_k[@]} > 0 )); then
       _lsc_keys=("${__lsc_k[@]}")
       _lsc_values=("${__lsc_v[@]}")
       return 0
     fi
-  fi
-
-  # Fall back to template default
-  _parse_ini_section "${_template_conf}" "${_section}" _lsc_keys _lsc_values
+  done
+  return 0
 }
 
 # _setup_conf_handle <base> <handle>
 #
-# Load the effective setup.conf into an opaque conf.sh <handle>: honours the
-# SETUP_CONF override (single file, no merge), otherwise the template +
-# per-repo section-replace merge (same precedence as _load_setup_conf, but as
-# one queryable handle for the _conf_get / _conf_list_sorted accessors). The
-# single place that resolves the template / repo / SETUP_CONF paths for the
-# accessor readers.
+# Load the effective setup.conf into an opaque conf.sh <handle>: the whole
+# layer chain, section-replace (same precedence as _load_setup_conf, but as
+# one queryable handle for the _conf_get / _conf_list_sorted accessors).
 _setup_conf_handle() {
   local _base="${1:?"${FUNCNAME[0]}: missing base"}"
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf_load "${SETUP_CONF}" "${_h}"
-    return 0
-  fi
-  _conf_load_merged \
-    "${_SETUP_SCRIPT_DIR}/../../../.setup.conf" \
-    "${_base}/.setup.conf" \
-    "${_h}"
+  local -a _sch_layers=()
+  _setup_conf_layers "${_base}" _sch_layers
+  _conf_load_layers "${_h}" "${_sch_layers[@]}"
 }
 
-# _setup_load_merged_full <template_path> <local_path> \
-#                         <sections_outvar> <keys_outvar> <values_outvar>
+# _setup_effective_full <base_path> <sections_outvar> <keys_outvar> <values_outvar>
 #
-# Returns the section-replace merged view of <template_path> overlaid by
-# <local_path>: for each section present in .local, the template's
-# entries for that section are replaced wholesale by .local's entries;
-# sections .local omits keep template values.
-#
-# Output arrays mirror `_load_setup_conf_full` shape: sections list +
-# parallel `<section>.<key>` and value arrays. Used by `show`/`list` so
-# users see effective post-apply values without having to re-run apply
-# after every set/add/remove.
-#
-# replaces direct reads of <base>/setup.conf in show/list, since
-# setup.conf is now the materialized output of apply (potentially stale
-# until the next apply).
-_setup_load_merged_full() {
-  local _tpl="${1:?}"
-  local _loc="${2:?}"
-  local -n _slm_sections="${3:?}"
-  local -n _slm_keys="${4:?}"
-  local -n _slm_values="${5:?}"
+# The section-replace-resolved view of the whole chain in the `*_full`
+# array shape (sections list + parallel `<section>.<key>` / value arrays).
+# What `show` / `list` and the store-time diagnostics read, so they report
+# the values the emitters will actually use -- including the ones the local
+# layer supplies.
+_setup_effective_full() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _sef_sections="${2:?"${FUNCNAME[0]}: missing sections outvar"}"
+  local -n _sef_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _sef_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
 
-  _slm_sections=()
-  _slm_keys=()
-  _slm_values=()
+  _setup_conf_handle "${_base}" _SEF_CONF
 
-  local -a _tpl_sects=() _tpl_keys=() _tpl_vals=()
-  local -a _loc_sects=() _loc_keys=() _loc_vals=()
-  if [[ -f "${_tpl}" ]]; then
-    _load_setup_conf_full "${_tpl}" _tpl_sects _tpl_keys _tpl_vals
-  fi
-  if [[ -f "${_loc}" ]]; then
-    _load_setup_conf_full "${_loc}" _loc_sects _loc_keys _loc_vals
-  fi
+  _sef_sections=()
+  _sef_keys=()
+  _sef_values=()
 
-  # Sections appearing only in template, in template order, then any
-  # section in .local that template lacks.
-  local _s
-  for _s in "${_tpl_sects[@]}"; do
-    _slm_sections+=("${_s}")
+  local -n _sef_s=_SEF_CONF__sects
+  local -n _sef_es=_SEF_CONF__es
+  local -n _sef_k=_SEF_CONF__keys
+  local -n _sef_v=_SEF_CONF__vals
+
+  local _i
+  for (( _i = 0; _i < ${#_sef_s[@]}; _i++ )); do
+    _sef_sections+=("${_sef_s[_i]}")
   done
-  for _s in "${_loc_sects[@]}"; do
-    local _seen=0 _e
-    for _e in "${_slm_sections[@]}"; do
-      [[ "${_e}" == "${_s}" ]] && { _seen=1; break; }
-    done
-    (( _seen )) || _slm_sections+=("${_s}")
+  for (( _i = 0; _i < ${#_sef_k[@]}; _i++ )); do
+    _sef_keys+=("${_sef_es[_i]}.${_sef_k[_i]}")
+    _sef_values+=("${_sef_v[_i]}")
   done
-
-  # For each section in the union: if .local has it, copy .local's
-  # entries (replace strategy); else copy template's entries.
-  local _sec _i _ns
-  for _sec in "${_slm_sections[@]}"; do
-    local _local_has=0
-    for _e in "${_loc_sects[@]}"; do
-      [[ "${_e}" == "${_sec}" ]] && { _local_has=1; break; }
-    done
-    if (( _local_has )); then
-      for (( _i=0; _i<${#_loc_keys[@]}; _i++ )); do
-        _ns="${_loc_keys[_i]}"
-        if [[ "${_ns}" == "${_sec}."* ]]; then
-          _slm_keys+=("${_ns}")
-          _slm_values+=("${_loc_vals[_i]}")
-        fi
-      done
-    else
-      for (( _i=0; _i<${#_tpl_keys[@]}; _i++ )); do
-        _ns="${_tpl_keys[_i]}"
-        if [[ "${_ns}" == "${_sec}."* ]]; then
-          _slm_keys+=("${_ns}")
-          _slm_values+=("${_tpl_vals[_i]}")
-        fi
-      done
-    fi
-  done
+  return 0
 }
 
 # _get_conf_value <keys_ref> <values_ref> <key> <default> <outvar>

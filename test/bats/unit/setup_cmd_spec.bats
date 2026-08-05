@@ -219,6 +219,145 @@ EOF
   assert_output "512m"
 }
 
+@test "set project.name accepts a compose-legal name and show round-trips it (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  run main show project.name --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "myrepo-wt2"
+}
+
+@test "set project.name rejects a name docker compose would reject (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name "Not A Project" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "apply records the resolved project name in .env.generated (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[project]\nname = myrepo-wt2\n' >> "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=myrepo-wt2' "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "the shipped template ships [project] name empty, so an upgrade changes nothing (#893)" {
+  # The section must exist in .setup.conf too: .setup.conf.local is the
+  # LOCAL VARIANT of .setup.conf and shares its grammar. A section that
+  # only ever appeared in .local would be a second schema.
+  run grep -Fx '[project]' /source/dist/.setup.conf
+  assert_success
+  run grep -E '^name =[[:space:]]*$' /source/dist/.setup.conf
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --local: which file a write lands in, and saying so when it will not
+# be the file that is read
+#
+# The default target stays .setup.conf -- the committed, shared value.
+# --local targets the gitignored .setup.conf.local. Writing the committed
+# file while .local already defines that section is NOT refused: under
+# section-replace the write is provably inert ON THIS MACHINE, but the
+# value is still the one CI and every other checkout uses. It is warned,
+# as a certainty rather than a possibility, naming the section.
+#
+# A write that lands where the read path does not look is the failure the
+# earlier committed setup.conf.local died of, which is why this is a hard
+# requirement and not a nicety.
+# ════════════════════════════════════════════════════════════════════
+
+@test "set --local writes .setup.conf.local and leaves .setup.conf alone (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf.local"
+  assert_success
+  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf"
+  assert_failure
+}
+
+@test "set without --local still writes .setup.conf (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name myrepo --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -Ex 'name = myrepo' "${TEMP_DIR}/.setup.conf"
+  assert_success
+  [[ ! -e "${TEMP_DIR}/.setup.conf.local" ]] \
+    || fail "a plain set created the local override file"
+}
+
+@test "set --local reports the gitignored file it created (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial ".setup.conf.local"
+}
+
+@test "set warns, names the section and points at --local when .local shadows it (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set network.mode host --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "network"
+  assert_output --partial ".setup.conf.local"
+  assert_output --partial "--local"
+  # Warned, NOT refused: the value is still what CI and every other
+  # checkout of this repo will use.
+  run grep -E '^mode = host$' "${TEMP_DIR}/.setup.conf"
+  assert_success
+}
+
+@test "set does not warn about a section the local layer does not define (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set gui.mode off --base-path "${TEMP_DIR}"
+  assert_success
+  refute_output --partial ".setup.conf.local"
+}
+
+@test "set --local does not warn about the file it is writing (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main set --local network.mode host --base-path "${TEMP_DIR}"
+  assert_success
+  refute_output --partial "will NOT"
+}
+
+@test "add --local appends to the local layer's section (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main add --local volumes.mount /tmp/wt2:/data --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf"
+  assert_failure
+}
+
+@test "remove --local removes from the local layer (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main remove --local volumes.mount_1 --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  assert_failure
+}
+
+@test "add warns when the local layer shadows the section it appends to (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  run main add volumes.mount /tmp/shared:/data --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "volumes"
+  assert_output --partial "--local"
+}
+
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set bogus.key value --base-path "${TEMP_DIR}"
@@ -810,7 +949,6 @@ EOF
 [deploy]
 gpu_mode = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -826,7 +964,6 @@ gpu_mode = force
 gpu_count = all
 gpu_capabilities = gpu compute
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -842,7 +979,6 @@ gpu_mode = force
 gpu_count = 2
 gpu_capabilities = gpu
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -858,7 +994,6 @@ gpu_mode = force
 gpu_count = all
 gpu_capabilities = gpu compute utility
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -873,7 +1008,6 @@ EOF
 gpu_mode = off
 runtime = nvidia
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -888,7 +1022,6 @@ EOF
 gpu_mode = off
 runtime = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -904,7 +1037,6 @@ EOF
 [gui]
 mode = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -918,7 +1050,6 @@ EOF
 [gui]
 mode = force
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -935,7 +1066,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -950,7 +1080,6 @@ EOF
 mode = host
 ipc = private
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -966,7 +1095,6 @@ mode = host
 ipc = host
 pid = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -981,7 +1109,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -996,7 +1123,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1012,7 +1138,6 @@ mode = host
 ipc = host
 pid = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1028,7 +1153,6 @@ mode = bridge
 ipc = private
 network_name = my_bridge
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1044,7 +1168,6 @@ mode = bridge
 ipc = private
 port_1 = 8080:80
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1060,7 +1183,6 @@ mode = host
 ipc = host
 port_1 = 8080:80
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1078,7 +1200,6 @@ ipc = private
 [resources]
 shm_size = 2gb
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1092,7 +1213,6 @@ EOF
 [resources]
 shm_size =
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1108,7 +1228,6 @@ EOF
 [environment]
 env_1 = ROS_DOMAIN_ID=7
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1121,7 +1240,6 @@ EOF
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1137,7 +1255,6 @@ EOF
 [tmpfs]
 tmpfs_1 = /tmp
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1151,7 +1268,6 @@ EOF
 [tmpfs]
 tmpfs_1 = /tmp/cache:size=1g
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1164,7 +1280,6 @@ EOF
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [tmpfs]
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1180,7 +1295,6 @@ EOF
 [devices]
 device_1 = /dev/video0:/dev/video0
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1195,7 +1309,6 @@ EOF
 device_1 = /dev:/dev
 cgroup_rule_1 = c 189:* rwm
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1212,7 +1325,6 @@ EOF
 mount_1 =
 mount_2 = /data:/data
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1227,7 +1339,6 @@ EOF
 mount_1 =
 mount_2 = /etc/machine-id:/etc/machine-id:ro
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1243,7 +1354,6 @@ EOF
 [security]
 privileged = false
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1267,7 +1377,6 @@ EOF
 [environment]
 env_1 = EVIL=\$(touch ${TEMP_DIR}/pwn687)
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1283,7 +1392,6 @@ EOF
 [environment]
 env_1 = EVIL=$(touch /tmp/x)
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1299,7 +1407,6 @@ EOF
 [lifecycle]
 restart = sometimes
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1317,7 +1424,6 @@ EOF
 [environment]
 env_1 = MSG=a: b
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1334,7 +1440,6 @@ EOF
 [environment]
 env_1 = GLOB=*
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1351,7 +1456,6 @@ EOF
 [environment]
 env_1 = NOTE=a #b
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1368,7 +1472,6 @@ EOF
 [environment]
 env_1 = Q=a"b\c
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1396,7 +1499,6 @@ mode = host
 [stage:headless]
 network.mode = bogus: value
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1421,7 +1523,6 @@ pid = private
 network.ipc = bogus: value
 network.pid = bogus: value
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1

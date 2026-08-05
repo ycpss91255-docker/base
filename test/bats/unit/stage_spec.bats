@@ -274,7 +274,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS runtime
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -293,7 +292,6 @@ FROM base AS devel
 FROM devel AS headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -315,7 +313,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -346,7 +343,6 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -369,7 +365,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS test
 EOF
-  unset SETUP_CONF
   # Add a second `AS test` at top to trigger duplicate baseline match
   # (parser sees it before dedup; baseline blocklist still skips).
   # Actually the dedup-then-blocklist test is not a collision — both
@@ -403,7 +398,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS latest
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -419,7 +413,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS v0
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
@@ -438,7 +431,6 @@ FROM base AS devel
 FROM devel AS Headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -460,7 +452,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -477,7 +468,6 @@ FROM scratch AS sys
 FROM sys AS base
 FROM base AS devel
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -512,7 +502,6 @@ FROM base AS devel
 FROM devel AS headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -624,6 +613,55 @@ EOF
   [[ "${_keys[1]}" == "network.mode" && "${_values[1]}" == "bridge" ]] || return 1
   [[ "${_keys[2]}" == "network.port_1" && "${_values[2]}" == "8080:80" ]] || return 1
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
+}
+
+@test "_load_stage_overrides: .setup.conf.local replaces a [stage:NAME] section (#893)" {
+  # The local layer overrides ANY section, not a whitelist -- and a stage
+  # section is exactly the shape a second worktree needs to vary.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+network.port_1 = 8080:80
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[stage:headless]
+network.port_1 = 18080:80
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${#_keys[@]}" -eq 1 ]] || { echo "expected 1 key, got ${_keys[*]}"; return 1; }
+  [[ "${_values[0]}" == "18080:80" ]] || { echo "got: ${_values[0]}"; return 1; }
+}
+
+@test "_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[stage:gui]
+gui.mode = force
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
+}
+
+@test "_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)" {
+  # An ambient value used to REPLACE the file this reads, so a leftover
+  # export silently swapped every per-stage override for another file's.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[stage:headless]
+gui.mode = force
+EOF
+  local -a _keys=() _values=()
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" \
+    _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
 }
 
 @test "_load_stage_overrides: missing setup.conf → empty arrays" {
@@ -822,7 +860,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1

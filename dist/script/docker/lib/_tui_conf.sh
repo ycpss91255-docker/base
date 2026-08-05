@@ -205,6 +205,30 @@ _validate_additional_context() {
   return 1
 }
 
+# _validate_project_name <value>
+#
+# Compose PROJECT name: lowercase letters, decimal digits, dashes and
+# underscores only, and it must BEGIN with a lowercase letter or a digit.
+# That is `docker compose`'s own rule, so anything this accepts is a name
+# compose accepts -- and anything it rejects would otherwise fail at
+# invocation time, AFTER .env.generated and compose.yaml were already
+# written from it.
+#
+# Deliberately tighter than _validate_network_name, which permits uppercase
+# and dots: a docker NETWORK name and a compose PROJECT name are different
+# namespaces with different rules, and reusing the looser one here would
+# accept `My.Project` and then have compose refuse it.
+#
+# Empty is the "derive as before" default and is handled upstream by the
+# schema's empty-value policy, so it never reaches this function as a
+# meaningful value; it is rejected here like every other malformed input.
+_validate_project_name() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] && return 0
+  return 1
+}
+
 # _validate_network_name <value>
 #
 # Docker network name: start with [a-zA-Z0-9], then alphanumerics plus

@@ -136,8 +136,10 @@ PASSTHROUGH=()
 _down_project() {
   _compute_project_name
   if [[ "${VERBOSE:-}" == true ]]; then
-    local _project_name
-    _project_name="${PROJECT_NAME:-${DOCKER_HUB_USER}-${IMAGE_NAME}}"
+    # _compute_project_name above guarantees PROJECT_NAME. Re-deriving a
+    # fallback here would be a second producer of the same name, and the
+    # -p that follows would not necessarily use it.
+    local _project_name="${PROJECT_NAME}"
     local _matches
     _matches="$(docker ps -a \
       --filter "label=com.docker.compose.project=${_project_name}" \

@@ -29,7 +29,6 @@ setup() {
 }
 
 teardown() {
-  unset SETUP_CONF
   rm -rf "${TEMP_DIR}"
 }
 
@@ -103,6 +102,53 @@ CONF
   _collect_logging "${TEMP_DIR}" _g _p
   [[ "${_p}" == *"runtime:max_size=100m"* ]]
   [[ "${_p}" == *"runtime:compress=false"* ]]
+}
+
+@test "_collect_logging: .setup.conf.local replaces the [logging] section (#893)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[logging]
+driver = local
+max_size = 20m
+CONF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+[logging]
+driver = journald
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_g}" == *"driver=journald"* ]] || { echo "got: ${_g}"; return 1; }
+  [[ "${_g}" != *"max_size=20m"* ]] || { echo "per-key merge leaked: ${_g}"; return 1; }
+}
+
+@test "_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[logging]
+driver = json-file
+CONF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+[logging.runtime]
+max_size = 100m
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_p}" == *"runtime:max_size=100m"* ]] || { echo "got: ${_p}"; return 1; }
+}
+
+@test "_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[logging]
+driver = local
+CONF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'CONF'
+[logging]
+driver = journald
+CONF
+  local _g="" _p=""
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_g}" == *"driver=local"* ]] || { echo "got: ${_g}"; return 1; }
 }
 
 @test "_collect_logging returns empty when no [logging] sections anywhere" {

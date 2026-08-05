@@ -400,14 +400,17 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 這兩個衍生檔使用者不用動手編輯。手寫的 `.env` overlay 是另一個檔：
 setup 只在第一次 scaffold，之後永不覆寫。
 
-<!-- sync: one-conf-14-sections 7423a704aa07 58f75d293121 -->
-### 單一 conf、14 個 section
+<!-- sync: one-conf-15-sections 825dbace1f47 cecd57d45ac6 -->
+### 單一 conf、15 個 section
 
 下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
 （`dist/script/docker/lib/schema.sh`）— 「有哪些 section、順序為何」的唯一
 來源。這個區塊或它的數量一旦與程式碼不一致，`derived-figures` lint 會失敗。
 
 ```
+[project]  name — 這個 checkout 執行時所屬的 compose project（留空 =
+           推導出 <DOCKER_HUB_USER>-<IMAGE_NAME>）。想同時跑兩個
+           checkout，就在 .setup.conf.local 依 WORKTREE 各自設定
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
@@ -443,8 +446,65 @@ setup 只在第一次 scaffold，之後永不覆寫。
 
 Template default 在 `.base/dist/.setup.conf`；per-repo 覆蓋放 repo 根目錄的
 dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放進手動編輯的
-`config/` 介面）。Section-level **replace** 策略：per-repo 檔若有該 section
-就整段取代 template；沒寫的 section 則吃 template 預設。
+`config/` 介面）。Section-level **replace** 策略：上層若有該 section 就整段
+取代下層；沒寫的 section 則往下層落。
+
+<!-- sync: three-layers-the-third-is-yours-setupconflocal d6b292a21a41 b1af7735fce9 -->
+#### 三層設定，第三層是你的（`.setup.conf.local`）
+
+| 層 | 是否進版控 | 屬於誰 |
+|---|---|---|
+| `.base/dist/.setup.conf` | 隨 subtree 出貨 | base 的預設 |
+| `<repo>/.setup.conf` | 已 commit | repo 的 —— CI 與其他所有 checkout 用的就是它 |
+| `<repo>/.setup.conf.local` | **gitignored** | 你的，只在這台機器、這個 worktree |
+
+三層共用同一套語法、同一條 section-replace 規則。第三層用 `--local` 寫：
+
+```bash
+./setup.sh set --local project.name myrepo-wt2
+```
+
+為什麼是整段取代而不是逐鍵合併：上面的 section 有八個是 `<prefix>_N` 有序
+清單。只覆蓋 `port_2` 會把兩層拼成同一份有序清單，你永遠無法「移除」某一
+項，要新增又得知道你看不到的那層目前最大的 `N`。相關鍵之間也互相制約
+（`[network] mode` 決定 `port_N` 會不會被 emit），半套覆蓋會產生哪一層都
+沒寫過的組合。
+
+由此衍生三件事，而且全都會出聲、不會默默發生：
+
+- `.setup.conf.local` 已定義某 section 時，用一般的 `set` 寫該 section 會
+  **警告**並指名該 section。不會拒絕 —— 那個值仍然是 CI 與其他 checkout
+  會用的 committed 值 —— 但它在這台機器上不會有任何效果。
+- 每個 wrapper 執行前的摘要都會多一行 `local override:`，列出檔案與被它
+  取代的 section。
+- `just docker setup deploy` 只要該檔存在就**拒絕執行**（見
+  [Field 部署](#field-部署just-docker-setup-deploy)）。
+
+<!-- sync: running-two-worktrees-at-once efccbe6e6686 88a06015d35f -->
+#### 同時跑兩個 worktree
+
+每個 checkout 都在某個 compose project name 底下執行，它建立的一切
+—— container、network、volume —— 都以此命名。兩個 checkout 若解析出同一個
+名字就會撞在一起：第二次 `run` 會直接沿用第一個的 container。
+
+`[project] name` 就是這個名字。它出貨時是**空的**，意思是「照舊推導
+`<DOCKER_HUB_USER>-<IMAGE_NAME>`」，所以在你設定之前什麼都不會變。請設在
+*local* 那層，因為 per-worktree 的名字是你的、不是 repo 的：
+
+```bash
+cd ~/work/myrepo-wt2
+./setup.sh set --local project.name myrepo-wt2
+just build            # 重新產生；兩個 worktree 從此可並行
+```
+
+這個值只解析一次，寫進 `.env.generated` 的 `PROJECT_NAME`，兩邊都從那裡讀：
+wrapper 的 `docker compose -p`，以及產生出來的 `compose.yaml` 裡的
+`name: ${PROJECT_NAME}`（所以 `lazydocker`、`docker compose ps` 和 IDE 面板
+看到的會跟 wrapper 一致）。值的規則：小寫英文字母、數字、`-`、`_`，開頭必須
+是字母或數字 —— 就是 docker compose 自己的規則。
+
+改這個值**不會**動到 image tag。那是 `[image]` / `DOCKER_HUB_USER`，刻意分
+成兩個軸：一次執行擁有哪些 container、和它 build 出哪個 image，是兩個問題。
 
 **權限預設關閉、要用才開**（#466）：template 出貨的 `[security]`
 （`privileged = false`，沒有 `cap_add` / `security_opt`）與 `[devices]`
@@ -570,7 +630,7 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env.generated` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 c1b7b0869e0b -->
+<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b 57181691d363 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
@@ -602,6 +662,8 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料�
 
 build 前會印出解析後的 `compose.yaml`，讓你逐項檢視每個解析後的參數再確認（`-y` 跳過；`--dry-run` 只印 plan 不 build；非互動 shell 未帶 `-y` 會拒絕）。
 
+**只要 `<repo>/.setup.conf.local` 存在，它就直接拒絕。** 該檔是 gitignored 的，因此從乾淨 checkout 無法重現用它 build 出來的 bundle —— 而 bundle 本身不會有任何說明（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒絕發生在預覽之前、任何 build 步驟之前，所以 `--dry-run` 也會回報。`--allow-local-override` 會照樣 build，並把取自那個未進版控檔案的 section 記進 bundle 自己的 `README` —— 因為在 field 執行這個 bundle 的人，不是當初決定繞過這道關卡的人。
+
 **在 field 機器上** —— 把整個資料夾複製過去，再用 `deploy.sh` 啟動器操作（它會載入映像並驅動 `docker compose`；不用 `docker run`、不用 `setup.conf`、不用 base 工具鏈）：
 
 ```bash
@@ -629,7 +691,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 **持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
-<!-- sync: setupsh-subcommands-v0110 c344a1655165 e6cffe1f55ff -->
+<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 55cd1d0f2f63 -->
 ### setup.sh 子指令（v0.11.0+）
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
@@ -638,13 +700,13 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 |---|---|
 | `apply` | 從 setup.conf + 系統偵測重新產生 `.env.generated` + `compose.yaml`（不會動手寫的 `.env` overlay） |
 | `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
-| `set <section>.<key> <value>` | 寫單一鍵值 |
+| `set <section>.<key> <value>` | 寫單一鍵值。`--local` 改寫 gitignored 的 `.setup.conf.local` 而非已 commit 的 `.setup.conf`；不加時，若寫的 section 已被 `.setup.conf.local` 定義會指名警告 |
 | `show <section>[.<key>]` | 讀單鍵或整 section |
 | `list [<section>]` | INI 風格 dump |
-| `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1` |
-| `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除 |
+| `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1`。可加 `--local` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除。可加 `--local` |
 | `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。見 [Field 部署](#field-部署just-docker-setup-deploy) |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。`.setup.conf.local` 存在時會拒絕，除非加 `--allow-local-override`。見 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env.generated` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
 
@@ -661,10 +723,10 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored 99925c8810ca 66466b0701d0 -->
+<!-- sync: derived-artifacts-gitignored 9135501a7168 6ff308e6a65d -->
 ### 衍生檔（gitignored）
 
-- `.env.generated` — runtime 變數 + `SETUP_*` drift metadata
+- `.env.generated` — runtime 變數（含解析後的 `PROJECT_NAME`）+ `SETUP_*` drift metadata
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
@@ -674,6 +736,10 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 `.env` 一樣被 gitignore，但**不是**衍生檔：它是手寫的 workload overlay，
 第一次 apply 時 scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也
 不會蓋掉。
+
+`.setup.conf.local` 在上一層是同樣的形狀：gitignored、屬於你、工具永不改寫。
+它是設定的*輸入*而不是產出 —— 見
+[三層設定](#三層設定第三層是你的setupconflocal)。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f 84409436ca30 -->
 ### 每個 wrapper 的 pre/post hook（#440）

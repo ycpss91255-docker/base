@@ -162,6 +162,91 @@ EOF
   assert_output "alice-myrepo"
 }
 
+@test "_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)" {
+  # The wrapper's -p and compose.yaml's `name:` must be ONE value. That
+  # value is resolved once at setup time and recorded in .env.generated;
+  # _load_env puts it in scope, and the wrapper must not recompute over it.
+  # Today the assignment is unconditional, so a resolved project name is
+  # silently discarded and two worktrees collide with no way to differ.
+  run bash -c "
+    source ${LIB}
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo-wt2
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  assert_success
+  assert_output "alice-myrepo-wt2"
+}
+
+@test "_compose_project passes the resolved PROJECT_NAME to -p (#893)" {
+  local _repo
+  _repo="$(mktemp -d)"
+  printf 'PROJECT_NAME=alice-myrepo-wt2\n' > "${_repo}/.env.generated"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_repo}'
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    _load_env '${_repo}/.env.generated'
+    _compute_project_name
+    DRY_RUN=true _compose_project ps
+  "
+  assert_success
+  assert_output --partial "-p alice-myrepo-wt2"
+  rm -rf "${_repo}"
+}
+
+# ── _resolve_project_name (the single producer of a project name) ───────────
+
+@test "_resolve_project_name: a configured name is used verbatim (#893)" {
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name 'myrepo-wt2' alice myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "myrepo-wt2"
+}
+
+@test "_resolve_project_name: empty configured name derives the historical default (#893)" {
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name '' alice myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "alice-myrepo"
+}
+
+@test "_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)" {
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name '' '' '' /tmp/some-checkout _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "local-some-checkout"
+}
+
+@test "_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)" {
+  # A cache generated before the project-name key existed. Falling back
+  # silently would leave the user with a name they cannot find the source
+  # of; the resolved cache is stale and must say so.
+  local _repo
+  _repo="$(mktemp -d)"
+  printf 'IMAGE_NAME=myrepo\n' > "${_repo}/.env.generated"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_repo}'
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  assert_success
+  assert_output --partial "alice-myrepo"
+  assert_output --partial "PROJECT_NAME"
+  rm -rf "${_repo}"
+}
+
 # ── _compose / _compose_project (DRY_RUN path) ──────────────────────────────
 
 @test "_compose with DRY_RUN=true prints command instead of running" {
@@ -410,6 +495,41 @@ EOF
   assert_output --partial "TZ=Asia/Taipei"
   # Customize hint
   assert_output --partial "./setup_tui.sh"
+}
+
+@test "_print_config_summary names an active .setup.conf.local and its sections (#893)" {
+  # A config layer nobody else can see must never be invisible in the run
+  # that uses it: the summary is the one place the user is told which files
+  # this invocation resolved from.
+  local _fp="${BATS_TEST_TMPDIR}/withlocal"
+  mkdir -p "${_fp}"
+  _write_sample_conf "${_fp}/.setup.conf"
+  printf '[gui]\nmode = off\n[network]\nmode = bridge\n' > "${_fp}/.setup.conf.local"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  assert_output --partial "${_fp}/.setup.conf.local"
+  assert_output --partial "gui, network"
+}
+
+@test "_print_config_summary says nothing about a .setup.conf.local that is absent (#893)" {
+  local _fp="${BATS_TEST_TMPDIR}/nolocal"
+  mkdir -p "${_fp}"
+  _write_sample_conf "${_fp}/.setup.conf"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  refute_output --partial ".setup.conf.local"
 }
 
 @test "_print_config_summary prints Variables block mapping setup.conf placeholders to detected values" {

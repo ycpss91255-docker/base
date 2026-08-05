@@ -42,7 +42,7 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606, #832, #879)" {
+@test "_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
@@ -51,6 +51,7 @@ teardown() {
 .env.bak
 compose.yaml
 .setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -59,35 +60,77 @@ log/
 EXPECTED
 }
 
-@test "_canonical_gitignore_entries: no longer advertises .setup.conf.local (#879)" {
-  # The file it names has not been read since the override layer was removed
-  # in base#201. Under a "managed by template (do not remove)" marker the line
-  # reads as a feature, so someone creates the file, gets no error, and
-  # wonders why their overrides do nothing.
+@test "_canonical_gitignore_entries: advertises .setup.conf.local again (#893)" {
+  # The line was retired while nothing read the file it named. The
+  # per-worktree override layer restores the mechanism, so the line names a
+  # real file again -- and it MUST be canonical, because the whole point of
+  # the layer is that it never gets committed.
   run _canonical_gitignore_entries
-  assert_success
-  refute_line ".setup.conf.local"
-}
-
-@test "_retired_gitignore_entries: records .setup.conf.local as retired (#879)" {
-  run _retired_gitignore_entries
   assert_success
   assert_line ".setup.conf.local"
 }
 
+@test "no entry is both canonical and retired (#893)" {
+  # The coherence guard. A line in both lists is a repo that deletes, on
+  # every sync, the line it just added -- forever. This is what un-retiring
+  # .setup.conf.local had to get exactly right, and the guard is what keeps
+  # the next retirement from getting it wrong.
+  local -a _canon=() _retired=()
+  mapfile -t _canon < <(_canonical_gitignore_entries)
+  mapfile -t _retired < <(_retired_gitignore_entries)
+  local _c _r _both=""
+  for _r in "${_retired[@]+"${_retired[@]}"}"; do
+    [[ -n "${_r}" ]] || continue
+    for _c in "${_canon[@]+"${_canon[@]}"}"; do
+      [[ "${_c}" == "${_r}" ]] && _both+=" ${_r}"
+    done
+  done
+  [[ -z "${_both}" ]] || { echo "entries in BOTH lists:${_both}"; false; }
+}
+
+@test "_retired_gitignore_entries: retires nothing today (#893)" {
+  # .setup.conf.local was its only member and is canonical again. The
+  # retraction MECHANISM stays (the next retirement needs it); the LIST is
+  # empty, which is what the coherence guard above is asserting against.
+  run _retired_gitignore_entries
+  assert_success
+  assert_output ""
+}
+
+@test "_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)" {
+  # The failure mode being guarded: prune-then-append, forever. Two syncs
+  # must converge with the line present, not oscillate around it.
+  local _f="${TMP_DIR}/.gitignore"
+  : > "${_f}"
+  _sync_gitignore "${_f}"
+  local _first; _first="$(cat "${_f}")"
+  _sync_gitignore "${_f}"
+  local _second; _second="$(cat "${_f}")"
+  assert_equal "${_second}" "${_first}"
+  run cat "${_f}"
+  assert_line ".setup.conf.local"
+}
+
+# The retraction mechanism is exercised against a STUBBED retired list: the
+# real one is empty, and a spec that drives an empty list proves nothing.
+_stub_retired() {
+  _retired_gitignore_entries() { printf '%s\n' "legacy.retired"; }
+}
+
 @test "_sync_gitignore: prunes a retired entry from the managed block (#879)" {
+  _stub_retired
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
 node_modules/
 # managed by template (do not remove)
 .env
 .setup.conf.bak
-.setup.conf.local
+legacy.retired
 EOF
   run _sync_gitignore "${_f}"
   assert_success
   run cat "${_f}"
-  refute_line ".setup.conf.local"
+  refute_line "legacy.retired"
   # Everything else survives, user lines included.
   assert_line "node_modules/"
   assert_line ".env"
@@ -97,24 +140,26 @@ EOF
 @test "_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)" {
   # Above the marker is the user's half of the file; the template retracts
   # only what the template added.
+  _stub_retired
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
-.setup.conf.local
+legacy.retired
 # managed by template (do not remove)
 .env
 EOF
   run _sync_gitignore "${_f}"
   assert_success
   run cat "${_f}"
-  assert_line ".setup.conf.local"
+  assert_line "legacy.retired"
 }
 
 @test "_sync_gitignore: pruning a retired entry is idempotent (#879)" {
+  _stub_retired
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
 # managed by template (do not remove)
 .env
-.setup.conf.local
+legacy.retired
 EOF
   _sync_gitignore "${_f}"
   local _first; _first="$(cat "${_f}")"
@@ -169,6 +214,7 @@ EOF
 .env.bak
 compose.yaml
 .setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth

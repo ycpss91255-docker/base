@@ -20,7 +20,6 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [devices]
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -40,16 +39,18 @@ EOF
 }
 
 @test "setup.sh apply emits top-level name: in compose.yaml (#472)" {
-  # End-to-end: apply renders a top-level name: with the literal compose
-  # vars so non-wrapper tools resolve the wrapper's project name.
+  # End-to-end: apply renders a top-level name: interpolating the same
+  # PROJECT_NAME it just resolved into .env.generated, so non-wrapper tools
+  # resolve the wrapper's project name from the same value.
   printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}' "${TEMP_DIR}/compose.yaml"
+  run grep -F 'name: ${PROJECT_NAME}' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -E '^PROJECT_NAME=.+$' "${TEMP_DIR}/.env.generated"
   assert_success
 }
 
@@ -72,7 +73,6 @@ DOCK
 @test "[lifecycle] restart = always lands on the deployable stage, never on devel (#478, #840)" {
   printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
   _write_deployable_dockerfile
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -96,7 +96,6 @@ FROM scratch AS sys
 FROM sys AS devel
 FROM devel AS devel-test
 DOCK
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -109,7 +108,6 @@ DOCK
 @test "[lifecycle] restart = no emits no restart: field (#478)" {
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
   _write_deployable_dockerfile
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -122,7 +120,6 @@ DOCK
 @test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
   printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/.setup.conf"
   _write_deployable_dockerfile
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -143,7 +140,6 @@ DOCK
 
 @test "setup.sh set lifecycle.restart rejects an invalid policy (#478)" {
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main set lifecycle.restart bogus --base-path '${TEMP_DIR}' 2>&1
@@ -155,7 +151,6 @@ DOCK
 @test "[lifecycle] init defaults ON: emits init: true under devel (#792)" {
   # conf has no [lifecycle] init key -> code default true -> init: true.
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -167,7 +162,6 @@ DOCK
 
 @test "[lifecycle] init = false omits init: field (#792)" {
   printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -184,7 +178,6 @@ DOCK
 
 @test "setup.sh set lifecycle.init rejects a non-boolean (#792)" {
   printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main set lifecycle.init maybe --base-path '${TEMP_DIR}' 2>&1
@@ -194,7 +187,6 @@ DOCK
 
 @test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
   printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   local _v
   for _v in no always unless-stopped on-failure on-failure:3; do
     run bash -c "
@@ -209,7 +201,6 @@ DOCK
 @test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
     > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -227,7 +218,6 @@ DOCK
 @test "[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
     > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS=''
     source /source/dist/script/docker/wrapper/setup.sh
@@ -241,7 +231,6 @@ DOCK
 @test "[deploy] dri_groups = off emits no group_add even with GUI (#496)" {
   printf '[deploy]\ndri_groups = off\n[gui]\nmode = force\n' \
     > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -255,7 +244,6 @@ DOCK
 @test "[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)" {
   printf '[deploy]\ndri_groups = auto\n[gui]\nmode = off\n' \
     > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -274,7 +262,6 @@ DOCK
 # ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
 @test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
   printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -286,7 +273,6 @@ DOCK
 
 @test "[deploy] legacy runtime key still works + warns (#481 W3 alias)" {
   printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -305,7 +291,6 @@ DOCK
 @test "[deploy] gpu_runtime wins when both keys present (#481)" {
   printf '[deploy]\ngpu_runtime = nvidia\nruntime = off\n' \
     > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -348,7 +333,6 @@ DOCK
 [security]
 privileged = false
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -367,7 +351,6 @@ EOF
 [security]
 privileged = false
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -384,7 +367,6 @@ EOF
   # not hand-editing commented lines. `setup.sh add` writes the entry into
   # the per-repo setup.conf, and the next apply emits it.
   printf '[security]\n' > "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main add security.cap_add SYS_ADMIN --base-path '${TEMP_DIR}' 2>&1
@@ -403,7 +385,6 @@ EOF
 [security]
 cap_add_1 = SYS_ADMIN
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -423,7 +404,6 @@ privileged = false
 cap_add_1 = SYS_ADMIN
 security_opt_1 = seccomp:unconfined
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -440,7 +420,6 @@ EOF
   # entries. Generated compose.yaml must NOT contain `additional_contexts:`
   # so existing repos see zero diff.
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -462,7 +441,6 @@ EOF
 context_1 = repo=..
 context_2 = vendor=../third_party
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -493,7 +471,6 @@ EOF
 [additional_contexts]
 context_1 = repo=..
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -511,7 +488,6 @@ context_10 = ten=../ten
 context_2 = two=../two
 context_1 = one=../one
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -542,7 +518,6 @@ context_1 = repo=..
 context_2 =
 context_3 = vendor=../third_party
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -694,7 +669,6 @@ EOF
 privileged = false
 cap_add_1 = ALL
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -1183,7 +1157,6 @@ EOF
   # the freshly-written mount_1.
   local _repo="${TEMP_DIR}/fresh"
   mkdir -p "${_repo}"
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1

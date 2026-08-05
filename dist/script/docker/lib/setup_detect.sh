@@ -211,7 +211,7 @@ detect_image_name() {
   local _base="${BASE_PATH:-${_path}}"
 
   # Collect [image] rule_N entries in numeric order via the opaque conf
-  # handle (effective SETUP_CONF / template+repo merge;).
+  # handle (the effective template+repo merge).
   _setup_conf_handle "${_base}" _DIN_CONF
   local -a _rule_arr=()
   _conf_list_sorted _DIN_CONF image "rule_" _rule_arr
