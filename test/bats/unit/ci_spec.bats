@@ -356,12 +356,25 @@ teardown() {
 }
 
 @test "_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)" {
-  # A round-robin slice can be empty when total greatly exceeds the spec
-  # count: shard 100/100 selects NR%100==99, which no spec index hits.
+  # Greedy-LPT leaves the tail shards empty whenever total exceeds the spec
+  # count. Driven over a fixture REPO_ROOT holding exactly two specs so the
+  # Greedy-LPT fills one shard per spec before reusing any, so asking for
+  # (spec count + 1) shards leaves the last one empty by construction. The
+  # total is DERIVED from the tree rather than hardcoded: an earlier version
+  # asked for shard 100/100 on the assumption that the repo would stay under
+  # 100 specs, and started passing for the wrong reason once it grew past
+  # that. REPO_ROOT is readonly in test.sh, so the count is taken from the
+  # same globs the function itself walks.
   run bash -c '
     set -e
     source /source/script/test/test.sh
-    _shard_unit_files 100/100
+    shopt -s globstar
+    _n=0
+    for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
+              "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
+      [[ -e "${_f}" ]] && _n=$(( _n + 1 ))
+    done
+    _shard_unit_files "$(( _n + 1 ))/$(( _n + 1 ))"
   '
   assert_failure
   assert_output --partial "No spec files matched"
