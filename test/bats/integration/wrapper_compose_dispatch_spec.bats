@@ -108,3 +108,77 @@ teardown() {
     done <<< "${output}"
   done
 }
+
+# ── project name: one value, two consumers (#893) ──────────────────────────
+
+@test "the -p project name and compose.yaml's name: are one value, not two computations" {
+  # The defect: the wrapper computed `${DOCKER_HUB_USER}-${IMAGE_NAME}` in
+  # bash while the emitter wrote the same expression into compose.yaml, and
+  # the explicit -p silently beat the file. Two answerers to one question.
+  # The proof that they are now ONE value: whatever variable compose.yaml's
+  # `name:` interpolates must be defined in .env.generated (which compose
+  # reads via --env-file), and the wrapper's -p must be that variable's
+  # value -- so changing the recorded value moves BOTH.
+  local _name_line _var _recorded
+  _name_line="$(grep -E '^name:' "${REPO_DIR}/compose.yaml" | head -1)"
+  [[ "${_name_line}" =~ ^name:[[:space:]]*\$\{([A-Z_][A-Z0-9_]*)\}$ ]] \
+    || fail "compose.yaml name: is not a single interpolation: ${_name_line}"
+  _var="${BASH_REMATCH[1]}"
+
+  _recorded="$(grep -E "^${_var}=" "${REPO_DIR}/.env.generated" | tail -1)"
+  [[ -n "${_recorded}" ]] \
+    || fail "compose.yaml interpolates \${${_var}} but .env.generated does not define it"
+  _recorded="${_recorded#*=}"
+
+  run bash "${REPO_DIR}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "docker compose -p ${_recorded}"
+}
+
+@test "[project] name in .setup.conf.local moves BOTH the -p and the emitted name:" {
+  printf '[project]\nname = %s\n' "myapp-worktree-2" \
+    > "${REPO_DIR}/.setup.conf.local"
+  run bash "${REPO_DIR}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "docker compose -p myapp-worktree-2"
+
+  run grep -E '^PROJECT_NAME=myapp-worktree-2$' "${REPO_DIR}/.env.generated"
+  assert_success
+
+  # The emitted compose.yaml stays an overlay-overridable interpolation
+  # (ADR-00000022), so the value moved without the artifact's shape moving.
+  run grep -E '^name: \$\{PROJECT_NAME\}$' "${REPO_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "two checkouts of one repo dispatch different projects after a local override" {
+  # The acceptance criterion: two worktrees run concurrently after setting
+  # the project name in one of them, through the wrappers alone -- no
+  # hand-edited derived artifact and no environment variable.
+  local _second="${TMP_ROOT}/${REPO_NAME}-2"
+  cp -a "${REPO_DIR}" "${_second}"
+  printf '[project]\nname = %s\n' "myapp-worktree-2" \
+    > "${_second}/.setup.conf.local"
+
+  run bash "${REPO_DIR}/build.sh" --dry-run
+  assert_success
+  local _first_out="${output}"
+  run bash "${_second}/build.sh" --dry-run
+  assert_success
+
+  assert_output --partial "docker compose -p myapp-worktree-2"
+  [[ "${_first_out}" != *"-p myapp-worktree-2"* ]] \
+    || fail "the first checkout also resolved the second's project name"
+}
+
+@test "an unchanged repo keeps the project name it resolved before [project] existed" {
+  # With no [project] name set anywhere, the resolved value must be the
+  # historical `${DOCKER_HUB_USER}-${IMAGE_NAME}` string, byte for byte.
+  local _hub _img
+  _hub="$(grep -E '^DOCKER_HUB_USER=' "${REPO_DIR}/.env.generated" | tail -1)"
+  _hub="${_hub#*=}"
+  _img="$(grep -E '^IMAGE_NAME=' "${REPO_DIR}/.env.generated" | tail -1)"
+  _img="${_img#*=}"
+  run grep -Fx "PROJECT_NAME=${_hub}-${_img}" "${REPO_DIR}/.env.generated"
+  assert_success
+}

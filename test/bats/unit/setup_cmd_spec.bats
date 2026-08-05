@@ -219,6 +219,44 @@ EOF
   assert_output "512m"
 }
 
+@test "set project.name accepts a compose-legal name and show round-trips it (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name myrepo-wt2 --base-path "${TEMP_DIR}"
+  assert_success
+  run main show project.name --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "myrepo-wt2"
+}
+
+@test "set project.name rejects a name docker compose would reject (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main set project.name "Not A Project" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "apply records the resolved project name in .env.generated (#893)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[project]\nname = myrepo-wt2\n' >> "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=myrepo-wt2' "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "the shipped template ships [project] name empty, so an upgrade changes nothing (#893)" {
+  # The section must exist in .setup.conf too: .setup.conf.local is the
+  # LOCAL VARIANT of .setup.conf and shares its grammar. A section that
+  # only ever appeared in .local would be a second schema.
+  run grep -Fx '[project]' /source/dist/.setup.conf
+  assert_success
+  run grep -E '^name =[[:space:]]*$' /source/dist/.setup.conf
+  assert_success
+}
+
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set bogus.key value --base-path "${TEMP_DIR}"

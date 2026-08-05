@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2591 tests**.
+Unit specs under `test/bats/unit/`: **2603 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -40,7 +40,7 @@ What that means when you edit:
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (46)
+### test/bats/unit/lib_spec.bats (52)
 
 | Test | Description |
 |------|-------------|
@@ -58,6 +58,12 @@ What that means when you edit:
 | `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
 | `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
+| `_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)` | - |
+| `_compose_project passes the resolved PROJECT_NAME to -p (#893)` | - |
+| `_resolve_project_name: a configured name is used verbatim (#893)` | - |
+| `_resolve_project_name: empty configured name derives the historical default (#893)` | - |
+| `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
+| `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
@@ -316,7 +322,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (107)
+#### test/bats/unit/setup_cmd_spec.bats (111)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -356,7 +362,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (132)
+### test/bats/unit/tui_spec.bats (134)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1823,7 +1829,7 @@ builds the env block only for the knobs the conf sets.
 | `run.sh uses set -euo pipefail` | Shell convention |
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
-| `lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME` | - |
+| `lib/compose.sh is the ONLY producer of a project name (#893)` | - |
 | `exec.sh loads .env via _load_env helper` | Uses shared lib |
 | `stop.sh loads .env via _load_env helper` | Uses shared lib |
 | `lib/env.sh defines _load_env helper` | - |
