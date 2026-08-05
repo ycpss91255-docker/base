@@ -52,6 +52,13 @@ source "${_TUI_LIB_DIR}/_tui_backend.sh"
 source "${_TUI_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/schema.sh"
+# stage.sh for _dockerfile_stage_from_line: the TUI is a reader of the
+# Dockerfile's stage list like the compose emitter and the deploy bake, and
+# a private copy of that matcher is exactly how the readers drifted apart
+# before. stage.sh is a leaf of function definitions with no source-time
+# side effects, so sharing it costs the TUI nothing at startup.
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/stage.sh"
 
 # ── Messages (4 languages) ────────────────────────────────────────────────
 # Flat associative arrays per language. Key format: <ns>.<name>. Missing
@@ -2074,9 +2081,12 @@ _edit_section_logging() {
 # _list_dockerfile_stages_available <out_array_var> [<base_path>]
 #
 # Parses <base_path>/Dockerfile and returns non-baseline stages (the
-# same set _parse_dockerfile_stages emits in setup.sh — duplicated here
-# rather than sourcing setup.sh because setup_tui.sh keeps its
-# dependency surface deliberately small).
+# same set _parse_dockerfile_stages emits). The baseline filter is
+# restated here because the TUI's is deliberately different — devel-test
+# stays offered as an editable stage — but the "is this a stage line"
+# question is answered by the shared _dockerfile_stage_from_line, so the
+# menu can never disagree with the compose emitter about which stages a
+# Dockerfile has.
 #
 # <base_path> defaults to ${FILE_PATH} (the repo's compose-yaml dir).
 # Test code overrides it to point at a temp Dockerfile, since
@@ -2090,8 +2100,7 @@ _list_dockerfile_stages_available() {
   [[ -f "${_df}" ]] || return 0
   local _line _stage _seen=" "
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
-    _stage="${BASH_REMATCH[1]}"
+    _dockerfile_stage_from_line "${_line}" _stage || continue
     case "${_stage}" in
       # (A1'-b): devel-test is offered as an editable stage (the
       # `test` service override surface); only the rest of the baseline

@@ -111,21 +111,65 @@ _is_deployable_stage() {
   return 0
 }
 
+# ── The stage-declaring FROM line ────────────────────────────────────
+#
+# THE one answer to "does this line declare a build stage, and which".
+# Every reader of a Dockerfile's stage list routes through it: the stage
+# parser (compose services), the drift hash projection, the
+# `[environment]` ENV bake, the `COPY config/app` bake, and the TUI's
+# per-stage override menu. They used to carry three different regexes,
+# which disagreed on the standard cross-build form
+# (`FROM --platform=$BUILDPLATFORM <image> AS runtime`): the strict ones
+# skipped it silently while the loose one spliced into it, so a field
+# image shipped with the baked config and none of the baked env. Any
+# future change to what counts as a stage line belongs here and nowhere
+# else.
+#
+# Accepted grammar (the whole line, anchored both ends):
+#
+#   FROM [--flag[=value]]... <image-ref> AS <stage>[ \t]*
+#
+#   - `FROM` starts the line: no leading whitespace, uppercase, one
+#     directive per line. Docker's own parser is case-insensitive; the
+#     repo convention is uppercase and a lowercase `from` / `as` is read
+#     as a hand-edit typo and ignored rather than silently honoured.
+#   - Zero or more leading flag tokens, each starting `--`
+#     (`--platform=linux/arm64`, `--link`). Values are attached with `=`;
+#     docker has no space-separated flag form, so neither has this.
+#   - Exactly ONE image-reference token, which may not start with `-`
+#     (that slot is an image, `${VAR}` interpolation included -- never a
+#     flag). No stray extra bare token: `FROM img junk AS x` is not a
+#     directive docker accepts and is not one here either.
+#   - Uppercase `AS`, then exactly one stage-name token.
+#   - Trailing whitespace tolerated; a `#` anywhere in any token
+#     disqualifies the line, so a commented-out `# FROM ... AS x` never
+#     registers as a stage.
+#
+# Whitespace between tokens is one or more spaces / tabs.
+_DOCKERFILE_STAGE_FROM_RE='^FROM([[:space:]]+--[^[:space:]#]+)*[[:space:]]+[^-[:space:]#][^[:space:]#]*[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$'
+
+# _dockerfile_stage_from_line <line> [<stage_outvar>]
+#
+# Returns 0 when <line> declares a build stage per the grammar above,
+# and sets <stage_outvar> (when given) to the declared stage name.
+# Returns 1 otherwise, leaving <stage_outvar> untouched.
+_dockerfile_stage_from_line() {
+  local _dsfl_line="${1-}"
+  [[ "${_dsfl_line}" =~ ${_DOCKERFILE_STAGE_FROM_RE} ]] || return 1
+  if [[ -n "${2-}" ]]; then
+    local -n _dsfl_out="${2}"
+    _dsfl_out="${BASH_REMATCH[2]}"
+  fi
+  return 0
+}
+
 # _parse_dockerfile_stages <dockerfile_path>
 #
-# Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,
-# filters out the baseline blocklist {sys, devel-base, devel,
-# devel-test, runtime-test} (plus the legacy {base, test} accepted
-# during the v0.21.x transition), and echoes the surviving stages
-# one per line preserving file order.
-#
-# Match rules:
-#   - Line must start with `FROM` (case-sensitive — Docker spec is
-#     case-insensitive but tooling convention is uppercase)
-#   - `AS` keyword must be uppercase (lowercase `as` is technically valid
-#     but treated as user typo / hand-edited and ignored)
-#   - Comments (#) on the line block the match — only bare directives count
-#   - Trailing whitespace tolerated
+# Reads the stage-declaring FROM lines from the Dockerfile (grammar:
+# _dockerfile_stage_from_line above), dedups, filters out the baseline
+# blocklist {sys, devel-base, devel, devel-test, runtime-test} (plus the
+# legacy {base, test} accepted during the v0.21.x transition), and echoes
+# the surviving stages one per line preserving file order.
 #
 # Missing Dockerfile → empty output (silent), exit 0. Caller decides
 # whether to treat that as "no extra stages" or an error.
@@ -134,12 +178,10 @@ _parse_dockerfile_stages() {
   [[ -f "${_dockerfile}" ]] || return 0
   # Read the Dockerfile directly (no grep|awk pipe) so an empty match
   # set under `set -o pipefail` does not propagate exit 1 back through
-  # process substitution. BASH_REMATCH captures the stage name from
-  # the same regex shape grep used.
+  # process substitution.
   local _line _stage _seen=" "
   while IFS= read -r _line; do
-    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
-    _stage="${BASH_REMATCH[1]}"
+    _dockerfile_stage_from_line "${_line}" _stage || continue
     case "${_stage}" in
       sys|devel-base|devel|runtime-test) continue ;;
       base|test) continue ;;
@@ -172,11 +214,12 @@ _compute_dockerfile_hash() {
     return 0
   fi
   # Build the stage-list projection inline (no grep|sha256sum pipe) so
-  # an empty match set under pipefail does not propagate failure. The
-  # regex matches grep's exact shape used by _parse_dockerfile_stages.
+  # an empty match set under pipefail does not propagate failure. Same
+  # matcher as _parse_dockerfile_stages, so a line that becomes a compose
+  # service is exactly a line the hash reacts to.
   local _line _stage_lines=""
   while IFS= read -r _line; do
-    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+[^[:space:]#]+[[:space:]]*$ ]] || continue
+    _dockerfile_stage_from_line "${_line}" || continue
     _stage_lines+="${_line}"$'\n'
   done < "${_dockerfile}"
   _cdh_out="$(printf '%s' "${_stage_lines}" | sha256sum | cut -d' ' -f1)"
@@ -201,12 +244,19 @@ _compute_dockerfile_hash() {
 # dropped every [environment] value for such a repo, while the sibling
 # `_bake_config_copy` / `docker build --target` already followed the stage.
 #
-# Returns 0 and writes <out> only when the Dockerfile declares an
-# `AS <stage>` stage AND <env_str> is non-empty; returns 1 (writes
-# nothing) otherwise, so a repo with no such stage keeps building from
-# the plain Dockerfile (zero behaviour change). The dev `.env` overlay
-# (S2) and `deploy.sh -e` (S6) still override these baked defaults at run
-# time, because container env_file / environment beats image `ENV`.
+# Exit codes are distinguishable so a caller can tell a no-op from a
+# mistake:
+#   0 — <out> written with the ENV block spliced in
+#   1 — nothing to do, and that is fine: no Dockerfile, or the repo
+#       configured no [environment] values. Silent; the caller keeps
+#       building from the plain Dockerfile.
+#   2 — the Dockerfile does not declare <stage> at all. That is a deploy
+#       asking for a stage that does not exist, so it is NAMED (WARN)
+#       rather than skipped: the old silent 1 shipped a field bundle with
+#       every [environment] default missing and nothing said about it.
+# Nothing is written on 1 / 2. The dev `.env` overlay (S2) and
+# `deploy.sh -e` (S6) still override these baked defaults at run time,
+# because container env_file / environment beats image `ENV`.
 # ════════════════════════════════════════════════════════════════════
 _generate_runtime_dockerfile() {
   local _dockerfile="${1:?}"
@@ -214,21 +264,31 @@ _generate_runtime_dockerfile() {
   local _out="${3:?}"
   local _stage="${4:?"${FUNCNAME[0]}: missing stage"}"
 
-  [[ -f "${_dockerfile}" && -n "${_env_str}" ]] || return 1
+  [[ -f "${_dockerfile}" ]] || return 1
 
-  # Capture the stage token and compare it literally, rather than splicing
-  # <stage> into the pattern -- a stage name reaches here straight from the
-  # conf / CLI, and a literal compare cannot be turned into a regex.
-  local _from_re='^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]]+)[[:space:]]*$'
-
-  local _line _has_stage=0
+  # The shared matcher reports the declared stage name; compare it
+  # literally rather than splicing <stage> into a pattern -- a stage name
+  # reaches here straight from the conf / CLI, and a literal compare
+  # cannot be turned into a regex.
+  local _line _found="" _has_stage=0
   while IFS= read -r _line; do
-    if [[ "${_line}" =~ ${_from_re} && "${BASH_REMATCH[1]}" == "${_stage}" ]]; then
+    if _dockerfile_stage_from_line "${_line}" _found \
+       && [[ "${_found}" == "${_stage}" ]]; then
       _has_stage=1
       break
     fi
   done < "${_dockerfile}"
-  (( _has_stage )) || return 1
+  if (( ! _has_stage )); then
+    _log_warn setup deploy_stage_absent \
+      "display=[setup] deploy: '${_stage}' is not declared by any \`FROM ... AS ${_stage}\` line in ${_dockerfile}; the [environment] defaults cannot be baked into an image stage that does not exist." \
+      "stage=${_stage}" "dockerfile=${_dockerfile}"
+    return 2
+  fi
+
+  # An empty [environment] is ordinary configuration, not a mistake, so
+  # it stays a silent no-op -- checked after the stage lookup so a
+  # genuinely absent stage is still reported.
+  [[ -n "${_env_str}" ]] || return 1
 
   local -a _env_expanded=()
   _expand_env_cross_refs "${_env_str}" _env_expanded
@@ -237,7 +297,8 @@ _generate_runtime_dockerfile() {
   _tmp="$(mktemp "${_out}.XXXXXX")"
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     printf '%s\n' "${_line}" >> "${_tmp}"
-    if [[ "${_line}" =~ ${_from_re} && "${BASH_REMATCH[1]}" == "${_stage}" ]]; then
+    if _dockerfile_stage_from_line "${_line}" _found \
+       && [[ "${_found}" == "${_stage}" ]]; then
       printf '# >>> [environment] baked defaults (generated by setup.sh, #503) <<<\n' >> "${_tmp}"
       local _kv _k _v
       for _kv in "${_env_expanded[@]}"; do
@@ -522,9 +583,22 @@ _resolve_docker_flags() {
   _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_capabilities" "${_rdf_parent["gpu_caps"]}" _tmp
   _rdf_out["gpu_caps"]="${_tmp}"
 
-  # gpu_runtime primary, legacy deploy.runtime alias as fallback.
-  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "${_rdf_parent["runtime"]}" _tmp
-  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "${_tmp}" _tmp
+  # gpu_runtime is canonical; the legacy deploy.runtime alias is consulted
+  # only when this stage sets no gpu_runtime. Same precedence AND same
+  # deprecation warning as _resolve_deploy_context uses for the global
+  # [deploy] section -- the two layers must not disagree, or a stage
+  # migrated to gpu_runtime keeps emitting the value of the line the
+  # migration was supposed to retire.
+  local _legacy_runtime=""
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "" _tmp
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "" _legacy_runtime
+  if [[ -n "${_legacy_runtime}" ]]; then
+    _log_warn setup conf_runtime_key_deprecated \
+      "display=$(_setup_msg deploy runtime_deprecated)"
+  fi
+  if [[ -z "${_tmp}" ]]; then
+    _tmp="${_legacy_runtime:-${_rdf_parent["runtime"]}}"
+  fi
   _rdf_out["runtime"]="${_tmp}"
 
   _resolve_stage_scalar _rdf_keys _rdf_values "network.mode" "${_rdf_parent["net_mode"]}" _tmp

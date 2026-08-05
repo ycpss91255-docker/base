@@ -1180,19 +1180,16 @@ EOF
   assert_equal "${_eff[runtime]}" "nvidia"
 }
 
-@test "_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)" {
-  # Pre-existing per-stage precedence preserved byte-for-byte by the
-  # refactor: when BOTH keys appear under [stage:*], deploy.gpu_runtime is
-  # resolved first (with the parent as fallback), then the legacy
-  # deploy.runtime is resolved with that result as ITS fallback -- so a
-  # present deploy.runtime wins. (This per-stage edge case differs from the
-  # global resolution where gpu_runtime wins; left unchanged here because
-  # S5 is a byte-identical refactor, not a behaviour change.)
+@test "_resolve_docker_flags: gpu_runtime beats the legacy deploy.runtime at per-stage scope (#505/#481, #876)" {
+  # The per-stage layer used to resolve the legacy key LAST, with the
+  # gpu_runtime result as its fallback, so deploy.runtime won -- the
+  # inverse of the global resolution. Both layers now agree: gpu_runtime
+  # is authoritative, the alias is consulted only when it is unset.
   local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
   local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
   local -A _eff=()
   _resolve_docker_flags _k _v _parent _eff
-  assert_equal "${_eff[runtime]}" "off"
+  assert_equal "${_eff[runtime]}" "nvidia"
 }
 
 @test "_resolve_docker_flags: network scalars + privileged override (#505)" {
@@ -1305,19 +1302,22 @@ EOF
   assert_output 'ENV X="\$(id)"'
 }
 
-@test "_generate_runtime_dockerfile returns 1 when no runtime stage" {
+@test "_generate_runtime_dockerfile returns 2 when no runtime stage" {
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS sys\nFROM sys AS devel\n' > "${_df}"
   run _generate_runtime_dockerfile "${_df}" 'ROS_DOMAIN_ID=42' "${_out}" runtime
-  assert_failure
+  assert_failure 2
   refute [ -f "${_out}" ]
 }
 
-@test "_generate_runtime_dockerfile returns 1 when [environment] empty" {
+@test "_generate_runtime_dockerfile returns 1 and stays quiet when [environment] empty" {
+  # A declared stage with an empty [environment] is ordinary
+  # configuration, not a mistake -- it must NOT be promoted to a warning.
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS runtime\n' > "${_df}"
   run _generate_runtime_dockerfile "${_df}" '' "${_out}" runtime
-  assert_failure
+  assert_failure 1
+  assert_output ""
 }
 
 @test "_generate_runtime_dockerfile bakes ENV into the caller's stage, not a literal runtime (#840)" {
@@ -1353,12 +1353,177 @@ EOF
   assert_output $'FROM ubuntu AS runtime\nFROM ubuntu AS field'
 }
 
-@test "_generate_runtime_dockerfile returns 1 when the named stage is absent (#840)" {
+@test "_generate_runtime_dockerfile names the absent stage instead of skipping it silently (#840/#875)" {
+  # A deploy asking for a stage the Dockerfile does not declare is a
+  # mistake, not a no-op: the bundle would otherwise ship with every
+  # [environment] default missing and nothing said about it. Distinct
+  # exit 2 (vs the quiet 1 for "nothing to bake") plus a WARN naming
+  # the stage.
   local _df="${TEMP_DIR}/Dockerfile" _out="${TEMP_DIR}/.Dockerfile.generated"
   printf 'FROM ubuntu AS sys\nFROM sys AS runtime\n' > "${_df}"
   run _generate_runtime_dockerfile "${_df}" 'K=v' "${_out}" field
-  assert_failure
+  assert_failure 2
+  assert_output --partial "[setup] WARN :"
+  assert_output --partial "field"
   refute [ -f "${_out}" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _dockerfile_stage_from_line -- THE shared "which line declares stage
+# <S>" matcher, and the agreement test that keeps its call sites from
+# drifting apart again.
+#
+# The four call sites (_parse_dockerfile_stages, _compute_dockerfile_hash,
+# _generate_runtime_dockerfile, _bake_config_copy) used to answer the
+# question with three different regexes, so a `FROM --platform=... AS x`
+# line was a compose service to one of them and invisible to the other
+# three. Per-function specs could not see that: each one only ever
+# exercised its own regex. Every test below drives ALL of them off the
+# same line and asserts one verdict.
+# ════════════════════════════════════════════════════════════════════
+
+# _stage_line_verdicts <from_line> <stage> <out_array_var>
+#
+# Runs each FROM-line call site against a Dockerfile whose only
+# non-baseline stage line is <from_line>, and fills <out_array_var> with
+# one `<site>=match|nomatch` token per site, in a fixed order. Every
+# verdict is the site's OBSERVABLE effect (a service name, a hash delta,
+# a spliced ENV, a spliced COPY), not a re-run of the regex, so a site
+# that stops routing through the shared matcher shows up here.
+_stage_line_verdicts() {
+  local _line="${1}" _stage="${2}"
+  local -n _slv_out="${3}"
+  _slv_out=()
+
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/with" "${_d}/without"
+  local _head=$'FROM ubuntu:24.04 AS sys\nFROM sys AS devel'
+  printf '%s\n%s\nCMD ["/app"]\n' "${_head}" "${_line}" > "${_d}/with/Dockerfile"
+  printf '%s\nCMD ["/app"]\n' "${_head}" > "${_d}/without/Dockerfile"
+  local _df="${_d}/with/Dockerfile"
+
+  # 1. the shared matcher itself -- must report the same stage name.
+  local _got=""
+  if _dockerfile_stage_from_line "${_line}" _got && [[ "${_got}" == "${_stage}" ]]; then
+    _slv_out+=("matcher=match")
+  else
+    _slv_out+=("matcher=nomatch")
+  fi
+
+  # 2. _parse_dockerfile_stages -- decides whether a compose service exists.
+  if _parse_dockerfile_stages "${_df}" | grep -qx -- "${_stage}"; then
+    _slv_out+=("parse=match")
+  else
+    _slv_out+=("parse=nomatch")
+  fi
+
+  # 3. _compute_dockerfile_hash -- the drift projection must react to the
+  #    line, i.e. dropping it has to move the hash.
+  local _h_with="" _h_without=""
+  _compute_dockerfile_hash "${_d}/with" _h_with
+  _compute_dockerfile_hash "${_d}/without" _h_without
+  if [[ "${_h_with}" != "${_h_without}" ]]; then
+    _slv_out+=("hash=match")
+  else
+    _slv_out+=("hash=nomatch")
+  fi
+
+  # 4. _generate_runtime_dockerfile -- the [environment] ENV bake.
+  if _generate_runtime_dockerfile "${_df}" 'K=v' "${_d}/gen" "${_stage}" 2>/dev/null \
+     && grep -q '^ENV K="v"$' "${_d}/gen"; then
+    _slv_out+=("envbake=match")
+  else
+    _slv_out+=("envbake=nomatch")
+  fi
+
+  # 5. _bake_config_copy -- the COPY config/app splice.
+  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked"
+  if grep -q '^COPY config/app ' "${_d}/baked"; then
+    _slv_out+=("configcopy=match")
+  else
+    _slv_out+=("configcopy=nomatch")
+  fi
+
+  rm -rf "${_d}"
+}
+
+@test "all FROM-line call sites agree a plain stage line declares the stage (#875)" {
+  local -a _v=()
+  _stage_line_verdicts 'FROM devel AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=match parse=match hash=match envbake=match configcopy=match"
+}
+
+@test "all FROM-line call sites agree a --platform flagged line declares the stage (#875)" {
+  # The cross-build form this repo invites (TARGETARCH, the arm64
+  # matrix). Three sites used to see nothing here while _bake_config_copy
+  # matched, so the field image got the baked config/app and none of the
+  # [environment] defaults.
+  local -a _v=()
+  _stage_line_verdicts 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=match parse=match hash=match envbake=match configcopy=match"
+}
+
+@test "all FROM-line call sites agree on a multi-flag FROM line (#875)" {
+  local -a _v=()
+  _stage_line_verdicts 'FROM --platform=linux/arm64 --link ubuntu:24.04 AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=match parse=match hash=match envbake=match configcopy=match"
+}
+
+@test "all FROM-line call sites agree a lowercase 'as' line declares nothing (#875)" {
+  local -a _v=()
+  _stage_line_verdicts 'FROM ubuntu:24.04 as runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+}
+
+@test "all FROM-line call sites agree a commented-out FROM declares nothing (#875)" {
+  local -a _v=()
+  _stage_line_verdicts '# FROM ubuntu:24.04 AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+}
+
+@test "all FROM-line call sites agree a stray bare token declares nothing (#875)" {
+  # `FROM <image> <junk> AS <stage>` is not a directive docker accepts.
+  # The greedy `.*` matcher used to splice COPY config/app into it while
+  # the other three skipped it; widening for flags must not inherit that.
+  local -a _v=()
+  _stage_line_verdicts 'FROM ubuntu:24.04 junk AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+}
+
+@test "all FROM-line call sites agree an inline '#' declares nothing (#875)" {
+  local -a _v=()
+  _stage_line_verdicts 'FROM ubuntu:24.04 # note AS runtime' runtime _v
+  assert_equal "${_v[*]}" \
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+}
+
+@test "_dockerfile_stage_from_line reports the declared stage name (#875)" {
+  local _got=""
+  _dockerfile_stage_from_line 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' _got
+  assert_equal "${_got}" "runtime"
+  _got=""
+  _dockerfile_stage_from_line 'FROM devel AS gui   ' _got
+  assert_equal "${_got}" "gui"
+}
+
+@test "_dockerfile_stage_from_line rejects a flag in the image-reference slot (#875)" {
+  # `FROM --platform=x AS y` has no image reference at all; accepting it
+  # would let a flag masquerade as the base image.
+  run _dockerfile_stage_from_line 'FROM --platform=linux/arm64 AS runtime'
+  assert_failure
+}
+
+@test "_dockerfile_stage_from_line rejects a non-FROM line (#875)" {
+  run _dockerfile_stage_from_line 'COPY --from=builder /app /app'
+  assert_failure
+  run _dockerfile_stage_from_line '  FROM ubuntu AS runtime'
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1404,4 +1569,86 @@ EOF
   assert_failure
   run _is_deployable_stage base
   assert_failure
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Legacy deploy.runtime alias: per-stage vs global precedence
+#
+# The per-stage layer resolved deploy.gpu_runtime first and then
+# resolved the legacy deploy.runtime WITH THAT RESULT AS ITS FALLBACK,
+# so under [stage:*] the legacy key won. _resolve_deploy_context does
+# the opposite for the global section: gpu_runtime is authoritative and
+# runtime is consulted only when it is empty. A repo that migrated a
+# stage to gpu_runtime and left the old line behind kept emitting the
+# old value into that stage's compose service and its field bundle, and
+# never saw the deprecation warning the top-level key produces.
+# ────────────────────────────────────────────────────────────────────
+
+_stage_parent_defaults() {
+  local -n _spd_out="${1:?}"
+  _spd_out=(
+    [gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu"
+    [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private"
+    [net_name]="" [volumes_top]="" [env_top]="" [ports_top]=""
+  )
+}
+
+@test "_resolve_docker_flags: gpu_runtime wins over the legacy alias, as the global resolver does (#876)" {
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy alias still applies when gpu_runtime is absent (#876)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: an empty gpu_runtime does not shadow the legacy alias (#876)" {
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("" "nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: the legacy alias emits the deprecation warning (#876)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  assert_output --partial '"body":"conf_runtime_key_deprecated"'
+}
+
+@test "_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)" {
+  # The exact migration-looks-done case: the stage moved to gpu_runtime
+  # and left `runtime` behind. The stale key no longer wins, and its
+  # presence is still reported.
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("off" "nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  assert_output --partial '"body":"conf_runtime_key_deprecated"'
+}
+
+@test "_resolve_docker_flags: no legacy alias, no deprecation warning (#876)" {
+  local -a _k=("deploy.gpu_runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  refute_output --partial 'conf_runtime_key_deprecated'
 }

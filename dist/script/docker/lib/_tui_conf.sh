@@ -493,6 +493,109 @@ _validate_log_local_path() {
   return 0
 }
 
+# _validate_detect_mode <value>
+#
+# The shared auto / force / off tri-state that [gui] mode and [deploy]
+# gpu_mode resolve through (_resolve_gui / _resolve_gpu):
+#   auto   - follow host detection
+#   force  - always on
+#   off    - always off
+# Both resolvers treat anything else as `auto` in a catch-all branch, so
+# an unvalidated typo silently inverted the user's intent. Empty is
+# accepted: it clears the key back to the template default.
+_validate_detect_mode() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  case "${_v}" in
+    auto|force|off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_gpu_capabilities <value>
+#
+# [deploy] gpu_capabilities: the space-separated capability list emitted
+# into compose `deploy.resources.reservations.devices[].capabilities`.
+# The names are the NVIDIA container-runtime driver capabilities plus
+# compose's own `gpu`; an unknown name makes the container runtime
+# refuse the reservation at `up` time, so reject it here instead.
+_validate_gpu_capabilities() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  local _cap
+  local -a _caps=()
+  read -ra _caps <<< "${_v}"
+  for _cap in "${_caps[@]}"; do
+    case "${_cap}" in
+      gpu|all|compute|compat32|graphics|utility|video|display|ngx) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# _validate_dri_groups <value>
+#
+# [deploy] dri_groups: whether to detect the host's /dev/dri owning GIDs
+# and grant them via group_add. `auto` detects, anything else means
+# never -- which is why an unvalidated typo reads as an opt-out.
+_validate_dri_groups() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  case "${_v}" in
+    auto|off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_privileged <value>
+#
+# [security] privileged: compose `privileged:` boolean. Emitted verbatim,
+# so a non-boolean produces compose YAML docker rejects.
+_validate_privileged() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  case "${_v}" in
+    true|false) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_security_opt <value>
+#
+# [security] security_opt_N: one compose `security_opt:` entry. Docker's
+# syntax is `<key>:<value>` or `<key>=<value>` (seccomp:unconfined,
+# apparmor=unconfined, label:user:USER, no-new-privileges:true). Reject
+# whitespace and embedded newlines -- both break the emitted YAML list.
+_validate_security_opt() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" == *[[:space:]]* ]] && return 1
+  [[ "${_v}" =~ ^[A-Za-z][A-Za-z0-9_-]*[:=].+$ ]] && return 0
+  return 1
+}
+
+# _validate_image_rule <value>
+#
+# [image] rule_N: one IMAGE_NAME detection rule. detect_image_name
+# dispatches on a closed set of prefixes and SKIPS anything else without
+# a word, so an unrecognised rule silently degrades the whole chain to
+# the `unknown` fallback.
+#   prefix:<str>    match a path component starting with <str>
+#   suffix:<str>    match a path component ending with <str>
+#   string:<name>   use <name> verbatim (short-circuit)
+#   @basename       use the directory basename
+#   @default:<name> final fallback name
+_validate_image_rule() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 0
+  case "${_v}" in
+    "@basename") return 0 ;;
+    prefix:?*|suffix:?*|string:?*|@default:?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Mount-string parsers
 # ════════════════════════════════════════════════════════════════════

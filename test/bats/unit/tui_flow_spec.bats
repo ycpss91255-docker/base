@@ -652,6 +652,23 @@ EOF
     || { echo "devel-test missing from: ${_out[*]}"; return 1; }
 }
 
+@test "_list_dockerfile_stages_available: offers a --platform flagged stage (#875)" {
+  # The TUI is a fifth reader of the same FROM lines. If it keeps its own
+  # matcher it silently stops offering the per-stage override menu for a
+  # cross-build stage the compose emitter does emit a service for.
+  local _df="${BATS_TEST_TMPDIR}/Dockerfile"
+  cat > "${_df}" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime
+EOF
+  local -a _out=()
+  _list_dockerfile_stages_available _out "${BATS_TEST_TMPDIR}"
+  printf '%s\n' "${_out[@]}" | grep -qx "runtime" \
+    || { echo "runtime missing from: ${_out[*]}"; return 1; }
+}
+
 @test "_count_stage_overrides: counts unique non-empty keys across OVR + CURRENT" {
   _TUI_OVR_KEYS=("stage:headless.gui.mode" "stage:headless.network.mode")
   _TUI_OVR_VALUES=("off" "bridge")

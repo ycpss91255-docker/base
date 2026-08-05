@@ -38,13 +38,15 @@ _run_shellcheck() {
   cp "${REPO_ROOT}"/dist/script/docker/lib/*.sh "${_lintdir}/lib/"
   shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
   rm -rf "${_lintdir}"
-  shellcheck -x "${REPO_ROOT}/script/test/test.sh"
-  shellcheck -x "${REPO_ROOT}/script/test/sync-doc-counts.sh"
-  shellcheck -x "${REPO_ROOT}/script/test/resolve-doc-counts.sh"
-  # The per-tool drivers are base-own self-test tooling (sourced by
-  # test.sh); shellcheck them with -x so source-following resolves the
-  # _lib.sh / _log_* references the same way test.sh sees them.
-  find "${REPO_ROOT}/script/test/drivers" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  # base-own self-test tooling: the dispatcher, the gate scripts and the
+  # per-tool drivers. ONE find over the whole tree rather than a
+  # hand-written list -- the list is what let check_test_md_drift.sh,
+  # lint_bare_stderr.sh and sync-readme-hashes.sh go unlinted, and the
+  # same batch that added resolve-doc-counts.sh to it forgot them. A new
+  # gate script is now linted the moment it exists. -x so source-following
+  # resolves the _lib.sh / _log_* references the way test.sh sees them.
+  find "${REPO_ROOT}/script/test" -name "*.sh" -type f -print0 \
+    | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
   shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/dist/config/shell/terminator/setup.sh"

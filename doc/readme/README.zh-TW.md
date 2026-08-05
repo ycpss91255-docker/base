@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 -->
+<!-- sync: base e5eb312a5446 90ec11665567 -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -15,7 +15,7 @@
 
 ---
 
-<!-- sync: table-of-contents e989d6153818 -->
+<!-- sync: table-of-contents e989d6153818 da5d6707c0b1 -->
 ## 目錄
 
 - [TL;DR](#tldr)
@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da -->
+<!-- sync: tldr b4f9c41522da 67cc0655d0d1 -->
 ## TL;DR
 
 ```bash
@@ -50,7 +50,7 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 列出所有 recipe
 ```
 
-<!-- sync: prerequisites 71356c1216b6 -->
+<!-- sync: prerequisites 71356c1216b6 3c7cd6c4b7f2 -->
 ## 必要條件
 
 容器操作透過 [`just`](https://github.com/casey/just)（command runner）搭配
@@ -73,12 +73,12 @@ Docker 執行。使用 `just <verb>` 入口前，請先在 host 安裝兩者：
   `just` 不可用，每個 recipe 都有 raw fallback（`./script/<verb>.sh`、
   `./.base/dist/script/base/upgrade.sh`）-- 見[快速開始](#快速開始)。
 
-<!-- sync: overview 435906a68746 -->
+<!-- sync: overview 435906a68746 387314a6a639 -->
 ## 概述
 
 此 repo 集中管理所有 Docker 容器 repo 共用的腳本、測試和 CI workflow。各 repo 透過 **git subtree** 拉入此模板，並使用 symlink 引用共用檔案。
 
-<!-- sync: architecture 2660c8dea634 -->
+<!-- sync: architecture 2660c8dea634 6dacd0fd4459 -->
 ### 架構
 
 ```mermaid
@@ -104,7 +104,7 @@ graph TB
     workflows -. "@tag 引用" .-> main_yaml
 ```
 
-<!-- sync: cicd-flow 4b14e6faf203 -->
+<!-- sync: cicd-flow 4b14e6faf203 130dc2cc9b0e -->
 ### CI/CD 流程
 
 ```mermaid
@@ -135,7 +135,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f -->
+<!-- sync: whats-included 68cb068c2b9f de3d03adc7b5 -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a -->
+<!-- sync: dockerfile-stages-convention cfa1ef92737a 610a26e2f7b8 -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -218,7 +218,7 @@ flowchart LR
   <repo>:devel` 後會看到的內容。
 - `Dockerfile.test-tools` 建置 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 階段透過 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 預設 `test-tools:local`（對應本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 建到 host Docker daemon）。CI 則覆寫成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的預建 multi-arch image）,buildx 直接從 registry 拉對應架構的 bats / shellcheck / hadolint binary,避開 `docker-container` buildx driver 跨 step 不共享 image store 的問題。
 
-<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 -->
+<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 c521f31251e6 -->
 #### 自建產物放在 `/opt`，不要放 `$HOME`
 
 容器使用者是在 **build** 時期烘進 image 的：`sys` 階段吃
@@ -249,7 +249,7 @@ image，`$HOME` 可能不一樣。
 第 1、2 條屬於判斷題，grep 判不出來。設計理由見
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 a1b705795c6d -->
+<!-- sync: adding-extra-stages-215 a1b705795c6d 1f31123adc44 -->
 #### 新增額外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, devel-test,
@@ -300,7 +300,7 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
   `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑會自動 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不會**觸發 drift。
 
-<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f -->
+<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f f41367af636b -->
 #### Per-stage `setup.conf` overrides（#220）
 
 #215 auto-emit 出來的 stage 預設共用 devel 的 runtime 設定
@@ -359,7 +359,7 @@ List 欄位（`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*` /
   （`setup.sh apply` 其他流程繼續）。
 - 不在 allowlist 內的 override key → **WARN + 跳過該 key**。
 
-<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 -->
+<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 b4e9d59f54b6 -->
 ### Smoke test helpers（供下游 repo 使用）
 
 `test/bats/smoke/test_helper.bash`（每個 smoke spec 透過
@@ -377,7 +377,7 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 | `assert_file_owned_by <user> <path>` | `<path>` 擁有者不是 `<user>` 時失敗 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` 非 0 時失敗 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 -->
+<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 07c60b45f9cf -->
 ### 各 repo 自行維護的檔案（不共用）
 
 - `Dockerfile`
@@ -389,7 +389,7 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
-<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 -->
+<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 4117288ba6f8 -->
 ## 各 repo runtime 配置
 
 每個下游 repo 透過一個 `setup.conf` INI 檔驅動自己的 runtime 配置
@@ -397,25 +397,41 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 `setup.sh` 讀它 + 系統偵測後重新產生 `.env` 跟 `compose.yaml`，這
 兩個衍生檔使用者不用動手編輯。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 -->
+<!-- sync: one-conf-seven-sections a4642bdbb595 5a5197cc52b8 -->
 ### 單一 conf、7 個 section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+           dri_groups (auto|off) — GUI service 上 iGPU /dev/dri 的 group_add
+[lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
+           預設 no;設在 devel 上（extends:devel 的 stage 會繼承）。會正常
+           結束（exit 0）的 stage 別用 always/unless-stopped（無限重啟）。
+           init (true|false) — Docker init/PID1 reaper;預設 true。
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
-[volumes]  mount_1（workspace，首次 setup.sh 執行時自動填入）
-           mount_2..mount_N（使用者自訂額外 host mount；/dev 裝置走 path）
+[volumes]  mount_1（workspace，首次執行時自動填入）
+           mount_2..mount_N（額外 host mount；裝置走 /dev path）
 [logging]  driver（預設 json-file）、max_size、max_file、compress
            local_path（host 端 log 目錄；bind-mount 到 /var/log/<repo>）
+           container_log_keep (20)、container_log_days (14)（每次啟動的
+           容器 log 保留策略；keep-count 與 age 兩者取嚴）
+           wrapper_transcript（把 verb 輸出 tee 到 log/<verb>/；預設 true）、
+           wrapper_transcript_keep (20)、wrapper_transcript_days (14)
            [logging.<svc>] 可對單一 service 做 key-level override
 ```
 
-Template default 在 `.base/dist/.setup.conf`；per-repo 覆蓋放 `<repo>/.setup.conf`。
-Section-level **replace** 策略：per-repo 檔若有該 section 就整段取代
-template；沒寫的 section 則吃 template 預設。
+Template default 在 `.base/dist/.setup.conf`；per-repo 覆蓋放 repo 根目錄的
+dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放進手動編輯的
+`config/` 介面）。Section-level **replace** 策略：per-repo 檔若有該 section
+就整段取代 template；沒寫的 section 則吃 template 預設。
+
+**權限預設關閉、要用才開**（#466）：template 出貨的 `[security]`
+（`privileged = false`，沒有 `cap_add` / `security_opt`）與 `[devices]`
+（沒有 `/dev:/dev`）都是精簡預設，讓輕量 repo 和工具 stage 保持乾淨。容器
+需要什麼就開什麼：走 `setup_tui.sh`（security / devices 頁）、
+`setup.sh add security.cap_add SYS_ADMIN`，或把 template 裡的範例取消註解。
 
 首次執行 `setup.sh`（尚無 per-repo setup.conf）時，template 檔會被
 複製到 repo，並把偵測到的 workspace 寫入 `[volumes] mount_1`。後續
@@ -428,7 +444,7 @@ template；沒寫的 section 則吃 template 預設。
 ./.base/dist/script/base/init.sh --gen-conf # 單純複製 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 -->
+<!-- sync: logging-output-to-host df27d24459b2 0af4bdc3e41e -->
 ### 輸出 log 到 host
 
 設 `[logging] local_path`，容器 stdout/stderr 會 tee 一份到 host 上的
@@ -461,7 +477,7 @@ source line 在 build-time 與 runtime、各種 workspace 結構下都能 work
 `script/entrypoint.sh` 真的有那行 source
 （`grep _entrypoint_logging script/entrypoint.sh`）。
 
-<!-- sync: interactive-tui 9fbcb28ab56f -->
+<!-- sync: interactive-tui 9fbcb28ab56f b49dc17d3712 -->
 ### 互動式 TUI
 
 `./setup_tui.sh` 開啟主選單。底層是 `dialog` 或 `whiptail`（兩者都
@@ -486,7 +502,7 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的編輯器
 （如 `./setup_tui.sh volumes`），不必走主選單。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef -->
+<!-- sync: when-setupsh-runs 78e1acddfeef 30955bffa90f -->
 ### setup.sh 什麼時候跑
 
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
@@ -517,7 +533,7 @@ Main
 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手動調過
 的 workspace 路徑或 apt mirror 升級時不會被蓋掉。
 
-<!-- sync: drift-detection 51f0c0e65245 -->
+<!-- sync: drift-detection 51f0c0e65245 cd84715acf8f -->
 ### Drift 偵測
 
 `setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
@@ -530,7 +546,7 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 c1b7b0869e0b -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
@@ -589,7 +605,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 **持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
-<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 -->
+<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 eb30247a037a -->
 ### setup.sh 子指令（v0.11.0+）
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
@@ -608,7 +624,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
 
-<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 -->
+<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 c013bc32a064 -->
 #### v0.10.x 升級（BREAKING）
 
 `setup.sh`（無參數）與 `setup.sh --base-path X --lang Y`（無子指令）以前會 silently 走到 `apply`。v0.11.0 拿掉這個 fall-through：
@@ -621,7 +637,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored cb81feeefc46 -->
+<!-- sync: derived-artifacts-gitignored cb81feeefc46 0f54ff154517 -->
 ### 衍生檔（gitignored）
 
 - `.env` — runtime 變數 + `SETUP_*` drift metadata
@@ -631,7 +647,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 `just base upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
-<!-- sync: per-wrapper-hooks-440 3f5c5d24592f -->
+<!-- sync: per-wrapper-hooks-440 3f5c5d24592f 84409436ca30 -->
 ### 每個 wrapper 的 pre/post hook（#440）
 
 每個 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
@@ -670,7 +686,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba d2dce3b0d2d5 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
 `setup.sh` 會在 `.env` / `compose.yaml` 產三個名稱。它們在單人開發
@@ -752,10 +768,10 @@ service 帳號），`image` 會在 Docker Hub 端撞名，但 `container_name`
 仍能區隔 — registry pull 共用 cached image、host 內 daemon 仍
 彼此隔離。
 
-<!-- sync: quick-start 629a4900e292 -->
+<!-- sync: quick-start 629a4900e292 a10e7022bfcd -->
 ## 快速開始
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 e6aa1f8c689f -->
 ### 加入新 repo
 
 ```bash
@@ -775,7 +791,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在剛 `git init` 且沒有任何 commit 的 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 進來。
 
-<!-- sync: updating f825b9a2c058 -->
+<!-- sync: updating f825b9a2c058 41557b88a45e -->
 ### 升級
 
 前置條件：`git config user.name` / `user.email` 必須有設，working tree
@@ -813,7 +829,7 @@ just base upgrade v0.3.0
 4. `sed` 改寫 `.github/workflows/main.yaml` 的
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
 
-per-repo 檔案不會被覆蓋：`<repo>/setup.conf` 保留原樣、
+per-repo 檔案不會被覆蓋：`<repo>/.setup.conf` 保留原樣、
 `<repo>/config/`（bashrc / tmux / terminator …）也不動 — 若上游
 `.base/dist/config/` 自上次 pull 後有變動，upgrade.sh 會印出
 `diff -ruN .base/dist/config config` 提示，由你自行 reconcile。
@@ -821,7 +837,7 @@ per-repo 檔案不會被覆蓋：`<repo>/setup.conf` 保留原樣、
 不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 步驟
 很容易漏掉。
 
-<!-- sync: automated-version-bumps-optional 7a8394ea238f -->
+<!-- sync: automated-version-bumps-optional 7a8394ea238f 1342b32e42e8 -->
 #### 自動升版（選用）
 
 下游 repo 可以讓 Dependabot 在 `base` 出新 tag 時自動開 PR。加入 `.github/dependabot.yml`：
@@ -837,7 +853,7 @@ updates:
 
 Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 base 最新 tag 後開 PR。subtree 本身仍需在本地跑 `just base upgrade vX.Y.Z` — Dependabot 只負責 workflow ref。
 
-<!-- sync: ci-reusable-workflows 037f8d72c0f1 -->
+<!-- sync: ci-reusable-workflows 037f8d72c0f1 e62c3d785bf3 -->
 ## CI Reusable Workflows
 
 各 repo 將本地的 `build-worker.yaml` / `release-worker.yaml` 替換為呼叫此 repo 的 reusable workflows：
@@ -862,7 +878,7 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 -->
+<!-- sync: build-workeryaml-inputs 9f38b2b745d2 85420e5388bd -->
 ### build-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
@@ -873,7 +889,7 @@ jobs:
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece -->
+<!-- sync: release-workeryaml-inputs 018ae0329ece b0cdf79f8677 -->
 ### release-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
@@ -881,7 +897,7 @@ jobs:
 | `archive_name_prefix` | string | 是 | - | Archive 名稱前綴 |
 | `extra_files` | string | 否 | `""` | 額外檔案（空格分隔） |
 
-<!-- sync: running-template-tests 961bde4ce2e8 -->
+<!-- sync: running-template-tests 961bde4ce2e8 98d35556d05c -->
 ## 本地執行測試
 
 base 自身測試入口是 `just test`（由 `script/test/justfile.test` 提供）：
@@ -899,7 +915,7 @@ just --list  # 顯示 CI 指令
 ./script/test/test.sh --ci     # 在容器內執行（由 compose 呼叫）
 ```
 
-<!-- sync: tests 4b88c3ca9f6c -->
+<!-- sync: tests 4b88c3ca9f6c d262d4d64ceb -->
 ## 測試
 
 詳見 [TEST.md](../test/TEST.md) 測試索引（各類型清單：
@@ -907,7 +923,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d899cb41bbd6 -->
+<!-- sync: directory-structure d899cb41bbd6 27afec12cf9d -->
 ## 目錄結構
 
 ```

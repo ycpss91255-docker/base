@@ -189,8 +189,10 @@ Options:
   --readme-sync           With --lint: run only the localized README sync
                           lint (each doc/readme/README.*.md section records
                           the hash of the README.md section it was
-                          translated against; re-stamp with
-                          'just test sync-readme')
+                          translated against AND of the translated section
+                          itself; re-stamp with 'just test sync-readme',
+                          which refuses to move an English hash while the
+                          translation stands still)
   --doc-counts            With --lint: run only the doc/test count drift
                           gate (doc/test/*.md figures are generated from
                           the specs; regenerate with 'just test sync-docs').
