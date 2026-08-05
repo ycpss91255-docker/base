@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Shared smoke specs that ship under `dist/test/bats/smoke/`: **40 tests**.
+Shared smoke specs that ship under `dist/test/bats/smoke/`: **34 tests**.
 
 > **Not** part of the `just test` self-test grand total — these are
 > Dockerfile `-test`-stage build-time assertions, not self-tests. See
@@ -42,8 +42,17 @@ RUN bats /smoke_test/
 No whole-tree COPY, so the ephemeral `-test` image stays small; adding a
 stage is a folder plus an analogous COPY block. The shared baseline and
 any per-repo `test/bats/smoke/` overlay execute together.
-`display_env.bats` self-skips on headless repos by detecting the absence
-of GUI lines in the generated `compose.yaml`.
+
+Nothing in this tree skips, and nothing here asserts against the
+generated `compose.yaml`. `compose.yaml` is a derived artifact listed in
+`.dockerignore`, so it is not in any repo's build context and
+`/lint/compose.yaml` cannot exist in any `-test` stage -- assertions
+gated on its presence skipped in every build of every repo while reading
+as coverage. What the emitter puts in the GUI block (and the structural
+no-duplicate-service-key property) is asserted instead in
+[unit.md](unit.md)'s `compose_emit/gen_spec.bats`, where
+`generate_compose_yaml` can be driven with the GUI resolved both on and
+off.
 
 ### dist/test/bats/smoke/shared/entrypoint.bats (2)
 
@@ -97,30 +106,32 @@ usage, not English).
 | `stop.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
 | `stop.sh --help --lang ja prints ja usage (#222)` | - |
 
-### dist/test/bats/smoke/devel-test/display_env.bats (11)
+### dist/test/bats/smoke/devel-test/display_env.bats (5)
 
-Asserts the generated `compose.yaml` carries the X11 / Wayland env
-+ volume block expected by GUI containers, and that `run.sh` runs the
-right `xhost` command per session type. Auto-skipped when the repo's
-`compose.yaml` has no GUI block (headless repos like `multi_run`).
+Asserts the `xhost` host-ACL branch of the `run.sh` the stage installs at
+`/lint/run.sh`, by **executing** it: `run_wrapper_xhost` (shared
+`test_helper`) drives the real wrapper through `--dry-run` with a logging
+`xhost` shim first on PATH and reports what it actually called. Every
+assertion is two-sided (names what must appear AND what must not), so a
+swapped branch fails on both arms; a deleted branch fails because the
+driver refuses to report an empty capture. Never skips.
 
 | Test | Description |
 |------|-------------|
-| `compose.yaml contains WAYLAND_DISPLAY env` | Wayland env line |
-| `compose.yaml contains XDG_RUNTIME_DIR env` | Wayland session dir env |
-| `compose.yaml contains XAUTHORITY env` | X11 auth env |
-| `compose.yaml mounts XDG_RUNTIME_DIR as rw` | Wayland socket mount |
-| `compose.yaml mounts XAUTHORITY volume` | X11 auth mount |
-| `compose.yaml has no consecutive duplicate keys` | YAML hygiene |
-| `compose.yaml mounts X11-unix volume` | X11 socket mount |
-| `run.sh contains XDG_SESSION_TYPE check` | Session-type branch |
-| `run.sh calls xhost +SI:localuser on wayland` | Wayland xhost path |
-| `run.sh calls xhost +local: on X11` | X11 xhost path |
-| `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Fallback path |
+| `run.sh grants the Wayland host ACL to the configured user` | Wayland session grants `+SI:localuser:<USER_NAME>` and not `+local:` |
+| `run.sh grants the X11 host ACL under an X11 session` | X11 session grants `+local:` and not `+SI:localuser` |
+| `run.sh defaults to the X11 host ACL when XDG_SESSION_TYPE is unset` | Unset session type falls back to the X11 grant |
+| `run.sh grants exactly one host ACL per invocation` | Either/or branch: emitting both would leave the X11 ACL open on Wayland |
+| `run.sh interpolates USER_NAME into the Wayland ACL, not a fixed name` | The grant names the configured host user, not a baked-in one |
 
 ### dist/test/bats/smoke/shared/test_helper.bash
 
-Not a spec — runtime helper (`assert_compose_has` / `skip_if_headless`
-etc.) loaded by every smoke spec via `load "${BATS_TEST_DIRNAME}/test_helper"`.
-Asserts in this file are exercised via `test/bats/unit/smoke_helper_spec.bats`
-(which IS in the self-test grand total).
+Not a spec — runtime helpers loaded by every smoke spec via
+`load "${BATS_TEST_DIRNAME}/test_helper"`: the `assert_cmd_installed` /
+`assert_cmd_runs` / `assert_file_exists` / `assert_dir_exists` /
+`assert_file_owned_by` / `assert_pip_pkg` assertions, plus the
+`run_wrapper_xhost` wrapper driver. Everything in this file is exercised
+via `test/bats/unit/smoke_helper_spec.bats` (which IS in the self-test
+grand total) — including `run_wrapper_xhost` against the wrapper at its
+source path, so the `xhost` branch is covered by base's own gate and not
+only by a downstream image build.
