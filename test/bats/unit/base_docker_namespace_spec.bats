@@ -58,3 +58,22 @@ setup() {
   run grep -nE 'docker build -t test-tools:local -f' "${ROOT}/script/test/justfile.test"
   assert_failure
 }
+
+@test "base compose.yaml test-tools service takes the resolved tag, not a fixed literal (#891)" {
+  # A hardcoded `image: test-tools:local` makes every checkout on the host
+  # write one tag, so a sibling build silently displaces the image a live
+  # run is using. The service must read the same TEST_TOOLS_IMAGE the ci /
+  # ci-system / coverage consumers read, so build and consumers cannot
+  # resolve different images.
+  run grep -nE '^ {4}image: \$\{TEST_TOOLS_IMAGE:-' "${ROOT}/compose.yaml"
+  assert_success
+  run grep -nE '^ {4}image: test-tools:local *$' "${ROOT}/compose.yaml"
+  assert_failure
+}
+
+@test "just test system derives the local test-tools tag instead of hardcoding it (#891)" {
+  run grep -nE 'TEST_TOOLS_IMAGE=test-tools:local' "${ROOT}/script/test/justfile.test"
+  assert_failure
+  run grep -nE 'test\.sh --test-tools-image' "${ROOT}/script/test/justfile.test"
+  assert_success
+}

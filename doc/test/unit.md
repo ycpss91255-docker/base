@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2556 tests**.
+Unit specs under `test/bats/unit/`: **2563 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1961,7 +1961,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (71)
+### test/bats/unit/ci_spec.bats (76)
 
 | Test | Description |
 |------|-------------|
@@ -2036,6 +2036,11 @@ builds the env block only for the knobs the conf sets.
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
 | `_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)` | #692 system docker-CLI guard |
+| `_resolve_test_tools_image: different tooling inputs resolve to different tags (#891)` | #891 content-keyed local tag cannot clobber |
+| `_resolve_test_tools_image: identical inputs at different paths resolve to the same tag (#891)` | #891 same inputs -> cache hit, not a rebuild |
+| `_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)` | #891 CI's pinned published tags untouched |
+| `_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)` | #891 no silent bare-literal fallback |
+| `main --test-tools-image: prints the resolved tag for the justfile (#891)` | #891 one entry point for build + consumers |
 
 ### test/bats/unit/doc_counts_spec.bats (21)
 
@@ -2641,13 +2646,17 @@ hand-authored compose.yaml. Covers lib resolution via the base-self path and
 `--target test-tools` dispatching `docker compose build` while skipping the
 setup-sync lifecycle.
 
-### test/bats/unit/base_docker_namespace_spec.bats (5)
+### test/bats/unit/base_docker_namespace_spec.bats (7)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
 flat `script/<verb>.sh` symlinks resolving into `dist/` (no `.base/` hop),
 the `test-tools` compose service building `Dockerfile.test-tools`, and
-`just test system` building it via the docker namespace.
+`just test system` building it via the docker namespace. Also pins the
+naming-isolation shape (#891): the build-only `test-tools` service reads the
+same `TEST_TOOLS_IMAGE` its consumers read instead of a fixed
+`test-tools:local` literal, and the `system` recipe derives that tag from the
+tooling Dockerfile's content instead of hardcoding it.
 
 
 ### test/bats/unit/base_version_monitor_spec.bats (12)

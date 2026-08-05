@@ -1320,3 +1320,92 @@ SH
   assert_failure
   assert_output --partial "requires docker CLI"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _compute_test_tools_hash / _resolve_test_tools_image
+#
+# The local tooling tag used to be the fixed literal `test-tools:local`,
+# written identically by every checkout on the host. A sibling run
+# rebuilding it displaced the image a live run was already using, with no
+# error anywhere: kcov vanished from the image mid-pass and the pass still
+# reported green. The tag is now keyed to the build inputs -- identical
+# inputs resolve to one tag (a build-cache hit, NOT a rebuild), any input
+# difference resolves to a tag that cannot clobber the other.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_resolve_test_tools_image: different tooling inputs resolve to different tags (#891)" {
+  local _a="${BATS_TEST_TMPDIR}/a.Dockerfile"
+  local _b="${BATS_TEST_TMPDIR}/b.Dockerfile"
+  printf 'FROM alpine:3.21\nRUN apk add --no-cache kcov\n' > "${_a}"
+  printf 'FROM alpine:3.21\n' > "${_b}"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_a}"'"
+    _resolve_test_tools_image "'"${_b}"'"
+  '
+  assert_success
+  assert [ "${lines[0]}" != "${lines[1]}" ]
+  [[ "${lines[0]}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+  [[ "${lines[1]}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+}
+
+@test "_resolve_test_tools_image: identical inputs at different paths resolve to the same tag (#891)" {
+  # The cache contract: two checkouts whose tooling Dockerfile is
+  # byte-identical must land on ONE tag, so the second build is a cache hit
+  # rather than a rebuild. The checkout path must therefore not enter the
+  # digest.
+  local _a="${BATS_TEST_TMPDIR}/one/Dockerfile.test-tools"
+  local _b="${BATS_TEST_TMPDIR}/two/Dockerfile.test-tools"
+  mkdir -p "${BATS_TEST_TMPDIR}/one" "${BATS_TEST_TMPDIR}/two"
+  printf 'FROM alpine:3.21\nRUN apk add --no-cache kcov\n' > "${_a}"
+  cp "${_a}" "${_b}"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_a}"'"
+    _resolve_test_tools_image "'"${_b}"'"
+  '
+  assert_success
+  assert [ "${lines[0]}" = "${lines[1]}" ]
+}
+
+@test "_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)" {
+  # CI pins published, version-scoped tags through this env
+  # (build-worker / publish-worker / release-test-tools), and
+  # self-test.yaml pins test-tools:local. The derivation must never
+  # rewrite a caller-pinned value.
+  run bash -c '
+    source /source/script/test/test.sh
+    TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:v9.9.9 \
+      _resolve_test_tools_image "/source/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  assert_output "ghcr.io/ycpss91255-docker/test-tools:v9.9.9"
+}
+
+@test "_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)" {
+  # No bare-literal fallback: a silent `test-tools:local` here would resolve
+  # to whatever another checkout last built.
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${BATS_TEST_TMPDIR}"'/absent.Dockerfile"
+  '
+  assert_failure
+  assert_output --partial "absent.Dockerfile"
+}
+
+@test "main --test-tools-image: prints the resolved tag for the justfile (#891)" {
+  # The single entry point the `just test system` recipe reads, so the
+  # build-only test-tools service and the ci-system consumer cannot
+  # disagree about which tag this run means.
+  run bash -c '
+    unset TEST_TOOLS_IMAGE
+    /source/script/test/test.sh --test-tools-image
+  '
+  assert_success
+  [[ "${output}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+}
