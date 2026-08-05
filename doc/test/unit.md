@@ -2724,6 +2724,22 @@ REAL shipped tree.
 
 ### test/bats/unit/bash_source_guard_lint_spec.bats (18)
 
+Unit coverage for `script/test/drivers/bash_source_guard.sh` -- the mechanical
+half of "a self-locating read must carry a default". `${BASH_SOURCE[0]}` with
+no default aborts under the `nounset` the script itself just enabled, in every
+context where bash does not populate the array for the running file -- most
+sharply the kcov-instrumented shell of the coverage shard, where the failure is
+environment-specific and so surfaces in CI rather than locally. Undefaulted
+indexed reads fail, including the `%/*` dirname shorthand and the caller-frame
+`[1]` form; the defaulted `:-$0` / `:-` spellings and the whole-array `[@]` /
+`[*]` / `${#...[@]}` expansions pass (bash yields an empty list for those on an
+unset array even under `set -u`, so they are not the hazard); comment lines
+pass, or the rule would be unwritable in its own terms. A deliberate read opts
+out through a bracketed allow region that must be balanced and does not leak
+past its end; a missing scan root fails loudly rather than passing vacuously;
+and a final case drives the real `dist/` + `script/` trees. The behavioural
+half is `sourceable_scripts_spec.bats`.
+
 | Test | Description |
 |------|-------------|
 | `_run_bash_source_guard: FAILS on a bare indexed read, naming file and line (#869)` | - |
@@ -2746,6 +2762,18 @@ REAL shipped tree.
 | `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
 
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
+
+The behavioural half of the same contract: these files must actually LOAD,
+which no grep can prove. Two hazards, both invisible outside the coverage
+shard. (1) A file that enables `set -euo pipefail` unconditionally leaves
+`nounset` on for its CALLER; kcov's `PS4` expands an array that is empty at the
+top level of a `bash -c` string, so the caller's next command dies inside the
+instrumentation -- after the `source` already succeeded, which is why these
+tests assert a marker AFTER the load rather than just its exit status. (2) An
+undefaulted self-location read resolves to the CWD instead, so every sibling
+`source` below it misses. The sourceable set is discovered, not pinned (every
+guard-carrying script plus every `lib/*.sh`), with a floor on the discovery so
+a broken expression cannot make the loops assert nothing.
 
 | Test | Description |
 |------|-------------|
