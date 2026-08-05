@@ -42,7 +42,7 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832)" {
+@test "_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606, #832, #879)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
@@ -51,13 +51,76 @@ teardown() {
 .env.bak
 compose.yaml
 .setup.conf.bak
-.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
 log/
 /deploy/
 EXPECTED
+}
+
+@test "_canonical_gitignore_entries: no longer advertises .setup.conf.local (#879)" {
+  # The file it names has not been read since the override layer was removed
+  # in base#201. Under a "managed by template (do not remove)" marker the line
+  # reads as a feature, so someone creates the file, gets no error, and
+  # wonders why their overrides do nothing.
+  run _canonical_gitignore_entries
+  assert_success
+  refute_line ".setup.conf.local"
+}
+
+@test "_retired_gitignore_entries: records .setup.conf.local as retired (#879)" {
+  run _retired_gitignore_entries
+  assert_success
+  assert_line ".setup.conf.local"
+}
+
+@test "_sync_gitignore: prunes a retired entry from the managed block (#879)" {
+  local _f="${TMP_DIR}/.gitignore"
+  cat > "${_f}" <<'EOF'
+node_modules/
+# managed by template (do not remove)
+.env
+.setup.conf.bak
+.setup.conf.local
+EOF
+  run _sync_gitignore "${_f}"
+  assert_success
+  run cat "${_f}"
+  refute_line ".setup.conf.local"
+  # Everything else survives, user lines included.
+  assert_line "node_modules/"
+  assert_line ".env"
+  assert_line ".setup.conf.bak"
+}
+
+@test "_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)" {
+  # Above the marker is the user's half of the file; the template retracts
+  # only what the template added.
+  local _f="${TMP_DIR}/.gitignore"
+  cat > "${_f}" <<'EOF'
+.setup.conf.local
+# managed by template (do not remove)
+.env
+EOF
+  run _sync_gitignore "${_f}"
+  assert_success
+  run cat "${_f}"
+  assert_line ".setup.conf.local"
+}
+
+@test "_sync_gitignore: pruning a retired entry is idempotent (#879)" {
+  local _f="${TMP_DIR}/.gitignore"
+  cat > "${_f}" <<'EOF'
+# managed by template (do not remove)
+.env
+.setup.conf.local
+EOF
+  _sync_gitignore "${_f}"
+  local _first; _first="$(cat "${_f}")"
+  _sync_gitignore "${_f}"
+  local _second; _second="$(cat "${_f}")"
+  assert_equal "${_second}" "${_first}"
 }
 
 @test "_canonical_gitignore_entries: list is stable order" {
@@ -106,7 +169,6 @@ EXPECTED
 .env.bak
 compose.yaml
 .setup.conf.bak
-.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth

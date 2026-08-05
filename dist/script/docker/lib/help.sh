@@ -86,10 +86,10 @@ _msg_help() {
     ja:docker.prune)    echo "ビルドキャッシュ / 未使用イメージを削除" ;;
     *:docker.prune)     echo "Prune build cache / dangling images" ;;
 
-    zh-TW:docker.setup) echo "依 setup.conf 重新產生 .env 與 compose.yaml" ;;
-    zh-CN:docker.setup) echo "依 setup.conf 重新生成 .env 与 compose.yaml" ;;
-    ja:docker.setup)    echo "setup.conf から .env と compose.yaml を再生成" ;;
-    *:docker.setup)     echo "Regenerate .env + compose.yaml from setup.conf" ;;
+    zh-TW:docker.setup) echo "依 setup.conf 重新產生 .env.generated 與 compose.yaml" ;;
+    zh-CN:docker.setup) echo "依 setup.conf 重新生成 .env.generated 与 compose.yaml" ;;
+    ja:docker.setup)    echo "setup.conf から .env.generated と compose.yaml を再生成" ;;
+    *:docker.setup)     echo "Regenerate .env.generated + compose.yaml from setup.conf" ;;
 
     zh-TW:docker.setup-tui) echo "以互動式 TUI 編輯 setup.conf" ;;
     zh-CN:docker.setup-tui) echo "以交互式 TUI 编辑 setup.conf" ;;

@@ -249,7 +249,7 @@ image，`$HOME` 可能不一样。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 017277dea36e e74a7b35a9ac -->
+<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 79b385a36822 -->
 #### 添加额外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -299,7 +299,7 @@ EXEC_ARGS='--/app/livestream/port=49100' \
   `v[0-9]*`）也是 hard error。`devel-test` **不在**该集合里，也**不算**
   撞名 — 它会通过 per-stage 模型 emit 成 `test` service（#493），这正是
   `[stage:devel-test]` 有 runtime 控制面的原因。
-- 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env` 内
+- 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env.generated` 内
   的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
 
@@ -392,13 +392,14 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
-<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 1e5ec08e08c1 -->
+<!-- sync: per-repo-runtime-configuration b02fd5d770dc f774a426a6e2 -->
 ## 各 repo runtime 配置
 
 每个下游 repo 通过一个 `setup.conf` INI 文件驱动自己的 runtime 配置
 （GPU 保留、GUI env/volumes、network mode、额外 volume mounts）。
-`setup.sh` 读它 + 系统检测后重新生成 `.env` 和 `compose.yaml`，这两
-个衍生文件用户不用动手编辑。
+`setup.sh` 读它 + 系统检测后重新生成 `.env.generated` 和 `compose.yaml`，
+这两个衍生文件用户不用动手编辑。手写的 `.env` overlay 是另一个文件：
+setup 只在第一次 scaffold，之后永不覆写。
 
 <!-- sync: one-conf-14-sections 7423a704aa07 24d852bc52af -->
 ### 单一 conf、14 个 section
@@ -496,13 +497,18 @@ source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
 `script/entrypoint.sh` 真的有那行 source
 （`grep _entrypoint_logging script/entrypoint.sh`）。
 
-<!-- sync: interactive-tui 9fbcb28ab56f fe32cf45079c -->
+<!-- sync: interactive-tui 23df6f6f09ab 7cbfc4b1f489 -->
 ### 交互式 TUI
 
 `./setup_tui.sh` 打开主菜单。底层是 `dialog` 或 `whiptail`（两者
 都缺时会打印 `sudo apt install dialog` 提示并退出）。按 Cancel /
-Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env` +
+Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env.generated` +
 `compose.yaml`。
+
+`./setup_tui.sh <SECTION>` 可直接跳到某个编辑器。`[deploy]` section 只设置
+GPU 预留 —— 名称沿用 Compose 的 `deploy:` key，和会打包 field bundle 的
+`./setup.sh deploy` 无关。因此本编辑器没有歧义的名称是 `gpu`
+（`just docker setup-tui gpu`）；`deploy` 仍可用，并会先弹出说明是哪一个。
 
 主菜单结构（#221）：
 
@@ -552,7 +558,7 @@ Main
 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手动调过
 的 workspace 路径或 apt mirror 升级时不会被覆盖。
 
-<!-- sync: drift-detection 51f0c0e65245 e735fae1f1f8 -->
+<!-- sync: drift-detection 25d3585b5c5f 4249d9acd687 -->
 ### Drift 检测
 
 `setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
@@ -563,7 +569,7 @@ Main
 - GPU / GUI 检测结果
 - `USER_UID`（用户身份）
 
-带 `--setup` 重跑以重新生成 `.env` + `compose.yaml`。
+带 `--setup` 重跑以重新生成 `.env.generated` + `compose.yaml`。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 6c8bbba5c990 -->
 ### Field 部署（`just docker setup deploy`）
@@ -624,14 +630,14 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 **持续部署（CD）**：deploy 工具只诚实标记、从不阻挡 —— 它会盖上 `-dirty` / short-commit 的 `<version>`，所以任何树状态都能做 review 部署。自动化 CD 请先调用 base 出货的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作树不干净**或** HEAD 不在 tag 上时会拒绝部署，确保出货的 field bundle 永远可以追溯到某个已发布版本。
 
-<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 32c99cdb92d4 -->
+<!-- sync: setupsh-subcommands-v0110 c344a1655165 ff837d50b4ee -->
 ### setup.sh 子命令（v0.11.0+）
 
 `setup.sh` 是 git 风格的后端，提供明确的子命令。build / run / TUI 脚本会代为调用；直接调用适合脚本化 / 非交互场景：
 
 | 子命令 | 用途 |
 |---|---|
-| `apply` | 从 setup.conf + 系统检测重新生成 `.env` + `compose.yaml` |
+| `apply` | 从 setup.conf + 系统检测重新生成 `.env.generated` + `compose.yaml`（不会动手写的 `.env` overlay） |
 | `check-drift` | 同步返回 0、漂移返回 1（漂移描述输出到 stderr） |
 | `set <section>.<key> <value>` | 写入单个键值 |
 | `show <section>[.<key>]` | 读取单键或整个 section |
@@ -641,7 +647,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 | `reset [-y\|--yes]` | 恢复 template 默认；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自带式的 field 部署**目录**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可编辑的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 默认 `runtime`（不可为 `devel` / `*-test`）；build 前先预览解析后的 `compose.yaml` 并确认。见 [Field 部署](#field-部署just-docker-setup-deploy) |
 
-带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
+带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env.generated` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
 
 <!-- sync: migration-from-v010x-breaking 6bd85945e2d2 e3b0aa4e832d -->
 #### v0.10.x 升级（BREAKING）
@@ -656,15 +662,19 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 下游 repo 若有自定脚本直接调用 `setup.sh`，前面加 `apply`。template 内附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored cb81feeefc46 bfc5dab0e509 -->
+<!-- sync: derived-artifacts-gitignored 99925c8810ca 201231a23df1 -->
 ### 衍生文件（gitignored）
 
-- `.env` — runtime 变量 + `SETUP_*` drift metadata
+- `.env.generated` — runtime 变量 + `SETUP_*` drift metadata
 - `compose.yaml` — 含 baseline 与条件区块的完整 compose
 
 任何时候打开 `compose.yaml` 都能看到当下完整 runtime 配置。每次
 `just base upgrade` 都会重新生成这两个文件（init.sh 在 subtree pull 后重跑
 `setup.sh apply`）— 不要手改，需要 override 写到 `setup.conf`。
+
+`.env` 同样被 gitignore，但**不是**衍生文件：它是手写的 workload overlay，
+第一次 apply 时 scaffold 一次，之后永不覆写。可以放心编辑，跑 setup 也
+不会覆盖。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f 1aedc627edbc -->
 ### 每个 wrapper 的 pre/post hook（#440）
@@ -810,7 +820,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
 
-<!-- sync: updating f60ecd735404 c893ba6fdc28 -->
+<!-- sync: updating 7ffccdece8ee 215282fc357a -->
 ### 升级
 
 前置条件：`git config user.name` / `user.email` 必须有设置，working tree
@@ -845,9 +855,9 @@ just base upgrade v0.3.0
    `git reset --hard` rollback（防旧版 `git-subtree.sh` destructive FF）
 3. `./.base/dist/script/base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、
-   `git rm --cached` 已经变成 derived artifact 的旧 tracked 文件（`.env`、
-   `compose.yaml`、…），最后调用 `setup.sh apply` 重新生成 `.env` +
-   `compose.yaml`
+   `git rm --cached` 已经变成 derived artifact 的旧 tracked 文件
+   （`.env.generated`、`compose.yaml`、…），最后调用 `setup.sh apply`
+   重新生成 `.env.generated` + `compose.yaml`
 4. `sed` 改写 `.github/workflows/main.yaml` 的
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
 5. `apply_migrations`（`lib/dockerfile_migrate.sh`）修补 **repo 根目录的

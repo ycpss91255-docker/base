@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# setup.sh - Auto-detect system parameters and generate .env + compose.yaml
+# setup.sh - Auto-detect system parameters and generate .env.generated +
+# compose.yaml
 #
 # Reads the per-repo <repo>/.setup.conf override (falling back to the
 # .base/dist/.setup.conf template default) for the repo's runtime
 # configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
-#   - <repo>/.env          (variable values + SETUP_* metadata for drift detection)
+#   - <repo>/.env.generated (variable values + SETUP_* metadata for drift
+#                          detection; the hand-authored <repo>/.env overlay
+#                          is scaffolded once and never rewritten)
 #   - <repo>/compose.yaml  (full compose with baseline + conditional blocks)
 #
 # Both output files are derived artifacts (gitignored). Source of truth is
@@ -48,10 +51,10 @@ _resolve_lang _LANG
 
 _setup_msg_env() {
   case "${_LANG}:${1:?}" in
-    zh-TW:done)     echo ".env 與 compose.yaml 更新完成" ;;
-    zh-CN:done)     echo ".env 与 compose.yaml 更新完成" ;;
-    ja:done)        echo ".env と compose.yaml 更新完了" ;;
-    *:done)         echo ".env + compose.yaml updated" ;;
+    zh-TW:done)     echo ".env.generated 與 compose.yaml 更新完成" ;;
+    zh-CN:done)     echo ".env.generated 与 compose.yaml 更新完成" ;;
+    ja:done)        echo ".env.generated と compose.yaml 更新完了" ;;
+    *:done)         echo ".env.generated + compose.yaml updated" ;;
     zh-TW:comment)  echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
     zh-CN:comment)  echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
     ja:comment)     echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
@@ -149,6 +152,15 @@ _setup_msg_reset() {
   esac
 }
 
+_setup_msg_network() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:ports_inert) echo "[network] 已設定 port_*，但生效的 mode 不是 bridge —— compose 只有在 mode = bridge 時才會發布 ports，因此該映射會被丟棄" ;;
+    zh-CN:ports_inert) echo "[network] 已设置 port_*，但生效的 mode 不是 bridge —— compose 仅在 mode = bridge 时才会发布 ports，因此该映射会被丢弃" ;;
+    ja:ports_inert)    echo "[network] に port_* が設定されていますが、有効な mode が bridge ではありません —— compose は mode = bridge のときだけ ports を公開するため、このマッピングは破棄されます" ;;
+    *:ports_inert)     echo "[network] port_* is configured but the effective mode is not bridge -- compose publishes ports only under mode = bridge, so the mapping is dropped" ;;
+  esac
+}
+
 _setup_msg_stage() {
   case "${_LANG}:${1:?}" in
     zh-TW:invalid_format)           echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
@@ -207,16 +219,19 @@ usage() {
       cat >&2 <<'EOF'
 Usage: ./setup.sh [<subcommand>] [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 
-Regenerate .env + compose.yaml from setup.conf + system detection.
+Regenerate .env.generated + compose.yaml from setup.conf + system
+detection. `.env` is the hand-authored workload overlay: apply scaffolds
+it once and never rewrites it, so hand edits there are safe.
 Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
 Save; run directly for non-interactive / scripted / CI use.
 
 Subcommands:
-  apply         (default) Regenerate .env + compose.yaml. No-arg
+  apply         (default) Regenerate .env.generated + compose.yaml. No-arg
                 invocation falls back to apply for backward compat.
-  check-drift   Compare current system / setup.conf against .env's
-                SETUP_* metadata. Exit 0 when in sync, exit 1 (with
-                drift descriptions on stderr) when regen is needed.
+  check-drift   Compare current system / setup.conf against
+                .env.generated's SETUP_* metadata. Exit 0 when in sync,
+                exit 1 (with drift descriptions on stderr) when a regen
+                is needed.
                 Used by build.sh / run.sh to decide auto-regen.
   set <section>.<key> <value>
                 Write a single value into <base-path>/.setup.conf
@@ -224,7 +239,8 @@ Subcommands:
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
                 environment.env_* / resources.shm_size). Does NOT
-                regenerate .env — run `apply` afterwards if needed.
+                regenerate .env.generated — run `apply` afterwards if
+                needed.
   show <section>[.<key>]
                 Print the value of a single key, or all key=value
                 pairs in a section (in on-disk order). Exits non-zero
@@ -246,6 +262,11 @@ Subcommands:
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
+                Ships an image to the field. This is
+                NOT the [deploy] section of setup.conf, which configures
+                GPU reservation only and is named after Compose's
+                `deploy:` key -- edit that with `./setup_tui.sh gpu`
+                (`deploy` there is a kept alias).
                 Build a self-contained field-deploy FOLDER for stage S
                 (default runtime): docker build --target S tagged
                 <name>:<stage>-<version>, docker save | xz, a fully-

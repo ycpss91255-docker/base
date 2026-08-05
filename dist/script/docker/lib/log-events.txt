@@ -42,6 +42,7 @@ conf_template_missing
 conf_reset_aborted
 conf_reset_needs_yes
 conf_mount_stale_path
+network_ports_inert
 stage_devel_reserved
 env_drift_detail
 deploy_no_dockerfile

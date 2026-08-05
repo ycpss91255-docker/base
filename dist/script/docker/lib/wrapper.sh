@@ -168,10 +168,10 @@ _wrapper_setup_sync() {
     _log_info "${_verb}" "${_verb}_bootstrap" "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"
   else
-    # Drift-check path. Derived artifacts (.env + compose.yaml) carry no
-    # user-owned data, so regenerating on drift is always safe and saves
-    # the user from remembering `--setup`. Subprocess invocation avoids
-    # the _msg shadow class.
+    # Drift-check path. Derived artifacts (.env.generated + compose.yaml)
+    # carry no user-owned data, so regenerating on drift is always safe and
+    # saves the user from remembering `--setup`. Subprocess invocation
+    # avoids the _msg shadow class.
     if ! "${_setup}" check-drift --base-path "${_file_path}" --lang "${_lang}"; then
       _log_info "${_verb}" "${_verb}_drift_regen" "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"

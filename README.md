@@ -350,7 +350,7 @@ Constraints:
   per-stage model (#493, see below), which is what gives
   `[stage:devel-test]` a runtime control surface.
 - Adding / removing a stage triggers `setup.sh check-drift` (via
-  `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
+  `SETUP_DOCKERFILE_HASH` in `.env.generated`), so wrappers auto-regenerate
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
   install` edits do **not** trigger drift.
 
@@ -457,8 +457,9 @@ diagnostics pointing at the missing artifact.
 Each downstream repo drives its runtime config — GPU reservation, GUI
 env/volumes, network mode, extra volume mounts — through a single
 `setup.conf` INI file. `setup.sh` reads it (plus system detection) and
-regenerates both `.env` and `compose.yaml`; users never hand-edit those
-two derived artifacts.
+regenerates both `.env.generated` and `compose.yaml`; users never hand-edit
+those two derived artifacts. The hand-authored `.env` overlay is a different
+file: setup scaffolds it once and never rewrites it.
 
 ### One conf, 14 sections
 
@@ -537,7 +538,11 @@ isolation:
 
 Published ports (`[network] port_<N>`, e.g. `port_1 = 8080:80`) only take
 effect once you are on bridge — compose ignores `ports:` under host
-networking.
+networking. The tool says so rather than dropping the value silently:
+`setup.sh set` / `add` warns the moment a port is stored under a non-bridge
+mode (and when `mode` is switched away from bridge with ports already
+configured), and `apply` / `setup deploy` warn again when the emitter
+leaves the `ports:` block out.
 
 Local GUI keeps working under bridge: when the GUI is enabled **and**
 `network.mode = bridge`, `setup.sh` pins the container's `hostname:` to the
@@ -707,7 +712,7 @@ into a field deployment that ships just the image:
 | Parameter kind | Examples | Where it lives | Dev host | Field |
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
-| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | baked `ENV` defaults (+ optional field-side override) |
+| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | **not carried** -- nothing copies `.env` into a bundle; a value the field needs belongs in `[environment]` (row 1), which bakes as `ENV` |
 | structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
@@ -912,7 +917,9 @@ coexists with `log.lnav-format.json` (the JSON `*.jsonl` format).
 
 ### Interactive TUI
 
-`./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
+`./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env.generated` + `compose.yaml`.
+
+`./setup_tui.sh <SECTION>` jumps straight to one editor. The `[deploy]` section configures GPU reservation only — it is named after Compose's `deploy:` key and has nothing to do with `./setup.sh deploy`, which builds a field-deploy bundle. Its unambiguous name is therefore `gpu` (`just docker setup-tui gpu`); `deploy` still works and opens a notice explaining which of the two you got.
 
 Main menu structure (#221):
 
@@ -977,7 +984,7 @@ following changed since last setup:
 - GPU / GUI detection
 - `USER_UID` (user identity change)
 
-Re-run with `--setup` to regenerate `.env` + `compose.yaml`.
+Re-run with `--setup` to regenerate `.env.generated` + `compose.yaml`.
 
 ### Host-detection overrides
 
@@ -1009,7 +1016,7 @@ These are first-class operator knobs, not test-only hooks. See
 
 | Subcommand | Use |
 |---|---|
-| `apply` | Regenerate `.env` + `compose.yaml` from setup.conf + system detection |
+| `apply` | Regenerate `.env.generated` + `compose.yaml` from setup.conf + system detection (never the hand-authored `.env` overlay) |
 | `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
 | `set <section>.<key> <value>` | Write a single key |
 | `show <section>[.<key>]` | Read single key or whole section |
@@ -1019,7 +1026,7 @@ These are first-class operator knobs, not test-only hooks. See
 | `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
-Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
+Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env.generated` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
 
 #### Migration from v0.10.x (BREAKING)
 
@@ -1035,13 +1042,17 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 
 ### Derived artifacts (gitignored)
 
-- `.env` — runtime variable values + `SETUP_*` drift metadata
+- `.env.generated` — runtime variable values + `SETUP_*` drift metadata
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
 configuration. Both files are regenerated on every `just base upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
+
+`.env` is gitignored too but is **not** derived: it is the hand-authored
+workload overlay, scaffolded once on first apply and never rewritten
+afterwards. Editing it is safe, and running `setup` will not destroy it.
 
 ### Per-wrapper hooks (#440)
 
@@ -1208,8 +1219,8 @@ running it on a repo with a live field deployment. The numbered cycle:
 3. `./.base/dist/script/base/init.sh` re-runs to: resync root symlinks
    (`build.sh` / `run.sh` / `justfile` …), sync `.gitignore` against
    the canonical entry set, `git rm --cached` any tracked-but-now-derived
-   files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
-   regenerate `.env` + `compose.yaml`
+   files (`.env.generated`, `compose.yaml`, …), and call `setup.sh apply` to
+   regenerate `.env.generated` + `compose.yaml`
 4. `sed` rewrites `.github/workflows/main.yaml`'s
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
 5. `apply_migrations` (`lib/dockerfile_migrate.sh`) heals the **repo-root

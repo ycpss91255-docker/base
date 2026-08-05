@@ -431,6 +431,10 @@ _generate_resolved_compose() {
   local _ctx_src="${7:-}"
   local _modes_src="${8:-}"
 
+  # Re-arm the ports-inert latch (see compose_emit.sh): one bundle, at most
+  # one diagnostic.
+  _reset_ports_inert_warning
+
   # Global conf context (shared with apply). Consume a passed record when
   # given, else resolve standalone (direct callers / tests).
   local -A _grc_ctx=()
@@ -593,7 +597,9 @@ YAML
       fi
       _emit_watchdog_env "${_watchdog_env_str}"
     fi
-    # ports: literal host:container, only under bridge.
+    # ports: literal host:container, only under bridge. Same gate as the dev
+    # emitter, so the same diagnostic when the mapping is about to be dropped.
+    _warn_ports_inert "${_eff["ports"]}" "${_eff_net_mode}"
     if [[ -n "${_eff["ports"]}" && "${_eff_net_mode}" == "bridge" ]]; then
       printf '    ports:\n'
       local _sp

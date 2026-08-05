@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2513 tests**.
+Unit specs under `test/bats/unit/`: **2556 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2521,14 +2521,19 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (39)
+### test/bats/unit/gitignore_spec.bats (44)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832)` | - |
+| `_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606, #832, #879)` | - |
+| `_canonical_gitignore_entries: no longer advertises .setup.conf.local (#879)` | - |
+| `_retired_gitignore_entries: records .setup.conf.local as retired (#879)` | - |
+| `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
+| `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
+| `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
 | `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
@@ -2857,3 +2862,56 @@ vice versa). Pure git + filesystem, no docker.
 | `self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)` | - |
 | `self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)` | - |
 | `self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)` | - |
+
+### test/bats/unit/deploy_word_collision_spec.bats (12)
+
+| Test | Description |
+|------|-------------|
+| `setup_tui accepts gpu as a subcommand (#879)` | - |
+| `setup_tui still accepts deploy as a subcommand (alias kept) (#879)` | - |
+| `gpu canonicalises to the deploy section editor (#879)` | - |
+| `a non-aliased section canonicalises to itself (#879)` | - |
+| `an unknown word is still rejected (#879)` | - |
+| `the deploy spelling explains it is the GPU editor, not the bundle (#879)` | - |
+| `the gpu spelling is silent -- the alias is the way out of the notice (#879)` | - |
+| `no subcommand at all is silent (#879)` | - |
+| `the disambiguation notice is translated in all four locales (#879)` | - |
+| `setup_tui --help lists gpu and denies the field-bundle reading (#879)` | - |
+| `setup_tui --help names the distinction in all four locales (#879)` | - |
+| `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
+
+### test/bats/unit/env_generated_claim_spec.bats (11)
+
+| Test | Description |
+|------|-------------|
+| `just docker help: en setup summary names .env.generated (#879)` | - |
+| `just docker help: zh-TW setup summary names .env.generated (#879)` | - |
+| `just docker help: zh-CN setup summary names .env.generated (#879)` | - |
+| `just docker help: ja setup summary names .env.generated (#879)` | - |
+| `justfile.docker: the setup doc comment names .env.generated (#879)` | - |
+| `setup.sh --help: usage names .env.generated (#879)` | - |
+| `setup.sh set: the next hint names .env.generated (#879)` | - |
+| `setup.sh add: the next hint names .env.generated (#879)` | - |
+| `setup.sh remove: the next hint names .env.generated (#879)` | - |
+| `setup.sh env done message names .env.generated in all four locales (#879)` | - |
+| `no shipped surface claims setup regenerates a bare .env (#879)` | - |
+
+### test/bats/unit/network_ports_inert_spec.bats (15)
+
+| Test | Description |
+|------|-------------|
+| `set network.port_N under the shipped host default warns (#879)` | - |
+| `set network.port_N under mode = bridge stays quiet (#879)` | - |
+| `add network.port under the shipped host default warns (#879)` | - |
+| `add network.port under mode = bridge stays quiet (#879)` | - |
+| `set network.mode host with ports already configured warns (#879)` | - |
+| `set network.mode bridge with ports already configured stays quiet (#879)` | - |
+| `set network.mode host with no ports configured stays quiet (#879)` | - |
+| `--quiet suppresses the confirmation but never the port diagnostic (#879)` | - |
+| `generate_compose_yaml warns when it drops ports under host mode (#879)` | - |
+| `generate_compose_yaml stays quiet when it emits ports under bridge (#879)` | - |
+| `generate_compose_yaml stays quiet under host mode with no ports (#879)` | - |
+| `_generate_resolved_compose warns when the field bundle drops ports (#879)` | - |
+| `_generate_resolved_compose stays quiet when the field bundle emits ports (#879)` | - |
+| `the ports-inert diagnostic is translated in all four locales (#879)` | - |
+| `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |

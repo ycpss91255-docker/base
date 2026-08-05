@@ -36,7 +36,7 @@ teardown() {
 @test "init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)" {
   bash .base/dist/script/base/init.sh
   local _entry
-  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak .setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
@@ -52,7 +52,7 @@ teardown() {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.dockerignore" ]
   local _entry
-  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak .setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.generated .env.bak compose.yaml .setup.conf.bak coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.dockerignore"
     assert_success
   done
