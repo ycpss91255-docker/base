@@ -32,7 +32,6 @@ _canonical_gitignore_entries() {
 .env.bak
 compose.yaml
 .setup.conf.bak
-.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -55,6 +54,76 @@ _canonical_dockerignore_entries() {
   _canonical_gitignore_entries
 }
 
+# _retired_gitignore_entries
+#   Print the entries the template used to emit and no longer does, one per
+#   line. Kept as a list rather than deleted outright so the sync can RETRACT
+#   what it once wrote instead of leaving a dead line sitting under a
+#   `# managed by template (do not remove)` marker -- a marker that reads as
+#   a promise the entry still means something.
+#
+#   `.setup.conf.local` is the first member. It named a real per-repo
+#   override file introduced in base#174 and removed again in base#201; the
+#   ignore line outlived the mechanism purely so leftover files from that
+#   cycle would not get committed. Nothing has read the file for many
+#   releases, so the line now only advertises a feature that does not exist:
+#   someone creates it, gets no error, and wonders why their overrides do
+#   nothing. Do not re-add it without restoring the override layer.
+#
+#   Shared by .gitignore and .dockerignore for the same reason the canonical
+#   set is: what one retracts, the other retracts.
+_retired_gitignore_entries() {
+  cat <<'EOF'
+.setup.conf.local
+EOF
+}
+
+# _prune_retired_entries <path>
+#   Delete every _retired_gitignore_entries line from <path>'s MANAGED half
+#   -- the lines below the `# managed by template` marker, which is the half
+#   the template owns. A retired entry the user wrote above the marker is
+#   theirs and is left alone: the template retracts only what the template
+#   added.
+#
+#   No-op when the file or the marker is absent (nothing is claimed as
+#   managed), and idempotent by construction.
+_prune_retired_entries() {
+  local _path="$1"
+  [[ -f "${_path}" ]] || return 0
+
+  # `|| true` on the pipeline: a file with no marker makes grep exit 1, and
+  # under the callers' `set -euo pipefail` that would abort init.sh instead
+  # of taking the "nothing is managed here" branch two lines down.
+  local _marker_ln
+  _marker_ln="$(grep -n '^# managed by template' -- "${_path}" \
+    | head -1 | cut -d: -f1 || true)"
+  [[ -n "${_marker_ln}" ]] || return 0
+
+  local -a _retired=()
+  local _entry
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] && _retired+=("${_entry}")
+  done < <(_retired_gitignore_entries)
+  (( ${#_retired[@]} > 0 )) || return 0
+
+  local _tmp
+  _tmp="$(mktemp "${_path}.XXXXXX")" || return 0
+  if awk -v marker="${_marker_ln}" -v retired="$(printf '%s\n' "${_retired[@]}")" '
+      BEGIN { _n = split(retired, _r, "\n") }
+      {
+        if (NR > marker) {
+          for (_i = 1; _i <= _n; _i++) {
+            if (_r[_i] != "" && $0 == _r[_i]) { next }
+          }
+        }
+        print
+      }
+    ' "${_path}" > "${_tmp}"; then
+    mv -f -- "${_tmp}" "${_path}"
+  else
+    rm -f -- "${_tmp}"
+  fi
+}
+
 # _sync_managed_entries <path> <emitter>
 #   Shared mechanism behind _sync_gitignore / _sync_dockerignore: append
 #   the canonical entries printed by <emitter> that are missing from
@@ -67,6 +136,11 @@ _canonical_dockerignore_entries() {
 #   subsequent syncs that add a new entry append it without a second
 #   comment.
 #
+#   Retraction is the one exception to "no removals": entries the template
+#   has retired (_retired_gitignore_entries) are pruned from the managed
+#   half first, so a line the template stopped shipping stops being
+#   advertised in every repo that already has it, not just in new ones.
+#
 #   Idempotent: running twice in a row never modifies the file the
 #   second time.
 _sync_managed_entries() {
@@ -74,6 +148,10 @@ _sync_managed_entries() {
   local _emitter="$2"
   local -a _missing=()
   local _entry
+
+  # Retract before adding: the prune must run even when nothing is missing,
+  # which is the common case for an up-to-date repo.
+  _prune_retired_entries "${_path}"
 
   while IFS= read -r _entry; do
     [[ -z "${_entry}" ]] && continue
