@@ -504,3 +504,203 @@ CONF
   run grep -xF "/log/" "${TMP_DIR}/.gitignore"
   assert_failure
 }
+
+# ────────────────────────────────────────────────────────────────────
+# Managed-block bounds: explicit begin/end markers
+#
+# The block used to be scoped by SHAPE -- the marker line plus every
+# following line matching `/<dir>/`. That silently ate a user rule
+# appended below the marker (the end of the file is exactly where a
+# user appends), and it made the newer canonical `/deploy/` entry --
+# appended by _sync_gitignore immediately before this sync runs in the
+# same init pass -- survive only by accident, on the spurious blank
+# line the dead trailing-newline guard emitted.
+#
+# Now the block is delimited by an explicit begin/end marker pair (the
+# same allow-begin / allow-end shape the stale-path and home-literal
+# lints use); only lines strictly between them are template-owned, an
+# unterminated block is a loud error, and a pre-existing
+# begin-marker-only block written by an older template is migrated in
+# place, consuming only the lines the block itself would emit.
+# ────────────────────────────────────────────────────────────────────
+
+_LOGGING_BEGIN='# managed by template: [logging] local_path begin (do not remove)'
+_LOGGING_END='# managed by template: [logging] local_path end (do not remove)'
+_LOGGING_LEGACY='# managed by template: [logging] local_path (do not remove)'
+
+@test "_sync_logging_gitignore: emits an explicit end marker bounding the block (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "${_LOGGING_BEGIN}" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "${_LOGGING_END}" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore: preserves a user entry BELOW the managed block (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  # The user appends a new anchored dir rule at the end of the file --
+  # i.e. directly below the managed block.
+  printf '/build/\n' >> "${TMP_DIR}/.gitignore"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  run grep -xF "/build/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore: user entry below the block survives a value change (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  printf '/build/\n' >> "${TMP_DIR}/.gitignore"
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  # Managed entry re-emitted, stale one pruned, user rule untouched.
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_failure
+  run grep -xF "/build/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore: an unterminated managed block is an error (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  # A begin marker whose end marker was deleted: the block has no
+  # bound, so the sync must refuse rather than guess where it stops.
+  printf '%s\n' "${_LOGGING_BEGIN}" "/log/" "/build/" > "${TMP_DIR}/.gitignore"
+  local _before
+  _before="$(cat "${TMP_DIR}/.gitignore")"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_failure
+  assert_output --partial "gitignore_managed_block_invalid"
+  # The file is left byte-identical -- a refused sync never rewrites.
+  assert_equal "$(cat "${TMP_DIR}/.gitignore")" "${_before}"
+}
+
+@test "_sync_logging_gitignore: an end marker with no begin marker is an error (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  printf '%s\n' "/build/" "${_LOGGING_END}" > "${TMP_DIR}/.gitignore"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_failure
+  assert_output --partial "gitignore_managed_block_invalid"
+}
+
+@test "_sync_logging_gitignore: migrates a legacy begin-marker-only block (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  # What an older template left on disk: begin marker, no end marker.
+  printf '%s\n' "# user ignores" "${_LOGGING_LEGACY}" "/log/" \
+    > "${TMP_DIR}/.gitignore"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  run grep -xF "${_LOGGING_LEGACY}" "${TMP_DIR}/.gitignore"
+  assert_failure
+  run grep -xF "${_LOGGING_BEGIN}" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "${_LOGGING_END}" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "# user ignores" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore: legacy migration keeps a following canonical entry (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  # The canonical /deploy/ entry appended right below a legacy block,
+  # with no blank line between them: the migration must not consume it.
+  printf '%s\n' "${_LOGGING_LEGACY}" "/log/" "/deploy/" \
+    > "${TMP_DIR}/.gitignore"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  run grep -xF "/deploy/" "${TMP_DIR}/.gitignore"
+  assert_success
+  assert [ "$(grep -c '^/log/$' "${TMP_DIR}/.gitignore")" -eq 1 ]
+}
+
+@test "_sync_logging_gitignore: legacy migration reports orphaned entries (#876)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  printf '%s\n' "${_LOGGING_LEGACY}" "/log/" "/stale/" \
+    > "${TMP_DIR}/.gitignore"
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  assert_output --partial "gitignore_managed_block_orphans"
+  # Not deleted -- handed back to the user, loudly.
+  run grep -xF "/stale/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_managed_entries: appends without a spurious blank line (#876)" {
+  local _f="${TMP_DIR}/.gitignore"
+  printf '%s\n' "/build/" > "${_f}"
+  _sync_gitignore "${_f}"
+  run grep -c '^$' "${_f}"
+  assert_output "0"
+}
+
+@test "_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)" {
+  # The real init.sh order, run three times over a downstream .gitignore
+  # that an older template left with a legacy logging block at the end
+  # of the file: /deploy/ (a newer canonical entry) and a user rule must
+  # both be present and stable, with no duplicates.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  printf '%s\n' ".env" "compose.yaml" "${_LOGGING_LEGACY}" "/log/" \
+    > "${TMP_DIR}/.gitignore"
+  local _pass _snapshot=""
+  for _pass in 1 2 3; do
+    run _sync_gitignore "${TMP_DIR}/.gitignore"
+    assert_success
+    run _sync_logging_gitignore "${TMP_DIR}"
+    assert_success
+    # The user appends their own rule at the end of the file once, on
+    # the first pass; every later pass must leave it alone.
+    if [[ "${_pass}" -eq 1 ]]; then
+      printf '/build/\n' >> "${TMP_DIR}/.gitignore"
+      run _sync_logging_gitignore "${TMP_DIR}"
+      assert_success
+    fi
+    assert [ "$(grep -c '^/deploy/$' "${TMP_DIR}/.gitignore")" -eq 1 ]
+    assert [ "$(grep -c '^/log/$' "${TMP_DIR}/.gitignore")" -eq 1 ]
+    assert [ "$(grep -c '^/build/$' "${TMP_DIR}/.gitignore")" -eq 1 ]
+  done
+  _snapshot="$(cat "${TMP_DIR}/.gitignore")"
+  _sync_gitignore "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  assert_equal "$(cat "${TMP_DIR}/.gitignore")" "${_snapshot}"
+}
