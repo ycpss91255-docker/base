@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2406 tests**.
+Unit specs under `test/bats/unit/`: **2424 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2733,3 +2733,39 @@ REAL shipped tree.
 | `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
+
+### test/bats/unit/derived_figures_lint_spec.bats (18)
+
+Unit coverage for `script/test/drivers/derived_figures.sh` -- the lint that
+pins the two figures documents kept repeating wrongly against the code that
+defines them. The baseline stage blocklist is derived from
+`_validate_stage_name`'s own `return 2` case arms and each extracted name is
+probed back through the predicate, so a bad extraction fails loudly instead of
+pinning prose to a wrong set; `devel-test` is deliberately absent because the
+predicate emits it as the `test` service. The setup.conf overview's section
+count AND ordered list are derived from `SCHEMA_SECTIONS`. Detection covers
+sets wrapped across markdown lines and across an escaped `\n` inside a shell
+string (both live drift shapes), ignores `${VAR}` expansions and non-baseline
+brace sets, fails loudly on a missing scan surface instead of passing
+vacuously, and a final case drives the REAL tree.
+
+| Test | Description |
+|------|-------------|
+| `_derived_baseline_renderings: derives the forward-looking and legacy sets from _validate_stage_name (#874)` | - |
+| `_derived_baseline_renderings: does NOT include devel-test -- the predicate emits it as a service (#874)` | - |
+| `_derived_baseline_renderings: every derived name probes back as a baseline collision (#874)` | - |
+| `_run_derived_figures: FAILS on a README baseline set that lists devel-test, naming file and line (#874)` | - |
+| `_run_derived_figures: PASSES on the canonical forward-looking and legacy renderings (#874)` | - |
+| `_run_derived_figures: ignores a brace set that names no baseline stage (#874)` | - |
+| `_run_derived_figures: catches a stale set wrapped across markdown lines (#874)` | - |
+| `_run_derived_figures: catches a stale set split by an escaped newline in a shell string (#874)` | - |
+| `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
+| `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
+| `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
+| `_run_derived_figures: FAILS when the listed sections differ from SCHEMA_SECTIONS (#874)` | - |
+| `_run_derived_figures: FAILS when the listed sections are out of template order (#874)` | - |
+| `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
+| `_run_derived_figures: the REAL tree passes today (#874)` | - |
