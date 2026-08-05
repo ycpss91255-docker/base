@@ -398,25 +398,41 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 `setup.sh` 读它 + 系统检测后重新生成 `.env` 和 `compose.yaml`，这两
 个衍生文件用户不用动手编辑。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 0813fb40b24a -->
+<!-- sync: one-conf-seven-sections a4642bdbb595 76576dfd953e -->
 ### 单一 conf、7 个 section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+           dri_groups (auto|off) — GUI service 上 iGPU /dev/dri 的 group_add
+[lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
+           默认 no;设在 devel 上（extends:devel 的 stage 会继承）。会正常
+           结束（exit 0）的 stage 别用 always/unless-stopped（无限重启）。
+           init (true|false) — Docker init/PID1 reaper;默认 true。
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
-[volumes]  mount_1（workspace，首次 setup.sh 执行时自动填入）
-           mount_2..mount_N（用户自定义额外 host mount；/dev 设备走 path）
+[volumes]  mount_1（workspace，首次运行时自动填入）
+           mount_2..mount_N（额外 host mount；设备走 /dev path）
 [logging]  driver（默认 json-file）、max_size、max_file、compress
            local_path（host 端 log 目录；bind-mount 到 /var/log/<repo>）
+           container_log_keep (20)、container_log_days (14)（每次启动的
+           容器 log 保留策略；keep-count 与 age 两者取严）
+           wrapper_transcript（把 verb 输出 tee 到 log/<verb>/；默认 true）、
+           wrapper_transcript_keep (20)、wrapper_transcript_days (14)
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
-Template default 在 `.base/dist/.setup.conf`；per-repo 覆盖放 `<repo>/.setup.conf`。
-Section-level **replace** 策略：per-repo 文件若有该 section 就整段取代
-template；没写的 section 则吃 template 默认。
+Template default 在 `.base/dist/.setup.conf`；per-repo 覆盖放 repo 根目录的
+dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放进手动编辑的
+`config/` 界面）。Section-level **replace** 策略：per-repo 文件若有该 section
+就整段取代 template；没写的 section 则吃 template 默认。
+
+**权限默认关闭、要用才开**（#466）：template 出厂的 `[security]`
+（`privileged = false`，没有 `cap_add` / `security_opt`）与 `[devices]`
+（没有 `/dev:/dev`）都是精简默认，让轻量 repo 和工具 stage 保持干净。容器
+需要什么就开什么：走 `setup_tui.sh`（security / devices 页）、
+`setup.sh add security.cap_add SYS_ADMIN`，或把 template 里的示例取消注释。
 
 首次运行 `setup.sh`（尚无 per-repo setup.conf）时，template 文件会被
 复制到 repo，并把检测到的 workspace 写入 `[volumes] mount_1`。后续
@@ -776,7 +792,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
 
-<!-- sync: updating f825b9a2c058 412af7d4453b -->
+<!-- sync: updating f825b9a2c058 e6353758ddf7 -->
 ### 升级
 
 前置条件：`git config user.name` / `user.email` 必须有设置，working tree
@@ -814,7 +830,7 @@ just base upgrade v0.3.0
 4. `sed` 改写 `.github/workflows/main.yaml` 的
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
 
-per-repo 文件不会被覆盖：`<repo>/setup.conf` 保留原样、
+per-repo 文件不会被覆盖：`<repo>/.setup.conf` 保留原样、
 `<repo>/config/`（bashrc / tmux / terminator …）也不动 — 若上游
 `.base/dist/config/` 自上次 pull 后有变动，upgrade.sh 会打印
 `diff -ruN .base/dist/config config` 提示，由你自行 reconcile。

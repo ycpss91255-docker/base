@@ -417,25 +417,44 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
 する必要はありません。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 d4e637de1ffb -->
+<!-- sync: one-conf-seven-sections a4642bdbb595 fa72aa2c30e0 -->
 ### 単一 conf、7 つの section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+           dri_groups (auto|off) — GUI service への iGPU /dev/dri group_add
+[lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
+           既定は no;devel に設定（extends:devel の stage が継承）。正常
+           終了（exit 0）する stage に always/unless-stopped は避ける
+           （無限再起動）。init (true|false) — Docker init/PID1 reaper;
+           既定 true。
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
-[volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
-           mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
+[volumes]  mount_1（workspace、初回実行時に自動記入）
+           mount_2..mount_N（追加の host mount；デバイスは /dev path 指定）
 [logging]  driver（デフォルト json-file）、max_size、max_file、compress
            local_path（host 側 log ディレクトリ；/var/log/<repo> にバインドマウント）
+           container_log_keep (20)、container_log_days (14)（起動ごとの
+           コンテナ log 保持；keep-count と age の厳しい方が勝つ）
+           wrapper_transcript（verb の出力を log/<verb>/ に tee；既定 true）、
+           wrapper_transcript_keep (20)、wrapper_transcript_days (14)
            [logging.<svc>] で個別 service に key-level override 可能
 ```
 
-テンプレート既定値は `.base/dist/.setup.conf`；repo ごとの上書きは
-`<repo>/.setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
-section があれば template の section を全置換；無ければ template 既定値を継承。
+テンプレート既定値は `.base/dist/.setup.conf`；repo ごとの上書きは repo
+ルートの dotfile `<repo>/.setup.conf`（`just setup` が管理し、手で編集する
+`config/` 面には意図的に置かない）。セクションレベル **replace** 戦略：repo
+ファイルに section があれば template の section を全置換；無ければ template
+既定値を継承。
+
+**権限はオプトイン**（#466）：template が出荷する `[security]`
+（`privileged = false`、`cap_add` / `security_opt` なし）と `[devices]`
+（`/dev:/dev` なし）は絞った既定値で、軽量な repo やツール stage を
+きれいに保ちます。コンテナに必要なものだけを `setup_tui.sh`
+（security / devices ページ）、`setup.sh add security.cap_add SYS_ADMIN`、
+または template の例のコメント解除で有効化してください。
 
 初回の `setup.sh` 実行時（repo 側の setup.conf がまだ無い状態）、
 template ファイルが repo にコピーされ、検出された workspace が
@@ -823,7 +842,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
-<!-- sync: updating f825b9a2c058 a52a5616cb05 -->
+<!-- sync: updating f825b9a2c058 536d5b517e7c -->
 ### アップグレード
 
 前提条件：`git config user.name` / `user.email` が設定済みで、working tree
@@ -863,7 +882,7 @@ just base upgrade v0.3.0
 4. `sed` で `.github/workflows/main.yaml` の
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` を更新
 
-per-repo のファイルは上書きされません：`<repo>/setup.conf` はそのまま
+per-repo のファイルは上書きされません：`<repo>/.setup.conf` はそのまま
 保持され、`<repo>/config/`（bashrc / tmux / terminator …）も触りません
 — 上流の `.base/dist/config/` が前回 pull 以降変わっていれば、
 upgrade.sh が `diff -ruN .base/dist/config config` のヒントを表示するの
