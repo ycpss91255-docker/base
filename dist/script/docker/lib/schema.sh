@@ -44,9 +44,14 @@ unset _schema_dir
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_VALIDATOR=(
   # ── scalar keys ──────────────────────────────────────────────────
+  [deploy.gpu_mode]=_validate_detect_mode
   [deploy.gpu_count]=_validate_gpu_count
+  [deploy.gpu_capabilities]=_validate_gpu_capabilities
   [deploy.gpu_runtime]=_validate_runtime
   [deploy.runtime]=_validate_runtime          # legacy alias
+  [deploy.dri_groups]=_validate_dri_groups
+  [gui.mode]=_validate_detect_mode
+  [security.privileged]=_validate_privileged
   [resources.shm_size]=_validate_shm_size
   [lifecycle.restart]=_validate_restart
   [lifecycle.init]=_validate_init
@@ -75,6 +80,8 @@ declare -gA SCHEMA_VALIDATOR=(
   [logging.wrapper_transcript_keep]=_validate_wrapper_transcript_keep
   [logging.wrapper_transcript_days]=_validate_wrapper_transcript_days
   # ── list keys (numbered suffix normalised to the trailing-_ prefix) ─
+  [image.rule_]=_validate_image_rule
+  [security.security_opt_]=_validate_security_opt
   [build.arg_]=_validate_env_kv
   [volumes.mount_]=_validate_mount
   [devices.device_]=_validate_mount
@@ -130,9 +137,16 @@ declare -ga SCHEMA_SECTIONS=(
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_I18N=(
   # ── scalar keys ──────────────────────────────────────────────────
+  [deploy.gpu_mode]=deploy.mode.prompt
   [deploy.gpu_count]=deploy.count.prompt
+  [deploy.gpu_capabilities]=deploy.caps.prompt
   [deploy.gpu_runtime]=deploy.runtime.prompt
   [deploy.runtime]=deploy.runtime.prompt        # legacy alias
+  # dri_groups: config-file / CLI only (the deploy page edits the NVIDIA
+  # knobs; the /dev/dri GID grant has no menu row) -- no-editor opt-out.
+  [deploy.dri_groups]=""
+  [gui.mode]=gui.mode.prompt
+  [security.privileged]=security.privileged.prompt
   [resources.shm_size]=resources.shm_size.prompt
   [lifecycle.restart]=lifecycle.restart.prompt
   # init: config-file / CLI (`setup.sh set lifecycle.init`) only, never
@@ -166,6 +180,10 @@ declare -gA SCHEMA_I18N=(
   [logging.wrapper_transcript_keep]=""
   [logging.wrapper_transcript_days]=""
   # ── list keys (per-entry prompt shown by _edit_list_section) ───────
+  # rule_N is edited as a two-step (type, then value); the type prompt is
+  # the per-entry label.
+  [image.rule_]=image.type.prompt
+  [security.security_opt_]=security.security_opt.prompt
   [build.arg_]=build.arg.prompt
   [volumes.mount_]=volumes.edit.prompt
   [devices.device_]=devices.device.prompt
@@ -185,6 +203,27 @@ declare -gA SCHEMA_I18N=(
 declare -gA SCHEMA_EMPTY=(
   [deploy.gpu_count]=validate
 )
+
+# ════════════════════════════════════════════════════════════════════
+# SCHEMA_FREEFORM — the explicit "this key really has no value set"
+# opt-out.
+#
+# Registering the missing validators one by one fixes today's gap and
+# nothing else: the next key added to the template reopens it, which is
+# exactly how gui.mode / deploy.gpu_mode / gpu_capabilities / dri_groups
+# / security_opt_ / image.rule_ / security.privileged slipped through.
+# schema_coverage_spec asserts that EVERY key the shipped setup.conf
+# declares -- live line or commented example -- resolves to a
+# SCHEMA_VALIDATOR entry or appears here, so "unregistered key with a
+# fixed value set" is a CI failure rather than a runtime surprise.
+#
+# Keying mirrors SCHEMA_VALIDATOR (scalar "<section>.<key>", list
+# "<section>.<prefix>_"). The value is the REASON the key genuinely
+# accepts arbitrary input; an empty reason fails the coverage spec.
+# Opting out is a deliberate, reviewable statement -- not a default.
+#
+# Currently empty: every shipped key has a value set worth enforcing.
+declare -gA SCHEMA_FREEFORM=()
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_is_section <section>
