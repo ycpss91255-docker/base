@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2398 tests**.
+Unit specs under `test/bats/unit/`: **2406 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2116,18 +2116,22 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/readme_sync_spec.bats (23)
+### test/bats/unit/readme_sync_spec.bats (31)
 
-Unit tests for the localized-README drift guard (refs #846):
+Unit tests for the localized-README drift guard (refs #846, #873):
 `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
 that stamps each translated section with the hash of the English section it
-was translated against) and `script/test/drivers/readme_sync.sh`
-(`_run_readme_sync`, the read-only lint that compares those records against
-the current `README.md`). The English author changes nothing and the
-translator never types a hash, so the guard has to answer three questions
-per translated file -- is this section stale, is it missing, is it
-deliberately untranslated. Driven over throwaway fixture trees, plus a
-real-tree pair proving `doc/readme/` is stamped and clean today.
+was translated against AND of the translated section itself) and
+`script/test/drivers/readme_sync.sh` (`_run_readme_sync`, the read-only lint
+that compares those records against the current `README.md`). The English
+author changes nothing and the translator never types a hash, so the guard
+has to answer three questions per translated file -- is this section stale,
+is it missing, is it deliberately untranslated. A fourth block PERFORMS the
+silencing case (refs #873) -- edit the English, run the generator, expect a
+green tree -- and asserts it does not work, because recording only the
+English hash made a bare re-stamp indistinguishable from a re-translation.
+Driven over throwaway fixture trees, plus a real-tree pair proving
+`doc/readme/` is stamped and clean today.
 
 | Test | Description |
 |------|-------------|
@@ -2135,7 +2139,7 @@ real-tree pair proving `doc/readme/` is stamped and clean today.
 | `_run_readme_sync: names the drifted SECTION, not just the file (#846)` | Per-section reporting, untouched sections silent |
 | `_run_readme_sync: FAILS on an English section with no marker in a translation (#846)` | Structural case: MISSING |
 | `_run_readme_sync: PASSES a tree the generator has just stamped (#846)` | Clean after sync |
-| `_run_readme_sync: PASSES again after an English edit + a re-run of the generator (#846)` | Re-stamp is the one-command fix |
+| `_run_readme_sync: PASSES again after an English edit, a re-translation and a re-run of the generator (#846)` | Re-stamp is the one-command fix, once the translation moved too |
 | `_run_readme_sync: EXEMPTS a section declared untranslated with sync-skip (#846)` | Deliberate omission, declared not forgotten |
 | `_run_readme_sync: FAILS on an UNSTAMPED marker (id written, generator never run) (#846)` | An id with no hash claims nothing |
 | `_run_readme_sync: FAILS on a marker naming an id that is not an English section (#846)` | UNKNOWN id (rename / removal / typo) |
@@ -2150,6 +2154,14 @@ real-tree pair proving `doc/readme/` is stamped and clean today.
 | `_sync_readme_hashes: is idempotent on an already-stamped tree (#846)` | No churn on a clean tree |
 | `_sync_readme_hashes: leaves the translated prose untouched (stamps only markers) (#846)` | Only marker lines are rewritten |
 | `_sync_readme_hashes: reports the sections a translation is still missing (#846)` | Advisory, never auto-declared |
+| `_sync_readme_hashes: REFUSES to re-stamp a section whose English moved while the translation did not (#873)` | The silencing case, performed; the marker must not move |
+| `_sync_readme_hashes: an English-only edit plus a sync run leaves the lint RED (#873)` | End to end: syncing does not buy a green tree |
+| `_sync_readme_hashes: refusing one section still stamps the untouched ones (#873)` | Refusal is per section, not a whole-run abort |
+| `_sync_readme_hashes: re-stamps when the translation moved together with the English (#873)` | The working case still takes one command |
+| `_sync_readme_hashes: --accept records a reviewed no-op and clears the lint (#873)` | The English-typo escape hatch, explicit and by name |
+| `_sync_readme_hashes: --accept clears only the section it names (#873)` | Accepting one section is not a blanket pass |
+| `_sync_readme_hashes: records the translation's own hash beside the English one (#873)` | Both sides stored, so a diff shows which one moved |
+| `_run_readme_sync: FAILS when the translated prose changed since it was stamped (#873)` | UNRECORDED: the translation-side record must stay fresh |
 | `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
