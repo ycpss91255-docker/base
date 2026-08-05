@@ -1405,3 +1405,85 @@ EOF
   run _is_deployable_stage base
   assert_failure
 }
+
+# ────────────────────────────────────────────────────────────────────
+# Legacy deploy.runtime alias: per-stage vs global precedence
+#
+# The per-stage layer resolved deploy.gpu_runtime first and then
+# resolved the legacy deploy.runtime WITH THAT RESULT AS ITS FALLBACK,
+# so under [stage:*] the legacy key won. _resolve_deploy_context does
+# the opposite for the global section: gpu_runtime is authoritative and
+# runtime is consulted only when it is empty. A repo that migrated a
+# stage to gpu_runtime and left the old line behind kept emitting the
+# old value into that stage's compose service and its field bundle, and
+# never saw the deprecation warning the top-level key produces.
+# ────────────────────────────────────────────────────────────────────
+
+_stage_parent_defaults() {
+  local -n _spd_out="${1:?}"
+  _spd_out=(
+    [gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu"
+    [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private"
+    [net_name]="" [volumes_top]="" [env_top]="" [ports_top]=""
+  )
+}
+
+@test "_resolve_docker_flags: gpu_runtime wins over the legacy alias, as the global resolver does (#876)" {
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy alias still applies when gpu_runtime is absent (#876)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: an empty gpu_runtime does not shadow the legacy alias (#876)" {
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("" "nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: the legacy alias emits the deprecation warning (#876)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  assert_output --partial '"body":"conf_runtime_key_deprecated"'
+}
+
+@test "_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)" {
+  # The exact migration-looks-done case: the stage moved to gpu_runtime
+  # and left `runtime` behind. The stale key no longer wins, and its
+  # presence is still reported.
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("off" "nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  assert_output --partial '"body":"conf_runtime_key_deprecated"'
+}
+
+@test "_resolve_docker_flags: no legacy alias, no deprecation warning (#876)" {
+  local -a _k=("deploy.gpu_runtime") _v=("nvidia")
+  local -A _parent=()
+  _stage_parent_defaults _parent
+  local -A _eff=()
+  LOG_FORMAT=json run _resolve_docker_flags _k _v _parent _eff
+  assert_success
+  refute_output --partial 'conf_runtime_key_deprecated'
+}
