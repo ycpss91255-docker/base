@@ -45,6 +45,44 @@ _yaml_dq() {
 # superseded by the S3 baked ENV (in-container) + .env.generated/.env
 # (host-side helpers source these instead).
 
+# ── ports-inert diagnostic ────────────────────────────────────────────
+#
+# Compose honours a `ports:` block only under network_mode=bridge, and the
+# template ships `[network] mode = host` (ADR-00000019) -- so under the stock
+# configuration a port mapping the user configured, the TUI editor accepted and
+# `_validate_port_mapping` vetted is dropped. The host default is deliberate,
+# so the fix is a diagnostic rather than a default change: say it where the
+# user can act on it.
+#
+# One helper, three call sites (the devel block, the per-stage block, and
+# deploy.sh's field emitter) plus setup_cmd.sh's `set` / `add`, so store-time
+# and emit-time can never disagree about when a port is inert.
+_PORTS_INERT_WARNED=0
+
+# _warn_ports_inert <ports_str> <net_mode>
+#
+# Warn once per emit that <ports_str> will not be published under <net_mode>.
+# No-op when no port is configured or when the mode does publish them. The
+# once-per-emit latch keeps a repo with N stages from printing N copies of the
+# same sentence; generate_compose_yaml / _generate_resolved_compose reset it at
+# entry so a second emit in the same process still reports.
+_warn_ports_inert() {
+  local _ports="${1-}" _mode="${2-}"
+  [[ -z "${_ports}" ]] && return 0
+  [[ "${_mode}" == "bridge" ]] && return 0
+  (( _PORTS_INERT_WARNED )) && return 0
+  _PORTS_INERT_WARNED=1
+  _log_warn setup network_ports_inert \
+    "display=$(_setup_msg network ports_inert) (mode=${_mode})" "mode=${_mode}"
+}
+
+# _reset_ports_inert_warning
+#
+# Re-arm the latch. Called at the top of each top-level emitter.
+_reset_ports_inert_warning() {
+  _PORTS_INERT_WARNED=0
+}
+
 _device_has_propagation() {
   local _entry="${1}"
   local -a _parts=()
@@ -815,6 +853,7 @@ YAML
   # substitutes the setup.conf default (identical single-run behaviour).
   # The index is 1-based (PORT_1 = first port) to match base's 1-based
   # indexed-key convention (port_1 / mount_1 / arg_1).
+  _warn_ports_inert "${_eff_ports}" "${_eff_net_mode}"
   if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
     echo "    ports:"
     local _sp _spi=1
@@ -930,6 +969,10 @@ generate_compose_yaml() {
   local _dri_groups_str="${29:-}"
   local _init="${30:-true}"
   local _watchdog_env_str="${31:-}"
+
+  # Re-arm the ports-inert latch: one emit, at most one diagnostic, but a
+  # second emit in the same process still reports.
+  _reset_ports_inert_warning
 
   # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
   # both the devel service and every per-stage block emit an identical value.
@@ -1152,6 +1195,7 @@ YAML
     # substitutes the setup.conf default (identical single-run behaviour).
     # The index is 1-based (PORT_1 = first port) to match base's 1-based
     # indexed-key convention (port_1 / mount_1 / arg_1).
+    _warn_ports_inert "${_ports_str}" "${_net_mode}"
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
       echo "    ports:"
       local _p _pi=1

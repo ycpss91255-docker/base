@@ -64,6 +64,53 @@ _setup_validate_kv() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_warn_ports_inert <base_path> <section> <key>
+#
+# Store-time half of the ports-inert diagnostic (the emit-time half lives at
+# the `ports:` gates in compose_emit.sh / deploy.sh, and both go through the
+# same `_warn_ports_inert`). Validation answers "is this value well formed?";
+# this answers the question the user actually asked, which is "will it do
+# anything?" -- compose publishes ports only under network_mode=bridge, and
+# the template ships mode = host.
+#
+# Fires on both moves that can create the mismatch: writing a `port_*` while
+# the effective mode is not bridge, and switching `mode` away from bridge
+# while ports are already configured. Any other key is a no-op.
+#
+# Reads the MERGED view (template baseline <- repo override) so an unset
+# `[network] mode` is judged by the default the emitter will actually use,
+# not by the absence of a key.
+# ════════════════════════════════════════════════════════════════════
+_setup_warn_ports_inert() {
+  local _base_path="${1-}" _section="${2-}" _key="${3-}"
+  [[ "${_section}" == "network" ]] || return 0
+  case "${_key}" in
+    mode|port_[0-9]*) ;;
+    *) return 0 ;;
+  esac
+
+  local _repo_conf="${_base_path}/.setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  local -a _wpi_sections=() _wpi_keys=() _wpi_values=()
+  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
+      _wpi_sections _wpi_keys _wpi_values
+
+  local _i _mode="host" _ports=""
+  for (( _i=0; _i<${#_wpi_keys[@]}; _i++ )); do
+    case "${_wpi_keys[_i]}" in
+      network.mode)
+        [[ -n "${_wpi_values[_i]}" ]] && _mode="${_wpi_values[_i]}"
+        ;;
+      network.port_[0-9]*)
+        [[ -n "${_wpi_values[_i]}" ]] && _ports+="${_wpi_values[_i]}"$'\n'
+        ;;
+    esac
+  done
+
+  _warn_ports_inert "${_ports}" "${_mode}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_set
 #
 # Subcommand handler for `setup.sh set <section>.<key> <value>`.
@@ -198,6 +245,10 @@ _setup_set() {
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
+
+  # Diagnostic, not chatter: --quiet drops the receipt, never the warning
+  # that the value just stored will not take effect.
+  _setup_warn_ports_inert "${_base_path}" "${_section}" "${_key}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -578,6 +629,9 @@ _setup_add() {
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
+
+  # Same diagnostic as `set` -- `add network.port` is the other way in.
+  _setup_warn_ports_inert "${_base_path}" "${_section}" "${_new_key}"
 }
 
 # ════════════════════════════════════════════════════════════════════

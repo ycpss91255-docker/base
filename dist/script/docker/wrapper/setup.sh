@@ -152,6 +152,15 @@ _setup_msg_reset() {
   esac
 }
 
+_setup_msg_network() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:ports_inert) echo "[network] 已設定 port_*，但生效的 mode 不是 bridge —— compose 只有在 mode = bridge 時才會發布 ports，因此該映射會被丟棄" ;;
+    zh-CN:ports_inert) echo "[network] 已设置 port_*，但生效的 mode 不是 bridge —— compose 仅在 mode = bridge 时才会发布 ports，因此该映射会被丢弃" ;;
+    ja:ports_inert)    echo "[network] に port_* が設定されていますが、有効な mode が bridge ではありません —— compose は mode = bridge のときだけ ports を公開するため、このマッピングは破棄されます" ;;
+    *:ports_inert)     echo "[network] port_* is configured but the effective mode is not bridge -- compose publishes ports only under mode = bridge, so the mapping is dropped" ;;
+  esac
+}
+
 _setup_msg_stage() {
   case "${_LANG}:${1:?}" in
     zh-TW:invalid_format)           echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
