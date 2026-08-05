@@ -716,3 +716,45 @@ EOF
   assert_success
   assert_output "0"
 }
+
+# ────────────────────────────────────────────────────────────────────
+# _error -- the shared fatal path
+#
+# It passed the human message where _log_dispatch expects a REGISTERED
+# EVENT ID, so every init.sh error surfaced as the logger's own
+# "unregistered log body ... add it to log-events.txt" complaint: no
+# [init] ERROR framing, no timestamp, no JSON record when piped, and an
+# instruction to edit a registry file that means nothing to a user.
+# upgrade.sh's sibling gets this right (_log_err upgrade
+# upgrade_rollback "display=$*").
+# ────────────────────────────────────────────────────────────────────
+
+_stage_missing_template_conf() {
+  rm -f "${TMP_REPO}/.base/dist/.setup.conf"
+  rm -f "${TMP_REPO}/.setup.conf"
+  _source_init
+}
+
+@test "_error: carries a registered event id under LOG_FORMAT=json (#876)" {
+  _stage_missing_template_conf
+  LOG_FORMAT=json run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial '"body":"init_failed"'
+  refute_output --partial 'unregistered log body'
+}
+
+@test "_error: text output is framed like every other init record (#876)" {
+  _stage_missing_template_conf
+  LOG_FORMAT=text run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial '[init] ERROR'
+  assert_output --partial 'Template setup.conf not found'
+  refute_output --partial 'log-events.txt'
+}
+
+@test "_error: the human message rides the display attribute (#876)" {
+  _stage_missing_template_conf
+  LOG_FORMAT=json run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial '"display":"Template setup.conf not found'
+}
