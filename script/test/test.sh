@@ -276,6 +276,10 @@ Options:
                           shard. Used by the coverage matrix in
                           self-test.yaml (#615). Codecov merges the
                           per-shard uploads into one project figure.
+  --test-tools-image      Print the local test-tools tag this checkout
+                          resolves (a content hash of
+                          dockerfile/Dockerfile.test-tools) and exit.
+                          TEST_TOOLS_IMAGE, when set, is echoed verbatim.
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -325,6 +329,85 @@ _fix_permissions() {
   if [[ -n "${uid}" && -n "${gid}" && -d "${REPO_ROOT}/coverage" ]]; then
     chown -R "${uid}:${gid}" "${REPO_ROOT}/coverage"
   fi
+}
+
+# ── Local test-tools tag ─────────────────────────────────────────────────────
+#
+# The local tooling tag used to be the fixed literal `test-tools:local`,
+# written identically by every checkout on the host. Nothing errors when a
+# sibling run rebuilds it: it silently displaces the image a live run is
+# already using, and a coverage pass whose image lost kcov mid-run still
+# reports green. The tag is now keyed to the build inputs, so identical
+# inputs resolve to ONE tag (a build-cache hit, not a rebuild) and any
+# difference resolves to a tag that cannot clobber the other.
+
+# The tooling Dockerfile is the only build input of the test-tools image.
+# The compose service passes `context: .`, but the Dockerfile never reads
+# it: every COPY in it is `COPY --from=<stage>` (bats-src /
+# bats-extensions / lint-tools / kcov-builder) and it has no ADD, so no
+# file of the checkout can reach a layer. Hashing the context would make
+# the tag churn on every unrelated source edit -- defeating the build
+# cache -- while changing nothing about the image. The tool versions
+# (BATS_VERSION / ALPINE_VERSION / KCOV_VERSION, the pinned shellcheck and
+# hadolint release URLs) all live INSIDE this file, so an upgrade does move
+# the tag. What the digest cannot see is upstream drift behind a floating
+# reference (`apk add` package versions, the alpine tag) -- unchanged from
+# the old literal, and not the thing that collides between two concurrent
+# checkouts.
+_TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
+
+# _compute_test_tools_hash <dockerfile> <outvar>
+#
+# sha256 of the WHOLE tooling Dockerfile. Deliberately not the stage-list
+# projection dist/script/docker/lib/stage.sh's _compute_dockerfile_hash
+# takes: that hash answers "did the set of compose services change?" and so
+# must ignore RUN lines, while this one answers "is this the same image?"
+# -- and a RUN line is exactly what dropped kcov out of the image.
+#
+# Empty output if the Dockerfile is missing (caller decides what to do).
+_compute_test_tools_hash() {
+  local _dockerfile="${1:?_compute_test_tools_hash requires <dockerfile>}"
+  local -n _ctth_out="${2:?_compute_test_tools_hash requires <outvar>}"
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _ctth_out=""
+    return 0
+  fi
+  # Redirected stdin (not `sha256sum <file>`) so the PATH never enters the
+  # digest: the same content in two checkouts must produce one tag.
+  _ctth_out="$(sha256sum < "${_dockerfile}" | cut -d' ' -f1)"
+  return 0
+}
+
+# _resolve_test_tools_image [dockerfile]
+#
+# Prints the tag the local test-tools build writes and its consumers read.
+# TEST_TOOLS_IMAGE wins verbatim: CI pins published, version-scoped GHCR
+# tags through it (build-worker / publish-worker / release-test-tools) and
+# self-test.yaml pins `test-tools:local`; the derivation is a LOCAL default
+# only and must never rewrite a caller-pinned value.
+#
+# Fails loud when the Dockerfile is missing rather than falling back to a
+# bare literal that would resolve to whatever another checkout last built
+# -- the same no-silent-fallback rule the shipped wrapper
+# (dist/script/docker/wrapper/build.sh) applies to its version-scoped local
+# tag.
+# shellcheck disable=SC2120  # production callers pass no args; tests pass a dockerfile
+_resolve_test_tools_image() {
+  if [[ -n "${TEST_TOOLS_IMAGE:-}" ]]; then
+    printf '%s\n' "${TEST_TOOLS_IMAGE}"
+    return 0
+  fi
+  local _dockerfile="${1:-${REPO_ROOT}/${_TEST_TOOLS_DOCKERFILE_REL}}"
+  local _hash=""
+  _compute_test_tools_hash "${_dockerfile}" _hash
+  if [[ -z "${_hash}" ]]; then
+    _die ci_test_tools_dockerfile_missing \
+      "cannot derive the local test-tools tag: '${_dockerfile}' is missing (no bare test-tools:local fallback)."
+  fi
+  # 12 hex digits: the tag has to stay readable in `docker images`, and the
+  # collision surface is the handful of checkouts on one host.
+  printf 'test-tools:%s\n' "${_hash:0:12}"
+  return 0
 }
 
 # ── Docker compose wrapper ───────────────────────────────────────────────────
@@ -425,6 +508,12 @@ main() {
       --coverage) mode="coverage"; shift ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --system) system=1; shift ;;
+      # Name-resolution primitives. They print one line and stop -- the
+      # `just test system` recipe reads them so that the build-only
+      # test-tools service and the ci-system consumer resolve the SAME tag
+      # (a mismatch there is silent: the consumer would quietly pull the
+      # published image while the local build sat unused).
+      --test-tools-image) _resolve_test_tools_image; return 0 ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done

@@ -59,9 +59,22 @@ coverage shard='':
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
+#
+# The local tooling tag is a content hash of dockerfile/Dockerfile.test-tools
+# (test.sh --test-tools-image), not the fixed literal it used to be: a
+# sibling checkout building different tooling inputs writes a DIFFERENT tag
+# instead of displacing the image this run is about to use, while identical
+# inputs resolve to the same tag and hit the build cache. Resolving it once
+# and exporting it is what keeps the build-only `test-tools` service and the
+# `ci-system` consumer on the same image. A caller-pinned TEST_TOOLS_IMAGE
+# (CI) still wins.
 system:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
     just docker build --target test-tools
-    TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-system
+    docker compose run --rm ci-system
 
 # just test clean -> remove coverage reports
 clean:
