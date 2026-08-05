@@ -77,3 +77,13 @@ setup() {
   run grep -nE 'test\.sh --test-tools-image' "${ROOT}/script/test/justfile.test"
   assert_success
 }
+
+@test "just test system names the compose project instead of inheriting the basename (#891)" {
+  # Its `docker compose run --rm ci-system` is a second call site with the
+  # same defect test.sh had: no -p and no COMPOSE_PROJECT_NAME means compose
+  # falls back to the checkout directory's basename.
+  run grep -nE 'test\.sh --compose-project-name' "${ROOT}/script/test/justfile.test"
+  assert_success
+  run grep -nE '^ +export COMPOSE_PROJECT_NAME$' "${ROOT}/script/test/justfile.test"
+  assert_success
+}

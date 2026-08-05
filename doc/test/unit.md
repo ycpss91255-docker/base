@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2563 tests**.
+Unit specs under `test/bats/unit/`: **2571 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1961,7 +1961,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (76)
+### test/bats/unit/ci_spec.bats (83)
 
 | Test | Description |
 |------|-------------|
@@ -2041,6 +2041,13 @@ builds the env block only for the knobs the conf sets.
 | `_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)` | #891 CI's pinned published tags untouched |
 | `_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)` | #891 no silent bare-literal fallback |
 | `main --test-tools-image: prints the resolved tag for the justfile (#891)` | #891 one entry point for build + consumers |
+| `_compute_compose_project_name: two checkouts sharing a basename get different names (#891)` | #891 path-keyed, not directory-basename |
+| `_compute_compose_project_name: the same checkout path is stable across calls (#891)` | #891 one project per checkout, no per-commit churn |
+| `_compute_compose_project_name: a hostile checkout path still yields a legal project name (#891)` | #891 compose grammar guaranteed, not hoped for |
+| `_resolve_compose_project_name: COMPOSE_PROJECT_NAME wins verbatim (#891)` | #891 env override still wins |
+| `_run_via_compose: passes an explicit -p so the project is not the directory basename (#891)` | #891 the missing -p is the defect |
+| `_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)` | #891 -p forwards the caller's name |
+| `main --compose-project-name: prints the resolved project for the justfile (#891)` | #891 one entry point for both call sites |
 
 ### test/bats/unit/doc_counts_spec.bats (21)
 
@@ -2646,7 +2653,7 @@ hand-authored compose.yaml. Covers lib resolution via the base-self path and
 `--target test-tools` dispatching `docker compose build` while skipping the
 setup-sync lifecycle.
 
-### test/bats/unit/base_docker_namespace_spec.bats (7)
+### test/bats/unit/base_docker_namespace_spec.bats (8)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
@@ -2656,7 +2663,8 @@ the `test-tools` compose service building `Dockerfile.test-tools`, and
 naming-isolation shape (#891): the build-only `test-tools` service reads the
 same `TEST_TOOLS_IMAGE` its consumers read instead of a fixed
 `test-tools:local` literal, and the `system` recipe derives that tag from the
-tooling Dockerfile's content instead of hardcoding it.
+tooling Dockerfile's content instead of hardcoding it, and names the compose
+project instead of inheriting the checkout directory's basename.
 
 
 ### test/bats/unit/base_version_monitor_spec.bats (12)

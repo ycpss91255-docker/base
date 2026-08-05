@@ -1409,3 +1409,118 @@ SH
   assert_success
   [[ "${output}" =~ ^test-tools:[0-9a-f]{12}$ ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _compute_compose_project_name / _resolve_compose_project_name
+#
+# `docker compose run` was invoked with no `-p`, so compose fell back to
+# the checkout DIRECTORY BASENAME. Two checkouts at ~/a/base and ~/b/base
+# therefore shared one project -- one set of containers, one network --
+# with no warning. The project name is now derived from the ABSOLUTE
+# checkout path, which is the actual discriminator (two worktrees are
+# routinely on the same commit, so a commit-keyed name would collide in
+# exactly the concurrent case this separates).
+# ════════════════════════════════════════════════════════════════════
+
+@test "_compute_compose_project_name: two checkouts sharing a basename get different names (#891)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _n=""
+    _compute_compose_project_name "/home/dev/a/base" _n; printf "%s\n" "${_n}"
+    _compute_compose_project_name "/home/dev/b/base" _n; printf "%s\n" "${_n}"
+  '
+  assert_success
+  [[ "${lines[0]}" =~ ^base-[0-9a-f]{12}$ ]]
+  [[ "${lines[1]}" =~ ^base-[0-9a-f]{12}$ ]]
+  assert [ "${lines[0]}" != "${lines[1]}" ]
+}
+
+@test "_compute_compose_project_name: the same checkout path is stable across calls (#891)" {
+  # Keyed to the path, not the commit or the run: a checkout keeps ONE
+  # project (and one network) instead of churning a fresh one per commit.
+  run bash -c '
+    source /source/script/test/test.sh
+    _n=""
+    _compute_compose_project_name "/home/dev/a/base" _n; printf "%s\n" "${_n}"
+    _compute_compose_project_name "/home/dev/a/base" _n; printf "%s\n" "${_n}"
+  '
+  assert_success
+  assert [ "${lines[0]}" = "${lines[1]}" ]
+}
+
+@test "_compute_compose_project_name: a hostile checkout path still yields a legal project name (#891)" {
+  # Compose accepts only [a-z0-9][a-z0-9_-]* and a checkout path can hold
+  # anything: spaces, uppercase, punctuation, non-ASCII, a leading dot.
+  # The derivation has to guarantee the grammar, not hope for it.
+  run bash -c '
+    source /source/script/test/test.sh
+    _n=""
+    _compute_compose_project_name "/home/Dev/.My Projects/(BASE) #1/ünïcode/BASE/" _n
+    printf "%s\n" "${_n}"
+  '
+  assert_success
+  [[ "${output}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
+}
+
+@test "_resolve_compose_project_name: COMPOSE_PROJECT_NAME wins verbatim (#891)" {
+  # CI keys the project to its run id through this env; the derivation is a
+  # local default only.
+  run bash -c '
+    source /source/script/test/test.sh
+    COMPOSE_PROJECT_NAME=ci-run-4242 _resolve_compose_project_name
+  '
+  assert_success
+  assert_output "ci-run-4242"
+}
+
+@test "_run_via_compose: passes an explicit -p so the project is not the directory basename (#891)" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset COMPOSE_PROJECT_NAME
+    _run_via_compose ci 0
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --regexp "compose -p base-[0-9a-f]{12} "
+}
+
+@test "_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export COMPOSE_PROJECT_NAME=ci-run-4242
+    _run_via_compose ci 0
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "compose -p ci-run-4242 "
+}
+
+@test "main --compose-project-name: prints the resolved project for the justfile (#891)" {
+  # The `just test system` recipe reads this so its bare `docker compose run`
+  # names the project the same way test.sh's does, instead of inheriting the
+  # directory basename at a second call site.
+  run bash -c '
+    unset COMPOSE_PROJECT_NAME
+    /source/script/test/test.sh --compose-project-name
+  '
+  assert_success
+  [[ "${output}" =~ ^base-[0-9a-f]{12}$ ]]
+}
