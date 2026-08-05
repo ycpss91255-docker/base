@@ -359,7 +359,7 @@ _fix_permissions() {
 # reference (`apk add` package versions, the alpine tag) -- unchanged from
 # the old literal, and not the thing that collides between two concurrent
 # checkouts.
-_TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
+readonly _TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
 
 # _compute_test_tools_hash <dockerfile> <outvar>
 #
