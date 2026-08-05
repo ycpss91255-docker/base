@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 -->
+<!-- sync: base e5eb312a5446 90441c2b9a5c -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -15,7 +15,7 @@
 
 ---
 
-<!-- sync: table-of-contents e989d6153818 -->
+<!-- sync: table-of-contents e989d6153818 29df983109d0 -->
 ## 目次
 
 - [TL;DR](#tldr)
@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da -->
+<!-- sync: tldr b4f9c41522da a77868c41f39 -->
 ## TL;DR
 
 ```bash
@@ -50,7 +50,7 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 全 recipe 表示
 ```
 
-<!-- sync: prerequisites 71356c1216b6 -->
+<!-- sync: prerequisites 71356c1216b6 570879685262 -->
 ## 前提条件
 
 コンテナ操作は Docker 上で [`just`](https://github.com/casey/just)（command
@@ -76,12 +76,12 @@ runner）を介して実行します。`just <verb>` エントリポイントを
   （`./script/<verb>.sh`、`./.base/dist/script/base/upgrade.sh`）があります
   -- [クイックスタート](#クイックスタート)参照。
 
-<!-- sync: overview 435906a68746 -->
+<!-- sync: overview 435906a68746 9012a4430b92 -->
 ## 概要
 
 本 repo は、すべての Docker コンテナ repo で共有されるスクリプト、テスト、CI workflow を一元管理しています。15 以上の repo で同一ファイルを個別管理する代わりに、各 repo が **git subtree** としてこのテンプレートを取り込み、symlink で参照します。
 
-<!-- sync: architecture 2660c8dea634 -->
+<!-- sync: architecture 2660c8dea634 b76a647872df -->
 ### アーキテクチャ
 
 ```mermaid
@@ -107,7 +107,7 @@ graph TB
     workflows -. "@tag 参照" .-> main_yaml
 ```
 
-<!-- sync: cicd-flow 4b14e6faf203 -->
+<!-- sync: cicd-flow 4b14e6faf203 b31af3db1628 -->
 ### CI/CD フロー
 
 ```mermaid
@@ -138,7 +138,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f -->
+<!-- sync: whats-included 68cb068c2b9f 4c85128450a3 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -198,7 +198,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a -->
+<!-- sync: dockerfile-stages-convention cfa1ef92737a 58d9b3fd819e -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -223,7 +223,7 @@ flowchart LR
   `docker run ... <repo>:devel` で目にするものと一致します。
 - `Dockerfile.test-tools` は lint/test ツールセット（bats + shellcheck + hadolint）をビルドします。ダウンストリームの `devel-test` ステージは `ARG TEST_TOOLS_IMAGE` build arg で参照します — デフォルト `test-tools:local`（ローカル `./build.sh` フロー、`Dockerfile.test-tools` を host Docker daemon に load）。CI では `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（`.github/workflows/release-test-tools.yaml` がタグ push ごとに publish するマルチアーキ image）で override し、buildx が registry からアーキ対応の bats / shellcheck / hadolint binary を直接 pull します。`docker-container` buildx driver の step 間 image store 分離問題を回避。
 
-<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 -->
+<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 b858748fa031 -->
 #### ビルド成果物は `$HOME` ではなく `/opt` に置く
 
 コンテナユーザーは **ビルド** 時に image へ焼き込まれます。`sys` ステージが
@@ -257,7 +257,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 a1b705795c6d -->
+<!-- sync: adding-extra-stages-215 a1b705795c6d 091bd7a4def4 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, devel-test,
@@ -312,7 +312,7 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
   などの他の編集は drift をトリガー**しません**。
 
-<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f -->
+<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f 0b2469a1ba80 -->
 #### Per-stage `setup.conf` overrides（#220）
 
 #215 で auto-emit された stage はデフォルトで devel の runtime 設定
@@ -377,7 +377,7 @@ top-level の後に追加されます。完全に top-level を置き換える�
   場合 → **WARN + skip**（`setup.sh apply` の他の処理は継続）。
 - allowlist 外の override key → **WARN + key 単位で skip**。
 
-<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 -->
+<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 3fe3efa43f54 -->
 ### Smoke test ヘルパー（ダウンストリーム repo 用）
 
 `test/bats/smoke/test_helper.bash`（各 smoke spec が
@@ -396,7 +396,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 | `assert_file_owned_by <user> <path>` | `<path>` の所有者が `<user>` でない場合に失敗 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` が 0 以外で終了した場合に失敗 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 -->
+<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 69c33a09cc50 -->
 ### 各 repo で個別管理するファイル（共有しない）
 
 - `Dockerfile`
@@ -408,7 +408,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
-<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 -->
+<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 c742f9ebd008 -->
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
@@ -417,7 +417,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
 する必要はありません。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 -->
+<!-- sync: one-conf-seven-sections a4642bdbb595 d4e637de1ffb -->
 ### 単一 conf、7 つの section
 
 ```
@@ -450,7 +450,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 -->
+<!-- sync: logging-output-to-host df27d24459b2 71bfe201fcca -->
 ### ホスト側へのログ出力
 
 `[logging] local_path` を設定するとコンテナの stdout/stderr が
@@ -488,7 +488,7 @@ workspace bind mount への依存はありません。
 含まれているか確認してください
 （`grep _entrypoint_logging script/entrypoint.sh`）。
 
-<!-- sync: interactive-tui 9fbcb28ab56f -->
+<!-- sync: interactive-tui 9fbcb28ab56f c33bfdaa28a6 -->
 ### インタラクティブ TUI
 
 `./setup_tui.sh` はメインメニューを開きます。バックエンドは
@@ -514,7 +514,7 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef -->
+<!-- sync: when-setupsh-runs 78e1acddfeef a459f0591501 -->
 ### setup.sh の実行タイミング
 
 `setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
@@ -552,7 +552,7 @@ Main
 保持されるため、手動で調整した workspace パスや apt mirror はアップ
 グレードで上書きされません。
 
-<!-- sync: drift-detection 51f0c0e65245 -->
+<!-- sync: drift-detection 51f0c0e65245 2b4d5b7dcd2b -->
 ### ドリフト検出
 
 `setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
@@ -566,7 +566,7 @@ Main
 
 `--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 1f61d586455b -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -625,7 +625,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 -->
+<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 de70d71d1126 -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
@@ -644,7 +644,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
 
-<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 -->
+<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 79ebc84b0a81 -->
 #### v0.10.x からの移行（BREAKING）
 
 `setup.sh`（引数なし）と `setup.sh --base-path X --lang Y`（サブコマンドなし）は従来サイレントに `apply` にフォールスルーしていました。v0.11.0 でこのフォールスルーを廃止：
@@ -657,7 +657,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored cb81feeefc46 -->
+<!-- sync: derived-artifacts-gitignored cb81feeefc46 60803ca6e290 -->
 ### 生成物（gitignored）
 
 - `.env` — ランタイム変数 + `SETUP_*` drift metadata
@@ -668,7 +668,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
-<!-- sync: per-wrapper-hooks-440 3f5c5d24592f -->
+<!-- sync: per-wrapper-hooks-440 3f5c5d24592f b6f612f647f5 -->
 ### Wrapper 毎の pre/post hook（#440）
 
 各 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
@@ -708,7 +708,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba cd23c9cc0eca -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
@@ -800,10 +800,10 @@ project name:   bob-hub-claude_code
 キャッシュされた image を共有し、ホスト内の daemon では互いに
 分離されたままです。
 
-<!-- sync: quick-start 629a4900e292 -->
+<!-- sync: quick-start 629a4900e292 c1409df67119 -->
 ## クイックスタート
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 23a37b44ba1c -->
 ### 新規 repo への追加
 
 ```bash
@@ -823,7 +823,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
-<!-- sync: updating f825b9a2c058 -->
+<!-- sync: updating f825b9a2c058 a52a5616cb05 -->
 ### アップグレード
 
 前提条件：`git config user.name` / `user.email` が設定済みで、working tree
@@ -872,7 +872,7 @@ upgrade.sh が `diff -ruN .base/dist/config config` のヒントを表示する�
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
 resync、sed の手順は忘れがちです。
 
-<!-- sync: automated-version-bumps-optional 7a8394ea238f -->
+<!-- sync: automated-version-bumps-optional 7a8394ea238f 5f4d60c01228 -->
 #### 自動バージョン更新（任意）
 
 ダウンストリーム repo は、`base` の新しい tag が出るたびに Dependabot が PR を立てるよう設定できます。`.github/dependabot.yml` を追加します：
@@ -888,7 +888,7 @@ updates:
 
 Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、base の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `just base upgrade vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
-<!-- sync: ci-reusable-workflows 037f8d72c0f1 -->
+<!-- sync: ci-reusable-workflows 037f8d72c0f1 e32a8671869f -->
 ## CI Reusable Workflows
 
 各 repo のローカル `build-worker.yaml` / `release-worker.yaml` を、本 repo の reusable workflows 呼び出しに置き換えます：
@@ -913,7 +913,7 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 -->
+<!-- sync: build-workeryaml-inputs 9f38b2b745d2 7964ab737b93 -->
 ### build-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
@@ -924,7 +924,7 @@ jobs:
 | `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece -->
+<!-- sync: release-workeryaml-inputs 018ae0329ece 70d1e3d75a6c -->
 ### release-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
@@ -932,7 +932,7 @@ jobs:
 | `archive_name_prefix` | string | はい | - | アーカイブ名プレフィックス |
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
 
-<!-- sync: running-template-tests 961bde4ce2e8 -->
+<!-- sync: running-template-tests 961bde4ce2e8 8ec510a4fc2f -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
@@ -950,7 +950,7 @@ just --list  # CI ターゲット表示
 ./script/test/test.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 
-<!-- sync: tests 4b88c3ca9f6c -->
+<!-- sync: tests 4b88c3ca9f6c b57030344caf -->
 ## テスト
 
 詳細は [TEST.md](../test/TEST.md) のテスト索引を参照（種別ごとのカタログ：
@@ -958,7 +958,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d899cb41bbd6 -->
+<!-- sync: directory-structure d899cb41bbd6 486e53b1282d -->
 ## ディレクトリ構造
 
 ```

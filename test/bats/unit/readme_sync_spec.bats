@@ -9,10 +9,17 @@
 #
 # The English author changes nothing; the translator never types a hash. The
 # guard therefore has to answer three questions per translated file: is this
-# section stale, is it missing, and is it deliberately untranslated. Detection
-# runs against a controlled temp REPO_ROOT so the spec is independent of the
-# live READMEs; a final pair of cases drives the REAL tree to prove it is
-# stamped and clean today.
+# section stale, is it missing, and is it deliberately untranslated.
+#
+# A fourth block answers the question the guard could not: does a re-stamp
+# mean anything. It performs the silencing case -- edit the English, run the
+# generator, expect the gate to go quiet -- rather than asserting on the
+# marker format, because the format was never the defect; the missing
+# translation-side record was.
+#
+# Detection runs against a controlled temp REPO_ROOT so the spec is
+# independent of the live READMEs; a final pair of cases drives the REAL
+# tree to prove it is stamped and clean today.
 
 setup() {
   export LOG_FORMAT=text
@@ -197,7 +204,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
-@test "_run_readme_sync: PASSES again after an English edit + a re-run of the generator (#846)" {
+@test "_run_readme_sync: PASSES again after an English edit, a re-translation and a re-run of the generator (#846)" {
   _stamped
   _en \
     '# Title' \
@@ -211,6 +218,7 @@ _marker() {
     '## Beta' \
     '' \
     'Beta body, rewritten and then re-translated.'
+  _tr_edit zh-TW '乙本文。' '乙本文，已重譯。'
   _sync_readme_hashes "${SCRATCH}" >/dev/null
   run _run_readme_sync
   [ "${status}" -eq 0 ]
@@ -425,14 +433,14 @@ _marker() {
   _tr_default
   run _sync_readme_hashes "${SCRATCH}"
   [ "${status}" -eq 0 ]
-  run grep -E '^<!-- sync: alpha [0-9a-f]{12} -->$' \
+  run grep -E '^<!-- sync: alpha [0-9a-f]{12} [0-9a-f]{12} -->$' \
     "${SCRATCH}/doc/readme/README.zh-TW.md"
   [ "${status}" -eq 0 ]
 }
 
 @test "_sync_readme_hashes: re-stamps a stale hash (#846)" {
   _stamped
-  before="$(grep -E '^<!-- sync: beta ' "${SCRATCH}/doc/readme/README.zh-TW.md")"
+  before="$(_marker beta)"
   _en \
     '# Title' \
     '' \
@@ -445,9 +453,9 @@ _marker() {
     '## Beta' \
     '' \
     'Beta body, rewritten.'
+  _tr_edit zh-TW '乙本文。' '乙本文，已重譯。'
   _sync_readme_hashes "${SCRATCH}" >/dev/null
-  after="$(grep -E '^<!-- sync: beta ' "${SCRATCH}/doc/readme/README.zh-TW.md")"
-  [[ "${before}" != "${after}" ]]
+  [[ "$(_marker beta)" != "${before}" ]]
 }
 
 @test "_sync_readme_hashes: is idempotent on an already-stamped tree (#846)" {

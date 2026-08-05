@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 -->
+<!-- sync: base e5eb312a5446 456381313862 -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -15,7 +15,7 @@
 
 ---
 
-<!-- sync: table-of-contents e989d6153818 -->
+<!-- sync: table-of-contents e989d6153818 e523936b7cf0 -->
 ## 目录
 
 - [TL;DR](#tldr)
@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da -->
+<!-- sync: tldr b4f9c41522da 6a81f6c049fc -->
 ## TL;DR
 
 ```bash
@@ -50,7 +50,7 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 列出所有 recipe
 ```
 
-<!-- sync: prerequisites 71356c1216b6 -->
+<!-- sync: prerequisites 71356c1216b6 f87cc1db3c62 -->
 ## 必要条件
 
 容器操作透过 [`just`](https://github.com/casey/just)（command runner）搭配
@@ -73,12 +73,12 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
   `./.base/dist/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 
-<!-- sync: overview 435906a68746 -->
+<!-- sync: overview 435906a68746 73d9fe303411 -->
 ## 概述
 
 此 repo 集中管理所有 Docker 容器 repo 共用的脚本、测试和 CI workflow。各 repo 通过 **git subtree** 拉入此模板，并使用 symlink 引用共用文件。
 
-<!-- sync: architecture 2660c8dea634 -->
+<!-- sync: architecture 2660c8dea634 fa1801115ef0 -->
 ### 架构
 
 ```mermaid
@@ -104,7 +104,7 @@ graph TB
     workflows -. "@tag 引用" .-> main_yaml
 ```
 
-<!-- sync: cicd-flow 4b14e6faf203 -->
+<!-- sync: cicd-flow 4b14e6faf203 c412e6f6a6de -->
 ### CI/CD 流程
 
 ```mermaid
@@ -135,7 +135,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f -->
+<!-- sync: whats-included 68cb068c2b9f 6334b6e449e0 -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a -->
+<!-- sync: dockerfile-stages-convention cfa1ef92737a 5d296bbd0e54 -->
 ### Dockerfile 分层（约定）
 
 下游 repo 遵循标准多阶段配置，定义于 `dist/dockerfile/Dockerfile`。
@@ -218,7 +218,7 @@ flowchart LR
   <repo>:devel` 后会看到的内容。
 - `Dockerfile.test-tools` 构建 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 阶段通过 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 默认 `test-tools:local`（对应本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 构建到 host Docker daemon）。CI 则覆盖成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的预构建 multi-arch image）,buildx 直接从 registry 拉对应架构的 bats / shellcheck / hadolint binary,避开 `docker-container` buildx driver 跨 step 不共享 image store 的问题。
 
-<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 -->
+<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 2b1cd08fd898 -->
 #### 自建产物放在 `/opt`，不要放 `$HOME`
 
 容器用户是在 **build** 时期烘进 image 的：`sys` 阶段吃
@@ -249,7 +249,7 @@ image，`$HOME` 可能不一样。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 a1b705795c6d -->
+<!-- sync: adding-extra-stages-215 a1b705795c6d 3df33257cc0a -->
 #### 添加额外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, devel-test,
@@ -301,7 +301,7 @@ EXEC_ARGS='--/app/livestream/port=49100' \
   的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
 
-<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f -->
+<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f b255b4c2085f -->
 #### Per-stage `setup.conf` overrides（#220）
 
 #215 auto-emit 出的 stage 默认共用 devel 的 runtime 设置
@@ -360,7 +360,7 @@ List 字段（`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*` /
   （`setup.sh apply` 其他流程继续）。
 - 不在 allowlist 内的 override key → **WARN + 跳过该 key**。
 
-<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 -->
+<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 3dc1ca61df98 -->
 ### Smoke test helpers（供下游 repo 使用）
 
 `test/bats/smoke/test_helper.bash`（每个 smoke spec 通过
@@ -378,7 +378,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 | `assert_file_owned_by <user> <path>` | `<path>` 所有者不是 `<user>` 时失败 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` 非 0 时失败 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 -->
+<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 6e52231828ca -->
 ### 各 repo 自行维护的文件（不共用）
 
 - `Dockerfile`
@@ -390,7 +390,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
-<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 -->
+<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 1e5ec08e08c1 -->
 ## 各 repo runtime 配置
 
 每个下游 repo 通过一个 `setup.conf` INI 文件驱动自己的 runtime 配置
@@ -398,7 +398,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 `setup.sh` 读它 + 系统检测后重新生成 `.env` 和 `compose.yaml`，这两
 个衍生文件用户不用动手编辑。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 -->
+<!-- sync: one-conf-seven-sections a4642bdbb595 0813fb40b24a -->
 ### 单一 conf、7 个 section
 
 ```
@@ -429,7 +429,7 @@ template；没写的 section 则吃 template 默认。
 ./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 -->
+<!-- sync: logging-output-to-host df27d24459b2 531f11a4ef77 -->
 ### 输出 log 到 host
 
 设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
@@ -462,7 +462,7 @@ source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
 `script/entrypoint.sh` 真的有那行 source
 （`grep _entrypoint_logging script/entrypoint.sh`）。
 
-<!-- sync: interactive-tui 9fbcb28ab56f -->
+<!-- sync: interactive-tui 9fbcb28ab56f fe32cf45079c -->
 ### 交互式 TUI
 
 `./setup_tui.sh` 打开主菜单。底层是 `dialog` 或 `whiptail`（两者
@@ -487,7 +487,7 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的编辑器
 （如 `./setup_tui.sh volumes`），不必走主菜单。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef -->
+<!-- sync: when-setupsh-runs 78e1acddfeef a057b51d2359 -->
 ### setup.sh 什么时候运行
 
 `setup.sh` 仅在显式触发时才执行 — 并不会在每次 build / run 都重跑：
@@ -518,7 +518,7 @@ Main
 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手动调过
 的 workspace 路径或 apt mirror 升级时不会被覆盖。
 
-<!-- sync: drift-detection 51f0c0e65245 -->
+<!-- sync: drift-detection 51f0c0e65245 e735fae1f1f8 -->
 ### Drift 检测
 
 `setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
@@ -531,7 +531,7 @@ Main
 
 带 `--setup` 重跑以重新生成 `.env` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 6c8bbba5c990 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接调用 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自带式的 field 部署**目录** —— 即上述路由模型的 deploy 半边（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修订 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它针对 *field 导向* 的 stage（默认 `runtime`；**绝不**是 `devel` 或任何 `*-test` stage），产出的目录带齐目标主机需要的一切 —— field 主机不会看到 base 的工具链、源码树或 `setup.conf`。
@@ -590,7 +590,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 **持续部署（CD）**：deploy 工具只诚实标记、从不阻挡 —— 它会盖上 `-dirty` / short-commit 的 `<version>`，所以任何树状态都能做 review 部署。自动化 CD 请先调用 base 出货的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作树不干净**或** HEAD 不在 tag 上时会拒绝部署，确保出货的 field bundle 永远可以追溯到某个已发布版本。
 
-<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 -->
+<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 32c99cdb92d4 -->
 ### setup.sh 子命令（v0.11.0+）
 
 `setup.sh` 是 git 风格的后端，提供明确的子命令。build / run / TUI 脚本会代为调用；直接调用适合脚本化 / 非交互场景：
@@ -609,7 +609,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
 
-<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 -->
+<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 e3b0aa4e832d -->
 #### v0.10.x 升级（BREAKING）
 
 `setup.sh`（无参数）与 `setup.sh --base-path X --lang Y`（无子命令）以前会 silently 走到 `apply`。v0.11.0 移除这个 fall-through：
@@ -622,7 +622,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 下游 repo 若有自定脚本直接调用 `setup.sh`，前面加 `apply`。template 内附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored cb81feeefc46 -->
+<!-- sync: derived-artifacts-gitignored cb81feeefc46 bfc5dab0e509 -->
 ### 衍生文件（gitignored）
 
 - `.env` — runtime 变量 + `SETUP_*` drift metadata
@@ -632,7 +632,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 `just base upgrade` 都会重新生成这两个文件（init.sh 在 subtree pull 后重跑
 `setup.sh apply`）— 不要手改，需要 override 写到 `setup.conf`。
 
-<!-- sync: per-wrapper-hooks-440 3f5c5d24592f -->
+<!-- sync: per-wrapper-hooks-440 3f5c5d24592f 1aedc627edbc -->
 ### 每个 wrapper 的 pre/post hook（#440）
 
 每个 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
@@ -671,7 +671,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba def022fbbf2a -->
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
@@ -753,10 +753,10 @@ service 账号），`image` 会在 Docker Hub 端撞名，但 `container_name`
 仍能区隔 — registry pull 共用 cached image、host 内 daemon 仍
 彼此隔离。
 
-<!-- sync: quick-start 629a4900e292 -->
+<!-- sync: quick-start 629a4900e292 af008f0c036e -->
 ## 快速开始
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 7079bb4764af -->
 ### 添加到新 repo
 
 ```bash
@@ -776,7 +776,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
 
-<!-- sync: updating f825b9a2c058 -->
+<!-- sync: updating f825b9a2c058 412af7d4453b -->
 ### 升级
 
 前置条件：`git config user.name` / `user.email` 必须有设置，working tree
@@ -822,7 +822,7 @@ per-repo 文件不会被覆盖：`<repo>/setup.conf` 保留原样、
 不要手动 `git subtree pull` — 完整性检查、init.sh resync、sed 步骤
 容易漏掉。
 
-<!-- sync: automated-version-bumps-optional 7a8394ea238f -->
+<!-- sync: automated-version-bumps-optional 7a8394ea238f fbbb90caed03 -->
 #### 自动升版（可选）
 
 下游 repo 可以让 Dependabot 在 `base` 出新 tag 时自动开 PR。加入 `.github/dependabot.yml`：
@@ -838,7 +838,7 @@ updates:
 
 Dependabot 会读 `main.yaml` 里的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比对 base 最新 tag 后开 PR。subtree 本身仍需在本地跑 `just base upgrade vX.Y.Z` — Dependabot 只负责 workflow ref。
 
-<!-- sync: ci-reusable-workflows 037f8d72c0f1 -->
+<!-- sync: ci-reusable-workflows 037f8d72c0f1 ff9a12c82cb8 -->
 ## CI Reusable Workflows
 
 各 repo 将本地的 `build-worker.yaml` / `release-worker.yaml` 替换为调用此 repo 的 reusable workflows：
@@ -863,7 +863,7 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 -->
+<!-- sync: build-workeryaml-inputs 9f38b2b745d2 b09f502616fc -->
 ### build-worker.yaml 参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
@@ -874,7 +874,7 @@ jobs:
 | `platforms` | string | 否 | `"linux/amd64"` | 逗号分隔的目标平台；每个在原生 runner 上并行运行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可固定到所升级的 template release 以保证可复现 |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece -->
+<!-- sync: release-workeryaml-inputs 018ae0329ece 644e746de083 -->
 ### release-worker.yaml 参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
@@ -882,7 +882,7 @@ jobs:
 | `archive_name_prefix` | string | 是 | - | Archive 名称前缀 |
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 
-<!-- sync: running-template-tests 961bde4ce2e8 -->
+<!-- sync: running-template-tests 961bde4ce2e8 5ffd1af67fe7 -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
@@ -900,7 +900,7 @@ just --list        # 显示 CI 命令
 ./script/test/test.sh --ci     # 在容器内运行（由 compose 调用）
 ```
 
-<!-- sync: tests 4b88c3ca9f6c -->
+<!-- sync: tests 4b88c3ca9f6c d9fbea9d8010 -->
 ## 测试
 
 详见 [TEST.md](../test/TEST.md) 测试索引（各类型清单：
@@ -908,7 +908,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d899cb41bbd6 -->
+<!-- sync: directory-structure d899cb41bbd6 bdfff7420e3f -->
 ## 目录结构
 
 ```
