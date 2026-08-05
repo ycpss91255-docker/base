@@ -19,7 +19,7 @@ set -euo pipefail
 # prefix is its basename, used DIRECTLY as the subtree-pull --prefix= flag
 # and every filesystem reference, so a downstream rename still works
 # without code changes.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
 SUBTREE_ROOT="${SCRIPT_DIR}"
 while [[ "${SUBTREE_ROOT}" != "/" ]]; do

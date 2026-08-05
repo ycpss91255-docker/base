@@ -22,7 +22,7 @@ main() {
   local -r _rpm_url="https://github.com/tmux-plugins/tpm"
   local -r _tpm_dir="${HOME}/.tmux/plugins/tpm"
   local -r _tmux_conf="${HOME}/.config/tmux/tmux.conf"
-  local -r _script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  local -r _script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
   export TMUX_PLUGIN_MANAGER_PATH="${HOME}/.tmux/plugins"
 

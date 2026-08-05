@@ -50,7 +50,7 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-_RESOLVE_DOC_COUNTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_RESOLVE_DOC_COUNTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
 # The read-only twin sources the generator, so this one source gives both
 # _sync_doc_counts (regenerate) and _check_test_md_drift (verify), plus the

@@ -54,6 +54,7 @@ deploy_done
 deploy_manifest_malformed
 deploy_manifest_dup_basename
 deploy_manifest_no_baked_default
+deploy_stage_absent
 
 # build.sh
 build_started
@@ -151,6 +152,8 @@ ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
 ci_home_literal
+ci_bash_source_guard
+ci_derived_figures
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

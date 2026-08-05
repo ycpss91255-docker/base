@@ -257,11 +257,11 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 73c7bd93f9ef 4f5aa7e7dc74 -->
+<!-- sync: adding-extra-stages-215 2da5b4c5cc6a d0dd264be639 -->
 #### 追加ステージの追加（#215）
 
-baseline blocklist `{sys, devel-base, devel, devel-test,
-runtime-test}` 以外の（v0.21.x 移行期間中は旧名 `{base, test}` も受付）
+baseline blocklist `{sys, devel-base, devel, runtime-test}`
+以外の（v0.21.x 移行期間中は旧名 `{base, test}` も受付）
 `FROM <base> AS <stage>` は、自動的に compose サービスとして
 emit されます — `extends: devel`（volumes / network / GPU / GUI /
 cap_add / additional_contexts を継承）し、`build.target` /
@@ -302,11 +302,13 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
 - Stage 名は `^[a-z][a-z0-9_-]*$` に一致する必要があり、大文字
   / 数字始まり / ピリオドなどは拒否されます（WARN + skip、
   他の stage は解析を続行）。
-- baseline（`sys` / `devel-base` / `devel` / `devel-test` /
-  `runtime-test`、v0.21.x 移行期間中は旧名 `base` / `test` も衝突
-  対象）と衝突する場合は `setup.sh apply` が hard error で exit 1。
-  template が管理する image tag namespace（`latest`、`v[0-9]*`）と
-  の衝突も hard error。
+- baseline `{sys, devel-base, devel, runtime-test}`（v0.21.x 移行期間
+  中は旧名 `{base, test}` も衝突対象）と衝突する場合は `setup.sh apply`
+  が hard error で exit 1。template が管理する image tag namespace
+  （`latest`、`v[0-9]*`）との衝突も hard error。`devel-test` はその集合に
+  **含まれず**、衝突にも**なりません** — per-stage モデルを通じて `test`
+  service として emit され（#493）、それが `[stage:devel-test]` に runtime
+  制御面を与えています。
 - Stage の追加 / 削除は `setup.sh check-drift` をトリガーします
   （`.env.generated` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
@@ -418,8 +420,13 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
 最初に scaffold するだけで以後上書きしません。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 fa72aa2c30e0 -->
-### 単一 conf、7 つの section
+<!-- sync: one-conf-14-sections 7423a704aa07 d31c91dfd8a9 -->
+### 単一 conf、14 個の section
+
+以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
+（`dist/script/docker/lib/schema.sh`）— 「どの section が、どの順で存在
+するか」の唯一の情報源です。このブロックまたはその個数がコードとずれると
+`derived-figures` lint が失敗します。
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -427,14 +434,26 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
            dri_groups (auto|off) — GUI service への iGPU /dev/dri group_add
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
-           既定は no;devel に設定（extends:devel の stage が継承）。正常
-           終了（exit 0）する stage に always/unless-stopped は避ける
-           （無限再起動）。init (true|false) — Docker init/PID1 reaper;
-           既定 true。
+           既定は unless-stopped;DEPLOY スコープ — deployable stage の
+           service にのみ emit され、devel と `*-test` stage では emitter
+           がポリシーを消すため、devel には extends:devel が継承できる
+           restart: 行がありません。詳細は英語 README の
+           「Restart policy is deploy-scoped」を参照。
+           init (true|false) — Docker init/PID1 reaper;既定 true。
+           watchdog_* — コンテナ内ヘルスチェック（opt-in）
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
+           port_N = host:container（bridge のときのみ publish）
+[security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
+           （対応する *_inherit トグルも;既定は最小、必要な分だけ opt-in）
+[resources] shm_size
+[environment] env_N = KEY=VALUE — set-once の既定値。deployable stage の
+           ENV として bake される;タスクごとに変わる変数は .env へ
+[tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed マウントポイント
+[devices]  device_N = host:container、および cgroup rule（opt-in）
 [volumes]  mount_1（workspace、初回実行時に自動記入）
            mount_2..mount_N（追加の host mount；デバイスは /dev path 指定）
+[additional_contexts] context_N = name=source — 追加の名前付き build context
 [logging]  driver（デフォルト json-file）、max_size、max_file、compress
            local_path（host 側 log ディレクトリ；/var/log/<repo> にバインドマウント）
            container_log_keep (20)、container_log_days (14)（起動ごとの
@@ -853,7 +872,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
-<!-- sync: updating 7a775b58dcf5 5021b02c05cd -->
+<!-- sync: updating 7ffccdece8ee 2eb5d1522276 -->
 ### アップグレード
 
 前提条件：`git config user.name` / `user.email` が設定済みで、working tree
@@ -878,8 +897,14 @@ just base upgrade v0.3.0
 ./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
-`upgrade.sh` は一度に完結します：
+`upgrade.sh` は一度に完結します。**ただし、あなたの repo に書き込みます。
+書き換えの一部はあなた自身のファイルです** — 稼働中の field デプロイを持つ
+repo で実行する前に、次の項を読んでください。手順：
 
+0. **マイグレーション。すべての手順より先に、それぞれ独立した commit として
+   実行されます。** 
+   [upgrade.sh が repo 内で書き換えるもの](#upgradesh-が-repo-内で書き換えるもの)
+   を参照。
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 整合性チェック — subtree マーカー（`.base/.version`、
    `.base/dist/script/base/init.sh`、`.base/dist/script/docker/wrapper/setup.sh`）が消えた場合は
@@ -892,15 +917,60 @@ just base upgrade v0.3.0
    `setup.sh apply` を呼んで `.env.generated` + `compose.yaml` を再生成
 4. `sed` で `.github/workflows/main.yaml` の
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` を更新
-
-per-repo のファイルは上書きされません：`<repo>/.setup.conf` はそのまま
-保持され、`<repo>/config/`（bashrc / tmux / terminator …）も触りません
-— 上流の `.base/dist/config/` が前回 pull 以降変わっていれば、
-upgrade.sh が `diff -ruN .base/dist/config config` のヒントを表示するの
-で、必要に応じて手動で reconcile してください。
+5. `apply_migrations`（`lib/dockerfile_migrate.sh`）が、base contract の
+   変更に追随できていない **repo ルートの `Dockerfile`** と
+   **`script/entrypoint.sh`** を修復し、手順 3-4 と同じ commit に含めます
 
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
-resync、sed の手順は忘れがちです。
+resync、sed、マイグレーションの手順は忘れがちです。
+
+<!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 2409ef1bac33 -->
+#### upgrade.sh が repo 内で書き換えるもの
+
+`.base/` は base のもの、それ以外は全部あなたのものです。それでも
+アップグレードは `.base/` の外に対して読み取り専用では**ありません**：
+subtree の内側で吸収できない base contract の変更は、あなたのファイル側で
+修復されます。しかも upgrade.sh はそれを **commit** して行うため、変更は
+あなたの名義で history に入ります。すべて stdout に出るので隠れてはいません
+が、ログは流れていくので、完全な一覧を以下に示します。
+
+| タイミング | 書き換わるもの | Commit メッセージ |
+|---|---|---|
+| 手順 1 の前 | `config/docker/setup.conf` → `.setup.conf`（`git mv`。両方存在する場合は変更を拒否して報告し、ルート側を採用） | `chore: relocate setup.conf override to repo-root .setup.conf` |
+| 手順 1 の前 | `.setup.conf` の `[lifecycle] restart = no` → `unless-stopped` | `chore: migrate [lifecycle] restart default to unless-stopped` |
+| 手順 3 | `.gitignore` の canonical entry；derived になったファイルの `git rm --cached` | 手順 4 の commit に同梱 |
+| 手順 4 | `.github/workflows/main.yaml` の worker `@tag` | `chore: update template references to <version>` |
+| 手順 5 | repo ルートの `Dockerfile`、`script/entrypoint.sh` | 手順 4 の commit に同梱 |
+
+> **restart のマイグレーションは runtime の挙動を変えます。**
+> `[lifecycle] restart` は以前 devel スコープで、template の既定値が `no`
+> でした。`init.sh --gen-conf` は template を丸ごとコピーするため、ほぼ
+> すべての repo が「誰も選んでいない」`restart = no` を抱えています。この
+> key は現在 deploy スコープ（英語 README の「Restart policy is
+> deploy-scoped」を参照）なので、コピーされた `no` は構造的に古い値です。
+> だから書き換えられます — **これまで host の再起動後に上がってこなかった
+> deployable stage のコンテナが、以後は自動的に起動します。** それが望みで
+> なければ、アップグレード後に `no` に戻してください。マイグレーションは
+> それ以降このファイルに触れません。
+>
+> 発火するのはこの rescope をまたぐ 1 回のアップグレードだけで（判定基準は
+> *pull 前* に vendored されている template がまだ `restart = no` を出荷して
+> いること）、値がちょうど `no` のときだけです。他の値を選んだ repo には
+> 一切触れません。
+
+**実際に何が変更されたかを後から確認するには：**
+
+```bash
+git log --oneline <アップグレード前の sha>..HEAD        # マイグレーション commit を名前で列挙
+git diff <アップグレード前の sha>..HEAD -- . ':!.base'  # .base/ 以外のすべての差分
+```
+
+upgrade.sh が **触れない**もの：`.setup.conf` のうち `[lifecycle] restart`
+の 1 行を除くすべてと、`<repo>/config/`（bashrc / tmux / terminator …）
+全体です — 上流の `.base/dist/config/` や `.base/dist/.setup.conf` が前回
+pull 以降変わっていれば、upgrade.sh は
+`diff -ruN .base/dist/config config` のヒントを表示するだけで、あなたの
+代わりにマージはしません。
 
 <!-- sync: automated-version-bumps-optional 7a8394ea238f 5f4d60c01228 -->
 #### 自動バージョン更新（任意）
@@ -988,7 +1058,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d899cb41bbd6 486e53b1282d -->
+<!-- sync: directory-structure 25353d9e9485 4e0516731e65 -->
 ## ディレクトリ構造
 
 ```
@@ -1027,16 +1097,23 @@ just --list  # CI ターゲット表示
 │   │       ├── new.sh
 │   │       └── skel/                   # justfile.skel + skel.sh
 │   └── test/
-│       └── smoke/                      # 共有 smoke テスト + runtime assertion helpers
-│           ├── test_helper.bash        #   assert_cmd_installed / _runs / file / dir / ...
-│           ├── script_help.bats
-│           └── display_env.bats
+│       └── bats/
+│           └── smoke/                  # ビルド時 smoke spec、`-test` stage ごとに 1 ディレクトリ
+│               ├── shared/             # すべての `-test` stage で実行
+│               │   ├── test_helper.bash #  assert_cmd_installed / _runs / file / dir / ...
+│               │   └── entrypoint.bats
+│               ├── devel-test/         # devel-test 専用のアサーション
+│               │   ├── script_help.bats
+│               │   └── display_env.bats
+│               └── runtime-test/       # runtime-test 専用のアサーション（既定では空）
 ├── script/                             # base 自身の自己テスト/release ツール（symlink しない）
 │   ├── test/
 │   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # ディスパッチャ（ローカル + コンテナ内）
 │   │   ├── lint_bare_stderr.sh
-│   │   └── drivers/                    # ツールごとに 1 driver：bats.sh / shellcheck.sh / hadolint.sh
+│   │   └── drivers/                    # lint/test ツールごとに 1 driver（bats / shellcheck / hadolint
+│   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
+│   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
 │   └── release/
 │       └── justfile.release            # just release <recipe>
 ├── dockerfile/
@@ -1045,7 +1122,7 @@ just --list  # CI ターゲット表示
 │   └── bats/
 │       ├── unit/                       # 56 unit spec + 2 個の bash ヘルパ（bats + kcov）
 │       ├── integration/                # init/upgrade の end-to-end（5 spec）
-│       ├── system/                # System レベル／Regression（opt-in；runtime_test_smoke_spec.bats）
+│       ├── system/                # System レベル／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
 │       └── acceptance/            # Acceptance レベル（UAT/OAT；予約、S5 #785）
 ├── .github/
 │   ├── dependabot.yml
@@ -1058,7 +1135,7 @@ just --list  # CI ターゲット表示
 │       └── release-test-tools.yaml     # base 自身の test-tools image release
 ├── doc/
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
-│   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
+│   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
 │   │   ├── TEST.md                     # テスト索引（総数 + 種別リンク）
 │   │   ├── unit.md                     # ユニットテスト一覧
@@ -1085,6 +1162,7 @@ just --list  # CI ターゲット表示
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: watchdog-supervised-restart-797 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: where-each-parameter-lives-env-vs-workload -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

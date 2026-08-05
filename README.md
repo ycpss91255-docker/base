@@ -299,7 +299,7 @@ on a concrete username in a home path anywhere under `dist/` or
 #### Adding extra stages (#215)
 
 Any `FROM <base> AS <stage>` outside the baseline blocklist
-`{sys, devel-base, devel, devel-test, runtime-test}` (legacy
+`{sys, devel-base, devel, runtime-test}` (legacy
 `{base, test}` also accepted during the v0.21.x transition) is
 auto-emitted as a compose service that
 `extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
@@ -341,13 +341,14 @@ Constraints:
 - Stage names must match `^[a-z][a-z0-9_-]*$` — uppercase / leading
   digit / dot etc. are rejected (WARN + skip; the rest of the parse
   continues).
-- Names colliding with the baseline (`sys` / `devel-base` / `devel`
-  / `runtime-test`, plus legacy aliases `base` / `test` during the
+- Names colliding with the baseline `{sys, devel-base, devel,
+  runtime-test}` (plus legacy aliases `{base, test}` during the
   v0.21.x transition) are a hard error from `setup.sh apply`. So are
   names colliding with the template-controlled image-tag namespace
-  (`latest`, `v[0-9]*`). `devel-test` is **not** a collision — it is
-  emitted as the `test` service through the per-stage model (#493, see
-  below).
+  (`latest`, `v[0-9]*`). `devel-test` is **not** in that set and **not**
+  a collision — it is emitted as the `test` service through the
+  per-stage model (#493, see below), which is what gives
+  `[stage:devel-test]` a runtime control surface.
 - Adding / removing a stage triggers `setup.sh check-drift` (via
   `SETUP_DOCKERFILE_HASH` in `.env.generated`), so wrappers auto-regenerate
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
@@ -460,7 +461,12 @@ regenerates both `.env.generated` and `compose.yaml`; users never hand-edit
 those two derived artifacts. The hand-authored `.env` overlay is a different
 file: setup scaffolds it once and never rewrites it.
 
-### One conf, seven sections
+### One conf, 14 sections
+
+The section list below is not prose: it is `SCHEMA_SECTIONS`
+(`dist/script/docker/lib/schema.sh`), the single source for which sections
+exist and in what order, and the `derived-figures` lint fails if this block
+or its count drifts from it.
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -468,13 +474,22 @@ file: setup scaffolds it once and never rewrites it.
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
            dri_groups (auto|off) — iGPU /dev/dri group_add on GUI svcs
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
-           default no; on devel (extends:devel stages inherit). Avoid
-           always/unless-stopped on stages that exit 0 (infinite restart).
-           init (true|false) — Docker init/PID1 reaper; default true.
+           default unless-stopped; DEPLOY-scoped — see "Restart policy"
+           below. init (true|false) — Docker init/PID1 reaper; default
+           true. watchdog_* — in-container health probe, opt-in
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none), ipc, pid (host|private), privileged
+           port_N = host:container (published only under bridge)
+[security] privileged (false), cap_add_N, cap_drop_N, security_opt_N
+           (+ the matching *_inherit toggles; opt-in, lean by default)
+[resources] shm_size
+[environment] env_N = KEY=VALUE — set-once defaults, baked as ENV into a
+           deployable stage; volatile per-task vars go in .env instead
+[tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed mount points
+[devices]  device_N = host:container, plus cgroup rules (opt-in)
 [volumes]  mount_1 (workspace, auto-populated on first run)
            mount_2..mount_N (extra host mounts; devices via /dev path)
+[additional_contexts] context_N = name=source — extra named build contexts
 [logging]  driver (json-file default), max_size, max_file, compress
            local_path (host-side log dir; bind-mounted to /var/log/<repo>)
            container_log_keep (20), container_log_days (14) (per-start
@@ -535,6 +550,51 @@ host's name in the generated `compose.yaml`, so the local X11
 MIT-MAGIC-COOKIE (which is keyed to the host's hostname) still matches.
 Under `host` networking nothing is injected — the container already shares
 the host's UTS namespace.
+
+#### Restart policy is deploy-scoped (#841)
+
+`[lifecycle] restart` names the Docker restart policy
+(`no` | `always` | `unless-stopped` | `on-failure` | `on-failure:N`). The
+template ships **`unless-stopped`**, and the policy is emitted **only on a
+deployable stage's service** -- a field service is meant to come back after a
+host reboot, which is the whole reason it is not `no`.
+
+"Deployable" is `_is_deployable_stage` (`dist/script/docker/lib/stage.sh`),
+the one predicate both the compose emitter and `setup.sh deploy` share. It
+rejects `devel` (the interactive shell -- the container lives exactly as long
+as that shell, so an auto-restart fights you instead of helping), any
+`*-test` stage (it exists to run, assert and **exit**, so a policy that reacts
+to exit turns a green test run into a restart loop), and the build
+intermediates `sys` / `devel-base`. For any of those the emitter clears the
+policy, so:
+
+- you do **not** set `unless-stopped` yourself -- it is the shipped default;
+- setting it is **not** dangerous on `devel` or a `*-test` stage -- those
+  services structurally cannot receive it, so the classic "always-restarting
+  container that exits 0" footgun is prevented by construction rather than by
+  your care;
+- `devel` therefore carries **no** `restart:` line for an `extends: devel`
+  stage to inherit. Each emitted stage gets its own verdict from the same
+  predicate.
+
+Override per repo, or per stage:
+
+```bash
+./setup.sh set lifecycle.restart on-failure:5
+./setup.sh apply                       # regenerates compose.yaml
+```
+
+```ini
+[stage:runtime]
+lifecycle.restart = always
+```
+
+**On upgrade:** repos seeded from the old template carry a literal
+`restart = no` that nobody chose (it was the devel-scoped default, copied
+wholesale into every `.setup.conf`). `upgrade.sh` rewrites exactly that
+value to `unless-stopped`, once, and only on the upgrade that crosses the
+rescope -- see [Updating](#updating). If `no` is genuinely what you want,
+set it back afterwards; it is never rewritten again.
 
 #### Container init: PID1 reaper (#792)
 
@@ -1145,8 +1205,12 @@ just base upgrade v0.3.0
 ./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
-`upgrade.sh` handles the full cycle in one go:
+`upgrade.sh` handles the full cycle in one go. **It writes to your repo, and
+some of what it writes is your own files** -- read the next subsection before
+running it on a repo with a live field deployment. The numbered cycle:
 
+0. **Migrations, before anything else, each in its own commit.** See
+   [What upgrade.sh rewrites in your repo](#what-upgradesh-rewrites-in-your-repo).
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull integrity check — `git reset --hard` rollback if subtree
    markers (`.base/.version`, `.base/dist/script/base/init.sh`,
@@ -1159,15 +1223,59 @@ just base upgrade v0.3.0
    regenerate `.env.generated` + `compose.yaml`
 4. `sed` rewrites `.github/workflows/main.yaml`'s
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
-
-Your per-repo files are never overwritten: `<repo>/.setup.conf` stays
-as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
-alone — if upstream `.base/dist/config/` moved since the last pull,
-upgrade.sh prints a `diff -ruN .base/dist/config config` hint so you can
-reconcile manually.
+5. `apply_migrations` (`lib/dockerfile_migrate.sh`) heals the **repo-root
+   `Dockerfile`** and **`script/entrypoint.sh`** where a base contract
+   changed under them, and stages the result into the same commit as steps
+   3-4
 
 Don't `git subtree pull` by hand — the integrity check, init.sh
-resync, and sed steps are easy to forget.
+resync, sed and migration steps are easy to forget.
+
+#### What upgrade.sh rewrites in your repo
+
+`.base/` is base's; everything else in the repo is yours. Even so, an
+upgrade is **not** read-only outside `.base/`: base contract changes that
+cannot be absorbed inside the subtree are healed in your files instead, and
+upgrade.sh does that by **committing**, so the change arrives in your
+history authored by you. Nothing is silent — each migration announces itself
+on stdout — but the transcript scrolls past, so here is the full list.
+
+| When | What is rewritten | Committed as |
+|---|---|---|
+| Before step 1 | `config/docker/setup.conf` → `.setup.conf` (`git mv`; refuses and reports if BOTH exist, root file wins) | `chore: relocate setup.conf override to repo-root .setup.conf` |
+| Before step 1 | `.setup.conf`'s `[lifecycle] restart = no` → `unless-stopped` | `chore: migrate [lifecycle] restart default to unless-stopped` |
+| Step 3 | `.gitignore` canonical entries; `git rm --cached` of now-derived files | folded into the step-4 commit |
+| Step 4 | `.github/workflows/main.yaml` worker `@tag` refs | `chore: update template references to <version>` |
+| Step 5 | repo-root `Dockerfile`, `script/entrypoint.sh` | folded into the step-4 commit |
+
+> **The restart migration changes runtime behaviour.** `[lifecycle] restart`
+> used to be devel-scoped with a template default of `no`, and `init.sh
+> --gen-conf` copies the whole template, so practically every repo carries a
+> literal `restart = no` that nobody chose. The key is now deploy-scoped
+> (see [Restart policy is deploy-scoped](#restart-policy-is-deploy-scoped-841)),
+> which makes that copied `no` stale by construction. So it is rewritten --
+> **a deployable-stage container that previously stayed down after a host
+> reboot will now come back up.** If that is not what you want, set it back
+> to `no` after the upgrade; the migration is inert from then on.
+>
+> It fires only on the upgrade that crosses the rescope (the *pre-pull*
+> vendored template still shipping `restart = no` is the discriminator), only
+> when your value is exactly `no`, and never on a repo that chose anything
+> else.
+
+**To see exactly what was done to your files**, afterwards:
+
+```bash
+git log --oneline <pre-upgrade-sha>..HEAD     # the migration commits by name
+git diff <pre-upgrade-sha>..HEAD -- . ':!.base'   # everything outside .base/
+```
+
+What upgrade.sh does **not** touch: your `.setup.conf` beyond that one
+`[lifecycle] restart` line, and `<repo>/config/` (bashrc / tmux /
+terminator …) at all — if upstream `.base/dist/config/` or
+`.base/dist/.setup.conf` moved since the last pull, upgrade.sh prints a
+`diff -ruN .base/dist/config config` hint so you can reconcile manually,
+rather than merging for you.
 
 #### Automated version bumps (optional)
 
@@ -1348,16 +1456,23 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   │       ├── new.sh
 │   │       └── skel/                   # justfile.skel + skel.sh
 │   └── test/
-│       └── smoke/                      # Shared smoke tests + runtime assertion helpers
-│           ├── test_helper.bash        #   assert_cmd_installed / _runs / file / dir / ...
-│           ├── script_help.bats
-│           └── display_env.bats
+│       └── bats/
+│           └── smoke/                  # Build-time smoke specs, one folder per `-test` stage
+│               ├── shared/             # Runs on EVERY `-test` stage
+│               │   ├── test_helper.bash #  assert_cmd_installed / _runs / file / dir / ...
+│               │   └── entrypoint.bats
+│               ├── devel-test/         # devel-test-only assertions
+│               │   ├── script_help.bats
+│               │   └── display_env.bats
+│               └── runtime-test/       # runtime-test-only assertions (empty by default)
 ├── script/                             # base's OWN self-test/release tooling (not symlinked)
 │   ├── test/
 │   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # Dispatcher (local + in-container)
 │   │   ├── lint_bare_stderr.sh
-│   │   └── drivers/                    # One driver per tool: bats.sh / shellcheck.sh / hadolint.sh
+│   │   └── drivers/                    # One driver per lint/test tool (bats / shellcheck / hadolint
+│   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
+│   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate)
 │   └── release/
 │       └── justfile.release            # just release <recipe>
 ├── dockerfile/
@@ -1366,7 +1481,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   └── bats/
 │       ├── unit/                       # Unit-level specs + bash helpers (bats + kcov)
 │       ├── integration/                # Integration-level init/upgrade end-to-end specs
-│       ├── system/                     # System level / Regression (opt-in; runtime_test_smoke_spec.bats)
+│       ├── system/                     # System level / Regression (opt-in; runtime-test smoke + deploy-bundle e2e)
 │       └── acceptance/                 # Acceptance level (UAT/OAT; reserved, S5 #785)
 ├── .github/
 │   ├── dependabot.yml
@@ -1379,7 +1494,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │       └── release-test-tools.yaml     # base's own test-tools image release
 ├── doc/
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
-│   ├── adr/                            # Architecture Decision Records (00000001 … 00000012)
+│   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/
 │   │   ├── TEST.md                     # Test index (grand total + per-category links)
 │   │   ├── unit.md                     # Unit spec catalog

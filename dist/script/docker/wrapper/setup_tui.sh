@@ -15,12 +15,21 @@
 #
 # Style: Google Shell Style Guide.
 
-set -euo pipefail
+# Only set strict mode when running directly; when sourced, respect caller's
+# settings. Leaving nounset on for the caller is what made this file
+# unsourceable under the kcov-instrumented shell: kcov's PS4 expands
+# ${BASH_SOURCE}, which is empty at the top level of a `bash -c` string, so
+# the caller's next command aborted inside the instrumentation. Every
+# sibling sourceable script (setup.sh, init.sh, test.sh, ...) already
+# gates it this way.
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
 # FILE_PATH detection covers root-symlink, script/-subfolder
 # and direct invocation — see build.sh for the heuristic.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
@@ -31,7 +40,7 @@ fi
 unset _FILE_PATH_INVOKE_DIR
 readonly FILE_PATH
 
-_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_TUI_SELF="$(readlink -f "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
 _TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
 _TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"
@@ -59,6 +68,13 @@ source "${_TUI_LIB_DIR}/_tui_backend.sh"
 source "${_TUI_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/schema.sh"
+# stage.sh for _dockerfile_stage_from_line: the TUI is a reader of the
+# Dockerfile's stage list like the compose emitter and the deploy bake, and
+# a private copy of that matcher is exactly how the readers drifted apart
+# before. stage.sh is a leaf of function definitions with no source-time
+# side effects, so sharing it costs the TUI nothing at startup.
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/stage.sh"
 
 # ── Messages (4 languages) ────────────────────────────────────────────────
 # Flat associative arrays per language. Key format: <ns>.<name>. Missing
@@ -103,7 +119,7 @@ _TUI_MSG_EN[advanced.reset]="Reset to defaults"
 _TUI_MSG_EN[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_EN[per_stage.title]="Per-stage overrides"
 _TUI_MSG_EN[per_stage.menu]="Pick a stage to edit, or Back"
-_TUI_MSG_EN[per_stage.empty]=$'No non-baseline stages found in Dockerfile.\n\nPer-stage overrides apply to `FROM ... AS <name>` stages outside\nthe baseline blocklist {sys, devel-base, devel, devel-test,\nruntime-test} (legacy {base, test} also accepted during v0.21.x\ntransition). Add a stage to your Dockerfile first, then return here\nto override its runtime config.'
+_TUI_MSG_EN[per_stage.empty]=$'No non-baseline stages found in Dockerfile.\n\nPer-stage overrides apply to `FROM ... AS <name>` stages outside\nthe baseline blocklist {sys, devel-base, devel, runtime-test}\n(legacy {base, test} also accepted during v0.21.x transition;\ndevel-test is emitted as the test service, so it IS overridable). Add a stage to your Dockerfile first, then return here\nto override its runtime config.'
 _TUI_MSG_EN[per_stage.back]="Back"
 _TUI_MSG_EN[per_stage.overrides_set]="overrides set"
 _TUI_MSG_EN[per_stage.inherits_all]="(inherits all)"
@@ -340,7 +356,7 @@ _TUI_MSG_ZH_TW[advanced.reset]="重置為預設值"
 _TUI_MSG_ZH_TW[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_ZH_TW[per_stage.title]="Per-stage overrides"
 _TUI_MSG_ZH_TW[per_stage.menu]="選擇要編輯的 stage，或返回"
-_TUI_MSG_ZH_TW[per_stage.empty]=$'Dockerfile 中沒有非 baseline 的 stage。\n\nPer-stage overrides 套用於 baseline {sys, devel-base, devel,\ndevel-test, runtime-test}（v0.21.x 過渡期同時接受舊名 {base, test}）\n以外的 `FROM ... AS <name>` stage。請先在 Dockerfile 中加入額外\nstage，再回來這裡 override 該 stage 的 runtime 設定。'
+_TUI_MSG_ZH_TW[per_stage.empty]=$'Dockerfile 中沒有非 baseline 的 stage。\n\nPer-stage overrides 套用於 baseline {sys, devel-base, devel,\nruntime-test}（v0.21.x 過渡期同時接受舊名 {base, test}；devel-test\n會以 test service 送出，因此可以 override）以外的 `FROM ... AS <name>` stage。請先在 Dockerfile 中加入額外\nstage，再回來這裡 override 該 stage 的 runtime 設定。'
 _TUI_MSG_ZH_TW[per_stage.back]="返回"
 _TUI_MSG_ZH_TW[per_stage.overrides_set]="個 override"
 _TUI_MSG_ZH_TW[per_stage.inherits_all]="(全部繼承)"
@@ -575,7 +591,7 @@ _TUI_MSG_ZH_CN[advanced.reset]="重置为默认值"
 _TUI_MSG_ZH_CN[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_ZH_CN[per_stage.title]="Per-stage overrides"
 _TUI_MSG_ZH_CN[per_stage.menu]="选择要编辑的 stage，或返回"
-_TUI_MSG_ZH_CN[per_stage.empty]=$'Dockerfile 中没有非 baseline 的 stage。\n\nPer-stage overrides 应用于 baseline {sys, devel-base, devel,\ndevel-test, runtime-test}（v0.21.x 过渡期同时接受旧名 {base, test}）\n以外的 `FROM ... AS <name>` stage。请先在 Dockerfile 中加入额外\nstage，再回来这里 override 该 stage 的 runtime 设定。'
+_TUI_MSG_ZH_CN[per_stage.empty]=$'Dockerfile 中没有非 baseline 的 stage。\n\nPer-stage overrides 应用于 baseline {sys, devel-base, devel,\nruntime-test}（v0.21.x 过渡期同时接受旧名 {base, test}；devel-test\n会以 test service 送出，因此可以 override）以外的 `FROM ... AS <name>` stage。请先在 Dockerfile 中加入额外\nstage，再回来这里 override 该 stage 的 runtime 设定。'
 _TUI_MSG_ZH_CN[per_stage.back]="返回"
 _TUI_MSG_ZH_CN[per_stage.overrides_set]="个 override"
 _TUI_MSG_ZH_CN[per_stage.inherits_all]="(全部继承)"
@@ -805,7 +821,7 @@ _TUI_MSG_JA[advanced.reset]="デフォルトにリセット"
 _TUI_MSG_JA[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_JA[per_stage.title]="Per-stage overrides"
 _TUI_MSG_JA[per_stage.menu]="編集する stage を選択するか、戻る"
-_TUI_MSG_JA[per_stage.empty]=$'Dockerfile に非 baseline の stage がありません。\n\nPer-stage overrides は baseline {sys, devel-base, devel, devel-test,\nruntime-test}（v0.21.x 移行期間中は旧名 {base, test} も受け付け）以外\nの `FROM ... AS <name>` stage に適用されます。先に Dockerfile に\nstage を追加してから、このメニューで runtime 設定を override\nしてください。'
+_TUI_MSG_JA[per_stage.empty]=$'Dockerfile に非 baseline の stage がありません。\n\nPer-stage overrides は baseline {sys, devel-base, devel,\nruntime-test}（v0.21.x 移行期間中は旧名 {base, test} も受け付け。\ndevel-test は test service として出力されるため override 可能）以外\nの `FROM ... AS <name>` stage に適用されます。先に Dockerfile に\nstage を追加してから、このメニューで runtime 設定を override\nしてください。'
 _TUI_MSG_JA[per_stage.back]="戻る"
 _TUI_MSG_JA[per_stage.overrides_set]="件の override"
 _TUI_MSG_JA[per_stage.inherits_all]="(すべて継承)"
@@ -2098,9 +2114,12 @@ _edit_section_logging() {
 # _list_dockerfile_stages_available <out_array_var> [<base_path>]
 #
 # Parses <base_path>/Dockerfile and returns non-baseline stages (the
-# same set _parse_dockerfile_stages emits in setup.sh — duplicated here
-# rather than sourcing setup.sh because setup_tui.sh keeps its
-# dependency surface deliberately small).
+# same set _parse_dockerfile_stages emits). The baseline filter is
+# restated here because the TUI's is deliberately different — devel-test
+# stays offered as an editable stage — but the "is this a stage line"
+# question is answered by the shared _dockerfile_stage_from_line, so the
+# menu can never disagree with the compose emitter about which stages a
+# Dockerfile has.
 #
 # <base_path> defaults to ${FILE_PATH} (the repo's compose-yaml dir).
 # Test code overrides it to point at a temp Dockerfile, since
@@ -2114,8 +2133,7 @@ _list_dockerfile_stages_available() {
   [[ -f "${_df}" ]] || return 0
   local _line _stage _seen=" "
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
-    _stage="${BASH_REMATCH[1]}"
+    _dockerfile_stage_from_line "${_line}" _stage || continue
     case "${_stage}" in
       # (A1'-b): devel-test is offered as an editable stage (the
       # `test` service override surface); only the rest of the baseline

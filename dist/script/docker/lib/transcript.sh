@@ -39,7 +39,7 @@ _DOCKER_LIB_TRANSCRIPT_SOURCED=1
 # Defensive: the shellcheck /lint image stage flattens lib/ alone (no
 # runtime/ sibling), so a missing helper must NOT abort the wrapper under
 # set -e -- the finalize path guards each call with `declare -F`.
-_transcript_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_transcript_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 if [[ -r "${_transcript_lib_dir}/../runtime/logrotate.sh" ]]; then
   # shellcheck source=dist/script/docker/runtime/logrotate.sh
   source "${_transcript_lib_dir}/../runtime/logrotate.sh"

@@ -761,6 +761,115 @@ CONF
   assert_failure
 }
 
+# ── relocated from the shipped smoke spec ───────────────────────────────
+#
+# dist/test/bats/smoke/devel-test/display_env.bats used to assert these
+# against /lint/compose.yaml. compose.yaml is a derived artifact listed in
+# .dockerignore, so it is never in a build context and that file never
+# exists -- the assertions were gated on a condition that is false in every
+# repo and every runner, so they only ever skipped. Here the emitter is
+# driven directly with the GUI resolved both ON and OFF, so both sides can
+# fail.
+
+@test "generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR env (Wayland socket dir)" {
+  # The Wayland compositor socket lives in XDG_RUNTIME_DIR; without the env
+  # the client looks in the container's own (empty) runtime dir.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "false" "0" "gpu" _extras
+  run grep -F 'XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR mounted rw at the same path" {
+  # rw, and mirrored path: the Wayland client connects to
+  # ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}, so the mount target has to match
+  # the env, and the socket handshake writes.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "false" "0" "gpu" _extras
+  run grep -E '\$\{XDG_RUNTIME_DIR:-/run/user/1000\}:\$\{XDG_RUNTIME_DIR:-/run/user/1000\}:rw' \
+    "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'XDG_RUNTIME_DIR' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+# _assert_no_duplicate_service_keys <compose_file>
+#
+# Fail if any service block repeats a mapping key. Two `environment:` or two
+# `tmpfs:` keys under one service is not a style nit -- it is a hard
+# `docker compose up` parse error, and the emitter builds each block from an
+# independent conditional, so a new emitter that forgets an existing one is
+# exactly how it happens. Structural, and completely independent of the GUI.
+_assert_no_duplicate_service_keys() {
+  local _file="${1:?_assert_no_duplicate_service_keys: missing file}"
+  run awk '
+    /^  [A-Za-z0-9_.-]+:/ { svc = $0; split("", seen); next }
+    /^    [A-Za-z0-9_.-]+:/ {
+      key = $0
+      sub(/:.*/, "", key)
+      if (key in seen) {
+        printf "line %d: duplicate key%s inside%s\n", NR, key, svc
+        found = 1
+      }
+      seen[key] = 1
+    }
+    END { exit found ? 1 : 0 }
+  ' "${_file}"
+  assert_success
+}
+
+@test "generate_compose_yaml emits no duplicate key within a service (GUI on)" {
+  local _extras=("/dev:/dev")
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "true" "1" "gpu" _extras
+  _assert_no_duplicate_service_keys "${COMPOSE_OUT}"
+}
+
+@test "generate_compose_yaml emits no duplicate key within a service (GUI off)" {
+  local _extras=("/dev:/dev")
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  _assert_no_duplicate_service_keys "${COMPOSE_OUT}"
+}
+
+@test "the duplicate-key detector actually fires on a duplicated service key" {
+  # A structural checker that never reports anything is the same failure
+  # mode as the spec this one replaces. Feed it a known-bad document.
+  cat > "${COMPOSE_OUT}" <<'YAML'
+services:
+  devel:
+    image: a
+    environment:
+      - FOO=1
+    environment:
+      - BAR=2
+YAML
+  run awk '
+    /^  [A-Za-z0-9_.-]+:/ { svc = $0; split("", seen); next }
+    /^    [A-Za-z0-9_.-]+:/ {
+      key = $0
+      sub(/:.*/, "", key)
+      if (key in seen) {
+        printf "line %d: duplicate key%s inside%s\n", NR, key, svc
+        found = 1
+      }
+      seen[key] = 1
+    }
+    END { exit found ? 1 : 0 }
+  ' "${COMPOSE_OUT}"
+  assert_failure
+  assert_output --partial "duplicate key"
+  assert_output --partial "environment"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Extra volumes ([volumes] section)
 # ════════════════════════════════════════════════════════════════════

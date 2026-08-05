@@ -66,8 +66,10 @@ _Avoid_: ci image, builder image.
 What a downstream repo builds via `just docker build` from
 `dist/dockerfile/Dockerfile` — the repo's own product image, built at a
 given **stage**. `devel` is the dev-host workstation stage and is never a
-deploy target; the field-deployable artifact is a field stage (`runtime`),
-never `devel` or a `*-test` stage (PRD invariant 8, ADR-00000023 sec. 4).
+deploy target; the field-deployable artifact is built from a **deployable
+stage** (`runtime` is the template's example name), never `devel`, a
+`*-test` stage, or a build intermediate (PRD invariant 8,
+ADR-00000023 sec. 4).
 _Avoid_: app image (acceptable informally), product image.
 
 **template repo**:
@@ -99,9 +101,26 @@ and deploy renderers emit for.
 _Avoid_: target (acceptable in Docker context), layer, image variant.
 
 **Baseline stage**:
-A reserved stage (`devel` / `devel-test`) that is not emitted as a
-user service, as opposed to an **emittable stage**.
+A template-managed stage name `{sys, devel-base, devel, runtime-test}`
+(legacy aliases `{base, test}` during the v0.21.x transition) that a
+downstream Dockerfile may not re-declare, as opposed to an **emittable
+stage**. The set is `_validate_stage_name`'s `return 2` arms
+(`lib/stage.sh`) and nothing else; the `derived-figures` lint pins every
+document that repeats it. `devel-test` is deliberately NOT baseline: it
+is emitted as the `test` service, which is what gives
+`[stage:devel-test]` a runtime control surface.
 _Avoid_: base stage, default stage.
+
+**Deployable stage**:
+A stage eligible to be built into a **deploy bundle**, and the only kind
+of stage the compose emitter gives a `restart:` policy to. Defined by
+`_is_deployable_stage` (`lib/stage.sh`), shared by exactly those two
+callers so the rule has one definition: everything is deployable EXCEPT
+`devel` (it is the interactive shell), any `*-test` stage (it exists to
+run, assert and exit), `sys` / `devel-base` (build intermediates with no
+runnable service), and the legacy aliases `base` / `test`.
+_Avoid_: field stage (acceptable informally), production stage,
+runtime stage (that is one example name, not the category).
 
 **Baked artifact**:
 Something an image builds into itself (a colcon workspace, an SDK, a
@@ -144,10 +163,32 @@ workload overlay (ADR-00000003).
 _Avoid_: env split, config layering.
 
 **Field deploy**:
-The self-contained `deploy.sh` launcher + `tar.xz` image bundle produced
-by `setup.sh deploy` to run a baked **stage** off the dev host; it carries
-docker-level run flags but not the dev binds (ADR-00000003, #506).
-_Avoid_: export, ship, release bundle.
+Producing and running a **deploy bundle** — the act; `setup.sh deploy`
+generates, `deploy.sh up` runs it on the field host.
+_Avoid_: export, ship, release.
+
+**Deploy bundle**:
+The artifact `setup.sh deploy` produces for one **deployable stage**: the
+folder `deploy/<repo>-<stage>-<version>/` holding `image.tar.xz`, a
+fully-resolved self-contained `compose.yaml` (literal values, no
+`setup.conf` / `.env.generated` dependency), a `config/` folder of
+operator-editable copies, a thin `deploy.sh` up/down/logs launcher and a
+field-operator `README`. It is driven by `docker compose`, not by raw
+`docker run` flags — ADR-00000023 sec. 3 amends ADR-00000003's "compose
+does not travel" for exactly this artifact: a *resolved* compose does
+travel. The dev binds do not.
+_Avoid_: release bundle, tarball, image bundle (it is more than the
+image), `deploy.sh` bundle.
+
+**`deploy.manifest`**:
+A committed `config/<component>/deploy.manifest` (INI-lite, one section
+per **deployable stage**) naming the absolute container paths a field
+operator may retune without a rebuild. base ships an editable copy of each
+under the bundle's `config/` and binds it over the image's baked default
+(**mount-wins**); the repo's entrypoint keeps the semantics. Binds are
+read-only unless the path declares `rw`. base moves the files the manifest
+lists and never parses their contents (ADR-00000023 sec. 5, #870).
+_Avoid_: tunable list, override manifest, config manifest.
 
 **Managed `.gitignore` block**:
 The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
@@ -228,9 +269,10 @@ _Avoid_: upgrade seds, Dockerfile patcher.
   `compose.yaml`.
 - A **per-stage override** refines the global config for one **stage**;
   the **per-service compose emitter** renders each emittable **stage**.
-- **Field deploy** bakes one **stage** into a self-contained bundle,
-  honouring the **env vs workload parameter boundary** (docker-level flags
-  travel; dev binds do not).
+- **Field deploy** bakes one **deployable stage** into a **deploy
+  bundle**, honouring the **env vs workload parameter boundary** (a
+  fully-resolved `compose.yaml` travels; dev binds do not), and ships an
+  editable copy of every path a **`deploy.manifest`** declares.
 - `upgrade.sh` pulls the **`.base` subtree** and heals downstream
   Dockerfiles via the **Dockerfile-migration list**.
 - The **base version monitor** (`check-base-version.sh`, shipped in the
@@ -248,7 +290,8 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 > The **per-service compose emitter** renders `probe` as its own service."
 >
 > **Dev:** "And if I `setup.sh deploy --stage probe`?"
-> **Maintainer:** "That produces a **field deploy** bundle for `probe`.
+> **Maintainer:** "That produces a **deploy bundle** for `probe`, if
+> `probe` is a **deployable stage**.
 > Its `[environment]` defaults are baked as image `ENV`, but your `.env`
 > workload overlay and the `~/work` bind stay behind — that is the **env
 > vs workload parameter boundary**."

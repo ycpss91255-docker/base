@@ -24,7 +24,7 @@ set -euo pipefail
 # the caller's cwd. readlink -f follows the consumer-repo symlink chain
 # (script/<ns>/justfile.<ns> -> .base/dist/...), so the lib is found from
 # either the base-self tree or a consumer subtree.
-_help_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+_help_self="$(readlink -f -- "${BASH_SOURCE[0]:-$0}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]:-$0}")"
 _help_lib_dir="$(dirname -- "${_help_self}")"
 # shellcheck source=dist/script/docker/lib/i18n.sh
 source "${_help_lib_dir}/i18n.sh"

@@ -12,7 +12,7 @@
 # consumer sourced it on its own (init.sh gets it via _lib.sh; the unit
 # specs source this file directly). log.sh is self-guarding, so the
 # double source is free -- same shape as schema.sh pulling in _tui_conf.sh.
-_gitignore_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_gitignore_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_gitignore_lib_dir}/log.sh"
 unset _gitignore_lib_dir
