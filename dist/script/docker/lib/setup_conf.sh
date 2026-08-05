@@ -73,11 +73,19 @@ unset _setup_conf_lib_dir
 # are returned whether or not they exist -- an absent layer contributes
 # nothing, and every reader passes the whole chain unconditionally so the
 # precedence lives in exactly one place.
+#
+# The template layer is OMITTED when _SETUP_SCRIPT_DIR is unset (init.sh /
+# upgrade.sh reach the readers via conf_logging.sh without sourcing
+# setup.sh). Omitted rather than left to resolve: an empty prefix would
+# make the path `/../../../.setup.conf`, i.e. `/.setup.conf` -- a real,
+# readable path that has nothing to do with this repo.
 _setup_conf_layers() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _scl_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
-  _scl_out=(
-    "${_SETUP_SCRIPT_DIR:-}/../../../.setup.conf"
+  _scl_out=()
+  [[ -n "${_SETUP_SCRIPT_DIR:-}" ]] \
+    && _scl_out+=("${_SETUP_SCRIPT_DIR}/../../../.setup.conf")
+  _scl_out+=(
     "${_base}/.setup.conf"
     "${_base}/.setup.conf.local"
   )
