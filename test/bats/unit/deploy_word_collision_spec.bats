@@ -101,7 +101,7 @@ setup() {
 
 @test "setup_tui --help lists gpu and denies the field-bundle reading (#879)" {
   run bash "${TUI_SH}" --help
-  assert_failure
+  assert_success
   assert_output --partial "gpu"
   assert_output --partial "./setup.sh deploy"
 }
@@ -110,7 +110,7 @@ setup() {
   local _lang
   for _lang in en zh-TW zh-CN ja; do
     run bash "${TUI_SH}" --help --lang "${_lang}"
-    assert_failure
+    assert_success
     assert_output --partial "gpu"
     assert_output --partial "./setup.sh deploy"
   done
@@ -119,5 +119,5 @@ setup() {
 @test "setup.sh --help distinguishes the deploy subcommand from the section (#879)" {
   run bash "${SETUP_SH}" --help
   assert_success
-  assert_output --partial "not the [deploy] setup.conf section"
+  assert_output --partial "NOT the [deploy] section of setup.conf"
 }

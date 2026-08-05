@@ -36,8 +36,23 @@ _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
 _TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
 _TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"
 
+# setup_tui.sh sources its libs directly (there is no _bootstrap here), so
+# the verb has to be exported before transcript.sh so its classification
+# resolves setup_tui as an interactive capture verb.
+export _WRAPPER_VERB=setup_tui
+
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/i18n.sh"
+# log.sh / transcript.sh / hook.sh back the _transcript_begin +
+# _transcript_detach + _run_{pre,post}_hook calls in main. They are safe to
+# source (transcript activation is explicit in _transcript_begin, never at
+# source time), and without them main dies on its very first statement.
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/log.sh"
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/transcript.sh"
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/hook.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/_tui_backend.sh"
 # shellcheck disable=SC1091
@@ -277,6 +292,8 @@ _TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-em
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
+_TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
+_TUI_MSG_EN[deploy.ambiguous.body]=$'You opened the [deploy] section editor.\n\n[deploy] configures GPU reservation ONLY -- the section is named after\nCompose\'s `deploy:` key, not after deployment.\n\nThe field-deploy bundle is a different command:\n  ./setup.sh deploy      (just docker setup deploy)\n\nThe unambiguous name for THIS editor is `gpu`:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_EN[saved]="Saved to %s. Regenerating .env.generated + compose.yaml..."
 _TUI_MSG_EN[action.prompt]="Choose an action"
 _TUI_MSG_EN[action.edit]="Edit"
@@ -510,6 +527,8 @@ _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
 _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
+_TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
+_TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env.generated + compose.yaml..."
 _TUI_MSG_ZH_TW[action.prompt]="選擇動作"
 _TUI_MSG_ZH_TW[action.edit]="編輯"
@@ -738,6 +757,8 @@ _TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整�
 _TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
+_TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
+_TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env.generated + compose.yaml..."
 _TUI_MSG_ZH_CN[action.prompt]="选择动作"
 _TUI_MSG_ZH_CN[action.edit]="编辑"
@@ -966,6 +987,8 @@ _TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数�
 _TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
+_TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
+_TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_JA[saved]="%s に保存しました。.env.generated + compose.yaml を再生成中..."
 _TUI_MSG_JA[action.prompt]="アクションを選択"
 _TUI_MSG_JA[action.edit]="編集"
@@ -1018,7 +1041,9 @@ SECTION（可直接跳至特定區段）:
   image     IMAGE_NAME 偵測規則
   build     Dockerfile build args（APT mirror）
   network   Network mode / IPC / privileged
-  deploy    GPU 保留設定
+  gpu       GPU 保留設定（[deploy] section）
+  deploy    gpu 的別名；[deploy] 這個名稱沿用 Compose，與
+            field-deploy bundle（`./setup.sh deploy`）無關
   gui       GUI 顯示模式
   volumes   工作區與額外掛載
 EOF
@@ -1034,7 +1059,9 @@ SECTION（可直接跳至指定区段）:
   image     IMAGE_NAME 检测规则
   build     Dockerfile build args（APT mirror）
   network   Network mode / IPC / privileged
-  deploy    GPU 预留设置
+  gpu       GPU 预留设置（[deploy] section）
+  deploy    gpu 的别名；[deploy] 这个名称沿用 Compose，与
+            field-deploy bundle（`./setup.sh deploy`）无关
   gui       GUI 显示模式
   volumes   工作区与额外挂载
 EOF
@@ -1050,7 +1077,9 @@ SECTION（特定セクションへ直接移動）:
   image     IMAGE_NAME 検出ルール
   build     Dockerfile build args（APT ミラー）
   network   Network mode / IPC / privileged
-  deploy    GPU 予約設定
+  gpu       GPU 予約設定（[deploy] セクション）
+  deploy    gpu の別名。[deploy] という名前は Compose 由来で、
+            field-deploy bundle（`./setup.sh deploy`）とは無関係
   gui       GUI 表示モード
   volumes   ワークスペースと追加マウント
 EOF
@@ -1067,7 +1096,10 @@ SECTION (jump directly to one section editor):
   image     IMAGE_NAME detection rules
   build     Dockerfile build args (APT mirrors)
   network   Network mode / IPC / privileged
-  deploy    GPU reservation
+  gpu       GPU reservation (the [deploy] section)
+  deploy    alias for gpu; the [deploy] name follows Compose and has
+            nothing to do with the field-deploy bundle, which is
+            `./setup.sh deploy`
   gui       GUI display mode
   volumes   Workspace + extra mounts
 EOF
@@ -2674,12 +2706,49 @@ _tui_known_subcommand() {
   local _arg="${1-}"
   _schema_is_section "${_arg}" && return 0
   [[ "${_arg}" == "ports" ]] && return 0
+  [[ "${_arg}" == "gpu" ]] && return 0
   return 1
+}
+
+# _tui_canonical_section <arg>
+#
+# Print the section editor <arg> reaches. Everything is its own name except
+# `gpu`, the unambiguous spelling of the `[deploy]` section: that section
+# configures GPU reservation only and is named after Compose's `deploy:`
+# key, which collides head-on with `setup.sh deploy` (the field-deploy
+# bundle). Renaming the section is off the table -- it follows Compose --
+# so the editor gains a second, non-colliding name instead and `deploy`
+# stays a working alias.
+_tui_canonical_section() {
+  local _arg="${1-}"
+  if [[ "${_arg}" == "gpu" ]]; then
+    printf 'deploy'
+  else
+    printf '%s' "${_arg}"
+  fi
+}
+
+# _warn_if_deploy_word_ambiguous <raw_subcommand>
+#
+# Say which of the two `deploy` things the user just got, but only when
+# they used the colliding word. Reaching the same editor through `gpu` is
+# unambiguous by construction and stays silent -- so the notice is
+# escapable by learning the better name, not by suppressing a warning.
+#
+# A msgbox rather than stderr for the same reason _warn_if_lang_rejected
+# uses one: curses clears the terminal before the user could read it.
+_warn_if_deploy_word_ambiguous() {
+  [[ "${1-}" == "deploy" ]] || return 0
+  _tui_msgbox "$(_tui_msg deploy.ambiguous.title)" \
+    "$(_tui_msg deploy.ambiguous.body)"
 }
 
 main() {
   _transcript_begin  # capture pre-launch phase; detach before the TUI
   local _subcmd=""
+  # What the user actually typed, kept so the deploy-word notice can fire
+  # on the ambiguous spelling and stay silent on the unambiguous one.
+  local _subcmd_raw=""
   # Remember the raw --lang value if sanitize rejects it, so we can
   # surface the warning INSIDE the TUI (the stderr message from
   # _sanitize_lang gets hidden by curses once dialog takes over).
@@ -2700,7 +2769,8 @@ main() {
         ;;
       *)
         if _tui_known_subcommand "${1}"; then
-          _subcmd="${1}"
+          _subcmd_raw="${1}"
+          _subcmd="$(_tui_canonical_section "${1}")"
           shift
         else
           printf "[tui] unknown argument: %s\n" "${1}" >&2
@@ -2719,6 +2789,10 @@ main() {
 
   # Surface the --lang rejection before the main menu opens.
   _warn_if_lang_rejected "${_bad_lang_input}"
+
+  # `setup_tui.sh deploy` and `setup.sh deploy` are unrelated; say which
+  # one this is before the GPU editor opens.
+  _warn_if_deploy_word_ambiguous "${_subcmd_raw}"
 
   # TUI's save target is the per-repo override (setup.conf). Loading
   # reads it on top of the template baseline so existing overrides

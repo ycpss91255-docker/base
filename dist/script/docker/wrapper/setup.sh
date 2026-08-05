@@ -262,6 +262,11 @@ Subcommands:
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
+                Ships an image to the field. This is
+                NOT the [deploy] section of setup.conf, which configures
+                GPU reservation only and is named after Compose's
+                `deploy:` key -- edit that with `./setup_tui.sh gpu`
+                (`deploy` there is a kept alias).
                 Build a self-contained field-deploy FOLDER for stage S
                 (default runtime): docker build --target S tagged
                 <name>:<stage>-<version>, docker save | xz, a fully-
