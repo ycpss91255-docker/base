@@ -97,12 +97,19 @@ resolve-docs:
     ./script/test/resolve-doc-counts.sh
 
 # just test sync-readme -> re-stamp each doc/readme/README.*.md section with
-# the hash of the README.md section it was translated against. Run this AFTER
-# updating a translation; never hand-edit a hash. Idempotent; it also reports
-# the English sections a translation still accounts for neither way (no
-# `<!-- sync: <id> -->` marker, no `<!-- sync-skip: <id> -- <why> -->`).
-sync-readme:
-    ./script/test/sync-readme-hashes.sh
+# the hash of the README.md section it was translated against AND of the
+# translated section itself. Run this AFTER updating a translation; never
+# hand-edit a hash. Idempotent; it also reports the English sections a
+# translation still accounts for neither way (no `<!-- sync: <id> -->`
+# marker, no `<!-- sync-skip: <id> -- <why> -->`).
+#
+# It is NOT a way to make the lint stop complaining: a section whose English
+# hash moved while its translation stood still is refused, by name, and the
+# run exits non-zero. `just test sync-readme --accept <id>[,<id>...]` is the
+# explicit "I read the English change and the translation is still correct"
+# -- the case an English typo fix creates, kept to one command.
+sync-readme *args:
+    ./script/test/sync-readme-hashes.sh {{args}}
 
 # just test sync-readme-check -> validate the translation markers WITHOUT
 # writing (the read-only twin of sync-readme, and the same lint the default
