@@ -45,7 +45,11 @@ teardown() {
   assert_line ".env.bak"
   assert_line "compose.yaml"
   assert_line ".setup.conf.bak"
-  refute_line ".setup.conf.local"
+  # .setup.conf.local rides the shared list on purpose: the per-worktree
+  # override is untracked machine-local config, and letting it into a build
+  # context is exactly how an unversioned value would end up baked into an
+  # image (PRD invariant 8's dev/field split).
+  assert_line ".setup.conf.local"
   assert_line "coverage/"
   assert_line ".Dockerfile.generated"
   assert_line ".docker.xauth"

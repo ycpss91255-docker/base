@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2618 tests**.
+Unit specs under `test/bats/unit/`: **2620 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2549,16 +2549,18 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (44)
+### test/bats/unit/gitignore_spec.bats (46)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606, #832, #879)` | - |
-| `_canonical_gitignore_entries: no longer advertises .setup.conf.local (#879)` | - |
-| `_retired_gitignore_entries: records .setup.conf.local as retired (#879)` | - |
+| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)` | - |
+| `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
+| `no entry is both canonical and retired (#893)` | - |
+| `_retired_gitignore_entries: retires nothing today (#893)` | - |
+| `_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)` | - |
 | `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
 | `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |
