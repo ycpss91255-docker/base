@@ -109,7 +109,7 @@ teardown() {
   done
 }
 
-# ── project name: one value, two consumers (#893) ──────────────────────────
+# ── project name: one value, two consumers ─────────────────────────────────
 
 @test "the -p project name and compose.yaml's name: are one value, not two computations" {
   # The defect: the wrapper computed `${DOCKER_HUB_USER}-${IMAGE_NAME}` in

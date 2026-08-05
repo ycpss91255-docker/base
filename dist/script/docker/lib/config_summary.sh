@@ -169,7 +169,11 @@ _print_config_summary() {
   local _conf="${_fp}/.setup.conf"
   local _line="────────────────────────────────────────────────────────────"
   local _img="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-unknown}"
-  local _proj="${PROJECT_NAME:-${DOCKER_HUB_USER:-local}-${IMAGE_NAME:-unknown}}"
+  # Report what -p will actually be, never a re-derivation of it: the
+  # summary exists so the user can see what this invocation resolved to,
+  # and a summary that computes its own answer can print a name the run
+  # does not use.
+  local _proj="${PROJECT_NAME:-unknown}"
 
   _summary_print "${_tag}" dim  "${_line}"
   _summary_print "${_tag}" bold "$(_lib_msg files)"

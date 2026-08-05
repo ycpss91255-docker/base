@@ -420,8 +420,8 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
 最初に scaffold するだけで以後上書きしません。
 
-<!-- sync: one-conf-14-sections 7423a704aa07 d31c91dfd8a9 -->
-### 単一 conf、14 個の section
+<!-- sync: one-conf-15-sections 4c46f6a4d70a 944dd0468aaf -->
+### 単一 conf、15 個の section
 
 以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
 （`dist/script/docker/lib/schema.sh`）— 「どの section が、どの順で存在
@@ -429,6 +429,9 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 `derived-figures` lint が失敗します。
 
 ```
+[project]  name — この checkout が動く compose project（空 =
+           <DOCKER_HUB_USER>-<IMAGE_NAME> を導出）。2 つの checkout を
+           同時に動かすなら .setup.conf.local に WORKTREE ごとに設定する
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities

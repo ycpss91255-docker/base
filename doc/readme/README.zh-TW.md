@@ -400,14 +400,17 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 這兩個衍生檔使用者不用動手編輯。手寫的 `.env` overlay 是另一個檔：
 setup 只在第一次 scaffold，之後永不覆寫。
 
-<!-- sync: one-conf-14-sections 7423a704aa07 58f75d293121 -->
-### 單一 conf、14 個 section
+<!-- sync: one-conf-15-sections 4c46f6a4d70a ab3ccfcf0450 -->
+### 單一 conf、15 個 section
 
 下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
 （`dist/script/docker/lib/schema.sh`）— 「有哪些 section、順序為何」的唯一
 來源。這個區塊或它的數量一旦與程式碼不一致，`derived-figures` lint 會失敗。
 
 ```
+[project]  name — 這個 checkout 執行時所屬的 compose project（留空 =
+           推導出 <DOCKER_HUB_USER>-<IMAGE_NAME>）。想同時跑兩個
+           checkout，就在 .setup.conf.local 依 WORKTREE 各自設定
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities

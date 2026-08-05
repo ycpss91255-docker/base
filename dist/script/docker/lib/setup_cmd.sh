@@ -1242,6 +1242,16 @@ _setup_apply() {
   _resolve_gpu "${gpu_mode}" "${gpu_detected}" gpu_enabled_eff
   _resolve_gui "${gui_mode}" "${gui_detected}" gui_enabled_eff
 
+  # ── [project] name -> the resolved compose project name ──
+  # Resolved ONCE, here, by the single producer in lib/compose.sh. It goes
+  # into .env.generated as PROJECT_NAME, which is what BOTH the wrapper's
+  # `-p` and the emitted `name: ${PROJECT_NAME}` read -- so the two cannot
+  # be two computations that agree.
+  local _project_name_conf="" project_name=""
+  _conf_get_into _APPLY_CONF project name "" _project_name_conf
+  _resolve_project_name "${_project_name_conf}" "${docker_hub_user}" \
+    "${image_name}" "${_base_path}" project_name
+
   # ── Compute hashes for drift detection ──
   local conf_hash=""
   _compute_conf_hash "${_base_path}" conf_hash
@@ -1289,6 +1299,7 @@ _setup_apply() {
     printf 'NETWORK_NAME=%s\n' "${network_name}"
     printf 'TARGET_ARCH=%s\n' "${target_arch}"
     printf 'BUILD_NETWORK=%s\n' "${build_network}"
+    printf 'PROJECT_NAME=%s\n' "${project_name}"
     printf 'SSH_X11=%s\n' "$(_is_ssh_x11 && echo true || echo false)"
     printf 'X11_COOKIE_SKIP=%s\n' "$(( _no_x11_cookie ))"
     return 0
@@ -1327,7 +1338,8 @@ _setup_apply() {
     "${_user_build_args_str}" \
     "${target_arch}" \
     "${build_network}" \
-    "${_ssh_x11_xauth}"
+    "${_ssh_x11_xauth}" \
+    "${project_name}"
 
   # Create the hand-authored .env workload overlay on first apply.
   # Idempotent: never overwrites an existing user-owned overlay.

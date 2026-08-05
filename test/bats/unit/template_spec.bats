@@ -247,8 +247,11 @@ setup() {
   run grep -E '^_resolve_project_name\(\)' /source/dist/script/docker/lib/compose.sh
   assert_success
 
+  # The shape being outlawed is the JOIN itself -- `${...HUB...}-${...IMAGE...}`
+  # in either order. An image TAG (`${HUB}/${IMAGE}`) is a different figure
+  # and stays where it is.
   local _hit
-  _hit="$(grep -rlE 'DOCKER_HUB_USER[^\n]*-[^\n]*IMAGE_NAME|IMAGE_NAME[^\n]*-[^\n]*DOCKER_HUB_USER' \
+  _hit="$(grep -rlE '(DOCKER_HUB_USER[^}]*\}-\$\{[^}]*IMAGE_NAME)|(IMAGE_NAME[^}]*\}-\$\{[^}]*DOCKER_HUB_USER)' \
             /source/dist --include='*.sh' --include='*.yaml' \
           | grep -v '/lib/compose\.sh$' || true)"
   [[ -z "${_hit}" ]] || {

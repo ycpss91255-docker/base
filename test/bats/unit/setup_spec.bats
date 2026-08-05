@@ -39,15 +39,18 @@ EOF
 }
 
 @test "setup.sh apply emits top-level name: in compose.yaml (#472)" {
-  # End-to-end: apply renders a top-level name: with the literal compose
-  # vars so non-wrapper tools resolve the wrapper's project name.
+  # End-to-end: apply renders a top-level name: interpolating the same
+  # PROJECT_NAME it just resolved into .env.generated, so non-wrapper tools
+  # resolve the wrapper's project name from the same value.
   printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/.setup.conf"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}' "${TEMP_DIR}/compose.yaml"
+  run grep -F 'name: ${PROJECT_NAME}' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -E '^PROJECT_NAME=.+$' "${TEMP_DIR}/.env.generated"
   assert_success
 }
 

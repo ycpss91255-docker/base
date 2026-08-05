@@ -170,6 +170,9 @@ transcript_dir_create_failed
 transcript_file_unwritable
 transcript_tee_missing
 
+# compose.sh (project-name resolution)
+project_name_missing_from_env
+
 # general
 dry_run_cmd
 summary_line

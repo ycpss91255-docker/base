@@ -1453,7 +1453,7 @@ shapes, absent on any `*-test` stage).
 | Test | Description |
 |------|-------------|
 | `generate_compose_yaml outputs AUTO-GENERATED header` | Header check |
-| `generate_compose_yaml emits top-level name: with literal compose vars (#472)` | - |
+| `generate_compose_yaml emits top-level name: as the resolved PROJECT_NAME (#472)` | - |
 | `generate_compose_yaml top-level name: precedes services: (#472)` | - |
 | `generate_compose_yaml emits exactly one top-level name: (#472)` | - |
 | `generate_compose_yaml named volume mount emits top-level volumes: stub (#482)` | - |

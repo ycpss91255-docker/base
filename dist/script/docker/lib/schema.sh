@@ -44,6 +44,7 @@ unset _schema_dir
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_VALIDATOR=(
   # ── scalar keys ──────────────────────────────────────────────────
+  [project.name]=_validate_project_name
   [deploy.gpu_mode]=_validate_detect_mode
   [deploy.gpu_count]=_validate_gpu_count
   [deploy.gpu_capabilities]=_validate_gpu_capabilities
@@ -107,7 +108,7 @@ declare -gA SCHEMA_VALIDATOR=(
 # explicit rather than derived from the validator map so those sections
 # are not dropped.
 declare -ga SCHEMA_SECTIONS=(
-  image build deploy lifecycle gui network security resources
+  project image build deploy lifecycle gui network security resources
   environment tmpfs devices volumes additional_contexts logging
 )
 
@@ -137,6 +138,13 @@ declare -ga SCHEMA_SECTIONS=(
 # ════════════════════════════════════════════════════════════════════
 declare -gA SCHEMA_I18N=(
   # ── scalar keys ──────────────────────────────────────────────────
+  # project.name: config-file / CLI only. The TUI edits the COMMITTED
+  # .setup.conf, while the per-worktree name belongs in the gitignored
+  # .setup.conf.local that `setup.sh set --local project.name <x>` writes
+  # -- a layer the menu has no concept of. Surfacing a project-name row
+  # there would edit the wrong file by default, so this is a deliberate
+  # no-editor opt-out, not a missing translation.
+  [project.name]=""
   [deploy.gpu_mode]=deploy.mode.prompt
   [deploy.gpu_count]=deploy.count.prompt
   [deploy.gpu_capabilities]=deploy.caps.prompt

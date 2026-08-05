@@ -461,7 +461,7 @@ regenerates both `.env.generated` and `compose.yaml`; users never hand-edit
 those two derived artifacts. The hand-authored `.env` overlay is a different
 file: setup scaffolds it once and never rewrites it.
 
-### One conf, 14 sections
+### One conf, 15 sections
 
 The section list below is not prose: it is `SCHEMA_SECTIONS`
 (`dist/script/docker/lib/schema.sh`), the single source for which sections
@@ -469,6 +469,9 @@ exist and in what order, and the `derived-figures` lint fails if this block
 or its count drifts from it.
 
 ```
+[project]  name — the compose project this checkout runs under (empty =
+           derive <DOCKER_HUB_USER>-<IMAGE_NAME>). Set it per WORKTREE in
+           .setup.conf.local to run two checkouts at once
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
