@@ -249,11 +249,11 @@ image，`$HOME` 可能不一樣。
 第 1、2 條屬於判斷題，grep 判不出來。設計理由見
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 a1b705795c6d 1f31123adc44 -->
+<!-- sync: adding-extra-stages-215 017277dea36e f9b42bd47e95 -->
 #### 新增額外 stage（#215）
 
-任何在 baseline blocklist `{sys, devel-base, devel, devel-test,
-runtime-test}` 之外的（v0.21.x 過渡期同時接受舊名 `{base, test}`）
+任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
+之外的（v0.21.x 過渡期同時接受舊名 `{base, test}`）
 `FROM <base> AS <stage>`，會被自動 emit 成一個 compose 服務 —
 `extends: devel`（繼承 volumes / network / GPU / GUI / cap_add /
 additional_contexts），只 override `build.target` / `image` /
@@ -292,10 +292,12 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
 
 - Stage 名必須符合 `^[a-z][a-z0-9_-]*$` — 大寫 / 數字開頭 / 點號
   等會被拒（WARN + 跳過，其他 stage 繼續解析）。
-- 撞到 baseline（`sys` / `devel-base` / `devel` / `devel-test` /
-  `runtime-test`，v0.21.x 過渡期亦同時接受舊名 `base` / `test`）
-  `setup.sh apply` hard error 退出 1。撞到 template 控制的 image
-  tag namespace（`latest`、`v[0-9]*`）也是 hard error。
+- 撞到 baseline `{sys, devel-base, devel, runtime-test}`（v0.21.x
+  過渡期亦同時接受舊名 `{base, test}`）時，`setup.sh apply` hard error
+  退出 1。撞到 template 控制的 image tag namespace（`latest`、
+  `v[0-9]*`）也是 hard error。`devel-test` **不在**該集合裡，也**不算**
+  撞名 — 它會透過 per-stage 模型 emit 成 `test` service（#493），這正是
+  `[stage:devel-test]` 有 runtime 控制面的原因。
 - 加 / 移 stage 會觸發 `setup.sh check-drift`（透過 `.env` 內的
   `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑會自動 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不會**觸發 drift。
@@ -397,8 +399,12 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 `setup.sh` 讀它 + 系統偵測後重新產生 `.env` 跟 `compose.yaml`，這
 兩個衍生檔使用者不用動手編輯。
 
-<!-- sync: one-conf-seven-sections a4642bdbb595 5a5197cc52b8 -->
-### 單一 conf、7 個 section
+<!-- sync: one-conf-14-sections 7423a704aa07 58f75d293121 -->
+### 單一 conf、14 個 section
+
+下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
+（`dist/script/docker/lib/schema.sh`）— 「有哪些 section、順序為何」的唯一
+來源。這個區塊或它的數量一旦與程式碼不一致，`derived-figures` lint 會失敗。
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -406,13 +412,25 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
            dri_groups (auto|off) — GUI service 上 iGPU /dev/dri 的 group_add
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
-           預設 no;設在 devel 上（extends:devel 的 stage 會繼承）。會正常
-           結束（exit 0）的 stage 別用 always/unless-stopped（無限重啟）。
+           預設 unless-stopped;屬於 DEPLOY 範疇 — 只 emit 在 deployable
+           stage 的 service 上，devel 與任何 *-test stage 由 emitter 清空，
+           因此 devel 上不會有 restart: 讓 extends:devel 繼承。詳見英文版
+           README 的「Restart policy is deploy-scoped」。
            init (true|false) — Docker init/PID1 reaper;預設 true。
+           watchdog_* — 容器內健康檢查（opt-in）
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
+           port_N = host:container（只有 bridge 模式才會 publish）
+[security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
+           （以及對應的 *_inherit 開關;預設精簡，要用才開）
+[resources] shm_size
+[environment] env_N = KEY=VALUE — set-once 預設值，會 bake 成 deployable
+           stage 的 ENV;每次任務都會變的變數請放 .env
+[tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed 掛載點
+[devices]  device_N = host:container，以及 cgroup rule（要用才開）
 [volumes]  mount_1（workspace，首次執行時自動填入）
            mount_2..mount_N（額外 host mount；裝置走 /dev path）
+[additional_contexts] context_N = name=source — 額外的具名 build context
 [logging]  driver（預設 json-file）、max_size、max_file、compress
            local_path（host 端 log 目錄；bind-mount 到 /var/log/<repo>）
            container_log_keep (20)、container_log_days (14)（每次啟動的
@@ -791,7 +809,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在剛 `git init` 且沒有任何 commit 的 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 進來。
 
-<!-- sync: updating f825b9a2c058 41557b88a45e -->
+<!-- sync: updating f60ecd735404 4639ae7e131e -->
 ### 升級
 
 前置條件：`git config user.name` / `user.email` 必須有設，working tree
@@ -815,8 +833,11 @@ just base upgrade v0.3.0
 ./.base/dist/script/base/upgrade.sh v0.3.0
 ```
 
-`upgrade.sh` 一次完成：
+`upgrade.sh` 一次完成。**它會寫入你的 repo，而且其中一部分寫的是你自己的
+檔案** — 如果這個 repo 有正在跑的 field 部署，請先讀下一小節。流程：
 
+0. **Migration，在所有步驟之前執行，各自獨立 commit。** 見
+   [upgrade.sh 會改寫你 repo 裡的哪些檔案](#upgradesh-會改寫你-repo-裡的哪些檔案)。
 1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull 完整性檢查 — subtree marker（`.base/.version`、
    `.base/dist/script/base/init.sh`、`.base/dist/script/docker/wrapper/setup.sh`）若不見了會
@@ -828,14 +849,54 @@ just base upgrade v0.3.0
    `compose.yaml`
 4. `sed` 改寫 `.github/workflows/main.yaml` 的
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
+5. `apply_migrations`（`lib/dockerfile_migrate.sh`）修補 **repo 根目錄的
+   `Dockerfile`** 與 **`script/entrypoint.sh`**（base contract 在它們底下
+   改變時），並把結果放進與步驟 3-4 同一個 commit
 
-per-repo 檔案不會被覆蓋：`<repo>/.setup.conf` 保留原樣、
-`<repo>/config/`（bashrc / tmux / terminator …）也不動 — 若上游
-`.base/dist/config/` 自上次 pull 後有變動，upgrade.sh 會印出
-`diff -ruN .base/dist/config config` 提示，由你自行 reconcile。
+不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 與 migration
+步驟很容易漏掉。
 
-不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 步驟
-很容易漏掉。
+<!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 0ae231ae9661 -->
+#### upgrade.sh 會改寫你 repo 裡的哪些檔案
+
+`.base/` 是 base 的，其他都是你的。即使如此，升級對 `.base/` 以外**並非**
+唯讀：無法在 subtree 內部吸收的 base contract 變更，會改在你的檔案上修補，
+而且 upgrade.sh 是用 **commit** 的方式做，所以這些變更會以你的名義進入你的
+history。過程都會印在 stdout，不是靜默的 — 但訊息會捲過去，所以完整清單如下。
+
+| 時機 | 改寫什麼 | Commit 訊息 |
+|---|---|---|
+| 步驟 1 之前 | `config/docker/setup.conf` → `.setup.conf`（`git mv`；若兩者都存在則拒絕改動並提示，以根目錄的檔案為準） | `chore: relocate setup.conf override to repo-root .setup.conf` |
+| 步驟 1 之前 | `.setup.conf` 的 `[lifecycle] restart = no` → `unless-stopped` | `chore: migrate [lifecycle] restart default to unless-stopped` |
+| 步驟 3 | `.gitignore` canonical entry；`git rm --cached` 已變成 derived 的檔案 | 併入步驟 4 的 commit |
+| 步驟 4 | `.github/workflows/main.yaml` 的 worker `@tag` | `chore: update template references to <version>` |
+| 步驟 5 | repo 根目錄的 `Dockerfile`、`script/entrypoint.sh` | 併入步驟 4 的 commit |
+
+> **restart 這條 migration 會改變 runtime 行為。** `[lifecycle] restart`
+> 以前屬於 devel 範疇、template 預設是 `no`，而 `init.sh --gen-conf` 會整份
+> 複製 template，所以幾乎每個 repo 都帶著一個沒有人真的選過的
+> `restart = no`。這個 key 現在屬於 deploy 範疇（見英文版 README 的
+> 「Restart policy is deploy-scoped」），那個被複製過來的 `no` 因此在結構上
+> 就是過期的。所以它會被改寫 — **原本 host 重開機後不會自己起來的
+> deployable stage 容器，之後會自己起來。** 若這不是你要的，升級後把它改回
+> `no`；migration 從此不會再動它。
+>
+> 它只會在跨越這次 rescope 的那一次升級觸發（判斷依據是 *pull 之前*
+> vendored 的 template 仍然出貨 `restart = no`），只在你的值剛好是 `no` 時
+> 觸發，選過其他值的 repo 一律不動。
+
+**升級後想確認到底動了哪些檔案：**
+
+```bash
+git log --oneline <升級前的 sha>..HEAD          # 依名稱列出 migration commit
+git diff <升級前的 sha>..HEAD -- . ':!.base'    # .base/ 以外的所有變更
+```
+
+upgrade.sh **不會**動的：`.setup.conf` 裡除了那一行 `[lifecycle] restart`
+以外的內容，以及 `<repo>/config/`（bashrc / tmux / terminator …）完全不動 —
+若上游 `.base/dist/config/` 或 `.base/dist/.setup.conf` 自上次 pull 後有變動，
+upgrade.sh 會印出 `diff -ruN .base/dist/config config` 提示，由你自行
+reconcile，而不是替你合併。
 
 <!-- sync: automated-version-bumps-optional 7a8394ea238f 1342b32e42e8 -->
 #### 自動升版（選用）
@@ -923,7 +984,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d899cb41bbd6 27afec12cf9d -->
+<!-- sync: directory-structure 25353d9e9485 0ddadf395483 -->
 ## 目錄結構
 
 ```
@@ -962,16 +1023,23 @@ just --list  # 顯示 CI 指令
 │   │       ├── new.sh
 │   │       └── skel/                   # justfile.skel + skel.sh
 │   └── test/
-│       └── smoke/                      # 共用 smoke 測試 + runtime assertion helpers
-│           ├── test_helper.bash        #   assert_cmd_installed / _runs / file / dir / ...
-│           ├── script_help.bats
-│           └── display_env.bats
+│       └── bats/
+│           └── smoke/                  # Build-time smoke spec，每個 `-test` stage 一個資料夾
+│               ├── shared/             # 每個 `-test` stage 都會跑
+│               │   ├── test_helper.bash #  assert_cmd_installed / _runs / file / dir / ...
+│               │   └── entrypoint.bats
+│               ├── devel-test/         # 只在 devel-test 跑的斷言
+│               │   ├── script_help.bats
+│               │   └── display_env.bats
+│               └── runtime-test/       # 只在 runtime-test 跑的斷言（預設為空）
 ├── script/                             # base 自身的 self-test/release 工具（不 symlink）
 │   ├── test/
 │   │   ├── justfile.test               # just test / lint / coverage / system
 │   │   ├── test.sh                     # Dispatcher（本地 + 容器內）
 │   │   ├── lint_bare_stderr.sh
-│   │   └── drivers/                    # 每個工具一支 driver：bats.sh / shellcheck.sh / hadolint.sh
+│   │   └── drivers/                    # 每個 lint/test 工具一支 driver（bats / shellcheck / hadolint
+│   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
+│   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
 │   └── release/
 │       └── justfile.release            # just release <recipe>
 ├── dockerfile/
@@ -980,7 +1048,7 @@ just --list  # 顯示 CI 指令
 │   └── bats/
 │       ├── unit/                       # 56 個 unit spec + 2 個 bash helper（bats + kcov）
 │       ├── integration/                # init/upgrade 端對端（5 個 spec）
-│       ├── system/                # System 層／Regression（opt-in；runtime_test_smoke_spec.bats）
+│       ├── system/                # System 層／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
 │       └── acceptance/            # Acceptance 層（UAT/OAT；保留，S5 #785）
 ├── .github/
 │   ├── dependabot.yml
@@ -993,7 +1061,7 @@ just --list  # 顯示 CI 指令
 │       └── release-test-tools.yaml     # base 自身的 test-tools image release
 ├── doc/
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
-│   ├── adr/                            # Architecture Decision Records（00000001 … 00000012）
+│   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
 │   │   ├── TEST.md                     # 測試索引（總計 + 各類型連結）
 │   │   ├── unit.md                     # 單元測試清單
@@ -1020,6 +1088,7 @@ just --list  # 顯示 CI 指令
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: watchdog-supervised-restart-797 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: where-each-parameter-lives-env-vs-workload -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
