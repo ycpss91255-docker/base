@@ -1180,19 +1180,16 @@ EOF
   assert_equal "${_eff[runtime]}" "nvidia"
 }
 
-@test "_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)" {
-  # Pre-existing per-stage precedence preserved byte-for-byte by the
-  # refactor: when BOTH keys appear under [stage:*], deploy.gpu_runtime is
-  # resolved first (with the parent as fallback), then the legacy
-  # deploy.runtime is resolved with that result as ITS fallback -- so a
-  # present deploy.runtime wins. (This per-stage edge case differs from the
-  # global resolution where gpu_runtime wins; left unchanged here because
-  # S5 is a byte-identical refactor, not a behaviour change.)
+@test "_resolve_docker_flags: gpu_runtime beats the legacy deploy.runtime at per-stage scope (#505/#481, #876)" {
+  # The per-stage layer used to resolve the legacy key LAST, with the
+  # gpu_runtime result as its fallback, so deploy.runtime won -- the
+  # inverse of the global resolution. Both layers now agree: gpu_runtime
+  # is authoritative, the alias is consulted only when it is unset.
   local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
   local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
   local -A _eff=()
   _resolve_docker_flags _k _v _parent _eff
-  assert_equal "${_eff[runtime]}" "off"
+  assert_equal "${_eff[runtime]}" "nvidia"
 }
 
 @test "_resolve_docker_flags: network scalars + privileged override (#505)" {

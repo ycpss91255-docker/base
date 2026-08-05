@@ -522,9 +522,22 @@ _resolve_docker_flags() {
   _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_capabilities" "${_rdf_parent["gpu_caps"]}" _tmp
   _rdf_out["gpu_caps"]="${_tmp}"
 
-  # gpu_runtime primary, legacy deploy.runtime alias as fallback.
-  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "${_rdf_parent["runtime"]}" _tmp
-  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "${_tmp}" _tmp
+  # gpu_runtime is canonical; the legacy deploy.runtime alias is consulted
+  # only when this stage sets no gpu_runtime. Same precedence AND same
+  # deprecation warning as _resolve_deploy_context uses for the global
+  # [deploy] section -- the two layers must not disagree, or a stage
+  # migrated to gpu_runtime keeps emitting the value of the line the
+  # migration was supposed to retire.
+  local _legacy_runtime=""
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "" _tmp
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "" _legacy_runtime
+  if [[ -n "${_legacy_runtime}" ]]; then
+    _log_warn setup conf_runtime_key_deprecated \
+      "display=$(_setup_msg deploy runtime_deprecated)"
+  fi
+  if [[ -z "${_tmp}" ]]; then
+    _tmp="${_legacy_runtime:-${_rdf_parent["runtime"]}}"
+  fi
   _rdf_out["runtime"]="${_tmp}"
 
   _resolve_stage_scalar _rdf_keys _rdf_values "network.mode" "${_rdf_parent["net_mode"]}" _tmp
