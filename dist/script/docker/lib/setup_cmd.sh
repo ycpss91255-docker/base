@@ -89,11 +89,8 @@ _setup_warn_ports_inert() {
     *) return 0 ;;
   esac
 
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
   local -a _wpi_sections=() _wpi_keys=() _wpi_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _wpi_sections _wpi_keys _wpi_values
+  _setup_effective_full "${_base_path}" _wpi_sections _wpi_keys _wpi_values
 
   local _i _mode="host" _ports=""
   for (( _i=0; _i<${#_wpi_keys[@]}; _i++ )); do
@@ -328,14 +325,12 @@ _setup_show() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # show reads the merged view (template baseline ← repo override).
-  # This is what `apply` would produce, so users see effective values
-  # without having to re-run apply after every set/add/remove.
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  # show reads the resolved view of the whole chain (template baseline <-
+  # repo override <- local override). This is what `apply` would produce, so
+  # users see effective values without having to re-run apply after every
+  # set/add/remove -- and see the local layer's values where it has any.
   local -a _ss_sections=() _ss_keys=() _ss_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _ss_sections _ss_keys _ss_values
+  _setup_effective_full "${_base_path}" _ss_sections _ss_keys _ss_values
 
   local _i _ns_key="${_section}.${_key}"
   if [[ -n "${_key}" ]]; then
@@ -424,13 +419,10 @@ _setup_list() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # list reads the merged view (template ← repo override) — same
-  # rationale as `show`. Reflects what `apply` would materialize.
-  local _repo_conf="${_base_path}/.setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  # list reads the resolved view of the whole chain -- same rationale as
+  # `show`. Reflects what `apply` would materialize.
   local -a _ll_sections=() _ll_keys=() _ll_values=()
-  _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
-      _ll_sections _ll_keys _ll_values
+  _setup_effective_full "${_base_path}" _ll_sections _ll_keys _ll_values
 
   local _si _ki _sect _first=1
   for _sect in "${_ll_sections[@]}"; do

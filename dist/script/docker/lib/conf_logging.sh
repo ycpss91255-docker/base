@@ -15,8 +15,8 @@
 #     in file order.
 #
 #   _collect_logging <base_path> <global_out> <per_svc_out>
-#     Resolve effective [logging] (section-replace fallback to template)
-#     and per-service [logging.<svc>] (per-repo only) into two
+#     Resolve effective [logging] and each per-service [logging.<svc>]
+#     through the setup.conf layer chain (section-replace) into two
 #     newline-joined strings.
 
 # Guard against double-sourcing -- setup.sh sources us, and so does
@@ -26,16 +26,20 @@ if [[ -n "${_DOCKER_LIB_CONF_LOGGING_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
-# Self-source the conf.sh dependency (Part A): _collect_logging uses
-# _parse_ini_section (in lib/conf.sh since; full INI handling
-# consolidated there in). Pull it in directly -- idempotent via
-# conf.sh's own double-source guard -- so _lib.sh load order is not
-# load-bearing and a caller sourcing conf_logging.sh alone still works.
-# (_SETUP_SCRIPT_DIR for the template fallback in _collect_logging is a
-# caller-provided global, not a sourced module.)
+# Self-source the dependencies (Part A): _collect_logging resolves through
+# the setup.conf layer chain (lib/setup_conf.sh's _setup_conf_layers /
+# _load_setup_conf), which in turn builds on lib/conf.sh's INI primitives.
+# Pull both in directly -- idempotent via their own double-source guards --
+# so _lib.sh load order is not load-bearing and a caller sourcing
+# conf_logging.sh alone (init.sh / upgrade.sh via gitignore.sh) still works.
+# (_SETUP_SCRIPT_DIR, which locates the template layer, is a
+# caller-provided global, not a sourced module; without it that layer's
+# path simply does not resolve and contributes nothing.)
 _conf_logging_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/conf.sh
 source "${_conf_logging_dir}/conf.sh"
+# shellcheck source=dist/script/docker/lib/setup_conf.sh
+source "${_conf_logging_dir}/setup_conf.sh"
 unset _conf_logging_dir
 
 # _parse_logging_svc_sections <file> <out_array>
@@ -62,23 +66,23 @@ _parse_logging_svc_sections() {
 # layout:
 #
 #   global_out   newline-separated KEY=VALUE for the effective global
-#                [logging] section. Resolution rule mirrors [security]:
-#                if the per-repo setup.conf has a [logging] section,
-#                that section fully replaces the template default (per
-#                CLAUDE.md "section-level replace, no key-level merge
-#                inside a section"). If the per-repo file omits the
-#                section, template defaults apply.
+#                [logging] section, resolved through the conf chain with
+#                the chain's one rule: the highest layer that defines
+#                [logging] replaces it wholesale, no key-level merge
+#                inside a section.
 #
 #   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
-#                [logging.<svc>] sections in the per-repo setup.conf.
+#                [logging.<svc>] sections, resolved the same way -- each
+#                per-service section is its own section, so a local layer
+#                may add one the repo lacks or replace one it has.
 #                Key-level merge against global_out happens in
 #                `_emit_logging_block` at compose-emit time -- only
 #                keys present in [logging.<svc>] override the
 #                corresponding global key; absent keys fall through.
-#                Template setup.conf does not ship per-svc sections;
-#                if one ever appears there it is honored too (parsed
-#                only from the per-repo file in practice, since the
-#                template loader path uses _SETUP_SCRIPT_DIR).
+#
+# Callable without setup.sh sourced: init.sh / upgrade.sh reach this via
+# _sync_logging_gitignore with no _SETUP_SCRIPT_DIR, in which case the
+# template layer's path does not resolve and simply contributes nothing.
 _collect_logging() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
@@ -86,19 +90,12 @@ _collect_logging() {
   _cl_global=""
   _cl_per_svc=""
 
-  local _conf="${_base}/.setup.conf"
+  local -a _cl_layers=()
+  _setup_conf_layers "${_base}" _cl_layers
 
-  # Global [logging] -- per-repo first, fall back to template if absent.
+  # Global [logging], section-replace across the chain.
   local -a _g_keys=() _g_vals=()
-  [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
-  if (( ${#_g_keys[@]} == 0 )) && [[ -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
-    # _SETUP_SCRIPT_DIR is set by setup.sh; init.sh / upgrade.sh call
-    # _collect_logging via _sync_logging_gitignore (PR-B) without
-    # sourcing setup.sh, so the template-fallback step is skipped in
-    # that path. Per-repo setup.conf already covers downstream cases.
-    local _tpl="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
-    [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
-  fi
+  _load_setup_conf "${_base}" "logging" _g_keys _g_vals
   local i
   local -a _g_lines=()
   for (( i = 0; i < ${#_g_keys[@]}; i++ )); do
@@ -106,15 +103,30 @@ _collect_logging() {
   done
   (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
 
-  # Per-service [logging.<svc>] sections (per-repo only).
-  [[ -f "${_conf}" ]] || return 0
-  local -a _svcs=()
-  _parse_logging_svc_sections "${_conf}" _svcs
-  local _svc
+  # Per-service [logging.<svc>] sections. The service SET is the union
+  # across the chain (a layer may introduce a service the layers below do
+  # not mention); each service's section is then resolved section-replace
+  # like any other, so a local layer that names one service does not
+  # disturb the rest.
+  local -a _svcs=() _layer_svcs=()
+  local _layer _svc _known _seen
+  for _layer in "${_cl_layers[@]}"; do
+    [[ -f "${_layer}" ]] || continue
+    _layer_svcs=()
+    _parse_logging_svc_sections "${_layer}" _layer_svcs
+    for _svc in "${_layer_svcs[@]+"${_layer_svcs[@]}"}"; do
+      _seen=0
+      for _known in "${_svcs[@]+"${_svcs[@]}"}"; do
+        [[ "${_known}" == "${_svc}" ]] && { _seen=1; break; }
+      done
+      (( _seen )) || _svcs+=("${_svc}")
+    done
+  done
+
   local -a _ps_lines=()
-  for _svc in "${_svcs[@]}"; do
+  for _svc in "${_svcs[@]+"${_svcs[@]}"}"; do
     local -a _sk=() _sv=()
-    _parse_ini_section "${_conf}" "logging.${_svc}" _sk _sv
+    _load_setup_conf "${_base}" "logging.${_svc}" _sk _sv
     for (( i = 0; i < ${#_sk[@]}; i++ )); do
       _ps_lines+=("${_svc}:${_sk[i]}=${_sv[i]}")
     done
