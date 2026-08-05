@@ -69,7 +69,7 @@ _setup_validate_kv() {
 # Subcommand handler for `setup.sh set <section>.<key> <value>`.
 # Validates section + (where applicable) value, then upserts via
 # `_upsert_conf_value` from `_tui_conf.sh` so behaviour matches the
-# TUI's Save path. Does NOT regenerate .env — the user invokes
+# TUI's Save path. Does NOT regenerate .env.generated — the user invokes
 # `apply` explicitly when they want the derived artifacts refreshed.
 #
 # Usage: _setup_set <section>.<key> <value> [--base-path PATH]
@@ -196,7 +196,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 }
 
@@ -408,7 +408,7 @@ _setup_list() {
 # before they ever ran `apply`. Validators fire through
 # `_setup_validate_kv` against the synthesized key, so e.g.
 # `add volumes.mount` enforces the same `_validate_mount` that
-# `set volumes.mount_3` does. Does NOT regenerate .env.
+# `set volumes.mount_3` does. Does NOT regenerate .env.generated.
 #
 # Numbering uses max+1 (never fills gaps left by remove). Predictable
 # for tooling; matches the TUI's `_edit_list_section` "next slot"
@@ -576,7 +576,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 }
 
@@ -592,7 +592,7 @@ _setup_add() {
 # remove-by-value mode. Removes one entry per invocation; multiple
 # matches keep the rest (call again to peel further). Preserves
 # comments + ordering via `_write_setup_conf`. Does NOT regenerate
-# .env. Does NOT renumber remaining keys (`_load_setup_conf_full`
+# .env.generated. Does NOT renumber remaining keys (`_load_setup_conf_full`
 # tolerates gaps, and downstream callers treat the prefix list as
 # unordered).
 #
@@ -740,7 +740,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 }
 
@@ -754,7 +754,7 @@ _setup_remove() {
 # --reset-conf` does today, but exposes it as a setup.sh subcommand
 # for scripted use.
 #
-# Does NOT regenerate .env. The user invokes `apply` afterwards (or
+# Does NOT regenerate .env.generated. The user invokes `apply` afterwards (or
 # build/run will trigger auto-regen via drift detection on the next
 # invocation, since the conf hash will have changed).
 #
@@ -844,14 +844,14 @@ _setup_reset() {
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
   fi
 }
 
 # ════════════════════════════════════════════════════════════════════
 # _setup_apply
 #
-# Subcommand handler for `setup.sh apply`. Regenerates .env +
+# Subcommand handler for `setup.sh apply`. Regenerates .env.generated +
 # compose.yaml from setup.conf + system detection. Other subcommands
 # (set/add/remove/reset) intentionally do NOT regen — apply is the
 # explicit gate.

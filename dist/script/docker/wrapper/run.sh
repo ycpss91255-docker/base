@@ -119,7 +119,7 @@ usage() {
                     本旗標對 -d 無作用。
   -s, --setup       強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
                     預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
-                    GUI / USER_UID 漂移時，.env + compose.yaml 自動重新生成 (#88)。
+                    GUI / USER_UID 漂移時，.env.generated + compose.yaml 自動重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本機 / CI 一致驗證；預設行為依賴 compose auto-build
                     時會跳過 lint+smoke gate (#216)
@@ -158,7 +158,7 @@ EOF
                     本旗标对 -d 无作用。
   -s, --setup       强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
                     默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
-                    GUI / USER_UID 漂移时，.env + compose.yaml 自动重新生成 (#88)。
+                    GUI / USER_UID 漂移时，.env.generated + compose.yaml 自动重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本机 / CI 一致验证；默认行为依赖 compose auto-build
                     时会跳过 lint+smoke gate (#216)
@@ -201,7 +201,7 @@ EOF
   -s, --setup       setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外
                     は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
                     / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
-                    .env + compose.yaml が自動再生成されます (#88)。
+                    .env.generated + compose.yaml が自動再生成されます (#88)。
   --build           compose up の前に ./build.sh test（lint + smoke）を実行し、
                     ローカル / CI の検証を一致させます。デフォルト動作は
                     compose auto-build に依存しており、lint + smoke gate を
@@ -245,7 +245,7 @@ Options:
                     in detached mode.
   -s, --setup       Force rerun setup.sh (opens the TUI on an interactive TTY,
                     otherwise non-interactive apply). Default (no flag):
-                    auto-regenerate .env + compose.yaml when setup.conf /
+                    auto-regenerate .env.generated + compose.yaml when setup.conf /
                     Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --build           Run ./build.sh test (lint + smoke) before compose up
                     so local matches CI; default path relies on Compose

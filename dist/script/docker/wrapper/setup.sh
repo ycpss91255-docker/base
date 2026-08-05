@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# setup.sh - Auto-detect system parameters and generate .env + compose.yaml
+# setup.sh - Auto-detect system parameters and generate .env.generated +
+# compose.yaml
 #
 # Reads the per-repo <repo>/.setup.conf override (falling back to the
 # .base/dist/.setup.conf template default) for the repo's runtime
 # configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
-#   - <repo>/.env          (variable values + SETUP_* metadata for drift detection)
+#   - <repo>/.env.generated (variable values + SETUP_* metadata for drift
+#                          detection; the hand-authored <repo>/.env overlay
+#                          is scaffolded once and never rewritten)
 #   - <repo>/compose.yaml  (full compose with baseline + conditional blocks)
 #
 # Both output files are derived artifacts (gitignored). Source of truth is
@@ -48,10 +51,10 @@ _resolve_lang _LANG
 
 _setup_msg_env() {
   case "${_LANG}:${1:?}" in
-    zh-TW:done)     echo ".env 與 compose.yaml 更新完成" ;;
-    zh-CN:done)     echo ".env 与 compose.yaml 更新完成" ;;
-    ja:done)        echo ".env と compose.yaml 更新完了" ;;
-    *:done)         echo ".env + compose.yaml updated" ;;
+    zh-TW:done)     echo ".env.generated 與 compose.yaml 更新完成" ;;
+    zh-CN:done)     echo ".env.generated 与 compose.yaml 更新完成" ;;
+    ja:done)        echo ".env.generated と compose.yaml 更新完了" ;;
+    *:done)         echo ".env.generated + compose.yaml updated" ;;
     zh-TW:comment)  echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
     zh-CN:comment)  echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
     ja:comment)     echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
@@ -207,16 +210,19 @@ usage() {
       cat >&2 <<'EOF'
 Usage: ./setup.sh [<subcommand>] [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 
-Regenerate .env + compose.yaml from setup.conf + system detection.
+Regenerate .env.generated + compose.yaml from setup.conf + system
+detection. `.env` is the hand-authored workload overlay: apply scaffolds
+it once and never rewrites it, so hand edits there are safe.
 Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
 Save; run directly for non-interactive / scripted / CI use.
 
 Subcommands:
-  apply         (default) Regenerate .env + compose.yaml. No-arg
+  apply         (default) Regenerate .env.generated + compose.yaml. No-arg
                 invocation falls back to apply for backward compat.
-  check-drift   Compare current system / setup.conf against .env's
-                SETUP_* metadata. Exit 0 when in sync, exit 1 (with
-                drift descriptions on stderr) when regen is needed.
+  check-drift   Compare current system / setup.conf against
+                .env.generated's SETUP_* metadata. Exit 0 when in sync,
+                exit 1 (with drift descriptions on stderr) when a regen
+                is needed.
                 Used by build.sh / run.sh to decide auto-regen.
   set <section>.<key> <value>
                 Write a single value into <base-path>/.setup.conf
@@ -224,7 +230,8 @@ Subcommands:
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
                 environment.env_* / resources.shm_size). Does NOT
-                regenerate .env — run `apply` afterwards if needed.
+                regenerate .env.generated — run `apply` afterwards if
+                needed.
   show <section>[.<key>]
                 Print the value of a single key, or all key=value
                 pairs in a section (in on-disk order). Exits non-zero

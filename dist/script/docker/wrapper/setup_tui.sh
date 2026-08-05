@@ -10,7 +10,8 @@
 #   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
 # On save, setup_tui.sh writes <repo>/.setup.conf and execs setup.sh to
-# regenerate .env + compose.yaml. Cancel / Esc exits 0 without saving.
+# regenerate .env.generated + compose.yaml. Cancel / Esc exits 0 without
+# saving.
 #
 # Style: Google Shell Style Guide.
 
@@ -276,7 +277,7 @@ _TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-em
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
-_TUI_MSG_EN[saved]="Saved to %s. Regenerating .env + compose.yaml..."
+_TUI_MSG_EN[saved]="Saved to %s. Regenerating .env.generated + compose.yaml..."
 _TUI_MSG_EN[action.prompt]="Choose an action"
 _TUI_MSG_EN[action.edit]="Edit"
 _TUI_MSG_EN[action.remove]="Remove (delete entry)"
@@ -509,7 +510,7 @@ _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
 _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
-_TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env + compose.yaml..."
+_TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env.generated + compose.yaml..."
 _TUI_MSG_ZH_TW[action.prompt]="選擇動作"
 _TUI_MSG_ZH_TW[action.edit]="編輯"
 _TUI_MSG_ZH_TW[action.remove]="移除（刪除項目）"
@@ -737,7 +738,7 @@ _TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整�
 _TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
-_TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env + compose.yaml..."
+_TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env.generated + compose.yaml..."
 _TUI_MSG_ZH_CN[action.prompt]="选择动作"
 _TUI_MSG_ZH_CN[action.edit]="编辑"
 _TUI_MSG_ZH_CN[action.remove]="移除（删除项目）"
@@ -965,7 +966,7 @@ _TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数�
 _TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
-_TUI_MSG_JA[saved]="%s に保存しました。.env + compose.yaml を再生成中..."
+_TUI_MSG_JA[saved]="%s に保存しました。.env.generated + compose.yaml を再生成中..."
 _TUI_MSG_JA[action.prompt]="アクションを選択"
 _TUI_MSG_JA[action.edit]="編集"
 _TUI_MSG_JA[action.remove]="削除（項目を削除）"
@@ -1011,7 +1012,7 @@ usage() {
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 互動式編輯 <repo>/.setup.conf，完成後自動呼叫 setup.sh 重新產生
-.env 與 compose.yaml。需要已安裝 dialog 或 whiptail。
+.env.generated 與 compose.yaml。需要已安裝 dialog 或 whiptail。
 
 SECTION（可直接跳至特定區段）:
   image     IMAGE_NAME 偵測規則
@@ -1027,7 +1028,7 @@ EOF
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 交互式编辑 <repo>/.setup.conf，完成后自动调用 setup.sh 重新生成
-.env 和 compose.yaml。需要已安装 dialog 或 whiptail。
+.env.generated 和 compose.yaml。需要已安装 dialog 或 whiptail。
 
 SECTION（可直接跳至指定区段）:
   image     IMAGE_NAME 检测规则
@@ -1043,7 +1044,7 @@ EOF
 使用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 <repo>/.setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
-.env と compose.yaml を再生成します。dialog または whiptail が必要。
+.env.generated と compose.yaml を再生成します。dialog または whiptail が必要。
 
 SECTION（特定セクションへ直接移動）:
   image     IMAGE_NAME 検出ルール
@@ -1059,8 +1060,8 @@ EOF
 Usage: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
 Interactively edit <repo>/.setup.conf. On save, setup.sh is invoked
-automatically to regenerate .env and compose.yaml. Requires dialog
-or whiptail.
+automatically to regenerate .env.generated and compose.yaml. Requires
+dialog or whiptail.
 
 SECTION (jump directly to one section editor):
   image     IMAGE_NAME detection rules
@@ -1430,7 +1431,7 @@ _edit_section_build() {
         # Consistent with other scalar keys (e.g. resources.shm_size):
         # empty value keeps the key present with "" in setup.conf, and
         # setup.sh's `[[ -n $target_arch ]]` check handles the empty
-        # case by omitting TARGETARCH from .env + compose.yaml.
+        # case by omitting TARGETARCH from .env.generated + compose.yaml.
         _override_set "build.target_arch" "${_new}"
         ;;
       network)
