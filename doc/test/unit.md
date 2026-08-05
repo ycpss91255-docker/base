@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2434 tests**.
+Unit specs under `test/bats/unit/`: **2456 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1426,7 +1426,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (81)
+### test/bats/unit/compose_emit/gen_spec.bats (87)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1498,6 +1498,12 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)` | #582 mount target |
 | `generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)` | #582 env sync |
 | `generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR env (Wayland socket dir)` | - |
+| `generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR mounted rw at the same path` | - |
+| `generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount` | - |
+| `generate_compose_yaml emits no duplicate key within a service (GUI on)` | - |
+| `generate_compose_yaml emits no duplicate key within a service (GUI off)` | - |
+| `the duplicate-key detector actually fires on a duplicated service key` | - |
 | `generate_compose_yaml extra volumes appended after baseline` | volumes list |
 | `generate_compose_yaml empty extras => no extra mount lines` | empty list |
 | `generate_compose_yaml with GUI+GPU+extras => all sections present` | fully loaded |
@@ -2271,7 +2277,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_error: text output is framed like every other init record (#876)` | - |
 | `_error: the human message rides the display attribute (#876)` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (19)
+### test/bats/unit/smoke_helper_spec.bats (28)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -2298,6 +2304,15 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `assert_pip_pkg passes when pip show returns 0` | Package installed |
 | `assert_pip_pkg fails when pip show returns non-zero` | Package missing |
 | `assert_pip_pkg fails when pip is not installed` | pip itself missing |
+| `run_wrapper_xhost: wayland session grants +SI:localuser to the .env user` | - |
+| `run_wrapper_xhost: x11 session grants +local:` | - |
+| `run_wrapper_xhost: an unset XDG_SESSION_TYPE falls back to the X11 grant` | - |
+| `run_wrapper_xhost: reports every xhost call, one per line` | - |
+| `run_wrapper_xhost: fails loudly when the wrapper makes no xhost call` | - |
+| `run_wrapper_xhost: fails when the wrapper exits non-zero` | - |
+| `run_wrapper_xhost: fails when the wrapper path does not exist` | - |
+| `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | - |
+| `run_wrapper_xhost: errors when the wrapper path arg is missing` | - |
 
 ### test/bats/unit/runtime_smoke_spec.bats (8)
 
@@ -2755,3 +2770,15 @@ REAL shipped tree.
 | `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
 | `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
+
+### test/bats/unit/cd_guard_spec.bats (7)
+
+| Test | Description |
+|------|-------------|
+| `cd-guard: ships executable, so the documented ./.base/... invocation works` | - |
+| `cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')` | - |
+| `cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')` | - |
+| `cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')` | - |
+| `cd-guard: a tag that does not point at HEAD is still an untagged HEAD` | - |
+| `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
+| `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
