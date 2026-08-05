@@ -341,7 +341,13 @@ ADR-00000023 sec.4 stage-eligibility predicate
 (`deployable = not devel and not *-test`, widened in #841 to the whole
 template-managed baseline incl. the `sys` / `devel-base` build
 intermediates) that both the deploy-scoped `[lifecycle] restart`
-emission and the `setup deploy` stage guard gate on.
+emission and the `setup deploy` stage guard gate on. Also carries the
+#875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+"which line declares stage `<S>`" matcher: instead of testing each
+reader against its own regex — the shape that let three regexes drift
+apart until a `FROM --platform=... AS <stage>` line was a stage to one
+call site and invisible to the others — it drives every call site off a
+single FROM line and asserts one verdict per site.
 
 ### test/bats/unit/tui_spec.bats (132)
 
