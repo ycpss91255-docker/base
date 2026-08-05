@@ -615,6 +615,38 @@ EOF
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
 }
 
+@test "_load_stage_overrides: .setup.conf.local replaces a [stage:NAME] section (#893)" {
+  # The local layer overrides ANY section, not a whitelist -- and a stage
+  # section is exactly the shape a second worktree needs to vary.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+network.port_1 = 8080:80
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[stage:headless]
+network.port_1 = 18080:80
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${#_keys[@]}" -eq 1 ]] || { echo "expected 1 key, got ${_keys[*]}"; return 1; }
+  [[ "${_values[0]}" == "18080:80" ]] || { echo "got: ${_values[0]}"; return 1; }
+}
+
+@test "_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[stage:gui]
+gui.mode = force
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
+}
+
 @test "_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)" {
   # An ambient value used to REPLACE the file this reads, so a leftover
   # export silently swapped every per-stage override for another file's.

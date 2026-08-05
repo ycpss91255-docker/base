@@ -190,6 +190,147 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# .setup.conf.local -- the gitignored per-worktree layer
+#
+# Third layer of the same chain, with the same section-replace rule:
+# template <- <repo>/.setup.conf <- <repo>/.setup.conf.local. It may
+# override ANY section, because per-key merge over the eight `<prefix>_N`
+# ordered-list sections is not merely inconsistent but broken (an item
+# cannot be removed, and adding one needs the highest N of a layer the
+# user cannot see).
+# ════════════════════════════════════════════════════════════════════
+@test "_load_setup_conf: .setup.conf.local overrides the per-repo section" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "off"
+}
+
+@test "_load_setup_conf: .setup.conf.local overrides the template for a section the repo omits" {
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "off"
+}
+
+@test "_load_setup_conf: .setup.conf.local replaces a section wholesale, never per-key" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+mode = bridge
+ipc = private
+port_1 = 8080:80
+port_2 = 9090:90
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[network]
+mode = bridge
+port_1 = 18080:80
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "network" _k _v
+  # Two entries, both the local layer's: no ipc, and no port_2 leaking
+  # back in from the layer underneath to make one list out of two.
+  assert_equal "${#_k[@]}" "2"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_k[1]}" "port_1"
+  assert_equal "${_v[1]}" "18080:80"
+}
+
+@test "_load_setup_conf: sections .setup.conf.local omits keep the layer below" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gpu]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_setup_conf_handle: .setup.conf.local wins over the per-repo layer" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  _setup_conf_handle "${TEMP_DIR}" _LOCAL_H
+  run _conf_get _LOCAL_H gui mode
+  assert_success
+  assert_output "off"
+}
+
+@test "_compute_conf_hash: editing .setup.conf.local is drift" {
+  # The hash must describe the config that was actually resolved -- a
+  # layer that changes the resolved value and leaves the hash alone means
+  # the wrapper reuses artifacts generated from something else.
+  local _before="" _after=""
+  _compute_conf_hash "${TEMP_DIR}" _before
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  _compute_conf_hash "${TEMP_DIR}" _after
+  [[ "${_before}" != "${_after}" ]] || { echo "hash unchanged: ${_before}"; return 1; }
+}
+
+@test "_setup_effective_full: show/list read the local layer too" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _s=() _k=() _v=()
+  _setup_effective_full "${TEMP_DIR}" _s _k _v
+  local _i _seen=""
+  for (( _i = 0; _i < ${#_k[@]}; _i++ )); do
+    [[ "${_k[_i]}" == "gui.mode" ]] && _seen="${_v[_i]}"
+  done
+  assert_equal "${_seen}" "off"
+}
+
+@test "_setup_conf_local_sections: names the sections the local layer shadows" {
+  # Nothing may be silently shadowed: the callers that warn / announce need
+  # the section list, not just a boolean.
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+
+[network]
+mode = bridge
+EOF
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "2"
+  assert_equal "${_sects[0]}" "gui"
+  assert_equal "${_sects[1]}" "network"
+}
+
+@test "_setup_conf_local_sections: empty when no local layer is present" {
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "0"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _get_conf_value / _get_conf_list_sorted
 # ════════════════════════════════════════════════════════════════════
 @test "_get_conf_value returns value for present key" {

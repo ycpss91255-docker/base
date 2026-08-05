@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2578 tests**.
+Unit specs under `test/bats/unit/`: **2591 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -299,7 +299,7 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (21)
+#### test/bats/unit/setup_conf_spec.bats (30)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 replace strategy) resolving the per-repo override from the repo-root
@@ -332,7 +332,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (101)
+#### test/bats/unit/stage_spec.bats (103)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -1703,7 +1703,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
 | `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
 
-### test/bats/unit/conf_logging_spec.bats (7)
+### test/bats/unit/conf_logging_spec.bats (9)
 
 Unit tests for the logging-config collectors (`_parse_logging_svc_sections`
 / `_collect_logging`): per-service `[logging.<svc>]` enumeration in file
@@ -1716,6 +1716,8 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file empty |
 | `_collect_logging reads global [logging] from per-repo setup.conf` | Global logging read |
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
+| `_collect_logging: .setup.conf.local replaces the [logging] section (#893)` | - |
+| `_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)` | - |
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
