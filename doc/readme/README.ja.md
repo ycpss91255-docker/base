@@ -257,7 +257,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 a1b705795c6d 091bd7a4def4 -->
+<!-- sync: adding-extra-stages-215 73c7bd93f9ef 4f5aa7e7dc74 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, devel-test,
@@ -308,7 +308,7 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
   template が管理する image tag namespace（`latest`、`v[0-9]*`）と
   の衝突も hard error。
 - Stage の追加 / 削除は `setup.sh check-drift` をトリガーします
-  （`.env` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
+  （`.env.generated` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
   などの他の編集は drift をトリガー**しません**。
 
@@ -408,14 +408,15 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
-<!-- sync: per-repo-runtime-configuration 19f8cdc693b3 c742f9ebd008 -->
+<!-- sync: per-repo-runtime-configuration b02fd5d770dc 3d66f7630138 -->
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
 （GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
-駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` と
-`compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
-する必要はありません。
+駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env.generated`
+と `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
+する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
+最初に scaffold するだけで以後上書きしません。
 
 <!-- sync: one-conf-seven-sections a4642bdbb595 fa72aa2c30e0 -->
 ### 単一 conf、7 つの section
@@ -507,14 +508,20 @@ workspace bind mount への依存はありません。
 含まれているか確認してください
 （`grep _entrypoint_logging script/entrypoint.sh`）。
 
-<!-- sync: interactive-tui 9fbcb28ab56f c33bfdaa28a6 -->
+<!-- sync: interactive-tui 23df6f6f09ab f5eb99a83f34 -->
 ### インタラクティブ TUI
 
 `./setup_tui.sh` はメインメニューを開きます。バックエンドは
 `dialog` または `whiptail`（どちらも無い場合は `sudo apt install
 dialog` のヒントを表示して終了）。Cancel / Esc で保存せず退出；
-保存後は自動的に `setup.sh` を呼び出して `.env` + `compose.yaml`
-を再生成します。
+保存後は自動的に `setup.sh` を呼び出して `.env.generated` +
+`compose.yaml` を再生成します。
+
+`./setup_tui.sh <SECTION>` で個別のエディタへ直接移動できます。`[deploy]`
+セクションが設定するのは GPU 予約だけで、名前は Compose の `deploy:` キー
+由来です。field bundle を作る `./setup.sh deploy` とは無関係なので、この
+エディタの曖昧でない名前は `gpu`（`just docker setup-tui gpu`）です。
+`deploy` も使えますが、どちらなのかを説明する通知が先に出ます。
 
 メインメニュー構造（#221）：
 
@@ -571,7 +578,7 @@ Main
 保持されるため、手動で調整した workspace パスや apt mirror はアップ
 グレードで上書きされません。
 
-<!-- sync: drift-detection 51f0c0e65245 2b4d5b7dcd2b -->
+<!-- sync: drift-detection 25d3585b5c5f 05855d6ce3cf -->
 ### ドリフト検出
 
 `setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
@@ -583,7 +590,7 @@ Main
 - GPU / GUI の検出結果
 - `USER_UID`（ユーザ ID の変化）
 
-`--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
+`--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 1f61d586455b -->
 ### フィールド配備（`just docker setup deploy`）
@@ -644,14 +651,14 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 1612cc2f03c3 de70d71d1126 -->
+<!-- sync: setupsh-subcommands-v0110 c344a1655165 1fe6194014bc -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
 
 | サブコマンド | 用途 |
 |---|---|
-| `apply` | setup.conf + システム検出から `.env` + `compose.yaml` を再生成 |
+| `apply` | setup.conf + システム検出から `.env.generated` + `compose.yaml` を再生成（手書きの `.env` overlay は対象外） |
 | `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
 | `set <section>.<key> <value>` | 単一キーを書き込む |
 | `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
@@ -661,7 +668,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 | `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
-型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
+型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env.generated` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
 
 <!-- sync: migration-from-v010x-breaking 6bd85945e2d2 79ebc84b0a81 -->
 #### v0.10.x からの移行（BREAKING）
@@ -676,16 +683,20 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored cb81feeefc46 60803ca6e290 -->
+<!-- sync: derived-artifacts-gitignored 99925c8810ca 7b14a2189138 -->
 ### 生成物（gitignored）
 
-- `.env` — ランタイム変数 + `SETUP_*` drift metadata
+- `.env.generated` — ランタイム変数 + `SETUP_*` drift metadata
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
 両ファイルは `just base upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
+
+`.env` も gitignore されますが生成物では**ありません**。手書きの workload
+overlay で、最初の apply で一度 scaffold されたあとは上書きされません。
+編集しても setup の実行で消えることはありません。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f b6f612f647f5 -->
 ### Wrapper 毎の pre/post hook（#440）
@@ -842,7 +853,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
-<!-- sync: updating f825b9a2c058 536d5b517e7c -->
+<!-- sync: updating 7a775b58dcf5 5021b02c05cd -->
 ### アップグレード
 
 前提条件：`git config user.name` / `user.email` が設定済みで、working tree
@@ -876,9 +887,9 @@ just base upgrade v0.3.0
    対策）
 3. `./.base/dist/script/base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
    / `justfile` …）の再同期、`.gitignore` を canonical entry set に
-   同期、derived artifact になった旧 tracked ファイル（`.env`、
-   `compose.yaml`、…）を `git rm --cached`、最後に `setup.sh apply` を
-   呼んで `.env` + `compose.yaml` を再生成
+   同期、derived artifact になった旧 tracked ファイル
+   （`.env.generated`、`compose.yaml`、…）を `git rm --cached`、最後に
+   `setup.sh apply` を呼んで `.env.generated` + `compose.yaml` を再生成
 4. `sed` で `.github/workflows/main.yaml` の
    `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` を更新
 
