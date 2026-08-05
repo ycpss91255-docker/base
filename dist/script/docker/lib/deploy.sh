@@ -735,7 +735,7 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _render_deploy_readme <out> <repo> <stage> <image_ref>
+# _render_deploy_readme <out> <repo> <stage> <image_ref> [<local_sections>]
 #
 # Write the bundle's generic README from the base-shipped template
 # (dist/deploy/README, @IMAGE@ / @REPO@ / @STAGE@ substituted). Falls back
@@ -748,6 +748,12 @@ _render_deploy_readme() {
   local _name="${2:?"${FUNCNAME[0]}: missing repo name"}"
   local _stage="${3:?"${FUNCNAME[0]}: missing stage"}"
   local _image="${4:?"${FUNCNAME[0]}: missing image_ref"}"
+  # Space-separated sections that came from the build host's untracked
+  # .setup.conf.local (empty for the normal case). Recorded in the README
+  # because an escape hatch that leaves no trace in the artifact is exactly
+  # the silent dependency the refusal exists to prevent: the person holding
+  # this bundle in the field is not the person who chose to bypass the gate.
+  local _local_sections="${5-}"
   local _tpl="${_SETUP_SCRIPT_DIR:-}/../../../deploy/README"
   if [[ -n "${_SETUP_SCRIPT_DIR:-}" && -f "${_tpl}" ]]; then
     sed -e "s|@IMAGE@|${_image}|g" -e "s|@REPO@|${_name}|g" \
@@ -783,6 +789,33 @@ auto-starts again after a crash and after a host reboot -- use
 ./deploy.sh down to stop it for good.
 EOF
   fi
+  _append_local_override_note "${_out}" "${_local_sections}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _append_local_override_note <readme_path> <sections>
+#
+# Append the "built from an untracked config layer" record to a bundle
+# README. No-op when <sections> is empty, which is every normal build.
+# ════════════════════════════════════════════════════════════════════
+_append_local_override_note() {
+  local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
+  local _sections="${2-}"
+  [[ -n "${_sections}" ]] || return 0
+  cat >> "${_out}" <<EOF
+
+## Built with an untracked config override
+
+This bundle was generated with \`--allow-local-override\` while the build
+host had a \`.setup.conf.local\`. These setup.conf sections were taken from
+that file rather than from the repository:
+
+    ${_sections// /, }
+
+\`.setup.conf.local\` is gitignored. Its contents are not in the repository,
+so this bundle CANNOT be reproduced from a clean checkout -- reproducing it
+requires that same file. Treat the values above as unversioned.
+EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -884,7 +917,13 @@ _generate_deploy_bundle() {
   _generate_resolved_compose "${_base}" "${_stage}" "${_image}" "${_container}" \
     "${_work}/compose.yaml" _binds _ctx _bind_modes
   _generate_deploy_launcher "${_work}/deploy.sh" "${_stage}"
-  _render_deploy_readme "${_work}/README" "${_name}" "${_stage}" "${_image}"
+  # The bundle records the untracked sections it was built from, so the
+  # record travels with the artifact rather than living only in the build
+  # host's terminal scrollback.
+  local -a _gdb_local_sections=()
+  _setup_conf_local_sections "${_base}" _gdb_local_sections
+  _render_deploy_readme "${_work}/README" "${_name}" "${_stage}" "${_image}" \
+    "${_gdb_local_sections[*]-}"
 
   local _rc=0
   # Build the image tagged <repo>:<stage>-<version> so the field docker load

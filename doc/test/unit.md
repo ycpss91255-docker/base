@@ -1620,7 +1620,7 @@ refused before any build or bundle step.
 | `_setup_deploy: no refusal when there is no local override (#893)` | - |
 | `_render_deploy_readme: records the untracked sections a bundle was built from (#893)` | - |
 | `_render_deploy_readme: says nothing about local overrides when there were none (#893)` | - |
-| `_generate_deploy_bundle: the bundle README records an accepted local override (#893)` | - |
+| `_generate_deploy_bundle: hands the untracked sections to the bundle README (#893)` | - |
 | `_setup_deploy: refuses in a non-interactive shell without -y (#832)` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile (#832)` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag (#832)` | arg validation |

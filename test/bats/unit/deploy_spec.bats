@@ -733,17 +733,23 @@ SH
   rm -rf "${_d}"
 }
 
-@test "_generate_deploy_bundle: the bundle README records an accepted local override (#893)" {
+@test "_generate_deploy_bundle: hands the untracked sections to the bundle README (#893)" {
+  # The generator, not the subcommand, is what puts the record in the
+  # artifact -- so the record survives any other entry point into a bundle.
+  # Probed at the seam because the bundle is only assembled for real when
+  # docker runs, and this suite never invokes a daemon.
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
-  local _out_dir="${_d}/deploy/out"
+  printf '[gui]\nmode = force\n[network]\nmode = bridge\n' \
+    > "${_d}/.setup.conf.local"
+  README_PROBE="${_d}/readme-sections"
+  _render_deploy_readme() { printf '%s\n' "${5-}" > "${README_PROBE}"; : > "${1}"; }
   export DRY_RUN=true
-  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_out_dir}"
+  SETUP_DETECT_DRI_GROUPS="" _generate_deploy_bundle "${_d}" "runtime" "${_d}/out"
   unset DRY_RUN
+  run cat "${README_PROBE}"
   assert_success
-  run grep -F '.setup.conf.local' "${_out_dir}/README"
-  assert_success
+  assert_output "gui network"
   rm -rf "${_d}"
 }
 

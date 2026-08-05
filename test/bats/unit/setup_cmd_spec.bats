@@ -268,17 +268,18 @@ EOF
 # value is still the one CI and every other checkout uses. It is warned,
 # as a certainty rather than a possibility, naming the section.
 #
-# A write that lands where the read path does not look is the failure #201
-# died of, which is why this is a hard requirement and not a nicety.
+# A write that lands where the read path does not look is the failure the
+# earlier committed setup.conf.local died of, which is why this is a hard
+# requirement and not a nicety.
 # ════════════════════════════════════════════════════════════════════
 
 @test "set --local writes .setup.conf.local and leaves .setup.conf alone (#893)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F 'myrepo-wt2' "${TEMP_DIR}/.setup.conf.local"
+  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf.local"
   assert_success
-  run grep -F 'myrepo-wt2' "${TEMP_DIR}/.setup.conf"
+  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf"
   assert_failure
 }
 
@@ -286,7 +287,7 @@ EOF
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main set project.name myrepo --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F 'myrepo' "${TEMP_DIR}/.setup.conf"
+  run grep -Ex 'name = myrepo' "${TEMP_DIR}/.setup.conf"
   assert_success
   [[ ! -e "${TEMP_DIR}/.setup.conf.local" ]] \
     || fail "a plain set created the local override file"

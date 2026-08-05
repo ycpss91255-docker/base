@@ -18,6 +18,10 @@ conf_section_not_found
 conf_unknown_subcmd
 conf_unknown_arg
 conf_upsert_file_missing
+conf_local_created
+conf_write_shadowed
+deploy_local_override_refused
+deploy_local_override_accepted
 conf_upsert_newline_rejected
 conf_upsert_mv_failed
 conf_upsert_tmp_failed
