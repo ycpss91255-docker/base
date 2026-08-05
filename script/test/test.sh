@@ -280,6 +280,11 @@ Options:
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools) and exit.
                           TEST_TOOLS_IMAGE, when set, is echoed verbatim.
+  --compose-project-name  Print the compose project name this checkout
+                          resolves (a hash of its absolute path, so two
+                          checkouts sharing a directory basename do not
+                          share a project) and exit. COMPOSE_PROJECT_NAME,
+                          when set, is echoed verbatim.
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -410,6 +415,55 @@ _resolve_test_tools_image() {
   return 0
 }
 
+# ── Compose project name ─────────────────────────────────────────────────────
+
+# _compute_compose_project_name <repo_root> <outvar>
+#
+# Compose accepts only `[a-z0-9][a-z0-9_-]*` as a project name, and a
+# checkout path may hold anything -- spaces, uppercase, punctuation,
+# non-ASCII, a leading dot. Sanitising the path TEXT would have to
+# enumerate every such case and would still have to answer what a path that
+# sanitises to nothing becomes; hashing it cannot fail to: the name is the
+# constant prefix plus 12 hex digits, which satisfies the grammar by
+# construction for ANY input path.
+#
+# Keyed to the PATH, not the commit: two worktrees are routinely branched
+# from the same commit, so a commit-keyed name would collide in exactly the
+# concurrent case this exists to separate. The path is also stable across
+# commits, so a checkout keeps one project (and one network) instead of
+# churning a fresh one per commit.
+_compute_compose_project_name() {
+  local _root="${1:?_compute_compose_project_name requires <repo_root>}"
+  local -n _ccpn_out="${2:?_compute_compose_project_name requires <outvar>}"
+  local _hash
+  _hash="$(printf '%s' "${_root}" | sha256sum | cut -d' ' -f1)"
+  # A short/empty digest (sha256sum or cut missing) would degrade to the
+  # bare prefix -- a name EVERY checkout resolves, i.e. the collision this
+  # exists to prevent, reintroduced silently. Fail loud instead.
+  if [[ ! "${_hash}" =~ ^[0-9a-f]{12} ]]; then
+    _die ci_project_name_digest_failed \
+      "cannot derive a compose project name for '${_root}': sha256sum produced no usable digest."
+  fi
+  _ccpn_out="base-${_hash:0:12}"
+  return 0
+}
+
+# _resolve_compose_project_name
+#
+# Prints the project name `_run_via_compose` passes to `docker compose -p`.
+# COMPOSE_PROJECT_NAME wins verbatim so CI can key the project to its run
+# id; the derivation is a local default only.
+_resolve_compose_project_name() {
+  if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    printf '%s\n' "${COMPOSE_PROJECT_NAME}"
+    return 0
+  fi
+  local _name=""
+  _compute_compose_project_name "${REPO_ROOT}" _name
+  printf '%s\n' "${_name}"
+  return 0
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -435,9 +489,20 @@ _run_via_compose() {
   # LINT_ONLY=1 runs the linters and returns; LINT_TOOL narrows to one
   # ('shellcheck' | 'hadolint'), empty = all. hadolint has no host binary,
   # so even shellcheck-via-lint runs in-container for behaviour parity.
+  #
+  # `-p` is explicit. Without it compose falls back to the project
+  # directory's BASENAME, so two checkouts whose directories happen to share
+  # a name silently share one project -- one set of containers, one network.
+  # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
-  docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
+  # Resolved into a local first, not inline in the argument list: a failing
+  # command substitution inside an argument does not abort the command, so
+  # an inline form would hand compose an empty -p and let the run continue.
+  local _project
+  _project="$(_resolve_compose_project_name)"
+  docker compose -p "${_project}" \
+    -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
@@ -514,6 +579,7 @@ main() {
       # (a mismatch there is silent: the consumer would quietly pull the
       # published image while the local build sat unused).
       --test-tools-image) _resolve_test_tools_image; return 0 ;;
+      --compose-project-name) _resolve_compose_project_name; return 0 ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done

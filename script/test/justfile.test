@@ -68,11 +68,19 @@ coverage shard='':
 # and exporting it is what keeps the build-only `test-tools` service and the
 # `ci-system` consumer on the same image. A caller-pinned TEST_TOOLS_IMAGE
 # (CI) still wins.
+#
+# The compose project is named explicitly for the same reason test.sh names
+# it: with neither `-p` nor COMPOSE_PROJECT_NAME, compose falls back to the
+# checkout directory's BASENAME, so two checkouts named alike share one set
+# of containers and one network. Exporting the name here is what reaches the
+# bare `docker compose run` below.
 system:
     #!/usr/bin/env bash
     set -euo pipefail
     TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
     export TEST_TOOLS_IMAGE
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
+    export COMPOSE_PROJECT_NAME
     just docker build --target test-tools
     docker compose run --rm ci-system
 

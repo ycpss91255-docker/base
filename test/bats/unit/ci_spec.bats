@@ -11,7 +11,10 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
   local _cmd
-  for _cmd in grep date cat printf; do
+  # sha256sum + cut back the name derivations (_compute_test_tools_hash /
+  # _compute_compose_project_name); without them a PATH-confined test would
+  # exercise their fail-loud guard instead of the behaviour under test.
+  for _cmd in grep date cat printf sha256sum cut; do
     local _path
     _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
   done
@@ -1523,4 +1526,27 @@ SH
   '
   assert_success
   [[ "${output}" =~ ^base-[0-9a-f]{12}$ ]]
+}
+
+@test "_compute_compose_project_name: fails loud when the digest cannot be produced (#891)" {
+  # A short/empty digest would degrade to the bare `base-` prefix -- a name
+  # EVERY checkout resolves, i.e. the collision this derivation exists to
+  # prevent, reintroduced silently.
+  local _clean="${BATS_TEST_TMPDIR}/nosha"
+  mkdir -p "${_clean}"
+  printf '#!/bin/bash\nexit 0\n' > "${_clean}/sha256sum"
+  chmod +x "${_clean}/sha256sum"
+  local _cmd _src
+  for _cmd in bash cut printf date grep sed tr head; do
+    _src="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_src}" "${_clean}/${_cmd}"
+  done
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${_clean}"'"
+    _n=""
+    _compute_compose_project_name "/home/dev/a/base" _n
+  '
+  assert_failure
+  assert_output --partial "no usable digest"
 }

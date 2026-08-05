@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2571 tests**.
+Unit specs under `test/bats/unit/`: **2572 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1961,7 +1961,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (83)
+### test/bats/unit/ci_spec.bats (84)
 
 | Test | Description |
 |------|-------------|
@@ -2048,6 +2048,7 @@ builds the env block only for the knobs the conf sets.
 | `_run_via_compose: passes an explicit -p so the project is not the directory basename (#891)` | #891 the missing -p is the defect |
 | `_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)` | #891 -p forwards the caller's name |
 | `main --compose-project-name: prints the resolved project for the justfile (#891)` | #891 one entry point for both call sites |
+| `_compute_compose_project_name: fails loud when the digest cannot be produced (#891)` | #891 no silent degrade to the shared bare prefix |
 
 ### test/bats/unit/doc_counts_spec.bats (21)
 
