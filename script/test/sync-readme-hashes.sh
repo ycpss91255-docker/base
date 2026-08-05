@@ -257,7 +257,7 @@ _readme_sections() {
     _hash="$(printf '%s\n' "${_head}" "${_body[@]}" \
       | sha256sum | cut -c "1-${_README_SYNC_HASH_LEN}")"
     printf '%s\t%s\t%s\n' \
-      "$(( ${_hidx[_j]} + 1 ))" "${_hash}" "${_hslug[_j]}"
+      "$(( _hidx[_j] + 1 ))" "${_hash}" "${_hslug[_j]}"
   done
 
   [[ "${_extglob_was_set}" -eq 1 ]] || shopt -u extglob
