@@ -274,7 +274,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS runtime
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -293,7 +292,6 @@ FROM base AS devel
 FROM devel AS headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -315,7 +313,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -346,7 +343,6 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -369,7 +365,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS test
 EOF
-  unset SETUP_CONF
   # Add a second `AS test` at top to trigger duplicate baseline match
   # (parser sees it before dedup; baseline blocklist still skips).
   # Actually the dedup-then-blocklist test is not a collision — both
@@ -403,7 +398,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS latest
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -419,7 +413,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS v0
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
@@ -438,7 +431,6 @@ FROM base AS devel
 FROM devel AS Headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -460,7 +452,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -477,7 +468,6 @@ FROM scratch AS sys
 FROM sys AS base
 FROM base AS devel
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -512,7 +502,6 @@ FROM base AS devel
 FROM devel AS headless
 FROM devel AS gui
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -839,7 +828,6 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1

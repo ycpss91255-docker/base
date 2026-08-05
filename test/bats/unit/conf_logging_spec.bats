@@ -29,7 +29,6 @@ setup() {
 }
 
 teardown() {
-  unset SETUP_CONF
   rm -rf "${TEMP_DIR}"
 }
 

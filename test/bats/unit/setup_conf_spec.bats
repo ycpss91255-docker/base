@@ -93,7 +93,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
@@ -106,7 +105,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
@@ -120,7 +118,6 @@ EOF
 [gui]
 mode = legacy_should_be_ignored
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   # Template default [gui] mode = auto -- proves the legacy file is unread.
@@ -173,7 +170,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   # Template default has [gui] mode = auto
@@ -186,7 +182,6 @@ EOF
 [gpu]
 mode = off
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   # Replace strategy: only "mode" — no count, no capabilities inherited

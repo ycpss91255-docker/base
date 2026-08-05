@@ -217,21 +217,18 @@ fi'
 # ════════════════════════════════════════════════════════════════════
 @test "detect_image_name uses template default rules (prefix:docker_ → strip)" {
   local _result
-  unset SETUP_CONF
   detect_image_name _result "/home/user/docker_myapp"
   assert_equal "${_result}" "myapp"
 }
 
 @test "detect_image_name uses template default rules (suffix:_ws → strip)" {
   local _result
-  unset SETUP_CONF
   detect_image_name _result "/home/user/projects/myapp_ws"
   assert_equal "${_result}" "myapp"
 }
 
 @test "detect_image_name template default falls through to @basename for generic paths" {
   local _result
-  unset SETUP_CONF
   detect_image_name _result "/home/user/plainproject"
   assert_equal "${_result}" "plainproject"
 }
@@ -242,7 +239,6 @@ fi'
 rule_1 = prefix:foo_
 rule_2 = @basename
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/foo_bar"
   assert_equal "${_result}" "bar"
@@ -255,7 +251,6 @@ rule_1 = prefix:docker_
 rule_2 = suffix:_ws
 rule_3 = @default:unused
 EOF
-  unset SETUP_CONF
   local _result
   # path has docker_ prefix AND _ws somewhere — prefix wins
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/myapp_ws/src/docker_nav"
@@ -268,7 +263,6 @@ EOF
 rule_1 = prefix:nonexistent_
 rule_2 = @default:myfallback
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plain"
   assert_equal "${_result}" "myfallback"
@@ -276,7 +270,6 @@ EOF
 
 @test "detect_image_name lowercases the result" {
   local _result
-  unset SETUP_CONF
   detect_image_name _result "/home/user/docker_MyApp"
   assert_equal "${_result}" "myapp"
 }
@@ -286,7 +279,6 @@ EOF
 [image]
 rule_1 = prefix:nonexistent_
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plain"
   assert_equal "${_result}" "unknown"
@@ -344,7 +336,6 @@ EOF
 [image]
 rule_1 = @basename
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/plainname"
   assert_equal "${_result}" "plainname"
@@ -363,7 +354,6 @@ EOF
 [image]
 rule_1 = @basename
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/tmp/tmp.abcdef"
   assert_equal "${_result}" "tmp-abcdef"
@@ -374,7 +364,6 @@ EOF
 [image]
 rule_1 = @basename
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/tmp/..weird..name.."
   [[ "${_result}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
@@ -391,7 +380,6 @@ rule_1 = string:my_app
 rule_2 = prefix:docker_
 rule_3 = @default:should_not_reach
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/home/user/docker_something"
   assert_equal "${_result}" "my_app"
@@ -402,7 +390,6 @@ EOF
 [image]
 rule_1 = string:My.App.Name
 EOF
-  unset SETUP_CONF
   local _result
   BASE_PATH="${TEMP_DIR}" detect_image_name _result "/tmp/whatever"
   assert_equal "${_result}" "my-app-name"

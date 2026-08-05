@@ -810,7 +810,6 @@ EOF
 [deploy]
 gpu_mode = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -826,7 +825,6 @@ gpu_mode = force
 gpu_count = all
 gpu_capabilities = gpu compute
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -842,7 +840,6 @@ gpu_mode = force
 gpu_count = 2
 gpu_capabilities = gpu
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -858,7 +855,6 @@ gpu_mode = force
 gpu_count = all
 gpu_capabilities = gpu compute utility
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -873,7 +869,6 @@ EOF
 gpu_mode = off
 runtime = nvidia
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -888,7 +883,6 @@ EOF
 gpu_mode = off
 runtime = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -904,7 +898,6 @@ EOF
 [gui]
 mode = off
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -918,7 +911,6 @@ EOF
 [gui]
 mode = force
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -935,7 +927,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -950,7 +941,6 @@ EOF
 mode = host
 ipc = private
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -966,7 +956,6 @@ mode = host
 ipc = host
 pid = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -981,7 +970,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -996,7 +984,6 @@ EOF
 mode = host
 ipc = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1012,7 +999,6 @@ mode = host
 ipc = host
 pid = host
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1028,7 +1014,6 @@ mode = bridge
 ipc = private
 network_name = my_bridge
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1044,7 +1029,6 @@ mode = bridge
 ipc = private
 port_1 = 8080:80
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1060,7 +1044,6 @@ mode = host
 ipc = host
 port_1 = 8080:80
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1078,7 +1061,6 @@ ipc = private
 [resources]
 shm_size = 2gb
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1092,7 +1074,6 @@ EOF
 [resources]
 shm_size =
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1108,7 +1089,6 @@ EOF
 [environment]
 env_1 = ROS_DOMAIN_ID=7
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1121,7 +1101,6 @@ EOF
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1137,7 +1116,6 @@ EOF
 [tmpfs]
 tmpfs_1 = /tmp
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1151,7 +1129,6 @@ EOF
 [tmpfs]
 tmpfs_1 = /tmp/cache:size=1g
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1164,7 +1141,6 @@ EOF
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [tmpfs]
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1180,7 +1156,6 @@ EOF
 [devices]
 device_1 = /dev/video0:/dev/video0
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1195,7 +1170,6 @@ EOF
 device_1 = /dev:/dev
 cgroup_rule_1 = c 189:* rwm
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1212,7 +1186,6 @@ EOF
 mount_1 =
 mount_2 = /data:/data
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1227,7 +1200,6 @@ EOF
 mount_1 =
 mount_2 = /etc/machine-id:/etc/machine-id:ro
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1243,7 +1215,6 @@ EOF
 [security]
 privileged = false
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1267,7 +1238,6 @@ EOF
 [environment]
 env_1 = EVIL=\$(touch ${TEMP_DIR}/pwn687)
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1283,7 +1253,6 @@ EOF
 [environment]
 env_1 = EVIL=$(touch /tmp/x)
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1299,7 +1268,6 @@ EOF
 [lifecycle]
 restart = sometimes
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1317,7 +1285,6 @@ EOF
 [environment]
 env_1 = MSG=a: b
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1334,7 +1301,6 @@ EOF
 [environment]
 env_1 = GLOB=*
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1351,7 +1317,6 @@ EOF
 [environment]
 env_1 = NOTE=a #b
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1368,7 +1333,6 @@ EOF
 [environment]
 env_1 = Q=a"b\c
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1396,7 +1360,6 @@ mode = host
 [stage:headless]
 network.mode = bogus: value
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1421,7 +1384,6 @@ pid = private
 network.ipc = bogus: value
 network.pid = bogus: value
 EOF
-  unset SETUP_CONF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
