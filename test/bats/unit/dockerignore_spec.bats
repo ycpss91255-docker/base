@@ -45,7 +45,7 @@ teardown() {
   assert_line ".env.bak"
   assert_line "compose.yaml"
   assert_line ".setup.conf.bak"
-  assert_line ".setup.conf.local"
+  refute_line ".setup.conf.local"
   assert_line "coverage/"
   assert_line ".Dockerfile.generated"
   assert_line ".docker.xauth"
