@@ -775,3 +775,18 @@ SH
   assert_output --partial "deploy plan: stage=runtime"
   rm -rf "${_d}"
 }
+
+@test "_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)" {
+  # Same rule the per-stage layer follows: gpu_runtime is authoritative,
+  # and the deprecated key is reported whenever it is still in the conf
+  # -- otherwise a half-finished migration is invisible on both paths.
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_runtime = off" "runtime = nvidia"
+  local -A _ctx=()
+  LOG_FORMAT=json run _resolve_deploy_context "${_d}" _ctx
+  assert_success
+  assert_output --partial '"body":"conf_runtime_key_deprecated"'
+  _resolve_deploy_context "${_d}" _ctx
+  assert_equal "${_ctx[gpu_runtime_mode]}" "off"
+  rm -rf "${_d}"
+}
