@@ -138,6 +138,30 @@ The per-repo declarative container config (INI-style sections) that
 `setup.sh` resolves into `.env` + `compose.yaml`.
 _Avoid_: config file, settings.
 
+**Conf layer chain**:
+The three files `setup.sh` resolves, lowest precedence first: the shipped
+`<template>/.setup.conf`, the repo's committed `<repo>/.setup.conf`, and
+the operator's gitignored `<repo>/.setup.conf.local`. Section-replace at
+every step -- the highest layer that defines a section supplies all of it
+(ADR-00000025). No environment variable can steer the chain.
+_Avoid_: config search path, override cascade, merge order.
+
+**Local conf override** (`.setup.conf.local`):
+The per-worktree layer of the chain: gitignored, never touched by tooling,
+visible on one machine. Where `[project] name` belongs so two worktrees of
+one repo can run at once. Written with `setup.sh set --local`. Distinct
+from ADR-00000022's per-instance `.env` overlay, which acts AFTER
+`compose.yaml` is generated.
+_Avoid_: local config, instance config, per-instance override.
+
+**Project name**:
+The compose project a checkout runs under, resolved ONCE by
+`_resolve_project_name` (`lib/compose.sh`) from `[project] name` (empty =
+derive `<DOCKER_HUB_USER>-<IMAGE_NAME>`) into `.env.generated` as
+`PROJECT_NAME`. Both the wrapper's `-p` and the emitted `name:` read that
+one value. Not the image tag, which is a separate axis.
+_Avoid_: instance name, stack name, container prefix.
+
 **setup.conf schema**:
 The set of valid sections/keys and their validation rules, single-sourced
 in `lib/schema.sh` (#559).
@@ -264,9 +288,11 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 
 - A **downstream repo** vendors **base** via the **`.base` subtree
   contract**.
-- `setup.sh` resolves **setup.conf** (validated by the **schema
-  registry**) through the **resolved-config seam** into `.env` +
-  `compose.yaml`.
+- `setup.sh` resolves the **conf layer chain** (template <- the repo's
+  **setup.conf** <- the **local conf override**), validated by the
+  **schema registry**, through the **resolved-config seam** into `.env` +
+  `compose.yaml` -- including the **project name** both the wrapper's `-p`
+  and the emitted `name:` read back.
 - A **per-stage override** refines the global config for one **stage**;
   the **per-service compose emitter** renders each emittable **stage**.
 - **Field deploy** bakes one **deployable stage** into a **deploy

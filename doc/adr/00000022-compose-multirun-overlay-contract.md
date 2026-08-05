@@ -69,7 +69,7 @@ channel differs by kind:
 
 | Field kind | Per-instance override channel | Emitted form |
 |---|---|---|
-| project `name:` | compose interpolation from `--env-file` | `${DOCKER_HUB_USER}-${IMAGE_NAME}` |
+| project `name:` | compose interpolation from `--env-file` | `${PROJECT_NAME}` (was `${DOCKER_HUB_USER}-${IMAGE_NAME}`; see the 2026-08-05 amendment below) |
 | `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` |
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
@@ -77,6 +77,28 @@ channel differs by kind:
 | workload env (`ROS_DOMAIN_ID`, tokens) | `.env` overlay via `env_file:` + baked ENV default (ADR-00000003 S3) | `- "KEY=value"` default; overlay wins in the field image |
 | writable volume topology | compose-merge overlay (a mount is a topology decision, not a flat scalar) | bind/named mount string |
 | `runtime` / `hostname` / GPU | **not per-instance** -- host-bound, correctly *shared* across co-located instances (all instances on a host share the runtime, the X11-cookie hostname, and the GPU) | literal / host-resolved |
+
+**Amendment (2026-08-05, ADR-00000025): the project `name:` row's emitted
+form, and the stage this ADR does NOT cover.** The row above is unchanged in
+substance -- project `name:` is still an interpolation from `--env-file`, and
+multi_run still overrides it by setting that variable in its runtime overlay.
+What changed is *which* variable: the emitter used to re-assemble
+`${DOCKER_HUB_USER}-${IMAGE_NAME}` while the wrapper computed the same string
+in bash, two answerers to one question, and both now read the single
+`PROJECT_NAME` that `setup apply` resolves into `.env.generated`. The
+interpolation form -- the thing this ADR's forward invariant and its guard
+actually pin -- is preserved deliberately: emitting the resolved literal would
+have been simpler and would have re-erected the wall.
+
+ADR-00000025 also adds a per-worktree `.setup.conf.local` config layer, and it
+is worth being explicit that it is **not** this contract's mechanism, because
+the resemblance invites the mistake. That layer acts BEFORE `compose.yaml` is
+generated and yields one `compose.yaml` per worktree; per-instance isolation
+here acts at interpolation time on ONE already-generated `compose.yaml`, which
+is precisely why sec. 1 rejects a per-instance regenerate. A developer's
+second worktree and multi_run's Nth instance are different stages of the
+pipeline, and neither mechanism can do the other's job. ADR-00000025 sec. 5
+carries the full division of labour.
 
 The concrete change this decision required was `ports`: they were baked
 literals and are now `${PORT_<n>:-<default>}`, `n` 1-based per the

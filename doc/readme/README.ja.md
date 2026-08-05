@@ -420,7 +420,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
 最初に scaffold するだけで以後上書きしません。
 
-<!-- sync: one-conf-15-sections 4c46f6a4d70a 944dd0468aaf -->
+<!-- sync: one-conf-15-sections 825dbace1f47 66721dcea0e2 -->
 ### 単一 conf、15 個の section
 
 以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
@@ -468,9 +468,70 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 
 テンプレート既定値は `.base/dist/.setup.conf`；repo ごとの上書きは repo
 ルートの dotfile `<repo>/.setup.conf`（`just setup` が管理し、手で編集する
-`config/` 面には意図的に置かない）。セクションレベル **replace** 戦略：repo
-ファイルに section があれば template の section を全置換；無ければ template
-既定値を継承。
+`config/` 面には意図的に置かない）。セクションレベル **replace** 戦略：上位
+レイヤに section があれば下位の section を全置換；無ければ下位に落ちる。
+
+<!-- sync: three-layers-the-third-is-yours-setupconflocal d6b292a21a41 e6aee3651ebf -->
+#### 3 レイヤ、3 枚目はあなたのもの（`.setup.conf.local`）
+
+| レイヤ | バージョン管理 | 誰のものか |
+|---|---|---|
+| `.base/dist/.setup.conf` | subtree で出荷 | base の既定値 |
+| `<repo>/.setup.conf` | commit 済み | repo のもの —— CI も他のどの checkout もこれを使う |
+| `<repo>/.setup.conf.local` | **gitignored** | あなたのもの。このマシン、この worktree だけ |
+
+3 枚とも同じ文法、同じ section-replace 規則です。3 枚目は `--local` で書きます：
+
+```bash
+./setup.sh set --local project.name myrepo-wt2
+```
+
+キー単位のマージではなく section 全置換である理由：上の section のうち 8 つは
+`<prefix>_N` の順序付きリストです。`port_2` だけを上書きすると 2 つのレイヤ
+から 1 本の順序付きリストが組み上がり、項目を「削除」する手段が無く、追加
+するには見えないレイヤの最大 `N` を知る必要があります。関連キーどうしも
+互いを制御する（`[network] mode` が `port_N` を emit するかを決める）ため、
+中途半端な上書きはどのレイヤも書いていない組み合わせを生みます。
+
+ここから 3 つの帰結があり、いずれも黙って起きることはありません：
+
+- `.setup.conf.local` がその section を定義しているとき、通常の `set` で同じ
+  section を書くと section 名を挙げて**警告**します。拒否はしません ——
+  その値は CI と他の checkout が使う commit 済みの値のままです —— が、この
+  マシンでは何も変わりません。
+- 各 wrapper の実行前サマリに `local override:` 行が加わり、ファイルと
+  それが置換する section を表示します。
+- `just docker setup deploy` はこのファイルがある限り**拒否**します
+  （[フィールド配備](#フィールド配備just-docker-setup-deploy)参照）。
+
+<!-- sync: running-two-worktrees-at-once efccbe6e6686 d0a3c3b2d126 -->
+#### 2 つの worktree を同時に動かす
+
+各 checkout は compose プロジェクト名のもとで動き、生成するもの
+—— container / network / volume —— はすべてその名前で名前空間化されます。
+同じ名前に解決される 2 つの checkout は衝突します：2 回目の `run` は 1 つ目の
+container をそのまま使い回します。
+
+`[project] name` がその名前です。出荷時は**空**で、「従来どおり
+`<DOCKER_HUB_USER>-<IMAGE_NAME>` を導出する」意味なので、設定するまで何も
+変わりません。worktree ごとの名前は repo のものではなくあなたのものなので、
+*local* レイヤに設定してください：
+
+```bash
+cd ~/work/myrepo-wt2
+./setup.sh set --local project.name myrepo-wt2
+just build            # 再生成される。以後 2 つの worktree を並行して動かせる
+```
+
+値は一度だけ解決され `.env.generated` の `PROJECT_NAME` に記録されます。
+消費側は両方ともそこから読みます：wrapper の `docker compose -p` と、生成
+された `compose.yaml` の `name: ${PROJECT_NAME}`（したがって `lazydocker` /
+`docker compose ps` / IDE パネルは wrapper と一致します）。値の規則は小文字
+英字・数字・`-`・`_` で、先頭は英字か数字 —— docker compose 自身の規則です。
+
+この値を変えても image タグは動きません。そちらは `[image]` /
+`DOCKER_HUB_USER` で、意図的に別の軸です：ある実行がどの container を所有
+するかと、どの image を build したかは別の問いだからです。
 
 **権限はオプトイン**（#466）：template が出荷する `[security]`
 （`privileged = false`、`cap_add` / `security_opt` なし）と `[devices]`
@@ -614,7 +675,7 @@ Main
 
 `--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 1f61d586455b -->
+<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b eba624dfb163 -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -646,6 +707,8 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 
 build 前に解決済みの `compose.yaml` を表示するので、解決された各パラメータを確認してから進められます（`-y` でスキップ；`--dry-run` は plan を表示するだけで build しない；非対話シェルで `-y` なしは拒否）。
 
+**`<repo>/.setup.conf.local` が存在する限り、そのまま拒否します。** このファイルは gitignored なので、それを使って build した bundle はクリーンな checkout から再現できません —— しかも bundle 自体には何の説明も残りません（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒否はプレビューより前、いかなる build 手順よりも前に発生するので `--dry-run` でも報告されます。`--allow-local-override` を渡すと build を続行し、バージョン管理外のファイルから取り込んだ section を bundle 自身の `README` に記録します —— フィールドでこの bundle を動かす人は、ゲートを迂回すると決めた人とは別人だからです。
+
 **フィールドマシン側** —— ディレクトリごとコピーし、`deploy.sh` ランチャで操作します（イメージを load して `docker compose` を駆動します；`docker run` も `setup.conf` も base のツールチェーンも不要）:
 
 ```bash
@@ -673,7 +736,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 c344a1655165 1fe6194014bc -->
+<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 1ea39c05036b -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
@@ -682,13 +745,13 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 |---|---|
 | `apply` | setup.conf + システム検出から `.env.generated` + `compose.yaml` を再生成（手書きの `.env` overlay は対象外） |
 | `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
-| `set <section>.<key> <value>` | 単一キーを書き込む |
+| `set <section>.<key> <value>` | 単一キーを書き込む。`--local` は commit 済みの `.setup.conf` ではなく gitignored な `.setup.conf.local` を対象にする；付けない場合、`.setup.conf.local` が既に定義している section への書き込みは section 名を挙げて警告される |
 | `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
 | `list [<section>]` | INI スタイルでダンプ |
-| `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1` |
-| `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除 |
+| `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1`。`--local` 可 |
+| `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除。`--local` 可 |
 | `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。`.setup.conf.local` がある場合は `--allow-local-override` を付けない限り拒否。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env.generated` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
 
@@ -705,10 +768,10 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored 99925c8810ca 7b14a2189138 -->
+<!-- sync: derived-artifacts-gitignored 9135501a7168 b52923ea8035 -->
 ### 生成物（gitignored）
 
-- `.env.generated` — ランタイム変数 + `SETUP_*` drift metadata
+- `.env.generated` — ランタイム変数（解決済みの `PROJECT_NAME` を含む）+ `SETUP_*` drift metadata
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
@@ -719,6 +782,11 @@ override は `setup.conf` に書きます。
 `.env` も gitignore されますが生成物では**ありません**。手書きの workload
 overlay で、最初の apply で一度 scaffold されたあとは上書きされません。
 編集しても setup の実行で消えることはありません。
+
+`.setup.conf.local` は 1 つ上のレイヤで同じ形をしています：gitignored、
+あなたのもの、ツールが書き換えることはありません。設定の*入力*であって
+生成物ではありません ——
+[3 レイヤ](#3-レイヤ3-枚目はあなたのものsetupconflocal)参照。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f b6f612f647f5 -->
 ### Wrapper 毎の pre/post hook（#440）

@@ -505,9 +505,71 @@ or its count drifts from it.
 Template default lives at `.base/dist/.setup.conf`; per-repo overrides go
 at the repo-root dotfile `<repo>/.setup.conf` (tool-managed by `just
 setup`, kept out of the hand-editable `config/` surface).
-Section-level **replace** strategy: a section present in the per-repo
-file fully replaces the template's section; omitted sections fall back
-to template.
+Section-level **replace** strategy: a section present in a higher layer
+fully replaces the lower layer's section; omitted sections fall through.
+
+#### Three layers: the third is yours (`.setup.conf.local`)
+
+| Layer | Tracked | Whose it is |
+|---|---|---|
+| `.base/dist/.setup.conf` | shipped in the subtree | base's default |
+| `<repo>/.setup.conf` | committed | the repo's -- what CI and every other checkout use |
+| `<repo>/.setup.conf.local` | **gitignored** | yours, on this machine, in this worktree |
+
+Same grammar, same section-replace rule, at every step. Write the third
+one with `--local`:
+
+```bash
+./setup.sh set --local project.name myrepo-wt2
+```
+
+Why the whole section is replaced rather than merged key-by-key: eight of
+the sections above are `<prefix>_N` ordered lists. Overriding `port_2`
+alone would assemble one ordered list out of two layers, you could never
+*remove* an item, and adding one would need the highest `N` from a layer
+you cannot see. Related keys also gate each other (`[network] mode`
+decides whether `port_N` is emitted at all), so a half-override produces
+combinations neither layer wrote.
+
+Three things follow, all of them loud rather than silent:
+
+- Writing a section with plain `set` while `.setup.conf.local` defines it
+  **warns** and names the section. It is not refused -- the value is still
+  the committed one CI and other checkouts use -- but it will not change
+  anything on this machine.
+- Every wrapper's pre-run summary carries a `local override:` row naming
+  the file and the sections it replaces.
+- `just docker setup deploy` **refuses** while the file exists (see
+  [Field deployment](#field-deployment-just-docker-setup-deploy)).
+
+#### Running two worktrees at once
+
+Each checkout runs under a compose project name, and everything it creates
+-- containers, networks, volumes -- is namespaced by it. Two checkouts that
+resolve the same name collide: the second `run` reuses the first's
+containers.
+
+`[project] name` is that name. It ships **empty**, meaning "derive
+`<DOCKER_HUB_USER>-<IMAGE_NAME>`, as before", so nothing changes until you
+set it. Set it in the *local* layer, because a per-worktree name is yours
+rather than the repo's:
+
+```bash
+cd ~/work/myrepo-wt2
+./setup.sh set --local project.name myrepo-wt2
+just build            # regenerates; both worktrees now run side by side
+```
+
+The value is resolved once into `.env.generated` as `PROJECT_NAME`, and
+both consumers read it from there: the wrapper's `docker compose -p`, and
+the generated `compose.yaml`'s `name: ${PROJECT_NAME}` (so `lazydocker`,
+`docker compose ps` and IDE panels agree with the wrapper). Rule for the
+value: lowercase letters, digits, `-` and `_`, beginning with a letter or a
+digit -- docker compose's own rule.
+
+Changing it does **not** move the image tag. That is `[image]` /
+`DOCKER_HUB_USER`, a deliberately separate axis: which containers a run
+owns and which image it built are different questions.
 
 **Privileges are opt-in** (#466): the template ships lean `[security]`
 (`privileged = false`, no `cap_add` / `security_opt`) and `[devices]`
@@ -778,6 +840,17 @@ Before building it prints the resolved `compose.yaml` so you can review every
 resolved parameter, then prompts (skip with `-y`; `--dry-run` prints the plan
 without building; a non-interactive shell without `-y` refuses).
 
+**It refuses outright while `<repo>/.setup.conf.local` exists.** That file is
+gitignored, so a bundle built from it could not be reproduced from a clean
+checkout -- and nothing about the bundle would say why
+([PRD invariant 8](doc/PRD.md),
+[ADR-00000025](doc/adr/00000025-per-worktree-setup-conf-local-override.md)).
+The refusal fires before the preview and before any build step, so
+`--dry-run` reports it too. `--allow-local-override` builds anyway and
+records in the bundle's own `README` which sections came from the untracked
+file, because the person running the bundle in the field is not the person
+who chose to bypass the gate.
+
 **On the field machine** -- copy the folder over, then drive it with the
 `deploy.sh` launcher (it loads the image and drives `docker compose`; no
 `docker run`, no `setup.conf`, no base toolchain):
@@ -1021,13 +1094,13 @@ These are first-class operator knobs, not test-only hooks. See
 |---|---|
 | `apply` | Regenerate `.env.generated` + `compose.yaml` from setup.conf + system detection (never the hand-authored `.env` overlay) |
 | `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
-| `set <section>.<key> <value>` | Write a single key |
+| `set <section>.<key> <value>` | Write a single key. `--local` targets the gitignored `.setup.conf.local` instead of the committed `.setup.conf`; without it, writing a section `.setup.conf.local` already defines warns by name |
 | `show <section>[.<key>]` | Read single key or whole section |
 | `list [<section>]` | INI-style dump |
-| `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1` |
-| `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match |
+| `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1`. Takes `--local` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match. Takes `--local` |
 | `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. Refuses while `.setup.conf.local` exists unless `--allow-local-override` is passed. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env.generated` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
 
@@ -1045,7 +1118,8 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 
 ### Derived artifacts (gitignored)
 
-- `.env.generated` — runtime variable values + `SETUP_*` drift metadata
+- `.env.generated` — runtime variable values (incl. the resolved
+  `PROJECT_NAME`) + `SETUP_*` drift metadata
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
@@ -1056,6 +1130,10 @@ hand-edit them; put your overrides in `setup.conf` instead.
 `.env` is gitignored too but is **not** derived: it is the hand-authored
 workload overlay, scaffolded once on first apply and never rewritten
 afterwards. Editing it is safe, and running `setup` will not destroy it.
+
+`.setup.conf.local` is the same shape one layer up: gitignored, yours,
+never rewritten by tooling. It is a config *input*, not an artifact -- see
+[Three layers](#three-layers-the-third-is-yours-setupconflocal).
 
 ### Per-wrapper hooks (#440)
 
