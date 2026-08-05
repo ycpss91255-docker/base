@@ -314,3 +314,58 @@ _sorted_keys() {
   _schema_section_keys image _k
   [ "${#_k[@]}" -eq 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Registry completeness: keys whose resolver has a fixed value set
+#
+# An unregistered key was accepted with ANY value and the resolver then
+# discarded it in a catch-all branch, so `setup set gui.mode of` exited
+# 0, printed a success line and left the GUI following host detection.
+# The same value passed as `--gui of` was rejected. These pin the
+# conf/CLI-set path to the resolver's real value set.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_schema_validate gates gui.mode the way the --gui flag does (#876)" {
+  _assert_schema gui mode "auto" ok
+  _assert_schema gui mode "force" ok
+  _assert_schema gui mode "off" ok
+  _assert_schema gui mode "of" fail
+  _assert_schema gui mode "true" fail
+}
+
+@test "_schema_validate gates the [deploy] keys the resolver reads (#876)" {
+  _assert_schema deploy gpu_mode "auto" ok
+  _assert_schema deploy gpu_mode "force" ok
+  _assert_schema deploy gpu_mode "off" ok
+  _assert_schema deploy gpu_mode "on" fail
+  _assert_schema deploy gpu_capabilities "gpu compute utility graphics" ok
+  _assert_schema deploy gpu_capabilities "all" ok
+  _assert_schema deploy gpu_capabilities "gpu bogus" fail
+  _assert_schema deploy dri_groups "auto" ok
+  _assert_schema deploy dri_groups "off" ok
+  _assert_schema deploy dri_groups "on" fail
+}
+
+@test "_schema_validate gates the [security] keys the resolver reads (#876)" {
+  _assert_schema security privileged "true" ok
+  _assert_schema security privileged "false" ok
+  _assert_schema security privileged "yes" fail
+  _assert_schema security security_opt_1 "seccomp:unconfined" ok
+  _assert_schema security security_opt_1 "apparmor=unconfined" ok
+  _assert_schema security security_opt_1 "no-new-privileges:true" ok
+  _assert_schema security security_opt_1 "anything goes" fail
+  _assert_schema security security_opt_1 "noseparator" fail
+}
+
+@test "_schema_validate gates image.rule_N against the dispatch prefixes (#876)" {
+  _assert_schema image rule_1 "prefix:docker_" ok
+  _assert_schema image rule_1 "suffix:_ws" ok
+  _assert_schema image rule_1 "string:my-image" ok
+  _assert_schema image rule_1 "@basename" ok
+  _assert_schema image rule_1 "@default:fallback" ok
+  # detect_image_name has no branch for these: they are skipped in
+  # silence and the run ends on the 'unknown' fallback.
+  _assert_schema image rule_1 "whatever" fail
+  _assert_schema image rule_1 "prefix:" fail
+  _assert_schema image rule_1 "@basename-ish" fail
+}
