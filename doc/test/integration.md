@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **120 tests**.
+Integration specs under `test/bats/integration/`: **121 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -236,7 +236,7 @@ is refused with nothing staged.
 | `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
 | `resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)` | - |
 
-### test/bats/integration/compose_test_tools_image_spec.bats (2)
+### test/bats/integration/compose_test_tools_image_spec.bats (3)
 
 How the repo-root `compose.yaml` resolves `TEST_TOOLS_IMAGE` -- the one
 variable naming both the image the build-only `test-tools` service writes
@@ -249,3 +249,4 @@ because the text is not what decides which image a run pulls.
 |------|-------------|
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | - |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | - |
+| `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | - |

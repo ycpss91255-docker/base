@@ -64,3 +64,20 @@ _resolution() {
     assert_equal "$(_resolution "${_service}")" "${_build}"
   done
 }
+
+# ════════════════════════════════════════════════════════════════════
+# An unset value says so, and says what to run instead
+# ════════════════════════════════════════════════════════════════════
+
+@test "compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)" {
+  # Reaching an unset value means the invocation left the single entry
+  # point, and that is the thing worth reporting. compose's own
+  # "neither an image nor a build context specified" is true and useless
+  # -- it names no way to get one. Refusing while naming the recipe is
+  # what makes silently building or pulling something impossible.
+  run env -u TEST_TOOLS_IMAGE docker compose \
+    -f "${ROOT}/compose.yaml" config --images
+  assert_failure
+  assert_output --partial "just test"
+  assert_output --partial "just docker build --target test-tools"
+}
