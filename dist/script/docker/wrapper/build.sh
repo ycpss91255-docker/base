@@ -483,6 +483,22 @@ main() {
     fi
   fi
 
+  # Self-managed repo (no `.base/` subtree, ADR-00000011 sec.4): there is
+  # no pinned base version to scope a local tools tag by, and the repo owns
+  # its tooling image itself -- its hand-authored compose.yaml declares the
+  # build-only service and names the image `${TEST_TOOLS_IMAGE}` with no
+  # default to fall back on. Ask THAT repo's own resolver for the tag
+  # instead of deriving a second one here: the tag this build writes must
+  # BE the tag its test entry runs, and two derivations that agree only by
+  # luck is the failure this closes. Consumers always carry a `.base/`
+  # subtree, so this never fires for them.
+  local _self_resolver="${FILE_PATH}/script/test/test.sh"
+  if [[ -z "${_test_tools_image}" ]] \
+      && [[ ! -d "${FILE_PATH}/.base" ]] \
+      && [[ -x "${_self_resolver}" ]]; then
+    _test_tools_image="$("${_self_resolver}" --test-tools-image)"
+  fi
+
   if [[ "${CLEAN_TOOLS}" == true ]]; then
     # Bake the resolved tag into a global so the atexit handler (which
     # fires after main() returns, when locals are gone) can reference it.
@@ -498,12 +514,17 @@ main() {
 
   local _compose_args=()
   [[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
-  # Forward the resolved (version-scoped) test-tools image so the
-  # downstream Dockerfile's `FROM ${TEST_TOOLS_IMAGE}` resolves it; the
-  # Dockerfile has no bare-tag default to silently fall back on. Empty
-  # only in base self-use, where compose.yaml carries its own image.
-  [[ -n "${_test_tools_image}" ]] && \
+  # Forward the resolved test-tools image on both channels a repo can read
+  # it through, because neither has a default to silently fall back on:
+  #   build-arg      a consumer Dockerfile's `FROM ${TEST_TOOLS_IMAGE}`
+  #   environment    a self-managed compose.yaml's `image: ${TEST_TOOLS_IMAGE}`,
+  #                  which compose resolves by INTERPOLATION, where a
+  #                  --build-arg never reaches
+  # Empty only when the repo ships no tooling Dockerfile at all.
+  if [[ -n "${_test_tools_image}" ]]; then
     _compose_args+=(--build-arg "TEST_TOOLS_IMAGE=${_test_tools_image}")
+    export TEST_TOOLS_IMAGE="${_test_tools_image}"
+  fi
 
   # snapshot the existing tag's image ID before the build, so a
   # successful rebuild that displaces the tag (`old_id != new_id`) can
