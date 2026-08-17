@@ -130,6 +130,19 @@ teardown() {
   refute_output --partial "No containers found for project"
 }
 
+@test "stop.sh: an ambient VERBOSE does not reach the flag's behaviour (#895)" {
+  # Every sibling flag in the wrapper family is declared `local` in the arg
+  # parser; this one was assigned bare, which made the environment a second,
+  # undeclared way to switch the listing on. The flag is the only input
+  # surface: an inherited VERBOSE from some unrelated tool must not change
+  # what the teardown prints.
+  printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
+  VERBOSE=true run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "Tearing down containers in project"
+  refute_output --partial "No containers found for project"
+}
+
 # ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
 
 @test "stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
