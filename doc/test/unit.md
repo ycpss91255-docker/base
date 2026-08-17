@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2622 tests**.
+Unit specs under `test/bats/unit/`: **2627 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1978,7 +1978,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (84)
+### test/bats/unit/ci_spec.bats (87)
 
 | Test | Description |
 |------|-------------|
@@ -1986,6 +1986,9 @@ builds the env block only for the knobs the conf sets.
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
+| `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | - |
+| `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | - |
+| `_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)` | - |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
@@ -2120,7 +2123,7 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/adr_numbering_spec.bats (8)
+### test/bats/unit/adr_numbering_spec.bats (10)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -2138,6 +2141,8 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: PASSES a clean set WITH a gap, warning the gap (exit 0) (#808)` | Gap warned, exit 0 |
 | `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
+| `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | - |
+| `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | - |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/stale_setup_conf_lint_spec.bats (11)
