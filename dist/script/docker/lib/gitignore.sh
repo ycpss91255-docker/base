@@ -21,8 +21,12 @@ unset _gitignore_lib_dir
 #   Print the canonical .gitignore set, one entry per line. Order is
 #   stable so consumers can diff outputs across versions.
 #
-#   Add new entries here when the template introduces another derived
-#   artifact, then bump the next release. Downstreams pick it up via
+#   Add new entries here when the template introduces another derived or
+#   machine-local artifact, then bump the next release. `.setup.conf.local`
+#   is the one member that is NOT derived: it is the operator's per-worktree
+#   config override, hand-authored and never regenerated, and it is here
+#   because it must never be committed -- an untracked layer that got
+#   committed would silently become everyone's config. Downstreams pick it up via
 #   `just base upgrade` -> ./.base/dist/script/base/upgrade.sh ->
 #   init.sh resync chain.
 _canonical_gitignore_entries() {
@@ -32,6 +36,7 @@ _canonical_gitignore_entries() {
 .env.bak
 compose.yaml
 .setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -61,19 +66,23 @@ _canonical_dockerignore_entries() {
 #   `# managed by template (do not remove)` marker -- a marker that reads as
 #   a promise the entry still means something.
 #
-#   `.setup.conf.local` is the first member. It named a real per-repo
-#   override file introduced in base#174 and removed again in base#201; the
-#   ignore line outlived the mechanism purely so leftover files from that
-#   cycle would not get committed. Nothing has read the file for many
-#   releases, so the line now only advertises a feature that does not exist:
-#   someone creates it, gets no error, and wonders why their overrides do
-#   nothing. Do not re-add it without restoring the override layer.
+#   Currently EMPTY, and that is a state to be careful with rather than a
+#   dead function. Its one member was `.setup.conf.local`: retired while
+#   nothing read the file it named, then UN-retired when the per-worktree
+#   override layer restored the mechanism. It is canonical again above.
+#
+#   The two lists are exclusive by construction, and gitignore_spec asserts
+#   it: an entry in both is retracted and re-appended on every single sync,
+#   forever, in every downstream at once -- a repo that deletes the line it
+#   just added. Before retiring an entry, remove it from
+#   _canonical_gitignore_entries in the same edit.
 #
 #   Shared by .gitignore and .dockerignore for the same reason the canonical
 #   set is: what one retracts, the other retracts.
 _retired_gitignore_entries() {
+  # An empty here-doc rather than a bare `return`, so the emitter's contract
+  # (one entry per line on stdout) holds for the empty case too.
   cat <<'EOF'
-.setup.conf.local
 EOF
 }
 

@@ -108,10 +108,10 @@ _setup_msg_warnings() {
 # (no [setup] / LEVEL prefix) — they are help text, not log lines.
 _setup_msg_usage() {
   case "${_LANG}:${1:?}" in
-    zh-TW:set)    echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-    zh-CN:set)    echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-    ja:set)       echo "使い方: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-    *:set)        echo "Usage: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:set)    echo "用法: setup.sh set <section>.<key> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:set)    echo "用法: setup.sh set <section>.<key> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    ja:set)       echo "使い方: setup.sh set <section>.<key> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    *:set)        echo "Usage: setup.sh set <section>.<key> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
     zh-TW:show)   echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
     zh-CN:show)   echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
     ja:show)      echo "使い方: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
@@ -120,14 +120,14 @@ _setup_msg_usage() {
     zh-CN:list)   echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
     ja:list)      echo "使い方: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
     *:list)       echo "Usage: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
-    zh-TW:add)    echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    zh-CN:add)    echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    ja:add)       echo "使い方: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    *:add)        echo "Usage: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    zh-TW:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    zh-CN:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    ja:remove)    echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-    *:remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:add)    echo "用法: setup.sh add <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:add)    echo "用法: setup.sh add <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    ja:add)       echo "使い方: setup.sh add <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    *:add)        echo "Usage: setup.sh add <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    ja:remove)    echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
+    *:remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--local] [--base-path PATH] [--lang LANG]" ;;
   esac
 }
 
@@ -233,7 +233,7 @@ Subcommands:
                 exit 1 (with drift descriptions on stderr) when a regen
                 is needed.
                 Used by build.sh / run.sh to decide auto-regen.
-  set <section>.<key> <value>
+  set <section>.<key> <value> [--local]
                 Write a single value into <base-path>/.setup.conf
                 (creates the section / key if missing). Validates
                 known typed keys (deploy.gpu_count / volumes.mount_*
@@ -241,6 +241,13 @@ Subcommands:
                 environment.env_* / resources.shm_size). Does NOT
                 regenerate .env.generated — run `apply` afterwards if
                 needed.
+                --local writes <base-path>/.setup.conf.local instead:
+                the gitignored per-worktree layer, whose sections
+                REPLACE the committed file's on this machine only.
+                Without --local, a write to a section .setup.conf.local
+                already defines is warned about by name -- it is still
+                the value CI and other checkouts use, but it will not
+                change anything here.
   show <section>[.<key>]
                 Print the value of a single key, or all key=value
                 pairs in a section (in on-disk order). Exits non-zero
@@ -248,20 +255,22 @@ Subcommands:
   list [<section>]
                 Without an arg: print every section header + key in
                 setup.conf. With an arg: equivalent to `show <section>`.
-  add <section>.<list> <value>
+  add <section>.<list> <value> [--local]
                 Append a value to a list-style section. Picks the next
                 free numeric suffix (max+1) and writes `<list>_N = <value>`.
                 e.g. `add volumes.mount /foo:/bar` lands in `mount_<next>`.
-                Same validators as `set`.
-  remove <section>.<key>            Delete the exact key.
-  remove <section>.<list> <value>   Delete the first key under the
-                section matching `<list>_*` whose value equals <value>.
+                Same validators, same --local target, as `set`.
+  remove <section>.<key> [--local]            Delete the exact key.
+  remove <section>.<list> <value> [--local]   Delete the first key under
+                the section matching `<list>_*` whose value equals <value>.
+                --local operates on .setup.conf.local instead.
   reset [-y|--yes]
                 Overwrite setup.conf with the template default. Prior
                 setup.conf / .env are saved to .setup.conf.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
+         [--allow-local-override]
                 Ships an image to the field. This is
                 NOT the [deploy] section of setup.conf, which configures
                 GPU reservation only and is named after Compose's
@@ -279,6 +288,11 @@ Subcommands:
                 plan only; -y skips the prompt. Default output is
                 <base-path>/deploy/<name>-<stage>-<version>/. Field flow:
                 copy the folder to the target, ./deploy.sh up.
+                REFUSES while <base-path>/.setup.conf.local exists: that
+                file is gitignored, so a bundle built from it cannot be
+                reproduced from a clean checkout.
+                --allow-local-override builds anyway and records the
+                sections it took from that file in the bundle's README.
 
 Options:
   -h, --help            Show this help and exit.

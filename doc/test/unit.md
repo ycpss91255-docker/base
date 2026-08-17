@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2579 tests**.
+Unit specs under `test/bats/unit/`: **2629 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -40,7 +40,7 @@ What that means when you edit:
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (46)
+### test/bats/unit/lib_spec.bats (54)
 
 | Test | Description |
 |------|-------------|
@@ -58,6 +58,12 @@ What that means when you edit:
 | `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
 | `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
+| `_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)` | - |
+| `_compose_project passes the resolved PROJECT_NAME to -p (#893)` | - |
+| `_resolve_project_name: a configured name is used verbatim (#893)` | - |
+| `_resolve_project_name: empty configured name derives the historical default (#893)` | - |
+| `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
+| `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
@@ -74,6 +80,8 @@ What that means when you edit:
 | `_dump_conf_section returns silent empty for unknown section` | Missing section |
 | `_dump_conf_section hides keys with empty values (using default)` | - |
 | `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
+| `_print_config_summary names an active .setup.conf.local and its sections (#893)` | - |
+| `_print_config_summary says nothing about a .setup.conf.local that is absent (#893)` | - |
 | `_print_config_summary prints Variables block mapping setup.conf placeholders to detected values` | Variables block populated |
 | `_print_config_summary Variables block falls back to '-' for unset values` | Variables fallback |
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
@@ -299,7 +307,7 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (17)
+#### test/bats/unit/setup_conf_spec.bats (30)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 replace strategy) resolving the per-repo override from the repo-root
@@ -316,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (107)
+#### test/bats/unit/setup_cmd_spec.bats (120)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -332,7 +340,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (100)
+#### test/bats/unit/stage_spec.bats (103)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -356,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (132)
+### test/bats/unit/tui_spec.bats (134)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1454,7 +1462,7 @@ shapes, absent on any `*-test` stage).
 | Test | Description |
 |------|-------------|
 | `generate_compose_yaml outputs AUTO-GENERATED header` | Header check |
-| `generate_compose_yaml emits top-level name: with literal compose vars (#472)` | - |
+| `generate_compose_yaml emits top-level name: as the resolved PROJECT_NAME (#472)` | - |
 | `generate_compose_yaml top-level name: precedes services: (#472)` | - |
 | `generate_compose_yaml emits exactly one top-level name: (#472)` | - |
 | `generate_compose_yaml named volume mount emits top-level volumes: stub (#482)` | - |
@@ -1559,7 +1567,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (46)
+### test/bats/unit/deploy_spec.bats (52)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1616,6 +1624,12 @@ refused before any build or bundle step.
 | `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)` | missing baked default |
 | `_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)` | deploy dry-run |
 | `_setup_deploy: the preview shows each tunable bind at its declared access (#870)` | preview matches the bundle |
+| `_setup_deploy: refuses while .setup.conf.local is present (#893)` | - |
+| `_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)` | - |
+| `_setup_deploy: no refusal when there is no local override (#893)` | - |
+| `_render_deploy_readme: records the untracked sections a bundle was built from (#893)` | - |
+| `_render_deploy_readme: says nothing about local overrides when there were none (#893)` | - |
+| `_generate_deploy_bundle: hands the untracked sections to the bundle README (#893)` | - |
 | `_setup_deploy: refuses in a non-interactive shell without -y (#832)` | non-tty refuse |
 | `_setup_deploy: errors when the repo has no Dockerfile (#832)` | no-Dockerfile guard |
 | `_setup_deploy: rejects an unknown flag (#832)` | arg validation |
@@ -1710,7 +1724,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
 | `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
 
-### test/bats/unit/conf_logging_spec.bats (6)
+### test/bats/unit/conf_logging_spec.bats (9)
 
 Unit tests for the logging-config collectors (`_parse_logging_svc_sections`
 / `_collect_logging`): per-service `[logging.<svc>]` enumeration in file
@@ -1723,6 +1737,9 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file empty |
 | `_collect_logging reads global [logging] from per-repo setup.conf` | Global logging read |
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
+| `_collect_logging: .setup.conf.local replaces the [logging] section (#893)` | - |
+| `_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)` | - |
+| `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
 ### test/bats/unit/entrypoint_logging_spec.bats (12)
@@ -1827,7 +1844,7 @@ builds the env block only for the knobs the conf sets.
 | `run.sh uses set -euo pipefail` | Shell convention |
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
-| `lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME` | - |
+| `lib/compose.sh is the ONLY producer of a project name (#893)` | - |
 | `exec.sh loads .env via _load_env helper` | Uses shared lib |
 | `stop.sh loads .env via _load_env helper` | Uses shared lib |
 | `lib/env.sh defines _load_env helper` | - |
@@ -2545,16 +2562,18 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (44)
+### test/bats/unit/gitignore_spec.bats (46)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 10 canonical lines (#502, #507, #606, #832, #879)` | - |
-| `_canonical_gitignore_entries: no longer advertises .setup.conf.local (#879)` | - |
-| `_retired_gitignore_entries: records .setup.conf.local as retired (#879)` | - |
+| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)` | - |
+| `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
+| `no entry is both canonical and retired (#893)` | - |
+| `_retired_gitignore_entries: retires nothing today (#893)` | - |
+| `_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)` | - |
 | `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
 | `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |

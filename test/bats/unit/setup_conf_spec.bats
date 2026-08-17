@@ -7,17 +7,85 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
 # _load_setup_conf (per-repo replace / template fallback)
 # ════════════════════════════════════════════════════════════════════
-@test "_load_setup_conf honors SETUP_CONF env var override" {
-  local _override="${TEMP_DIR}/override.conf"
-  cat > "${_override}" <<'EOF'
+@test "_load_setup_conf returns every entry of the per-repo section" {
+  # Was the SETUP_CONF fixture seam; the conf surface is the fixed pair of
+  # real files, so the fixture is a real file at the path the resolver reads.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gpu]
 mode = off
 count = 0
 EOF
   local -a _k=() _v=()
-  SETUP_CONF="${_override}" _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${#_k[@]}" "2"
   assert_equal "${_v[0]}" "off"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# An ambient SETUP_CONF must not steer config resolution
+#
+# SETUP_CONF was a test seam that replaced the WHOLE resolution with one
+# unchecked path. The two assertions below are the two ways that bites a
+# user: a stale value silently swaps the config out from under the repo,
+# and a path that does not exist silently resolves to an EMPTY config --
+# a silent failure, which invariant 2 forbids.
+# ════════════════════════════════════════════════════════════════════
+@test "_load_setup_conf ignores an ambient SETUP_CONF pointing at another file" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  local -a _k=() _v=()
+  SETUP_CONF="${TEMP_DIR}/typo-nowhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_setup_conf_handle ignores an ambient SETUP_CONF" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _setup_conf_handle "${TEMP_DIR}" _SCH
+  run _conf_get _SCH gui mode
+  assert_success
+  assert_output "force"
+}
+
+@test "_compute_conf_hash ignores an ambient SETUP_CONF" {
+  # The hash names the config that was actually resolved. Folding a file
+  # resolution never read into it makes the drift signal describe something
+  # else entirely.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  local _plain="" _ambient=""
+  _compute_conf_hash "${TEMP_DIR}" _plain
+  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _compute_conf_hash "${TEMP_DIR}" _ambient
+  assert_equal "${_ambient}" "${_plain}"
 }
 
 @test "_load_setup_conf uses per-repo setup.conf when section present" {
@@ -25,7 +93,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
@@ -38,7 +105,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
@@ -52,7 +118,6 @@ EOF
 [gui]
 mode = legacy_should_be_ignored
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   # Template default [gui] mode = auto -- proves the legacy file is unread.
@@ -105,7 +170,6 @@ EOF
 [gpu]
 mode = force
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   # Template default has [gui] mode = auto
@@ -118,12 +182,152 @@ EOF
 [gpu]
 mode = off
 EOF
-  unset SETUP_CONF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   # Replace strategy: only "mode" — no count, no capabilities inherited
   assert_equal "${#_k[@]}" "1"
   assert_equal "${_k[0]}" "mode"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# .setup.conf.local -- the gitignored per-worktree layer
+#
+# Third layer of the same chain, with the same section-replace rule:
+# template <- <repo>/.setup.conf <- <repo>/.setup.conf.local. It may
+# override ANY section, because per-key merge over the eight `<prefix>_N`
+# ordered-list sections is not merely inconsistent but broken (an item
+# cannot be removed, and adding one needs the highest N of a layer the
+# user cannot see).
+# ════════════════════════════════════════════════════════════════════
+@test "_load_setup_conf: .setup.conf.local overrides the per-repo section" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "off"
+}
+
+@test "_load_setup_conf: .setup.conf.local overrides the template for a section the repo omits" {
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  assert_equal "${_v[0]}" "off"
+}
+
+@test "_load_setup_conf: .setup.conf.local replaces a section wholesale, never per-key" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+mode = bridge
+ipc = private
+port_1 = 8080:80
+port_2 = 9090:90
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[network]
+mode = bridge
+port_1 = 18080:80
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "network" _k _v
+  # Two entries, both the local layer's: no ipc, and no port_2 leaking
+  # back in from the layer underneath to make one list out of two.
+  assert_equal "${#_k[@]}" "2"
+  assert_equal "${_k[0]}" "mode"
+  assert_equal "${_k[1]}" "port_1"
+  assert_equal "${_v[1]}" "18080:80"
+}
+
+@test "_load_setup_conf: sections .setup.conf.local omits keep the layer below" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gpu]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  assert_equal "${_v[0]}" "force"
+}
+
+@test "_setup_conf_handle: .setup.conf.local wins over the per-repo layer" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  _setup_conf_handle "${TEMP_DIR}" _LOCAL_H
+  run _conf_get _LOCAL_H gui mode
+  assert_success
+  assert_output "off"
+}
+
+@test "_compute_conf_hash: editing .setup.conf.local is drift" {
+  # The hash must describe the config that was actually resolved -- a
+  # layer that changes the resolved value and leaves the hash alone means
+  # the wrapper reuses artifacts generated from something else.
+  local _before="" _after=""
+  _compute_conf_hash "${TEMP_DIR}" _before
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  _compute_conf_hash "${TEMP_DIR}" _after
+  [[ "${_before}" != "${_after}" ]] || { echo "hash unchanged: ${_before}"; return 1; }
+}
+
+@test "_setup_effective_full: show/list read the local layer too" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+EOF
+  local -a _s=() _k=() _v=()
+  _setup_effective_full "${TEMP_DIR}" _s _k _v
+  local _i _seen=""
+  for (( _i = 0; _i < ${#_k[@]}; _i++ )); do
+    [[ "${_k[_i]}" == "gui.mode" ]] && _seen="${_v[_i]}"
+  done
+  assert_equal "${_seen}" "off"
+}
+
+@test "_setup_conf_local_sections: names the sections the local layer shadows" {
+  # Nothing may be silently shadowed: the callers that warn / announce need
+  # the section list, not just a boolean.
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[gui]
+mode = off
+
+[network]
+mode = bridge
+EOF
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "2"
+  assert_equal "${_sects[0]}" "gui"
+  assert_equal "${_sects[1]}" "network"
+}
+
+@test "_setup_conf_local_sections: empty when no local layer is present" {
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "0"
 }
 
 # ════════════════════════════════════════════════════════════════════

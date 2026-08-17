@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da 6a81f6c049fc -->
+<!-- sync: tldr b4f9c41522da c6783a1b0113 -->
 ## TL;DR
 
 ```bash
@@ -38,8 +38,8 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/dist/script/base/init.sh
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
+./.base/dist/script/base/init.sh   # 一次性 bootstrap；之后用 just base init
 
 # 升级到最新版
 just base update   # 检查
@@ -78,7 +78,7 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
 此 repo 集中管理所有 Docker 容器 repo 共用的脚本、测试和 CI workflow。各 repo 通过 **git subtree** 拉入此模板，并使用 symlink 引用共用文件。
 
-<!-- sync: architecture 2660c8dea634 fa1801115ef0 -->
+<!-- sync: architecture 2660c8dea634 5d6c062768ac -->
 ### 架构
 
 ```mermaid
@@ -88,10 +88,10 @@ graph TB
         smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
-        workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
+        workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml（opt-in）"]
     end
 
-    subgraph consumer["Docker Repo（例如 my_app）"]
+    subgraph consumer["Docker Repo（例如 ros_noetic）"]
         symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlinks）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 自有）"]
         repo_test["test/bats/smoke/<br/>app_env.bats（repo 专属）"]
@@ -249,7 +249,7 @@ image，`$HOME` 可能不一样。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 79b385a36822 -->
+<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 8e46b490ed24 -->
 #### 添加额外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -279,9 +279,8 @@ just docker run -t headless                  # 跑 headless 变体
 just docker run -t gui                       # 跑 gui 变体
 just docker exec -t headless bash            # 进入 running 的 headless container
 
-# Kit 风格的 `=` 参数会被 #414 guard 挡下，改走 EXEC_ARGS env var (#469)：
-EXEC_ARGS='--/app/livestream/port=49100' \
-  just docker exec -t headless-stream /isaac-sim/runheadless.sh -v
+# Kit 风格的 `=` 参数可以直接传递：
+just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等效直接 .sh 写法：
 ./build.sh
@@ -401,14 +400,17 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 这两个衍生文件用户不用动手编辑。手写的 `.env` overlay 是另一个文件：
 setup 只在第一次 scaffold，之后永不覆写。
 
-<!-- sync: one-conf-14-sections 7423a704aa07 24d852bc52af -->
-### 单一 conf、14 个 section
+<!-- sync: one-conf-15-sections 825dbace1f47 2fc4b1c686f7 -->
+### 单一 conf、15 个 section
 
 下面这份 section 清单不是散文，而是 `SCHEMA_SECTIONS`
 （`dist/script/docker/lib/schema.sh`）— “有哪些 section、顺序为何”的唯一
 来源。这个区块或它的数量一旦与代码不一致，`derived-figures` lint 会失败。
 
 ```
+[project]  name — 这个 checkout 运行时所属的 compose project（留空 =
+           推导出 <DOCKER_HUB_USER>-<IMAGE_NAME>）。想同时跑两个
+           checkout，就在 .setup.conf.local 按 WORKTREE 各自设定
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
@@ -444,8 +446,65 @@ setup 只在第一次 scaffold，之后永不覆写。
 
 Template default 在 `.base/dist/.setup.conf`；per-repo 覆盖放 repo 根目录的
 dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放进手动编辑的
-`config/` 界面）。Section-level **replace** 策略：per-repo 文件若有该 section
-就整段取代 template；没写的 section 则吃 template 默认。
+`config/` 界面）。Section-level **replace** 策略：上层若有该 section 就整段
+取代下层；没写的 section 则往下层落。
+
+<!-- sync: three-layers-the-third-is-yours-setupconflocal d6b292a21a41 f3d9fc0a929b -->
+#### 三层配置，第三层是你的（`.setup.conf.local`）
+
+| 层 | 是否进版本控制 | 属于谁 |
+|---|---|---|
+| `.base/dist/.setup.conf` | 随 subtree 出厂 | base 的默认 |
+| `<repo>/.setup.conf` | 已 commit | repo 的 —— CI 与其他所有 checkout 用的就是它 |
+| `<repo>/.setup.conf.local` | **gitignored** | 你的，只在这台机器、这个 worktree |
+
+三层共用同一套语法、同一条 section-replace 规则。第三层用 `--local` 写：
+
+```bash
+./setup.sh set --local project.name myrepo-wt2
+```
+
+为什么是整段取代而不是逐键合并：上面的 section 有八个是 `<prefix>_N` 有序
+列表。只覆盖 `port_2` 会把两层拼成同一份有序列表，你永远无法「移除」某一
+项，要新增又得知道你看不到的那层当前最大的 `N`。相关键之间也互相制约
+（`[network] mode` 决定 `port_N` 会不会被 emit），半套覆盖会产生哪一层都
+没写过的组合。
+
+由此衍生三件事，而且全都会出声、不会默默发生：
+
+- `.setup.conf.local` 已定义某 section 时，用普通的 `set` 写该 section 会
+  **警告**并指名该 section。不会拒绝 —— 那个值仍然是 CI 与其他 checkout
+  会用的 committed 值 —— 但它在这台机器上不会有任何效果。
+- 每个 wrapper 执行前的摘要都会多一行 `local override:`，列出文件与被它
+  取代的 section。
+- `just docker setup deploy` 只要该文件存在就**拒绝执行**（见
+  [Field 部署](#field-部署just-docker-setup-deploy)）。
+
+<!-- sync: running-two-worktrees-at-once efccbe6e6686 33a1b8abe2f5 -->
+#### 同时跑两个 worktree
+
+每个 checkout 都在某个 compose project name 之下运行，它创建的一切
+—— container、network、volume —— 都以此命名。两个 checkout 若解析出同一个
+名字就会撞在一起：第二次 `run` 会直接沿用第一个的 container。
+
+`[project] name` 就是这个名字。它出厂时是**空的**，意思是「照旧推导
+`<DOCKER_HUB_USER>-<IMAGE_NAME>`」，所以在你设置之前什么都不会变。请设在
+*local* 那层，因为 per-worktree 的名字是你的、不是 repo 的：
+
+```bash
+cd ~/work/myrepo-wt2
+./setup.sh set --local project.name myrepo-wt2
+just build            # 重新生成；两个 worktree 从此可并行
+```
+
+这个值只解析一次，写进 `.env.generated` 的 `PROJECT_NAME`，两边都从那里读：
+wrapper 的 `docker compose -p`，以及生成出来的 `compose.yaml` 里的
+`name: ${PROJECT_NAME}`（所以 `lazydocker`、`docker compose ps` 和 IDE 面板
+看到的会跟 wrapper 一致）。值的规则：小写英文字母、数字、`-`、`_`，开头必须
+是字母或数字 —— 就是 docker compose 自己的规则。
+
+改这个值**不会**动到 image tag。那是 `[image]` / `DOCKER_HUB_USER`，刻意分
+成两个轴：一次运行拥有哪些 container、和它 build 出哪个 image，是两个问题。
 
 **权限默认关闭、要用才开**（#466）：template 出厂的 `[security]`
 （`privileged = false`，没有 `cap_add` / `security_opt`）与 `[devices]`
@@ -464,7 +523,7 @@ dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放进�
 ./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 531f11a4ef77 -->
+<!-- sync: logging-output-to-host df27d24459b2 6cba8f1add7d -->
 ### 输出 log 到 host
 
 设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
@@ -472,12 +531,18 @@ dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放进�
 
 ```ini
 [logging]
-local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
+local_path = ./log/     # 相对 repo 根；或 /abs/、~/dir/ 也可
+container_log_keep = 20  # 最多保留 N 份最近的 per-start 文件
+container_log_days = 14  # 且丢掉超过 D 天的文件（两者取严）
 ```
 
-跑任何 wrapper 重新生成 `compose.yaml`。host 文件会落在
-`<local_path>/<svc>.log`（每个 service 一份）。`docker logs <ct>`
-行为不变（json-file 维持 rolling 历史；host 文件对应当前这次运行）。
+跑任何 wrapper 重新生成 `compose.yaml`。每次容器启动，tee 会写一份
+per-start 文件 `<local_path>/<svc>_<ts>.log`，并把稳定的 symlink
+`<local_path>/<svc>.log` 重新指向它（glog 风格）：`tail <svc>.log`
+永远看得到当前这次运行，先前几次则留在磁盘上。旧的 per-start 文件
+按 `container_log_keep`（保留最近几份）与 `container_log_days`
+（保留几天）两者取严清掉，symlink 本身不会被清。`docker logs <ct>`
+行为不变（json-file 维持 rolling 历史）。
 
 **新 repo**：用本版本之后的 `init.sh` 生成时，`script/entrypoint.sh`
 已内建 helper source，设 `[logging] local_path` 是唯一一步。
@@ -485,17 +550,18 @@ local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
 一次性迁移：
 
 ```bash
-. /usr/local/lib/base/_entrypoint_logging.sh
+. /usr/local/lib/base/logging.sh
 ```
 
 Helper 由 `Dockerfile` 的 devel stage COPY 到 image 内稳定路径
-`/usr/local/lib/base/_entrypoint_logging.sh`（refs #368），所以这条
-source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
-— 不需要 `$USER`，也不依赖 workspace bind mount。
+`/usr/local/lib/base/logging.sh`（refs #368），连同它的 `logrotate.sh`
+同伴文件（refs #805），所以这条 source line 在 build-time 与 runtime、
+各种 workspace 结构下都能 work — 不需要 `$USER`，也不依赖 workspace
+bind mount。
 
 疑难排查：`local_path` 设了但 host 文件没东西 → 确认
 `script/entrypoint.sh` 真的有那行 source
-（`grep _entrypoint_logging script/entrypoint.sh`）。
+（`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab 7cbfc4b1f489 -->
 ### 交互式 TUI
@@ -571,7 +637,7 @@ Main
 
 带 `--setup` 重跑以重新生成 `.env.generated` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 21c51621e0f6 6c8bbba5c990 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b 32674f0aa7b6 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接调用 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自带式的 field 部署**目录** —— 即上述路由模型的 deploy 半边（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修订 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它针对 *field 导向* 的 stage（默认 `runtime`；**绝不**是 `devel` 或任何 `*-test` stage），产出的目录带齐目标主机需要的一切 —— field 主机不会看到 base 的工具链、源码树或 `setup.conf`。
@@ -603,6 +669,8 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 目录�
 
 build 前会打印解析后的 `compose.yaml`，让你逐项检视每个解析后的参数再确认（`-y` 跳过；`--dry-run` 只打印 plan 不 build；非交互 shell 未带 `-y` 会拒绝）。
 
+**只要 `<repo>/.setup.conf.local` 存在，它就直接拒绝。** 该文件是 gitignored 的，因此从干净 checkout 无法重现用它 build 出来的 bundle —— 而 bundle 本身不会有任何说明（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒绝发生在预览之前、任何 build 步骤之前，所以 `--dry-run` 也会报告。`--allow-local-override` 会照样 build，并把取自那个未进版本控制文件的 section 记进 bundle 自己的 `README` —— 因为在 field 运行这个 bundle 的人，不是当初决定绕过这道关卡的人。
+
 **在 field 机器上** —— 把整个目录复制过去，再用 `deploy.sh` 启动器操作（它会加载镜像并驱动 `docker compose`；不用 `docker run`、不用 `setup.conf`、不用 base 工具链）：
 
 ```bash
@@ -630,7 +698,7 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 **持续部署（CD）**：deploy 工具只诚实标记、从不阻挡 —— 它会盖上 `-dirty` / short-commit 的 `<version>`，所以任何树状态都能做 review 部署。自动化 CD 请先调用 base 出货的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作树不干净**或** HEAD 不在 tag 上时会拒绝部署，确保出货的 field bundle 永远可以追溯到某个已发布版本。
 
-<!-- sync: setupsh-subcommands-v0110 c344a1655165 ff837d50b4ee -->
+<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 cbd301cfe9db -->
 ### setup.sh 子命令（v0.11.0+）
 
 `setup.sh` 是 git 风格的后端，提供明确的子命令。build / run / TUI 脚本会代为调用；直接调用适合脚本化 / 非交互场景：
@@ -639,13 +707,13 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 |---|---|
 | `apply` | 从 setup.conf + 系统检测重新生成 `.env.generated` + `compose.yaml`（不会动手写的 `.env` overlay） |
 | `check-drift` | 同步返回 0、漂移返回 1（漂移描述输出到 stderr） |
-| `set <section>.<key> <value>` | 写入单个键值 |
+| `set <section>.<key> <value>` | 写入单个键值。`--local` 改写 gitignored 的 `.setup.conf.local` 而非已 commit 的 `.setup.conf`；不加时，若写的 section 已被 `.setup.conf.local` 定义会指名警告 |
 | `show <section>[.<key>]` | 读取单键或整个 section |
 | `list [<section>]` | INI 风格 dump |
-| `add <section>.<list> <value>` | 加到列表型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1` |
-| `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除 |
+| `add <section>.<list> <value>` | 加到列表型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1`。可加 `--local` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除。可加 `--local` |
 | `reset [-y\|--yes]` | 恢复 template 默认；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y]` | 打包自带式的 field 部署**目录**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可编辑的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 默认 `runtime`（不可为 `devel` / `*-test`）；build 前先预览解析后的 `compose.yaml` 并确认。见 [Field 部署](#field-部署just-docker-setup-deploy) |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自带式的 field 部署**目录**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可编辑的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 默认 `runtime`（不可为 `devel` / `*-test`）；build 前先预览解析后的 `compose.yaml` 并确认。`.setup.conf.local` 存在时会拒绝，除非加 `--allow-local-override`。见 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env.generated` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
 
@@ -662,10 +730,10 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 
 下游 repo 若有自定脚本直接调用 `setup.sh`，前面加 `apply`。template 内附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored 99925c8810ca 201231a23df1 -->
+<!-- sync: derived-artifacts-gitignored 9135501a7168 5bac08ab864c -->
 ### 衍生文件（gitignored）
 
-- `.env.generated` — runtime 变量 + `SETUP_*` drift metadata
+- `.env.generated` — runtime 变量（含解析后的 `PROJECT_NAME`）+ `SETUP_*` drift metadata
 - `compose.yaml` — 含 baseline 与条件区块的完整 compose
 
 任何时候打开 `compose.yaml` 都能看到当下完整 runtime 配置。每次
@@ -675,6 +743,10 @@ workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另
 `.env` 同样被 gitignore，但**不是**衍生文件：它是手写的 workload overlay，
 第一次 apply 时 scaffold 一次，之后永不覆写。可以放心编辑，跑 setup 也
 不会覆盖。
+
+`.setup.conf.local` 在上一层是同样的形状：gitignored、属于你、工具永不改写。
+它是配置的*输入*而不是产物 —— 见
+[三层配置](#三层配置第三层是你的setupconflocal)。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f 1aedc627edbc -->
 ### 每个 wrapper 的 pre/post hook（#440）
@@ -715,7 +787,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba def022fbbf2a -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 7eb0fb0c8f90 -->
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
@@ -726,8 +798,8 @@ fi
 | 名称 | 格式 | Namespace | User 前缀 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（同 docker daemon 内 flat 全局） | `USER_NAME`（OS user，refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（影响默认 network / volume label） | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>` | **本地 daemon**（同 docker daemon 内 flat 全局） | `USER_NAME`（OS user，refs #322） |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（影响默认 network / volume label） | `DOCKER_HUB_USER` |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 账号，用于在 registry 端把
   image 加上命名空间。即使从未实际 push，image tag 也以这个
@@ -749,39 +821,23 @@ project-level naming」在「单人机」假设下成立 — 两者都带 user
 前缀，差别只在「同一个 var 还是两个 var」；多人机场景下两个前缀
 不是同一字符串。
 
-**`INSTANCE_SUFFIX`** 是第四个维度，与 user 分隔正交。同一个
-OS user 想同时跑同一 repo 多个 container（例如并行测两个 branch）：
-设 `INSTANCE_SUFFIX=2` 就会得到 `alice-<repo>-2` 与对应的 project
-name。默认空字符串；wrappers 支持的场合可用 `-n / --instance`。
+base 是**单一 instance**（#600）：每个 repo 只有一组固定名字的
+container / project。Multi-instance 编排（把同一个 repo 跑成 N 个
+并行 container，各有独立 project name 与 port override）属于 compose
+那一层，就像 `docker` 本身没有 project 概念、`-p` 归 `docker compose`
+管一样 — base 完全不碰 multi。
 
-**Per-instance overlay (#465)**。`run.sh --instance NAME` 还会自动
-检测下面两个 optional 文件作为 compose overlay：
-
-```
-config/instances/<NAME>.yaml   → docker compose -f
-config/instances/<NAME>.env    → docker compose --env-file
-```
-
-两个文件任一存在皆可；不存在就 silent skip。yaml 用于 structural
-override（per-instance ports、volumes、cache 路径），env 用于与
-`compose.yaml` 共享的 `${VAR}` override。`NAME` 受 `^[a-z0-9][a-z0-9_-]*$`
-验证以保 path 安全。
+同一个 repo 的两个 *checkout* 是另一个问题，而这个 base 有解：用
+`.setup.conf.local` 的 `[project] name` 给每个 checkout 自己的
+project name — 见[同时跑两个 worktree](#同时跑两个-worktree)。
 
 示例。OS user `alice`、Docker Hub user `alice-hub`、repo
-`claude_code`、默认 `INSTANCE_SUFFIX` 空：
+`claude_code`：
 
 ```
 image:          alice-hub/claude_code:devel
 container_name: alice-claude_code
 project name:   alice-hub-claude_code
-```
-
-同一 OS user 起第二份 instance（`INSTANCE_SUFFIX=2`）：
-
-```
-image:          alice-hub/claude_code:devel        (不变 — 同一份 image)
-container_name: alice-claude_code-2
-project name:   alice-hub-claude_code-2
 ```
 
 第二位 OS user `bob` 在同台机器上：
@@ -800,7 +856,7 @@ service 账号），`image` 会在 Docker Hub 端撞名，但 `container_name`
 <!-- sync: quick-start 629a4900e292 af008f0c036e -->
 ## 快速开始
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 7079bb4764af -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 4e22102bf728 -->
 ### 添加到新 repo
 
 ```bash
@@ -809,9 +865,9 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 
-# 2. 添加 subtree（指定版本 tag）
+# 2. 添加 subtree（钉到指定的 release tag，不要用会移动的 branch）
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 
 # 3. 初始化 symlinks（一次性 bootstrap；底层会跑 setup.sh）。
 #    之后改用 `just base init`（symlink 后的入口）。
@@ -995,7 +1051,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 25353d9e9485 5d36193f25f1 -->
+<!-- sync: directory-structure 25353d9e9485 676e1b74dadc -->
 ## 目录结构
 
 ```
@@ -1057,10 +1113,10 @@ just --list        # 显示 CI 命令
 │   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 56 个 unit spec + 2 个 bash helper（bats + kcov）
-│       ├── integration/                # init/upgrade 端到端（5 个 spec）
-│       ├── system/                # System 层／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
-│       └── acceptance/            # Acceptance 层（UAT/OAT；保留，S5 #785）
+│       ├── unit/                       # Unit 层 spec + bash helper（bats + kcov）
+│       ├── integration/                # Integration 层 init/upgrade 端到端 spec
+│       ├── system/                     # System 层／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
+│       └── acceptance/                 # Acceptance 层（UAT/OAT；保留，S5 #785）
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/

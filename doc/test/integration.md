@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **121 tests**.
+Integration specs under `test/bats/integration/`: **125 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -100,7 +100,7 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)` | - |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/bats/integration/wrapper_compose_dispatch_spec.bats (6)
+### test/bats/integration/wrapper_compose_dispatch_spec.bats (10)
 
 Behaviour-based assertion (#490) that every wrapper routes its `docker compose`
 calls through the `-p`-injecting dispatcher. Reuses the
@@ -120,6 +120,10 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
+| `the -p project name and compose.yaml's name: are one value, not two computations` | - |
+| `[project] name in .setup.conf.local moves BOTH the -p and the emitted name:` | - |
+| `two checkouts of one repo dispatch different projects after a local override` | - |
+| `an unchanged repo keeps the project name it resolved before [project] existed` | - |
 
 ### test/bats/integration/upgrade_spec.bats (21)
 

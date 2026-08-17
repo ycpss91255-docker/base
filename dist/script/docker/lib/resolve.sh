@@ -142,16 +142,19 @@ _resolve_build_network() {
 # ════════════════════════════════════════════════════════════════════
 # _compute_conf_hash <base_path> <outvar>
 #
-# sha256 of the effective config (template default + per-repo
-# setup.conf override). Used to detect conf drift in build.sh/run.sh.
-# Drift means "user changed their override (or template was upgraded)".
+# sha256 of the effective config: every layer of the conf chain
+# (_setup_conf_layers -- template default, per-repo override, per-worktree
+# .setup.conf.local), in precedence order. Used to detect conf drift in
+# build.sh / run.sh. Drift means "an input to the resolved config changed",
+# which is why EVERY layer that can change the resolved value is hashed: a
+# layer that steers resolution but sits outside the hash would let the
+# wrappers reuse artifacts generated from a different config.
 # ════════════════════════════════════════════════════════════════════
 _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
-  local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../../.setup.conf"
-  local _repo_conf="${_base}/.setup.conf"
+  local -a _cch_layers=()
+  _setup_conf_layers "${_base}" _cch_layers
 
   # Use command substitution (not pipe-into-block) so the nameref
   # assignment happens in the function's scope, not a subshell.
@@ -160,9 +163,10 @@ _compute_conf_hash() {
   # exit would propagate via command substitution and abort setup.sh).
   _cch_out="$(
     {
-      [[ -f "${_template_conf}" ]] && cat "${_template_conf}"
-      [[ -f "${_repo_conf}"     ]] && cat "${_repo_conf}"
-      [[ -n "${SETUP_CONF:-}"   ]] && [[ -f "${SETUP_CONF}" ]] && cat "${SETUP_CONF}"
+      local _cch_f
+      for _cch_f in "${_cch_layers[@]}"; do
+        [[ -f "${_cch_f}" ]] && cat "${_cch_f}"
+      done
       true
     } | sha256sum | cut -d' ' -f1
   )"

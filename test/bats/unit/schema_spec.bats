@@ -263,7 +263,7 @@ _assert_schema() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "SCHEMA_SECTIONS lists every setup.conf section in file order (#561)" {
-  local _expected="image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
+  local _expected="project image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
   [ "${SCHEMA_SECTIONS[*]}" = "${_expected}" ]
 }
 

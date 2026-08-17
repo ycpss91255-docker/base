@@ -303,6 +303,44 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_project_name
+#
+# Compose's own project-name rule, verbatim: lowercase letters, decimal
+# digits, dashes and underscores, and it must BEGIN with a lowercase
+# letter or a digit. Anything else is rejected by `docker compose` itself
+# at invocation time, and a value that only fails there fails after the
+# artifacts are already written -- which is the late, confusing failure
+# this validator exists to move forward.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_project_name accepts compose-legal project names" {
+  _validate_project_name "myrepo"
+  _validate_project_name "myrepo-wt2"
+  _validate_project_name "my_repo"
+  _validate_project_name "9lives"
+  _validate_project_name "a"
+}
+
+@test "_validate_project_name rejects what docker compose rejects" {
+  # Uppercase: compose lowercases / refuses; a name that silently changes
+  # case would namespace containers somewhere the user did not ask for.
+  run _validate_project_name "MyRepo"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name "-leading-dash"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name "_leading_underscore"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name "has space"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name "has/slash"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name "has.dot"
+  [ "${status}" -ne 0 ]
+  run _validate_project_name ""
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _validate_network_name
 # ════════════════════════════════════════════════════════════════════
 

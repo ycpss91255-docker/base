@@ -277,54 +277,87 @@ _conf_list() {
   return 0
 }
 
+# _conf_load_layers <handle> <file>...
+#
+# Load the section-replace merge of an arbitrary-length layer chain into
+# <handle>. Files are given in INCREASING precedence (baseline first, the
+# most local override last): for each section, the entries come wholesale
+# from the HIGHEST-precedence layer that defines it (>=1 entry); layers
+# below contribute nothing to that section. Sections no layer above defines
+# keep the layer that did. Section order is the order the layers introduced
+# them, lowest layer first.
+#
+# Section-replace rather than per-key merge is the chain's one rule, and it
+# is structural: eight of the sections are `<prefix>_N` ordered lists, and a
+# per-key merge would assemble one ordered list out of several layers, would
+# offer no way to REMOVE an item, and would require the author of an upper
+# layer to know the highest N used by a layer they cannot see.
+#
+# Missing files are skipped (an absent layer contributes nothing), so callers
+# pass the whole chain unconditionally.
+_conf_load_layers() {
+  local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
+  shift
+  (( $# > 0 )) || { declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"; return 0; }
+
+  # Tokenize every layer up front into flat, layer-tagged arrays: the
+  # per-layer arrays cannot be kept as separate named arrays without
+  # eval, so each entry carries its layer index instead.
+  local -a _cll_layer_of=() _cll_es=() _cll_keys=() _cll_vals=()
+  local -a _cll_order=()
+  local -A _cll_order_seen=()
+  # _cll_owner[<section>] = highest layer index that defines the section.
+  local -A _cll_owner=()
+
+  local _cll_idx=0 _cll_file _cll_i _cll_s
+  for _cll_file in "$@"; do
+    local -a _cll_fs=() _cll_fes=() _cll_fk=() _cll_fv=()
+    _ini_tokenize "${_cll_file}" _cll_fs _cll_fes _cll_fk _cll_fv
+    for (( _cll_i = 0; _cll_i < ${#_cll_fk[@]}; _cll_i++ )); do
+      _cll_layer_of+=("${_cll_idx}")
+      _cll_es+=("${_cll_fes[_cll_i]}")
+      _cll_keys+=("${_cll_fk[_cll_i]}")
+      _cll_vals+=("${_cll_fv[_cll_i]}")
+      _cll_owner["${_cll_fes[_cll_i]}"]="${_cll_idx}"
+    done
+    # Section ORDER follows first appearance across the chain, so a
+    # section introduced by the baseline keeps its slot even when an
+    # upper layer redefines it.
+    for _cll_s in "${_cll_fs[@]+"${_cll_fs[@]}"}"; do
+      [[ -n "${_cll_order_seen[${_cll_s}]:-}" ]] && continue
+      _cll_order+=("${_cll_s}")
+      _cll_order_seen["${_cll_s}"]=1
+    done
+    _cll_idx=$(( _cll_idx + 1 ))
+  done
+
+  declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+  local -n _cll_ms="${_h}__sects" _cll_mes="${_h}__es" _cll_mk="${_h}__keys" _cll_mv="${_h}__vals"
+
+  # A section header with no entries names no owner; it still exists as a
+  # section but contributes nothing, matching the pre-chain behaviour.
+  for _cll_s in "${_cll_order[@]+"${_cll_order[@]}"}"; do
+    _cll_ms+=("${_cll_s}")
+    local _cll_win="${_cll_owner[${_cll_s}]:-}"
+    [[ -n "${_cll_win}" ]] || continue
+    for (( _cll_i = 0; _cll_i < ${#_cll_keys[@]}; _cll_i++ )); do
+      [[ "${_cll_es[_cll_i]}" == "${_cll_s}" ]] || continue
+      [[ "${_cll_layer_of[_cll_i]}" == "${_cll_win}" ]] || continue
+      _cll_mes+=("${_cll_s}"); _cll_mk+=("${_cll_keys[_cll_i]}"); _cll_mv+=("${_cll_vals[_cll_i]}")
+    done
+  done
+  return 0
+}
+
 # _conf_load_merged <template_file> <repo_file> <handle>
 #
-# Load the section-replace merge of <template_file> overlaid by
-# <repo_file> into <handle>: for each section the repo file defines (>=1
-# entry), the repo's entries replace the template's for that section
-# wholesale; sections the repo omits keep the template's entries. Section
-# order is template order followed by repo-only sections. Mirrors the
-# per-section merge setup.sh applies via _load_setup_conf, but as one
-# queryable handle (explicit paths -- no dependency on caller globals).
+# Two-layer form of _conf_load_layers, kept as the name the explicit
+# template/repo call sites read by. Same section-replace semantics.
 _conf_load_merged() {
   local _tpl="${1:?"${FUNCNAME[0]}: missing template file"}"
   local _repo="${2:?"${FUNCNAME[0]}: missing repo file"}"
   local _h="${3:?"${FUNCNAME[0]}: missing handle"}"
-
-  local -a _clm_ts=() _clm_tes=() _clm_tk=() _clm_tv=()
-  local -a _clm_rs=() _clm_res=() _clm_rk=() _clm_rv=()
-  _ini_tokenize "${_tpl}" _clm_ts _clm_tes _clm_tk _clm_tv
-  _ini_tokenize "${_repo}" _clm_rs _clm_res _clm_rk _clm_rv
-
-  local -A _clm_repo_has=()
-  local _clm_i
-  for (( _clm_i = 0; _clm_i < ${#_clm_res[@]}; _clm_i++ )); do
-    _clm_repo_has["${_clm_res[_clm_i]}"]=1
-  done
-
-  declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
-  local -n _clm_ms="${_h}__sects" _clm_mes="${_h}__es" _clm_mk="${_h}__keys" _clm_mv="${_h}__vals"
-
-  local -A _clm_seen=()
-  local _clm_s
-  for _clm_s in "${_clm_ts[@]}" "${_clm_rs[@]}"; do
-    [[ -n "${_clm_seen[${_clm_s}]:-}" ]] || { _clm_ms+=("${_clm_s}"); _clm_seen["${_clm_s}"]=1; }
-  done
-
-  for _clm_s in "${_clm_ms[@]}"; do
-    if [[ -n "${_clm_repo_has[${_clm_s}]:-}" ]]; then
-      for (( _clm_i = 0; _clm_i < ${#_clm_rk[@]}; _clm_i++ )); do
-        [[ "${_clm_res[_clm_i]}" == "${_clm_s}" ]] || continue
-        _clm_mes+=("${_clm_s}"); _clm_mk+=("${_clm_rk[_clm_i]}"); _clm_mv+=("${_clm_rv[_clm_i]}")
-      done
-    else
-      for (( _clm_i = 0; _clm_i < ${#_clm_tk[@]}; _clm_i++ )); do
-        [[ "${_clm_tes[_clm_i]}" == "${_clm_s}" ]] || continue
-        _clm_mes+=("${_clm_s}"); _clm_mk+=("${_clm_tk[_clm_i]}"); _clm_mv+=("${_clm_tv[_clm_i]}")
-      done
-    fi
-  done
-  return 0
+  _conf_load_layers "${_h}" "${_tpl}" "${_repo}"
 }
 
 # _conf_list_sorted <handle> <section> <prefix> <outvar_array>

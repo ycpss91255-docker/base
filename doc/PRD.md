@@ -187,10 +187,49 @@ path. A devel/test image is not a field artifact (binds source, carries the
 toolchain, expects a live-edit surface); deploying it, or letting field config
 need a rebuild, breaks the dev/field split every downstream relies on.
 
+**A field artifact must not silently depend on a config layer that is not
+under version control.** The gitignored per-worktree override
+(`.setup.conf.local`) is a development convenience by construction: it is
+visible on exactly one machine. A bundle built from it cannot be reproduced
+from a clean checkout, and nothing about the bundle would say why. So
+`setup deploy` REFUSES while that layer exists, and the explicit escape
+hatch records in the bundle itself which sections came from it -- because
+the person holding the bundle in the field is not the person who chose to
+bypass the gate.
+
 *Serves / established by:* ADR-00000003 (env/workload boundary + field
 delivery; this generalizes its env-row override to config files); ADR-00000023
 (config field-override + field-deploy mechanism); ADR-00000011 / ADR-00000018
-(devel/runtime/*-test stage structure).
+(devel/runtime/*-test stage structure); ADR-00000025 (the untracked-layer
+refusal).
+
+### 9. Identity and naming are resolved once, from a file
+
+Two properties, one subject -- what a run calls the things it creates:
+
+- **Image identity is a function of build inputs.** Identical inputs
+  resolve to one tag; different inputs can never share one. Two builds that
+  agree on every input SHOULD share an image (that is a cache hit, and it is
+  correct); two that differ must not be able to displace each other's.
+- **Divergence in runtime naming between two checkouts comes from an
+  explicit, file-recorded override** -- never from an ambient variable, and
+  never from an accident of directory naming. If two checkouts run under
+  different project names, a file in each says so.
+
+*Why it is fixed:* both failure modes are silent, and both cost work that
+already looked finished. A shared tag lets one run displace the image
+another is mid-way through using, with no error at all -- a coverage pass
+once reported green having lost its instrumentation that way. A project
+name derived from a directory basename means two checkouts silently share
+containers and networks, and stay isolated only by the accident of being
+named apart; the same name derived from an ambient variable is invisible to
+anyone reading the repo and does not survive a new terminal. Naming is
+infrastructure, so it has to be as reviewable as the rest of the config.
+
+*Serves / established by:* ADR-00000025 (`[project] name` resolved once into
+`.env.generated`, read by both the wrapper's `-p` and the emitted
+`name:`; the gitignored per-worktree layer that records the divergence);
+the content-keyed tooling tag + checkout-keyed test project (#891 / #892).
 
 ## Product Shape
 
@@ -201,7 +240,11 @@ delivery; this generalizes its env-row override to config files); ADR-00000023
 - **One source, many render targets:** `setup.conf` + host detection resolve
   once and render `compose.yaml`, `.env.generated`, the `.env` overlay,
   `deploy.sh`, and the baked runtime `ENV` -- so the same configuration is
-  correct on the dev host and in a field image (ADR-00000003).
+  correct on the dev host and in a field image (ADR-00000003). The source is
+  a layered chain of files -- shipped default, the repo's committed
+  override, the operator's gitignored per-worktree override -- resolved
+  section-by-section, with no ambient environment variable able to steer it
+  (ADR-00000025).
 
 ## Roadmap
 
