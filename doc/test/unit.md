@@ -1986,9 +1986,9 @@ builds the env block only for the knobs the conf sets.
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
-| `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | - |
-| `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | - |
-| `_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)` | - |
+| `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | 141 reported as tool + command + SIGPIPE |
+| `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | Plain non-zero abort still names the tool |
+| `_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)` | Silent on success, trap disarmed after |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
@@ -2141,8 +2141,8 @@ live `doc/adr/` passes today with the intentional `00000009` gap warned.
 | `_run_adr_numbering: PASSES a clean set WITH a gap, warning the gap (exit 0) (#808)` | Gap warned, exit 0 |
 | `_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)` | Contiguous set clean, no gap line |
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
-| `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | - |
-| `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | - |
+| `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | No pipeline status owned by a departing reader |
+| `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | In-shell range still bounds the gap scan |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/stale_setup_conf_lint_spec.bats (11)
