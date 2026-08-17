@@ -419,6 +419,60 @@ EOF
   unset TUI_OK_LABEL TUI_CANCEL_LABEL
 }
 
+# ════════════════════════════════════════════════════════════════════
+# The knobs are internal parameterisation, not an ambient user surface
+# ════════════════════════════════════════════════════════════════════
+#
+# Geometry and button captions parameterise this backend wrapper for the
+# menus setup_tui.sh draws. They were readable from the environment, so a
+# value nobody validated -- a zero width, a non-numeric height -- reached
+# dialog(1) and produced an unusable menu with no diagnostic. The names
+# are private now (the file's own `_tui_*` convention), which is what
+# takes the environment out of the picture.
+
+@test "_tui_backend: an ambient TUI_WIDTH / TUI_HEIGHT does not reach the backend (#895)" {
+  # Sourced in a child shell so the ambient value is present at the point
+  # the geometry is established, which is file scope.
+  _install_stub dialog
+  run env TUI_WIDTH=0 TUI_HEIGHT=0 TUI_STUB_RESPONSE=tagA bash -c '
+    # shellcheck disable=SC1091
+    source /source/dist/script/docker/lib/_tui_backend.sh
+    TUI_BACKEND=dialog
+    _tui_menu "Title" "Pick" tagA LabelA
+  '
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_line "0"
+  assert_line "70"
+  assert_line "20"
+}
+
+@test "_tui_backend: an ambient TUI_NO_TAGS does not reach the backend (#895)" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_NO_TAGS=1
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--no-tags"
+  unset TUI_NO_TAGS
+}
+
+@test "_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_OK_LABEL="Ambient" TUI_CANCEL_LABEL="Ambient"
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  refute_output --partial "Ambient"
+  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+}
+
 @test "_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set" {
   # whiptail has no --extra-button at all (newt limitation). This test
   # has held since and remains valid after
