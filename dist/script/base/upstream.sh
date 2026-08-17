@@ -34,4 +34,5 @@ BASE_UPSTREAM_SLUG='ycpss91255-docker/base'
 # The clone URL upgrade.sh / init.sh default to. HTTPS so a fresh clone, a
 # CI runner or a first-time contributor with no SSH key works out of the
 # box; TEMPLATE_REMOTE is how a caller opts into SSH or a private fork.
+# shellcheck disable=SC2034 # read by the scripts that source this file.
 BASE_UPSTREAM_REMOTE="https://github.com/${BASE_UPSTREAM_SLUG}.git"
