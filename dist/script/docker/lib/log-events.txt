@@ -173,6 +173,7 @@ ci_project_name_digest_failed
 transcript_dir_create_failed
 transcript_file_unwritable
 transcript_tee_missing
+transcript_env_invalid
 
 # compose.sh (project-name resolution)
 project_name_missing_from_env

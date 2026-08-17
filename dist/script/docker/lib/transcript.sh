@@ -143,12 +143,28 @@ _transcript_conf() {
 #   True when the wrapper transcript is not switched off. The WRAPPER_TRANSCRIPT
 #   env var wins when set (true/false) -- it lets CI / the self-test suite
 #   disable transcripts without a setup.conf (so wrapper specs never write a
-#   log/ tree into the checkout,) and lets a user toggle it ad-hoc.
-#   Otherwise falls back to `[logging] wrapper_transcript` (default true).
+#   log/ tree into the checkout,) and lets a user toggle it ad-hoc without
+#   editing a file that is committed and shared. Empty means unset (the way a
+#   caller clears an inherited value). Otherwise falls back to
+#   `[logging] wrapper_transcript` (default true).
+#
+#   This override outranks a key the user configured and can read back in
+#   `setup.sh show`, so anything that is neither true nor false is FATAL
+#   rather than a quiet fall-through to that key: a typo'd kill switch that
+#   silently leaves capture on is exactly the outcome the override exists to
+#   prevent. The precedence is documented next to the conf key (README
+#   "Wrapper transcripts", dist/.setup.conf [logging]).
 _transcript_enabled() {
   case "${WRAPPER_TRANSCRIPT:-}" in
     false) return 1 ;;
     true)  return 0 ;;
+    "")    ;;
+    *)
+      _log_fatal "${_WRAPPER_VERB:-wrapper}" transcript_env_invalid \
+        "display=WRAPPER_TRANSCRIPT must be true or false (got '${WRAPPER_TRANSCRIPT}'); it overrides [logging] wrapper_transcript, so a value it cannot read is refused rather than ignored" \
+        "value=${WRAPPER_TRANSCRIPT}"
+      exit 1
+      ;;
   esac
   [[ "$(_transcript_conf wrapper_transcript true)" != false ]]
 }
