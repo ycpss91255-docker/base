@@ -105,6 +105,10 @@ usage() {
   devel    開發環境（預設）
   test     執行 smoke test
   runtime  最小化 runtime 映像
+
+環境變數:
+  QUIET=1  關閉 build 前印出的組態摘要（適合 piped / CI log）。與
+           setup.sh 的 -q/--quiet 不同：那個管的是別的輸出。
 EOF
       ;;
     zh-CN)
@@ -144,6 +148,10 @@ EOF
   devel    开发环境（默认）
   test     运行 smoke test
   runtime  最小化 runtime 镜像
+
+环境变量:
+  QUIET=1  关闭 build 前打印的配置摘要（适合 piped / CI log）。与
+           setup.sh 的 -q/--quiet 不同：那个管的是别的输出。
 EOF
       ;;
     ja)
@@ -187,6 +195,10 @@ EOF
   devel    開発環境（デフォルト）
   test     smoke test を実行
   runtime  最小化ランタイムイメージ
+
+環境変数:
+  QUIET=1  ビルド前に表示される設定サマリーを抑止（piped / CI ログ向け）。
+           setup.sh の -q/--quiet とは別物で、対象が異なります。
 EOF
       ;;
     *)
@@ -237,6 +249,11 @@ Targets:
   devel    Development environment (default)
   test     Run smoke tests
   runtime  Minimal runtime image
+
+Environment:
+  QUIET=1  Mute the configuration summary printed before the build (for
+           piped / CI logs). Distinct from setup.sh's -q/--quiet, which
+           silences a different surface.
 EOF
       ;;
   esac
@@ -417,7 +434,8 @@ main() {
   # Pre-build snapshot so first-time users see which files drove this
   # run and the effective image/network/GPU/GUI/TZ before docker takes
   # over the terminal. --dry-run keeps it (still useful); can be muted
-  # with QUIET=1 if someone pipes this into their own CI log.
+  # with QUIET=1 if someone pipes this into their own CI log -- which is
+  # documented in `--help` (all four locales), not only here.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary build
 
   # Build test-tools image if Dockerfile exists AND caller hasn't

@@ -136,6 +136,10 @@ CMD: 啟動容器後要執行的指令，對齊 `docker run <image> [cmd]` 語�
   --      → 分隔 run.sh 旗標與 CMD；-- 之後的全部參數視為 CMD，不再由 run.sh 解析。
             當 CMD 本身有 --target 等與 run.sh 衝突的旗標時必須使用。
             例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
+
+環境變數:
+  QUIET=1  關閉 run 前印出的組態摘要（適合 piped / CI log）。與
+           setup.sh 的 -q/--quiet 不同：那個管的是別的輸出。
 EOF
       ;;
     zh-CN)
@@ -175,6 +179,10 @@ CMD: 启动容器后要执行的指令，对齐 `docker run <image> [cmd]` 语�
   --      → 分隔 run.sh 旗标与 CMD；-- 之后的全部参数视为 CMD，不再由 run.sh 解析。
             当 CMD 本身有 --target 等与 run.sh 冲突的旗标时必须使用。
             例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
+
+环境变量:
+  QUIET=1  关闭 run 前打印的配置摘要（适合 piped / CI log）。与
+           setup.sh 的 -q/--quiet 不同：那个管的是别的输出。
 EOF
       ;;
     ja)
@@ -220,6 +228,10 @@ CMD: コンテナ起動後に実行するコマンド。`docker run <image> [cmd
   --      → run.sh フラグと CMD を分離。-- 以降の全引数は CMD として扱い、run.sh は
             解析しません。CMD 自体に --target 等 run.sh と衝突するフラグがある場合に
             使用。例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
+
+環境変数:
+  QUIET=1  実行前に表示される設定サマリーを抑止（piped / CI ログ向け）。
+           setup.sh の -q/--quiet とは別物で、対象が異なります。
 EOF
       ;;
     *)
@@ -266,6 +278,11 @@ CMD: Command to run after the container starts; mirrors `docker run <image> [cmd
             without further parsing by run.sh. Required when CMD has flags that
             collide with run.sh (e.g. --target).
             Example: ./run.sh -t cli -- sdkmanager --target JETSON --flash
+
+Environment:
+  QUIET=1  Mute the configuration summary printed before the run (for
+           piped / CI logs). Distinct from setup.sh's -q/--quiet, which
+           silences a different surface.
 EOF
       ;;
   esac
@@ -475,7 +492,8 @@ main() {
 
   # Pre-run snapshot so the user can see which files + values this
   # invocation resolved to before the container replaces the shell.
-  # Mute with QUIET=1 for piped / CI logs.
+  # Mute with QUIET=1 for piped / CI logs; documented in `--help` (all
+  # four locales), not only here.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
   # ──pre-run hook (after env prep, before build delegate) ──
