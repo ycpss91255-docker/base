@@ -227,6 +227,9 @@ _seed_upgrade_fixture() {
   echo "v9.0.0" > "${TMPL_WORK}/.version"
   cp /source/dist/script/base/init.sh "${TMPL_WORK}/dist/script/base/init.sh"
   cp /source/dist/script/base/upgrade.sh "${TMPL_WORK}/dist/script/base/upgrade.sh"
+  # Both source their sibling upstream.sh at load (the one definition of
+  # the upstream slug / clone URL), so the snapshot ships it too.
+  cp /source/dist/script/base/upstream.sh "${TMPL_WORK}/dist/script/base/upstream.sh"
   cp /source/dist/script/docker/lib/gitignore.sh "${TMPL_WORK}/dist/script/docker/lib/gitignore.sh"
   # init.sh / upgrade.sh source _lib.sh on load (route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh

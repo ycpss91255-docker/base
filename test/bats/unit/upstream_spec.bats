@@ -67,11 +67,17 @@ setup() {
 # One definition, three consumers
 # ════════════════════════════════════════════════════════════════════
 
-@test "the upstream URL is written out in exactly one shipped file (#895)" {
-  # The grep is over dist/ (what a consumer repo receives). A second
-  # literal anywhere in it is a value that can go stale on its own.
+@test "exactly one shipped file names the upstream in code (#895)" {
+  # Scanned over dist/ (what a consumer repo receives), comment lines
+  # excluded: init.sh's header spells the URL inside the `git subtree add`
+  # line a human copy-pastes before any of this code exists, and that one
+  # is prose, not a default something resolves. A second live literal is a
+  # value that can go stale on its own -- which is what "one definition"
+  # has to mean to be worth anything.
   run bash -c "
-    grep -rlF 'github.com/ycpss91255-docker/base' /source/dist --include='*.sh' | sort
+    grep -rnF 'ycpss91255-docker/base' /source/dist --include='*.sh' \
+      | grep -vE ':[0-9]+:[[:space:]]*#' \
+      | cut -d: -f1 | sort -u
   "
   assert_success
   assert_output "${UPSTREAM_SH}"

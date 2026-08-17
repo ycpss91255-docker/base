@@ -48,6 +48,8 @@ readonly REPO_ROOT
 TEMPLATE_REL="$(basename "${TEMPLATE_DIR}")"
 readonly TEMPLATE_REL
 
+# shellcheck source=dist/script/base/upstream.sh
+source "${SCRIPT_DIR}/upstream.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
@@ -270,9 +272,10 @@ _detect_template_version() {
     return 0
   fi
   # Fallback: query remote tags (for fresh subtree add before .version existed).
-  # HTTPS by default so fresh clones / CI runners without an SSH key still
-  # work. Override via TEMPLATE_REMOTE env var (e.g. SSH for private forks).
-  local _remote="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/base.git}"
+  # Default from the one shared upstream constant (upstream.sh); override
+  # via the TEMPLATE_REMOTE env var (SSH, or a private fork) -- see README
+  # "Pointing .base at a different upstream".
+  local _remote="${TEMPLATE_REMOTE:-${BASE_UPSTREAM_REMOTE}}"
   git ls-remote --tags --sort=-v:refname \
     "${_remote}" 2>/dev/null \
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
@@ -400,14 +403,14 @@ permissions:
 
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@${ref}
+    uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}
     with:
       image_name: ${name}
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@${ref}
+    uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/release-worker.yaml@${ref}
     with:
       archive_name_prefix: ${name}
 YAML

@@ -28,6 +28,11 @@ setup() {
   echo "v0.0.0-test" > "${TMP_REPO}/.base/.version"
   ln -s /source/dist/script/base/init.sh \
         "${TMP_REPO}/.base/dist/script/base/init.sh"
+  # init.sh sources its sibling upstream.sh on load (the one definition of
+  # the upstream slug / clone URL, shared with upgrade.sh and the version
+  # monitor), so the seeded subtree needs it next to init.sh.
+  ln -s /source/dist/script/base/upstream.sh \
+        "${TMP_REPO}/.base/dist/script/base/upstream.sh"
   # init.sh sources lib/gitignore.sh on load. Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
   ln -s /source/dist/script/docker/lib/gitignore.sh \

@@ -49,6 +49,9 @@ _seed_template_remote() {
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/dist/script/base/init.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/dist/script/base/upgrade.sh"
+  # upgrade.sh sources its sibling upstream.sh at load (the one definition
+  # of the upstream slug / clone URL), so the fake remote ships it too.
+  cp /source/dist/script/base/upstream.sh "${TMPL_WORK}/dist/script/base/upstream.sh"
   # upgrade.sh sources _lib.sh on load (_log / _error wrap _log_*).
   # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs, so copy
   # all three surfaces into the fake remote.
