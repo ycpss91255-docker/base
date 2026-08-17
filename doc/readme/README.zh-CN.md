@@ -104,7 +104,7 @@ graph TB
     workflows -. "@tag 引用" .-> main_yaml
 ```
 
-<!-- sync: cicd-flow 4b14e6faf203 c412e6f6a6de -->
+<!-- sync: cicd-flow 5bd0f36f76ac e672c33be923 -->
 ### CI/CD 流程
 
 ```mermaid
@@ -114,7 +114,7 @@ flowchart LR
         just_build["just docker build --stage test-tools"]
     end
 
-    subgraph ci_container["CI 容器（ghcr.io/ycpss91255-docker/test-tools:latest）"]
+    subgraph ci_container["CI 容器（test-tools image，TEST_TOOLS_IMAGE）"]
         shellcheck["ShellCheck"]
         hadolint["Hadolint（just test lint）"]
         bats["Bats specs"]

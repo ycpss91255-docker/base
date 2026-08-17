@@ -110,7 +110,7 @@ flowchart LR
         just_build["just docker build --stage test-tools"]
     end
 
-    subgraph ci_container["CI Container (ghcr.io/ycpss91255-docker/test-tools:latest)"]
+    subgraph ci_container["CI Container (test-tools image, TEST_TOOLS_IMAGE)"]
         shellcheck["ShellCheck"]
         hadolint["Hadolint (just test lint)"]
         bats["Bats specs"]
