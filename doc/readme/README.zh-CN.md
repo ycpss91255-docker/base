@@ -923,6 +923,35 @@ just base upgrade v0.3.0
 不要手动 `git subtree pull` — 完整性检查、init.sh resync、sed 与 migration
 步骤容易漏掉。
 
+<!-- sync: pointing-base-at-a-different-upstream 46d9dded3008 86c69973b62d -->
+#### 把 `.base` 指向别的 upstream
+
+`TEMPLATE_REMOTE` 是所有 `.base` 操作读的 git remote：查「有没有新 tag」
+以及那个会改写你 working tree 里 `.base/` 的 `git subtree pull`。默认是
+`https://github.com/ycpss91255-docker/base.git` — 用 HTTPS，所以刚 clone
+的环境、CI runner、第一次贡献而没有 SSH key 的人都能直接跑。这个默认值只
+定义在一个地方：`.base/dist/script/base/upstream.sh`；`TEMPLATE_REMOTE`
+则是逐次调用的覆写。
+
+```bash
+# 改用 SSH（agent 认证，或只能用 SSH 连到的 fork）
+TEMPLATE_REMOTE=git@github.com:ycpss91255-docker/base.git just base upgrade
+
+# 你自己维护的 private fork：这个 repo 追的是「你的」base
+TEMPLATE_REMOTE=git@github.com:acme/base.git just base upgrade v1.2.0
+```
+
+**`.base/dist/` 底下的每个文件都是从这个 URL 抓下来、然后被执行的** —
+wrapper、lib、Dockerfile、entrypoint 都是。只把它指向你信任程度等同自己
+repo 的来源：控制那个 repo 的人，就控制了你下次 `just build` 跑的东西。
+这也是它被设计成逐次调用的环境变量、而不是 conf key 的原因 — 改指向这件事
+会留在你看得到的那行命令里，而不是躺在某个文件里默默影响之后每一次升级。
+长期维护的 fork 应该明确写进你自己的工具链，而不是在 shell profile 里
+export。
+
+每周的升级「提醒」（`check-base-version.sh`）读的是另一个变量 `BASE_REPO`；
+见 [CONTEXT.md](../../CONTEXT.md) 的 base version monitor。
+
 <!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 867dc9de45ca -->
 #### upgrade.sh 会改写你 repo 里的哪些文件
 

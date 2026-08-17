@@ -306,6 +306,22 @@ _Avoid_: upgrade seds, Dockerfile patcher.
   is the *pull* counterpart to `upgrade.sh`'s *push*: each repo polls
   `base`'s latest stable release and opens an **upgrade-reminder issue**
   in itself when behind — no PAT, no central repo list.
+  Three environment knobs re-aim it, each with a working default and no
+  reason to be set in normal use (`--help` reprints them):
+  - `BASE_REPO` — the upstream polled for `releases/latest`. Default
+    `ycpss91255-docker/base`, from the shared upstream constant
+    (`dist/script/base/upstream.sh`) that also gives `upgrade.sh` its
+    `TEMPLATE_REMOTE` default. It is **also the repo named in the release
+    link of the issue the monitor files**, so a wrong value both answers
+    the wrong question and publishes a misleading link into a real issue.
+  - `MONITOR_LABEL` — the issue label. It is one half of the dedupe pair
+    (label + target version), so changing it between runs makes the
+    "is one already open?" query miss and the monitor files a duplicate.
+    Default `base-upgrade`.
+  - `BASE_VERSION_FILE` — an explicit path to the local `.version`,
+    instead of walking up to the subtree root carrying `.version` +
+    `dist/`. Used by the monitor's own specs to pin a version without a
+    subtree.
 
 ## Example dialogue
 

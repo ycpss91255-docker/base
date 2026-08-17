@@ -986,6 +986,39 @@ repo で実行する前に、次の項を読んでください。手順：
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
 resync、sed、マイグレーションの手順は忘れがちです。
 
+<!-- sync: pointing-base-at-a-different-upstream 46d9dded3008 e2489cd00db6 -->
+#### `.base` を別の upstream に向ける
+
+`TEMPLATE_REMOTE` は `.base` に関わるすべての操作が読む git remote です
+（新しいタグの有無を問い合わせるクエリと、working tree の `.base/` を
+書き換える `git subtree pull`）。既定は
+`https://github.com/ycpss91255-docker/base.git` — HTTPS なので、clone
+した直後の環境、CI runner、SSH 鍵を持たない初めての貢献者でもそのまま
+動きます。この既定値の定義は
+`.base/dist/script/base/upstream.sh` の 1 か所だけで、
+`TEMPLATE_REMOTE` は実行ごとの上書きです。
+
+```bash
+# HTTPS ではなく SSH（agent 認証、または SSH でしか到達できない fork）
+TEMPLATE_REMOTE=git@github.com:ycpss91255-docker/base.git just base upgrade
+
+# 自分で保守する private fork: この repo が追うのは「あなたの」base
+TEMPLATE_REMOTE=git@github.com:acme/base.git just base upgrade v1.2.0
+```
+
+**`.base/dist/` 配下はすべてこの URL から取得され、そのまま実行されます**
+— wrapper、lib、Dockerfile、entrypoint のすべてです。自分の repo と同じ
+だけ信頼できる場所にのみ向けてください。その repo を管理する人が、次の
+`just build` で動くものを決めることになります。conf キーではなく実行ごと
+の環境変数である理由もそこにあります。向き先の変更は実行したコマンドに
+残り、以後のアップグレードを黙って書き換えるファイルには残りません。長期
+的な fork は shell profile の export ではなく、自分のツールチェーンに明示
+的に組み込んでください。
+
+毎週のアップグレード「通知」（`check-base-version.sh`）は別の変数
+`BASE_REPO` を読みます。[CONTEXT.md](../../CONTEXT.md) の base version
+monitor を参照してください。
+
 <!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 2409ef1bac33 -->
 #### upgrade.sh が repo 内で書き換えるもの
 

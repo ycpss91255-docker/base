@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **122 tests**.
+Integration specs under `test/bats/integration/`: **125 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -239,3 +239,11 @@ is refused with nothing staged.
 |------|-------------|
 | `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
 | `resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)` | - |
+
+### test/bats/integration/compose_host_identity_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
+| `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
+| `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
