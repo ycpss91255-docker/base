@@ -514,6 +514,87 @@ EOS
   assert_output --partial "TEST_TOOLS_IMAGE=test-tools:local"
 }
 
+# ── self-managed repo: the tooling tag comes from that repo's resolver ─────
+#
+# base is the template SOURCE (ADR-00000011 sec.4): no `.base/` subtree, so
+# no pinned version to scope a local tools tag by, and a hand-authored
+# compose.yaml whose `image: ${TEST_TOOLS_IMAGE}` carries no default at
+# all. Deriving a SECOND tag in build.sh is what let the tag the build
+# writes differ from the tag the repo's test entry runs, so build.sh asks
+# that repo's own resolver.
+
+# _make_self_managed_repo <dir> <tag>
+#
+# A repo laid out the way base lays itself out: dist/ at the root (no
+# `.base/`), the wrapper reached by symlink, a hand-authored compose.yaml,
+# and a stub `script/test/test.sh --test-tools-image` printing <tag>.
+_make_self_managed_repo() {
+  local _dir="${1}"
+  local _tag="${2}"
+  mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/script/test"
+  cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
+  ln -s /source/dist/script/docker/wrapper/build.sh "${_dir}/build.sh"
+  echo "# hand-authored compose" > "${_dir}/compose.yaml"
+  cat > "${_dir}/script/test/test.sh" <<EOS
+#!/usr/bin/env bash
+[[ "\${1:-}" == "--test-tools-image" ]] || exit 2
+printf '%s\n' '${_tag}'
+EOS
+  chmod +x "${_dir}/script/test/test.sh"
+}
+
+@test "build.sh takes a self-managed repo's tooling tag from that repo's own resolver (#896)" {
+  local _self="${TEMP_DIR}/selfmanaged"
+  _make_self_managed_repo "${_self}" "test-tools:cafebabe1234"
+
+  run bash "${_self}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "TEST_TOOLS_IMAGE=test-tools:cafebabe1234"
+}
+
+@test "build.sh exports the tooling tag so a self-managed compose.yaml interpolates it (#896)" {
+  # The consumer channel is a --build-arg (`FROM ${TEST_TOOLS_IMAGE}`); a
+  # self-managed compose.yaml reads the variable by INTERPOLATION instead,
+  # where a --build-arg never reaches. Probe the docker stub's ENVIRONMENT
+  # so the assertion cannot be satisfied by the build-arg on the argv.
+  local _self="${TEMP_DIR}/selfmanaged"
+  _make_self_managed_repo "${_self}" "test-tools:cafebabe1234"
+
+  cat > "${BIN_DIR}/docker" <<'EOS'
+#!/usr/bin/env bash
+printf 'ENVPROBE=%s\n' "${TEST_TOOLS_IMAGE:-<unset>}" >> "${DOCKER_LOG}"
+EOS
+  chmod +x "${BIN_DIR}/docker"
+
+  run bash "${_self}/build.sh"
+  assert_success
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "ENVPROBE=test-tools:cafebabe1234"
+}
+
+@test "build.sh keeps deriving the version-scoped tag for a repo that has a .base subtree (#896)" {
+  # The self-managed branch must not capture consumers: they carry a
+  # `.base/` subtree and their local tag stays version-scoped by
+  # `.base/.version`.
+  mkdir -p "${SANDBOX}/script/test"
+  cat > "${SANDBOX}/script/test/test.sh" <<'EOS'
+#!/usr/bin/env bash
+printf 'test-tools:must-not-be-used\n'
+EOS
+  chmod +x "${SANDBOX}/script/test/test.sh"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+
+  bash "${SANDBOX}/build.sh"
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "TEST_TOOLS_IMAGE=test-tools:v9.9.9-test"
+  refute_output --partial "must-not-be-used"
+}
+
 # ── i18n log lines (bootstrap / drift / err_no_env) ────────────────────────
 # These exercise _msg for every language on every log line that build.sh
 # emits directly. Usage-text coverage lives above; these assert that the

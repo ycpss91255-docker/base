@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **122 tests**.
+Integration specs under `test/bats/integration/`: **125 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -239,3 +239,18 @@ is refused with nothing staged.
 |------|-------------|
 | `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
 | `resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)` | - |
+
+### test/bats/integration/compose_test_tools_image_spec.bats (3)
+
+How the repo-root `compose.yaml` resolves `TEST_TOOLS_IMAGE` -- the one
+variable naming both the image the build-only `test-tools` service writes
+and the image the `ci` / `coverage` / `ci-system` services run. The
+assertions drive `docker compose config` (pure client-side interpolation:
+compose CLI, no daemon, no socket) rather than reading the file's text,
+because the text is not what decides which image a run pulls.
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
+| `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
+| `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
