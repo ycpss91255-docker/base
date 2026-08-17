@@ -331,6 +331,18 @@ _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; exit 1; }
 _fix_permissions() {
   local uid="${HOST_UID:-}"
   local gid="${HOST_GID:-}"
+  # The ids are numeric wherever they come from a caller of ours (`id -u`),
+  # so anything else arrived from the environment. chown would read it as a
+  # NAME and either fail with a message that names nothing useful or, worse,
+  # find a real account of that name and hand the report to it. Name the
+  # variable that is wrong instead.
+  local _var _val
+  for _var in HOST_UID HOST_GID; do
+    _val="${!_var:-}"
+    [[ -z "${_val}" || "${_val}" =~ ^[0-9]+$ ]] && continue
+    _die ci_host_id_not_numeric \
+      "${_var}='${_val}' is not a numeric id; it decides the ownership of everything the suite writes into the checkout"
+  done
   if [[ -n "${uid}" && -n "${gid}" && -d "${REPO_ROOT}/coverage" ]]; then
     chown -R "${uid}:${gid}" "${REPO_ROOT}/coverage"
   fi
@@ -501,10 +513,19 @@ _run_via_compose() {
   # an inline form would hand compose an empty -p and let the run continue.
   local _project
   _project="$(_resolve_compose_project_name)"
+  # HOST_UID / HOST_GID go in the ENVIRONMENT of `docker compose`, not in a
+  # `-e` flag: `-e` sets the variable inside the container, while the
+  # service definition's `${HOST_UID:?}` is compose's own interpolation and
+  # reads this process's environment. The compose file forwards them into
+  # the container from there, so one assignment serves both. They exist so
+  # the suite writes the bind-mounted checkout as the real user; compose
+  # carries no default for them, so an entry point that forgets them is
+  # refused rather than writing files owned by uid 1000.
+  export HOST_UID HOST_GID
+  HOST_UID="$(id -u)"
+  HOST_GID="$(id -g)"
   docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
-    -e HOST_UID="$(id -u)" \
-    -e HOST_GID="$(id -g)" \
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \

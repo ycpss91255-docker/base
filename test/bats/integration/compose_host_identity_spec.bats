@@ -24,6 +24,14 @@ setup() {
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
   ROOT=/source
   PINNED_IMAGE="test-tools:host-identity-spec"
+  # The compose plugin is a package of the tooling image
+  # (docker-cli-compose in dockerfile/Dockerfile.test-tools), and a run
+  # against a PUBLISHED tag older than that package predates it. Nothing
+  # about the resolution can be observed without it, so say so instead of
+  # asserting on a `docker --help` dump. The file-shape half of this
+  # invariant is pinned unconditionally in base_docker_namespace_spec.
+  docker compose version >/dev/null 2>&1 \
+    || skip "this test-tools image has no docker compose plugin"
 }
 
 # ════════════════════════════════════════════════════════════════════

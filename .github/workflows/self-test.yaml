@@ -1293,7 +1293,13 @@ jobs:
       - name: Run system specs (docker.sock-mounted ci-system service)
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: docker compose run --rm ci-system
+        # The ids come from `id`, not from a literal: this is the one job
+        # that drives compose directly instead of through test.sh, and the
+        # ci-system service takes HOST_UID / HOST_GID with no default
+        # (they own whatever the suite writes into the mounted checkout).
+        run: |
+          HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            docker compose run --rm ci-system
 
   worker-selftest:
     name: System build-worker self-test (#802)

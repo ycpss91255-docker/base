@@ -74,6 +74,13 @@ coverage shard='':
 # checkout directory's BASENAME, so two checkouts named alike share one set
 # of containers and one network. Exporting the name here is what reaches the
 # bare `docker compose run` below.
+#
+# HOST_UID / HOST_GID are exported for the same reason: this recipe is the
+# one `just test` path that drives compose directly instead of through
+# test.sh's _run_via_compose, and the ci-system service takes the ids with
+# no default (they decide who owns what the suite writes into the mounted
+# checkout). Both compose calls below need them -- `just docker build`
+# parses the whole file too.
 system:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -81,6 +88,9 @@ system:
     export TEST_TOOLS_IMAGE
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
     export COMPOSE_PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
     just docker build --target test-tools
     docker compose run --rm ci-system
 

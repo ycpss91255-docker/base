@@ -78,6 +78,19 @@ setup() {
   assert_success
 }
 
+@test "base compose.yaml carries no fallback identity for the mounted checkout (#895)" {
+  # The behavioural half (what compose RESOLVES) lives in
+  # compose_host_identity_spec, which needs the compose plugin in the
+  # tooling image. This half needs nothing and cannot rot: a `:-` default
+  # on either variable is the silent 'files owned by uid 1000' defect
+  # regardless of which value it names.
+  run grep -nE '^ +- HOST_(UID|GID)=\$\{HOST_(UID|GID):-' "${ROOT}/compose.yaml"
+  assert_failure
+  run grep -cE '^ +- HOST_(UID|GID)=\$\{HOST_(UID|GID):\?' "${ROOT}/compose.yaml"
+  assert_success
+  assert_output "6"
+}
+
 @test "just test system supplies the host identity its bare compose run needs (#895)" {
   # The bare `docker compose run --rm ci-system` here is the one `just test`
   # path that does not go through test.sh's _run_via_compose, so it is the
