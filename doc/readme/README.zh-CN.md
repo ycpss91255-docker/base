@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da 6a81f6c049fc -->
+<!-- sync: tldr b4f9c41522da c6783a1b0113 -->
 ## TL;DR
 
 ```bash
@@ -38,8 +38,8 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/dist/script/base/init.sh
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
+./.base/dist/script/base/init.sh   # 一次性 bootstrap；之后用 just base init
 
 # 升级到最新版
 just base update   # 检查
@@ -78,7 +78,7 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
 此 repo 集中管理所有 Docker 容器 repo 共用的脚本、测试和 CI workflow。各 repo 通过 **git subtree** 拉入此模板，并使用 symlink 引用共用文件。
 
-<!-- sync: architecture 2660c8dea634 fa1801115ef0 -->
+<!-- sync: architecture 2660c8dea634 5d6c062768ac -->
 ### 架构
 
 ```mermaid
@@ -88,10 +88,10 @@ graph TB
         smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
-        workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
+        workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml（opt-in）"]
     end
 
-    subgraph consumer["Docker Repo（例如 my_app）"]
+    subgraph consumer["Docker Repo（例如 ros_noetic）"]
         symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlinks）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 自有）"]
         repo_test["test/bats/smoke/<br/>app_env.bats（repo 专属）"]
@@ -249,7 +249,7 @@ image，`$HOME` 可能不一样。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 79b385a36822 -->
+<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 8e46b490ed24 -->
 #### 添加额外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -279,9 +279,8 @@ just docker run -t headless                  # 跑 headless 变体
 just docker run -t gui                       # 跑 gui 变体
 just docker exec -t headless bash            # 进入 running 的 headless container
 
-# Kit 风格的 `=` 参数会被 #414 guard 挡下，改走 EXEC_ARGS env var (#469)：
-EXEC_ARGS='--/app/livestream/port=49100' \
-  just docker exec -t headless-stream /isaac-sim/runheadless.sh -v
+# Kit 风格的 `=` 参数可以直接传递：
+just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
 
 # 等效直接 .sh 写法：
 ./build.sh
@@ -524,7 +523,7 @@ wrapper 的 `docker compose -p`，以及生成出来的 `compose.yaml` 里的
 ./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 531f11a4ef77 -->
+<!-- sync: logging-output-to-host df27d24459b2 6cba8f1add7d -->
 ### 输出 log 到 host
 
 设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
@@ -532,12 +531,18 @@ wrapper 的 `docker compose -p`，以及生成出来的 `compose.yaml` 里的
 
 ```ini
 [logging]
-local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
+local_path = ./log/     # 相对 repo 根；或 /abs/、~/dir/ 也可
+container_log_keep = 20  # 最多保留 N 份最近的 per-start 文件
+container_log_days = 14  # 且丢掉超过 D 天的文件（两者取严）
 ```
 
-跑任何 wrapper 重新生成 `compose.yaml`。host 文件会落在
-`<local_path>/<svc>.log`（每个 service 一份）。`docker logs <ct>`
-行为不变（json-file 维持 rolling 历史；host 文件对应当前这次运行）。
+跑任何 wrapper 重新生成 `compose.yaml`。每次容器启动，tee 会写一份
+per-start 文件 `<local_path>/<svc>_<ts>.log`，并把稳定的 symlink
+`<local_path>/<svc>.log` 重新指向它（glog 风格）：`tail <svc>.log`
+永远看得到当前这次运行，先前几次则留在磁盘上。旧的 per-start 文件
+按 `container_log_keep`（保留最近几份）与 `container_log_days`
+（保留几天）两者取严清掉，symlink 本身不会被清。`docker logs <ct>`
+行为不变（json-file 维持 rolling 历史）。
 
 **新 repo**：用本版本之后的 `init.sh` 生成时，`script/entrypoint.sh`
 已内建 helper source，设 `[logging] local_path` 是唯一一步。
@@ -545,17 +550,18 @@ local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
 一次性迁移：
 
 ```bash
-. /usr/local/lib/base/_entrypoint_logging.sh
+. /usr/local/lib/base/logging.sh
 ```
 
 Helper 由 `Dockerfile` 的 devel stage COPY 到 image 内稳定路径
-`/usr/local/lib/base/_entrypoint_logging.sh`（refs #368），所以这条
-source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
-— 不需要 `$USER`，也不依赖 workspace bind mount。
+`/usr/local/lib/base/logging.sh`（refs #368），连同它的 `logrotate.sh`
+同伴文件（refs #805），所以这条 source line 在 build-time 与 runtime、
+各种 workspace 结构下都能 work — 不需要 `$USER`，也不依赖 workspace
+bind mount。
 
 疑难排查：`local_path` 设了但 host 文件没东西 → 确认
 `script/entrypoint.sh` 真的有那行 source
-（`grep _entrypoint_logging script/entrypoint.sh`）。
+（`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab 7cbfc4b1f489 -->
 ### 交互式 TUI
@@ -781,7 +787,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba def022fbbf2a -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 7eb0fb0c8f90 -->
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
@@ -792,8 +798,8 @@ fi
 | 名称 | 格式 | Namespace | User 前缀 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（同 docker daemon 内 flat 全局） | `USER_NAME`（OS user，refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（影响默认 network / volume label） | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>` | **本地 daemon**（同 docker daemon 内 flat 全局） | `USER_NAME`（OS user，refs #322） |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（影响默认 network / volume label） | `DOCKER_HUB_USER` |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 账号，用于在 registry 端把
   image 加上命名空间。即使从未实际 push，image tag 也以这个
@@ -815,39 +821,23 @@ project-level naming」在「单人机」假设下成立 — 两者都带 user
 前缀，差别只在「同一个 var 还是两个 var」；多人机场景下两个前缀
 不是同一字符串。
 
-**`INSTANCE_SUFFIX`** 是第四个维度，与 user 分隔正交。同一个
-OS user 想同时跑同一 repo 多个 container（例如并行测两个 branch）：
-设 `INSTANCE_SUFFIX=2` 就会得到 `alice-<repo>-2` 与对应的 project
-name。默认空字符串；wrappers 支持的场合可用 `-n / --instance`。
+base 是**单一 instance**（#600）：每个 repo 只有一组固定名字的
+container / project。Multi-instance 编排（把同一个 repo 跑成 N 个
+并行 container，各有独立 project name 与 port override）属于 compose
+那一层，就像 `docker` 本身没有 project 概念、`-p` 归 `docker compose`
+管一样 — base 完全不碰 multi。
 
-**Per-instance overlay (#465)**。`run.sh --instance NAME` 还会自动
-检测下面两个 optional 文件作为 compose overlay：
-
-```
-config/instances/<NAME>.yaml   → docker compose -f
-config/instances/<NAME>.env    → docker compose --env-file
-```
-
-两个文件任一存在皆可；不存在就 silent skip。yaml 用于 structural
-override（per-instance ports、volumes、cache 路径），env 用于与
-`compose.yaml` 共享的 `${VAR}` override。`NAME` 受 `^[a-z0-9][a-z0-9_-]*$`
-验证以保 path 安全。
+同一个 repo 的两个 *checkout* 是另一个问题，而这个 base 有解：用
+`.setup.conf.local` 的 `[project] name` 给每个 checkout 自己的
+project name — 见[同时跑两个 worktree](#同时跑两个-worktree)。
 
 示例。OS user `alice`、Docker Hub user `alice-hub`、repo
-`claude_code`、默认 `INSTANCE_SUFFIX` 空：
+`claude_code`：
 
 ```
 image:          alice-hub/claude_code:devel
 container_name: alice-claude_code
 project name:   alice-hub-claude_code
-```
-
-同一 OS user 起第二份 instance（`INSTANCE_SUFFIX=2`）：
-
-```
-image:          alice-hub/claude_code:devel        (不变 — 同一份 image)
-container_name: alice-claude_code-2
-project name:   alice-hub-claude_code-2
 ```
 
 第二位 OS user `bob` 在同台机器上：
@@ -866,7 +856,7 @@ service 账号），`image` 会在 Docker Hub 端撞名，但 `container_name`
 <!-- sync: quick-start 629a4900e292 af008f0c036e -->
 ## 快速开始
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 7079bb4764af -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 4e22102bf728 -->
 ### 添加到新 repo
 
 ```bash
@@ -875,9 +865,9 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 
-# 2. 添加 subtree（指定版本 tag）
+# 2. 添加 subtree（钉到指定的 release tag，不要用会移动的 branch）
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 
 # 3. 初始化 symlinks（一次性 bootstrap；底层会跑 setup.sh）。
 #    之后改用 `just base init`（symlink 后的入口）。
@@ -1061,7 +1051,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 25353d9e9485 5d36193f25f1 -->
+<!-- sync: directory-structure 25353d9e9485 676e1b74dadc -->
 ## 目录结构
 
 ```
@@ -1123,10 +1113,10 @@ just --list        # 显示 CI 命令
 │   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 56 个 unit spec + 2 个 bash helper（bats + kcov）
-│       ├── integration/                # init/upgrade 端到端（5 个 spec）
-│       ├── system/                # System 层／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
-│       └── acceptance/            # Acceptance 层（UAT/OAT；保留，S5 #785）
+│       ├── unit/                       # Unit 层 spec + bash helper（bats + kcov）
+│       ├── integration/                # Integration 层 init/upgrade 端到端 spec
+│       ├── system/                     # System 层／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
+│       └── acceptance/                 # Acceptance 层（UAT/OAT；保留，S5 #785）
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/

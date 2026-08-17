@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da a77868c41f39 -->
+<!-- sync: tldr b4f9c41522da 25d908de79c9 -->
 ## TL;DR
 
 ```bash
@@ -38,8 +38,8 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
-./.base/dist/script/base/init.sh
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
+./.base/dist/script/base/init.sh   # 初回ブートストラップ。以降は just base init
 
 # 最新版にアップグレード
 just base update   # 確認
@@ -81,7 +81,7 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 
 本 repo は、すべての Docker コンテナ repo で共有されるスクリプト、テスト、CI workflow を一元管理しています。15 以上の repo で同一ファイルを個別管理する代わりに、各 repo が **git subtree** としてこのテンプレートを取り込み、symlink で参照します。
 
-<!-- sync: architecture 2660c8dea634 b76a647872df -->
+<!-- sync: architecture 2660c8dea634 77fdac990512 -->
 ### アーキテクチャ
 
 ```mermaid
@@ -91,10 +91,10 @@ graph TB
         smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
-        workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
+        workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml（opt-in）"]
     end
 
-    subgraph consumer["Docker Repo（例: my_app）"]
+    subgraph consumer["Docker Repo（例: ros_noetic）"]
         symlinks["justfile → script/justfile → .base/dist/script/justfile<br/>script/docker|base|template/ → .base/dist/script/.../（per-sub symlink）<br/>script/build.sh → .base/dist/script/docker/wrapper/build.sh<br/>run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>script/entrypoint.sh<br/>script/local/justfile.local（repo 所有）"]
         repo_test["test/bats/smoke/<br/>app_env.bats（repo 固有）"]
@@ -553,7 +553,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 71bfe201fcca -->
+<!-- sync: logging-output-to-host df27d24459b2 b6f9fea109de -->
 ### ホスト側へのログ出力
 
 `[logging] local_path` を設定するとコンテナの stdout/stderr が
@@ -562,13 +562,20 @@ template ファイルが repo にコピーされ、検出された workspace が
 
 ```ini
 [logging]
-local_path = ./log/   # repo 相対、または /abs/、~/dir/ も可
+local_path = ./log/     # repo 相対、または /abs/、~/dir/ も可
+container_log_keep = 20  # 直近 N 件の per-start ファイルだけ残す
+container_log_days = 14  # かつ D 日より古いものを削除（厳しい方が優先）
 ```
 
 任意の wrapper を再実行すると `compose.yaml` が再生成されます。
-ホスト側のファイルは `<local_path>/<svc>.log`（サービスごと）に
-出力されます。`docker logs <ct>` の動作は変わりません（json-file
-はローリング履歴を維持、ホストファイルは今回の実行分を映します）。
+コンテナが起動するたびに tee は per-start ファイル
+`<local_path>/<svc>_<ts>.log` を書き、安定した symlink
+`<local_path>/<svc>.log` をそこへ張り替えます（glog スタイル）:
+`tail <svc>.log` は常に今回の実行を映し、過去の実行分もディスク上に
+残ります。古い per-start ファイルは `container_log_keep`（直近 N 件）
+と `container_log_days`（D 日）の厳しい方で削除され、symlink 自体は
+削除されません。`docker logs <ct>` の動作は変わりません（json-file
+はローリング履歴を維持）。
 
 **新規 repo**：本バージョン以降の `init.sh` で生成された
 `script/entrypoint.sh` には helper の source 行が事前に組み込まれて
@@ -577,19 +584,19 @@ local_path = ./log/   # repo 相対、または /abs/、~/dir/ も可
 次の 1 行を追加して一度だけ移行してください：
 
 ```bash
-. /usr/local/lib/base/_entrypoint_logging.sh
+. /usr/local/lib/base/logging.sh
 ```
 
 Helper は `Dockerfile` の devel stage によりイメージ内の
-安定パス `/usr/local/lib/base/_entrypoint_logging.sh` にコピーされて
-います（refs #368）。そのため、この source 行は build-time / runtime
-どちらでも、どんな workspace 構成でも動作します — `$USER` 参照や
-workspace bind mount への依存はありません。
+安定パス `/usr/local/lib/base/logging.sh` に、兄弟の `logrotate.sh`
+（refs #805）とともにコピーされています（refs #368）。そのため、この
+source 行は build-time / runtime どちらでも、どんな workspace 構成でも
+動作します — `$USER` 参照や workspace bind mount への依存はありません。
 
 トラブルシューティング：`local_path` を設定したのにホスト側
 ファイルが空のまま → `script/entrypoint.sh` に source 行が
 含まれているか確認してください
-（`grep _entrypoint_logging script/entrypoint.sh`）。
+（`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab f5eb99a83f34 -->
 ### インタラクティブ TUI
@@ -828,7 +835,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 3aa990836dba cd23c9cc0eca -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 bd1b2a0c153c -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
@@ -841,8 +848,8 @@ fi
 | 名前 | 形式 | Namespace | User プレフィックス |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
 
 - `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
   に名前空間を付けるために使います。実際に push しない場合でも、
@@ -869,41 +876,25 @@ name も結果としてユーザ間衝突を回避できます。`#322` の CHAN
 を持つという意味では揃っていますが、複数ユーザ機ではそれぞれ別の
 変数から来るので前綴文字列は同一ではありません。
 
-**`INSTANCE_SUFFIX`** は 4 つ目の次元で、user 分離とは直交します。
-同じ OS user が同一 repo の container を複数並行起動したい場合
-（例: 2 つの branch を同時にテスト）、`INSTANCE_SUFFIX=2` を設定
-すると `alice-<repo>-2` と対応する project name が得られます。
-デフォルトは空文字列で、wrapper が対応する場面では `-n /
---instance` で指定できます。
+base は**単一インスタンス**です（#600）: repo ごとに固定名の
+container / project が 1 組だけ。マルチインスタンスのオーケストレーション
+（同一 repo を N 個の並行 container として、それぞれ独自の project name と
+port override で動かすこと）は compose レイヤの仕事です。`docker` 自体に
+project の概念がなく `-p` は `docker compose` が持つのと同じ構図で、base は
+multi には一切関与しません。
 
-**Per-instance overlay (#465)**。`run.sh --instance NAME` は次の
-2 つの optional ファイルを compose overlay として自動検出します:
-
-```
-config/instances/<NAME>.yaml   → docker compose -f
-config/instances/<NAME>.env    → docker compose --env-file
-```
-
-どちらか一方だけの存在も可、ファイルがなければ silent skip。yaml は
-structural override（per-instance の ports、volumes、cache 等）、env は
-`compose.yaml` と共有する `${VAR}` override に使います。`NAME` は
-`^[a-z0-9][a-z0-9_-]*$` で validation され、path 安全を保証します。
+同一 repo の 2 つの *checkout* は別の話で、そちらには base の答えがあります:
+`.setup.conf.local` の `[project] name` で checkout ごとに固有の project name
+を与えてください — [2 つの worktree を同時に動かす](#2-つの-worktree-を同時に動かす)
+を参照。
 
 具体例。OS user `alice`、Docker Hub user `alice-hub`、repo
-`claude_code`、デフォルト `INSTANCE_SUFFIX` 空:
+`claude_code`:
 
 ```
 image:          alice-hub/claude_code:devel
 container_name: alice-claude_code
 project name:   alice-hub-claude_code
-```
-
-同一 OS user で 2 番目の instance（`INSTANCE_SUFFIX=2`）:
-
-```
-image:          alice-hub/claude_code:devel        (変わらず — 同じ image)
-container_name: alice-claude_code-2
-project name:   alice-hub-claude_code-2
 ```
 
 同じホスト上の別の OS user `bob`:
@@ -923,7 +914,7 @@ project name:   bob-hub-claude_code
 <!-- sync: quick-start 629a4900e292 c1409df67119 -->
 ## クイックスタート
 
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 23a37b44ba1c -->
+<!-- sync: adding-to-a-new-repo 9d28519b56a5 b31a2413d97f -->
 ### 新規 repo への追加
 
 ```bash
@@ -932,9 +923,9 @@ mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
 
-# 2. subtree 追加（特定のバージョン tag を指定）
+# 2. subtree 追加（移動する branch ではなく、特定の release tag を指定）
 git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git v0.30.0 --squash
+    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 
 # 3. symlink 初期化（初回ブートストラップのみ；裏で setup.sh を実行）。
 #    以降は `just base init`（symlink されたエントリ）を使用。
@@ -1129,7 +1120,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 25353d9e9485 4e0516731e65 -->
+<!-- sync: directory-structure 25353d9e9485 0165dd0e6930 -->
 ## ディレクトリ構造
 
 ```
@@ -1191,10 +1182,10 @@ just --list  # CI ターゲット表示
 │   └── Dockerfile.test-tools           # プリビルド lint/test ツール image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身の spec（tool-first：test/<tool>/<category>/）
 │   └── bats/
-│       ├── unit/                       # 56 unit spec + 2 個の bash ヘルパ（bats + kcov）
-│       ├── integration/                # init/upgrade の end-to-end（5 spec）
-│       ├── system/                # System レベル／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
-│       └── acceptance/            # Acceptance レベル（UAT/OAT；予約、S5 #785）
+│       ├── unit/                       # Unit レベルの spec + bash ヘルパ（bats + kcov）
+│       ├── integration/                # Integration レベルの init/upgrade end-to-end spec
+│       ├── system/                     # System レベル／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
+│       └── acceptance/                 # Acceptance レベル（UAT/OAT；予約、S5 #785）
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/

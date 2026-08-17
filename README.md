@@ -1220,6 +1220,11 @@ belongs to the compose layer, mirroring how `docker` has no project
 concept and `docker compose` owns `-p` — base does not do multi at
 all.
 
+Two *checkouts* of the same repo are a different question, and base
+does answer that one: give each checkout its own project name with
+`[project] name` in `.setup.conf.local` — see [Running two worktrees
+at once](#running-two-worktrees-at-once).
+
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 `claude_code`:
 
