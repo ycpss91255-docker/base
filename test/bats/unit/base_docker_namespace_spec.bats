@@ -59,14 +59,20 @@ setup() {
   assert_failure
 }
 
-@test "base compose.yaml test-tools service takes the resolved tag, not a fixed literal (#891)" {
+@test "base compose.yaml names every image with TEST_TOOLS_IMAGE and gives it no default (#891, #896)" {
   # A hardcoded `image: test-tools:local` makes every checkout on the host
   # write one tag, so a sibling build silently displaces the image a live
-  # run is using. The service must read the same TEST_TOOLS_IMAGE the ci /
-  # ci-system / coverage consumers read, so build and consumers cannot
-  # resolve different images.
-  run grep -nE '^ {4}image: \$\{TEST_TOOLS_IMAGE:-' "${ROOT}/compose.yaml"
+  # run is using. A DEFAULT is worse still: two different ones let the
+  # build-only service write one tag while the ci / ci-system / coverage
+  # consumers read another, and one shared default would only hide that
+  # while still building or pulling something behind the operator's back.
+  local _total
+  _total="$(grep -cE '^ {4}image: ' "${ROOT}/compose.yaml")"
+  run grep -cE '^ {4}image: \$\{TEST_TOOLS_IMAGE(\}|:\?)' "${ROOT}/compose.yaml"
   assert_success
+  assert_output "${_total}"
+  run grep -nE '^ {4}image: \$\{TEST_TOOLS_IMAGE:-' "${ROOT}/compose.yaml"
+  assert_failure
   run grep -nE '^ {4}image: test-tools:local *$' "${ROOT}/compose.yaml"
   assert_failure
 }
