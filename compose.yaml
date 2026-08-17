@@ -15,8 +15,8 @@ services:
   # and kept the failure mode (a bare compose run still quietly building or
   # pulling something), so there is no default at all. `just` is the single
   # entry point and the scripts behind it set this variable; a path that
-  # reaches an unset value has left that entry point, and the right
-  # behaviour there is to say so.
+  # reaches an unset value has left that entry point, so the `:?` form
+  # refuses the whole invocation and names the recipe to run instead.
   #
   # `just test` (script/test/test.sh) resolves the local tag as a content
   # hash of dockerfile/Dockerfile.test-tools
@@ -32,7 +32,7 @@ services:
     build:
       context: .
       dockerfile: dockerfile/Dockerfile.test-tools
-    image: ${TEST_TOOLS_IMAGE}
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
 
   # Fast CI: ShellCheck + Bats only. Uses the prebuilt test-tools image
   # (alpine: bash + bats + bats-{support,assert,mock} + shellcheck +
@@ -41,7 +41,7 @@ services:
   # comes from TEST_TOOLS_IMAGE (see the header above): the local
   # content-hash tag `just test` resolves and builds, or whatever CI pins.
   ci:
-    image: ${TEST_TOOLS_IMAGE}
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
@@ -66,7 +66,7 @@ services:
   # is created/pruned per test.sh --system run so this service does
   # NOT pollute the host's default buildx context or shared image cache.
   ci-system:
-    image: ${TEST_TOOLS_IMAGE}
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
@@ -99,7 +99,7 @@ services:
   # fragility. The only difference from `ci` is COVERAGE=1, which routes
   # the in-container dispatch through _run_coverage.
   coverage:
-    image: ${TEST_TOOLS_IMAGE}
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
