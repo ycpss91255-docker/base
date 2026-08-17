@@ -15,8 +15,17 @@ fi
 _DOCKER_TUI_BACKEND_SOURCED=1
 
 TUI_BACKEND=""
-TUI_HEIGHT="${TUI_HEIGHT:-20}"
-TUI_WIDTH="${TUI_WIDTH:-70}"
+
+# Dialog geometry and the session button captions parameterise the menus
+# this wrapper draws. They are INTERNAL: `_tui_*` is this file's own
+# private-name convention (_tui_run / _tui_guard), and the names below say
+# the same thing about the values. They were spelled TUI_HEIGHT / TUI_WIDTH
+# / TUI_NO_TAGS / TUI_OK_LABEL / TUI_CANCEL_LABEL and read from the
+# environment, which made dialog geometry an undocumented user surface --
+# a zero width or a non-numeric height reached dialog(1) unvalidated and
+# produced an unusable menu with no diagnostic. Fixed constants cannot.
+readonly _TUI_HEIGHT=20
+readonly _TUI_WIDTH=70
 
 # _backend_detect
 #
@@ -49,7 +58,7 @@ _tui_guard() {
 # _tui_msgbox <title> <message>
 _tui_msgbox() {
   _tui_guard || return $?
-  "${TUI_BACKEND}" --title "${1}" --msgbox "${2}" "${TUI_HEIGHT}" "${TUI_WIDTH}"
+  "${TUI_BACKEND}" --title "${1}" --msgbox "${2}" "${_TUI_HEIGHT}" "${_TUI_WIDTH}"
 }
 
 # _tui_yesno <title> <message>
@@ -57,7 +66,7 @@ _tui_msgbox() {
 # Returns 0 on Yes, 1 on No, non-zero on Esc.
 _tui_yesno() {
   _tui_guard || return $?
-  "${TUI_BACKEND}" --title "${1}" --yesno "${2}" "${TUI_HEIGHT}" "${TUI_WIDTH}"
+  "${TUI_BACKEND}" --title "${1}" --yesno "${2}" "${_TUI_HEIGHT}" "${_TUI_WIDTH}"
 }
 
 # _tui_run <dialog-args...>
@@ -73,7 +82,7 @@ _tui_yesno() {
 _tui_run() {
   local _tmp _rc=0
   _tmp="$(mktemp)"
-  # Session-level OK / Cancel button i18n (env var hooks). Applied to
+  # Session-level OK / Cancel button i18n (internal hooks). Applied to
   # every dialog/whiptail invocation so sub-menus inherit the label the
   # main menu set up.
   #
@@ -89,8 +98,8 @@ _tui_run() {
     _cancel_flag="--cancel-button"
   fi
   local -a _labels=()
-  [[ -n "${TUI_OK_LABEL:-}" ]]     && _labels+=("${_ok_flag}"     "${TUI_OK_LABEL}")
-  [[ -n "${TUI_CANCEL_LABEL:-}" ]] && _labels+=("${_cancel_flag}" "${TUI_CANCEL_LABEL}")
+  [[ -n "${_TUI_OK_LABEL:-}" ]]     && _labels+=("${_ok_flag}"     "${_TUI_OK_LABEL}")
+  [[ -n "${_TUI_CANCEL_LABEL:-}" ]] && _labels+=("${_cancel_flag}" "${_TUI_CANCEL_LABEL}")
   # Reattach to /dev/tty only when the caller is actually running inside
   # an interactive terminal (stdin is a TTY). In bats / non-interactive
   # containers /dev/tty may exist but opening it fails; -t 0 is the
@@ -110,14 +119,15 @@ _tui_run() {
 _tui_inputbox() {
   _tui_guard || return $?
   _tui_run --title "${1}" --inputbox "${2}" \
-    "${TUI_HEIGHT}" "${TUI_WIDTH}" "${3:-}"
+    "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${3:-}"
 }
 
 # _tui_menu <title> <prompt> <tag1> <label1> [<tag2> <label2> ...]
 #
-# Env var hooks (all optional):
-#   TUI_OK_LABEL / TUI_CANCEL_LABEL — handled globally in `_tui_run`
-#   TUI_NO_TAGS — when set, hide the tag column (`--no-tags`)
+# Internal hooks (all optional; set by the caller, never by the
+# environment):
+#   _TUI_OK_LABEL / _TUI_CANCEL_LABEL — handled globally in `_tui_run`
+#   _TUI_NO_TAGS — when set, hide the tag column (`--no-tags`)
 # Return codes:
 #   0 → OK (echoed tag is the selected menu entry)
 #   1 → Cancel
@@ -134,14 +144,14 @@ _tui_menu() {
   local _title="${1}" _prompt="${2}"; shift 2
   local _n_items=$(( $# / 2 ))
   local -a _extra_args=()
-  if [[ -n "${TUI_NO_TAGS:-}" ]]; then
+  if [[ -n "${_TUI_NO_TAGS:-}" ]]; then
     # Hide the tag column (keeps the tag as the return value, but only
     # labels render on-screen — useful for list editors where the tag
     # is an internal id like `mount_1` / `rule_1`).
     _extra_args+=(--no-tags)
   fi
   _tui_run "${_extra_args[@]}" --title "${_title}" --menu "${_prompt}" \
-    "${TUI_HEIGHT}" "${TUI_WIDTH}" "${_n_items}" "$@"
+    "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "$@"
 }
 
 # _tui_radiolist <title> <prompt> <tag1> <label1> <on1> [<tag2> <label2> <on2> ...]
@@ -150,7 +160,7 @@ _tui_radiolist() {
   local _title="${1}" _prompt="${2}"; shift 2
   local _n_items=$(( $# / 3 ))
   _tui_run --title "${_title}" --radiolist "${_prompt}" \
-    "${TUI_HEIGHT}" "${TUI_WIDTH}" "${_n_items}" "$@"
+    "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "$@"
 }
 
 # _tui_select <title> <prompt> <tag1> <label1> <on1> [<tag2> <label2> <on2> ...]
@@ -181,7 +191,7 @@ _tui_select() {
   # Bypass _tui_menu so sub-section selectors are pure --menu calls.
   # OK/Cancel labels still apply via _tui_run.
   _tui_run "${_dflt_args[@]}" --title "${_title}" --menu "${_prompt}" \
-    "${TUI_HEIGHT}" "${TUI_WIDTH}" "${_n_items}" "${_menu_args[@]}"
+    "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "${_menu_args[@]}"
 }
 
 # _tui_checklist <title> <prompt> <tag1> <label1> <on1> [<tag2> <label2> <on2> ...]
@@ -190,7 +200,7 @@ _tui_checklist() {
   local _title="${1}" _prompt="${2}"; shift 2
   local _n_items=$(( $# / 3 ))
   _tui_run --separate-output --title "${_title}" --checklist \
-    "${_prompt}" "${TUI_HEIGHT}" "${TUI_WIDTH}" "${_n_items}" "$@"
+    "${_prompt}" "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "$@"
 }
 
 # _tui_clear
