@@ -122,6 +122,64 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_lint_tool: an abort the driver cannot explain
+#
+# A lint driver that dies at a command reporting nothing -- a signal
+# above all, SIGPIPE from a pipeline whose reader closed early -- used to
+# surface as a bare exit code from `just`, reading like a lint finding
+# rather than a broken driver. The dispatcher names the tool, the status
+# and the command that stopped it, through the registered event id.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() {
+      local _v
+      # A writer whose reader is already gone: SIGPIPE -> 141, which
+      # pipefail promotes to the pipeline status, exactly as a
+      # `... | sort | head -n1` losing the race would.
+      _v="$( { sleep 0.2; printf "x\n"; } | true )"
+    }
+    _run_lint_tool adr-numbering
+  '
+  assert_failure
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+  assert_output --partial "141"
+  assert_output --partial "SIGPIPE"
+}
+
+@test "_run_lint_tool: names the tool when a driver fails without a signal (#898)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; }
+    _run_lint_tool adr-numbering
+  '
+  assert_failure
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+  assert_output --partial "false"
+}
+
+@test "_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { echo "driver ok"; }
+    _run_lint_tool adr-numbering
+    trap -p ERR
+    echo "trap-listing-ends"
+  '
+  assert_success
+  assert_output --partial "driver ok"
+  refute_output --partial "ci_lint_driver_failed"
+  refute_output --partial "_lint_driver_failed"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
 # Regression guards: default `test.sh` (no flag) must hit the alpine
