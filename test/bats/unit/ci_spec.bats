@@ -1698,3 +1698,54 @@ SH
   assert_failure
   assert_output --partial "no usable digest"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# HOST_UID / HOST_GID: the ownership of everything the suite writes
+#
+# The self-test containers run against a bind-mounted checkout, so these
+# two decide who owns the files the suite leaves in the working tree.
+# compose used to substitute 1000 when they were absent, which on any host
+# whose developer is not uid 1000 wrote files owned by a stranger and said
+# nothing. The fallback is gone, so every path that reaches compose has to
+# supply them -- and `-e HOST_UID=...` does NOT: that sets the variable
+# inside the container, while compose's own `${HOST_UID}` interpolation
+# reads the environment of the `docker compose` process.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_via_compose: the real ids are in the environment compose interpolates (#895)" {
+  local _log="${BATS_TEST_TMPDIR}/docker-env.log"
+  mock_cmd "docker" '
+    printf "uid=%s gid=%s\n" "${HOST_UID:-UNSET}" "${HOST_GID:-UNSET}" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" '
+    case "${1}" in
+      -u) echo 4242 ;;
+      -g) echo 4243 ;;
+    esac'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_via_compose ci 0
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "uid=4242 gid=4243"
+}
+
+@test "_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)" {
+  # A junk id reaches `chown` as a username, and `chown -R nobody:` on a
+  # tree the suite just wrote is not a diagnostic anyone wants to read
+  # backwards from. Say which variable is wrong.
+  local _dir="${BATS_TEST_TMPDIR}/repo"
+  mkdir -p "${_dir}/coverage"
+  run env HOST_UID="root " HOST_GID=1000 bash -c '
+    source /source/script/test/test.sh
+    REPO_ROOT="'"${_dir}"'"
+    _fix_permissions
+  '
+  assert_failure
+  assert_output --partial "HOST_UID"
+}

@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **125 tests**.
+Integration specs under `test/bats/integration/`: **128 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -254,3 +254,11 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/compose_host_identity_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
+| `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
+| `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |

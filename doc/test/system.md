@@ -56,6 +56,26 @@ QEMU); the dedicated `template-system` buildx builder
 (created/pruned per test.sh run) isolates the cache from the host's
 default context.
 
+### Pointing the system suite at another daemon: `SYSTEM_DOCKER_SOCK`
+
+`_system_setup` (`script/test/drivers/bats.sh`) refuses to start unless a
+docker socket is there and the docker CLI can reach it. Which socket that
+is comes from `SYSTEM_DOCKER_SOCK`, defaulting to `/var/run/docker.sock`
+-- the supported way to run this level against an alternate daemon
+(a rootless socket under `$XDG_RUNTIME_DIR`, a remote one forwarded to a
+local path):
+
+```bash
+SYSTEM_DOCKER_SOCK="${XDG_RUNTIME_DIR}/docker.sock" just test system
+```
+
+It is also what keeps the two prerequisite-guard specs in `ci_spec.bats`
+parallel-safe: one asserts the guard fires when the socket is absent while
+the other creates a socket to get past it, and on the single global
+`/var/run/docker.sock` those two raced under `bats --jobs`. Each points
+the variable at its own `BATS_TEST_TMPDIR` path instead. Production
+behaviour with the variable unset is unchanged.
+
 ### test/bats/system/runtime_test_smoke_spec.bats (5)
 
 | Test | Description |

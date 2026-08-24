@@ -160,6 +160,12 @@ main() {
   _wrapper_lang_prepass stop "$@"
 
   local DO_PRUNE=false
+  # VERBOSE is declared here, like every other flag this parser owns, so
+  # -v/--verbose is the ONE way to switch the listing on. Left undeclared it
+  # was also readable from the environment -- an ambient input nobody
+  # designed, documented or named privately. `local` is visible to
+  # _down_project (bash scopes dynamically), which is the only reader.
+  local VERBOSE=false
   DRY_RUN=false
 
   while [[ $# -gt 0 ]]; do

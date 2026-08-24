@@ -468,6 +468,17 @@ HOOK
   assert_output --partial "使用法"
 }
 
+@test "run.sh --help documents QUIET in every locale (#895)" {
+  # Same knob, same summary, same silence: QUIET mutes the pre-run
+  # configuration summary and was documented only in a code comment.
+  local _lang
+  for _lang in en zh-TW zh-CN ja; do
+    run bash "${SANDBOX}/run.sh" --lang "${_lang}" --help
+    assert_success
+    assert_output --partial "QUIET=1"
+  done
+}
+
 @test "run.sh uses xhost +SI:localuser under Wayland session" {
   run env XDG_SESSION_TYPE=wayland bash "${SANDBOX}/run.sh" --dry-run
   assert_success

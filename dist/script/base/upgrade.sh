@@ -35,11 +35,16 @@ REPO_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
 readonly REPO_ROOT
 TEMPLATE_REL="$(basename "${SUBTREE_ROOT}")"
 readonly TEMPLATE_REL
-# Default to HTTPS so users without an SSH key (fresh clone, CI runner,
-# first-time contributor) can run upgrade.sh out of the box. Export
+# Where .base/ is pulled from. The default is the one shared upstream
+# constant (upstream.sh), not a literal repeated per script. Export
 # TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed for private
-# forks, or when the user prefers agent-based auth).
-TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/base.git}"
+# forks, or when the user prefers agent-based auth) -- see README
+# "Pointing .base at a different upstream". Everything this URL delivers
+# is executed in the consumer's tree, so it is worth knowing which one it
+# is.
+# shellcheck source=dist/script/base/upstream.sh
+source "${SCRIPT_DIR}/upstream.sh"
+TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-${BASE_UPSTREAM_REMOTE}}"
 readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE

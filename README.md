@@ -979,6 +979,22 @@ wrapper_transcript_keep = 20
 wrapper_transcript_days = 14
 ```
 
+The `WRAPPER_TRANSCRIPT` environment variable **outranks that conf key**,
+in both directions, for one invocation:
+
+```bash
+WRAPPER_TRANSCRIPT=false just docker build   # no transcript, conf untouched
+WRAPPER_TRANSCRIPT=true  just docker build   # transcript even if the conf says false
+```
+
+It exists so a CI job or a test run can switch capture off without editing
+a file that is committed and shared (base's own suite exports it, which is
+why its specs never leave a `log/` tree in the checkout). Because it wins
+over a setting you configured and can read back in `setup.sh show`, only
+`true` and `false` are accepted: any other value **aborts the verb** naming
+the variable, rather than quietly handing the decision back to the conf
+key. Unset (or empty) means "no override".
+
 To browse a transcript in [lnav](https://lnav.org) with timestamp
 ordering and level highlighting, load the bundled regex format once:
 
@@ -1316,6 +1332,38 @@ running it on a repo with a live field deployment. The numbered cycle:
 
 Don't `git subtree pull` by hand — the integrity check, init.sh
 resync, sed and migration steps are easy to forget.
+
+#### Pointing `.base` at a different upstream
+
+`TEMPLATE_REMOTE` is the git remote every `.base` operation reads: the
+"is there a newer tag" query and the `git subtree pull` that rewrites
+`.base/` in your working tree. It defaults to
+`https://github.com/ycpss91255-docker/base.git` — HTTPS, so a fresh clone,
+a CI runner or a first-time contributor with no SSH key works out of the
+box. The default has one definition,
+`.base/dist/script/base/upstream.sh`; `TEMPLATE_REMOTE` overrides it per
+invocation.
+
+```bash
+# SSH instead of HTTPS (agent-based auth, or a fork only reachable over SSH)
+TEMPLATE_REMOTE=git@github.com:ycpss91255-docker/base.git just base upgrade
+
+# A private fork you maintain: this repo tracks YOUR base
+TEMPLATE_REMOTE=git@github.com:acme/base.git just base upgrade v1.2.0
+```
+
+**Everything under `.base/dist/` is fetched from this URL and then executed**
+— the wrappers, the libs, the Dockerfile, the entrypoint. Give it only to a
+repository you trust as much as your own: whoever controls it controls what
+runs on your next `just build`. That is also why it is a per-invocation
+environment variable and not a conf key — the re-point is visible in the
+command that performed it, rather than sitting in a file that silently
+redirects every future upgrade. A long-lived fork belongs in your own
+tooling explicitly, not in a shell profile export.
+
+The weekly upgrade *reminder* (`check-base-version.sh`) reads its own
+`BASE_REPO` instead; see the base version monitor in
+[CONTEXT.md](CONTEXT.md).
 
 #### What upgrade.sh rewrites in your repo
 

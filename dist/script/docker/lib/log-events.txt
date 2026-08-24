@@ -165,6 +165,7 @@ ci_unknown_lint_tool
 ci_lint_driver_failed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
+ci_host_id_not_numeric
 
 # transcript.sh (#606)
 # Only genuine setup FAILURES are emitted via the logger (to stderr,
@@ -174,6 +175,7 @@ ci_project_name_digest_failed
 transcript_dir_create_failed
 transcript_file_unwritable
 transcript_tee_missing
+transcript_env_invalid
 
 # compose.sh (project-name resolution)
 project_name_missing_from_env

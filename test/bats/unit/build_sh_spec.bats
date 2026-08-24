@@ -412,6 +412,19 @@ EOS
   assert_output --partial "使用法"
 }
 
+@test "build.sh --help documents QUIET in every locale (#895)" {
+  # QUIET mutes the pre-build configuration summary. It shipped in the same
+  # commit as the summary it mutes, with a code comment naming the use case
+  # (piped / CI logs) and nothing a user could read. Help text is where a
+  # user looks for it, and a string that lands in one locale is not done.
+  local _lang
+  for _lang in en zh-TW zh-CN ja; do
+    run bash "${SANDBOX}/build.sh" --lang "${_lang}" --help
+    assert_success
+    assert_output --partial "QUIET=1"
+  done
+}
+
 # ── /lint/-layout _detect_lang (flat dir: build.sh + _lib.sh + i18n.sh) ────
 # After the inline fallback is gone; scripts in the Dockerfile test
 # stage rely on _lib.sh + i18n.sh copied alongside. These tests exercise

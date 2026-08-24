@@ -84,6 +84,47 @@ setup() {
   assert_success
 }
 
+@test "base compose.yaml carries no fallback identity for the mounted checkout (#895)" {
+  # The behavioural half (what compose RESOLVES) lives in
+  # compose_host_identity_spec, which needs the compose plugin in the
+  # tooling image. This half needs nothing and cannot rot: a `:-` default
+  # on either variable is the silent 'files owned by uid 1000' defect
+  # regardless of which value it names.
+  run grep -nE '^ +- HOST_(UID|GID)=\$\{HOST_(UID|GID):-' "${ROOT}/compose.yaml"
+  assert_failure
+  run grep -cE '^ +- HOST_(UID|GID)=\$\{HOST_(UID|GID):\?' "${ROOT}/compose.yaml"
+  assert_success
+  assert_output "6"
+}
+
+@test "base root justfile exports the host identity every compose read needs (#895)" {
+  # compose interpolates the WHOLE compose.yaml whatever service is named,
+  # so dropping the HOST_UID / HOST_GID defaults made them required of
+  # every `just` recipe that reaches compose -- including
+  # `just docker build --target test-tools`, base's documented self-use of
+  # the docker namespace, which touches no service that reads them. One
+  # export at the root entry covers every namespace (`just` propagates a
+  # root export into module recipes), so raw `docker compose` stays the
+  # only refused path -- which is the point of refusing.
+  run grep -nE '^export HOST_UID := `id -u`$' "${ROOT}/justfile"
+  assert_success
+  run grep -nE '^export HOST_GID := `id -g`$' "${ROOT}/justfile"
+  assert_success
+}
+
+@test "just test system supplies the host identity its bare compose run needs (#895)" {
+  # The bare `docker compose run --rm ci-system` here is the one `just test`
+  # path that does not go through test.sh's _run_via_compose, so it is the
+  # one that has to export HOST_UID / HOST_GID itself. Without them the
+  # containers wrote the mounted checkout as whatever compose defaulted to.
+  run grep -nE '^ +export HOST_UID HOST_GID$' "${ROOT}/script/test/justfile.test"
+  assert_success
+  run grep -nE 'HOST_UID="\$\(id -u\)"' "${ROOT}/script/test/justfile.test"
+  assert_success
+  run grep -nE 'HOST_GID="\$\(id -g\)"' "${ROOT}/script/test/justfile.test"
+  assert_success
+}
+
 @test "just test system names the compose project instead of inheriting the basename (#891)" {
   # Its `docker compose run --rm ci-system` is a second call site with the
   # same defect test.sh had: no -p and no COMPOSE_PROJECT_NAME means compose

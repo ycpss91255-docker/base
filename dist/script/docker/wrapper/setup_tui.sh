@@ -2450,9 +2450,12 @@ _render_main_menu() {
   # "Enter / Cancel" row across all locales so users never see a mix
   # of English widget chrome and translated buttons, and so
   # screenshots / docs stay consistent.
-  export TUI_OK_LABEL TUI_CANCEL_LABEL
-  TUI_OK_LABEL="Enter"
-  TUI_CANCEL_LABEL="Cancel"
+  # Plain shell variables, not exported: _tui_run reads them in this same
+  # process (a $(...) subshell inherits them), and the leading underscore
+  # is _tui_backend.sh's private-name convention -- these are internal
+  # parameterisation, not a knob the environment may set.
+  _TUI_OK_LABEL="Enter"
+  _TUI_CANCEL_LABEL="Cancel"
   # Save & Exit lives in the menu body for both backends.
   # whiptail has no `--extra-button` equivalent at all (newt limit),
   # and using dialog's `--extra-button` made the same repo render with
@@ -2485,11 +2488,11 @@ _render_main_menu() {
           mounts)   _render_mounts_menu ;;
           advanced) _render_advanced_menu ;;
           features) _render_features_menu ;;
-          __save)   TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
-          "")       TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
+          __save)   _TUI_OK_LABEL=""; _TUI_CANCEL_LABEL=""; return 0 ;;
+          "")       _TUI_OK_LABEL=""; _TUI_CANCEL_LABEL=""; return 1 ;;
         esac
         ;;
-      *)  TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
+      *)  _TUI_OK_LABEL=""; _TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
     esac
   done
 }

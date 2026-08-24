@@ -40,6 +40,18 @@ services:
   # `command -v bats` guard — no per-run apt-install. Which tag that is
   # comes from TEST_TOOLS_IMAGE (see the header above): the local
   # content-hash tag `just test` resolves and builds, or whatever CI pins.
+  #
+  # HOST_UID / HOST_GID are the uid:gid this service writes the mounted
+  # checkout as, and they carry NO default: 1000 used to be substituted
+  # when they were absent, so on any host whose developer is not uid 1000 a
+  # bare compose run left files owned by a stranger and said nothing.
+  # Every `just` entry supplies them (the root justfile exports them, and
+  # test.sh / the `system` recipe set them again for the paths that are
+  # reachable without it); a path that reaches an unset value has left
+  # those entry points, and the `:?` form refuses it by name. Note that
+  # compose interpolates the WHOLE file whatever service is named, so an
+  # unset id refuses `docker compose build test-tools` too -- which is the
+  # point: `just` is the entry, not raw compose.
   ci:
     image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
@@ -48,8 +60,8 @@ services:
       - .:/source
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
     entrypoint: /bin/bash
     command:
       - -c
@@ -82,8 +94,8 @@ services:
       - /tmp/base-deploy-e2e:/tmp/base-deploy-e2e
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
       - MOUNT_DOCKER_SOCK=1
     entrypoint: /bin/bash
     command:
@@ -106,8 +118,8 @@ services:
       - .:/source
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
     entrypoint: /bin/bash
     command:
       - -c

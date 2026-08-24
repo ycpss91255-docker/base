@@ -1446,7 +1446,15 @@ jobs:
           cache-to: type=gha,scope=test-tools,mode=max
 
       - name: Run system specs (docker.sock-mounted ci-system service)
-        run: docker compose run --rm ci-system
+        # The ids come from `id`, not from a literal: this is the one job
+        # that drives compose directly instead of through test.sh, and the
+        # ci-system service takes HOST_UID / HOST_GID with no default
+        # (they own whatever the suite writes into the mounted checkout).
+        # TEST_TOOLS_IMAGE is NOT set here: it is workflow-level and
+        # run-keyed, and a spec asserts the old literal appears nowhere.
+        run: |
+          HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            docker compose run --rm ci-system
 
       - name: Reclaim this run's docker artifacts
         if: always()

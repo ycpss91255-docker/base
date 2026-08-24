@@ -161,52 +161,52 @@ EOF
   refute_output --partial "--extra-button"
 }
 
-@test "_tui_menu forwards --no-tags when TUI_NO_TAGS is set" {
+@test "_tui_menu forwards --no-tags when _TUI_NO_TAGS is set" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  export TUI_NO_TAGS=1
+  export _TUI_NO_TAGS=1
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
   assert_success
   run cat "${TUI_LOG}"
   assert_output --partial "--no-tags"
-  unset TUI_NO_TAGS
+  unset _TUI_NO_TAGS
 }
 
-@test "_tui_menu omits --no-tags when TUI_NO_TAGS unset" {
+@test "_tui_menu omits --no-tags when _TUI_NO_TAGS unset" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  unset TUI_NO_TAGS
+  unset _TUI_NO_TAGS
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA
   run cat "${TUI_LOG}"
   refute_output --partial "--no-tags"
 }
 
-@test "_tui_menu forwards --ok-label when TUI_OK_LABEL set" {
+@test "_tui_menu forwards --ok-label when _TUI_OK_LABEL set" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  export TUI_OK_LABEL="Enter"
+  export _TUI_OK_LABEL="Enter"
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA
   assert_success
   run cat "${TUI_LOG}"
   assert_output --partial "--ok-label"
   assert_output --partial "Enter"
-  unset TUI_OK_LABEL
+  unset _TUI_OK_LABEL
 }
 
-@test "_tui_menu forwards --cancel-label when TUI_CANCEL_LABEL set" {
+@test "_tui_menu forwards --cancel-label when _TUI_CANCEL_LABEL set" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  export TUI_CANCEL_LABEL="放棄"
+  export _TUI_CANCEL_LABEL="放棄"
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA
   assert_success
   run cat "${TUI_LOG}"
   assert_output --partial "--cancel-label"
   assert_output --partial "放棄"
-  unset TUI_CANCEL_LABEL
+  unset _TUI_CANCEL_LABEL
 }
 
 @test "_tui_select marks current tag with '*' and dispatches via --menu" {
@@ -244,7 +244,7 @@ EOF
 @test "_tui_run forwards --ok-label / --cancel-label from env vars" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  export TUI_OK_LABEL="進入" TUI_CANCEL_LABEL="取消"
+  export _TUI_OK_LABEL="進入" _TUI_CANCEL_LABEL="取消"
   export TUI_STUB_RESPONSE=""
   run _tui_run --msgbox "hi" 10 40
   run cat "${TUI_LOG}"
@@ -252,7 +252,7 @@ EOF
   assert_output --partial "進入"
   assert_output --partial "--cancel-label"
   assert_output --partial "取消"
-  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
 }
 
 @test "_tui_select with no ON item still forwards tags" {
@@ -267,7 +267,7 @@ EOF
 @test "_tui_menu omits ok-label / cancel-label when env vars unset" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA
   assert_success
@@ -346,7 +346,7 @@ EOF
 @test "_tui_run forwards --ok-button / --cancel-button spelling on whiptail" {
   _install_stub whiptail
   TUI_BACKEND="whiptail"
-  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export _TUI_OK_LABEL="Enter" _TUI_CANCEL_LABEL="Cancel"
   export TUI_STUB_RESPONSE=""
   run _tui_run --msgbox "hi" 10 40
   run cat "${TUI_LOG}"
@@ -356,13 +356,13 @@ EOF
   assert_output --partial "Cancel"
   refute_output --partial "--ok-label"
   refute_output --partial "--cancel-label"
-  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
 }
 
 @test "_tui_run keeps --ok-label / --cancel-label spelling on dialog" {
   _install_stub dialog
   TUI_BACKEND="dialog"
-  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export _TUI_OK_LABEL="Enter" _TUI_CANCEL_LABEL="Cancel"
   export TUI_STUB_RESPONSE=""
   run _tui_run --msgbox "hi" 10 40
   run cat "${TUI_LOG}"
@@ -370,7 +370,7 @@ EOF
   assert_output --partial "--cancel-label"
   refute_output --partial "--ok-button"
   refute_output --partial "--cancel-button"
-  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
 }
 
 @test "_tui_msgbox does not leak --ok-label / --cancel-label onto whiptail" {
@@ -380,19 +380,19 @@ EOF
   # to whiptail (which would crash with `unknown option`).
   _install_stub whiptail
   TUI_BACKEND="whiptail"
-  export TUI_OK_LABEL="Enter"
+  export _TUI_OK_LABEL="Enter"
   run _tui_msgbox "Hi" "Hello there"
   assert_success
   run cat "${TUI_LOG}"
   refute_output --partial "--ok-label"
   refute_output --partial "--cancel-label"
-  unset TUI_OK_LABEL
+  unset _TUI_OK_LABEL
 }
 
 @test "_tui_inputbox uses --ok-button / --cancel-button on whiptail" {
   _install_stub whiptail
   TUI_BACKEND="whiptail"
-  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export _TUI_OK_LABEL="Enter" _TUI_CANCEL_LABEL="Cancel"
   export TUI_STUB_RESPONSE="x"
   run _tui_inputbox "T" "P" "init"
   assert_success
@@ -401,13 +401,13 @@ EOF
   assert_output --partial "--cancel-button"
   refute_output --partial "--ok-label"
   refute_output --partial "--cancel-label"
-  unset TUI_OK_LABEL TUI_CANCEL_LABEL
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
 }
 
 @test "_tui_menu uses --ok-button / --cancel-button on whiptail" {
   _install_stub whiptail
   TUI_BACKEND="whiptail"
-  export TUI_OK_LABEL="Enter" TUI_CANCEL_LABEL="Cancel"
+  export _TUI_OK_LABEL="Enter" _TUI_CANCEL_LABEL="Cancel"
   export TUI_STUB_RESPONSE="tagA"
   run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
   assert_success
@@ -416,6 +416,60 @@ EOF
   assert_output --partial "--cancel-button"
   refute_output --partial "--ok-label"
   refute_output --partial "--cancel-label"
+  unset _TUI_OK_LABEL _TUI_CANCEL_LABEL
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The knobs are internal parameterisation, not an ambient user surface
+# ════════════════════════════════════════════════════════════════════
+#
+# Geometry and button captions parameterise this backend wrapper for the
+# menus setup_tui.sh draws. They were readable from the environment, so a
+# value nobody validated -- a zero width, a non-numeric height -- reached
+# dialog(1) and produced an unusable menu with no diagnostic. The names
+# are private now (the file's own `_tui_*` convention), which is what
+# takes the environment out of the picture.
+
+@test "_tui_backend: an ambient TUI_WIDTH / TUI_HEIGHT does not reach the backend (#895)" {
+  # Sourced in a child shell so the ambient value is present at the point
+  # the geometry is established, which is file scope.
+  _install_stub dialog
+  run env TUI_WIDTH=0 TUI_HEIGHT=0 TUI_STUB_RESPONSE=tagA bash -c '
+    # shellcheck disable=SC1091
+    source /source/dist/script/docker/lib/_tui_backend.sh
+    TUI_BACKEND=dialog
+    _tui_menu "Title" "Pick" tagA LabelA
+  '
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_line "0"
+  assert_line "70"
+  assert_line "20"
+}
+
+@test "_tui_backend: an ambient TUI_NO_TAGS does not reach the backend (#895)" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_NO_TAGS=1
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--no-tags"
+  unset TUI_NO_TAGS
+}
+
+@test "_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)" {
+  _install_stub dialog
+  TUI_BACKEND="dialog"
+  export TUI_OK_LABEL="Ambient" TUI_CANCEL_LABEL="Ambient"
+  export TUI_STUB_RESPONSE="tagA"
+  run _tui_menu "Title" "Pick" tagA LabelA
+  assert_success
+  run cat "${TUI_LOG}"
+  refute_output --partial "--ok-label"
+  refute_output --partial "--cancel-label"
+  refute_output --partial "Ambient"
   unset TUI_OK_LABEL TUI_CANCEL_LABEL
 }
 

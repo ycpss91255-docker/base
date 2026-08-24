@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2663 tests**.
+Unit specs under `test/bats/unit/`: **2686 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -125,7 +125,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/bats/unit/transcript_spec.bats (31)
+### test/bats/unit/transcript_spec.bats (33)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -386,7 +386,7 @@ parsers, and setup.conf round-trip.
 | `_edit_section_deploy` legacy runtime->gpu_runtime migration (#517: suggest msgbox when legacy [deploy] runtime present; silent when gpu_runtime already used; writes canonical gpu_runtime key) | 3 |
 | `_show_runtime_env_info` (#497: info-only msgbox points at the .env overlay; writes no override) | 1 |
 
-### test/bats/unit/tui_backend_spec.bats (28)
+### test/bats/unit/tui_backend_spec.bats (31)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub
 `dialog` / `whiptail` binary installed on PATH that logs argv and echoes
@@ -550,7 +550,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (100)
+### test/bats/unit/self_test_yaml_spec.bats (101)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1020,7 +1020,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
 
-### test/bats/unit/build_sh_spec.bats (57)
+### test/bats/unit/build_sh_spec.bats (58)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -1085,7 +1085,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (65)
+### test/bats/unit/run_sh_spec.bats (66)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -1173,7 +1173,7 @@ forwarded unchanged via `return "${_exec_rc}"` — 42 / 0 / 7 cases; a
 failing post-exec hook overrides the forwarded rc via `|| exit $?`; a
 failing pre-exec hook aborts before `compose exec` runs).
 
-### test/bats/unit/stop_sh_spec.bats (27)
+### test/bats/unit/stop_sh_spec.bats (28)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown,
 and i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}`
@@ -1985,7 +1985,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (91)
+### test/bats/unit/ci_spec.bats (93)
 
 | Test | Description |
 |------|-------------|
@@ -2080,6 +2080,8 @@ builds the env block only for the knobs the conf sets.
 | `_ensure_test_tools_image: does not rebuild a tag the host already has (#896)` | #896 identical inputs are a cache hit |
 | `main --compose-project-name: prints the resolved project for the justfile (#891)` | #891 one entry point for both call sites |
 | `_compute_compose_project_name: fails loud when the digest cannot be produced (#891)` | #891 no silent degrade to the shared bare prefix |
+| `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
+| `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
 ### test/bats/unit/doc_counts_spec.bats (21)
 
@@ -2689,7 +2691,7 @@ hand-authored compose.yaml. Covers lib resolution via the base-self path and
 `--target test-tools` dispatching `docker compose build` while skipping the
 setup-sync lifecycle.
 
-### test/bats/unit/base_docker_namespace_spec.bats (8)
+### test/bats/unit/base_docker_namespace_spec.bats (11)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
@@ -2999,3 +3001,17 @@ host so the boundary between them can be asserted at all.
 | `reclaim.sh --stale ignores artifacts that are not CI-owned` | - |
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
+
+### test/bats/unit/upstream_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `upstream.sh: defines the slug and derives the clone URL from it (#895)` | - |
+| `upstream.sh: sourcing it twice is inert (#895)` | - |
+| `upstream.sh: reads nothing from the environment (#895)` | - |
+| `exactly one shipped file names the upstream in code (#895)` | - |
+| `upgrade.sh defaults TEMPLATE_REMOTE to the shared constant (#895)` | - |
+| `init.sh defaults its version query to the shared constant (#895)` | - |
+| `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
+| `check-base-version.sh still resolves its default with no override set (#895)` | - |
+| `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |

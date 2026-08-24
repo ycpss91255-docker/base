@@ -21,8 +21,11 @@
 #                              (pure semver, numeric per-field, no network)
 #   run                        full check-and-file flow (default)
 #
-# Env overrides (mostly for tests):
-#   BASE_REPO          upstream repo (default ycpss91255-docker/base)
+# Env overrides:
+#   BASE_REPO          upstream repo to poll (default ycpss91255-docker/base,
+#                      the shared constant in upstream.sh). It also names
+#                      the release link this script writes into the issue it
+#                      files, so a wrong value publishes a wrong link.
 #   MONITOR_LABEL      issue label used for dedupe (default base-upgrade)
 #   BASE_VERSION_FILE  explicit local .version path (default: walk up to
 #                      the subtree root carrying `.version` + `dist/`)
@@ -34,7 +37,14 @@ if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
 
-BASE_REPO="${BASE_REPO:-ycpss91255-docker/base}"
+# One definition of the upstream identity, shared with upgrade.sh /
+# init.sh. Sourced from this script's own directory: it runs from a
+# generated workflow, not from a wrapper that has set the tree up.
+_CHECK_BASE_VERSION_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=dist/script/base/upstream.sh
+source "${_CHECK_BASE_VERSION_DIR}/upstream.sh"
+
+BASE_REPO="${BASE_REPO:-${BASE_UPSTREAM_SLUG}}"
 MONITOR_LABEL="${MONITOR_LABEL:-base-upgrade}"
 GH="${GH:-gh}"
 

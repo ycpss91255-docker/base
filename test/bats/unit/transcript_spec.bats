@@ -126,6 +126,29 @@ teardown() { rm -rf "${TMP_DIR}"; }
   assert_success
 }
 
+@test "_transcript_enabled: a non-boolean WRAPPER_TRANSCRIPT is refused, not ignored (#895)" {
+  # The override outranks a conf key the user set and can read back in
+  # `setup.sh show`, so a typo silently handing the decision BACK to that
+  # key is the worst outcome: the user believes the environment won and
+  # sees no sign that it did not. Refuse the run instead.
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
+  WRAPPER_TRANSCRIPT=flase FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+  assert_output --partial "WRAPPER_TRANSCRIPT"
+  assert_output --partial "flase"
+}
+
+@test "_transcript_enabled: an empty WRAPPER_TRANSCRIPT means unset, not invalid (#895)" {
+  # `WRAPPER_TRANSCRIPT=` is how a caller clears an inherited override, and
+  # `env -u` is not always available to it. Empty defers to the conf key.
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  WRAPPER_TRANSCRIPT= FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+  refute_output --partial "WRAPPER_TRANSCRIPT"
+}
+
 # ── atexit registry ─────────────────────────────────────────────────
 
 @test "_atexit: registered callbacks run LIFO on exit (#606)" {

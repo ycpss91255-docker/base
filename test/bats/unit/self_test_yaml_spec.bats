@@ -1020,6 +1020,18 @@ _render_run_names() {
   assert_output --partial 'script/test/drivers/coverage_gate.sh'
 }
 
+@test "self-test.yaml: the system job supplies HOST_UID / HOST_GID to its bare compose run (#895)" {
+  # The system job is the only one that drives `docker compose run`
+  # directly instead of through test.sh, so it is the only one that has to
+  # put the runner's ids in the environment compose interpolates. Without
+  # them the service definition refuses to resolve.
+  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'HOST_UID="$(id -u)"'
+  assert_output --partial 'HOST_GID="$(id -g)"'
+  assert_output --partial 'docker compose run --rm ci-system'
+}
+
 # ── Run-scoped names ───────────────────────────────────────────
 #
 # The assertions below are made against the NAMING, not against an
