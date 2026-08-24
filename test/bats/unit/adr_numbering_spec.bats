@@ -73,16 +73,32 @@ EOF
 # bats' own `run` clears errexit, which is exactly the setting that turns
 # a 141 pipeline into a silent abort, so the production strictness has to
 # be re-established in a child shell for the failure mode to show at all.
+#
+# The strict shell is a script FILE, never `bash -c '...'`. The coverage
+# shard runs bash under kcov, which counts lines from xtrace with a PS4
+# that expands ${BASH_SOURCE}; at the top level of a `bash -c` string that
+# array is EMPTY, so the first command traced after `set -u` dies
+# "BASH_SOURCE: unbound variable" before the driver is ever reached. That
+# aborts the harness, not the driver, and it is why these cases passed
+# plain and failed under coverage -- i.e. failed in the musl/coreutils
+# container where the SIGPIPE defect is the one that actually reproduces.
+# A script file populates BASH_SOURCE[0], so the same strict shell now
+# survives instrumentation and the shims decide the outcome. The identical
+# interaction is documented in sourceable_scripts_spec.bats.
 _run_driver_strict() {
-  run env SHIM_DIR="${SHIM_DIR}" SCRATCH_ROOT="${SCRATCH}" bash -c '
-    set -euo pipefail
-    source /source/dist/script/docker/lib/_lib.sh
-    _die() { local _ev="${1}"; shift; printf "die %s: %s\n" "${_ev}" "$*"; exit 1; }
-    source /source/script/test/drivers/adr_numbering.sh
-    REPO_ROOT="${SCRATCH_ROOT}"
-    PATH="${SHIM_DIR}:${PATH}"
-    _run_adr_numbering
-  '
+  local _runner="${SCRATCH}/run_driver_strict.sh"
+  # Quoted heredoc: every expansion below belongs to the strict child, not
+  # to this shell.
+  cat > "${_runner}" << 'EOF'
+set -euo pipefail
+source /source/dist/script/docker/lib/_lib.sh
+_die() { local _ev="${1}"; shift; printf "die %s: %s\n" "${_ev}" "$*"; exit 1; }
+source /source/script/test/drivers/adr_numbering.sh
+REPO_ROOT="${SCRATCH_ROOT}"
+PATH="${SHIM_DIR}:${PATH}"
+_run_adr_numbering
+EOF
+  run env SHIM_DIR="${SHIM_DIR}" SCRATCH_ROOT="${SCRATCH}" bash "${_runner}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -178,7 +194,10 @@ _run_driver_strict() {
   _touch_adr "00000003-gamma.md"
   _shim_early_closing_reader
   _run_driver_strict
-  [ "${status}" -eq 0 ]
+  # assert_success, not a bare `[ "${status}" -eq 0 ]`: the child shell is
+  # where anything goes wrong here, and the bare test reports only its own
+  # source line, so a real abort in there arrives with no message at all.
+  assert_success
   [[ "${output}" == *"clean"* ]]
 }
 
@@ -187,7 +206,7 @@ _run_driver_strict() {
   _touch_adr "00000005-epsilon.md"
   _shim_early_closing_reader
   _run_driver_strict
-  [ "${status}" -eq 0 ]
+  assert_success
   # min=00000002, max=00000005 -> 3 and 4 are the advisory gaps, and
   # neither end of the run is itself reported as missing.
   [[ "${output}" == *"00000003"* ]]
