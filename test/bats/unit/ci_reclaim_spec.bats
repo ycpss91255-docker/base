@@ -290,7 +290,7 @@ _removed() {
   run bash "${RECLAIM}" --stale 12h
   assert_success
   run _removed
-  refute_line "image other"
+  refute_output --partial "image other"
 }
 
 @test "reclaim.sh --stale delegates the unowned classes to prune.sh with the same window" {
@@ -312,5 +312,5 @@ _removed() {
   run bash "${RECLAIM}" --stale 12h
   assert_success
   run _removed
-  refute_line "volume oldvol"
+  refute_output --partial "volume oldvol"
 }

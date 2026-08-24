@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2629 tests**.
+Unit specs under `test/bats/unit/`: **2658 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -452,7 +452,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (47)
+### test/bats/unit/build_worker_yaml_spec.bats (50)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -550,7 +550,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (89)
+### test/bats/unit/self_test_yaml_spec.bats (100)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -2966,3 +2966,31 @@ vice versa). Pure git + filesystem, no docker.
 | `_generate_resolved_compose stays quiet when the field bundle emits ports (#879)` | - |
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
+
+### test/bats/unit/ci_reclaim_spec.bats (15)
+
+Ownership-scoped CI-host garbage collection (`script/ci/reclaim.sh`,
+#900). `runs-on: ubuntu-latest` gives every job a fresh single-tenant
+VM, so no run on the current CI can exhibit either failure the collector
+exists to prevent -- one run deleting a concurrent run's artifacts, and a
+killed runner leaving artifacts nobody collects. A fake docker daemon (a
+PATH shim over a state file) is what puts two runs' artifacts on ONE
+host so the boundary between them can be asserted at all.
+
+| Test | Description |
+|------|-------------|
+| `reclaim.sh --help exits 0 and shows usage` | - |
+| `reclaim.sh with no scope refuses (a scopeless sweep is the trap)` | - |
+| `reclaim.sh rejects a --stale window that is not a duration` | - |
+| `reclaim.sh --run removes this run's artifacts across all four kinds` | - |
+| `reclaim.sh --run leaves a CONCURRENT run's artifacts alone (the trap)` | - |
+| `reclaim.sh --run does not mistake attempt 10 for attempt 1` | - |
+| `reclaim.sh --run finds an artifact by its ownership label alone` | - |
+| `reclaim.sh --run never issues a blanket prune` | - |
+| `reclaim.sh --dry-run reports without removing anything` | - |
+| `reclaim.sh --stale collects a killed runner's leftovers` | - |
+| `reclaim.sh --stale spares an in-flight run inside the window` | - |
+| `reclaim.sh --stale spares the current run even when its clock says old` | - |
+| `reclaim.sh --stale ignores artifacts that are not CI-owned` | - |
+| `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
+| `reclaim.sh --stale never touches volumes` | - |

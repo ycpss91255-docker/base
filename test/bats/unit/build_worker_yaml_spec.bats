@@ -538,7 +538,7 @@ setup() {
   assert_output --partial 'path: .worker-base'
 }
 
-# ── Run-scoped names + cleanup, downstream half (#900) ─────────
+# ── Run-scoped names + cleanup, downstream half ────────────────
 
 @test "build-worker.yaml: the workspace path it writes is keyed to the run (#900)" {
   # This is the downstream half of the same rule: every name CI creates
@@ -566,9 +566,10 @@ setup() {
 
 @test "build-worker.yaml: downstream cleanup is ownership-scoped too (#900)" {
   # A downstream self-hosted host is shared with every other repo in the
-  # org. A blanket prune there is worse, not better.
-  run grep -n 'docker system prune' "${WF}"
-  assert_failure
-  run grep -n 'image prune -a' "${WF}"
+  # org. A blanket prune there is worse, not better. Comment lines are
+  # stripped first -- the rationale for a prohibition names the command it
+  # rules out.
+  run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
+    | grep -E 'docker system prune|image prune -a|docker volume prune'"
   assert_failure
 }

@@ -394,8 +394,8 @@ _render_run_names() {
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
   # The value itself now comes from the workflow-level env block every job
-  # inherits, so build.sh still skips its internal test-tools build (#317
-  # P2) without the job restating a literal tag of its own.
+  # inherits, so build.sh still skips its internal test-tools build
+  # without the job restating a literal tag of its own.
   assert_output --partial '${TEST_TOOLS_IMAGE}'
 }
 
@@ -1020,7 +1020,7 @@ _render_run_names() {
   assert_output --partial 'script/test/drivers/coverage_gate.sh'
 }
 
-# ── Run-scoped names (#900) ────────────────────────────────────
+# ── Run-scoped names ───────────────────────────────────────────
 #
 # The assertions below are made against the NAMING, not against an
 # environment. `runs-on: ubuntu-latest` gives every job a fresh
@@ -1121,7 +1121,7 @@ _render_run_names() {
   refute_output --partial "grep -q 'e2e_test'"
 }
 
-# ── Run-scoped cleanup (#900) ──────────────────────────────────
+# ── Run-scoped cleanup ─────────────────────────────────────────
 #
 # A unique name per run means leftovers ACCUMULATE on a long-lived host
 # instead of dying with the VM. Two layers cover each other: an exact
@@ -1157,11 +1157,12 @@ _render_run_names() {
   # On a shared host `docker system prune -a` destroys a CONCURRENT job's
   # build cache and images. The naive fix for the leftover problem breaks
   # the thing the uniqueness was protecting.
-  run grep -n 'docker system prune' "${WF}"
-  assert_failure
-  run grep -n 'image prune -a' "${WF}"
-  assert_failure
-  run grep -n 'docker volume prune' "${WF}"
+  #
+  # Comment lines are stripped first: the prohibition is on the command a
+  # job RUNS, and the rationale for it necessarily names the command it
+  # rules out.
+  run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
+    | grep -E 'docker system prune|image prune -a|docker volume prune'"
   assert_failure
 }
 

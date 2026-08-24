@@ -544,6 +544,14 @@ jobs:
           echo "key=${key}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate .env
+        # WS_PATH is keyed to the run for the same reason every name
+        # self-test.yaml creates is: `runs-on: ${{ matrix.runner }}` is
+        # exactly the knob a self-hosted migration turns, and the moment
+        # two jobs share a machine a fixed /tmp/workspace is the SAME
+        # directory in both. Nothing mounts it today (the worker builds
+        # with `push: false` and no `tags:`, so it creates no named docker
+        # artifact at all) -- which is precisely why keying it now costs
+        # nothing and cannot be forgotten later.
         run: |
           cat > .env << EOF
           USER_NAME=ci
@@ -554,9 +562,9 @@ jobs:
           DOCKER_HUB_USER=ci
           GPU_ENABLED=false
           IMAGE_NAME=${{ inputs.image_name }}
-          WS_PATH=/tmp/workspace
+          WS_PATH=/tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
           EOF
-          mkdir -p /tmp/workspace
+          mkdir -p /tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build devel-test stage (includes lint + bats smoke)
         # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
@@ -791,6 +799,29 @@ jobs:
               "${CONTEXT_PATH}"
             echo "::endgroup::"
           done
+
+      # ── Reclaim ──────────────────────────────────────────────────
+      # The downstream half of the same rule. This job creates no named
+      # docker artifact of its own (`push: false`, no `tags:`, no
+      # compose), so `--run` normally finds nothing -- what matters here
+      # is `--stale`: a downstream self-hosted host is shared with every
+      # other repo in the org, and its buildx cache and dangling build
+      # residue accumulate whether or not this workflow named anything.
+      #
+      # Reached through the SAME `.worker-base` checkout the cache-scope
+      # script uses, so the collector is version-matched to the worker
+      # rather than copied into every caller repo -- callers pin the
+      # worker by ref, and the ref carries this file with it.
+      #
+      # 12h for the reason self-test.yaml uses it: the window has to sit
+      # above the longest a job may run, or the sweep deletes a sibling
+      # job's work in flight.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: |
+          bash .worker-base/script/ci/reclaim.sh \
+            --run "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --stale 12h
 
   # ────────────────────────────────────────────────────────────────
   # Stable-name aggregator so downstream branch-protection rules
