@@ -19,6 +19,21 @@
 # script/<verb>.sh symlinks point straight into dist/ (committed, since
 # init.sh -- which seeds them in a consumer -- never runs on base itself).
 
+# The uid:gid base's own compose.yaml runs its checkout-mounting services
+# as -- i.e. who owns everything the self-test writes into this working
+# tree. compose.yaml carries no default for them -- a `:-1000` left files
+# owned by a stranger on any host whose developer is not uid 1000 --
+# and compose INTERPOLATES THE WHOLE FILE whatever service a command
+# names, so every command that reads it needs them -- including
+# `just docker build --target test-tools`, which names a service that
+# reads neither. Exported once here rather than per recipe: `just`
+# propagates a root export into module recipes, so the whole `just`
+# surface is covered and raw `docker compose` stays the only refused
+# path. The recipes that are also reachable via `just -f` (script/test's
+# `system`, and test.sh itself) set them again for that case.
+export HOST_UID := `id -u`
+export HOST_GID := `id -g`
+
 # Container-ops (self-use): build / run / exec / stop / prune / setup / setup-tui
 mod? docker 'script/docker/justfile.docker'
 # Self-test: bats + shellcheck + hadolint + kcov (just test [lint|coverage|...])

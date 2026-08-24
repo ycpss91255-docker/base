@@ -543,6 +543,21 @@ _run_via_compose() {
   # an inline form would hand compose an empty -p and let the run continue.
   local _project
   _project="$(_resolve_compose_project_name)"
+  # HOST_UID / HOST_GID go in the ENVIRONMENT of `docker compose`, not in a
+  # `-e` flag: `-e` sets the variable inside the container, while the
+  # service definition's `${HOST_UID:?}` is compose's own interpolation and
+  # reads this process's environment. The compose file forwards them into
+  # the container from there, so one assignment serves both. They exist so
+  # the suite writes the bind-mounted checkout as the real user; compose
+  # carries no default for them, so an entry point that forgets them is
+  # refused rather than writing files owned by uid 1000.
+  #
+  # Set BEFORE the tooling-image resolution below, not after: compose
+  # interpolates the WHOLE file for any command, so the `docker compose
+  # build` inside _ensure_test_tools_image is refused just as the `run` is.
+  export HOST_UID HOST_GID
+  HOST_UID="$(id -u)"
+  HOST_GID="$(id -g)"
   # compose.yaml names every service's image `${TEST_TOOLS_IMAGE}` with NO
   # default, so resolving it is this runner's job -- it is the script `just
   # test` puts behind that entry point. Exported rather than passed with
@@ -554,17 +569,6 @@ _run_via_compose() {
   _image="$(_resolve_test_tools_image)"
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
-  # HOST_UID / HOST_GID go in the ENVIRONMENT of `docker compose`, not in a
-  # `-e` flag: `-e` sets the variable inside the container, while the
-  # service definition's `${HOST_UID:?}` is compose's own interpolation and
-  # reads this process's environment. The compose file forwards them into
-  # the container from there, so one assignment serves both. They exist so
-  # the suite writes the bind-mounted checkout as the real user; compose
-  # carries no default for them, so an entry point that forgets them is
-  # refused rather than writing files owned by uid 1000.
-  export HOST_UID HOST_GID
-  HOST_UID="$(id -u)"
-  HOST_GID="$(id -g)"
   docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \

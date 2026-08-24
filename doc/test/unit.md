@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2651 tests**.
+Unit specs under `test/bats/unit/`: **2652 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2686,7 +2686,7 @@ hand-authored compose.yaml. Covers lib resolution via the base-self path and
 `--target test-tools` dispatching `docker compose build` while skipping the
 setup-sync lifecycle.
 
-### test/bats/unit/base_docker_namespace_spec.bats (10)
+### test/bats/unit/base_docker_namespace_spec.bats (11)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
