@@ -41,12 +41,25 @@ setup() {
 @test "upstream.sh: sourcing it twice is inert (#895)" {
   # upgrade.sh sources it and then sources _lib.sh, which pulls in more of
   # the tree; a second arrival must not abort a `set -e` caller.
-  run bash -c "
-    set -euo pipefail
-    source '${UPSTREAM_SH}'
-    source '${UPSTREAM_SH}'
-    printf '%s\n' \"\${BASE_UPSTREAM_REMOTE}\"
-  "
+  #
+  # The strict shell is a script FILE, never `bash -c '...'`. The coverage
+  # shard runs bash under kcov, which counts lines from xtrace with a PS4
+  # that expands ${BASH_SOURCE}; at the top level of a `bash -c` string
+  # that array is EMPTY, so the first command traced after `set -u` dies
+  # "BASH_SOURCE: unbound variable" before the source under test runs at
+  # all. That aborts the harness, not the code, which is why this case
+  # passed plain and failed under coverage. A script file populates
+  # BASH_SOURCE[0]. The sibling cases here do not set -u, so they are
+  # unaffected. Same interaction as adr_numbering_spec and
+  # sourceable_scripts_spec.
+  local _runner="${BATS_TEST_TMPDIR}/source_twice_strict.sh"
+  cat > "${_runner}" << EOF
+set -euo pipefail
+source '${UPSTREAM_SH}'
+source '${UPSTREAM_SH}'
+printf '%s\n' "\${BASE_UPSTREAM_REMOTE}"
+EOF
+  run bash "${_runner}"
   assert_success
   assert_output "https://github.com/ycpss91255-docker/base.git"
 }
