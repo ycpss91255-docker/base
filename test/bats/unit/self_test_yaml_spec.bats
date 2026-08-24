@@ -1112,9 +1112,66 @@ _render_run_names() {
   # The throwaway probe network `just docker prune` is asserted against is
   # created by name: two concurrent runs creating one fixed name is a hard
   # failure ("network with name ... already exists"), not a silent share.
-  assert_output --partial 'e2e_prune_probe-${CI_RUN_KEY}'
+  # The `ci-` infix is not decoration -- it is the marker the age-based
+  # backstop matches on, so every CI-created name has to carry it.
+  assert_output --partial 'e2e_prune_probe-ci-${CI_RUN_KEY}'
   # Every leftover assertion is scoped to THIS run's artifacts; grepping
   # the bare `e2e_test` would read a concurrent run's container as this
   # run's leak.
   refute_output --partial "grep -q 'e2e_test'"
+}
+
+# ── Run-scoped cleanup (#900) ──────────────────────────────────
+#
+# A unique name per run means leftovers ACCUMULATE on a long-lived host
+# instead of dying with the VM. Two layers cover each other: an exact
+# per-run teardown that cannot run when the runner is killed, and an
+# age-based sweep that cannot be precise. Both are ownership-scoped --
+# the naive `docker system prune -a` would destroy a concurrent job's
+# in-flight cache, which is the very thing the unique naming protects.
+
+@test "self-test.yaml: every job that puts an image in the host daemon tears it down (#900)" {
+  # The six docker-using jobs: hadolint, bats-fragile, bats-integration,
+  # coverage, acceptance, system. Each one loads a test-tools image into
+  # the runner's daemon, so each one has to hand it back.
+  run grep -c 'script/ci/reclaim.sh' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected a reclaim step in every docker-using job, found ${output}"
+  # Every reclaim step names the run it is allowed to remove.
+  run grep -c -- '--run "\${CI_RUN_KEY}"' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected every reclaim step to be scoped to CI_RUN_KEY, found ${output}"
+}
+
+@test "self-test.yaml: teardown runs on failure too, not just on success (#900)" {
+  # A job that fails halfway is the job most likely to have left something
+  # behind, so the teardown cannot be conditional on the job passing.
+  run grep -B2 'script/ci/reclaim.sh' "${WF}"
+  assert_success
+  assert_output --partial 'if: always()'
+}
+
+@test "self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)" {
+  # On a shared host `docker system prune -a` destroys a CONCURRENT job's
+  # build cache and images. The naive fix for the leftover problem breaks
+  # the thing the uniqueness was protecting.
+  run grep -n 'docker system prune' "${WF}"
+  assert_failure
+  run grep -n 'image prune -a' "${WF}"
+  assert_failure
+  run grep -n 'docker volume prune' "${WF}"
+  assert_failure
+}
+
+@test "self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)" {
+  # prune.sh's defaults (networks 10m, images 24h) are tuned to a laptop.
+  # A CI window has a hard floor instead: an artifact belonging to a LIVE
+  # run can be as old as the longest a job may run, so anything shorter
+  # than that ceiling deletes work in flight.
+  run grep -c -- '--stale 12h' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
 }
