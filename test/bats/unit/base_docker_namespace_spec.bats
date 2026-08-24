@@ -97,6 +97,21 @@ setup() {
   assert_output "6"
 }
 
+@test "base root justfile exports the host identity every compose read needs (#895)" {
+  # compose interpolates the WHOLE compose.yaml whatever service is named,
+  # so dropping the HOST_UID / HOST_GID defaults made them required of
+  # every `just` recipe that reaches compose -- including
+  # `just docker build --target test-tools`, base's documented self-use of
+  # the docker namespace, which touches no service that reads them. One
+  # export at the root entry covers every namespace (`just` propagates a
+  # root export into module recipes), so raw `docker compose` stays the
+  # only refused path -- which is the point of refusing.
+  run grep -nE '^export HOST_UID := `id -u`$' "${ROOT}/justfile"
+  assert_success
+  run grep -nE '^export HOST_GID := `id -g`$' "${ROOT}/justfile"
+  assert_success
+}
+
 @test "just test system supplies the host identity its bare compose run needs (#895)" {
   # The bare `docker compose run --rm ci-system` here is the one `just test`
   # path that does not go through test.sh's _run_via_compose, so it is the
