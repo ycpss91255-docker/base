@@ -1516,6 +1516,96 @@ SH
   assert_output --partial "compose -p ci-run-4242 "
 }
 
+@test "_run_via_compose: hands compose the very tag the tooling resolver prints (#896)" {
+  # compose.yaml names every service's image ${TEST_TOOLS_IMAGE} with NO
+  # default, so this runner resolves it -- and it must be the SAME value
+  # `just docker build --target test-tools` writes, not a second derivation
+  # that happens to agree. Exported, because compose reads it while
+  # interpolating the file on the host, not inside the container.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s|%s\n" "${TEST_TOOLS_IMAGE:-<unset>}" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset TEST_TOOLS_IMAGE
+    _run_via_compose ci 0
+  '
+  assert_success
+
+  local _resolved
+  _resolved="$(unset TEST_TOOLS_IMAGE; /source/script/test/test.sh --test-tools-image)"
+  run grep -F "${_resolved}|compose -p" "${_log}"
+  assert_success
+}
+
+@test "_ensure_test_tools_image: builds the derived tag when the host does not have it (#896)" {
+  # The derived tag is local-only -- no registry can serve it -- so an
+  # absent one means "not built yet", never "pull it". It is built through
+  # the same compose service the docker namespace builds.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    [[ "${1}" == "image" ]] && exit 1
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset TEST_TOOLS_IMAGE
+    _ensure_test_tools_image test-tools:abc123abc123 base-000000000000
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_output --partial "compose -p base-000000000000 -f /source/compose.yaml build test-tools"
+}
+
+@test "_ensure_test_tools_image: leaves a caller-pinned image alone (#896)" {
+  # CI pins a published GHCR tag, or an in-run tag it built itself, and
+  # provisioning it is the caller's job -- building over it here would
+  # replace what the caller asked for.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    [[ "${1}" == "image" ]] && exit 1
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:v9.9.9
+    _ensure_test_tools_image "${TEST_TOOLS_IMAGE}" base-000000000000
+  '
+  assert_success
+
+  run cat "${_log}"
+  refute_output --partial "build test-tools"
+}
+
+@test "_ensure_test_tools_image: does not rebuild a tag the host already has (#896)" {
+  # Identical tooling inputs resolve to one tag on purpose: the second run
+  # is a cache HIT, not a rebuild.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset TEST_TOOLS_IMAGE
+    _ensure_test_tools_image test-tools:abc123abc123 base-000000000000
+  '
+  assert_success
+
+  run cat "${_log}"
+  refute_output --partial "build test-tools"
+}
+
 @test "main --compose-project-name: prints the resolved project for the justfile (#891)" {
   # The `just test system` recipe reads this so its bare `docker compose run`
   # names the project the same way test.sh's does, instead of inheriting the

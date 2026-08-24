@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2644 tests**.
+Unit specs under `test/bats/unit/`: **2651 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1020,7 +1020,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
 
-### test/bats/unit/build_sh_spec.bats (55)
+### test/bats/unit/build_sh_spec.bats (58)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -1040,7 +1040,14 @@ argument validation, fallback `_detect_lang` branches (zh_TW/zh_CN/ja),
 real (non-dry-run) docker build invocation, **version-scoped local
 test-tools tag** (#828: the internal build derives `test-tools:<version>`
 from `.base/.version` and forwards it as the `TEST_TOOLS_IMAGE` build-arg;
-fails loud on a missing version, no bare-tag fallback), **runtime log-line i18n**
+fails loud on a missing version, no bare-tag fallback), **the self-managed-repo
+tooling tag** (#896: a repo with no `.base/` subtree has no pinned version to
+scope a local tag by, so build.sh asks that repo's own
+`script/test/test.sh --test-tools-image` rather than deriving a second tag, and
+forwards the result on BOTH channels -- the `--build-arg` a consumer Dockerfile
+reads and the exported environment a self-managed `compose.yaml` interpolates;
+repos that do carry `.base/` keep the version-scoped derivation),
+**runtime log-line i18n**
 (bootstrap / drift-regen / err_no_env messages translate in all four
 languages via the local `_msg()` table; English remains the default),
 and **`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
@@ -1978,7 +1985,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (86)
+### test/bats/unit/ci_spec.bats (90)
 
 | Test | Description |
 |------|-------------|
@@ -2064,6 +2071,10 @@ builds the env block only for the knobs the conf sets.
 | `_resolve_compose_project_name: COMPOSE_PROJECT_NAME wins verbatim (#891)` | #891 env override still wins |
 | `_run_via_compose: passes an explicit -p so the project is not the directory basename (#891)` | #891 the missing -p is the defect |
 | `_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)` | #891 -p forwards the caller's name |
+| `_run_via_compose: hands compose the very tag the tooling resolver prints (#896)` | #896 one derivation, exported for interpolation |
+| `_ensure_test_tools_image: builds the derived tag when the host does not have it (#896)` | #896 a local-only tag absent means not built, not pull |
+| `_ensure_test_tools_image: leaves a caller-pinned image alone (#896)` | #896 CI provisions its own |
+| `_ensure_test_tools_image: does not rebuild a tag the host already has (#896)` | #896 identical inputs are a cache hit |
 | `main --compose-project-name: prints the resolved project for the justfile (#891)` | #891 one entry point for both call sites |
 | `_compute_compose_project_name: fails loud when the digest cannot be produced (#891)` | #891 no silent degrade to the shared bare prefix |
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
@@ -2686,7 +2697,10 @@ naming-isolation shape (#891): the build-only `test-tools` service reads the
 same `TEST_TOOLS_IMAGE` its consumers read instead of a fixed
 `test-tools:local` literal, and the `system` recipe derives that tag from the
 tooling Dockerfile's content instead of hardcoding it, and names the compose
-project instead of inheriting the checkout directory's basename.
+project instead of inheriting the checkout directory's basename. Tightened by
+#896: EVERY `image:` line must name that variable and NONE may carry a `:-`
+default, since two different defaults are what let the build write one tag
+while the run read another.
 
 
 ### test/bats/unit/base_version_monitor_spec.bats (12)

@@ -427,6 +427,36 @@ _resolve_test_tools_image() {
   return 0
 }
 
+# _ensure_test_tools_image <image> <project>
+#
+# Makes the DERIVED tooling tag exist before a compose run reads it.
+#
+# The derived tag is local-only -- no registry can serve `test-tools:<hash
+# of this checkout's tooling Dockerfile>` -- so an absent one means "not
+# built yet", never "pull it". Building it here through the SAME compose
+# service `just docker build --target test-tools` builds is what keeps the
+# image this run consumes to one that was produced from this checkout's
+# Dockerfile, instead of a published tag that may lag it (a stale rolling
+# tag missing kcov is how a coverage pass once reported green having never
+# run kcov).
+#
+# A caller-pinned TEST_TOOLS_IMAGE is left alone: CI pins a published GHCR
+# tag or an in-run tag it built itself, and provisioning it is the
+# caller's job (building over it here would replace what it asked for).
+_ensure_test_tools_image() {
+  local _image="${1:?_ensure_test_tools_image requires <image>}"
+  local _project="${2:?_ensure_test_tools_image requires <project>}"
+  if [[ -n "${TEST_TOOLS_IMAGE:-}" ]]; then
+    return 0
+  fi
+  if docker image inspect "${_image}" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "--- Building the tooling image ${_image} (content hash of ${_TEST_TOOLS_DOCKERFILE_REL}) ---"
+  TEST_TOOLS_IMAGE="${_image}" docker compose -p "${_project}" \
+    -f "${REPO_ROOT}/compose.yaml" build test-tools
+}
+
 # ── Compose project name ─────────────────────────────────────────────────────
 
 # _compute_compose_project_name <repo_root> <outvar>
@@ -513,6 +543,17 @@ _run_via_compose() {
   # an inline form would hand compose an empty -p and let the run continue.
   local _project
   _project="$(_resolve_compose_project_name)"
+  # compose.yaml names every service's image `${TEST_TOOLS_IMAGE}` with NO
+  # default, so resolving it is this runner's job -- it is the script `just
+  # test` puts behind that entry point. Exported rather than passed with
+  # `-e`: compose reads it while INTERPOLATING the file on this host, not
+  # as an environment variable inside the container. Resolved into a local
+  # first for the same reason the project name is (a failing command
+  # substitution inline in an argument would not abort the command).
+  local _image
+  _image="$(_resolve_test_tools_image)"
+  _ensure_test_tools_image "${_image}" "${_project}"
+  export TEST_TOOLS_IMAGE="${_image}"
   # HOST_UID / HOST_GID go in the ENVIRONMENT of `docker compose`, not in a
   # `-e` flag: `-e` sets the variable inside the container, while the
   # service definition's `${HOST_UID:?}` is compose's own interpolation and
