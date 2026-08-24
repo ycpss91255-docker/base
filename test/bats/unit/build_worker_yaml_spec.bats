@@ -537,3 +537,39 @@ setup() {
   assert_output --partial 'ref: ${{ github.job_workflow_sha }}'
   assert_output --partial 'path: .worker-base'
 }
+
+# ── Run-scoped names + cleanup, downstream half ────────────────
+
+@test "build-worker.yaml: the workspace path it writes is keyed to the run (#900)" {
+  # This is the downstream half of the same rule: every name CI creates
+  # must differ between two runs that share a host. The worker builds with
+  # `push: false` and no `tags:`, so it produces no NAMED docker artifact
+  # today -- but it does write a fixed host path into the .env it
+  # generates, and `runs-on: ${{ matrix.runner }}` is exactly the knob a
+  # self-hosted migration turns.
+  run grep -c 'WS_PATH=/tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}' "${WF}"
+  assert_success
+  assert_output '1'
+  run grep -n 'WS_PATH=/tmp/workspace$' "${WF}"
+  assert_failure
+}
+
+@test "build-worker.yaml: the build job reclaims its own leftovers on if: always() (#900)" {
+  # Reached through the SAME .worker-base checkout the cache-scope script
+  # uses, so the collector is version-matched to the worker rather than
+  # copied into every caller repo.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'bash .worker-base/script/ci/reclaim.sh'
+  assert_output --partial 'if: always()'
+}
+
+@test "build-worker.yaml: downstream cleanup is ownership-scoped too (#900)" {
+  # A downstream self-hosted host is shared with every other repo in the
+  # org. A blanket prune there is worse, not better. Comment lines are
+  # stripped first -- the rationale for a prohibition names the command it
+  # rules out.
+  run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
+    | grep -E 'docker system prune|image prune -a|docker volume prune'"
+  assert_failure
+}
