@@ -77,10 +77,24 @@ _run_adr_numbering() {
   # informational only -- it never contributes to the violation count.
   # Numbers are 8-digit zero-padded; 10#-prefix the arithmetic so a leading
   # zero is decimal, not octal.
+  #
+  # The min/max scan is in-shell on purpose. It used to be
+  # `printf '%s\n' "${_nums[@]}" | sort | head -n1`: `head` closes the
+  # pipe the moment it has its line, so a `sort` that has not written yet
+  # takes SIGPIPE and dies 141, `pipefail` promotes that to the pipeline's
+  # status, and the bare assignment under `set -e` killed the entire lint
+  # phase with no message -- failing the local-CI stamp rather than any
+  # test. Nothing below can be killed by a reader that stopped reading,
+  # because there is no reader: no pipe, no subprocess, no exit status
+  # that depends on how two processes were scheduled.
   if [[ "${#_nums[@]}" -gt 0 ]]; then
-    local _min _max _i _padded
-    _min="$(printf '%s\n' "${_nums[@]}" | sort | head -n1)"
-    _max="$(printf '%s\n' "${_nums[@]}" | sort | tail -n1)"
+    local _min _max _i _padded _n
+    _min="${_nums[0]}"
+    _max="${_nums[0]}"
+    for _n in "${_nums[@]}"; do
+      if (( 10#${_n} < 10#${_min} )); then _min="${_n}"; fi
+      if (( 10#${_n} > 10#${_max} )); then _max="${_n}"; fi
+    done
     for (( _i = 10#${_min}; _i <= 10#${_max}; _i++ )); do
       _padded="$(printf '%08d' "${_i}")"
       if [[ -z "${_seen[${_padded}]:-}" ]]; then

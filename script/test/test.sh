@@ -132,10 +132,51 @@ readonly _LINT_TOOLS=(
 # test-tools image, so its CI job runs the driver inside that image
 # (`--lint --hadolint`) instead of host-direct.
 
+# The lint tool currently on the stack, for _lint_driver_failed below.
+# Empty whenever no driver is running.
+_LINT_ACTIVE_TOOL=""
+
+# _lint_driver_failed <status> <command>
+#
+# ERR-trap body for the lint phase. A driver stops at its first failing
+# command under `set -e`, and some of those commands say nothing at all on
+# the way out -- a signal above all, and SIGPIPE (141) most of all, from a
+# pipeline whose reader closed before the writer wrote. `just` then prints
+# only `recipe 'lint' failed ... exit code 141`, which reads like a lint
+# finding rather than a broken driver, and the local-CI stamp is withheld
+# with no explanation of what to fix.
+#
+# So name the tool, the status and the command that stopped it, and
+# translate an above-128 status into the signal it encodes. `_die` (not a
+# bare `_log_err`) because the event id has to be registered in
+# log-events.txt, which is what keeps this reportable rather than another
+# anonymous exit.
+_lint_driver_failed() {
+  local _status="${1}" _command="${2}"
+  local _detail=""
+  if (( _status > 128 )); then
+    local _signal=$(( _status - 128 ))
+    local _name
+    _name="$(kill -l "${_signal}" 2>/dev/null)" || _name="?"
+    _detail=" (killed by signal ${_signal}/SIG${_name#SIG})"
+  fi
+  _die ci_lint_driver_failed \
+    "lint tool '${_LINT_ACTIVE_TOOL}' stopped at \`${_command}\`, status ${_status}${_detail}."
+}
+
 # Run one lint tool by name. The single dispatch point; unknown names die
 # loudly rather than no-op'ing, so a typo in a CI job or a stale
 # LINT_TOOL export cannot silently skip a gate.
+#
+# The ERR trap is armed only around the dispatch, and errexit is left
+# ALONE: a driver must still stop at its first failing command (running it
+# under `|| _rc=$?` would disable errexit inside the whole driver and let
+# a failure sail past). `-E` is required because an ERR trap is not
+# inherited by shell functions, and every driver is one.
 _run_lint_tool() {
+  _LINT_ACTIVE_TOOL="${1:-}"
+  set -E
+  trap '_lint_driver_failed "$?" "${BASH_COMMAND}"' ERR
   case "${1:-}" in
     shellcheck)       _run_shellcheck ;;
     hadolint)         _run_hadolint ;;
@@ -150,6 +191,9 @@ _run_lint_tool() {
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
+  trap - ERR
+  set +E
+  _LINT_ACTIVE_TOOL=""
 }
 
 # Run the whole lint phase, in table order.
