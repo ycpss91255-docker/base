@@ -38,14 +38,18 @@ _run_shellcheck() {
   cp "${REPO_ROOT}"/dist/script/docker/lib/*.sh "${_lintdir}/lib/"
   shellcheck -S warning "${_lintdir}"/wrapper/*.sh "${_lintdir}"/lib/*.sh
   rm -rf "${_lintdir}"
-  # base-own self-test tooling: the dispatcher, the gate scripts and the
-  # per-tool drivers. ONE find over the whole tree rather than a
-  # hand-written list -- the list is what let check_test_md_drift.sh,
-  # lint_bare_stderr.sh and sync-readme-hashes.sh go unlinted, and the
-  # same batch that added resolve-doc-counts.sh to it forgot them. A new
-  # gate script is now linted the moment it exists. -x so source-following
-  # resolves the _lib.sh / _log_* references the way test.sh sees them.
-  find "${REPO_ROOT}/script/test" -name "*.sh" -type f -print0 \
+  # base-own tooling: the self-test dispatcher, the gate scripts, the
+  # per-tool drivers AND the CI-side scripts under script/ci. ONE find
+  # over the whole tree rather than a hand-written list -- the list is
+  # what let check_test_md_drift.sh, lint_bare_stderr.sh and
+  # sync-readme-hashes.sh go unlinted, and the same batch that added
+  # resolve-doc-counts.sh to it forgot them. Rooting at script/ rather
+  # than script/test/ closes the same hole one level up: script/ci/ was
+  # outside every pass. -type f skips the script/*.sh wrapper symlinks,
+  # whose targets under dist/ are already linted above (twice, once
+  # flat). -x so source-following resolves the _lib.sh / _log_*
+  # references the way test.sh sees them.
+  find "${REPO_ROOT}/script" -name "*.sh" -type f -print0 \
     | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
   shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"

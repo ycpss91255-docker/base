@@ -35,6 +35,22 @@ setup() {
   [[ -f "${WF}" ]] || skip "self-test.yaml not at expected path"
 }
 
+# _render_run_names <run_id> <run_attempt>
+#
+# Prints the workflow-level `env:` block as `KEY: VALUE` lines with the
+# run-identity expressions resolved to the given identity. This is what
+# lets a spec compare TWO runs of the same commit -- the thing a
+# single-tenant GitHub-hosted runner can never exhibit, because nothing
+# there shares a machine. Comment lines and blank lines are dropped so the
+# comparison is over values only.
+_render_run_names() {
+  local _run_id="${1}" _attempt="${2}"
+  awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}" \
+    | grep -E '^  [A-Za-z_][A-Za-z0-9_]*:' \
+    | sed -e "s/\${{ *github\.run_id *}}/${_run_id}/g" \
+          -e "s/\${{ *github\.run_attempt *}}/${_attempt}/g"
+}
+
 # ── actionlint job declared ────────────────────────────────────
 
 @test "self-test.yaml: declares actionlint job" {
@@ -349,7 +365,7 @@ setup() {
 @test "self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)" {
   run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'docker pull --platform linux/amd64'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
   assert_output --partial 'docker tag'
@@ -366,7 +382,7 @@ setup() {
 @test "self-test.yaml: bats-integration job has Obtain step + 3-layer fallback (#317 P2 + #377)" {
   run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
   assert_output --partial 'build_local=true'
   assert_output --partial 'build_local=false'
@@ -375,9 +391,12 @@ setup() {
 @test "self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
   run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
+  # The value itself now comes from the workflow-level env block every job
+  # inherits, so build.sh still skips its internal test-tools build
+  # without the job restating a literal tag of its own.
+  assert_output --partial '${TEST_TOOLS_IMAGE}'
 }
 
 @test "self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
@@ -397,7 +416,7 @@ setup() {
 @test "self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)" {
   run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'Obtain test-tools:local'
+  assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
   assert_output --partial 'build_local=true'
   assert_output --partial 'build_local=false'
@@ -417,7 +436,7 @@ setup() {
   assert_output --partial 'REQUIRED_TOOLS'
   assert_output --partial 'kcov'
   assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm test-tools:local'
+  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
 }
 
 @test "self-test.yaml: coverage Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
@@ -429,7 +448,7 @@ setup() {
   assert_output --partial 'REQUIRED_TOOLS'
   assert_output --partial 'kcov'
   assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm test-tools:local'
+  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
 }
 
 @test "self-test.yaml: probe REQUIRED_TOOLS list is easy to extend with the tools each run needs (#697)" {
@@ -868,7 +887,7 @@ setup() {
   assert_success
   assert_output --partial './script/test/test.sh --lint --hadolint'
   # The driver image (test-tools) is obtained like the bats jobs.
-  assert_output --partial 'TEST_TOOLS_IMAGE: test-tools:local'
+  assert_output --partial 'Obtain the run-scoped test-tools image'
   # The inline action + its file/config args are gone (driver owns them).
   refute_output --partial 'hadolint/hadolint-action'
 }
@@ -999,4 +1018,161 @@ setup() {
   assert_output --partial 'actions/download-artifact@v8'
   assert_output --partial 'pattern: coverage-shard-*'
   assert_output --partial 'script/test/drivers/coverage_gate.sh'
+}
+
+# ── Run-scoped names ───────────────────────────────────────────
+#
+# The assertions below are made against the NAMING, not against an
+# environment. `runs-on: ubuntu-latest` gives every job a fresh
+# single-tenant VM, so no CI run can currently exhibit the collision these
+# lock out; a test that passed only because jobs are isolated would prove
+# nothing. Two renderings that differ ONLY by run identity are compared
+# instead: if any name comes out equal, two jobs sharing a host share it.
+
+@test "self-test.yaml: declares a workflow-level env block carrying the run identity (#900)" {
+  run awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'github.run_id'
+  assert_output --partial 'github.run_attempt'
+}
+
+@test "self-test.yaml: every name the workflow creates differs between two concurrent runs (#900)" {
+  local -a _a=() _b=()
+  mapfile -t _a < <(_render_run_names 1001 1)
+  mapfile -t _b < <(_render_run_names 1002 1)
+  # test-tools tag + compose project + the key itself, at minimum.
+  [ "${#_a[@]}" -ge 3 ] \
+    || fail "expected at least 3 run-scoped names in the workflow env block, got ${#_a[@]}"
+  [ "${#_a[@]}" -eq "${#_b[@]}" ]
+  local _i
+  for _i in "${!_a[@]}"; do
+    [ "${_a[${_i}]}" != "${_b[${_i}]}" ] \
+      || fail "name is CONSTANT across concurrent runs: ${_a[${_i}]}"
+  done
+}
+
+@test "self-test.yaml: every name also differs between two attempts of ONE run (#900)" {
+  # A re-run repeats the commit SHA and the checkout path, so a name keyed
+  # to either is identical to the attempt that just left the leftovers
+  # behind -- exactly when a stale artifact would be reused. run_attempt is
+  # what separates them.
+  local -a _a=() _b=()
+  mapfile -t _a < <(_render_run_names 1001 1)
+  mapfile -t _b < <(_render_run_names 1001 2)
+  [ "${#_a[@]}" -ge 3 ]
+  local _i
+  for _i in "${!_a[@]}"; do
+    [ "${_a[${_i}]}" != "${_b[${_i}]}" ] \
+      || fail "name is CONSTANT across a re-run: ${_a[${_i}]}"
+  done
+}
+
+@test "self-test.yaml: run identity is not a timestamp and not the commit SHA (#900)" {
+  # A timestamp collides for two jobs that start in the same second and
+  # cannot be traced back to a run; github.sha is shared by every job of a
+  # run AND identical across re-runs. run_id + run_attempt are both in the
+  # Actions UI, so a leftover names the run that made it.
+  run awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}"
+  assert_success
+  refute_output --partial 'github.sha'
+  refute_output --partial 'date +'
+}
+
+@test "self-test.yaml: the run-scoped names come from ONE place, not per job (#900)" {
+  # The fixed `test-tools:local` literal is what two jobs on one host used
+  # to write over each other. No job may reintroduce it, and no job may
+  # spell its own variant of the run-scoped tag either -- the workflow-level
+  # env block is the single source every job inherits.
+  run grep -n 'test-tools:local' "${WF}"
+  assert_failure
+  run grep -cE '^ +TEST_TOOLS_IMAGE:' "${WF}"
+  assert_output '1'
+  run grep -cE '^ +COMPOSE_PROJECT_NAME:' "${WF}"
+  assert_output '1'
+}
+
+@test "self-test.yaml: the test-tools image every job builds carries the ownership label (#900)" {
+  # The loaded test-tools image is the one artifact compose does not own,
+  # so cleanup cannot ask compose "whose is this". Every path that puts it
+  # in the runner's daemon -- the cached build, the inline build, the
+  # pulled-and-retagged hot path -- stamps the run identity on it.
+  run grep -c 'base.ci.run' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected the ownership label on every test-tools provisioning path, found ${output}"
+}
+
+@test "self-test.yaml: the acceptance scaffold is keyed to the run (#900)" {
+  # The scaffolded consumer's directory basename becomes IMAGE_NAME, which
+  # is what the image tag, the container name and the compose project are
+  # all built from -- so one unique directory name makes all three unique.
+  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"'
+  # The throwaway probe network `just docker prune` is asserted against is
+  # created by name: two concurrent runs creating one fixed name is a hard
+  # failure ("network with name ... already exists"), not a silent share.
+  # The `ci-` infix is not decoration -- it is the marker the age-based
+  # backstop matches on, so every CI-created name has to carry it.
+  assert_output --partial 'e2e_prune_probe-ci-${CI_RUN_KEY}'
+  # Every leftover assertion is scoped to THIS run's artifacts; grepping
+  # the bare `e2e_test` would read a concurrent run's container as this
+  # run's leak.
+  refute_output --partial "grep -q 'e2e_test'"
+}
+
+# ── Run-scoped cleanup ─────────────────────────────────────────
+#
+# A unique name per run means leftovers ACCUMULATE on a long-lived host
+# instead of dying with the VM. Two layers cover each other: an exact
+# per-run teardown that cannot run when the runner is killed, and an
+# age-based sweep that cannot be precise. Both are ownership-scoped --
+# the naive `docker system prune -a` would destroy a concurrent job's
+# in-flight cache, which is the very thing the unique naming protects.
+
+@test "self-test.yaml: every job that puts an image in the host daemon tears it down (#900)" {
+  # The six docker-using jobs: hadolint, bats-fragile, bats-integration,
+  # coverage, acceptance, system. Each one loads a test-tools image into
+  # the runner's daemon, so each one has to hand it back.
+  run grep -c 'script/ci/reclaim.sh' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected a reclaim step in every docker-using job, found ${output}"
+  # Every reclaim step names the run it is allowed to remove.
+  run grep -c -- '--run "\${CI_RUN_KEY}"' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected every reclaim step to be scoped to CI_RUN_KEY, found ${output}"
+}
+
+@test "self-test.yaml: teardown runs on failure too, not just on success (#900)" {
+  # A job that fails halfway is the job most likely to have left something
+  # behind, so the teardown cannot be conditional on the job passing.
+  run grep -B2 'script/ci/reclaim.sh' "${WF}"
+  assert_success
+  assert_output --partial 'if: always()'
+}
+
+@test "self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)" {
+  # On a shared host `docker system prune -a` destroys a CONCURRENT job's
+  # build cache and images. The naive fix for the leftover problem breaks
+  # the thing the uniqueness was protecting.
+  #
+  # Comment lines are stripped first: the prohibition is on the command a
+  # job RUNS, and the rationale for it necessarily names the command it
+  # rules out.
+  run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
+    | grep -E 'docker system prune|image prune -a|docker volume prune'"
+  assert_failure
+}
+
+@test "self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)" {
+  # prune.sh's defaults (networks 10m, images 24h) are tuned to a laptop.
+  # A CI window has a hard floor instead: an artifact belonging to a LIVE
+  # run can be as old as the longest a job may run, so anything shorter
+  # than that ceiling deletes work in flight.
+  run grep -c -- '--stale 12h' "${WF}"
+  assert_success
+  [ "${output}" -ge 6 ] \
+    || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
 }
