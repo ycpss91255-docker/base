@@ -99,12 +99,27 @@ _prune_retired_entries() {
   local _path="$1"
   [[ -f "${_path}" ]] || return 0
 
-  # `|| true` on the pipeline: a file with no marker makes grep exit 1, and
-  # under the callers' `set -euo pipefail` that would abort init.sh instead
-  # of taking the "nothing is managed here" branch two lines down.
-  local _marker_ln
-  _marker_ln="$(grep -n '^# managed by template' -- "${_path}" \
-    | head -1 | cut -d: -f1 || true)"
+  # Find the marker by reading the file in-shell. It used to be
+  # `grep -n ... | head -1 | cut -d: -f1 || true`, which had two problems
+  # at once. A file with no marker makes grep exit 1, and under the
+  # callers' `set -euo pipefail` that aborts init.sh instead of taking the
+  # "nothing is managed here" branch below -- which is what the `|| true`
+  # was for. But `head -1` also stops reading after one line, so a grep
+  # still writing takes SIGPIPE and the pipeline goes 141, and `|| true`
+  # discards that just as silently: `cut` printed nothing, the marker read
+  # as ABSENT, and a retired entry stayed in the file the template was
+  # trying to retract it from.
+  #
+  # A loop over the file has no status to suppress and no reader to leave
+  # early. `|| [[ -n ... ]]` so a final line with no trailing newline is
+  # still counted -- the marker could be it.
+  local _marker_ln="" _line _lineno=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    if [[ -z "${_marker_ln}" && "${_line}" == '# managed by template'* ]]; then
+      _marker_ln="${_lineno}"
+    fi
+  done < "${_path}"
   [[ -n "${_marker_ln}" ]] || return 0
 
   local -a _retired=()

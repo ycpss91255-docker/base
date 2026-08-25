@@ -276,11 +276,29 @@ _detect_template_version() {
   # via the TEMPLATE_REMOTE env var (SSH, or a private fork) -- see README
   # "Pointing .base at a different upstream".
   local _remote="${TEMPLATE_REMOTE:-${BASE_UPSTREAM_REMOTE}}"
-  git ls-remote --tags --sort=-v:refname \
-    "${_remote}" 2>/dev/null \
-    | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
-    | head -1 \
-    | sed 's|refs/tags/||' || true
+  # In-shell scan, for the reason upgrade.sh's _get_latest_version carries
+  # at length: `... | head -1 | sed ...` hands the answer to a reader that
+  # stops reading, the `grep -oP` still writing dies of SIGPIPE, `pipefail`
+  # makes 141 the pipeline's status, and the `|| true` that stopped the
+  # resulting abort discarded the status with it -- leaving an EMPTY
+  # version that reads as "the remote has no tags". Nothing here can be
+  # killed by a reader that stopped reading, because there is no reader.
+  # `--sort=-v:refname` puts the newest first, so the first vX.Y.Z ref
+  # wins and rc / pre-release tags are skipped.
+  local _line _ref _result=""
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ -n "${_result}" ]]; then
+      continue
+    fi
+    # "<sha><TAB><ref>"; strip through the last run of whitespace, for the
+    # reason upgrade.sh's twin spells out -- the replaced `grep -oP`
+    # matched the ref anywhere on the line.
+    _ref="${_line##*[[:space:]]}"
+    if [[ "${_ref}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _result="${_ref#refs/tags/}"
+    fi
+  done < <(git ls-remote --tags --sort=-v:refname "${_remote}" 2>/dev/null)
+  printf '%s' "${_result}"
 }
 
 # ── New repo scaffolding ────────────────────────────────────────────────────
