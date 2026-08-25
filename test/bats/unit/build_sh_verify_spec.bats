@@ -16,8 +16,9 @@
 # The build output is SYNTHESISED, never a real cache hit: arranging a real
 # one needs a daemon, a warm buildx cache and a stage that happens not to
 # have changed, none of which is deterministic. The stub emits the exact
-# BuildKit `--progress=plain` shapes (`#12 [stage 8/16] RUN ...`,
-# `#12 CACHED`, `#12 DONE 0.4s`), which is the format build.sh pins.
+# BuildKit `--progress=plain` shapes -- a `#<id> [stage 8/16] RUN ...`
+# step line followed by `#<id> CACHED` or `#<id> DONE 0.4s` -- which is
+# the format build.sh pins.
 #
 # Stub control env vars (read per-invocation by the docker stub):
 #   DOCKER_BUILD_OUTPUT   text the stub prints for a `compose ... build`
@@ -160,7 +161,9 @@ EOF
   run bash "${SANDBOX}/build.sh" test
   assert_success
   assert_output --partial "executed 1 of 3 check step"
-  assert_output --partial "cached: hadolint, shellcheck"
+  # Listed in Dockerfile order (by step id), not hash order: two runs of
+  # the same build have to produce the same line.
+  assert_output --partial "cached: shellcheck, hadolint"
 }
 
 # ── the report can fail, and failing is never a pass ─────────────────

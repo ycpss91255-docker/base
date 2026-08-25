@@ -69,6 +69,12 @@ build_prune_skip_tagged
 build_no_env
 build_rerun_setup
 build_test_tools_version_missing
+build_verify_capture_failed
+build_verify_step_unresolved
+build_verify_no_steps
+build_verify_all_cached
+build_verify_partly_cached
+build_verify_all_ran
 
 # run.sh
 run_started

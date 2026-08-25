@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2794 tests**.
+Unit specs under `test/bats/unit/`: **2804 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3147,3 +3147,18 @@ fails naming the path and what its absence costs.
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
+
+### test/bats/unit/build_sh_verify_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `build.sh test: a fully CACHED verification stage is not reported as a pass` | The load-bearing case: every check CACHED reports that nothing ran |
+| `build.sh test: an executed verification stage reports every check as executed` | A real run says so, and says nothing about caching |
+| `build.sh test: a partially cached stage names which checks were CACHED` | Per-step truth: a re-run bats over cached linters names both |
+| `build.sh test: build output with no recognisable steps fails the build` | No recognisable step is an error, never a silent pass |
+| `build.sh test: a check step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
+| `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
+| `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
+| `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
+| `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
+| `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |

@@ -106,6 +106,13 @@ usage() {
   test     執行 smoke test
   runtime  最小化 runtime 映像
 
+驗證回報（test / <stage>-test / smoke 等驗證目標）:
+  這些目標的檢查是 build layer，cache 命中會重現結果但一步都沒跑。build
+  後會回報本次到底執行了哪些 shellcheck / hadolint / bats 步驟、哪些是
+  CACHED，所以「什麼都沒驗證」的 build 不會看起來像通過。這些目標會把
+  BUILDKIT_PROGRESS 固定為 plain（回報所讀的格式）；若輸出讀不出步驟狀
+  態，會以非零結束，而不是報成通過。
+
 環境變數:
   QUIET=1  關閉 build 前印出的組態摘要（適合 piped / CI log）。與
            setup.sh 的 -q/--quiet 不同：那個管的是別的輸出。
@@ -148,6 +155,13 @@ EOF
   devel    开发环境（默认）
   test     运行 smoke test
   runtime  最小化 runtime 镜像
+
+验证回报（test / <stage>-test / smoke 等验证目标）:
+  这些目标的检查是 build layer，cache 命中会重现结果但一步都没跑。build
+  后会回报本次到底执行了哪些 shellcheck / hadolint / bats 步骤、哪些是
+  CACHED，所以「什么都没验证」的 build 不会看起来像通过。这些目标会把
+  BUILDKIT_PROGRESS 固定为 plain（回报所读的格式）；若输出读不出步骤状
+  态，会以非零结束，而不是报成通过。
 
 环境变量:
   QUIET=1  关闭 build 前打印的配置摘要（适合 piped / CI log）。与
@@ -195,6 +209,15 @@ EOF
   devel    開発環境（デフォルト）
   test     smoke test を実行
   runtime  最小化ランタイムイメージ
+
+検証レポート（test / <stage>-test / smoke などの検証ターゲット）:
+  これらのターゲットのチェックは build layer なので、キャッシュヒットは
+  結果を再現するだけで 1 ステップも実行しません。ビルド後に、今回の実行
+  が shellcheck / hadolint / bats のどれを実行し、どれが CACHED だったか
+  を報告します — 何も検証していないビルドが合格に見えないように。これらの
+  ターゲットでは BUILDKIT_PROGRESS を plain に固定します（レポートが読む
+  形式）。ステップ状態を読み取れない出力は、合格として報告せず非ゼロで
+  終了します。
 
 環境変数:
   QUIET=1  ビルド前に表示される設定サマリーを抑止（piped / CI ログ向け）。
@@ -249,6 +272,16 @@ Targets:
   devel    Development environment (default)
   test     Run smoke tests
   runtime  Minimal runtime image
+
+Verification report (test / <stage>-test / smoke targets):
+  Those targets assert by RUNning shellcheck / hadolint / bats as build
+  layers, so a cache hit reproduces the result without executing a single
+  check. After the build they report which check steps THIS run executed
+  and which were CACHED, so a build that verified nothing cannot be read
+  as a passing one. BUILDKIT_PROGRESS is pinned to `plain` for them (the
+  format the report is read from); a build output whose step states cannot
+  be read exits non-zero instead of reporting a pass. Re-run with
+  --no-cache to force the checks to execute.
 
 Environment:
   QUIET=1  Mute the configuration summary printed before the build (for
@@ -567,7 +600,36 @@ main() {
   # Skipped under --dry-run.
   _run_pre_hook build "$@" || exit $?
 
-  _compose_project build "${_compose_args[@]}" "${TARGET}"
+  # A verification target's checks are BUILD LAYERS, so a cache hit
+  # reproduces their result without running them -- and used to print
+  # exactly what a real run printed. Capture the build output for those
+  # targets and report which checks actually executed; see
+  # _report_verification_run below for why the report can fail the build.
+  # --dry-run runs no build, so there is nothing to report on.
+  if _is_verification_target "${TARGET}" && [[ "${DRY_RUN}" != true ]]; then
+    _VERIFY_LOG="$(mktemp 2>/dev/null || true)"
+    if [[ -z "${_VERIFY_LOG}" || ! -f "${_VERIFY_LOG}" ]]; then
+      _log_err build build_verify_capture_failed \
+        "display=cannot capture the build output for target '${TARGET}': mktemp produced no file. Refusing to build without being able to report whether the checks ran." \
+        "target=${TARGET}"
+      exit 1
+    fi
+    _atexit _verify_log_cleanup
+    # Pin the progress printer the report is parsed from. BuildKit's
+    # `plain` mode is the one whose per-step `#<id> CACHED` / `#<id> DONE`
+    # shape this wrapper reads; `auto`/`tty` renders a live display that
+    # carries no such lines. Exported (not passed per-command) because it
+    # has to reach the buildx invoked by compose. It also un-collapses the
+    # bats output, which the default UI hides even on a real run.
+    export BUILDKIT_PROGRESS=plain
+    local _build_rc=0
+    _compose_project build "${_compose_args[@]}" "${TARGET}" 2>&1 \
+      | tee -- "${_VERIFY_LOG}" || _build_rc=$?
+    [[ "${_build_rc}" -eq 0 ]] || exit "${_build_rc}"
+    _report_verification_run "${TARGET}" "${_VERIFY_LOG}" || exit 1
+  else
+    _compose_project build "${_compose_args[@]}" "${TARGET}"
+  fi
 
   if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true \
       && -n "${_pre_build_id}" ]]; then
@@ -581,6 +643,200 @@ main() {
 
   # post-build hook fires at end of successful build path.
   _run_post_hook build "$@"
+}
+
+# ── verification-run reporting ────────────────────────────────────────
+#
+# The problem: a `-test` stage asserts by RUNning shellcheck / hadolint /
+# bats as build layers. Identical inputs are a cache hit, which is
+# CORRECT -- and which reproduces the stage without executing a single
+# check. The wrapper printed the same thing either way, so an operator
+# running the change checklist's mandatory build could read a run that
+# verified nothing as a passing suite. The failure is asymmetric: it
+# always reports success.
+#
+# What is reported is per-STEP, read from the build's own progress
+# output. Two cheaper-looking mechanisms were rejected:
+#
+#   Comparing the tag's image ID before and after the build (the data
+#   _prune_predecessor already collects) needs no parsing, but it is
+#   UNSOUND for this question: with the local image absent and the buildx
+#   cache warm, a fully-CACHED build produces an image where there was
+#   none, which is indistinguishable from a fresh one. It also cannot see
+#   a partial hit -- a re-run `bats` over a cached `shellcheck` moves the
+#   ID and says nothing about the linter.
+#
+#   A cache-busting build ARG guarantees execution but throws the cache
+#   away on every build, including the ones where nothing changed, and it
+#   needs the consumer's Dockerfile to declare the ARG -- an interface an
+#   already-released consumer does not have, so it would silently no-op
+#   exactly where it is needed.
+
+# Check binaries a `-test` stage runs as build layers. A RUN step whose
+# command word-matches one of these is a VERIFICATION step: the thing
+# `./build.sh test` is asked to be evidence of.
+readonly _VERIFY_TOOLS=("bats" "hadolint" "shellcheck")
+
+# Targets whose build IS a verification run: the shipped `test` /
+# `runtime-test` stages, any `<stage>-test` a consumer adds, and base's
+# own `smoke` harness (dockerfile/Dockerfile.smoke, whose `RUN bats` is
+# the whole test). `test-tools` is deliberately NOT one -- it builds the
+# tooling image `just test` and `just test smoke` both need first, and it
+# runs no checks at all.
+_is_verification_target() {
+  case "${1-}" in
+    test|smoke|*-test) return 0 ;;
+  esac
+  return 1
+}
+
+# _verification_tool_of <run-command>
+#
+# Prints the check binary a RUN step invokes, or returns 1 for a step
+# that is not a check. Matched as a whole word so the `ln -sf
+# /opt/bats/bin/bats /usr/local/bin/bats` step that INSTALLS bats is not
+# mistaken for the step that RUNS it.
+_verification_tool_of() {
+  local _cmd=" ${1-} "
+  local _tool
+  for _tool in "${_VERIFY_TOOLS[@]}"; do
+    if [[ "${_cmd}" == *" ${_tool} "* ]]; then
+      printf '%s\n' "${_tool}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# _scan_verification_steps <log> <cached-outvar> <ran-outvar> <pending-outvar>
+#
+# Classifies every verification step in a captured BuildKit `plain`
+# progress log into three name lists. The shapes read are:
+#
+#   #7 [devel-test 16/16] RUN bats /smoke_test/      <- the step
+#   #7 CACHED                                        <- reused
+#   #7 DONE 3.1s                                     <- executed
+#
+# (the leading number is BuildKit's step id, kept single-digit here so
+# the example does not read as a transient issue ref, ADR-00000013)
+#
+# A step announced but never resolved lands in <pending>, which the
+# caller treats as an error: neither "cached" nor "ran" is provable, so
+# neither is claimed.
+_scan_verification_steps() {
+  local _log="${1:?_scan_verification_steps requires <log>}"
+  local -n _svs_cached="${2:?_scan_verification_steps requires <cached-outvar>}"
+  local -n _svs_ran="${3:?_scan_verification_steps requires <ran-outvar>}"
+  local -n _svs_pending="${4:?_scan_verification_steps requires <pending-outvar>}"
+  _svs_cached=()
+  _svs_ran=()
+  _svs_pending=()
+
+  local -A _cmd=()
+  local -A _state=()
+  local _line _id _rest
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    [[ "${_line}" =~ ^[[:space:]]*#([0-9]+)[[:space:]](.*)$ ]] || continue
+    _id="${BASH_REMATCH[1]}"
+    _rest="${BASH_REMATCH[2]}"
+    if [[ "${_rest}" =~ ^\[[^]]*\][[:space:]]+RUN[[:space:]]+(.*)$ ]]; then
+      _cmd["${_id}"]="${BASH_REMATCH[1]}"
+    elif [[ "${_rest}" == "CACHED" ]]; then
+      _state["${_id}"]="cached"
+    elif [[ "${_rest}" == DONE\ * ]]; then
+      _state["${_id}"]="ran"
+    fi
+  done < "${_log}"
+
+  # Sorted by step id so the report reads in Dockerfile order and two
+  # runs of the same build produce the same text (bash iterates an
+  # associative array in hash order, which is neither).
+  local _tool
+  while IFS= read -r _id; do
+    [[ -n "${_id}" ]] || continue
+    _tool="$(_verification_tool_of "${_cmd[${_id}]}")" || continue
+    case "${_state[${_id}]:-}" in
+      cached) _svs_cached+=("${_tool}") ;;
+      ran)    _svs_ran+=("${_tool}") ;;
+      *)      _svs_pending+=("${_tool}") ;;
+    esac
+  done < <(printf '%s\n' "${!_cmd[@]}" | sort -n)
+}
+
+# _join_tools <name>...
+#
+# Renders a step-name list for the human-readable half of a report line.
+# The `<key>=` attributes keep the raw space-separated form; only the
+# prose is punctuated.
+_join_tools() {
+  local _out=""
+  local _name
+  for _name in "$@"; do
+    _out+="${_out:+, }${_name}"
+  done
+  printf '%s\n' "${_out}"
+}
+
+# _report_verification_run <target> <log>
+#
+# Says what happened, and returns non-zero when it cannot.
+#
+# The two failing branches are the point of the whole mechanism. A parse
+# that finds nothing must NOT be read as "the checks ran" -- an
+# unreadable build output is not evidence of anything, so it is an error
+# rather than a quiet pass. That is also what bounds the fragility of
+# reading BuildKit's output: if the format moves, this stops the gate
+# loudly instead of resuming the silent-success behaviour being fixed.
+#
+# A fully cached run is NOT an error: cache hits are correct, and failing
+# them would break every warm-cache CI build. It is a WARNING that says,
+# in words, that this build verified nothing.
+_report_verification_run() {
+  local _target="${1:?_report_verification_run requires <target>}"
+  local _log="${2:?_report_verification_run requires <log>}"
+  local -a _cached=() _ran=() _pending=()
+  _scan_verification_steps "${_log}" _cached _ran _pending
+  local _cached_txt _ran_txt _pending_txt
+  _cached_txt="$(_join_tools "${_cached[@]}")"
+  _ran_txt="$(_join_tools "${_ran[@]}")"
+  _pending_txt="$(_join_tools "${_pending[@]}")"
+
+  local _total=$(( ${#_cached[@]} + ${#_ran[@]} + ${#_pending[@]} ))
+  if [[ "${#_pending[@]}" -gt 0 ]]; then
+    _log_err build build_verify_step_unresolved \
+      "display=cannot tell whether target '${_target}' verified anything: ${#_pending[@]} check step(s) (${_pending_txt}) reported neither CACHED nor DONE. Refusing to report a pass on an unreadable build output -- re-run with -v and read it." \
+      "target=${_target}" "pending=${_pending[*]}"
+    return 1
+  fi
+  if [[ "${_total}" -eq 0 ]]; then
+    _log_err build build_verify_no_steps \
+      "display=cannot tell whether target '${_target}' verified anything: no verification step (bats / hadolint / shellcheck) was recognised in the build output. Either the stage runs no checks or the progress format moved; a build that proves nothing is not reported as a pass." \
+      "target=${_target}"
+    return 1
+  fi
+  if [[ "${#_ran[@]}" -eq 0 ]]; then
+    _log_warn build build_verify_all_cached \
+      "display=verification: all ${_total} check step(s) in target '${_target}' were CACHED (${_cached_txt}) -- nothing ran in this invocation, so this build is not evidence that the checks pass. Re-run with --no-cache to execute them." \
+      "target=${_target}" "cached=${_cached[*]}"
+    return 0
+  fi
+  if [[ "${#_cached[@]}" -gt 0 ]]; then
+    _log_warn build build_verify_partly_cached \
+      "display=verification: target '${_target}' executed ${#_ran[@]} of ${_total} check step(s) (${_ran_txt}); cached: ${_cached_txt} -- this build is not evidence about the cached ones." \
+      "target=${_target}" "ran=${_ran[*]}" "cached=${_cached[*]}"
+    return 0
+  fi
+  _log_info build build_verify_all_ran \
+    "display=verification: target '${_target}' executed all ${_total} check step(s) (${_ran_txt})." \
+    "target=${_target}" "ran=${_ran[*]}"
+}
+
+# Removes the captured build log. Registered with _atexit (not `trap ...
+# EXIT`, which would clobber the transcript finalize) so a failed build
+# does not leave one behind.
+_verify_log_cleanup() {
+  [[ -n "${_VERIFY_LOG:-}" ]] || return 0
+  rm -f -- "${_VERIFY_LOG}"
 }
 
 # _prune_predecessor removes the displaced predecessor image after a
