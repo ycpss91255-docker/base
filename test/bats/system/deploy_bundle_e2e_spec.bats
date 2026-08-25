@@ -82,6 +82,8 @@ setup_file() {
   printf '%s\n' \
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
+    "[environment]" "env_1 = APP_MODE=shipped-default" \
+    "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
     > "${REPO}/.setup.conf"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
@@ -204,6 +206,45 @@ teardown_file() {
   [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'
   [[ "${output}" != *"${CNAME}"* ]]
+}
+
+@test "field-deploy e2e: an operator .env.local override reaches the RUNNING container" {
+  # The acceptance criterion this exists for: not "the compose looks right",
+  # but "the value inside the container changed". compose gives environment:
+  # precedence over env_file, so a WATCHDOG_* / [environment] default left in
+  # the service's environment: block would make this override silently inert.
+  [ -f "${BUNDLE}/.env" ]
+  [ -f "${BUNDLE}/.env.local" ]
+  run cat "${BUNDLE}/.env"
+  [[ "${output}" == *"APP_MODE=shipped-default"* ]] || { echo "bundle .env: ${output}"; false; }
+  [[ "${output}" == *"WATCHDOG_INTERVAL=30"* ]] || { echo "bundle .env: ${output}"; false; }
+
+  run "${BUNDLE}/deploy.sh" up
+  [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
+
+  # Before any override: the shipped default is what the container sees.
+  run docker exec "${CNAME}" printenv APP_MODE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_MODE failed: ${output}"; false; }
+  [[ "${output}" == "shipped-default" ]] || { echo "expected shipped-default, got: ${output}"; false; }
+
+  # The operator edits .env.local in the field and re-ups. No rebuild, no
+  # regenerate, no edit to the machine-generated compose.yaml.
+  printf 'APP_MODE=field-override\nWATCHDOG_INTERVAL=5\n' > "${BUNDLE}/.env.local"
+  run "${BUNDLE}/deploy.sh" up
+  [ "${status}" -eq 0 ] || { echo "deploy.sh re-up failed (status=${status}):"; echo "${output}"; false; }
+
+  run docker exec "${CNAME}" printenv APP_MODE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_MODE failed: ${output}"; false; }
+  [[ "${output}" == "field-override" ]] || { echo "operator override IGNORED; got: ${output}"; false; }
+
+  run docker exec "${CNAME}" printenv WATCHDOG_INTERVAL
+  [ "${status}" -eq 0 ] || { echo "printenv WATCHDOG_INTERVAL failed: ${output}"; false; }
+  [[ "${output}" == "5" ]] || { echo "watchdog override IGNORED; got: ${output}"; false; }
+
+  # Restore the pristine override file so the sibling tests are unaffected.
+  : > "${BUNDLE}/.env.local"
+  run "${BUNDLE}/deploy.sh" down
+  [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
 }
 
 @test "field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host" {

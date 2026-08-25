@@ -216,6 +216,40 @@ _assert_release_can_upgrade() {
 # opposite shape: a CLEAN tree whose version file claims a release the
 # upgrade never finished reaching.
 
+# _assert_release_migrates_env <tag>
+#   The consumer is sitting on a release whose rule was ".env is YOURS", so
+#   it has a hand-written, gitignored, unrecoverable .env. The upgrade that
+#   flips the rule is driven by THAT release's upgrade.sh, which knows
+#   nothing about the migration -- so the migration has to ride something
+#   the old driver still calls into on the new tree.
+_assert_release_migrates_env() {
+  local _tag="${1:?BUG: _assert_release_migrates_env expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  printf '# my machine\nROS_DOMAIN_ID=42\nAPI_TOKEN=secret\n' > "${CONSUMER}/.env"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  # The user's file survived, under the name that is now the user's.
+  assert [ -f "${CONSUMER}/.env.local" ]
+  run cat "${CONSUMER}/.env.local"
+  assert_output --partial "ROS_DOMAIN_ID=42"
+  assert_output --partial "API_TOKEN=secret"
+  # ... and nothing is left at the name the tool now regenerates.
+  assert [ ! -e "${CONSUMER}/.env" ]
+}
+
+@test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
+  _assert_release_migrates_env "$(_release_tag 1)"
+}
+
 @test "the newest released upgrade.sh drives the current tree to a working consumer" {
   _assert_release_can_upgrade "$(_release_tag 1)"
 }

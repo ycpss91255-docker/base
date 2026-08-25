@@ -2,19 +2,21 @@
 #
 # Unit tests pinning the derived-artifact claim every setup surface makes.
 #
-# `setup.sh apply` regenerates TWO files: `.env.generated` (the derived
-# interpolation cache, incl. the SETUP_* drift metadata) and `compose.yaml`.
-# `.env` is the hand-authored, gitignored workload overlay -- apply scaffolds
-# it once and never rewrites it (see `_setup_apply`'s A2 file-role comment and
-# `_wrapper_setup_sync`).
+# `setup.sh apply` regenerates THREE files: `.env` (the shipped container-env
+# defaults), `.env.generated` (the derived interpolation cache, incl. the
+# SETUP_* drift metadata) and `compose.yaml`. The one file apply never
+# rewrites is `.env.local` -- the operator's overrides.
 #
-# Every user-visible surface used to say "regenerate .env", which teaches the
-# opposite of the file-role model: a user who hand-edited `.env` reads that and
-# avoids the very command they are supposed to run, and a user who expects
-# apply to rewrite `.env` from their conf edits waits for a change that never
-# comes. These tests pin the corrected claim against the code so prose alone is
-# never the guard, and they cover all four locales -- a string fix that lands in
-# one locale is not a fix.
+# The claim used to be the exact opposite: `.env` was the hand-authored
+# overlay and every surface was corrected to say `.env.generated` alone. The
+# naming rule reversed (the standard name is ours; a suffix marks a local
+# variant), so these tests move with it -- and the cross-surface guard below
+# flips too: what must never appear now is a surface still teaching that a
+# bare `.env` is the user's hand-authored file, because a user who believes
+# that will put a token in a file the next apply overwrites.
+#
+# All four locales are covered: a string fix that lands in one locale is not
+# a fix.
 
 bats_require_minimum_version 1.5.0
 
@@ -29,81 +31,81 @@ setup() {
 # `just docker help` -- the localized recipe listing (all four locales)
 # ════════════════════════════════════════════════════════════════════
 
-@test "just docker help: en setup summary names .env.generated (#879)" {
+@test "just docker help: en setup summary names .env + .env.generated (#868)" {
   run bash "${HELP_SH}" docker --lang en
   assert_success
-  assert_output --partial "Regenerate .env.generated + compose.yaml from setup.conf"
+  assert_output --partial "Regenerate .env / .env.generated / compose.yaml from setup.conf"
 }
 
-@test "just docker help: zh-TW setup summary names .env.generated (#879)" {
+@test "just docker help: zh-TW setup summary names .env + .env.generated (#868)" {
   run bash "${HELP_SH}" docker --lang zh-TW
   assert_success
-  assert_output --partial "重新產生 .env.generated 與 compose.yaml"
+  assert_output --partial "重新產生 .env / .env.generated 與 compose.yaml"
 }
 
-@test "just docker help: zh-CN setup summary names .env.generated (#879)" {
+@test "just docker help: zh-CN setup summary names .env + .env.generated (#868)" {
   run bash "${HELP_SH}" docker --lang zh-CN
   assert_success
-  assert_output --partial "重新生成 .env.generated 与 compose.yaml"
+  assert_output --partial "重新生成 .env / .env.generated 与 compose.yaml"
 }
 
-@test "just docker help: ja setup summary names .env.generated (#879)" {
+@test "just docker help: ja setup summary names .env + .env.generated (#868)" {
   run bash "${HELP_SH}" docker --lang ja
   assert_success
-  assert_output --partial ".env.generated と compose.yaml を再生成"
+  assert_output --partial ".env / .env.generated と compose.yaml を再生成"
 }
 
 # ════════════════════════════════════════════════════════════════════
 # `just --list` doc comment (English-only; just cannot be intercepted)
 # ════════════════════════════════════════════════════════════════════
 
-@test "justfile.docker: the setup doc comment names .env.generated (#879)" {
+@test "justfile.docker: the setup doc comment names .env + .env.generated (#868)" {
   run grep -n '^# Regenerate' "${JUSTFILE_DOCKER}"
   assert_success
-  assert_output --partial ".env.generated + compose.yaml from setup.conf"
+  assert_output --partial ".env / .env.generated / compose.yaml from setup.conf"
 }
 
 # ════════════════════════════════════════════════════════════════════
 # setup.sh usage + the post-mutation "next:" hint
 # ════════════════════════════════════════════════════════════════════
 
-@test "setup.sh --help: usage names .env.generated (#879)" {
+@test "setup.sh --help: usage names .env + .env.generated (#868)" {
   run bash "${SETUP_SH}" --help
   assert_success
-  assert_output --partial "Regenerate .env.generated + compose.yaml"
+  assert_output --partial "Regenerate .env / .env.generated / compose.yaml"
 }
 
-@test "setup.sh set: the next hint names .env.generated (#879)" {
+@test "setup.sh set: the next hint names .env + .env.generated (#868)" {
   local _repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${_repo}"
   run bash "${SETUP_SH}" set network.mode bridge --base-path "${_repo}"
   assert_success
-  assert_output --partial "to regenerate .env.generated + compose.yaml"
+  assert_output --partial "to regenerate .env / .env.generated / compose.yaml"
 }
 
-@test "setup.sh add: the next hint names .env.generated (#879)" {
+@test "setup.sh add: the next hint names .env + .env.generated (#868)" {
   local _repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${_repo}"
   run bash "${SETUP_SH}" add environment.env FOO=bar --base-path "${_repo}"
   assert_success
-  assert_output --partial "to regenerate .env.generated + compose.yaml"
+  assert_output --partial "to regenerate .env / .env.generated / compose.yaml"
 }
 
-@test "setup.sh remove: the next hint names .env.generated (#879)" {
+@test "setup.sh remove: the next hint names .env + .env.generated (#868)" {
   local _repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${_repo}"
   run bash "${SETUP_SH}" set network.mode bridge --base-path "${_repo}"
   assert_success
   run bash "${SETUP_SH}" remove network.mode --base-path "${_repo}"
   assert_success
-  assert_output --partial "to regenerate .env.generated + compose.yaml"
+  assert_output --partial "to regenerate .env / .env.generated / compose.yaml"
 }
 
 # ════════════════════════════════════════════════════════════════════
 # apply's completion line (_setup_msg env done) -- all four locales
 # ════════════════════════════════════════════════════════════════════
 
-@test "setup.sh env done message names .env.generated in all four locales (#879)" {
+@test "setup.sh env done message names .env.generated in all four locales (#868)" {
   local _lang
   for _lang in en zh-TW zh-CN ja; do
     run bash -c "_LANG='${_lang}'; source '${SETUP_SH}' 2>/dev/null; _LANG='${_lang}'; _setup_msg env done"
@@ -113,7 +115,7 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Cross-surface guard: no shipped surface claims `.env` is regenerated
+# Cross-surface guard: no shipped surface calls a bare `.env` the user's
 # ════════════════════════════════════════════════════════════════════
 
 # The surfaces a user actually reads. Kept as an explicit list rather than a
@@ -125,6 +127,8 @@ _claim_surfaces() {
 /source/dist/script/docker/lib/help.sh
 /source/dist/script/docker/lib/setup_cmd.sh
 /source/dist/script/docker/lib/wrapper.sh
+/source/dist/script/docker/lib/env_emit.sh
+/source/dist/script/docker/lib/compose_emit.sh
 /source/dist/script/docker/wrapper/build.sh
 /source/dist/script/docker/wrapper/run.sh
 /source/dist/script/docker/wrapper/setup.sh
@@ -132,27 +136,44 @@ _claim_surfaces() {
 EOF
 }
 
-@test "no shipped surface claims setup regenerates a bare .env (#879)" {
-  # Two claim shapes, matched deliberately narrowly so a legitimate sentence
-  # that merely mentions both `.env` and a regenerate verb (the TUI's
-  # workload-env info page says apply does NOT touch `.env`) is not a hit:
-  #   1. verb-first (en / zh-TW / zh-CN): "Regenerate .env", "重新產生 .env"
-  #   2. object-first (ja): ".env + compose.yaml を再生成"
-  # `\.env([^.[:alnum:]]|$)` excludes the qualified `.env.generated` /
-  # `.env.bak` names, so only a bare `.env` is the wrong claim.
-  local _bad_claim
-  _bad_claim='(egenerate|egenerates|egenerating|重新產生|重新生成|再產生)[[:space:]]+\.env([^.[:alnum:]]|$)'
-  _bad_claim+='|\.env([^.[:alnum:]]|$)[^。]{0,25}再生成'
-  local _file _hits=""
+@test "no shipped surface calls a bare .env hand-authored or a workload overlay (#868)" {
+  # The pre-#868 vocabulary for the user-owned file. Every one of these
+  # phrases, applied to a bare `.env`, teaches a user to hand-edit a file
+  # the next apply overwrites. `.env.local` is the file those words describe
+  # now, so the patterns deliberately require a bare `.env` nearby or no
+  # qualified name at all.
+  local -a _bad=(
+    'hand-authored .env([^.[:alnum:]]|$)'
+    '\.env([^.[:alnum:]]|$)[^.]{0,20}workload overlay'
+    'workload overlay[^.]{0,20}\.env([^.[:alnum:]]|$)'
+    '\.env overlay'
+    '手寫的 `?\.env([^.[:alnum:]]|$)'
+  )
+  local _file _pat _hits=""
   while IFS= read -r _file; do
-    local _out=""
-    _out="$(grep -nE "${_bad_claim}" "${_file}" || true)"
-    if [[ -n "${_out}" ]]; then
-      _hits+="${_file}"$'\n'"${_out}"$'\n'
-    fi
+    [[ -f "${_file}" ]] || continue
+    for _pat in "${_bad[@]}"; do
+      local _out=""
+      _out="$(grep -nE "${_pat}" "${_file}" || true)"
+      [[ -n "${_out}" ]] && _hits+="${_file}"$'\n'"${_out}"$'\n'
+    done
   done < <(_claim_surfaces)
   [[ -z "${_hits}" ]] || {
-    printf 'surfaces still claiming a bare .env is regenerated:\n%s\n' "${_hits}" >&2
+    printf 'surfaces still teaching that a bare .env is the user'"'"'s file:\n%s\n' "${_hits}" >&2
     return 1
   }
+}
+
+@test "the shipped surfaces name .env.local as the override channel (#868)" {
+  # The inverse of the guard above: removing the wrong claim is not enough
+  # if nothing tells the user where their values go instead.
+  local _file
+  for _file in \
+      /source/dist/script/docker/lib/env_emit.sh \
+      /source/dist/script/docker/lib/compose_emit.sh \
+      /source/dist/script/docker/wrapper/setup.sh \
+      /source/dist/.setup.conf; do
+    run grep -F '.env.local' "${_file}"
+    assert_success
+  done
 }

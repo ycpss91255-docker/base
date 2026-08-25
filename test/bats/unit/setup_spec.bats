@@ -846,13 +846,49 @@ EOF
   assert_failure
 }
 
-@test "apply emits env_file: - .env on the devel service (#502 overlay)" {
+@test "apply emits env_file: .env then .env.local on the devel service (#868)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
+  run grep -A2 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
   assert_success
   assert_output --partial "- .env"
+  assert_output --partial "- .env.local"
+}
+
+@test "apply generates .env and scaffolds .env.local (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/.env.local" ]
+  run grep -F 'Auto-generated' "${TEMP_DIR}/.env"
+  assert_success
+}
+
+@test "apply rewrites .env but never rewrites .env.local (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  printf 'OPERATOR=mine\n' > "${TEMP_DIR}/.env.local"
+  printf 'HAND_EDIT=lost\n' > "${TEMP_DIR}/.env"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run cat "${TEMP_DIR}/.env.local"
+  assert_output "OPERATOR=mine"
+  run grep -qxF 'HAND_EDIT=lost' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "apply routes [environment] env_N into .env, not the compose environment: block (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[environment]\nenv_1 = ROS_DOMAIN_ID=42\n' >> "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -xF 'ROS_DOMAIN_ID=42' "${TEMP_DIR}/.env"
+  assert_success
+  run grep -F 'ROS_DOMAIN_ID' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════

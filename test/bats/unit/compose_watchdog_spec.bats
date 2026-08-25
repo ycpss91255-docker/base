@@ -48,32 +48,27 @@ _gcy_wd() {
   assert_failure
 }
 
-@test "watchdog env emitted on devel when watchdog_check is set (#797)" {
+@test "watchdog env stays OUT of the compose environment: block so .env.local wins (#868)" {
   local _wd
   printf -v _wd '%s\n%s\n%s' \
     "WATCHDOG_CHECK=rosnode ping -a" "WATCHDOG_INTERVAL=15" "WATCHDOG_ON_FAIL=restart-service"
   _gcy_wd "${_wd}"
-  run grep -F 'WATCHDOG_CHECK=rosnode ping -a' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F 'WATCHDOG_INTERVAL=15' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F 'WATCHDOG_ON_FAIL=restart-service' "${COMPOSE_OUT}"
-  assert_success
+  # compose gives environment: precedence over env_file, so a WATCHDOG_*
+  # value there would silently beat the operator override channel.
+  run grep -F 'WATCHDOG_' "${COMPOSE_OUT}"
+  assert_failure
 }
 
-@test "watchdog env value is YAML double-quoted (command with structural chars) (#797)" {
-  local _wd="WATCHDOG_CHECK=test -f /tmp/ok && echo up: yes"
-  _gcy_wd "${_wd}"
-  # A ': ' in the value would re-parse as a YAML mapping unless quoted.
-  run grep -F -- '- "WATCHDOG_CHECK=test -f /tmp/ok && echo up: yes"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "watchdog env rides on devel; extends:devel stages inherit it (single emit) (#797)" {
+@test "a stage that replaced the inherited env list re-states WATCHDOG_* inline (#868)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:devel-test]
+environment.env_inherit = false
+environment.env_1 = ONLY_MINE=1
+CONF
   local _wd="WATCHDOG_CHECK=true"
   _gcy_wd "${_wd}"
-  # devel carries the env; the test service extends:devel and inherits it,
-  # so WATCHDOG_CHECK appears exactly once (not duplicated per service).
+  # That stage cannot consume the shared .env (it would put the dropped
+  # top-level entries back), so the lifecycle block is emitted on it.
   run grep -cF "WATCHDOG_CHECK=true" "${COMPOSE_OUT}"
   assert_success
   assert_output "1"

@@ -1314,6 +1314,7 @@ services:
     tty: true
     env_file:
       - .env
+      - .env.local
     runtime: nvidia
     init: true
     networks:
@@ -1324,7 +1325,6 @@ services:
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
-      - "TOP_ENV=1"
     ports:
       - "${PORT_1:-9000:9000}"
     volumes:
@@ -1376,7 +1376,7 @@ services:
     profiles:
       - headless
     env_file:
-      - .env
+      - .env.local
     privileged: true
     ipc: private
     runtime: nvidia
