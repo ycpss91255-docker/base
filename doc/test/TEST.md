@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **2814 tests** total (2686 unit + 128 integration).
+Template self-tests: **2828 tests** total (2700 unit + 128 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
-> `Self Test` CI job. System (9) and smoke (34) tests are tracked here
-> too but are **not** in the 2814 figure: System specs need host docker
+> `Self Test` CI job. System (12) and smoke (34) tests are tracked here
+> too but are **not** in the 2828 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2686 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2700 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 128 |
-| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 9 |
+| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 12 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **2814**.
+Self-test grand total (unit + integration): **2828**.
 
 ## Static lints and where they are enforced
 

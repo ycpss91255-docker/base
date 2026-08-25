@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2686 tests**.
+Unit specs under `test/bats/unit/`: **2700 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1985,7 +1985,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (93)
+### test/bats/unit/ci_spec.bats (94)
 
 | Test | Description |
 |------|-------------|
@@ -2057,8 +2057,9 @@ builds the env block only for the knobs the conf sets.
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |
 | `drivers: are sourced libraries (no top-level main invocation)` | #650 driver is a library |
 | `drivers: _run_shellcheck also lints the driver files themselves` | #650 driver self-shellcheck |
-| `_run_hadolint: lints both template-owned Dockerfiles with the shared config` | #650 single-source Dockerfile list + config |
-| `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 exactly two invocations |
+| `_run_hadolint: lints every Dockerfile in the tree with the shared config` | #650 single-source Dockerfile list + config |
+| `_run_hadolint: the linted list is every Dockerfile the tree carries` | A Dockerfile added beside the others and never added to the list is a Dockerfile no lint pass names |
+| `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 one invocation per listed Dockerfile |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
@@ -3015,3 +3016,37 @@ host so the boundary between them can be asserted at all.
 | `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
+
+### test/bats/unit/smoke_harness_spec.bats (13)
+
+The static half of the `just test smoke` harness (see
+[smoke.md](smoke.md) for what it is and how to run it); the behavioural
+half -- the specs really run, really run non-root, and really gate -- is
+`test/bats/system/smoke_harness_spec.bats`.
+
+The load-bearing test is the COPY-set parity check. A harness whose COPY
+set has fallen behind the stage it stands in for is worse than no harness:
+it reports green for a stage that would be red. So the shipped
+`devel-test` stage's COPY lines into `/lint` and `/smoke_test` are walked
+and each one is required to appear in `dockerfile/Dockerfile.smoke` --
+with `.base/` stripped, since base IS the template source and carries no
+subtree. The few that are deliberately not reproduced sit in a named
+exemption list, and a second test requires every entry of THAT list to
+still name a real COPY, so an exemption cannot outlive the line it
+exempts.
+
+| Test | Description |
+|------|-------------|
+| `the smoke harness ships a dockerfile and a compose service that builds it` | The two artifacts exist and are wired to each other |
+| `just test smoke builds through the docker namespace, not a raw docker build (ADR-00000011 sec.5)` | Same rule `just test system` follows -- the wrapper consumers use, not a `docker build -f` one-liner |
+| `just test smoke resolves the tooling image and names the compose project (#896, #891)` | `TEST_TOOLS_IMAGE` has no default anywhere, and an unnamed project falls back to the directory basename |
+| `just test smoke names the image it builds after the resolved project, not the directory (#891)` | The wrapper passes `-p "${PROJECT_NAME}"`, which `COMPOSE_PROJECT_NAME` never reaches -- so the recipe seeds both |
+| `just test smoke is NOT wired into the default just test gate` | Deliberate and asserted: the default gate is the fast self-test, with no daemon and no image build |
+| `the harness reproduces every devel-test COPY into /lint and /smoke_test` | Parity with the shipped stage -- a COPY added there fails here until the harness follows |
+| `every harness COPY exemption is still a real devel-test COPY` | The reverse direction: an exemption whose COPY was deleted is a hole the next COPY at that path inherits |
+| `the harness installs the entrypoint the shared smoke baseline asserts` | `smoke/shared/entrypoint.bats` needs `/entrypoint.sh`, which a consumer gets from the devel stage |
+| `the harness exports BATS_LIB_PATH like the devel-test stage does` | Without it `bats_load_library bats-support` fails and every spec errors in setup |
+| `the harness runs the specs as a non-root user, after the COPYs` | Non-root by name and by uid, and the `USER` line precedes the bats run |
+| `the harness asserts at BUILD time, exactly like the stage it stands in for` | `RUN bats`, not a `CMD` a `docker run` may never reach, and no `\|\| true` |
+| `the harness has no compose image name to displace a sibling checkout's (#891)` | The producing service names no image, so compose tags it under the run's own project |
+| `runtime-test ships no specs, which is why the harness covers devel-test only` | Fails the day runtime-test gains one -- which is when the stage-argument decision is due |

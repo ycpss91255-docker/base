@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **9 tests**.
+System specs under `test/bats/system/`: **12 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -121,3 +121,28 @@ concurrent `deploy.sh up` calls would race for that name.
 | `field-deploy e2e: the generator produced a self-contained bundle folder` | real bundle output |
 | `field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies` | run + mount-wins override |
 | `field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host` | read-only default proven by a real write |
+
+### test/bats/system/smoke_harness_spec.bats (3)
+
+The behavioural half of the `just test smoke` harness (see
+[smoke.md](smoke.md) for what the harness is and how to run it); the
+static half -- COPY-set parity against the shipped `devel-test` stage --
+is `test/bats/unit/smoke_harness_spec.bats`.
+
+Every case builds the **real** `dockerfile/Dockerfile.smoke`; only the
+build CONTEXT is synthesized, a minimal copy of the paths that Dockerfile
+COPYs, so a fixture spec can be dropped in without touching the checkout.
+Building a fixture Dockerfile instead would assert against the fixture and
+leave the real one unproven -- the shape the harness exists to replace.
+
+`--no-cache` on each build is load-bearing, not caution: these assert on
+what the `RUN bats` layer produced, and a CACHED layer produces nothing.
+The positive case rebuilds a context identical to the previous run's, so
+without it the second invocation reports success having executed no specs
+at all.
+
+| Test | Description |
+|------|-------------|
+| `the smoke harness runs the shipped specs and they pass` | The shipped specs, unmodified, pass in the harness -- and bats reported a plan, so an empty `/smoke_test` cannot pass by doing nothing |
+| `the smoke harness runs the specs as a non-root user` | Fixture specs reading `id -u` and attempting a write into `/lint` prove the runtime identity, not just the Dockerfile's `USER` line |
+| `the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)` | Negative case: a deliberately failing spec fails the build, so a future `\|\| true` cannot turn the entry point into a report that always says green |

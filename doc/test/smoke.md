@@ -43,6 +43,81 @@ No whole-tree COPY, so the ephemeral `-test` image stays small; adding a
 stage is a folder plus an analogous COPY block. The shared baseline and
 any per-repo `test/bats/smoke/` overlay execute together.
 
+## Running them: `just test smoke`
+
+```bash
+just test smoke              # run every shipped smoke spec
+just test smoke --no-cache   # ignore the layer cache and re-run them
+```
+
+base is the template SOURCE, so it has no `Dockerfile` and no `-test`
+stage of its own -- which used to leave the specs it *ships* with nowhere
+to run at all. Verifying one meant hand-reproducing the stage with raw
+`docker build` / `docker run`, twice (once as root, once as the real
+stage's non-root user), which interrupts for a permission decision on
+every invocation and leaves nothing the next person can reuse.
+
+`just test smoke` builds `dockerfile/Dockerfile.smoke` through the
+`docker` namespace (ADR-00000011 sec.5), the same way `just test system`
+builds the tooling image. **Building it IS the test**: the file ends in
+`RUN bats /smoke_test/`, exactly as the `-test` stage does, so a failing
+spec fails a build rather than being reported by something that could
+stop reporting.
+
+### What it mirrors, and what it trades away
+
+Mirrored, because it is what makes the run meaningful:
+
+- the `/lint` COPY set -- the wrappers plus the `lib/` chain they source,
+  copied **root-owned** and not `--chown`'d, as the stage does;
+- the flattened `/smoke_test/`, built from `smoke/shared/` +
+  `smoke/devel-test/`;
+- `/entrypoint.sh`, which the shared baseline asserts;
+- `BATS_LIB_PATH`, without which every spec errors in `setup`;
+- a **non-root** `USER` before the bats run. A harness that ran these as
+  root against the source tree would be green in exactly the cases the
+  real stage is red.
+
+`test/bats/unit/smoke_harness_spec.bats` walks the shipped stage's COPY
+lines and fails when the harness stops reproducing one, so the mirror
+cannot quietly fall a stage behind.
+
+Traded away, deliberately: **the base image**. A real `devel-test` stage
+is `FROM devel` -- the consumer's Ubuntu image with its apt packages --
+and building that means scaffolding a whole consumer repo and a
+multi-minute apt build, which is base's `acceptance` CI job's work, not a
+local one-command loop's. The harness is `FROM ${TEST_TOOLS_IMAGE}`
+instead (the Alpine tooling image, which already carries bats +
+bats-support + bats-assert), so anything OS- or package-specific is out of
+its reach. That is also why the per-repo `test/bats/smoke/` overlay is not
+copied in: base ships these specs, it does not consume them. The stage's
+lint half (ShellCheck over the wrappers, Hadolint over the Dockerfile) is
+not duplicated either -- `just test lint` already runs both.
+
+### Scope, cache, and why it is not in the default gate
+
+**Scope is `devel-test`**, which is every shipped smoke spec today. There
+is no stage argument: `runtime-test` ships none, and its real base is the
+MINIMAL runtime image, so running the shared baseline against this
+devel-shaped harness and labelling the result `runtime-test` would be a
+false green. A unit test fails the day `smoke/runtime-test/` gains a spec,
+which is when that decision is due.
+
+**A `CACHED` run is a true statement, not a skipped one.** The specs, the
+wrappers and the lib chain are all COPYed in the layers directly above
+`RUN bats`, so touching any of them invalidates it; a cache hit means
+these exact inputs already passed. Use `--no-cache` when you want to watch
+it happen anyway.
+
+**Not part of the default `just test`.** That gate is the fast self-test
+-- no daemon, no image build -- and these are a different level: a
+Dockerfile stage's build-time assertions, which is also why they are
+excluded from the self-test grand total in [TEST.md](TEST.md). Their CI
+coverage stays the `acceptance` job, which builds a real scaffolded
+consumer's `-test` stage on both arches. The harness itself is covered by
+`test/bats/unit/smoke_harness_spec.bats` (in the default gate) and
+`test/bats/system/smoke_harness_spec.bats` (under `just test system`).
+
 Nothing in this tree skips, and nothing here asserts against the
 generated `compose.yaml`. `compose.yaml` is a derived artifact listed in
 `.dockerignore`, so it is not in any repo's build context and
