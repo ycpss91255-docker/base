@@ -71,8 +71,13 @@ _harness_copy_lines() {
 # mismatch rather than passing silently.
 _copy_src() {
   local _line="${1}" _tok
+  # Word-split with globbing OFF: `COPY script/*.sh /lint/` is a real COPY
+  # source, and an unguarded split would expand it against the current
+  # directory into whatever happens to be there.
+  set -f
   # shellcheck disable=SC2086  # deliberate word split over the collapsed line
   set -- ${_line}
+  set +f
   shift  # the COPY verb itself
   for _tok in "$@"; do
     [[ "${_tok}" == --* ]] && continue
@@ -146,6 +151,20 @@ _HARNESS_EXEMPT_SRCS=(
   [[ "${_recipe}" == *'test.sh --compose-project-name'* ]]
   [[ "${_recipe}" == *'export TEST_TOOLS_IMAGE'* ]]
   [[ "${_recipe}" == *'export COMPOSE_PROJECT_NAME'* ]]
+}
+
+@test "just test smoke names the image it builds after the resolved project, not the directory (#891)" {
+  # COMPOSE_PROJECT_NAME alone does NOT reach this build: it goes through
+  # the wrapper, which passes `docker compose -p "${PROJECT_NAME}"`
+  # explicitly, and with nothing set that falls back to the checkout
+  # DIRECTORY BASENAME -- so two same-named checkouts write one
+  # `<project>-smoke` tag. The recipe seeds PROJECT_NAME from the same
+  # resolved value the rest of the self-test uses.
+  local _recipe
+  _recipe="$(awk '/^smoke( |:)/ { in_r = 1; next } in_r && /^[a-z]/ { in_r = 0 } in_r' \
+    "${JUSTFILE_TEST}")"
+  [[ "${_recipe}" == *'PROJECT_NAME="${COMPOSE_PROJECT_NAME}"'* ]]
+  [[ "${_recipe}" == *'export PROJECT_NAME'* ]]
 }
 
 @test "just test smoke is NOT wired into the default just test gate" {

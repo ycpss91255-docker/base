@@ -42,9 +42,8 @@ setup_file() {
   fi
 }
 
-setup() {
-  load "${BATS_TEST_DIRNAME}/../unit/test_helper"
-}
+# No test_helper: this level's specs assert with plain `[ ]` on docker's
+# status and output, exactly like its siblings here, and load nothing.
 
 # _make_context <out_var>
 #
