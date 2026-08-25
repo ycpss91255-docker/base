@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2794 tests**.
+Unit specs under `test/bats/unit/`: **2815 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3147,3 +3147,59 @@ fails naming the path and what its absence costs.
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
+
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (21)
+
+Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the
+weekly job that prunes untagged orphan digests from the base-owned
+`test-tools` package on GHCR.
+
+A scheduled job against a real registry cannot be exercised from here —
+there is no local GHCR, and a real run's only honest test is a real run.
+So the spec pins the workflow's SHAPE instead, on the theory that the
+ways this goes catastrophically wrong are all edits to the file:
+
+- **The footgun.** `actions/delete-package-versions` with
+  `delete-only-untagged-versions` calls anything the packages API reports
+  as untagged a candidate without opening a manifest, so it deletes the
+  per-arch children of a LIVE tag and `docker pull` starts 404ing. The
+  spec asserts neither the action nor that input appears in the file's
+  code (the header comment names both on purpose, to say why they are
+  absent, so the assertions run over comment-stripped lines).
+- **The safety inputs.** `delete-untagged` is the only delete rule
+  enabled, `older-than` keeps a retention window, `exclude-tags`
+  preserves the tags downstream Dockerfiles pin, `validate` surfaces a
+  lost platform child in the log, and the tagged / partial-image rules
+  stay off.
+- **Dry-run defaults.** Enforcement is opt-in through the
+  `GHCR_CLEANUP_ENFORCE` repository variable, so a scheduled run deletes
+  nothing until a human has read a dry run. `dry-run` is resolved in a
+  step rather than an `a && b || c` expression, because that idiom
+  collapses to `c` exactly on the dispatch-with-dry-run-false branch.
+- **Scope and pinning.** One owner, one package, no wildcard expansion;
+  the action pinned to an immutable commit SHA rather than a floating tag
+  a third party can move under a job holding `packages: write`.
+
+| Test | Description |
+|------|-------------|
+| `ghcr-cleanup.yaml: never uses actions/delete-package-versions` | The unsafe action never returns: its untagged filter never opens a manifest |
+| `ghcr-cleanup.yaml: never sets delete-only-untagged-versions` | The specific input that breaks live tags, named separately from the action |
+| `ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action` | The action that resolves manifest references is the one in use |
+| `ghcr-cleanup.yaml: pins the cleanup action to an immutable commit SHA` | A moved tag would hand deletion rights over our package to unreviewed code |
+| `ghcr-cleanup.yaml: records the pinned action's version in a trailing comment` | Keeps the SHA readable; the form Dependabot rewrites on bump |
+| `ghcr-cleanup.yaml: enables delete-untagged as the delete rule` | Untagged orphans are the only thing this job collects |
+| `ghcr-cleanup.yaml: leaves the tagged-image delete rules off` | `delete-tags` / ghost / partial / orphaned can remove TAGGED versions: absent |
+| `ghcr-cleanup.yaml: keeps a retention window via older-than` | Without it, a run overlapping a release eats the by-digest pushes pre-merge |
+| `ghcr-cleanup.yaml: preserves the tags downstream consumers pin` | `latest`, `main` and the `v*` series are a strict preserve list |
+| `ghcr-cleanup.yaml: enables the post-run multi-arch validate scan` | A lost platform child shows in the log, not at someone's `docker pull` |
+| `ghcr-cleanup.yaml: dry-run is computed, never hardcoded false` | The rollout safety net cannot be removed by flipping one literal |
+| `ghcr-cleanup.yaml: workflow_dispatch dry-run input defaults to true` | A manual run previews unless the operator asks otherwise |
+| `ghcr-cleanup.yaml: scheduled runs stay dry until GHCR_CLEANUP_ENFORCE opts in` | An unfinished rollout costs sprawl, never a broken tag |
+| `ghcr-cleanup.yaml: resolves dry-run in a step, not an && \|\| expression` | `a && b || c` collapses to `c` on the one branch that deletes |
+| `ghcr-cleanup.yaml: targets exactly the test-tools package` | One owner, one package: the one base publishes and owns |
+| `ghcr-cleanup.yaml: does not enable wildcard package expansion` | `expand-packages` would widen this to every package in the org |
+| `ghcr-cleanup.yaml: runs on a cron schedule` | The job is scheduled, not merely dispatchable |
+| `ghcr-cleanup.yaml: cron avoids the top of the hour` | GitHub delays scheduled runs that pile onto `:00` |
+| `ghcr-cleanup.yaml: supports manual workflow_dispatch` | The dry-run review and one-off cleans need a manual entry point |
+| `ghcr-cleanup.yaml: declares packages: write and no broader write scope` | Enough to delete package versions, no more |
+| `ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete` | Two actors mutating the package concurrently, or a killed delete, is not a state to design for |
