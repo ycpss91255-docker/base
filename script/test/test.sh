@@ -45,6 +45,10 @@
 #                                  # (skip ShellCheck). Used by the coverage
 #                                  # matrix in self-test.yaml. Codecov
 #                                  # merges the per-shard uploads.
+#   ./test.sh --coverage-path PATH  # Run ONE spec under kcov (instrumented
+#                                  # inner loop). Reports no coverage
+#                                  # figure and writes nothing to
+#                                  # coverage/
 #   ./test.sh -h, --help        # Show this help
 #
 # Kcov instrumentation wraps every bats command and slows the suite
@@ -221,6 +225,8 @@ Options:
   --ci                    Run directly inside CI container (called by
                           compose); honors $COVERAGE=1 to include kcov,
                           $COVERAGE_SHARD to kcov one shard of the matrix,
+                          $COVERAGE_PATH to kcov ONE named spec and report
+                          no figure,
                           $BATS_ONLY=1 to skip the ShellCheck phase,
                           $BATS_UNIT_SHARD to run only one matrix shard,
                           $BATS_FRAGILE=1 to run only the kcov-fragile specs,
@@ -319,7 +325,8 @@ Options:
                           container. Skips ShellCheck + kcov for a fast TDD
                           inner loop. test/bats/system/ is rejected (needs
                           the ci-system service); cannot combine with
-                          --coverage (#523)
+                          --coverage -- that combination is --coverage-path
+                          (#523)
   --filter REGEX          Pass a bats -f name filter (within-file single-test
                           selection); usable with or without --bats-path.
                           Without a path it filters unit + integration (#523)
@@ -332,6 +339,19 @@ Options:
                           shard. Used by the coverage matrix in
                           self-test.yaml (#615). Codecov merges the
                           per-shard uploads into one project figure.
+  --coverage-path PATH    Run ONE spec FILE or DIRECTORY (repo-root-
+                          relative) under kcov via the coverage container:
+                          the inner loop for a spec that is red under kcov
+                          and green without it. Combines with --filter to
+                          instrument a single test. It reports NO coverage
+                          figure and writes nothing into coverage/ -- one
+                          spec's lines over the whole tree's denominator is
+                          not a project rate, and the gate must never be
+                          handed one. The target is the path you name, so
+                          the shard partition (which differs between a
+                          local run and CI) cannot change what runs.
+                          Rejected with --coverage / --coverage-shard /
+                          --bats-path (#887)
   --test-tools-image      Print the local test-tools tag this checkout
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools) and exit.
@@ -375,6 +395,9 @@ Examples:
   ./test.sh --bats-path test/bats/unit/                       # one directory
   ./test.sh --bats-path test/bats/unit/ci_spec.bats --filter 'shard'  # + name filter
   ./test.sh --filter 'cap_add'    # filter across unit + integration
+  ./test.sh --coverage-path test/bats/unit/ci_spec.bats  # one spec, under kcov
+  just test coverage-path test/bats/unit/ci_spec.bats    # same, via just
+  ./test.sh --coverage-path test/bats/unit/ci_spec.bats --filter 'shard'  # one test, under kcov
 EOF
   exit 0
 }
@@ -382,6 +405,29 @@ EOF
 # ── CI container setup ───────────────────────────────────────────────────────
 
 _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; exit 1; }
+
+# _validate_spec_target <path>
+#
+# Shared host-side validation for the two flags that name a spec target,
+# `--bats-path` (plain) and `--coverage-path` (kcov). Both resolve the
+# path INSIDE the container as ${REPO_ROOT}/<path>, so both reject the
+# same two cases, and checking here means a typo costs an error message
+# rather than a container start.
+#
+# test/bats/system/ is refused because those specs need the ci-system
+# service (host docker.sock + MOUNT_DOCKER_SOCK), which neither flag's
+# service provides -- running them anywhere else fails on a missing
+# socket, well after the point where the cause is obvious.
+_validate_spec_target() {
+  local _path="${1:?BUG: _validate_spec_target expects <path>}"
+  if [[ "${_path}" == test/bats/system || "${_path}" == test/bats/system/* ]]; then
+    _die ci_bats_path_system \
+      "test/bats/system/ needs the ci-system service + docker.sock; run 'just test system' (host test.sh cannot launch it)."
+  fi
+  [[ -e "${REPO_ROOT}/${_path}" ]] \
+    || _die ci_bats_path_not_found \
+      "No such spec file or directory: ${_path} (path is repo-root-relative, resolved as \${REPO_ROOT}/${_path})."
+}
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
@@ -630,6 +676,7 @@ _run_via_compose() {
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
+    -e COVERAGE_PATH="${COVERAGE_PATH:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_FRAGILE="${BATS_FRAGILE:-0}" \
@@ -659,6 +706,7 @@ main() {
   local bats_fragile=0
   local bats_integration=0
   local bats_path=""
+  local coverage_path=""
   local bats_filter=""
   local coverage_shard=""
 
@@ -694,6 +742,7 @@ main() {
       --bats-fragile) bats_fragile=1; shift ;;
       --bats-integration) bats_integration=1; shift ;;
       --bats-path) bats_path="${2:?--bats-path expects <path>}"; shift 2 ;;
+      --coverage-path) coverage_path="${2:?--coverage-path expects <path>}"; shift 2 ;;
       --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
@@ -760,6 +809,36 @@ main() {
     return 0
   fi
 
+  # Instrumented single-spec inner loop. `--coverage-path <file|dir>` runs
+  # ONE named spec under kcov via the `coverage` container -- the loop for
+  # the failure class whose whole evidence is "red under kcov, green
+  # without it", which until now cost a full suite or a full shard (8-12
+  # minutes) per iteration.
+  #
+  # It goes through the SAME `coverage` service a shard does, so COVERAGE=1
+  # is set inside the container and the kcov-fragile `[ "${COVERAGE:-0}" = 1
+  # ] && skip` guards behave exactly as they do on a shard -- a
+  # reproduction that differed there would reproduce the wrong thing.
+  # COVERAGE_PATH is what the in-container dispatch branches on, ahead of
+  # _run_coverage.
+  #
+  # It reports NO coverage figure and writes nothing into coverage/; see
+  # _run_coverage_path in drivers/bats.sh for why that is the design rather
+  # than a gap. The conflict guard is what keeps that true: `--coverage` /
+  # `--coverage-shard` produce a figure over a partition and `--bats-path`
+  # is the deliberately kcov-free loop, so silently letting one of them win
+  # is how a one-spec run would end up reported as a shard.
+  if [[ -n "${coverage_path}" ]]; then
+    if [[ "${mode}" == "coverage" || -n "${bats_path}" ]]; then
+      _die ci_coverage_path_conflict \
+        "--coverage-path runs ONE named spec under kcov and reports no coverage figure; it cannot combine with --coverage / --coverage-shard (a figure over a partition) or --bats-path (the no-kcov loop). Pick one."
+    fi
+    _validate_spec_target "${coverage_path}"
+    BATS_ONLY=1 COVERAGE_PATH="${coverage_path}" BATS_FILTER="${bats_filter}" \
+      _run_via_compose coverage 1
+    return 0
+  fi
+
   # Single-path / filtered inner loop. `--bats-path <file|dir>` and / or
   # `--filter <regex>` run a named subset via the `ci` container, skipping
   # ShellCheck (BATS_ONLY=1) and kcov so the TDD inner loop stays fast.
@@ -768,16 +847,10 @@ main() {
   if [[ -n "${bats_path}" || -n "${bats_filter}" ]]; then
     if [[ "${mode}" == "coverage" ]]; then
       _die ci_bats_path_coverage \
-        "--bats-path / --filter cannot combine with --coverage (single-path is the fast no-kcov loop; use --coverage alone for kcov)."
+        "--bats-path / --filter cannot combine with --coverage (single-path is the fast no-kcov loop). One spec WITH kcov is --coverage-path <spec>; a coverage figure is --coverage / --coverage-shard alone."
     fi
     if [[ -n "${bats_path}" ]]; then
-      if [[ "${bats_path}" == test/bats/system || "${bats_path}" == test/bats/system/* ]]; then
-        _die ci_bats_path_system \
-          "test/bats/system/ needs the ci-system service + docker.sock; run 'just test system' (host test.sh cannot launch it)."
-      fi
-      [[ -e "${REPO_ROOT}/${bats_path}" ]] \
-        || _die ci_bats_path_not_found \
-          "No such spec file or directory: ${bats_path} (path is repo-root-relative, resolved as \${REPO_ROOT}/${bats_path})."
+      _validate_spec_target "${bats_path}"
     fi
     BATS_ONLY=1 BATS_FILE="${bats_path}" BATS_FILTER="${bats_filter}" \
       _run_via_compose ci 0
@@ -840,6 +913,17 @@ main() {
         _run_all_lint_tools
       fi
       if [[ "${COVERAGE:-0}" == "1" ]]; then
+        # COVERAGE_PATH names ONE spec to instrument, and is checked
+        # FIRST: it is the only kcov mode that reports no figure, so it
+        # must not fall through to _run_coverage, which writes
+        # coverage/cobertura.xml + coverage/timings.tsv into the mounted
+        # checkout -- the exact artifacts the coverage-gate merges and the
+        # next partition weighs itself by. Nothing to chown and no report
+        # to announce either, hence no _fix_permissions and no report line.
+        if [[ -n "${COVERAGE_PATH:-}" ]]; then
+          _run_coverage_path "${COVERAGE_PATH}"
+          return 0
+        fi
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
         _run_coverage "${COVERAGE_SHARD:-}"
