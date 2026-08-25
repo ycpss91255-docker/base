@@ -44,6 +44,14 @@ setup() {
 #!/usr/bin/env bash
 if [[ "$1" == "ps" ]]; then
   cat "${DOCKER_PS_FILE}"
+  # Opt-in late write (${DOCKER_PS_LATE_FILE}): names that arrive only
+  # after a reader which stops reading has already left, so the write
+  # finds no reader. `exec` so the SIGPIPE is this stub's own exit
+  # status rather than being swallowed by the `exit 0` below.
+  if [[ -n "${DOCKER_PS_LATE_FILE:-}" ]]; then
+    sleep 0.2
+    exec cat "${DOCKER_PS_LATE_FILE}"
+  fi
   exit 0
 fi
 printf 'docker'
@@ -177,6 +185,27 @@ teardown() {
   run bash "${SANDBOX}/exec.sh" -t headless --dry-run
   assert_success
   assert_output --partial "exec"
+}
+
+@test "exec.sh: a docker ps still writing cannot make the precheck miss a running container (#905)" {
+  # Same inverted answer as run.sh's guard, taken through a NEGATION:
+  # `! docker ps ... | <reader>`. A reader that stops reading strands a
+  # `docker ps` still writing, exec.sh's file-scope `pipefail` makes the
+  # pipeline 141, the `if` reads that as "no match", and the `!` turns it
+  # into "not running" -- so exec.sh refuses a container that is running,
+  # exits 1, and tells the user to start it. Loud, and wrong.
+  #
+  # The matching name is written first so a real early-closing reader
+  # genuinely matches and genuinely leaves; the late write then finds
+  # nobody. Draining the whole stream is unaffected by either half.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  DOCKER_PS_LATE_FILE="${TEMP_DIR}/docker_ps.late"
+  export DOCKER_PS_LATE_FILE
+  echo "someone-elses-container" > "${DOCKER_PS_LATE_FILE}"
+
+  run bash "${SANDBOX}/exec.sh" -- true
+  assert_success
+  refute_output --partial "is not running"
 }
 
 # ── -- flag/CMD separator ──────────────────────────────────────

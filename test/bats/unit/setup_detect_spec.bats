@@ -98,6 +98,38 @@ esac'
   assert_equal "${_result}" "false"
 }
 
+@test "detect_gpu: a dpkg-query still writing cannot report an installed toolkit as missing (#905)" {
+  # `dpkg-query ... | <reader>` where the reader stops reading: it leaves
+  # on the `ii` line, the dpkg-query still writing takes SIGPIPE and exits
+  # 141, `pipefail` makes 141 the pipeline's status, and the `if` reads an
+  # INSTALLED toolkit as missing. Nothing fails; setup just writes a
+  # GPU-less .env on a GPU host, and the container comes up without the
+  # device.
+  #
+  # setup.sh carries `set -euo pipefail` at file scope, but bats' `run`
+  # does not, and a sourced function inherits the harness's options -- so
+  # the strict shell has to be re-established here. It is a script FILE:
+  # under kcov the xtrace PS4 expands ${BASH_SOURCE}, which is EMPTY at
+  # the top level of a `bash -c` string, and `set -u` would abort the
+  # harness before detect_gpu ran at all.
+  local _shim="${TEMP_DIR}/shim"
+  shim_late_writer "${_shim}" "dpkg-query" "ii " "un  some-other-package"
+
+  local _runner="${TEMP_DIR}/detect_gpu_strict.sh"
+  cat > "${_runner}" << 'EOF'
+set -euo pipefail
+source /source/dist/script/docker/lib/setup_detect.sh
+PATH="${SHIM_DIR}:${PATH}"
+_gpu=""
+detect_gpu _gpu
+printf 'gpu=%s\n' "${_gpu}"
+EOF
+
+  run env SHIM_DIR="${_shim}" bash "${_runner}"
+  assert_success
+  assert_output "gpu=true"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # detect_gpu_count
 # ════════════════════════════════════════════════════════════════════
