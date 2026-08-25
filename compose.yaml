@@ -34,6 +34,35 @@ services:
       dockerfile: dockerfile/Dockerfile.test-tools
     image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
 
+  # smoke: the local harness for the SHIPPED smoke specs
+  # (dist/test/bats/smoke/), which are build-time assertions of a
+  # downstream Dockerfile `-test` stage and so have nowhere to run inside
+  # base -- base is the template source and has no Dockerfile of its own.
+  # `just test smoke` builds this service through the docker namespace;
+  # dockerfile/Dockerfile.smoke mirrors the stage's COPY set, its non-root
+  # USER and its `RUN bats`, so BUILDING it IS the test. Build-only, like
+  # test-tools: never `run`.
+  #
+  # It names NO image, and that is deliberate. Every other service here
+  # names ${TEST_TOOLS_IMAGE} because it CONSUMES that image; this one
+  # PRODUCES one, so compose tags the build `<project>-smoke` -- and the
+  # entry point keys that project to the checkout (a hash of its absolute
+  # path), so two checkouts and two concurrent runs write two tags. A
+  # literal tag here would be one name every one of them writes, i.e. the
+  # collision the project naming exists to prevent; it is also what lets an
+  # ownership-scoped teardown reclaim the image by name.
+  #
+  # TEST_TOOLS_IMAGE is passed as a build ARG (the harness is
+  # `FROM ${TEST_TOOLS_IMAGE}`) with no default, for the same reason the
+  # image references above carry none: `just` is the entry point and the
+  # script behind it resolves the tag.
+  smoke:
+    build:
+      context: .
+      dockerfile: dockerfile/Dockerfile.smoke
+      args:
+        TEST_TOOLS_IMAGE: ${TEST_TOOLS_IMAGE:?set by 'just test smoke' -- run that instead of driving docker compose directly}
+
   # Fast CI: ShellCheck + Bats only. Uses the prebuilt test-tools image
   # (alpine: bash + bats + bats-{support,assert,mock} + shellcheck +
   # hadolint baked in), so _install_deps short-circuits via its

@@ -1273,7 +1273,7 @@ SH
 # runs THIS driver, not the hadolint-action).
 # ════════════════════════════════════════════════════════════════════
 
-@test "_run_hadolint: lints both template-owned Dockerfiles with the shared config" {
+@test "_run_hadolint: lints every Dockerfile in the tree with the shared config" {
   local _log="${BATS_TEST_TMPDIR}/hadolint.log"
   mock_cmd "hadolint" '
     printf "%s\n" "$*" >> "'"${_log}"'"
@@ -1286,11 +1286,27 @@ SH
 
   assert [ -f "${_log}" ]
   run cat "${_log}"
-  # Exactly the two Dockerfiles the CI hadolint job linted, with the
-  # dist/.hadolint.yaml config (single source of truth).
+  # Every Dockerfile the repo carries, with the dist/.hadolint.yaml config
+  # (single source of truth). A Dockerfile no lint pass names is a
+  # Dockerfile whose next edit is unchecked, which is how the tooling one
+  # was linted only by a CI action before this driver existed.
   assert_output --partial "--config /source/dist/.hadolint.yaml"
   assert_output --partial "dist/dockerfile/Dockerfile"
   assert_output --partial "dockerfile/Dockerfile.test-tools"
+  assert_output --partial "dockerfile/Dockerfile.smoke"
+}
+
+@test "_run_hadolint: the linted list is every Dockerfile the tree carries" {
+  # The list is hand-maintained (the CI hadolint job invokes this driver,
+  # so it has to be a constant, not a glob evaluated at some other cwd).
+  # This is what notices a Dockerfile added beside the others and never
+  # added to it.
+  local _found _listed
+  _found="$( (cd /source && ls dockerfile/Dockerfile.* dist/dockerfile/Dockerfile) | sort)"
+  _listed="$(bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_HADOLINT_DOCKERFILES[@]}"' | sort)"
+  [[ "${_found}" == "${_listed}" ]]
 }
 
 @test "_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)" {
@@ -1303,9 +1319,13 @@ SH
     _run_hadolint
   '
   assert_success
-  # Two Dockerfiles in the list -> exactly two hadolint invocations.
+  # One hadolint invocation per listed Dockerfile, no extras.
+  local _n
+  _n="$(bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${#_HADOLINT_DOCKERFILES[@]}"')"
   run grep -c -- '--config' "${_log}"
-  assert_output '2'
+  assert_output "${_n}"
 }
 
 @test "_run_hadolint: dies with a clear message when hadolint is absent" {
