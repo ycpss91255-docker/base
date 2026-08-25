@@ -64,6 +64,13 @@ cd "${REPO_ROOT}"
 _log() { _log_info upgrade upgrade_started "display=$*"; }
 _error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
+# Rollback state. Both are set just before the subtree pull and cleared
+# once the upgrade is past everything that can fail; a non-empty
+# _UPGRADE_PRE_HEAD is what tells the exit trap there is a pull to undo.
+# Deliberately NOT readonly -- clearing them is how the trap is disarmed.
+_UPGRADE_PRE_HEAD=""
+_UPGRADE_UNTRACKED_SNAPSHOT=""
+
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
 # git-subtree pull is known to misbehave on some versions (reports of
@@ -335,17 +342,84 @@ _verify_subtree_intact() {
 _rollback_subtree_pull() {
   local _pre_head="$1"
   _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
+  _restore_pre_upgrade_state "${_pre_head}"
+  _error "upgrade aborted; repo restored to pre-upgrade state"
+}
+
+# _restore_pre_upgrade_state <pre_head_sha>
+#   Put the repo back the way the upgrade found it: hard-reset to the
+#   pre-upgrade commit, then remove the files the aborted run created.
+#
+#   The sweep is not optional. `git reset --hard` restores TRACKED content
+#   and says nothing about anything new, so without it a rollback leaves
+#   the aborted upgrade's fresh symlinks and seeded files sitting in the
+#   tree -- "restored" that is not restored. Only paths that were not
+#   already untracked before the upgrade are removed, so a file the user
+#   had lying around is never collateral.
+#
+#   Disarms the exit-trap rollback on the way in: this IS the rollback, and
+#   the caller's subsequent _error must not re-enter it.
+#
+#   Exits (does not return) when the rescue reset itself fails. Do NOT
+#   swallow that with `|| true`: this runs when the tree is already
+#   damaged, and the user must hear the truth -- a still-broken tree --
+#   rather than a reassuring 'restored' message they might push on top of.
+_restore_pre_upgrade_state() {
+  local _pre_head="${1:?"${FUNCNAME[0]}: missing pre_head"}"
+  _UPGRADE_PRE_HEAD=""
+  trap - EXIT
+
   _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
-  # Do NOT swallow a failed reset with `|| true`. This rollback runs when
-  # a destructive subtree FF has already mangled the tree; if the rescue
-  # reset itself fails (corrupt / gc'd / empty / bogus pre_head), the user
-  # must hear the truth -- a still-broken tree -- not a reassuring
-  # 'restored' message they might push damage on top of.
   if ! git reset --hard "${_pre_head}" >/dev/null 2>&1; then
     _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
     exit 1
   fi
-  _error "upgrade aborted; repo restored to pre-upgrade state"
+  _remove_untracked_since_snapshot
+}
+
+# _remove_untracked_since_snapshot
+#   Delete every currently-untracked path that was not untracked before the
+#   upgrade started. Run AFTER the reset, so `--exclude-standard` reads the
+#   restored .gitignore rather than the one the aborted upgrade wrote.
+_remove_untracked_since_snapshot() {
+  local _path
+  while IFS= read -r _path; do
+    if [[ -z "${_path}" ]]; then
+      continue
+    fi
+    if printf '%s\n' "${_UPGRADE_UNTRACKED_SNAPSHOT}" | grep -Fxq -- "${_path}"; then
+      continue
+    fi
+    rm -f -- "${REPO_ROOT}/${_path}"
+  done < <(git ls-files --others --exclude-standard)
+}
+
+# _upgrade_exit_trap
+#   Armed the moment the subtree pull has COMMITTED, disarmed once the
+#   upgrade has finished everything that can fail. In between, the repo is
+#   mid-flight: the new subtree is already in the history, but the resync
+#   that makes it usable has not run.
+#
+#   Leaving that state behind is what turned a missing file into a repo
+#   that claimed a version it never reached -- .version bumped, commit
+#   landed, `git status` clean, and every wrapper the user types dangling.
+#   `set -euo pipefail` guarantees a failed step aborts; this guarantees it
+#   aborts to the state the user started in.
+#
+#   Rolling back is safe precisely BECAUSE it is armed after the pull:
+#   git-subtree refuses to run against a dirty tree, so nothing the user
+#   had in flight can exist at this point -- every change present is one
+#   this run made.
+_upgrade_exit_trap() {
+  local _status=$?
+  trap - EXIT
+  if (( _status == 0 )) || [[ -z "${_UPGRADE_PRE_HEAD}" ]]; then
+    exit "${_status}"
+  fi
+  _log_err upgrade upgrade_rollback "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
+  _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"
+  _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
+  exit "${_status}"
 }
 
 # ── Get versions ─────────────────────────────────────────────────────────────
@@ -540,11 +614,22 @@ _upgrade() {
   local _pre_setup_conf_hash=""
   _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/.setup.conf" 2>/dev/null || true)"
 
+  # What is untracked BEFORE anything moves, so a rollback can tell the
+  # user's own stray files (leave them) from the ones an aborted upgrade
+  # created (remove them).
+  _UPGRADE_UNTRACKED_SNAPSHOT="$(git ls-files --others --exclude-standard)"
+
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}"
+
+  # The pull has landed a COMMIT. Everything from here is recoverable only
+  # by undoing it, so arm the rollback now -- see _upgrade_exit_trap for
+  # why doing so is safe exactly at this point and not before.
+  _UPGRADE_PRE_HEAD="${_pre_head}"
+  trap _upgrade_exit_trap EXIT
 
   # Step 2: post-pull integrity check (rolls back on corruption)
   _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
@@ -609,6 +694,12 @@ chore: update template references to ${target_ver}
 - untracked any derived artifacts now covered by .gitignore
 COMMIT
 )" || _log "No additional changes to commit"
+
+  # Every step that can fail has succeeded; the upgrade is done. Disarm
+  # BEFORE the drift warnings below -- they are advisory, and an upgrade
+  # that landed must not be undone because a warning tripped.
+  _UPGRADE_PRE_HEAD=""
+  trap - EXIT
 
   # Post-pull: warn when the upstream config baseline moved so the
   # user can reconcile <repo>/config/ (seeded by init.sh, user-owned
