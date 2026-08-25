@@ -20,8 +20,9 @@
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
 #                             # --bash-source-guard-only /
-#                             # --early-close-reader-only /
-#                             # --derived-figures-only.
+#                             # --bash-source-guard-only /
+#                             # --derived-figures-only / --i18n-orphan-only /
+#                             # --early-close-reader-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -102,6 +103,8 @@ source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 source "${SCRIPT_DIR}/drivers/early_close_reader.sh"
 # shellcheck source=script/test/drivers/derived_figures.sh
 source "${SCRIPT_DIR}/drivers/derived_figures.sh"
+# shellcheck source=script/test/drivers/i18n_orphan.sh
+source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -129,6 +132,7 @@ readonly _LINT_TOOLS=(
   bash-source-guard
   early-close-reader
   derived-figures
+  i18n-orphan
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -194,6 +198,7 @@ _run_lint_tool() {
     bash-source-guard) _run_bash_source_guard ;;
     early-close-reader) _run_early_close_reader ;;
     derived-figures)  _run_derived_figures ;;
+    i18n-orphan)      _run_i18n_orphan ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -277,6 +282,12 @@ Options:
                           comes from _validate_stage_name's own case arms,
                           the setup.conf section list and count from
                           SCHEMA_SECTIONS)
+  --i18n-orphan           With --lint: run only the translation-only
+                          identifier lint (an identifier-shaped token in a
+                          doc/readme/README.*.md code span that README.md
+                          never names -- either a mechanism removed from the
+                          code while the translation kept documenting it, or
+                          a translation running ahead of the English)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -298,6 +309,7 @@ Options:
                             --bash-source-guard-only pure bash
                             --early-close-reader-only pure bash
                             --derived-figures-only   pure bash
+                            --i18n-orphan-only       pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -369,6 +381,7 @@ Examples:
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
+  ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -681,6 +694,7 @@ main() {
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
+      --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -691,6 +705,7 @@ main() {
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
+      --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -724,8 +739,8 @@ main() {
   # `--issueref-only`, `--adr-numbering-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`,
-  # `--bash-source-guard-only`, `--early-close-reader-only`,
-  # `--derived-figures-only`) short-circuit
+  # `--bash-source-guard-only`, `--derived-figures-only`,
+  # `--i18n-orphan-only`, `--early-close-reader-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

@@ -251,6 +251,11 @@ jobs:
     #   derived-figures   the baseline stage set and the setup.conf section
     #                     list, as documents repeat them, still match the
     #                     code that defines them
+    #   i18n-orphan       no identifier-shaped token in a translation's code
+    #                     spans that README.md never names -- the inverse of
+    #                     readme-sync, which can only compare an English
+    #                     section against its translation and so cannot see
+    #                     a mechanism documented ONLY in a translation
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -286,6 +291,7 @@ jobs:
           - bash-source-guard
           - early-close-reader
           - derived-figures
+          - i18n-orphan
     steps:
       - name: Checkout
         uses: actions/checkout@v7

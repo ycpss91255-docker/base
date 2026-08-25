@@ -94,6 +94,69 @@ system:
     just docker build --target test-tools
     docker compose run --rm ci-system
 
+# just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
+# the way a downstream Dockerfile `-test` stage runs them: root-owned
+# COPYs into /lint + /smoke_test, a non-root user, and `RUN bats` at build
+# time. Forwards flags to the build (`just test smoke --no-cache`).
+#
+# Why there is a recipe at all: those specs are build-time assertions of a
+# stage base itself has no Dockerfile for, so verifying one used to mean
+# hand-reproducing the stage with raw docker -- which interrupts for a
+# permission decision on every invocation and leaves nothing reusable.
+#
+# Why BUILDING is the whole test: dockerfile/Dockerfile.smoke ends in
+# `RUN bats /smoke_test/`, exactly as the stage does. There is no
+# `compose run` step, so a failing spec fails a build rather than being
+# reported by something that could stop reporting.
+#
+# Scope: the devel-test spec set (smoke/shared/ + smoke/devel-test/), which
+# is every shipped smoke spec today. No stage argument: runtime-test ships
+# none, and its real base is the MINIMAL runtime image, so running the
+# shared baseline against this devel-shaped harness and labelling the
+# result `runtime-test` would be a false green. The unit spec fails the day
+# runtime-test gains a spec, which is when that decision is due.
+#
+# NOT part of the default `just test`. That gate is the fast self-test --
+# no daemon, no image build -- and these are a different level (a stage's
+# build-time assertions, excluded from the self-test grand total in
+# doc/test/TEST.md for the same reason). Their CI coverage is the
+# acceptance job, which builds a real consumer's `-test` stage.
+#
+# The tooling tag and the compose project are resolved exactly as `system`
+# resolves them, and for the same reasons (see its comment above): a
+# content-hash tag so a sibling checkout cannot displace this run's image,
+# an explicit project name so two checkouts do not share one, and
+# HOST_UID / HOST_GID because compose interpolates the whole file whatever
+# service is named.
+#
+# PROJECT_NAME is seeded from the SAME resolved value, and it is not
+# redundant with COMPOSE_PROJECT_NAME: the build goes through the wrapper,
+# which passes `docker compose -p "${PROJECT_NAME}"` explicitly, so
+# COMPOSE_PROJECT_NAME never reaches it. That `-p` is what compose names
+# the built image after, and with nothing set the wrapper derives it from
+# the checkout DIRECTORY BASENAME -- two same-named checkouts (or two CI
+# runs) then write one image tag. Setting it takes the documented
+# already-resolved path through _compute_project_name rather than letting
+# it fall back.
+#
+# BUILDKIT_PROGRESS=plain because the bats output IS the result here --
+# the collapsed default progress hides a passing run's output entirely.
+smoke *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
+    export COMPOSE_PROJECT_NAME
+    PROJECT_NAME="${COMPOSE_PROJECT_NAME}"
+    export PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    export BUILDKIT_PROGRESS=plain
+    just docker build --target test-tools
+    just docker build {{args}} --target smoke
+
 # just test clean -> remove coverage reports
 clean:
     rm -rf coverage/

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2715 tests**.
+Unit specs under `test/bats/unit/`: **2751 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1986,7 +1986,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (93)
+### test/bats/unit/ci_spec.bats (94)
 
 | Test | Description |
 |------|-------------|
@@ -2058,8 +2058,9 @@ builds the env block only for the knobs the conf sets.
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |
 | `drivers: are sourced libraries (no top-level main invocation)` | #650 driver is a library |
 | `drivers: _run_shellcheck also lints the driver files themselves` | #650 driver self-shellcheck |
-| `_run_hadolint: lints both template-owned Dockerfiles with the shared config` | #650 single-source Dockerfile list + config |
-| `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 exactly two invocations |
+| `_run_hadolint: lints every Dockerfile in the tree with the shared config` | #650 single-source Dockerfile list + config |
+| `_run_hadolint: the linted list is every Dockerfile the tree carries` | A Dockerfile added beside the others and never added to the list is a Dockerfile no lint pass names |
+| `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 one invocation per listed Dockerfile |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
 | `_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)` | #692 system socket guard |
@@ -2913,6 +2914,33 @@ vice versa). Pure git + filesystem, no docker.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
+### test/bats/unit/i18n_orphan_lint_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `_run_i18n_orphan: FAILS on an env-var identifier in a fenced block that the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: FAILS on an env-var identifier in an INLINE code span, which a fence-only scan walks past (#902)` | - |
+| `_run_i18n_orphan: FAILS on a long option the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: reports EVERY translation that carries an orphan, not just the first (#902)` | - |
+| `_run_i18n_orphan: names both readings and the opt-out in the failure message (#902)` | - |
+| `_run_i18n_orphan: PASSES when the identifier appears in English PROSE without backticks (#902)` | - |
+| `_run_i18n_orphan: PASSES on an identifier-shaped token in translation prose OUTSIDE any code span (#902)` | - |
+| `_run_i18n_orphan: PASSES on a path-shaped token absent from the English README (#902)` | - |
+| `_run_i18n_orphan: PASSES on a bare '--' separator and on a lone hyphenated word (#902)` | - |
+| `_run_i18n_orphan: does NOT flag a longer identifier as a match for a shorter English one (#902)` | - |
+| `_run_i18n_orphan: an allow region suppresses the finding inside it (#902)` | - |
+| `_run_i18n_orphan: FAILS on an orphan AFTER an allow-end (the region does not leak) (#902)` | - |
+| `_run_i18n_orphan: FAILS on an unterminated allow-begin (#902)` | - |
+| `_run_i18n_orphan: FAILS on an allow-end with no open allow-begin (#902)` | - |
+| `_run_i18n_orphan: DIES when README.md is missing rather than passing vacuously (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory is missing (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory holds no translation (#902)` | - |
+| `_run_i18n_orphan: DIES when the English README yields no identifier at all (#902)` | - |
+| `_run_i18n_orphan: DIES when no translation yields a single scanned token (#902)` | - |
+| `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)` | - |
+
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
 | Test | Description |
@@ -3020,6 +3048,25 @@ host so the boundary between them can be asserted at all.
 | `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
+
+
+### test/bats/unit/smoke_harness_spec.bats (13)
+
+| Test | Description |
+|------|-------------|
+| `the smoke harness ships a dockerfile and a compose service that builds it` | - |
+| `just test smoke builds through the docker namespace, not a raw docker build (ADR-00000011 sec.5)` | - |
+| `just test smoke resolves the tooling image and names the compose project (#896, #891)` | - |
+| `just test smoke names the image it builds after the resolved project, not the directory (#891)` | - |
+| `just test smoke is NOT wired into the default just test gate` | - |
+| `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
+| `every harness COPY exemption is still a real devel-test COPY` | - |
+| `the harness installs the entrypoint the shared smoke baseline asserts` | - |
+| `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
+| `the harness runs the specs as a non-root user, after the COPYs` | - |
+| `the harness asserts at BUILD time, exactly like the stage it stands in for` | - |
+| `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
+| `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
 ### test/bats/unit/early_close_reader_lint_spec.bats (20)
 
