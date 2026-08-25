@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2722 tests**.
+Unit specs under `test/bats/unit/`: **2736 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1321,7 +1321,7 @@ directly (no `just` needed): it creates `script/local/<name>/justfile.<name>`
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/justfile_spec.bats (15)
+### test/bats/unit/justfile_spec.bats (16)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -1344,6 +1344,7 @@ execution -- `just` is not in the test-tools image; downstream installs it.
 | `docker module owns a default recipe + pins cwd to repo root (#652, ADR-00000011)` | #652 -- mod default + `set working-directory := '../..'` |
 | `entry mods the docker namespace + default recipe lists recipes (#652, ADR-00000011)` | #652 -- `mod? docker` + `default: @just --list` |
 | `test / release namespaces own a default recipe (bare-namespace help, #655)` | #655 -- bare `just test` / `just release` |
+| `test namespace: coverage-path demands its spec, coverage keeps its optional shard (#887)` | Required spec argument (a defaulted one would kcov the whole suite on a typo) |
 | `test / release namespaces are English-only -- no --lang plumbing (#655)` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
 | `consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
 | `base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- same invariant for base's self-dev entry |
@@ -1985,7 +1986,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (94)
+### test/bats/unit/ci_spec.bats (107)
 
 | Test | Description |
 |------|-------------|
@@ -2034,6 +2035,19 @@ builds the env block only for the knobs the conf sets.
 | `main --bats-path: non-existent path dies with ci_bats_path_not_found` | #523 missing-path guard |
 | `main --bats-path: test/bats/system/ path dies with a clear hint` | #523 system guard |
 | `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
+| `_run_coverage_path: writes nothing into the checkout's coverage/ (#887)` | The gate's artifacts stay untouched -- no figure can be fabricated from one spec |
+| `_run_coverage_path: the kcov report dir is a throwaway outside the checkout, removed after the run (#887)` | Report lands in container-local scratch and is deleted |
+| `_run_coverage_path: kcov's exactly the named spec, never a shard slice (#887)` | Shard independence: a planted .shard-weights pulls in nothing |
+| `_run_coverage_path: instruments with the same include/exclude set a coverage shard uses (#887)` | Same instrumented tree as a shard, so the failure reproduces |
+| `_run_coverage_path: propagates the spec's exit status so a red spec is a red run (#887)` | Exit-status propagation -- the loop is useless if failure is swallowed |
+| `_run_coverage_path: BATS_FILTER appends a bats -f name filter (#887)` | Composes with --filter to instrument a single @test |
+| `main --coverage-path: routes one spec to the coverage service with COVERAGE_PATH + BATS_ONLY=1 (#887)` | Dispatch: coverage service, COVERAGE_PATH plumbed, never a shard |
+| `main --ci: COVERAGE=1 with COVERAGE_PATH runs the one spec and reports no coverage figure (#887)` | In-container branch sits ahead of _run_coverage; no report line |
+| `main --coverage-path: non-existent path dies before docker is called (#887)` | Host-side missing-path guard |
+| `main --coverage-path: test/bats/system/ dies with the ci-system hint (#887)` | Host-side system-spec guard (needs the ci-system service) |
+| `main --coverage-path + --coverage-shard is rejected (#887)` | A figure over a partition and one instrumented spec are different asks |
+| `main --coverage-path + --bats-path is rejected (#887)` | Two runners, two services -- refused by name |
+| `main --bats-path + --coverage stays rejected: the fast loop is still kcov-free (#887)` | #523's refusal is intact; the combination is --coverage-path |
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |

@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **2850 tests** total (2722 unit + 128 integration).
+Template self-tests: **2864 tests** total (2736 unit + 128 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (12) and smoke (34) tests are tracked here
-> too but are **not** in the 2850 figure: System specs need host docker
+> too but are **not** in the 2864 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,54 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2722 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2736 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 128 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 12 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **2850**.
+Self-test grand total (unit + integration): **2864**.
+
+## Running one spec under kcov: `just test coverage-path`
+
+```bash
+just test coverage-path test/bats/unit/lib_spec.bats
+just test coverage-path test/bats/unit/lib_spec.bats --filter 'nounset'
+just test coverage-path test/bats/integration/          # a directory works too
+```
+
+Some bugs are only visible under instrumentation: the spec is red under kcov
+and green without it. kcov wraps every bash process it traces, sets its own
+`PS4`, and perturbs a nested `set -u` shell, so a spec can depend on something
+that only the coverage run disturbs -- which is precisely the class the
+coverage matrix exists to catch, and the class that is hardest to iterate on.
+The other two instrumented entries are the whole suite and a whole shard,
+minutes each; this one runs the spec you name.
+
+**It reports no coverage figure, deliberately.** The kcov report goes to a
+throwaway directory inside the container and is removed on the way out, so
+nothing this mode runs can write `coverage/cobertura.xml` -- which the
+coverage-gate merges into the project line rate -- or `coverage/timings.tsv`,
+which becomes the next partition's weights. One spec's covered lines over the
+whole tree's denominator is not a project rate. Ask for a figure with
+`just test coverage` (full suite) or `just test coverage <n>/<total>` (one
+shard); ask for a RUN with this.
+
+**It does not consult the shard partition, and that is load-bearing.** The
+partition is greedy longest-processing-time bin-packing over per-spec weights
+read from `test/bats/.shard-weights`. CI restores that file from cache; a
+checkout does not have it, so `_spec_weight` falls back to `@test` counts and
+the local partition is a genuinely different one. Shard `<n>/<total>` therefore
+names different specs locally than it does in CI -- during #898 a spec sat in
+CI's shard 1/8 and the local 4/8, and a local `just test coverage 1/8` never
+ran the failing specs at all. Naming the path removes the question: the spec
+you name is the spec that runs, in both places.
+
+`--bats-path` (`just test` has no recipe for it; use
+`./script/test/test.sh --bats-path <spec>`) remains the FAST loop -- no
+ShellCheck, no kcov, on the `ci` service. It refuses `--coverage` and still
+does: that combination is this recipe, on the `coverage` service, which is
+where kcov lives.
 
 ## Static lints and where they are enforced
 
