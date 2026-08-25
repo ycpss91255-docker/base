@@ -554,7 +554,7 @@ main() {
   # (For -d mode, the existing `down` step handles restart, so collision is OK.)
   if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
       && "${DRY_RUN}" != true ]]; then
-    if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+    if _wrapper_container_running "${CONTAINER_NAME}"; then
       # Compose the multi-line body once (i18n template carries %s for the
       # container name) and emit via _log_err so the whole block gets the
       # ERROR colour / stderr routing.

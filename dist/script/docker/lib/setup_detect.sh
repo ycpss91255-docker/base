@@ -68,12 +68,25 @@ detect_docker_hub_user() {
 # ════════════════════════════════════════════════════════════════════
 detect_gpu() {
   local -n _outvar="${1:?"${FUNCNAME[0]}: missing outvar"}"
-  if dpkg-query -W -f='${db:Status-Abbrev}\n' -- "nvidia-container-toolkit" 2>/dev/null \
-    | grep -q '^ii'; then
-    _outvar=true
-  else
-    _outvar=false
-  fi
+  # Read the whole dpkg-query stream and match in-shell. Piping into
+  # `grep -q '^ii'` handed the answer to a reader that stops reading:
+  # grep leaves the instant it matches, the dpkg-query still writing takes
+  # SIGPIPE and exits 141, and setup.sh's `pipefail` makes 141 the
+  # PIPELINE's status -- which the `if` reads as "not installed". An
+  # INSTALLED toolkit was reported missing, and nothing failed: setup just
+  # wrote a GPU-less .env on a GPU host.
+  #
+  # `__dg_`-prefixed local for the same reason detect_gpu_count uses
+  # `__dgc_`: a bash nameref rebinds to the nearest local of the same
+  # name, so a caller whose outvar is named `_line` would silently lose
+  # the write.
+  local __dg_line
+  _outvar=false
+  while IFS= read -r __dg_line || [[ -n "${__dg_line}" ]]; do
+    if [[ "${__dg_line}" == ii* ]]; then
+      _outvar=true
+    fi
+  done < <(dpkg-query -W -f='${db:Status-Abbrev}\n' -- "nvidia-container-toolkit" 2>/dev/null)
 }
 
 # ════════════════════════════════════════════════════════════════════

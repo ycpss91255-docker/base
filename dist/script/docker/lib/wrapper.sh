@@ -80,6 +80,44 @@ _wrapper_lang_prepass() {
   done
 }
 
+# ── container-running probe (run + exec) ──────────────────────────────
+#
+# _wrapper_container_running <name>
+#
+# Exit 0 iff a container named EXACTLY <name> is currently running.
+#
+# run.sh asks this to refuse starting on top of a live container; exec.sh
+# asks the negation to refuse exec'ing into a dead one. Both spelled it
+# `docker ps --format '{{.Names}}' | grep -qx "${name}"`, and that spelling
+# hands the answer to a reader that stops reading: `grep -q` leaves the
+# instant it matches, a `docker ps` still writing then takes SIGPIPE and
+# exits 141, and the file-scope `pipefail` of both wrappers makes 141 the
+# PIPELINE's status. An `if` reads 141 as false, so a SUCCESSFUL match is
+# reported as "no such container". The status is not lost -- it is
+# INVERTED, and neither caller fails loudly: run.sh silently starts a
+# second container over the live one, exec.sh silently refuses a running
+# one. `docker ps` on a busy host is exactly the writer that has not
+# finished, and this ships to every downstream repo, on whatever host they
+# have.
+#
+# There is no reader to leave early here. The loop drains the whole stream
+# and compares in-shell, so no exit status depends on how two processes
+# were scheduled. Process substitution rather than a pipe, so the loop body
+# runs in THIS shell; `docker`'s own stderr is left alone so a genuinely
+# broken daemon still says so on the terminal (an empty stream then reads
+# as "not running", which is what the pipeline reported too).
+_wrapper_container_running() {
+  local _name="${1:?_wrapper_container_running requires a container name}"
+  local _line
+  local _found=1
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" == "${_name}" ]]; then
+      _found=0
+    fi
+  done < <(docker ps --format '{{.Names}}')
+  return "${_found}"
+}
+
 # ── setup / drift orchestration (build + run) ─────────────────────────
 #
 # _wrapper_setup_sync <verb>
