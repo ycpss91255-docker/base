@@ -201,11 +201,21 @@ _assemble() {
     return 1
   fi
 
+  if [[ "$((${#present[@]} + ${#extras[@]}))" -eq 0 ]]; then
+    # Every declared path was optional and none of them exist. Tarring the
+    # empty directory would upload an artifact that looks like a release and
+    # contains nothing -- the silent-broken-artifact outcome the required /
+    # optional split exists to prevent. Refuse instead.
+    printf "release-archive: nothing was archived -- no declared path in '%s' exists in %s\n" \
+      "${manifest}" "${PWD}" >&2
+    return 1
+  fi
+
   # Pass 2 -- the payload is known good; build it.
   mkdir -p "${dest}"
 
   local path
-  for path in "${present[@]}"; do
+  for path in ${present[@]+"${present[@]}"}; do
     _archive_path "${path}" "${dest}"
     printf 'release-archive: archived %s\n' "${path}"
   done

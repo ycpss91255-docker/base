@@ -321,6 +321,20 @@ _archive_list() {
   assert_output --partial 'no payload'
 }
 
+@test "release-archive: an all-optional manifest matching nothing refuses to build an empty archive (#914)" {
+  # Tolerance stops short of shipping an empty tarball: an artifact that
+  # uploads like a release and contains nothing is the silent-broken-artifact
+  # outcome the required / optional split exists to prevent.
+  _seed 'Dockerfile'
+  _manifest \
+    'optional|docs|doc/|the documentation tree|undocumented' \
+    'optional|smoke|test/smoke/|the smoke specs|no assertions'
+  run _archive
+  assert_failure
+  assert_output --partial 'nothing was archived'
+  [ ! -e "${REPO}/${DEST}" ]
+}
+
 @test "release-archive: a missing manifest file is a config error" {
   _seed 'Dockerfile'
   rm -f "${MANIFEST}"

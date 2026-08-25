@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2793 tests**.
+Unit specs under `test/bats/unit/`: **2794 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3112,7 +3112,7 @@ host so the boundary between them can be asserted at all.
 | `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
 | `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |
 
-### test/bats/unit/release_archive_spec.bats (23)
+### test/bats/unit/release_archive_spec.bats (24)
 
 Unit coverage for `script/ci/release-archive.sh`, the payload assembler
 the reusable release worker runs at tag time. Synthetic manifests over
@@ -3143,6 +3143,7 @@ fails naming the path and what its absence costs.
 | `release-archive: an absolute extra_file path is refused (#914)` | Same guard for an absolute caller path |
 | `release-archive: an unknown manifest kind fails loudly, naming it (#914)` | Fail closed: a typo'd kind never decides whether a path is archived |
 | `release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)` | An empty payload is a config error, not an empty release |
+| `release-archive: an all-optional manifest matching nothing refuses to build an empty archive (#914)` | Tolerance stops short of uploading an empty tarball as a release |
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
