@@ -56,6 +56,36 @@ coverage shard='':
       ./script/test/test.sh --coverage
     fi
 
+# just test coverage-path <spec> -> run ONE spec under kcov instrumentation.
+#
+# The inner loop for the failure class whose entire evidence is "this spec is
+# red under kcov and green without it". `just test coverage` and
+# `just test coverage <n>/<total>` are the only other instrumented entries and
+# both cost 8-12 minutes, so every red-green iteration on such a bug used to
+# cost a full suite -- which is why the last four diagnoses of that class
+# reached past `just` to a hand-rolled `docker run` + kcov.
+#
+# It reports NO coverage figure and writes nothing into coverage/. That is
+# deliberate: one spec's covered lines over the whole tree's denominator is not
+# a project rate, and the report the coverage-gate merges must never be handed
+# one. The kcov report goes to a throwaway directory inside the container and
+# is deleted; what you get back is the RUN.
+#
+# The spec you name is the spec that runs -- no shard partition is consulted.
+# That matters locally: without test/bats/.shard-weights (CI restores it from
+# cache, a fresh checkout has none) the greedy-LPT partition differs from CI's,
+# so `just test coverage 1/8` here and shard 1/8 there are different spec sets.
+# This recipe means the same thing in both places.
+#
+# The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
+# must name the missing spec, not silently kcov the whole suite. Extra flags
+# pass through, so `--filter <regex>` narrows to a single test.
+#
+#   just test coverage-path test/bats/unit/lib_spec.bats
+#   just test coverage-path test/bats/unit/lib_spec.bats --filter 'nounset'
+coverage-path spec *args:
+    ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
+
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.

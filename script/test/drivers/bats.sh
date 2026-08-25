@@ -4,8 +4,10 @@
 # Sourced library (no main): test.sh sources this near the top, after
 # _lib.sh, so the _log_* / _die helpers are available. Provides the bats
 # runners (unit / unit-shard / integration / bats-path / system),
-# the shared _bats_args_with_label helper, and the kcov coverage runner
-# (kcov wraps bats, so it lives with the bats driver).
+# the shared _bats_args_with_label helper, and the kcov coverage runners
+# (kcov wraps bats, so it lives with the bats driver): _run_coverage for
+# the reported figure (full suite / shard) and _run_coverage_path for one
+# named spec under instrumentation with no figure at all.
 #
 # Contract: runs INSIDE the ci / coverage container where test.sh invokes
 # it. References ${REPO_ROOT} (a global exported by test.sh) for the spec
@@ -274,6 +276,87 @@ _run_bats_fragile() {
 
 # ── Kcov coverage ────────────────────────────────────────────────────────────
 
+# _coverage_exclude_path
+#   Echo the comma-joined --exclude-path argument every kcov run in this
+#   driver passes. Shared by the shard / full-suite runner (which reports a
+#   figure) and the single-spec runner (which reports none): what kcov
+#   instruments has to be the SAME in both, or a failure seen on a shard
+#   would not be reproducible through the single-spec entry -- which is the
+#   only reason that entry exists.
+#
+#   The set is what a coverage FIGURE must not count: the specs themselves,
+#   the harness that runs them, the two base-management scripts that never
+#   execute inside the container, and the dotfiles / workflow YAML that are
+#   not shell at all.
+_coverage_exclude_path() {
+  local _excludes=(
+    "${REPO_ROOT}/test/"
+    "${REPO_ROOT}/script/test/"
+    "${REPO_ROOT}/dist/script/base/init.sh"
+    "${REPO_ROOT}/dist/script/base/upgrade.sh"
+    "${REPO_ROOT}/dist/config/shell/bashrc"
+    "${REPO_ROOT}/dist/config/shell/terminator/config"
+    "${REPO_ROOT}/dist/config/shell/tmux/tmux.conf"
+    "${REPO_ROOT}/.github/"
+  )
+  local IFS=,
+  printf '%s' "${_excludes[*]}"
+}
+
+# _run_coverage_path <path>
+#   Run ONE spec file (or directory) under kcov instrumentation. The
+#   inner loop for the kcov-only failure class: a spec that is red under
+#   kcov and green without it. Before this existed the only instrumented
+#   entries were the whole suite and a whole shard -- 8 to 12 minutes per
+#   red-green iteration -- so the diagnosis was done with a hand-rolled
+#   `docker run` + kcov instead, the one step of that work that could not
+#   go through `just`.
+#
+#   IT REPORTS NO COVERAGE FIGURE, and that is the design, not a gap. The
+#   kcov report goes to a throwaway directory created here and removed on
+#   the way out, so no path through this function can write
+#   ${REPO_ROOT}/coverage: not cobertura.xml, which the coverage-gate
+#   merges into the project rate, and not timings.tsv, which becomes the
+#   NEXT partition's weights. One spec's lines over the whole tree's
+#   denominator is not a project rate, and one spec's runtime is not a
+#   partition input; a mode that wrote either would be able to feed the
+#   gate a number that means nothing. What it produces is the RUN --
+#   bats' pass/fail output and kcov's exit status.
+#
+#   Target selection is the caller's path, verbatim. It never consults
+#   _shard_unit_files, so the greedy-LPT partition and the recorded
+#   weights file (restored from cache on CI, absent locally, so the two
+#   partitions genuinely differ) cannot change what runs. `just test
+#   coverage <n>/<total>` locally does NOT run the same specs CI's shard
+#   <n> runs; this does.
+#
+#   BATS_FILTER, when set, narrows further to matching test names (bats
+#   -f), so one @test can be put under kcov rather than one file.
+_run_coverage_path() {
+  local _path="${1:?BUG: _run_coverage_path expects a repo-root-relative spec path}"
+  local -a _bats_args
+  local _label
+  _bats_args_with_label _bats_args _label
+  [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
+
+  # Container-local scratch, never the mounted checkout. Removed below
+  # whether the spec passed or failed.
+  local _report_dir
+  _report_dir="$(mktemp -d)"
+  echo "--- Running one spec under kcov: ${_path} (${_label}) ---"
+  echo "    instrumentation only -- no coverage figure is produced and" \
+       "nothing is written to ${REPO_ROOT}/coverage"
+  local _rc=0
+  kcov \
+    --include-path="${REPO_ROOT}" \
+    --exclude-path="$(_coverage_exclude_path)" \
+    "${_report_dir}" \
+    bats "${_bats_args[@]}" "${REPO_ROOT}/${_path}" \
+    || _rc=$?
+  rm -rf "${_report_dir}"
+  return "${_rc}"
+}
+
 _run_coverage() {
   # Run kcov-instrumented bats and write an HTML/cobertura report to
   # ${REPO_ROOT}/coverage. With no argument, runs the FULL suite (unit +
@@ -297,18 +380,10 @@ _run_coverage() {
   # shards' cobertura.xml into one project rate (no external SaaS).
   local _shard_spec="${1:-}"
 
-  local _excludes=(
-    "${REPO_ROOT}/test/"
-    "${REPO_ROOT}/script/test/"
-    "${REPO_ROOT}/dist/script/base/init.sh"
-    "${REPO_ROOT}/dist/script/base/upgrade.sh"
-    "${REPO_ROOT}/dist/config/shell/bashrc"
-    "${REPO_ROOT}/dist/config/shell/terminator/config"
-    "${REPO_ROOT}/dist/config/shell/tmux/tmux.conf"
-    "${REPO_ROOT}/.github/"
-  )
+  # Shared with _run_coverage_path: both runners must instrument the same
+  # tree, or a failure seen here would not reproduce there.
   local _exclude_path
-  _exclude_path="$(IFS=,; printf '%s' "${_excludes[*]}")"
+  _exclude_path="$(_coverage_exclude_path)"
 
   local -a _targets=()
   if [[ -z "${_shard_spec}" ]]; then
