@@ -256,6 +256,11 @@ jobs:
     #                     readme-sync, which can only compare an English
     #                     section against its translation and so cannot see
     #                     a mechanism documented ONLY in a translation
+    #   changelog-entry   no [Unreleased] changelog entry has grown into a
+    #                     pasted PR body -- measured over the whole entry
+    #                     with whitespace collapsed, so rewrapping it or
+    #                     splitting it into sub-bullets buys no budget;
+    #                     released sections are never checked
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -292,6 +297,7 @@ jobs:
           - early-close-reader
           - derived-figures
           - i18n-orphan
+          - changelog-entry
     steps:
       - name: Checkout
         uses: actions/checkout@v7
