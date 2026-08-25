@@ -69,7 +69,7 @@ _error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 # _UPGRADE_PRE_HEAD is what tells the exit trap there is a pull to undo.
 # Deliberately NOT readonly -- clearing them is how the trap is disarmed.
 _UPGRADE_PRE_HEAD=""
-_UPGRADE_UNTRACKED_SNAPSHOT=""
+_UPGRADE_UNTRACKED_SNAPSHOT=()
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -387,11 +387,30 @@ _remove_untracked_since_snapshot() {
     if [[ -z "${_path}" ]]; then
       continue
     fi
-    if printf '%s\n' "${_UPGRADE_UNTRACKED_SNAPSHOT}" | grep -Fxq -- "${_path}"; then
+    if _was_untracked_before_upgrade "${_path}"; then
       continue
     fi
-    rm -f -- "${REPO_ROOT}/${_path}"
+    # `:?` rather than a bare expansion: an unset root would make this
+    # `rm -f /<path>`, and a sweep is not a place to guess.
+    rm -f -- "${REPO_ROOT:?}/${_path}"
   done < <(git ls-files --others --exclude-standard)
+}
+
+# _was_untracked_before_upgrade <path>
+#   Membership test against the pre-upgrade snapshot. In-shell rather than
+#   `grep -q` over a printf: a reader that stops at its first match strands
+#   the writer with SIGPIPE, and under `pipefail` that 141 becomes the
+#   pipeline's status -- a successful match reported as "not found", which
+#   here would delete a file the user owns.
+_was_untracked_before_upgrade() {
+  local _path="${1:?"${FUNCNAME[0]}: missing path"}"
+  local _known
+  for _known in "${_UPGRADE_UNTRACKED_SNAPSHOT[@]}"; do
+    if [[ "${_known}" == "${_path}" ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # _upgrade_exit_trap
@@ -617,7 +636,8 @@ _upgrade() {
   # What is untracked BEFORE anything moves, so a rollback can tell the
   # user's own stray files (leave them) from the ones an aborted upgrade
   # created (remove them).
-  _UPGRADE_UNTRACKED_SNAPSHOT="$(git ls-files --others --exclude-standard)"
+  mapfile -t _UPGRADE_UNTRACKED_SNAPSHOT \
+    < <(git ls-files --others --exclude-standard)
 
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"

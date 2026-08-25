@@ -35,7 +35,11 @@
 # then cached. Nothing here is a hand-written fixture -- what the spec runs
 # is byte-for-byte what was released.
 
-set -euo pipefail
+# Guarded so sourcing this file (the sourceable-scripts spec does) cannot
+# turn strict mode on in the caller.
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
@@ -44,6 +48,8 @@ readonly REPO_ROOT
 
 # shellcheck source=dist/script/base/upstream.sh
 source "${REPO_ROOT}/dist/script/base/upstream.sh"
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/dist/script/docker/lib/_lib.sh"
 
 # Where the materialised trees land. Repo-root dotdir, see the header.
 PREV_RELEASE_DIR="${REPO_ROOT}/.prev-release"
@@ -62,8 +68,12 @@ PREV_RELEASE_WINDOW="${PREV_RELEASE_WINDOW:-2}"
 readonly PREV_RELEASE_WINDOW
 
 _die() {
-  echo "prepare-prev-release.sh: $*" >&2
+  _log_err ci ci_prev_release_unavailable "display=prepare-prev-release.sh: $*"
   exit 1
+}
+
+_note() {
+  _log_info ci ci_prev_release_progress "display=prepare-prev-release.sh: $*"
 }
 
 # _stable_release_tags
@@ -85,14 +95,14 @@ _stable_release_tags() {
 #   store does not already carry enough of them -- i.e. on a fresh shallow
 #   CI checkout, once.
 _fetch_release_tags() {
-  echo "prepare-prev-release.sh: fewer than ${PREV_RELEASE_WINDOW} release tags locally; fetching from ${BASE_UPSTREAM_REMOTE}" >&2
+  _note "fewer than ${PREV_RELEASE_WINDOW} release tags locally; fetching from ${BASE_UPSTREAM_REMOTE}"
   # --depth 1: the archived tree is all we want, never the history behind
   # it. Failure is not fatal here -- the caller re-counts and reports the
   # real problem (not enough tags) with the tags it actually has.
   git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
     "${BASE_UPSTREAM_REMOTE}" \
     '+refs/tags/v*:refs/tags/v*' 2>/dev/null \
-    || echo "prepare-prev-release.sh: tag fetch failed (offline?); continuing with local tags" >&2
+    || _note "tag fetch failed (offline?); continuing with local tags"
 }
 
 # _materialise <tag>
@@ -114,7 +124,7 @@ _materialise() {
   git -C "${REPO_ROOT}" archive --format=tar "${_tag}" | tar -x -C "${_dest}"
   [[ -f "${_dest}/.version" ]] \
     || _die "extracted ${_tag} has no .version -- not a release tree"
-  echo "prepare-prev-release.sh: materialised ${_tag}" >&2
+  _note "materialised ${_tag}"
 }
 
 # _prune <keep...>
@@ -134,13 +144,28 @@ _prune() {
   done
 }
 
+# _window_tags
+#   The window's tags, newest first. Sliced in-shell rather than piped
+#   through `head`: a reader that leaves after N lines strands the writer
+#   with SIGPIPE, and `pipefail` promotes that 141 to the pipeline's status.
+_window_tags() {
+  local -a _all=()
+  mapfile -t _all < <(_stable_release_tags)
+  # printf with no operands after the format still prints one empty line,
+  # which mapfile would read back as a one-element list of "".
+  if (( ${#_all[@]} == 0 )); then
+    return 0
+  fi
+  printf '%s\n' "${_all[@]:0:PREV_RELEASE_WINDOW}"
+}
+
 main() {
   local -a _tags=()
-  mapfile -t _tags < <(_stable_release_tags | head -n "${PREV_RELEASE_WINDOW}")
+  mapfile -t _tags < <(_window_tags)
 
   if (( ${#_tags[@]} < PREV_RELEASE_WINDOW )); then
     _fetch_release_tags
-    mapfile -t _tags < <(_stable_release_tags | head -n "${PREV_RELEASE_WINDOW}")
+    mapfile -t _tags < <(_window_tags)
   fi
 
   # Fail rather than silently covering less. A spec that quietly shrinks to
