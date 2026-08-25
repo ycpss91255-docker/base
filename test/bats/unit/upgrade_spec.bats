@@ -600,6 +600,43 @@ _mk_subtree_repo() {
   assert_output --partial "reached after _get_latest_version, rc=0"
 }
 
+@test "_get_latest_version: an early-closing reader cannot empty the tag scan (#905)" {
+  # `git ls-remote | grep -oP | head -1 | sed` pipes into a reader that
+  # stops reading. `head -1` leaves after one line, the `grep -oP` still
+  # writing takes SIGPIPE and exits 141, and `pipefail` makes 141 the
+  # pipeline's status -- which under `set -e` killed the script at the
+  # assignment, before _check printed anything. The `|| true` this
+  # function grew stops the abort but throws the status away with it, so
+  # the surviving failure mode is a silently EMPTY answer: "there is no
+  # newer release" when there is one.
+  #
+  # `head` is shimmed to leave without reading and `git` to keep writing
+  # after it has gone. A scan that parses the stream in-shell execs
+  # neither, so the newest tag still comes back.
+  local _shim="${TEMP_DIR}/shim"
+  shim_early_closing_reader "${_shim}" head
+  shim_late_writer "${_shim}" git \
+    "def456	refs/tags/v0.7.2" \
+    "abc123	refs/tags/v0.7.0"
+
+  # Strict shell as a script FILE, never `bash -c '...'`: under kcov the
+  # xtrace PS4 expands ${BASH_SOURCE}, which is EMPTY at the top level of
+  # a `bash -c` string, so `set -u` aborts the harness before the function
+  # runs. A file populates BASH_SOURCE[0].
+  local _runner="${TEMP_DIR}/get_latest_strict.sh"
+  cat > "${_runner}" <<'EOS'
+set -euo pipefail
+source "${HARNESS_PATH}"
+TEMPLATE_REMOTE='fake'
+PATH="${SHIM_DIR}:${PATH}"
+printf 'latest=%s\n' "$(_get_latest_version)"
+EOS
+
+  run env HARNESS_PATH="${HARNESS}" SHIM_DIR="${_shim}" bash "${_runner}"
+  assert_success
+  assert_output "latest=v0.7.2"
+}
+
 @test "_get_latest_version: empty result feeds _check's 'Could not fetch' guard" {
   # Sanity: when the function returns nothing, _check still surfaces
   # the genuine failure mode via the existing emptiness guard. Without

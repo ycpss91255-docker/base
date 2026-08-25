@@ -153,6 +153,46 @@ EOF
   assert_line "legacy.retired"
 }
 
+@test "_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)" {
+  # The marker line number came from `grep -n ... | head -1 | cut -d: -f1`,
+  # a pipeline into a reader that stops reading. `head -1` leaves after one
+  # line, the grep still writing takes SIGPIPE and exits 141, and under
+  # init.sh's `set -euo pipefail` that 141 would abort the whole init --
+  # which is what the `|| true` on the end was for. But `|| true` throws
+  # the status away rather than removing the dependency, so what actually
+  # happened was quieter: `cut` had nothing to print, the marker read as
+  # ABSENT, the function returned early, and the retired entry stayed in
+  # every downstream .gitignore the template was trying to retract it from.
+  #
+  # `head` is shimmed to leave without reading, and `grep` to write only
+  # after it has gone -- both halves of the losing interleaving, pinned.
+  # Reading the file in-shell execs neither.
+  _stub_retired
+  local _shim="${TMP_DIR}/shim"
+  shim_early_closing_reader "${_shim}" head
+  shim_late_writer "${_shim}" grep \
+    "2:# managed by template (do not remove)" \
+    "5:# managed by template (do not remove)"
+
+  local _f="${TMP_DIR}/.gitignore"
+  cat > "${_f}" <<'EOF'
+node_modules/
+# managed by template (do not remove)
+.env
+legacy.retired
+EOF
+
+  local _saved_path="${PATH}"
+  PATH="${_shim}:${PATH}"
+  _prune_retired_entries "${_f}"
+  PATH="${_saved_path}"
+
+  run cat "${_f}"
+  refute_line "legacy.retired"
+  assert_line "node_modules/"
+  assert_line ".env"
+}
+
 @test "_sync_gitignore: pruning a retired entry is idempotent (#879)" {
   _stub_retired
   local _f="${TMP_DIR}/.gitignore"
