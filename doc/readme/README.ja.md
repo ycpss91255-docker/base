@@ -934,7 +934,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
-<!-- sync: updating 7ffccdece8ee 2eb5d1522276 -->
+<!-- sync: updating 11a2eb107f15 b632491b3081 -->
 ### アップグレード
 
 前提条件：`git config user.name` / `user.email` が設定済みで、working tree
@@ -985,6 +985,30 @@ repo で実行する前に、次の項を読んでください。手順：
 
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
 resync、sed、マイグレーションの手順は忘れがちです。
+
+**pull の後のどれか一手順でも失敗したら、アップグレード全体が巻き戻され
+ます。** pull は手順 2-5 より先に commit するため、そこで中断すると以前
+は「バージョンだけ上がって resync は一度も走っていない」リポジトリが残り
+ました — 壊れた wrapper 一式と、きれいな `git status` です。今は実行開始
+時の commit まで reset し、自分が作ったファイルも取り除くので、失敗した
+アップグレードが残すのは「何も変わっていない状態とエラー」だけです。手元
+の未 commit の作業が危険にさらされることはありません。`git subtree` は
+そもそも dirty tree では起動を拒否するため、pull 後に存在する変更はすべ
+てそのアップグレード自身が作ったものです。
+
+> **`v0.41.0` 以前から、ファイルが移動した後のツリーへ上げる場合。**
+> アップグレードを駆動するのは自分の `.base/` に vendor されたスクリプト
+> なので、実際に走るのは旧リリースの版です。`v0.41.0` までのリリースは
+> `./.base/init.sh` を呼びますが、`dist/` 再編でその位置から移動しました。
+> 旧パスに置いた互換フォワーダがそれらを動き続けさせます。すでにこの失敗
+> を踏んでいる場合（`.base/.version` は上がっているのに `just --list` が
+> justfile を見つけられない）、壊れているものは何もありません — resync
+> が走らなかっただけです。手動で走らせて commit してください:
+>
+> ```bash
+> ./.base/dist/script/base/init.sh
+> git add -A && git commit -m "chore: resync .base wrappers"
+> ```
 
 <!-- sync: pointing-base-at-a-different-upstream 46d9dded3008 e2489cd00db6 -->
 #### `.base` を別の upstream に向ける

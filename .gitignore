@@ -12,6 +12,13 @@ multi_run/
 # script/docker/log/). The canonical .gitignore sync targets consumer
 # repos, not base itself, so ignore them here directly.
 log/
+# Released trees materialised by script/test/prepare-prev-release.sh for
+# the released-caller compatibility spec. Derived from this repo's own tags
+# (never hand-written), regenerated on demand, and deliberately parked at
+# the repo root rather than under test/: every lint driver scans a fixed
+# root list, and an old release inside one of those roots would be linted
+# as if it were current source.
+.prev-release/
 *.swp
 *.swo
 .DS_Store
