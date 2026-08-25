@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2686 tests**.
+Unit specs under `test/bats/unit/`: **2708 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2908,6 +2908,33 @@ vice versa). Pure git + filesystem, no docker.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
+### test/bats/unit/i18n_orphan_lint_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `_run_i18n_orphan: FAILS on an env-var identifier in a fenced block that the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: FAILS on an env-var identifier in an INLINE code span, which a fence-only scan walks past (#902)` | - |
+| `_run_i18n_orphan: FAILS on a long option the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: reports EVERY translation that carries an orphan, not just the first (#902)` | - |
+| `_run_i18n_orphan: names both readings and the opt-out in the failure message (#902)` | - |
+| `_run_i18n_orphan: PASSES when the identifier appears in English PROSE without backticks (#902)` | - |
+| `_run_i18n_orphan: PASSES on an identifier-shaped token in translation prose OUTSIDE any code span (#902)` | - |
+| `_run_i18n_orphan: PASSES on a path-shaped token absent from the English README (#902)` | - |
+| `_run_i18n_orphan: PASSES on a bare '--' separator and on a lone hyphenated word (#902)` | - |
+| `_run_i18n_orphan: does NOT flag a longer identifier as a match for a shorter English one (#902)` | - |
+| `_run_i18n_orphan: an allow region suppresses the finding inside it (#902)` | - |
+| `_run_i18n_orphan: FAILS on an orphan AFTER an allow-end (the region does not leak) (#902)` | - |
+| `_run_i18n_orphan: FAILS on an unterminated allow-begin (#902)` | - |
+| `_run_i18n_orphan: FAILS on an allow-end with no open allow-begin (#902)` | - |
+| `_run_i18n_orphan: DIES when README.md is missing rather than passing vacuously (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory is missing (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory holds no translation (#902)` | - |
+| `_run_i18n_orphan: DIES when the English README yields no identifier at all (#902)` | - |
+| `_run_i18n_orphan: DIES when no translation yields a single scanned token (#902)` | - |
+| `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)` | - |
+
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
 | Test | Description |
@@ -3015,3 +3042,4 @@ host so the boundary between them can be asserted at all.
 | `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
+
