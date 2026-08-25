@@ -445,6 +445,27 @@ _validate_spec_target() {
       "No such spec file or directory: ${_path} (path is repo-root-relative, resolved as \${REPO_ROOT}/${_path})."
 }
 
+# ── Released-tree fixture ────────────────────────────────────────────────────
+
+# _prepare_prev_release
+#   Materialise the last few RELEASED trees into .prev-release/ so
+#   test/bats/integration/prev_release_upgrade_spec.bats can run their
+#   upgrade.sh against this tree.
+#
+#   Host-side, and it has to be: the suite runs in a container that
+#   bind-mounts the checkout, and a worktree checkout's `.git` is a file
+#   pointing at a path outside that mount, so no in-container git command
+#   can read the tags. The host can, always.
+#
+#   Skipped for the lint-only dispatches -- they run no bats at all, and a
+#   fresh CI checkout would otherwise pay a tag fetch per lint job.
+_prepare_prev_release() {
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  "${REPO_ROOT}/script/test/prepare-prev-release.sh"
+}
+
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -657,6 +678,9 @@ _run_via_compose() {
   # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
+  # Fixture the released-caller spec reads. Prepared here because this is
+  # the last point that still runs on the host, where git works.
+  _prepare_prev_release
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.
