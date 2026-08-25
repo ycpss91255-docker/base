@@ -663,9 +663,22 @@ _mount_container_path() {
 # GPU, 1 otherwise (including when nvidia-smi is missing).
 _detect_mig() {
   command -v nvidia-smi >/dev/null 2>&1 || return 1
-  local _mig_mode
-  _mig_mode="$(nvidia-smi --query-gpu=mig.mode.current \
-    --format=csv,noheader 2>/dev/null | head -1)"
+  # First reported line, read in-shell. It used to be a bare assignment
+  # from `nvidia-smi ... | head -1`: `head -1` stops reading after one
+  # line, a multi-GPU host's nvidia-smi is still writing the rest, it takes
+  # SIGPIPE and exits 141, and `pipefail` makes 141 the pipeline's status.
+  # The live caller is `if _detect_mig; then`, and `if` suspends errexit
+  # for the whole function body, so that did not abort -- it MISREPORTED,
+  # telling a MIG-enabled host it had no slices and withholding the UUIDs
+  # the user needs for NVIDIA_VISIBLE_DEVICES. Called anywhere that is not
+  # a condition, the same 141 would abort setup outright. Draining the
+  # stream removes both: there is no reader to leave early.
+  local _mig_mode="" _line
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ -z "${_mig_mode}" ]]; then
+      _mig_mode="${_line}"
+    fi
+  done < <(nvidia-smi --query-gpu=mig.mode.current --format=csv,noheader 2>/dev/null)
   [[ "${_mig_mode}" == "Enabled" ]]
 }
 

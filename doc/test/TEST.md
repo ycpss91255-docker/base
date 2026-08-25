@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **2864 tests** total (2736 unit + 128 integration).
+Template self-tests: **2893 tests** total (2765 unit + 128 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (12) and smoke (34) tests are tracked here
-> too but are **not** in the 2864 figure: System specs need host docker
+> too but are **not** in the 2893 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2736 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2765 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 128 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 12 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **2864**.
+Self-test grand total (unit + integration): **2893**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -88,6 +88,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `doc-counts` | the figures / catalog rows below | `doc-counts` (`--doc-counts-only`) | ungated |
 | `home-literal` | no concrete username in a home path under `dist/` or `dockerfile/` (ADR-00000024) | `lint-static (home-literal)` | ungated |
 | `bash-source-guard` | no undefaulted `BASH_SOURCE` self-location read under `dist/` or `script/` | `lint-static (bash-source-guard)` | ungated |
+| `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 
@@ -101,8 +102,9 @@ hadolint binary exists only in the test-tools image, so it keeps its own job.
 Adding a lint to `_LINT_TOOLS` without giving it a CI job fails the
 completeness guard in `test/bats/unit/self_test_yaml_spec.bats`. That guard,
 not this table, is what keeps the list honest -- four lints shipped local-only
-before it existed, and `home-literal` / `bash-source-guard` each joined the
-matrix in the same change that introduced them.
+before it existed, and `home-literal` / `bash-source-guard` /
+`early-close-reader` each joined the matrix in the same change that introduced
+them.
 
 ## Maintaining these docs
 

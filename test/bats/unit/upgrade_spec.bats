@@ -565,39 +565,86 @@ _mk_subtree_repo() {
 
 # ── _get_latest_version: errexit / pipefail safety ──────────────────────────
 #
-# Bash 5.3 (alpine 3.23 — the test-tools image runner from)
-# propagates non-zero command-substitution exits through the caller's
-# `set -e`; bash 5.2 (debian bookworm — the previous kcov/kcov runner)
-# does not. The pipe inside _get_latest_version uses `head -1` which
-# closes stdin after one line, SIGPIPE'ing the upstream `grep -oP`;
-# with `pipefail` set, the pipe inherits that non-zero exit. Without
-# the `|| true` workaround, alpine consumers saw integration test
-# (`upgrade.sh --check`) silently fail with empty output (~80% of
-# runs) — script died at `latest_ver=$(...)` before the first _log
-# line. Lock the workaround in place so a future refactor that drops
-# the `|| true` is caught here, not in CI.
+# An unreachable remote must leave _get_latest_version returning 0 with an
+# empty result, so _check's emptiness guard is what reports it -- named
+# remote, one clear message -- rather than the caller dying at the
+# assignment with nothing printed at all.
+#
+# The original spelling piped `grep -oP` into `head -1`, and alpine
+# consumers saw `upgrade.sh --check` die silently in ~80% of runs: `head`
+# stops reading after one line, the grep still writing takes SIGPIPE,
+# `pipefail` inherits the 141, and bash 5.3 propagates that failed
+# command-substitution exit through the caller's `set -e` (bash 5.2 did
+# not, which is why it looked runner-specific). That was answered with
+# `|| true`, which stopped the abort by discarding the status.
+#
+# The pipeline is gone now, so there is no status to discard and nothing
+# for `|| true` to hide. This case still pins the contract it always
+# pinned -- rc=0 and an empty answer on a dead remote -- but no longer
+# locks in the workaround as the mechanism.
 
-@test "_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)" {
-  # Under kcov, bash instrumentation (set -x/PS4 + BASH_ENV) trips the
-  # inner `set -u` shell with `BASH_SOURCE: unbound variable` before the
-  # harness loads. The set-e/pipefail safety this locks is verified by
-  # the normal (non-kcov) job; skip under coverage.
-  [ "${COVERAGE:-0}" = 1 ] && skip "kcov instrumentation perturbs the inner set -u shell (#613)"
-  run bash -c "
-    set -euo pipefail
-    source '${HARNESS}'
-    TEMPLATE_REMOTE='fake'
+@test "_get_latest_version: returns 0 with an empty result when the remote is unreachable" {
+  # Strict shell as a script FILE, never `bash -c '...'`: under kcov the
+  # xtrace PS4 expands ${BASH_SOURCE}, and at the top level of a `bash -c`
+  # string that array is EMPTY, so `set -u` killed the harness before the
+  # function ran. This case used to skip under COVERAGE for exactly that
+  # reason; a script file populates BASH_SOURCE[0], so it now runs in the
+  # coverage shard too -- which is the environment where the SIGPIPE
+  # defect actually reproduces.
+  local _runner="${TEMP_DIR}/unreachable_strict.sh"
+  cat > "${_runner}" <<'EOS'
+set -euo pipefail
+source "${HARNESS_PATH}"
+TEMPLATE_REMOTE='fake'
 
-    # Force a non-zero pipe exit by failing the inner-most stage. Same
-    # shape as the SIGPIPE-from-head-1 scenario — pipefail catches the
-    # non-zero exit either way.
-    git()  { return 1; }
+# A remote that cannot be reached: git fails outright.
+git() { return 1; }
 
-    _get_latest_version
-    echo 'reached after _get_latest_version, rc=0'
-  "
+printf 'latest=[%s]\n' "$(_get_latest_version)"
+printf 'reached after _get_latest_version, rc=0\n'
+EOS
+
+  run env HARNESS_PATH="${HARNESS}" bash "${_runner}"
   assert_success
-  assert_output --partial "reached after _get_latest_version, rc=0"
+  assert_line "latest=[]"
+  assert_line "reached after _get_latest_version, rc=0"
+}
+
+@test "_get_latest_version: an early-closing reader cannot empty the tag scan (#905)" {
+  # `git ls-remote | grep -oP | head -1 | sed` pipes into a reader that
+  # stops reading. `head -1` leaves after one line, the `grep -oP` still
+  # writing takes SIGPIPE and exits 141, and `pipefail` makes 141 the
+  # pipeline's status -- which under `set -e` killed the script at the
+  # assignment, before _check printed anything. The `|| true` this
+  # function grew stops the abort but throws the status away with it, so
+  # the surviving failure mode is a silently EMPTY answer: "there is no
+  # newer release" when there is one.
+  #
+  # `head` is shimmed to leave without reading and `git` to keep writing
+  # after it has gone. A scan that parses the stream in-shell execs
+  # neither, so the newest tag still comes back.
+  local _shim="${TEMP_DIR}/shim"
+  shim_early_closing_reader "${_shim}" head
+  shim_late_writer "${_shim}" git \
+    "def456	refs/tags/v0.7.2" \
+    "abc123	refs/tags/v0.7.0"
+
+  # Strict shell as a script FILE, never `bash -c '...'`: under kcov the
+  # xtrace PS4 expands ${BASH_SOURCE}, which is EMPTY at the top level of
+  # a `bash -c` string, so `set -u` aborts the harness before the function
+  # runs. A file populates BASH_SOURCE[0].
+  local _runner="${TEMP_DIR}/get_latest_strict.sh"
+  cat > "${_runner}" <<'EOS'
+set -euo pipefail
+source "${HARNESS_PATH}"
+TEMPLATE_REMOTE='fake'
+PATH="${SHIM_DIR}:${PATH}"
+printf 'latest=%s\n' "$(_get_latest_version)"
+EOS
+
+  run env HARNESS_PATH="${HARNESS}" SHIM_DIR="${_shim}" bash "${_runner}"
+  assert_success
+  assert_output "latest=v0.7.2"
 }
 
 @test "_get_latest_version: empty result feeds _check's 'Could not fetch' guard" {

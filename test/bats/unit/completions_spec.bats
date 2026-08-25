@@ -67,6 +67,25 @@ teardown() {
   assert_output --partial "autoload -U compinit"
 }
 
+@test "install zsh: a zsh still printing fpath cannot re-hint a dir already on it (#905)" {
+  # `zsh -c 'print -l $fpath' | <reader>` where the reader stops reading:
+  # it leaves on the matching directory, the zsh still printing the rest
+  # of $fpath takes SIGPIPE and exits 141, completions.sh's file-scope
+  # `pipefail` makes 141 the pipeline's status, and the `if` reads a
+  # directory that IS on $fpath as absent. The hint is printed anyway --
+  # advice to add something already there.
+  #
+  # This is the mildest of the five, and it is here for exactly that
+  # reason: the same inverted answer costs a stray line here and a
+  # container collision in run.sh. The mechanism is what is under test.
+  local _dir="${XDG_DATA_HOME}/zsh/site-functions"
+  shim_late_writer "${MOCK_DIR}" "zsh" "${_dir}" "/usr/share/zsh/site-functions"
+
+  run "${COMPLETIONS}" install --shell zsh
+  assert_success
+  refute_output --partial "fpath+=("
+}
+
 @test "uninstall removes the installed file" {
   "${COMPLETIONS}" install --shell bash
   assert [ -f "${BASH_TARGET}" ]

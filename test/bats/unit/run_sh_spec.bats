@@ -77,6 +77,14 @@ EOS
 #!/usr/bin/env bash
 if [[ "$1" == "ps" ]]; then
   cat "${DOCKER_PS_FILE}"
+  # Opt-in late write (${DOCKER_PS_LATE_FILE}): names that arrive only
+  # after a reader which stops reading has already left, so the write
+  # finds no reader. `exec` so the SIGPIPE is this stub's own exit
+  # status rather than being swallowed by the `exit 0` below.
+  if [[ -n "${DOCKER_PS_LATE_FILE:-}" ]]; then
+    sleep 0.2
+    exec cat "${DOCKER_PS_LATE_FILE}"
+  fi
   exit 0
 fi
 # image inspect: drives the soft guard. Env var
@@ -439,6 +447,34 @@ HOOK
   echo "tester-mockimg" > "${DOCKER_PS_FILE}"
 
   # Real mode (no --dry-run) triggers the guard; DRY_RUN=true bypasses it.
+  run bash "${SANDBOX}/run.sh"
+  assert_failure
+  assert_output --partial "already running"
+}
+
+@test "run.sh: a docker ps still writing cannot make the guard miss a running container (#905)" {
+  # The already-running guard asks `docker ps ... | <reader>`. A reader
+  # that stops reading (`grep -q` leaves on its first match) strands a
+  # `docker ps` that is still writing: SIGPIPE, exit 141, and run.sh's
+  # file-scope `pipefail` makes 141 the PIPELINE's status -- which the
+  # `if` reads as "not running". The answer is inverted, not lost, and
+  # run.sh then does not refuse at all: it starts a second container on
+  # top of the live one instead of printing the guard's error.
+  #
+  # The stub pins that interleaving. The matching name is written first,
+  # so a real early-closing reader really does match and really does
+  # leave; the late write then finds nobody. Draining the whole stream
+  # never leaves it, so the late write lands and the guard fires.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  DOCKER_PS_LATE_FILE="${TEMP_DIR}/docker_ps.late"
+  export DOCKER_PS_LATE_FILE
+  echo "someone-elses-container" > "${DOCKER_PS_LATE_FILE}"
+
   run bash "${SANDBOX}/run.sh"
   assert_failure
   assert_output --partial "already running"

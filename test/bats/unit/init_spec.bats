@@ -172,6 +172,27 @@ REMOTE
 # _detect_template_version: reads .version file
 # ════════════════════════════════════════════════════════════════════
 
+@test "_detect_template_version: an early-closing reader cannot empty the tag scan (#905)" {
+  # Same pipeline as upgrade.sh's _get_latest_version, same `|| true`, and
+  # the same surviving failure mode: `head -1` leaves after one line, the
+  # `grep -oP` still writing dies of SIGPIPE, and the suppressed status
+  # leaves an EMPTY version. init.sh then stamps a repo with no template
+  # version at all rather than the tag it just resolved.
+  #
+  # Shims go on AFTER _source_init so they cannot perturb init.sh's
+  # source-time self-location; only the function under test sees them.
+  _source_init
+  rm -f "${TMP_REPO}/.base/.version"  # exercise the no-cache fallback path
+  shim_early_closing_reader "${MOCK_DIR}" head
+  shim_late_writer "${MOCK_DIR}" git \
+    "def456	refs/tags/v0.7.2" \
+    "abc123	refs/tags/v0.7.0"
+
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v0.7.2"
+}
+
 @test "_detect_template_version: reads .version file when present (no network)" {
   echo "v1.5.0" > "${TMP_REPO}/.base/.version"
   # Mock git to fail (simulate offline)

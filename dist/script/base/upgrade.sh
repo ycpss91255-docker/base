@@ -359,21 +359,43 @@ _get_local_version() {
 }
 
 _get_latest_version() {
-  # `head -1` closes stdin after one line, which delivers SIGPIPE to the
-  # upstream `grep -oP`. With `pipefail` set, the pipe inherits that
-  # non-zero exit. Bash 5.3 (alpine 3.23 — the test-tools image runner
-  # introduced in) propagates that failed command-substitution exit
-  # through the caller's `set -e` and silently kills the script before
-  # _check's `_log` lines run; bash 5.2 (debian bookworm / kcov-runner)
-  # does not. Wrap the pipe with `|| true` so this function unconditionally
-  # returns 0 — an empty result still funnels into `[[ -z latest_ver ]]`
-  # → `_error "Could not fetch ..."` in _check, so genuine network failures
-  # still surface with a clear message.
-  local _result=""
-  _result=$(git ls-remote --tags --sort=-v:refname "${TEMPLATE_REMOTE}" \
-    | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
-    | head -1 \
-    | sed 's|refs/tags/||') || true
+  # Newest STABLE tag on the upstream remote, or "" when the remote cannot
+  # be reached or carries no vX.Y.Z tag. `--sort=-v:refname` puts the
+  # newest first, so the first match wins; rc / pre-release tags do not
+  # match the pattern and are skipped.
+  #
+  # The scan is in-shell on purpose. It used to be
+  # `git ls-remote ... | grep -oP ... | head -1 | sed ...`: `head -1`
+  # closes the pipe after one line, the `grep -oP` still writing takes
+  # SIGPIPE and exits 141, `pipefail` promotes that to the pipeline's
+  # status, and under the caller's `set -e` the bare assignment killed the
+  # script before _check's `_log` lines ran. `|| true` stopped the abort,
+  # but by discarding the status -- including a genuine `git` failure --
+  # and left the quieter defect in place: an EMPTY answer that reads as
+  # "no newer release" when there is one.
+  #
+  # Nothing below can be killed by a reader that stopped reading, because
+  # there is no reader: no pipe, no early exit, no status that depends on
+  # how two processes were scheduled. An unreachable remote still yields
+  # "", which _check reports as `Could not fetch ...` with the remote
+  # named -- the one loud error this path has always had. Parsing the ref
+  # in-shell also drops the `grep -oP` PCRE dependency, which does not
+  # exist on a BSD / macOS host.
+  local _line _ref _result=""
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ -n "${_result}" ]]; then
+      continue
+    fi
+    # `git ls-remote` prints "<sha><TAB><ref>". Strip through the last run
+    # of whitespace rather than a literal tab: the replaced `grep -oP`
+    # matched the ref anywhere on the line, so anything that separates the
+    # two fields has to keep working. A peeled `refs/tags/vX.Y.Z^{}` line
+    # fails the anchored match and is skipped, as it was before.
+    _ref="${_line##*[[:space:]]}"
+    if [[ "${_ref}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _result="${_ref#refs/tags/}"
+    fi
+  done < <(git ls-remote --tags --sort=-v:refname "${TEMPLATE_REMOTE}")
   printf '%s' "${_result}"
 }
 
