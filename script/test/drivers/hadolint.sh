@@ -30,6 +30,7 @@
 readonly _HADOLINT_CONFIG="dist/.hadolint.yaml"
 readonly _HADOLINT_DOCKERFILES=(
   "dist/dockerfile/Dockerfile"
+  "dockerfile/Dockerfile.smoke"
   "dockerfile/Dockerfile.test-tools"
 )
 
