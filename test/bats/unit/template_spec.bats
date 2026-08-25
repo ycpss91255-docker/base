@@ -417,8 +417,16 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "exec.sh checks container is running before exec" {
-  # Should reference docker ps / docker inspect or similar precheck
-  run grep -E 'docker (ps|inspect)' /source/dist/script/docker/wrapper/exec.sh
+  # The precheck asks the shared probe rather than spelling `docker ps`
+  # inline: run.sh asks the identical question, and the two inline copies
+  # were identical down to the `| grep -qx` that made both of them answer
+  # backwards. Assert the seam from both ends -- exec.sh calls the probe,
+  # and the probe is the thing that queries the daemon -- so this stays a
+  # check that the precheck EXISTS rather than a pin on where the string
+  # `docker ps` happens to sit today.
+  run grep -F '_wrapper_container_running' /source/dist/script/docker/wrapper/exec.sh
+  assert_success
+  run grep -E 'docker (ps|inspect)' /source/dist/script/docker/lib/wrapper.sh
   assert_success
 }
 

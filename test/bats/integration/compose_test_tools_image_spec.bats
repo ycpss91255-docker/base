@@ -75,9 +75,18 @@ _resolution() {
   # "neither an image nor a build context specified" is true and useless
   # -- it names no way to get one. Refusing while naming the recipe is
   # what makes silently building or pulling something impossible.
+  #
+  # Which SERVICE compose names is not a contract: it interpolates the
+  # whole file and reports the first required variable it reaches, and the
+  # order varies between runs (observed alternating between the
+  # `test-tools` and `smoke` services on one tree). Every service's message
+  # names a just recipe and says not to drive compose directly, so those
+  # are what this asserts; pinning one recipe pinned map iteration order
+  # instead, and went red whenever the other service won the race.
   run env -u TEST_TOOLS_IMAGE docker compose \
     -f "${ROOT}/compose.yaml" config --images
   assert_failure
+  assert_output --partial "required variable TEST_TOOLS_IMAGE is missing a value"
   assert_output --partial "just test"
-  assert_output --partial "just docker build --target test-tools"
+  assert_output --partial "instead of driving docker compose directly"
 }

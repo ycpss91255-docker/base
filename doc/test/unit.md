@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2722 tests**.
+Unit specs under `test/bats/unit/`: **2751 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -297,7 +297,7 @@ Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero
 paths when the conf hash or GPU detection changes against a cached
 `.env`.
 
-#### test/bats/unit/setup_detect_spec.bats (49)
+#### test/bats/unit/setup_detect_spec.bats (50)
 
 Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 `detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
@@ -364,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (134)
+### test/bats/unit/tui_spec.bats (135)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1085,7 +1085,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (66)
+### test/bats/unit/run_sh_spec.bats (67)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -1135,7 +1135,7 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (57)
+### test/bats/unit/exec_sh_spec.bats (58)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -1381,7 +1381,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (13)
+### test/bats/unit/completions_spec.bats (14)
 
 Unit tests for the opt-in shell tab-completion installer
 `dist/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1396,6 +1396,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `install bash writes the dynamic eval-loader file` | exact `eval "$(JUST_COMPLETE=bash just)"` content |
 | `install fish writes the file with the dynamic completer output` | captures `JUST_COMPLETE=fish just` |
 | `install zsh writes _just + prints the fpath hint when dir not on fpath` | `_just` + stdout fpath hint |
+| `install zsh: a zsh still printing fpath cannot re-hint a dir already on it (#905)` | - |
 | `uninstall removes the installed file` | removes the loader |
 | `uninstall is idempotent when the file is absent (no error)` | safe no-op |
 | `install --shell all installs all three shells` | bash + fish + zsh |
@@ -2268,7 +2269,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (52)
+### test/bats/unit/init_spec.bats (53)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2283,6 +2284,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_detect_template_version: returns empty when git ls-remote fails` | Network-down fallback |
 | `_detect_template_version: returns empty when no v*.*.* tags exist` | Nothing to match |
 | `_detect_template_version: ignores non-semver tags (e.g. rc suffixes)` | Regex filters rc / pre-release |
+| `_detect_template_version: an early-closing reader cannot empty the tag scan (#905)` | - |
 | `_detect_template_version: reads .version file when present (no network)` | .version file priority |
 | `_detect_template_version: .version file takes priority over git ls-remote` | Local-first resolution |
 | `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
@@ -2446,7 +2448,7 @@ no-ops, and the ldd-skip + accumulate-all behaviour (#692).
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/upgrade_spec.bats (47)
+### test/bats/unit/upgrade_spec.bats (48)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -2512,7 +2514,8 @@ deliberately chosen policy is never rewritten).
 | `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
 | `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
 | `_check: prerelease behind latest stable proposes upgrade (rc1 →0.12.0)` | Leave prerelease |
-| `_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)` | Alpine bash 5.3 errexit-from-cmdsub workaround (lock the `\|\| true` guard) |
+| `_get_latest_version: returns 0 with an empty result when the remote is unreachable` | - |
+| `_get_latest_version: an early-closing reader cannot empty the tag scan (#905)` | - |
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 | `_migrate_lifecycle_restart_default rewrites the stale template default, loudly` | - |
@@ -2570,7 +2573,7 @@ contracts on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/gitignore_spec.bats (46)
+### test/bats/unit/gitignore_spec.bats (47)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -2584,6 +2587,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)` | - |
 | `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
+| `_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)` | - |
 | `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
@@ -2709,7 +2713,7 @@ default, since two different defaults are what let the build write one tag
 while the run read another.
 
 
-### test/bats/unit/base_version_monitor_spec.bats (12)
+### test/bats/unit/base_version_monitor_spec.bats (13)
 
 Version-compare + issue-open logic of the pull-based base version monitor:
 semver ordering (numeric, not lexical), a missing leading `v`, and the
@@ -2730,6 +2734,7 @@ empty API answer).
 | `run: opened issue carries the base-upgrade label` | - |
 | `run: up to date -> no issue created` | - |
 | `run: existing open issue for the target -> skip (dedup)` | - |
+| `run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)` | - |
 | `run: empty latest from API -> fails without creating an issue` | - |
 
 ### test/bats/unit/check_test_md_drift_spec.bats (10)
@@ -3062,3 +3067,28 @@ host so the boundary between them can be asserted at all.
 | `the harness asserts at BUILD time, exactly like the stage it stands in for` | - |
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
+
+### test/bats/unit/early_close_reader_lint_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_run_early_close_reader: FAILS on a pipeline into grep -q, naming file and line (#905)` | - |
+| `_run_early_close_reader: FAILS on a clustered quiet flag (-qxF) (#905)` | - |
+| `_run_early_close_reader: FAILS on a quiet flag that is not the first argument (#905)` | - |
+| `_run_early_close_reader: FAILS on the long-form --quiet (#905)` | - |
+| `_run_early_close_reader: FAILS on a pipeline into head, with or without -n (#905)` | - |
+| `_run_early_close_reader: FAILS on a reader on its own continuation line (#905)` | - |
+| `_run_early_close_reader: FAILS in base's own tooling tree, not just dist/ (#905)` | - |
+| `_run_early_close_reader: PASSES a reader that drains the stream (grep -v, grep -c) (#905)` | - |
+| `_run_early_close_reader: PASSES grep -q reading a FILE, which strands nobody (#905)` | - |
+| `_run_early_close_reader: PASSES a logical OR that merely precedes grep -q (#905)` | - |
+| `_run_early_close_reader: PASSES a here-string into grep -q (no writer process) (#905)` | - |
+| `_run_early_close_reader: PASSES a comment that merely describes the shape (#905)` | - |
+| `_run_early_close_reader: PASSES an in-shell drain (the shape the fixes use) (#905)` | - |
+| `_run_early_close_reader: ignores non-.sh files and files outside the scanned trees (#905)` | - |
+| `_run_early_close_reader: EXEMPTS a pipeline inside an allow-begin/allow-end region (#905)` | - |
+| `_run_early_close_reader: FAILS on a pipeline AFTER an allow-end (region does not leak) (#905)` | - |
+| `_run_early_close_reader: FAILS on an unterminated allow-begin region (#905)` | - |
+| `_run_early_close_reader: FAILS on an allow-end with no matching allow-begin (#905)` | - |
+| `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
+| `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |

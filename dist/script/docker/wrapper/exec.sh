@@ -342,7 +342,7 @@ main() {
     _container_name="${_container_name}-${TARGET}"
   fi
   if [[ "${DRY_RUN}" != true ]] \
-      && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
+      && ! _wrapper_container_running "${_container_name}"; then
     # Compose the error + start hint into a single multi-line _log_err block.
     local _not_running _hint
     # shellcheck disable=SC2059

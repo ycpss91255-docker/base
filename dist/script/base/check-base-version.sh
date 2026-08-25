@@ -105,8 +105,22 @@ _latest_release() {
 # already names <version> (dedupe gate).
 _issue_open_for() {
   local _target="${1}"
-  "${GH}" issue list --label "${MONITOR_LABEL}" --state open \
-    --json title --jq '.[].title' 2>/dev/null | grep -qF "${_target}"
+  # Read the whole title list and match in-shell. Piping into `grep -qF`
+  # handed the answer to a reader that stops reading: grep leaves on its
+  # match, the gh still writing the rest of the list takes SIGPIPE and
+  # exits 141, and this script's `pipefail` makes 141 the PIPELINE's
+  # status -- so an ALREADY-OPEN tracking issue read as absent and the
+  # monitor filed a duplicate. It runs weekly in every downstream repo,
+  # so that duplicate came back on every poll until someone upgraded.
+  local _title
+  local _found=1
+  while IFS= read -r _title || [[ -n "${_title}" ]]; do
+    if [[ "${_title}" == *"${_target}"* ]]; then
+      _found=0
+    fi
+  done < <("${GH}" issue list --label "${MONITOR_LABEL}" --state open \
+    --json title --jq '.[].title' 2>/dev/null)
+  return "${_found}"
 }
 
 cmd_compare() {

@@ -133,7 +133,20 @@ _install_zsh() {
 _zsh_fpath_hint() {
   local dir="$1"
   if command -v zsh > /dev/null 2>&1; then
-    if zsh -c 'print -l $fpath' 2> /dev/null | grep -qxF "${dir}"; then
+    # Read the whole $fpath listing and compare in-shell. Piping into
+    # `grep -qxF` handed the answer to a reader that stops reading: grep
+    # leaves on its match, the zsh still printing the rest of $fpath takes
+    # SIGPIPE and exits 141, and this file's `pipefail` makes 141 the
+    # PIPELINE's status -- so a directory that IS on $fpath read as absent
+    # and the hint was printed anyway.
+    local _entry
+    local _on_fpath=1
+    while IFS= read -r _entry || [[ -n "${_entry}" ]]; do
+      if [[ "${_entry}" == "${dir}" ]]; then
+        _on_fpath=0
+      fi
+    done < <(zsh -c 'print -l $fpath' 2> /dev/null)
+    if (( _on_fpath == 0 )); then
       return 0
     fi
   fi

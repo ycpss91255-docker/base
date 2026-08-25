@@ -1200,6 +1200,43 @@ fi'
   [ "${status}" -ne 0 ]
 }
 
+@test "_detect_mig: an early-closing reader cannot turn MIG Enabled into disabled (#905)" {
+  # `_mig_mode="$(nvidia-smi ... | head -1)"` is a bare assignment from a
+  # pipeline into a reader that stops reading -- the same shape as the ADR
+  # min/max scan, in runtime code. `head -1` leaves after one line, the
+  # nvidia-smi still writing dies of SIGPIPE, `pipefail` makes the pipeline
+  # 141, and the assignment fails.
+  #
+  # What that costs depends on the caller. The live one is
+  # `if _detect_mig; then` in setup_tui.sh, and `if` suspends errexit for
+  # the whole function body -- so it does not abort, it MISREPORTS: a
+  # MIG-enabled host is told it has no slices, and the user never sees the
+  # UUIDs they need for NVIDIA_VISIBLE_DEVICES. Called anywhere that is
+  # not a condition, the same 141 aborts the caller outright. This case
+  # pins the harsher of the two by calling it bare under `set -euo
+  # pipefail`, so both are covered at once.
+  #
+  # Strict shell as a script FILE, never `bash -c '...'`: under kcov the
+  # xtrace PS4 expands ${BASH_SOURCE}, EMPTY at the top level of a
+  # `bash -c` string, and `set -u` would abort the harness first.
+  local _shim="${TEMP_DIR}/shim"
+  shim_early_closing_reader "${_shim}" head
+  shim_late_writer "${_shim}" "nvidia-smi" "Enabled" "Enabled"
+
+  local _runner="${TEMP_DIR}/detect_mig_strict.sh"
+  cat > "${_runner}" <<'EOS'
+set -euo pipefail
+source /source/dist/script/docker/lib/_tui_conf.sh
+PATH="${SHIM_DIR}:${PATH}"
+_detect_mig
+printf 'mig=enabled\n'
+EOS
+
+  run env SHIM_DIR="${_shim}" bash "${_runner}"
+  assert_success
+  assert_output "mig=enabled"
+}
+
 @test "_list_gpu_instances returns nvidia-smi -L output" {
   mock_cmd "nvidia-smi" '
 if [[ "$1" == "-L" ]]; then

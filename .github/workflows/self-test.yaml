@@ -244,6 +244,10 @@ jobs:
     #   bash-source-guard no undefaulted BASH_SOURCE self-location read
     #                     under dist/ or script/ -- likewise joined here on
     #                     the day it was written
+    #   early-close-reader no `| head` / `| grep -q` under dist/ or script/
+    #                     -- a reader that stops reading turns a SUCCESSFUL
+    #                     match into the pipeline's failure under pipefail,
+    #                     and the answer is inverted rather than lost
     #   derived-figures   the baseline stage set and the setup.conf section
     #                     list, as documents repeat them, still match the
     #                     code that defines them
@@ -285,6 +289,7 @@ jobs:
           - readme-sync
           - home-literal
           - bash-source-guard
+          - early-close-reader
           - derived-figures
           - i18n-orphan
     steps:

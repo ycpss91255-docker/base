@@ -20,7 +20,9 @@
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
 #                             # --bash-source-guard-only /
-#                             # --derived-figures-only / --i18n-orphan-only.
+#                             # --bash-source-guard-only /
+#                             # --derived-figures-only / --i18n-orphan-only /
+#                             # --early-close-reader-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -97,6 +99,8 @@ source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 source "${SCRIPT_DIR}/drivers/home_literal.sh"
 # shellcheck source=script/test/drivers/bash_source_guard.sh
 source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
+# shellcheck source=script/test/drivers/early_close_reader.sh
+source "${SCRIPT_DIR}/drivers/early_close_reader.sh"
 # shellcheck source=script/test/drivers/derived_figures.sh
 source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 # shellcheck source=script/test/drivers/i18n_orphan.sh
@@ -126,6 +130,7 @@ readonly _LINT_TOOLS=(
   doc-counts
   home-literal
   bash-source-guard
+  early-close-reader
   derived-figures
   i18n-orphan
 )
@@ -191,6 +196,7 @@ _run_lint_tool() {
     doc-counts)       _run_doc_counts ;;
     home-literal)     _run_home_literal ;;
     bash-source-guard) _run_bash_source_guard ;;
+    early-close-reader) _run_early_close_reader ;;
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
     *) _die ci_unknown_lint_tool \
@@ -263,6 +269,13 @@ Options:
                           script/ must default to $0; undefaulted it aborts
                           under the script's own nounset wherever bash does
                           not populate the array, e.g. the kcov shard)
+  --early-close-reader    With --lint: run only the early-closing-reader
+                          pipeline lint (nothing under dist/ or script/ may
+                          pipe into `head` or into a quiet `grep`: the
+                          reader leaves on its first match, the writer
+                          still writing takes SIGPIPE, and pipefail turns a
+                          SUCCESSFUL match into the pipeline's failure --
+                          an inverted answer the caller acts on in silence)
   --derived-figures       With --lint: run only the derived-figure lint (a
                           figure a document repeats must match the code
                           that defines it -- the baseline stage blocklist
@@ -294,6 +307,7 @@ Options:
                             --doc-counts-only        pure bash + diff
                             --home-literal-only      pure bash
                             --bash-source-guard-only pure bash
+                            --early-close-reader-only pure bash
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
                           (no --hadolint-only equivalent: hadolint exists
@@ -359,11 +373,13 @@ Examples:
   just test lint --doc-counts     # doc/test count drift gate only
   just test lint --home-literal   # hardcoded home path lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
+  just test lint --early-close-reader # early-closing-reader pipeline lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
+  ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
@@ -676,6 +692,7 @@ main() {
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --home-literal) lint_tool="home-literal"; shift ;;
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
+      --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
@@ -686,6 +703,7 @@ main() {
       --doc-counts-only) host_lint="doc-counts"; shift ;;
       --home-literal-only) host_lint="home-literal"; shift ;;
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
+      --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
@@ -722,7 +740,7 @@ main() {
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
-  # `--i18n-orphan-only`) short-circuit
+  # `--i18n-orphan-only`, `--early-close-reader-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

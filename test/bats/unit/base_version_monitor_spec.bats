@@ -43,7 +43,16 @@ _stub_gh() {
   mock_cmd "gh" '
 case "$1:$2" in
   api:*)        printf "%s\n" "${MOCK_LATEST}" ;;
-  issue:list)   printf "%s" "${MOCK_EXISTING:-}" ;;
+  issue:list)   printf "%s" "${MOCK_EXISTING:-}"
+                # Opt-in late write (${MOCK_EXISTING_LATE_FILE}): titles
+                # that arrive only after a reader which stops reading has
+                # already left, so the write finds no reader. `exec` so
+                # the SIGPIPE becomes the exit status of this stub.
+                if [[ -n "${MOCK_EXISTING_LATE_FILE:-}" ]]; then
+                  sleep 0.2
+                  exec cat "${MOCK_EXISTING_LATE_FILE}"
+                fi
+                ;;
   issue:create) printf "create %s\n" "$*" >> "${MOCK_CALLS}"; printf "https://x/issues/1\n" ;;
   *)            printf "unexpected gh %s\n" "$*" >&2; exit 9 ;;
 esac
@@ -136,6 +145,30 @@ esac
 
   run bash "${SCRIPT}" run
   assert_success
+  [ ! -s "${MOCK_CALLS}" ]
+}
+
+@test "run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)" {
+  # `gh issue list ... | <reader>` where the reader stops reading: it
+  # leaves on the matching title, the gh still writing the rest of the
+  # list takes SIGPIPE and exits 141, check-base-version.sh's file-scope
+  # `pipefail` makes 141 the pipeline's status, and the `if` reads an
+  # ALREADY-OPEN tracking issue as absent. The monitor then files a
+  # second one -- and it runs weekly in every downstream repo, so the
+  # duplicate is filed again on every poll until someone upgrades.
+  echo "v0.41.0" > "${VERSION_FILE}"
+  # Trailing newline on the early half: the late half is a separate
+  # title, not a continuation of this one.
+  export MOCK_LATEST="v0.42.0" \
+         MOCK_EXISTING="chore: .base behind base — upgrade v0.41.0 -> v0.42.0
+"
+  export MOCK_EXISTING_LATE_FILE="${BATS_TEST_TMPDIR}/gh-issue-list.late"
+  printf '%s\n' "chore: unrelated open issue" > "${MOCK_EXISTING_LATE_FILE}"
+  _stub_gh
+
+  run bash "${SCRIPT}" run
+  assert_success
+  assert_output --partial "already open"
   [ ! -s "${MOCK_CALLS}" ]
 }
 
