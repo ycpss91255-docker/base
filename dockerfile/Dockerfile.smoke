@@ -86,8 +86,10 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 
 # HOME is what the wrapper drivers resolve caches and dotfiles against.
 # The real stage sets it explicitly for the same reason: docker does not
-# derive it from the USER's passwd entry.
-ENV HOME="/home/smokeuser"
+# derive it from the USER's passwd entry. Parameterised on the ARG, never
+# spelled out: a concrete username in a home path is what ADR-00000024's
+# home-literal lint exists to catch, and this file is inside its scope.
+ENV HOME="/home/${SMOKE_USER}"
 
 # /smoke_test: the per-stage selective COPY, flattened. shared/ runs on
 # every `-test` stage; devel-test/ is this stage's own. The per-repo

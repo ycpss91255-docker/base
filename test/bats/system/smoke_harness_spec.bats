@@ -67,13 +67,37 @@ _make_context() {
   cp -a /source/dist/test/bats/smoke "${_mc_out}/dist/test/bats/"
 }
 
+# _add_fixture_spec <context> <name> <body-line>...
+#
+# Write a bats spec into <context>'s devel-test spec directory, so the
+# harness picks it up through its normal COPY.
+#
+# Assembled line by line rather than from a heredoc on purpose: a heredoc
+# would put `@test` at the start of a line in THIS file, and the doc/test
+# count generator derives every catalogue figure from `grep -c '^@test'`.
+# A fixture would then be counted as a test of this spec and appear in the
+# catalogue under a name nothing here runs.
+_add_fixture_spec() {
+  local _ctx="${1}" _name="${2}"; shift 2
+  local _dest="${_ctx}/dist/test/bats/smoke/devel-test/${_name}.bats"
+  printf '%s\n' '#!/usr/bin/env bats' '' > "${_dest}"
+  printf '%s\n' "$@" >> "${_dest}"
+}
+
 # _build_harness <context> -- build the real harness Dockerfile against
 # <context>. Merges stderr into stdout and forces plain progress so a failing
 # spec's bats output lands in the bats failure report instead of a collapsed
 # progress line. Exits with docker's status.
+#
+# --no-cache because these cases assert on what the RUN produced, and a
+# CACHED layer produces nothing: the positive case builds a context
+# identical to the previous run's, so without it the second invocation
+# reports success having executed no specs at all -- and the assertion that
+# bats reported a plan is precisely what caught that.
 _build_harness() {
   local _ctx="${1}"
   docker build \
+    --no-cache \
     --progress=plain \
     --build-arg "TEST_TOOLS_IMAGE=${TEST_TOOLS_IMAGE}" \
     -f /source/dockerfile/Dockerfile.smoke \
@@ -108,17 +132,14 @@ teardown() {
 
 @test "the smoke harness runs the specs as a non-root user" {
   _make_context CONTEXT_DIR
-  cat > "${CONTEXT_DIR}/dist/test/bats/smoke/devel-test/zz_identity.bats" <<'EOF'
-#!/usr/bin/env bats
-
-@test "the smoke run is not root" {
-  [ "$(id -u)" -ne 0 ]
-}
-
-@test "the smoke run cannot write into /lint" {
-  ! touch /lint/zz_probe
-}
-EOF
+  _add_fixture_spec "${CONTEXT_DIR}" zz_identity \
+    '@test "the smoke run is not root" {' \
+    '  [ "$(id -u)" -ne 0 ]' \
+    '}' \
+    '' \
+    '@test "the smoke run cannot write into /lint" {' \
+    '  ! touch /lint/zz_probe' \
+    '}'
   run _build_harness "${CONTEXT_DIR}"
   [ "${status}" -eq 0 ]
 }
@@ -133,13 +154,10 @@ EOF
 
 @test "the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)" {
   _make_context CONTEXT_DIR
-  cat > "${CONTEXT_DIR}/dist/test/bats/smoke/devel-test/zz_failing.bats" <<'EOF'
-#!/usr/bin/env bats
-
-@test "failing on purpose" {
-  false
-}
-EOF
+  _add_fixture_spec "${CONTEXT_DIR}" zz_failing \
+    '@test "failing on purpose" {' \
+    '  false' \
+    '}'
   run _build_harness "${CONTEXT_DIR}"
   [ "${status}" -ne 0 ]
   echo "${output}" | grep -q 'failing on purpose'
