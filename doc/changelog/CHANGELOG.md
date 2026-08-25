@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Writing an entry
+
+An entry answers two questions: **what changed**, and **does it affect me**.
+Not why, not what was rejected -- the PR body is this repo's canonical
+decision record, the entry already links to it by number, and prose pasted
+into both places leaves the argument living twice with the changelog copy the
+unreadable one.
+
+```markdown
+- **One sentence on what changed** (#NNN) -- who is affected, and whether it
+  breaks anything.
+```
+
+**An `[Unreleased]` entry is capped at 700 characters**, enforced by the
+`changelog-entry` lint (`just test lint --changelog-entry`). Two things about
+how it measures, because they decide what you can and cannot do about a
+failure:
+
+- The unit is the **whole entry** -- the lead bullet plus every continuation
+  line and sub-bullet, up to the next top-level bullet or heading. Rewrapping
+  the prose or splitting it into a nested list does not reduce the count.
+- **Whitespace is collapsed first**, so wrapping at 79 columns and indenting a
+  sub-list cost nothing. A short lead plus a four-item migration sub-list
+  measures about 450 and fits comfortably.
+
+The cap is not the median of past entries; it is set above what a complete
+entry actually needs. Ten entries written in this style for the v0.42.0 cycle's
+real changes -- including two BREAKING migrations -- measured 210-543. If an
+entry does not fit, the part that does not fit is almost always the reasoning,
+and it belongs in the PR.
+
+Released sections are **never** checked: they are a historical record, and
+rewriting a shipped entry falsifies it. A genuinely exceptional entry opts out
+by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
+`<!-- changelog-entry-lint: allow-end -->`.
+
 ## [Unreleased]
+
+### Added
+- **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 
 ## [v0.42.0] - 2026-08-25
 

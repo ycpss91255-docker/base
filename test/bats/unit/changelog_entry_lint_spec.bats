@@ -106,12 +106,15 @@ _long_prose() {
 
 @test "_run_changelog_entry: names the entry's line, its measured length and the cap (#917)" {
   _write_changelog '### Added' "- **a thing** -- $(_long_prose)"
+  # The expected line comes from the fixture via grep, not from arithmetic
+  # over the driver's own scan, so the assertion cannot agree with a
+  # miscounted offset.
+  local _line
+  _line="$(grep -n -- '- \*\*a thing\*\*' "${CHANGELOG}" | cut -d: -f1)"
   run _run_changelog_entry
   assert_failure
-  # The entry's bullet is line 7 of the fixture (heading 5, blank 6 is
-  # consumed, '### Added' 6, bullet 7).
-  assert_output --partial 'CHANGELOG.md:7'
-  assert_output --partial "${_CHANGELOG_ENTRY_MAX}"
+  assert_output --partial "CHANGELOG.md:${_line}:"
+  assert_output --regexp "[0-9]+ chars \(max ${_CHANGELOG_ENTRY_MAX}\)"
 }
 
 @test "_run_changelog_entry: reports EVERY over-long entry, not just the first (#917)" {
