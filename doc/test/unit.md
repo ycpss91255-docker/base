@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2700 tests**.
+Unit specs under `test/bats/unit/`: **2722 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2909,6 +2909,33 @@ vice versa). Pure git + filesystem, no docker.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
+### test/bats/unit/i18n_orphan_lint_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `_run_i18n_orphan: FAILS on an env-var identifier in a fenced block that the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: FAILS on an env-var identifier in an INLINE code span, which a fence-only scan walks past (#902)` | - |
+| `_run_i18n_orphan: FAILS on a long option the English README never mentions (#902)` | - |
+| `_run_i18n_orphan: reports EVERY translation that carries an orphan, not just the first (#902)` | - |
+| `_run_i18n_orphan: names both readings and the opt-out in the failure message (#902)` | - |
+| `_run_i18n_orphan: PASSES when the identifier appears in English PROSE without backticks (#902)` | - |
+| `_run_i18n_orphan: PASSES on an identifier-shaped token in translation prose OUTSIDE any code span (#902)` | - |
+| `_run_i18n_orphan: PASSES on a path-shaped token absent from the English README (#902)` | - |
+| `_run_i18n_orphan: PASSES on a bare '--' separator and on a lone hyphenated word (#902)` | - |
+| `_run_i18n_orphan: does NOT flag a longer identifier as a match for a shorter English one (#902)` | - |
+| `_run_i18n_orphan: an allow region suppresses the finding inside it (#902)` | - |
+| `_run_i18n_orphan: FAILS on an orphan AFTER an allow-end (the region does not leak) (#902)` | - |
+| `_run_i18n_orphan: FAILS on an unterminated allow-begin (#902)` | - |
+| `_run_i18n_orphan: FAILS on an allow-end with no open allow-begin (#902)` | - |
+| `_run_i18n_orphan: DIES when README.md is missing rather than passing vacuously (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory is missing (#902)` | - |
+| `_run_i18n_orphan: DIES when the translation directory holds no translation (#902)` | - |
+| `_run_i18n_orphan: DIES when the English README yields no identifier at all (#902)` | - |
+| `_run_i18n_orphan: DIES when no translation yields a single scanned token (#902)` | - |
+| `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
+| `_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)` | - |
+
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
 | Test | Description |
@@ -3017,36 +3044,21 @@ host so the boundary between them can be asserted at all.
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
+
 ### test/bats/unit/smoke_harness_spec.bats (13)
-
-The static half of the `just test smoke` harness (see
-[smoke.md](smoke.md) for what it is and how to run it); the behavioural
-half -- the specs really run, really run non-root, and really gate -- is
-`test/bats/system/smoke_harness_spec.bats`.
-
-The load-bearing test is the COPY-set parity check. A harness whose COPY
-set has fallen behind the stage it stands in for is worse than no harness:
-it reports green for a stage that would be red. So the shipped
-`devel-test` stage's COPY lines into `/lint` and `/smoke_test` are walked
-and each one is required to appear in `dockerfile/Dockerfile.smoke` --
-with `.base/` stripped, since base IS the template source and carries no
-subtree. The few that are deliberately not reproduced sit in a named
-exemption list, and a second test requires every entry of THAT list to
-still name a real COPY, so an exemption cannot outlive the line it
-exempts.
 
 | Test | Description |
 |------|-------------|
-| `the smoke harness ships a dockerfile and a compose service that builds it` | The two artifacts exist and are wired to each other |
-| `just test smoke builds through the docker namespace, not a raw docker build (ADR-00000011 sec.5)` | Same rule `just test system` follows -- the wrapper consumers use, not a `docker build -f` one-liner |
-| `just test smoke resolves the tooling image and names the compose project (#896, #891)` | `TEST_TOOLS_IMAGE` has no default anywhere, and an unnamed project falls back to the directory basename |
-| `just test smoke names the image it builds after the resolved project, not the directory (#891)` | The wrapper passes `-p "${PROJECT_NAME}"`, which `COMPOSE_PROJECT_NAME` never reaches -- so the recipe seeds both |
-| `just test smoke is NOT wired into the default just test gate` | Deliberate and asserted: the default gate is the fast self-test, with no daemon and no image build |
-| `the harness reproduces every devel-test COPY into /lint and /smoke_test` | Parity with the shipped stage -- a COPY added there fails here until the harness follows |
-| `every harness COPY exemption is still a real devel-test COPY` | The reverse direction: an exemption whose COPY was deleted is a hole the next COPY at that path inherits |
-| `the harness installs the entrypoint the shared smoke baseline asserts` | `smoke/shared/entrypoint.bats` needs `/entrypoint.sh`, which a consumer gets from the devel stage |
-| `the harness exports BATS_LIB_PATH like the devel-test stage does` | Without it `bats_load_library bats-support` fails and every spec errors in setup |
-| `the harness runs the specs as a non-root user, after the COPYs` | Non-root by name and by uid, and the `USER` line precedes the bats run |
-| `the harness asserts at BUILD time, exactly like the stage it stands in for` | `RUN bats`, not a `CMD` a `docker run` may never reach, and no `\|\| true` |
-| `the harness has no compose image name to displace a sibling checkout's (#891)` | The producing service names no image, so compose tags it under the run's own project |
-| `runtime-test ships no specs, which is why the harness covers devel-test only` | Fails the day runtime-test gains one -- which is when the stage-argument decision is due |
+| `the smoke harness ships a dockerfile and a compose service that builds it` | - |
+| `just test smoke builds through the docker namespace, not a raw docker build (ADR-00000011 sec.5)` | - |
+| `just test smoke resolves the tooling image and names the compose project (#896, #891)` | - |
+| `just test smoke names the image it builds after the resolved project, not the directory (#891)` | - |
+| `just test smoke is NOT wired into the default just test gate` | - |
+| `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
+| `every harness COPY exemption is still a real devel-test COPY` | - |
+| `the harness installs the entrypoint the shared smoke baseline asserts` | - |
+| `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
+| `the harness runs the specs as a non-root user, after the COPYs` | - |
+| `the harness asserts at BUILD time, exactly like the stage it stands in for` | - |
+| `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
+| `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
