@@ -207,11 +207,14 @@ _assert_release_can_upgrade() {
   # The single documented entry point still resolves.
   run just --list
   assert_success
-
-  # And the upgrade committed everything it touched.
-  run git -C "${CONSUMER}" status --porcelain
-  assert_output ""
 }
+# NOTE: a clean `git status` is deliberately NOT asserted. A released
+# upgrade.sh stages only the specific paths it rewrites, so a genuine
+# layout change legitimately leaves the init.sh resync (re-pointed
+# wrappers, newly seeded files) uncommitted for the user to review. That
+# is review-able output, not damage. The failure this spec guards is the
+# opposite shape: a CLEAN tree whose version file claims a release the
+# upgrade never finished reaching.
 
 @test "the newest released upgrade.sh drives the current tree to a working consumer" {
   _assert_release_can_upgrade "$(_release_tag 1)"
