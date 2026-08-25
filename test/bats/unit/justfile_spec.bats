@@ -144,6 +144,24 @@ setup() {
   assert_success
 }
 
+@test "test namespace: coverage-path demands its spec, coverage keeps its optional shard (#887)" {
+  # `just test coverage-path <spec>` is the one-spec-under-kcov entry. Its
+  # argument is REQUIRED: an optional one (`spec=''`, the shape the sibling
+  # `coverage` recipe uses for its shard) would turn a mistyped bare
+  # invocation into a silent 8-12 minute full-suite kcov run instead of an
+  # error naming the missing argument.
+  local _test_justfile=/source/script/test/justfile.test
+  run grep -E "^coverage-path spec \*args:$" "${_test_justfile}"
+  assert_success
+  run grep -E "^coverage-path spec=" "${_test_justfile}"
+  assert_failure
+  run grep -F -- "--coverage-path '{{spec}}'" "${_test_justfile}"
+  assert_success
+  # The shard argument of `coverage` stays optional (bare = full suite).
+  run grep -E "^coverage shard='':$" "${_test_justfile}"
+  assert_success
+}
+
 @test "test / release namespaces are English-only -- no --lang plumbing (#655)" {
   # ADR-00000011 i18n scope: test / release are machine/CI namespaces, so
   # they ship no --lang flag (only docker / base / template are localised).

@@ -931,6 +931,326 @@ SH
   assert_output --partial "cannot combine with --coverage"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# --coverage-path: ONE spec under kcov instrumentation
+#
+# The kcov-only failure class ("this spec is red under kcov and green
+# without it") had no inner loop: the only instrumented entries were the
+# whole suite and a whole shard, 8-12 minutes each, and --bats-path
+# refuses --coverage because it is the fast NO-kcov loop. --coverage-path
+# is the third mode: kcov wrapping exactly one named spec.
+#
+# Two properties carry the whole design and are asserted below rather
+# than described:
+#
+#   1. It produces NO coverage figure. The report goes to a throwaway
+#      directory inside the container and is deleted, so nothing this
+#      mode runs can reach the cobertura/timings artifacts the
+#      coverage-gate merges -- a one-spec run must never be able to feed
+#      the gate a number.
+#   2. It is independent of the shard partition. The spec is named
+#      directly, so neither the greedy-LPT bin-packing nor the recorded
+#      weights file decides what runs -- the local partition and CI's
+#      differ (locally there is no weights file to restore), and
+#      "run THIS spec" has to mean the same thing in both.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_coverage_path: writes nothing into the checkout's coverage/ (#887)" {
+  # The gate reads coverage/cobertura.xml + coverage/timings.tsv from the
+  # mounted checkout. A single-spec run that dropped either there would
+  # hand the merge a partial figure (or reweight the next partition off
+  # one spec), so the checkout's coverage/ must come out untouched.
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    _out=""
+    for _a in "$@"; do
+      case "${_a}" in --*) continue ;; esac
+      _out="${_a}"; break
+    done
+    mkdir -p "${_out}"
+    : > "${_out}/cobertura.xml"
+    : > "${_out}/index.html"
+    exit 0'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit"
+    : > "${REPO_ROOT}/coverage/sentinel"
+    : > "${REPO_ROOT}/test/bats/unit/one_spec.bats"
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/unit/one_spec.bats >/dev/null
+    ls -A "${REPO_ROOT}/coverage"
+  '
+  assert_success
+  assert_output "sentinel"
+}
+
+@test "_run_coverage_path: the kcov report dir is a throwaway outside the checkout, removed after the run (#887)" {
+  local _log="${BATS_TEST_TMPDIR}/outdir.log"
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    _out=""
+    for _a in "$@"; do
+      case "${_a}" in --*) continue ;; esac
+      _out="${_a}"; break
+    done
+    printf "%s\n" "${_out}" >> "'"${_log}"'"
+    mkdir -p "${_out}"
+    : > "${_out}/cobertura.xml"
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage_path test/bats/unit/ci_spec.bats >/dev/null
+    _out="$(cat "'"${_log}"'")"
+    [[ -n "${_out}" ]] || { echo "KCOV-NEVER-RAN"; exit 1; }
+    [[ "${_out}" != "${REPO_ROOT}"* ]] \
+      || { echo "REPORT-INSIDE-CHECKOUT: ${_out}"; exit 1; }
+    [[ ! -e "${_out}" ]] || { echo "REPORT-DIR-LEFT-BEHIND: ${_out}"; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+@test "_run_coverage_path: kcov's exactly the named spec, never a shard slice (#887)" {
+  # A weights file is planted that a greedy-LPT partition would honour, so
+  # a re-implementation routed through _shard_unit_files would pull in the
+  # other specs. Naming the spec must mean that spec and nothing else --
+  # this is what makes the entry point behave identically on a host with no
+  # restored .shard-weights and on CI where the cache restores one.
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/unit" "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"%s\" { :; }\n" "${_n}" > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "%s\n" "90 a_spec.bats" "1 b_spec.bats" "80 c_spec.bats" "70 d_spec.bats" \
+      > "${REPO_ROOT}/test/bats/.shard-weights"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/unit/b_spec.bats >/dev/null
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "/test/bats/unit/b_spec.bats"
+  refute_output --partial "a_spec.bats"
+  refute_output --partial "c_spec.bats"
+  refute_output --partial "d_spec.bats"
+}
+
+@test "_run_coverage_path: instruments with the same include/exclude set a coverage shard uses (#887)" {
+  # The point of the mode is to reproduce what the coverage shard does to
+  # one spec. Instrument a different tree than the shard does and the
+  # red-under-kcov failure it exists to reproduce may not reproduce, so
+  # the two runners must hand kcov the same paths.
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    for _a in "$@"; do
+      case "${_a}" in
+        --include-path=*|--exclude-path=*) printf "%s\n" "${_a}" >> "'"${_log}"'" ;;
+      esac
+    done
+    exit 0'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    printf "@test \"a\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/a_spec.bats"
+    printf "@test \"b\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/b_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2 >/dev/null
+    _run_coverage_path test/bats/unit/b_spec.bats >/dev/null
+    _n="$(wc -l < "'"${_log}"'")"
+    [[ "${_n}" -eq 4 ]] \
+      || { echo "EXPECTED-TWO-INSTRUMENTED-RUNS-GOT-${_n}-PATH-ARGS"; exit 1; }
+    _shard="$(head -2 "'"${_log}"'")"
+    _single="$(tail -2 "'"${_log}"'")"
+    [[ "${_shard}" == "${_single}" ]] \
+      || { printf "shard:\n%s\nsingle:\n%s\n" "${_shard}" "${_single}"; exit 1; }
+    printf "%s\n" "${_single}"
+  '
+  assert_success
+  assert_output --partial "--include-path=${BATS_TEST_TMPDIR}/repo"
+  assert_output --partial "--exclude-path="
+}
+
+@test "_run_coverage_path: propagates the spec's exit status so a red spec is a red run (#887)" {
+  # The entry point exists to be a red-green loop. A runner that swallowed
+  # the failure would report green on the exact run whose whole purpose is
+  # to show the spec failing under instrumentation.
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" 'exit 3'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_coverage_path test/bats/unit/ci_spec.bats >/dev/null
+    echo "rc=$?"
+  '
+  assert_success
+  assert_output "rc=3"
+}
+
+@test "_run_coverage_path: BATS_FILTER appends a bats -f name filter (#887)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    BATS_FILTER="SIGTERM" _run_coverage_path test/bats/unit/ci_spec.bats >/dev/null
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "-f SIGTERM"
+  assert_output --partial "test/bats/unit/ci_spec.bats"
+}
+
+@test "main --coverage-path: routes one spec to the coverage service with COVERAGE_PATH + BATS_ONLY=1 (#887)" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-path test/bats/unit/ci_spec.bats --filter shard
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " coverage"
+  assert_output --partial "COVERAGE=1"
+  assert_output --partial "COVERAGE_PATH=test/bats/unit/ci_spec.bats"
+  assert_output --partial "BATS_FILTER=shard"
+  assert_output --partial "BATS_ONLY=1"
+  # Never a shard: the mode names its target, it does not partition.
+  refute_output --regexp 'COVERAGE_SHARD=[0-9]'
+}
+
+@test "main --ci: COVERAGE=1 with COVERAGE_PATH runs the one spec and reports no coverage figure (#887)" {
+  # The in-container dispatch must branch BEFORE _run_coverage, which
+  # kcov's the whole suite and writes coverage/timings.tsv + the report
+  # line into the mounted checkout.
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats main --ci
+  '
+  assert_success
+  refute_output --partial "Coverage report:"
+  refute_output --partial "full suite"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "test/bats/unit/ci_spec.bats"
+  refute_output --partial "/test/bats/integration/ "
+}
+
+@test "main --coverage-path: non-existent path dies before docker is called (#887)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-path test/bats/unit/does_not_exist_spec.bats
+  '
+  assert_failure
+  assert_output --partial "No such spec file or directory"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --coverage-path: test/bats/system/ dies with the ci-system hint (#887)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-path test/bats/system/runtime_test_smoke_spec.bats
+  '
+  assert_failure
+  assert_output --partial "ci-system"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --coverage-path + --coverage-shard is rejected (#887)" {
+  # One asks for a figure over a partition, the other for instrumentation
+  # over one named spec. Silently letting one win would be how a one-spec
+  # run ends up uploaded as a shard.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-path test/bats/unit/ci_spec.bats --coverage-shard 1/4
+  '
+  assert_failure
+  assert_output --partial "--coverage-path"
+  assert_output --partial "cannot combine"
+  refute_output --partial "Unknown option"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --coverage-path + --bats-path is rejected (#887)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage-path test/bats/unit/ci_spec.bats --bats-path test/bats/unit/lib_spec.bats
+  '
+  assert_failure
+  assert_output --partial "--coverage-path"
+  assert_output --partial "cannot combine"
+  refute_output --partial "Unknown option"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --bats-path + --coverage stays rejected: the fast loop is still kcov-free (#887)" {
+  # --coverage-path did NOT lift the original refusal. --bats-path is the
+  # no-kcov loop by definition; combining it with --coverage would have
+  # meant one flag pair with two runners behind it.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/bats/unit/ci_spec.bats --coverage
+  '
+  assert_failure
+  assert_output --partial "cannot combine with --coverage"
+  assert_output --partial "--coverage-path"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main: unknown option dies with ci_unknown_option (#692)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
