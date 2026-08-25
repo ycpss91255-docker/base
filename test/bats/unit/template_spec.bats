@@ -1559,30 +1559,30 @@ EOF
 # release-worker.yaml: archive composition
 # ════════════════════════════════════════════════════════════════════
 
-@test "release-worker.yaml does not cp compose.yaml into the release archive" {
+@test "release archive payload declares no derived per-host artifact" {
   # compose.yaml has been gitignored since v0.9.0 (setup.sh-generated
-  # derived artifact). Earlier release-worker.yaml wrongly included it
-  # in the `cp -r` list, so every tag push hit
+  # derived artifact). An earlier release-worker.yaml listed it as a `cp`
+  # operand, so every tag push hit
   # `cp: cannot stat 'compose.yaml': No such file or directory` and
-  # action-gh-release never ran — ros1_bridge v1.5.0 release surfaced
-  # this.
-  local _yaml="/source/.github/workflows/release-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-worker.yaml not present in /source"
-  run grep -Fc 'compose.yaml' "${_yaml}"
-  # Comments explaining the omission are allowed but the cp line should
-  # not reference the file; we assert the cp-list row does not mention it.
-  run awk '/cp -r/,/"\$\{ARCHIVE_NAME\}\/"/{ if ($0 ~ /compose\.yaml/) found=1 } END { exit !found }' "${_yaml}"
+  # action-gh-release never ran -- the ros1_bridge v1.5.0 release surfaced
+  # it. The payload is a declared manifest now, so that is where a derived
+  # artifact could creep back in; the same guard applies to the per-host
+  # .setup.conf.
+  local _manifest="/source/script/ci/release/archive.manifest"
+  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  run grep -E '^(required|optional)\|[^|]*\|[^|]*(compose\.yaml|\.setup\.conf)' \
+    "${_manifest}"
   assert_failure
 }
 
-@test "release-worker.yaml cp-list still includes Dockerfile + scripts" {
-  # Positive guard: we don't want to accidentally remove too much. The
-  # user-facing wrappers ship via `script/` (symlinks into .base) since
-  # not as root-level operands, so assert `script/` rather
-  # than the removed root `build.sh`.
-  local _yaml="/source/.github/workflows/release-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-worker.yaml not present in /source"
-  run awk '/cp -r/,/"\$\{ARCHIVE_NAME\}\/"/' "${_yaml}"
+@test "release archive payload still declares Dockerfile + script/ + .base/" {
+  # Positive guard: making the payload tolerant of absence must not become
+  # an excuse to drop entries from it. The user-facing wrappers ship via
+  # `script/` (symlinks into .base/), not as root-level operands, so this
+  # asserts `script/` rather than the removed root `build.sh`.
+  local _manifest="/source/script/ci/release/archive.manifest"
+  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  run grep -E '^(required|optional)\|' "${_manifest}"
   assert_success
   assert_output --partial 'Dockerfile'
   assert_output --partial 'script/'

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2765 tests**.
+Unit specs under `test/bats/unit/`: **2793 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -820,20 +820,25 @@ which would leave a freshly-pushed `:main` unverified).
 | Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
 | Declares `packages: write` permission | 1 |
 
-### test/bats/unit/release_worker_yaml_spec.bats (2)
+### test/bats/unit/release_worker_yaml_spec.bats (7)
 
 Structural assertions for `.github/workflows/release-worker.yaml`'s
-archive step. The user-facing wrappers moved out of the repo root into
-`script/` (symlinks into `.base/`); the archive `cp -r` still listed the
-root names (`build.sh` / `run.sh` / `exec.sh` / `stop.sh` /
-`setup_tui.sh`) as operands, and `cp -r` aborts non-zero on a missing
-operand -- failing the first `v*` tag push of every standard-layout
-downstream. These tests lock the removal (wrappers ship via `script/`).
+archive step. The step used to hardcode the payload as operands of one
+`cp -r`; `cp` aborts non-zero on a missing operand and the `run:` step is
+`bash -e`, so any consumer lacking one standard path lost its release at
+tag push -- twice, on a different path each time (#558, then #914), each
+fixed by re-editing the list to match base's own layout. The payload now
+lives in a declared manifest assembled by `script/ci/release-archive.sh`;
+these tests lock the workflow's half of that split (the payload's own
+behaviour is covered by `release_archive_spec.bats` and
+`release_archive_contract_spec.bats`).
 
 | Category | Tests |
 |----------|-------|
-| Archive cp list names no removed root wrapper operand (#558) | 1 |
-| Archive cp list keeps the paths that still ship (no over-prune) | 1 |
+| No hardcoded payload path list survives in the workflow (#914) | 1 |
+| Archive step delegates to the assembler + its declared manifest | 2 |
+| Assembler is version-matched to the worker (`job_workflow_sha`, checkout path) | 2 |
+| Caller input reaches the step via `env:`, never run-block interpolation | 2 |
 
 ### test/bats/unit/publish_worker_yaml_spec.bats (11)
 
@@ -1954,8 +1959,8 @@ builds the env block only for the knobs the conf sets.
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
-| `release-worker.yaml does not cp compose.yaml into the release archive` | v0.10.1 cp-list regression |
-| `release-worker.yaml cp-list still includes Dockerfile + scripts` | positive cp-list guard |
+| `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
+| `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
@@ -3106,3 +3111,38 @@ host so the boundary between them can be asserted at all.
 | `_run_early_close_reader: FAILS on an allow-end with no matching allow-begin (#905)` | - |
 | `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
 | `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |
+
+### test/bats/unit/release_archive_spec.bats (23)
+
+Unit coverage for `script/ci/release-archive.sh`, the payload assembler
+the reusable release worker runs at tag time. Synthetic manifests over
+synthesised repo trees, so absence -- the case the previous hardcoded
+`cp -r` list could never survive and no test ever drove -- is expressible:
+an optional path missing degrades the archive, a required one missing
+fails naming the path and what its absence costs.
+
+| Test | Description |
+|------|-------------|
+| `release-archive: archives a required path that exists` | A declared required path present is copied into the archive |
+| `release-archive: a missing required path fails naming that path, not a bare cp error (#914)` | Names the path, the item and the consequence; never a bare `cp: cannot stat` |
+| `release-archive: a missing required path leaves no half-built archive (#914)` | Validation precedes any copy: no partial payload survives a failure |
+| `release-archive: reports every missing required path in one pass (#914)` | Both gaps reported in one run, with the count |
+| `release-archive: a consumer tree lacking an optional path still archives (#914)` | The regression class: one absent optional path no longer costs the release |
+| `release-archive: an absent optional path is reported by name, never silently dropped (#914)` | Tolerance is not silence -- the tag log names what is not in the archive |
+| `release-archive: names every archived path so the tag log shows the payload` | The tag log shows the payload that was assembled |
+| `release-archive: an entry archives whichever candidate layout the consumer has (old) (#914)` | `test/smoke/` consumer archives at its own path |
+| `release-archive: an entry archives whichever candidate layout the consumer has (new) (#914)` | `test/bats/smoke/` consumer archives at its own path |
+| `release-archive: a tree carrying both candidate layouts archives both (#914)` | A mid-migration tree loses neither layout and they do not collide |
+| `release-archive: a required entry with no candidate present names all of them (#914)` | Every candidate path is named in the failure |
+| `release-archive: a nested path keeps its relative position in the archive (#914)` | A nested path is not flattened (which would collide the two layouts) |
+| `release-archive: symlinked wrappers still resolve inside the archive (#914)` | `cp -r` keeps symlinks; they resolve because `.base/` is required and travels along |
+| `release-archive: creates the archive directory when it does not exist` | The step no longer needs a separate `mkdir -p` |
+| `release-archive: archives extra_files that exist` | Caller-supplied extras are archived |
+| `release-archive: an absent extra_file is tolerated, as it always was` | Extras have never been mandatory, and still are not |
+| `release-archive: an extra_file escaping the repo root is refused, not copied out (#914)` | `..` in a caller path would write outside the archive: refused |
+| `release-archive: an absolute extra_file path is refused (#914)` | Same guard for an absolute caller path |
+| `release-archive: an unknown manifest kind fails loudly, naming it (#914)` | Fail closed: a typo'd kind never decides whether a path is archived |
+| `release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)` | An empty payload is a config error, not an empty release |
+| `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
+| `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
+| `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |

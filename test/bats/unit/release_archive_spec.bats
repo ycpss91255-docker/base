@@ -233,21 +233,25 @@ _archive_list() {
   [ ! -e "${REPO}/${DEST}/smoke" ]
 }
 
-@test "release-archive: symlinked wrappers are archived as their content (#914)" {
-  # `script/*.sh` are symlinks into `.base/dist/script/docker/wrapper/`. An
-  # archive that preserved the links would ship dangling entry points to
-  # anyone who unpacks it without the subtree, so the copy dereferences --
-  # the behaviour the previous `cp -r` had and consumers depend on.
+@test "release-archive: symlinked wrappers still resolve inside the archive (#914)" {
+  # `script/*.sh` are relative symlinks into `.base/dist/script/docker/`.
+  # `cp -r` copies a symlink AS a symlink (measured: GNU coreutils 8.32
+  # does not dereference under -r), so the wrappers only resolve because
+  # the subtree they point into travels with them -- which is the concrete
+  # reason `.base/` is a REQUIRED entry rather than a nice-to-have.
   _seed '.base/dist/script/docker/wrapper/build.sh'
   mkdir -p "${REPO}/script"
   ln -s '../.base/dist/script/docker/wrapper/build.sh' "${REPO}/script/build.sh"
-  _manifest 'optional|wrappers|script/|the wrapper entry points|no entry points'
+  _manifest \
+    'required|base|.base/|the vendored base subtree|entry points lead nowhere' \
+    'optional|wrappers|script/|the wrapper entry points|no entry points'
   run _archive
   assert_success
-  [ -f "${REPO}/${DEST}/script/build.sh" ]
-  [ ! -L "${REPO}/${DEST}/script/build.sh" ]
+  # -e follows the link: a dangling wrapper fails here.
+  [ -e "${REPO}/${DEST}/script/build.sh" ]
   run cat "${REPO}/${DEST}/script/build.sh"
-  assert_output --partial '.base/dist/script/docker/wrapper/build.sh'
+  assert_success
+  assert_output --partial 'content of .base/dist/script/docker/wrapper/build.sh'
 }
 
 @test "release-archive: creates the archive directory when it does not exist" {
