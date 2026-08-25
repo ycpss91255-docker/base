@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.42.0] - 2026-08-25
+
+`v0.42.0-rc4` promoted unchanged -- the tree is identical apart from this
+version bump, so the entries stay under the RC headings that introduced them
+rather than being duplicated here. The release is the sum of `v0.42.0-rc1`
+through `-rc4`; the compare links at the foot of this file walk it.
+
 ## [v0.42.0-rc4] - 2026-08-25
 
 ### Fixed
@@ -2933,7 +2940,8 @@ GUI-using env repo before promoting to v0.10.0.
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
-[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc4...HEAD
+[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...HEAD
+[v0.42.0]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc4...v0.42.0
 [v0.42.0-rc4]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc3...v0.42.0-rc4
 [v0.42.0-rc3]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc2...v0.42.0-rc3
 [v0.42.0-rc2]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc1...v0.42.0-rc2
