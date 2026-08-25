@@ -852,8 +852,13 @@ main() {
         "--coverage-path runs ONE named spec under kcov and reports no coverage figure; it cannot combine with --coverage / --coverage-shard (a figure over a partition) or --bats-path (the no-kcov loop). Pick one."
     fi
     _validate_spec_target "${coverage_path}"
+    # COVERAGE_SHARD is cleared, not merely left unset: _run_via_compose
+    # forwards it from the AMBIENT environment, so a caller that already has
+    # one -- most obviously this suite's own specs when they run inside a
+    # coverage shard -- would hand this mode a partition value it does not
+    # use. Carrying an ignored value is how it later becomes a read one.
     BATS_ONLY=1 COVERAGE_PATH="${coverage_path}" BATS_FILTER="${bats_filter}" \
-      _run_via_compose coverage 1
+      COVERAGE_SHARD="" _run_via_compose coverage 1
     return 0
   fi
 
