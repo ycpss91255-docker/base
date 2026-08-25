@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **128 tests**.
+Integration specs under `test/bats/integration/`: **141 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -125,7 +125,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `two checkouts of one repo dispatch different projects after a local override` | - |
 | `an unchanged repo keeps the project name it resolved before [project] existed` | - |
 
-### test/bats/integration/upgrade_spec.bats (21)
+### test/bats/integration/upgrade_spec.bats (22)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -163,6 +163,7 @@ upgrade run.
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
+| `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
 
@@ -262,3 +263,33 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
 | `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
 | `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
+
+### test/bats/integration/release_archive_contract_spec.bats (10)
+
+Drives `script/ci/release-archive.sh` against the REAL shipped payload
+manifest (`script/ci/release/archive.manifest`) over synthesised consumer
+trees. base's own checkout cannot stand in for a consumer -- it has no
+`.base/` subtree (it is the template source) and its smoke templates live
+under `dist/` -- and, more to the point, a real tree cannot express the
+case that matters: a repo deliberately MISSING a standard path. That
+vacuity is why the same defect shipped twice.
+
+| Test | Description |
+|------|-------------|
+| `archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)` | Full payload, `test/bats/smoke/` layout: every declared path lands |
+| `archive manifest: a previous-layout consumer (test/smoke/) archives without restructuring (#914)` | `test/smoke/` layout archives with no restructuring (the v0.42.0 casualty) |
+| `archive manifest: neither smoke layout present still cuts a release (#914)` | No smoke tree at all still cuts a release; the absence is reported |
+| `archive manifest: a consumer with no doc/ and no .hadolint.yaml still archives (#914)` | Missing docs + lint config degrade the archive, they do not fail it |
+| `archive manifest: a consumer with no script/ wrappers still archives (#914)` | Missing wrapper tree degrades the archive, it does not fail it |
+| `archive manifest: a tree with no Dockerfile fails, naming Dockerfile (#914)` | Mandatory gap fails naming `Dockerfile`, never `cp: cannot stat` |
+| `archive manifest: a tree with no .base/ subtree fails, naming .base/ (#914)` | Mandatory gap fails naming `.base/`, never `cp: cannot stat` |
+| `archive manifest: declares exactly two required entries (Dockerfile and .base/) (#914)` | Pins the mandatory set so widening it is a deliberate, reviewed edit |
+| `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
+| `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
+
+### test/bats/integration/prev_release_upgrade_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `the newest released upgrade.sh drives the current tree to a working consumer` | - |
+| `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |

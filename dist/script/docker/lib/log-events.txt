@@ -170,6 +170,8 @@ ci_lint_driver_failed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
 ci_host_id_not_numeric
+ci_prev_release_progress
+ci_prev_release_unavailable
 
 # transcript.sh (#606)
 # Only genuine setup FAILURES are emitted via the logger (to stderr,

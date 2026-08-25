@@ -1,0 +1,58 @@
+# release-worker.yaml release archive payload.
+#
+# Each non-comment line is ONE thing the reusable release worker puts in the
+# archive it uploads at tag time. script/ci/release-archive.sh reads this
+# file from the consumer's checkout root and assembles the payload from it.
+#
+# Reading this file IS the payload contract. Adding a path is a single new
+# line here; no shell changes.
+#
+# Format: <kind>|<key>|<paths>|<description>|<consequence>
+#   kind=required  -> at least one <paths> candidate MUST exist, else the
+#                     release fails, naming the path and the consequence.
+#   kind=optional  -> archived when present, reported and skipped when
+#                     absent. The release still cuts.
+#   paths          -> space-separated CANDIDATES for one payload item.
+#                     EVERY candidate that exists is archived, each at its
+#                     own relative path, so a repo on an older layout and a
+#                     repo on the current one both work with no restructuring
+#                     (and a mid-migration repo carrying both loses neither).
+#   consequence    -> what the archive's consumer loses without it. For a
+#                     required entry this is the failure message's "why".
+#
+# WHY THE REQUIRED SET IS TWO LINES. Every path here used to be an operand
+# of one `cp -r` under `bash -e`, so a consumer legitimately lacking any one
+# of them lost the whole release at tag push -- twice, on a different path
+# each time, each fixed by re-editing the list to match base's own layout.
+# "Require everything" is what caused that. "Tolerate everything" is the
+# opposite error: an archive silently missing the vendored toolchain is not
+# a release, it is a broken artifact discovered by whoever unpacks it. So a
+# path is required only when its absence makes the archive unusable NO
+# MATTER how the consumer's tree is shaped, and no legitimate layout can
+# lack it:
+#
+#   Dockerfile  the archive is a snapshot of a container repo; without the
+#               image definition there is nothing to build, and every repo
+#               that calls this worker has one.
+#   .base/      the vendored base subtree. `script/`'s wrappers are symlinks
+#               into it and the whole toolchain resolves through it, so an
+#               archive without it ships entry points that lead nowhere.
+#               (base itself has no `.base/` -- it is the template SOURCE --
+#               but base does not call this worker; its own release goes
+#               through the `release` namespace.)
+#
+# Everything else degrades the archive rather than breaking it, so it is
+# optional: a base layout change can drop a path out of a consumer's tree
+# without taking that consumer's release pipeline down with it.
+#
+# NOT ARCHIVED, deliberately: `.setup.conf` and `compose.yaml` are derived
+# per-host artifacts that setup.sh generates on the consumer's first build
+# (compose.yaml has been gitignored since v0.9.0).
+
+required|dockerfile|Dockerfile|the image definition the release is a snapshot of|the archive would build nothing
+required|base-subtree|.base/|the vendored base subtree the whole toolchain resolves through|the archive would ship entry points that lead nowhere
+optional|wrappers|script/|the wrapper entry points (symlinks into .base/, archived as content)|the archive has no build / run / exec entry points
+optional|hadolint-config|.hadolint.yaml|the Dockerfile lint configuration|the archive cannot reproduce the repo's lint result
+optional|smoke-specs|test/bats/smoke/ test/smoke/|the per-stage build-time smoke specs, at either historical location|the archive's image builds carry no build-time assertions
+optional|readme|README.md|the top-level README|the archive ships without its entry documentation
+optional|docs|doc/|the documentation tree (changelog, ADRs, test docs)|the archive ships without its documentation
