@@ -242,8 +242,14 @@ _assert_release_migrates_env() {
   run cat "${CONSUMER}/.env.local"
   assert_output --partial "ROS_DOMAIN_ID=42"
   assert_output --partial "API_TOKEN=secret"
-  # ... and nothing is left at the name the tool now regenerates.
-  assert [ ! -e "${CONSUMER}/.env" ]
+  # The name it vacated is ours again: init.sh's own `setup apply` has
+  # already regenerated `.env` by the time the upgrade returns, and that
+  # regeneration carries none of the user's values -- which is precisely
+  # the overwrite the migration exists to get ahead of.
+  assert [ -f "${CONSUMER}/.env" ]
+  run cat "${CONSUMER}/.env"
+  assert_output --partial "Auto-generated"
+  refute_output --partial "API_TOKEN=secret"
 }
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {

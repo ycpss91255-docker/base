@@ -124,7 +124,7 @@ _wrapper_container_running() {
 #
 # The shared bootstrap / drift lifecycle that build.sh and run.sh both
 # need before they touch docker: decide whether to (re)run setup.sh,
-# regenerate .env.generated + compose.yaml on drift, and fail loudly if
+# regenerate .env / .env.generated / compose.yaml on drift, and fail loudly if
 # setup left no .env behind. exec / stop / prune do NOT call this -- they
 # expect the derived artifacts to already exist (a real repo has them
 # after its first build), so the orchestration stays opt-in per verb.
@@ -206,7 +206,7 @@ _wrapper_setup_sync() {
     _log_info "${_verb}" "${_verb}_bootstrap" "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"
   else
-    # Drift-check path. Derived artifacts (.env.generated + compose.yaml)
+    # Drift-check path. Derived artifacts (.env / .env.generated / compose.yaml)
     # carry no user-owned data, so regenerating on drift is always safe and
     # saves the user from remembering `--setup`. Subprocess invocation
     # avoids the _msg shadow class.

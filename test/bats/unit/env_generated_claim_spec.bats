@@ -137,7 +137,7 @@ EOF
 }
 
 @test "no shipped surface calls a bare .env hand-authored or a workload overlay (#868)" {
-  # The pre-#868 vocabulary for the user-owned file. Every one of these
+  # The old vocabulary for the user-owned file. Every one of these
   # phrases, applied to a bare `.env`, teaches a user to hand-edit a file
   # the next apply overwrites. `.env.local` is the file those words describe
   # now, so the patterns deliberately require a bare `.env` nearby or no

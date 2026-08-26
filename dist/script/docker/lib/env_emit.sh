@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
 #
-# env_emit.sh - .env / .env overlay generation.
+# env_emit.sh - env-file generation.
 #
-# The .env WRITERS setup.sh uses to emit the generated container env:
-# write_env (the resolved-config -> .env.generated emitter, incl. the SETUP_*
-# drift metadata) and _scaffold_env_overlay (the per-repo .env workload
-# overlay scaffold). Distinct from lib/env.sh, which is the runtime .env READER
-# (_load_env) the wrappers source -- emission vs consumption, same split as
+# The env-file WRITERS setup.sh uses. One naming rule governs all of them:
+# the standard name is OURS, a suffix marks a LOCAL variant.
+#
+#   write_env            -> .env.generated, the derived interpolation cache
+#                           (incl. the SETUP_* drift metadata). Ours. Fed to
+#                           compose via --env-file; never enters a container.
+#   write_container_env  -> .env, the container-bound defaults we ship.
+#                           Ours, rewritten on every apply. Enters the
+#                           container via `env_file:`.
+#   _scaffold_env_local  -> .env.local, the operator's overrides. Created
+#                           once and never touched again. Enters the
+#                           container after .env, so its keys win.
+#   _migrate_env_to_local   relocates a pre-rule hand-written .env, which
+#                           was the user's file under the old rule and is
+#                           ours under the new one.
+#
+# Distinct from lib/env.sh, which is the runtime env READER (_load_env) the
+# wrappers source -- emission vs consumption, same split as
 # lib/compose_emit.sh vs lib/compose.sh (ADR-00000014 amended).
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). Calls into
@@ -181,24 +194,189 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _scaffold_env_overlay <path>
+# write_container_env <out> <env_str> <watchdog_env_str> [<cache_file>]
 #
-# Create the hand-authored `.env` workload overlay with guidance
-# comments if it does not exist (A2 file roles). Idempotent:
-# never overwrites an existing file -- the overlay is user-owned after
-# its first creation, so setup.sh leaves it alone on every later apply.
+# Write `.env`: the container-bound defaults this repo ships. OURS --
+# regenerated from .setup.conf on every apply, so a hand edit here is lost
+# by design. The operator's values go in `.env.local`, which compose loads
+# after this file.
+#
+# What lands here is everything the container is meant to receive as a
+# DEFAULT and that an operator may want to retune without a rebuild:
+#
+#   <env_str>           the `[environment] env_N` list, newline-separated
+#                       KEY=VALUE (the same aggregate shape the compose
+#                       emitters take).
+#   <watchdog_env_str>  the `[lifecycle] watchdog_*` block as WATCHDOG_*
+#                       entries, empty when the watchdog is disarmed.
+#
+# Both used to be emitted straight into the service `environment:` list.
+# They cannot stay there: compose ranks `environment:` ABOVE `env_file`, so
+# a key present in both resolves to the compose one and the operator's
+# override in `.env.local` is silently ignored -- worse than having no
+# override channel at all, because nothing reports it.
+#
+# <cache_file> (optional) is `.env.generated`. `${VAR}` references in an
+# `[environment]` value used to be resolved by compose's own substitution
+# layer, which reads that cache via --env-file; an env_file value is taken
+# LITERALLY, so the substitution has to happen here instead or a
+# `${WS_PATH}/log` would reach the container as those nine characters.
+# Cache entries are fed to the shared expander as earlier siblings and then
+# dropped, so only the `[environment]` lines are emitted.
 # ════════════════════════════════════════════════════════════════════
-_scaffold_env_overlay() {
+write_container_env() {
+  local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
+  local _env_str="${2-}"
+  local _watchdog_env_str="${3-}"
+  local _cache_file="${4-}"
+
+  # Cache entries first: _expand_env_cross_refs resolves each value against
+  # the siblings BEFORE it, so seeding the cache makes every cache key
+  # available to every [environment] entry. _cache_count is how many leading
+  # results to drop again.
+  local _seed="" _cache_count=0
+  if [[ -n "${_cache_file}" && -f "${_cache_file}" ]]; then
+    local _cl
+    while IFS= read -r _cl || [[ -n "${_cl}" ]]; do
+      # Assignments only: comments and blanks are not siblings.
+      [[ "${_cl}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+      _seed+="${_cl}"$'\n'
+      _cache_count=$(( _cache_count + 1 ))
+    done < "${_cache_file}"
+  fi
+
+  # `_wce_`-prefixed like every other nameref target in this tree: the
+  # expander declares its own `_expanded` local, so a caller variable of
+  # that name is shadowed and the nameref silently resolves to the
+  # function's own scratch value instead of the caller's array.
+  local -a _wce_lines=()
+  if [[ -n "${_env_str}" ]]; then
+    _expand_env_cross_refs "${_seed}${_env_str}" _wce_lines
+  fi
+
+  {
+    printf '# Auto-generated by setup.sh on %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    cat << 'EOF'
+# Container env defaults -- OURS. `just setup` rewrites this file from
+# .setup.conf, so an edit here is lost on the next apply.
+#
+# To change a value for THIS machine / site, put it in `.env.local`
+# instead: compose loads that file after this one, so its keys win and
+# nothing in the toolchain ever rewrites it.
+EOF
+    if (( ${#_wce_lines[@]} > _cache_count )); then
+      printf '\n# ── [environment] env_N (from .setup.conf) ──\n'
+      local _i
+      for (( _i = _cache_count; _i < ${#_wce_lines[@]}; _i++ )); do
+        [[ -z "${_wce_lines[_i]}" ]] && continue
+        printf '%s\n' "${_wce_lines[_i]}"
+      done
+    fi
+    if [[ -n "${_watchdog_env_str}" ]]; then
+      printf '\n# ── [lifecycle] watchdog_* (from .setup.conf) ──\n'
+      local _wl
+      while IFS= read -r _wl; do
+        [[ -z "${_wl}" ]] && continue
+        printf '%s\n' "${_wl}"
+      done <<< "${_watchdog_env_str}"
+    fi
+  } > "${_out}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _scaffold_env_local <path>
+#
+# Create `.env.local` -- the operator's / developer's own overrides -- with
+# guidance comments if it does not exist. Idempotent: never overwrites an
+# existing file. The suffix marks it as the LOCAL variant, the same way
+# `.setup.conf.local` does (ADR-00000025), and nothing in the toolchain
+# writes it after this first creation.
+#
+# It is created eagerly (rather than left absent until wanted) because the
+# generated compose names it in `env_file:`, and compose fails the whole
+# `up` when a listed env file is missing.
+# ════════════════════════════════════════════════════════════════════
+_scaffold_env_local() {
   local _path="${1:?}"
   [[ -e "${_path}" ]] && return 0
   cat > "${_path}" << 'EOF'
-# Workload overlay -- hand-authored, gitignored. setup.sh creates this
-# file once and never edits it again. Put per-task / volatile env vars
-# here as KEY=VALUE (e.g. ROS_DOMAIN_ID=42, LOG_LEVEL=debug, API tokens).
-# They are injected into the container via `env_file: - .env` and take
-# effect with only `just run` -- no regenerate, no SETUP_CONF_HASH drift,
-# no git churn. Machine-bound / set-once params (GPU, privileged, mounts,
+# Your overrides -- yours. No part of the toolchain ever rewrites this
+# file, and it is gitignored, so it never leaves this machine.
+#
+# Put KEY=VALUE entries here (ROS_DOMAIN_ID=42, LOG_LEVEL=debug, API
+# tokens, WATCHDOG_INTERVAL=5). compose loads the generated `.env` first
+# and this file second, so a key named in both resolves to the value here.
+#
+# `.env` is OURS: `just setup` regenerates it from .setup.conf and an edit
+# there is lost. Machine-bound / set-once params (GPU, privileged, mounts,
 # IMAGE_NAME, APT mirror) belong in .setup.conf instead.
 # See README "Where each parameter lives (env vs workload)".
 EOF
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _migrate_env_to_local <repo_root>
+#
+# Relocate a pre-rule `.env` to `.env.local`.
+#
+# Before the naming rule was unified, `.env` was the user's hand-authored
+# workload overlay: gitignored, unrecoverable, and the documented place to
+# put a token. Under the rule that name is ours and the next apply
+# regenerates over it, so the file has to move BEFORE anything can
+# regenerate -- which is why this runs from init.sh's existing-repo path
+# (reached by upgrade.sh's post-pull resync) rather than from `apply`.
+#
+# Gating is by CONTENT, not by a version marker, so it holds no matter
+# which release's upgrade.sh drives the pull:
+#   - no `.env`                       -> nothing to move
+#   - `.env` carries the auto-gen marker or the drift metadata -> ours
+#     already (either the new generated file, or the stale cache left
+#     by the two-role split, which `apply` self-heals); never touched
+#   - `.env` has no assignment line   -> the old comment-only scaffold,
+#     nothing to lose, left for `apply` to overwrite
+#   - `.env.local` already exists     -> the user has one; refuse to
+#     clobber it, keep BOTH files, and say so
+# Every branch is a no-op or a rename; nothing here deletes user content.
+#
+# When the file was git-TRACKED (a repo predating the gitignore sync), the
+# removal is staged so it lands in the caller's own commit rather than
+# leaving a phantom deletion in `git status`.
+# ════════════════════════════════════════════════════════════════════
+_migrate_env_to_local() {
+  local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
+  local _env="${_root%/}/.env"
+  local _local="${_root%/}/.env.local"
+
+  [[ -f "${_env}" ]] || return 0
+
+  # Ours already: the generated container env, or the stale interpolation
+  # cache left by an older layout (apply promotes that one itself).
+  if grep -qE '^# Auto-generated by setup\.sh|^SETUP_CONF_HASH=' "${_env}"; then
+    return 0
+  fi
+
+  # A comment-only file is the old scaffold, not content anyone wrote.
+  if ! grep -qE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' "${_env}"; then
+    return 0
+  fi
+
+  if [[ -e "${_local}" ]]; then
+    _log_warn init env_local_migration_conflict \
+      "display=Found BOTH a pre-existing .env.local and a hand-written .env. The naming rule changed: .env is now generated by \`just setup\` and .env.local is yours. Your .env.local was kept as-is and the .env was NOT merged into it -- reconcile the two by hand (diff .env .env.local), then delete .env." \
+      "path=${_env}"
+    return 0
+  fi
+
+  mv -- "${_env}" "${_local}"
+  _log_warn init env_migrated_to_local \
+    "display=MIGRATION: .env -> .env.local. The naming rule is now 'the standard name is ours, a suffix marks a local variant', so .env is regenerated by \`just setup\` from .setup.conf and would have overwritten your hand-written values on the next apply. Your file was moved to .env.local, which the toolchain never rewrites and which compose loads AFTER .env, so your values still win." \
+    "path=${_local}"
+
+  # A repo that tracked .env predates the gitignore sync; stage the removal
+  # so it rides the caller's commit instead of surfacing later as an
+  # unexplained deletion. .env.local is gitignored and stays untracked.
+  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1 \
+     && git -C "${_root}" ls-files --error-unmatch -- .env >/dev/null 2>&1; then
+    git -C "${_root}" rm --cached --quiet -- .env >/dev/null 2>&1 || true
+  fi
 }

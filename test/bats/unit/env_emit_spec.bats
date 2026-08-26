@@ -148,8 +148,57 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   assert_success
 }
 
+# `${VAR}` cross-reference expansion. Moved here from gen_spec.bats with
+# the code: compose's own substitution layer never saw sibling environment
+# entries, and now that the list is written to an env_file -- whose values
+# compose takes LITERALLY -- expanding at write time is the only chance.
+@test "write_container_env expands a cross-reference to an earlier sibling (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" \
+    $'BUILD_TARGET=production\nLD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' ""
+  run grep -xF 'LD_LIBRARY_PATH=/foo/production/lib' "${_out}"
+  assert_success
+  run grep -F '${BUILD_TARGET}' "${_out}"
+  assert_failure
+}
+
+@test "write_container_env leaves a forward reference literal (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" \
+    $'LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib\nBUILD_TARGET=production' ""
+  run grep -xF 'LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' "${_out}"
+  assert_success
+  run grep -xF 'BUILD_TARGET=production' "${_out}"
+  assert_success
+}
+
+@test "write_container_env leaves an unknown reference literal (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" 'PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' ""
+  run grep -xF 'PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' "${_out}"
+  assert_success
+}
+
+@test "write_container_env expands multiple references in one value (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" \
+    $'BUILD_TARGET=production\nARCH=aarch64\nPLUGIN_PATH=/opt/${BUILD_TARGET}/lib/${ARCH}' ""
+  run grep -xF 'PLUGIN_PATH=/opt/production/lib/aarch64' "${_out}"
+  assert_success
+}
+
+@test "write_container_env resolves a transitive reference chain (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" \
+    $'ROOT=/opt\nBASE=${ROOT}/lib\nINCLUDE=${BASE}/include' ""
+  run grep -xF 'BASE=/opt/lib' "${_out}"
+  assert_success
+  run grep -xF 'INCLUDE=/opt/lib/include' "${_out}"
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
-# _migrate_env_to_local -- the pre-#868 hand-written .env is the user's
+# _migrate_env_to_local -- a hand-written .env predates the naming rule
 # ════════════════════════════════════════════════════════════════════
 @test "_migrate_env_to_local renames a hand-written .env to .env.local (#868)" {
   printf '# mine\nROS_DOMAIN_ID=7\n' > "${TEMP_DIR}/.env"

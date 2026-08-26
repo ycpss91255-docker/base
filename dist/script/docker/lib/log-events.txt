@@ -7,6 +7,8 @@
 # setup.sh
 env_regenerated
 env_drift_detected
+env_migrated_to_local
+env_local_migration_conflict
 conf_parsed
 conf_set
 conf_added
