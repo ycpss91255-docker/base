@@ -63,6 +63,68 @@ _read_manifest() {
   done < "${manifest}"
 }
 
+# ── manifest validation ──────────────────────────────────────────────────────
+
+# The columns of a payload line, in order. The count is the arity check and
+# the names are what a malformed line is reported against.
+readonly _MANIFEST_COLUMNS=(kind key paths description consequence)
+
+_validate_manifest() {
+  # Refuse any line that does not DECLARE a payload item, before either mode
+  # acts on it.
+  #
+  # A blank column declares nothing, and "nothing" must never be resolved as
+  # an answer. The blank <paths> column is the shape that used to pass: the
+  # candidate loop iterates zero times, the item resolves as "no candidate
+  # exists", and for an OPTIONAL entry that is exactly how a legitimately
+  # absent path resolves. So the release cut, the item was archived by no
+  # consumer at all, and the only trace was a report line naming a blank
+  # path -- absence tolerated silently, which is the one thing this script
+  # exists not to do. A short line is the same defect spelled differently:
+  # its trailing columns read as empty and its absence report carries a
+  # blank description.
+  #
+  # This runs for --list too. The manifest IS the payload contract, so
+  # printing a contract read out of a malformed file is worth less than
+  # printing the error.
+  local manifest="$1" line index
+  local -a fields
+  while IFS= read -r line; do
+    IFS='|' read -r -a fields <<< "${line}"
+
+    if [[ "${#fields[@]}" -ne "${#_MANIFEST_COLUMNS[@]}" ]]; then
+      local spec="" name
+      for name in "${_MANIFEST_COLUMNS[@]}"; do
+        spec+="|<${name}>"
+      done
+      printf "release-archive: malformed manifest '%s': expected %d '|'-separated columns (%s), found %d on line: %s\n" \
+        "${manifest}" "${#_MANIFEST_COLUMNS[@]}" "${spec#|}" "${#fields[@]}" \
+        "${line}" >&2
+      return 2
+    fi
+
+    case "${fields[0]}" in
+      required|optional) ;;
+      *)
+        # Fail closed. A typo'd kind column must never quietly decide
+        # whether a path is archived. Same class as preflight.sh's
+        # unknown-kind guard: a config error, not a payload gap.
+        printf "release-archive: malformed manifest '%s': unknown kind '%s' (expected 'required' or 'optional') on line: %s\n" \
+          "${manifest}" "${fields[0]}" "${line}" >&2
+        return 2
+        ;;
+    esac
+
+    for index in "${!_MANIFEST_COLUMNS[@]}"; do
+      if [[ -z "${fields[index]//[[:space:]]/}" ]]; then
+        printf "release-archive: malformed manifest '%s': the <%s> column is empty -- an entry that declares nothing is a typo, not an absent path, on line: %s\n" \
+          "${manifest}" "${_MANIFEST_COLUMNS[index]}" "${line}" >&2
+        return 2
+      fi
+    done
+  done < <(_read_manifest "${manifest}")
+}
+
 # ── path safety ──────────────────────────────────────────────────────────────
 
 _path_is_unsafe() {
@@ -124,19 +186,10 @@ _assemble() {
   # Pass 1 -- resolve the whole manifest before touching the filesystem. A
   # half-built archive directory left behind by a run that then failed is
   # worse than no archive: it tars up clean and breaks at the consumer.
+  # Every line here is already known to carry five non-blank columns and a
+  # known kind: _validate_manifest ran before this function was reached, so
+  # a shape question is never answered twice, in two places, differently.
   while IFS='|' read -r kind key paths desc consequence; do
-    case "${kind}" in
-      required|optional) ;;
-      *)
-        # Fail closed. A typo'd kind column must never quietly decide
-        # whether a path is archived. Same class as preflight.sh's
-        # unknown-kind guard: a config error, not a payload gap.
-        printf "release-archive: malformed manifest '%s': unknown kind '%s' (expected 'required' or 'optional') on line: %s|%s|%s|%s|%s\n" \
-          "${manifest}" "${kind}" "${kind}" "${key}" "${paths}" "${desc}" \
-          "${consequence}" >&2
-        return 2
-        ;;
-    esac
     declared=$((declared + 1))
 
     found=0
@@ -253,6 +306,8 @@ main() {
     printf 'release-archive: manifest not found: %s\n' "${manifest}" >&2
     return 2
   fi
+
+  _validate_manifest "${manifest}" || return "$?"
 
   case "${mode}" in
     list) _list "${manifest}" ;;

@@ -152,7 +152,9 @@ EOF
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
   assert_success
-  grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" Dockerfile
+  # wrapper_copy writes the flat path and flat_to_dist, later in the list,
+  # carries it to the shipped tree; the settled result is the dist one.
+  grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" Dockerfile
   ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
   # The rewritten Dockerfile is staged into the upgrade's commit.
   git diff --cached --quiet
@@ -191,9 +193,13 @@ EOF
 
 @test "upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)" {
   cd "${DOWN_DIR}"
+  # "Already migrated" is the DIST spelling: the flat wrapper path this
+  # fixture used to carry is one the shipped-tree move deleted, so a
+  # Dockerfile still naming it is not a fixed point -- it is a repo that
+  # cannot build, and the dispatcher is right to rewrite it.
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/wrapper/*.sh /lint/
+COPY .base/dist/script/docker/wrapper/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   git add Dockerfile

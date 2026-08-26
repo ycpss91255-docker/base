@@ -73,6 +73,42 @@ _archive() {
   bash "${ARCHIVE}" "${MANIFEST}" "${DEST}"
 }
 
+# _manifest_paths <manifest> [<kind>] -- print every DECLARED candidate path,
+# one per line, optionally only those of entries of <kind>.
+#
+# Reads the assembler's own `--list` view of the parsed entries rather than
+# the file. The manifest is prose as much as payload -- a header explaining
+# the required set, a description column per entry -- and both name payload
+# paths in plain English, so anything that searches the raw text answers
+# "declared" for entries that were deleted. Only the paths column can satisfy
+# this, and only as a whole candidate token.
+_manifest_paths() {
+  local _manifest="$1" _kind="${2-}" _line _current=""
+  while IFS= read -r _line; do
+    if [[ "${_line}" =~ ^[[:space:]]+\[([a-z]+)\][[:space:]] ]]; then
+      _current="${BASH_REMATCH[1]}"
+      continue
+    fi
+    [[ "${_line}" =~ ^[[:space:]]+paths:[[:space:]](.*)$ ]] || continue
+    [[ -z "${_kind}" || "${_current}" == "${_kind}" ]] || continue
+    # Deliberate word splitting: <paths> is a space-separated candidate list.
+    # shellcheck disable=SC2086
+    printf '%s\n' ${BASH_REMATCH[1]}
+  done < <(bash "${ARCHIVE}" --list "${_manifest}")
+}
+
+# _manifest_declares <manifest> <path> -- succeed when <manifest> declares
+# <path> as a candidate of some payload entry.
+_manifest_declares() {
+  local _manifest="$1" _want="$2" _candidate
+  while IFS= read -r _candidate; do
+    if [[ "${_candidate}" == "${_want}" ]]; then
+      return 0
+    fi
+  done < <(_manifest_paths "${_manifest}")
+  return 1
+}
+
 # ── both historical smoke layouts, same workflow ─────────────────────────────
 
 @test "archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)" {
@@ -160,22 +196,45 @@ _archive() {
   # Pins the mandatory decision. Promoting a path to required makes a base
   # layout change able to break a downstream release again, so it must be a
   # deliberate, reviewed edit -- this test is the review trigger.
+  #
+  # Asserted as the exact required PATH SET, not as two substrings of the
+  # listing: `Dockerfile` also appears in the hadolint entry's description
+  # and `.base/` in the wrappers entry's, so a substring reading of the same
+  # output would survive promoting or demoting either one.
   run bash -c "grep -c '^required|' '${MANIFEST}'"
   assert_success
   assert_output "2"
-  run bash "${ARCHIVE}" --list "${MANIFEST}"
+  run _manifest_paths "${MANIFEST}" required
   assert_success
-  assert_output --partial 'Dockerfile'
-  assert_output --partial '.base/'
+  assert_output "$(printf 'Dockerfile\n.base/')"
 }
 
 @test "archive manifest: still declares every path the hardcoded cp list carried (#914)" {
   # The payload must not be pruned by accident while making it tolerant.
+  local _path
   for _path in 'Dockerfile' 'script/' '.hadolint.yaml' 'test/bats/smoke/' \
     'test/smoke/' '.base/' 'README.md' 'doc/'; do
-    run grep -F "${_path}" "${MANIFEST}"
+    run _manifest_declares "${MANIFEST}" "${_path}"
     assert_success
   done
+}
+
+@test "archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)" {
+  # The guard above is only worth its name if deleting a payload line makes it
+  # go red. The manifest's header prose names `Dockerfile`, `.base/` and
+  # `script/`'s wrappers in plain English, so any reader that searches the
+  # WHOLE FILE keeps answering "declared" for a payload that no longer
+  # declares anything -- the assertion is then satisfied by the comment that
+  # explains the entry rather than by the entry.
+  local _pruned="${TMP_DIR}/pruned.manifest"
+  grep -v '^optional|wrappers|' "${MANIFEST}" > "${_pruned}"
+
+  # The prose survives the deletion. This is the trap, pinned.
+  run grep -F 'script/' "${_pruned}"
+  assert_success
+
+  run _manifest_declares "${_pruned}" 'script/'
+  assert_failure
 }
 
 @test "archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)" {
