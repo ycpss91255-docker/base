@@ -110,16 +110,16 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug' ""
   assert [ -f "${_out}" ]
-  run grep -xF 'ROS_DOMAIN_ID=42' "${_out}"; assert_success
-  run grep -xF 'LOG_LEVEL=debug'   "${_out}"; assert_success
+  run grep -xF 'ROS_DOMAIN_ID="42"' "${_out}"; assert_success
+  run grep -xF 'LOG_LEVEL="debug"'  "${_out}"; assert_success
 }
 
 @test "write_container_env emits the WATCHDOG_* block into .env, not compose (#868)" {
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" "" \
     $'WATCHDOG_CHECK=pgrep -f my_node\nWATCHDOG_INTERVAL=30'
-  run grep -xF 'WATCHDOG_CHECK=pgrep -f my_node' "${_out}"; assert_success
-  run grep -xF 'WATCHDOG_INTERVAL=30'            "${_out}"; assert_success
+  run grep -xF 'WATCHDOG_CHECK="pgrep -f my_node"' "${_out}"; assert_success
+  run grep -xF 'WATCHDOG_INTERVAL="30"'            "${_out}"; assert_success
 }
 
 @test "write_container_env marks the file as ours and names .env.local (#868)" {
@@ -136,7 +136,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   printf 'STALE=yes\n' > "${_out}"
   write_container_env "${_out}" "FRESH=yes" ""
   run grep -qxF 'STALE=yes' "${_out}"; assert_failure
-  run grep -xF 'FRESH=yes' "${_out}"; assert_success
+  run grep -xF 'FRESH="yes"' "${_out}"; assert_success
 }
 
 @test "write_container_env expands cross-references against the interpolation cache (#868)" {
@@ -144,7 +144,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   printf 'WS_PATH=/home/dev/ws\n' > "${_cache}"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" 'ROS_LOG_DIR=${WS_PATH}/log' "" "${_cache}"
-  run grep -xF 'ROS_LOG_DIR=/home/dev/ws/log' "${_out}"
+  run grep -xF 'ROS_LOG_DIR="/home/dev/ws/log"' "${_out}"
   assert_success
 }
 
@@ -156,9 +156,9 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" \
     $'BUILD_TARGET=production\nLD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' ""
-  run grep -xF 'LD_LIBRARY_PATH=/foo/production/lib' "${_out}"
+  run grep -xF 'LD_LIBRARY_PATH="/foo/production/lib"' "${_out}"
   assert_success
-  run grep -F '${BUILD_TARGET}' "${_out}"
+  run grep -F 'BUILD_TARGET}' "${_out}"
   assert_failure
 }
 
@@ -166,16 +166,16 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" \
     $'LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib\nBUILD_TARGET=production' ""
-  run grep -xF 'LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' "${_out}"
+  run grep -xF 'LD_LIBRARY_PATH="/foo/\${BUILD_TARGET}/lib"' "${_out}"
   assert_success
-  run grep -xF 'BUILD_TARGET=production' "${_out}"
+  run grep -xF 'BUILD_TARGET="production"' "${_out}"
   assert_success
 }
 
 @test "write_container_env leaves an unknown reference literal (#868)" {
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" 'PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' ""
-  run grep -xF 'PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' "${_out}"
+  run grep -xF 'PATH_PREFIX="/foo/\${UNDEFINED_VAR}/bar"' "${_out}"
   assert_success
 }
 
@@ -183,7 +183,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" \
     $'BUILD_TARGET=production\nARCH=aarch64\nPLUGIN_PATH=/opt/${BUILD_TARGET}/lib/${ARCH}' ""
-  run grep -xF 'PLUGIN_PATH=/opt/production/lib/aarch64' "${_out}"
+  run grep -xF 'PLUGIN_PATH="/opt/production/lib/aarch64"' "${_out}"
   assert_success
 }
 
@@ -191,9 +191,44 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" \
     $'ROOT=/opt\nBASE=${ROOT}/lib\nINCLUDE=${BASE}/include' ""
-  run grep -xF 'BASE=/opt/lib' "${_out}"
+  run grep -xF 'BASE="/opt/lib"' "${_out}"
   assert_success
-  run grep -xF 'INCLUDE=/opt/lib/include' "${_out}"
+  run grep -xF 'INCLUDE="/opt/lib/include"' "${_out}"
+  assert_success
+}
+
+# Env-file quoting. The values used to land in a compose `environment:`
+# list, where a YAML double-quoted scalar protected them. An env_file is a
+# different parser with its own hazards -- an unquoted value is truncated
+# at an inline ` #`, and a double-quoted one has its `${VAR}` expanded --
+# so every value is emitted as a quoted scalar with `\`, `"` and `$`
+# escaped. Silent truncation of a token or a check command is exactly the
+# class of failure a field operator cannot diagnose.
+@test "write_container_env quotes a value carrying an inline ' #' (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" 'NOTE=a #b' ""
+  run grep -xF 'NOTE="a #b"' "${_out}"
+  assert_success
+}
+
+@test "write_container_env quotes a value carrying a colon-space (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" 'MSG=a: b' ""
+  run grep -xF 'MSG="a: b"' "${_out}"
+  assert_success
+}
+
+@test "write_container_env escapes an embedded quote and backslash (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" 'Q=a"b\c' ""
+  run grep -xF 'Q="a\"b\\c"' "${_out}"
+  assert_success
+}
+
+@test "write_container_env escapes \$ so an unresolved reference stays literal (#868)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" "" 'WATCHDOG_NOTIFY=echo $HOSTNAME'
+  run grep -xF 'WATCHDOG_NOTIFY="echo \$HOSTNAME"' "${_out}"
   assert_success
 }
 

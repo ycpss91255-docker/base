@@ -83,6 +83,7 @@ setup_file() {
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
     "[environment]" "env_1 = APP_MODE=shipped-default" \
+    "env_2 = APP_NOTE=a #b" \
     "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
     > "${REPO}/.setup.conf"
 
@@ -216,8 +217,8 @@ teardown_file() {
   [ -f "${BUNDLE}/.env" ]
   [ -f "${BUNDLE}/.env.local" ]
   run cat "${BUNDLE}/.env"
-  [[ "${output}" == *"APP_MODE=shipped-default"* ]] || { echo "bundle .env: ${output}"; false; }
-  [[ "${output}" == *"WATCHDOG_INTERVAL=30"* ]] || { echo "bundle .env: ${output}"; false; }
+  [[ "${output}" == *"APP_MODE="*"shipped-default"* ]] || { echo "bundle .env: ${output}"; false; }
+  [[ "${output}" == *"WATCHDOG_INTERVAL="*"30"* ]] || { echo "bundle .env: ${output}"; false; }
 
   run "${BUNDLE}/deploy.sh" up
   [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
@@ -226,6 +227,14 @@ teardown_file() {
   run docker exec "${CNAME}" printenv APP_MODE
   [ "${status}" -eq 0 ] || { echo "printenv APP_MODE failed: ${output}"; false; }
   [[ "${output}" == "shipped-default" ]] || { echo "expected shipped-default, got: ${output}"; false; }
+
+  # A value carrying an inline " #" survives the env_file parser intact.
+  # Unquoted, that parser treats the rest of the line as a comment and the
+  # container receives a silently truncated value -- undiagnosable in the
+  # field, which is why the writer quotes every value.
+  run docker exec "${CNAME}" printenv APP_NOTE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_NOTE failed: ${output}"; false; }
+  [[ "${output}" == "a #b" ]] || { echo "env_file value truncated; got: ${output}"; false; }
 
   # The operator edits .env.local in the field and re-ups. No rebuild, no
   # regenerate, no edit to the machine-generated compose.yaml.
