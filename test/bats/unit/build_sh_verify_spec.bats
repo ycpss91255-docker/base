@@ -112,7 +112,7 @@ EOF
 )"
   export ALL_CACHED
 
-  # The same stage with every check step re-executed.
+  # The same stage with every step re-executed.
   ALL_RAN="$(cat <<'EOF'
 #30 [devel-test  8/16] RUN shellcheck -S warning /lint/wrapper/*.sh /lint/lib/*.sh
 #30 DONE 1.2s
@@ -174,7 +174,7 @@ narrow_to_report() {
   export DOCKER_BUILD_OUTPUT="${ALL_RAN}"
   run bash "${SANDBOX}/build.sh" test
   assert_success
-  assert_output --partial "executed all 3 check step"
+  assert_output --partial "executed all 3 step(s) of its verification stage"
   refute_output --partial "nothing ran in this invocation"
 }
 
@@ -192,7 +192,7 @@ EOF
 )"
   run bash "${SANDBOX}/build.sh" test
   assert_success
-  assert_output --partial "executed 1 of 3 check step"
+  assert_output --partial "executed 1 of its verification stage's 3 step"
   # Listed in Dockerfile order (by step id), not hash order: two runs of
   # the same build have to produce the same line.
   assert_output --partial "cached: shellcheck, hadolint"
@@ -222,11 +222,11 @@ EOF
   run bash "${SANDBOX}/build.sh" field-test
   assert_success
   narrow_to_report
-  assert_output --partial "executed all 1 check step"
+  assert_output --partial "executed all 1 step(s) of its verification stage"
   refute_output --partial "ERROR"
 }
 
-@test "build.sh e2e-test: a Playwright gate's own steps are the check steps" {
+@test "build.sh e2e-test: a Playwright gate's own steps are what is reported" {
   # omniverse_web_viewer's shipped stage, verbatim. Its first step was
   # cached and its second ran, which is the report that has to come out.
   export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
@@ -240,13 +240,13 @@ EOF
   run bash "${SANDBOX}/build.sh" e2e-test
   assert_success
   narrow_to_report
-  assert_output --partial "executed 1 of 2 check step"
+  assert_output --partial "executed 1 of its verification stage's 2 step"
   # Named by what the step actually invokes, so the line can be checked
   # against the Dockerfile.
   assert_output --partial "cached: npm"
 }
 
-@test "build.sh cli-test: a heredoc RUN step is a check step" {
+@test "build.sh cli-test: a heredoc RUN step is reported like any other" {
   # BuildKit's vertex name for a heredoc RUN is the header line alone --
   # the body never appears as a step at all -- so any rule that reads the
   # COMMAND to decide what a check is cannot see this stage's checks.
@@ -260,7 +260,7 @@ EOF
   run bash "${SANDBOX}/build.sh" cli-test
   assert_success
   narrow_to_report
-  assert_output --partial "all 2 check step"
+  assert_output --partial "all 2 step(s) of target 'cli-test's verification stage"
   assert_output --partial "nothing ran in this invocation"
   # Two steps with no command word to name them fall back to the stage,
   # collapsed rather than repeated: "cli-test, cli-test" reads as a bug
@@ -309,7 +309,7 @@ EOF
   run bash "${SANDBOX}/build.sh" test
   assert_success
   narrow_to_report
-  assert_output --partial "all 3 check step"
+  assert_output --partial "all 3 step(s) of target 'test's verification stage"
   assert_output --partial "nothing ran in this invocation"
   refute_output --partial "executed 1 of"
 }
@@ -326,12 +326,12 @@ EOF
   run bash "${SANDBOX}/build.sh" test
   assert_success
   narrow_to_report
-  assert_output --partial "executed all 1 check step"
+  assert_output --partial "executed all 1 step(s) of its verification stage"
   assert_output --partial "apt-get"
   refute_output --partial "(shellcheck)"
 }
 
-@test "build.sh test: a tool named only as an argument is not a check step" {
+@test "build.sh test: a tool named only as an argument is not a step of the check" {
   # `ln -sf /opt/bats/bin/bats /usr/local/bin/bats` is the example the
   # matcher's comment always cited; `pip install bats` is the one it never
   # survived. Neither is a stage this target's report may count, and
@@ -348,7 +348,7 @@ EOF
   run bash "${SANDBOX}/build.sh" test
   assert_success
   narrow_to_report
-  assert_output --partial "executed all 1 check step"
+  assert_output --partial "executed all 1 step(s) of its verification stage"
   assert_output --partial "(bats)"
 }
 
@@ -366,7 +366,7 @@ EOF
   assert_output --partial "ERROR"
 }
 
-@test "build.sh test: a check step with no CACHED/DONE state fails the build" {
+@test "build.sh test: a step with no CACHED/DONE state fails the build" {
   # The step was announced and then never resolved (truncated output, a
   # progress printer that changed shape). Neither branch is provable, so
   # neither is claimed.

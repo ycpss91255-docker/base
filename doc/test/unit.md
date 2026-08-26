@@ -3156,15 +3156,15 @@ fails naming the path and what its absence costs.
 | `build.sh test: a fully CACHED verification stage is not reported as a pass` | The load-bearing case: every check CACHED reports that nothing ran |
 | `build.sh test: an executed verification stage reports every check as executed` | A real run says so, and says nothing about caching |
 | `build.sh test: a partially cached stage names which checks were CACHED` | Per-step truth: a re-run bats over cached linters names both |
-| `build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check` | - |
-| `build.sh e2e-test: a Playwright gate's own steps are the check steps` | - |
-| `build.sh cli-test: a heredoc RUN step is a check step` | - |
-| `build.sh custom-test: a verification stage with no RUN step warns, it does not fail` | - |
-| `build.sh test: an install step in a side stage is not a check that ran` | - |
-| `build.sh test: a -test stage that only INSTALLS a tool is not reported as running it` | - |
-| `build.sh test: a tool named only as an argument is not a check step` | - |
-| `build.sh test: build output with no BuildKit progress lines fails the build` | - |
-| `build.sh test: a check step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
+| `build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check` | The shipped `-test` idiom names none of the three known tools |
+| `build.sh e2e-test: a Playwright gate's own steps are what is reported` | A live consumer stage base has never seen, reported not failed |
+| `build.sh cli-test: a heredoc RUN step is reported like any other` | BuildKit shows only the header, so no rule may read the command |
+| `build.sh custom-test: a verification stage with no RUN step warns, it does not fail` | base can say nothing was checked, not that the stage is worthless |
+| `build.sh test: an install step in a side stage is not a check that ran` | A re-run toolchain stage may not read as a check over cached ones |
+| `build.sh test: a -test stage that only INSTALLS a tool is not reported as running it` | Installing shellcheck is not shellcheck running |
+| `build.sh test: a tool named only as an argument is not a step of the check` | Command position, not word presence, is what names an invocation |
+| `build.sh test: build output with no BuildKit progress lines fails the build` | The mechanism failing is the one thing still worth a non-zero exit |
+| `build.sh test: a step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
 | `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
 | `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |

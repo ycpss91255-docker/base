@@ -988,7 +988,7 @@ _report_verification_run() {
   local _total=$(( ${#_cached[@]} + ${#_ran[@]} + ${#_pending[@]} ))
   if [[ "${#_pending[@]}" -gt 0 ]]; then
     _log_err build build_verify_step_unresolved \
-      "display=cannot tell whether target '${_target}' verified anything: ${#_pending[@]} check step(s) (${_pending_txt}) reported neither CACHED nor DONE. Refusing to report a pass on an unreadable build output -- re-run with -v and read it." \
+      "display=cannot tell whether target '${_target}' verified anything: ${#_pending[@]} of its verification stage's step(s) (${_pending_txt}) reported neither CACHED nor DONE. Refusing to report a pass on an unreadable build output -- re-run with -v and read it." \
       "target=${_target}" "pending=${_pending[*]}"
     return 1
   fi
@@ -1000,24 +1000,24 @@ _report_verification_run() {
       return 1
     fi
     _log_warn build build_verify_no_steps \
-      "display=verification: target '${_target}' built with no check step of its own -- its verification stage ran no RUN instruction, so this build is not evidence that anything was checked. If the stage does verify, it does so somewhere this report cannot see." \
+      "display=verification: target '${_target}' built with no step of its own -- its verification stage ran no RUN instruction, so this build is not evidence that anything was checked. If the stage does verify, it does so somewhere this report cannot see." \
       "target=${_target}"
     return 0
   fi
   if [[ "${#_ran[@]}" -eq 0 ]]; then
     _log_warn build build_verify_all_cached \
-      "display=verification: all ${_total} check step(s) in target '${_target}' were CACHED (${_cached_txt}) -- nothing ran in this invocation, so this build is not evidence that the checks pass. Re-run with --no-cache to execute them." \
+      "display=verification: all ${_total} step(s) of target '${_target}'s verification stage were CACHED (${_cached_txt}) -- nothing ran in this invocation, so this build is not evidence that the checks pass. Re-run with --no-cache to execute them." \
       "target=${_target}" "cached=${_cached[*]}"
     return 0
   fi
   if [[ "${#_cached[@]}" -gt 0 ]]; then
     _log_warn build build_verify_partly_cached \
-      "display=verification: target '${_target}' executed ${#_ran[@]} of ${_total} check step(s) (${_ran_txt}); cached: ${_cached_txt} -- this build is not evidence about the cached ones." \
+      "display=verification: target '${_target}' executed ${#_ran[@]} of its verification stage's ${_total} step(s) (${_ran_txt}); cached: ${_cached_txt} -- this build is not evidence about the cached ones." \
       "target=${_target}" "ran=${_ran[*]}" "cached=${_cached[*]}"
     return 0
   fi
   _log_info build build_verify_all_ran \
-    "display=verification: target '${_target}' executed all ${_total} check step(s) (${_ran_txt})." \
+    "display=verification: target '${_target}' executed all ${_total} step(s) of its verification stage (${_ran_txt})." \
     "target=${_target}" "ran=${_ran[*]}"
 }
 
