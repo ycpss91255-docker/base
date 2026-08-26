@@ -1551,6 +1551,25 @@ ghcr.io/<org>/my_image:v0.1.0-minimal
 
 Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
 
+### Source archives on a base release
+
+A **base** release carries GitHub's own auto-generated source archives
+(`tarball_url` / `zipball_url`) and no other asset. Those archives hold the
+full tracked tree -- `.version`, the repo-root `init.sh`, `CONTEXT.md` and
+the dotfiles included -- so there is nothing for the release job to
+assemble.
+
+Do not re-add a hand-built `.tar.gz` / `.zip` pair beside them. The one that
+used to be there was a hardcoded `cp` operand list: a tracked file nobody
+remembered to add to the list was simply missing from the archive with no
+error to notice, and a listed path that went away failed the whole release
+at tag push.
+
+A **downstream** release is a different case: `release-worker.yaml`
+assembles `<archive_name_prefix>-vX.Y.Z.tar.gz` / `.zip` from a declared
+payload (`script/ci/release/archive.manifest`), because a consumer's archive
+is a curated deliverable rather than a snapshot of the source.
+
 ## Running Template Tests
 
 Using `script/test/justfile.test` (from template root):

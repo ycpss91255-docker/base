@@ -83,6 +83,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
+### Removed
+- **base's own release no longer attaches a hand-built source archive (closes
+  #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`
+  pair from a hardcoded nine-operand `cp -r`, beside the source archives
+  GitHub generates for free. It was a strictly worse subset: `.version`, the
+  repo-root `init.sh`, `CONTEXT.md` and every dotfile were missing, because
+  `cp` says nothing about a tracked path nobody listed -- and one absent
+  operand under `bash -e` fails the whole release at tag push. A base release
+  now carries GitHub's automatic `tarball_url` / `zipball_url` only;
+  `release-worker.yaml`, the downstream consumer's archive, is unchanged.
+
 ## [v0.42.0] - 2026-08-25
 
 `v0.42.0-rc4` promoted unchanged -- the tree is identical apart from this
