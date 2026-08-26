@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2855 tests**.
+Unit specs under `test/bats/unit/`: **2858 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1822,7 +1822,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (154)
+### test/bats/unit/template_spec.bats (155)
 
 | Test | Description |
 |------|-------------|
@@ -1970,6 +1970,7 @@ builds the env block only for the knobs the conf sets.
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
 | `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
+| `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
@@ -3124,7 +3125,7 @@ host so the boundary between them can be asserted at all.
 | `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
 | `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |
 
-### test/bats/unit/release_archive_spec.bats (24)
+### test/bats/unit/release_archive_spec.bats (26)
 
 Unit coverage for `script/ci/release-archive.sh`, the payload assembler
 the reusable release worker runs at tag time. Synthetic manifests over
@@ -3154,6 +3155,8 @@ fails naming the path and what its absence costs.
 | `release-archive: an extra_file escaping the repo root is refused, not copied out (#914)` | `..` in a caller path would write outside the archive: refused |
 | `release-archive: an absolute extra_file path is refused (#914)` | Same guard for an absolute caller path |
 | `release-archive: an unknown manifest kind fails loudly, naming it (#914)` | Fail closed: a typo'd kind never decides whether a path is archived |
+| `release-archive: an entry declaring no candidate path is a config error, not an absent path (#914)` | An empty `<paths>` column is a typo, and a typo is not an absence |
+| `release-archive: an entry missing a column is a config error, not a nameless report (#914)` | A short line under-declares the entry: refused, never half-read |
 | `release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)` | An empty payload is a config error, not an empty release |
 | `release-archive: an all-optional manifest matching nothing refuses to build an empty archive (#914)` | Tolerance stops short of uploading an empty tarball as a release |
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
