@@ -256,6 +256,16 @@ jobs:
     #                     readme-sync, which can only compare an English
     #                     section against its translation and so cannot see
     #                     a mechanism documented ONLY in a translation
+    #   self-hosted-guard every workflow job that can land on a self-hosted
+    #                     runner carries the same-repository condition. The
+    #                     org registers an org-level self-hosted runner that
+    #                     public repos may use, so an unguarded eligible job
+    #                     is fork-PR code executing on that machine
+    #   changelog-entry   no [Unreleased] changelog entry has grown into a
+    #                     pasted PR body -- measured over the whole entry
+    #                     with whitespace collapsed, so rewrapping it or
+    #                     splitting it into sub-bullets buys no budget;
+    #                     released sections are never checked
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -292,6 +302,8 @@ jobs:
           - early-close-reader
           - derived-figures
           - i18n-orphan
+          - self-hosted-guard
+          - changelog-entry
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1558,6 +1570,17 @@ jobs:
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
           WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
+          # A fork PR is the one run in which SKIPPED stops being
+          # trustworthy. `worker-selftest` calls build-worker.yaml, whose
+          # `build` job carries the same-repo guard; on a fork PR that job
+          # skips while the worker's other jobs succeed, so
+          # needs.worker-selftest.result is `success` and the loop below
+          # would collapse a build that never happened into a green
+          # required check -- for exactly the untrusted PR. The guard is
+          # correct (untrusted code must not reach a self-hosted-eligible
+          # job); what would be wrong is reporting the resulting run as a
+          # full one. So say so, loudly, instead.
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1590,6 +1613,17 @@ jobs:
                    "${WORKER_SELFTEST_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
+          # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
+          # failure and not a warning: a required check is a claim that the
+          # commit was fully tested, and on a fork PR that claim is false
+          # because the self-hosted-eligible jobs were guarded off. The
+          # maintainer's path is to re-push the contribution as a same-repo
+          # branch, which is the standard posture for a public repo whose
+          # org has a self-hosted runner.
+          if [[ "${IS_FORK_PR}" == "true" ]]; then
+            echo "::error::Fork PR: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
+            fail=1
+          fi
           exit "${fail}"
 
   release:

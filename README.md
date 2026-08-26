@@ -1671,7 +1671,8 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │       ├── release-worker.yaml         # Reusable release (source archive) workflow
 │       ├── publish-worker.yaml         # Reusable image publish workflow (opt-in)
 │       ├── multi-distro-build-worker.yaml # Multi-distro build workflow
-│       └── release-test-tools.yaml     # base's own test-tools image release
+│       ├── release-test-tools.yaml     # base's own test-tools image release
+│       └── ghcr-cleanup.yaml           # Weekly prune of untagged test-tools orphans on GHCR
 ├── doc/
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)

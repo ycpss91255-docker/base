@@ -313,6 +313,51 @@ _archive_list() {
   assert_output --partial 'requried'
 }
 
+@test "release-archive: an entry declaring no candidate path is a config error, not an absent path (#914)" {
+  # An empty <paths> column declares nothing, so there is nothing to look for.
+  # Resolved as "found nothing" it becomes indistinguishable from a consumer
+  # that legitimately lacks the path: the release cuts, the item is never
+  # archived by ANY consumer, and the only trace is a report line naming a
+  # blank path. A typo is not an absence, so it must fail closed like every
+  # other malformed shape -- including in --list, which is the contract as
+  # read by tooling.
+  _seed 'Dockerfile'
+  _manifest \
+    'required|dockerfile|Dockerfile|the image definition|nothing to build' \
+    'optional|deploy||the deploy bundle|no deploy bundle'
+  run _archive
+  [ "${status}" -eq 2 ]
+  assert_output --partial 'deploy'
+  refute_output --partial 'absent, not archived'
+  refute_output --partial 'assembled'
+  run _archive_list
+  [ "${status}" -eq 2 ]
+
+  # A whitespace-only column is the same declaration, spelled with a typo
+  # that is invisible in review.
+  _manifest \
+    'required|dockerfile|Dockerfile|the image definition|nothing to build' \
+    'optional|deploy| |the deploy bundle|no deploy bundle'
+  run _archive
+  [ "${status}" -eq 2 ]
+  refute_output --partial 'assembled'
+}
+
+@test "release-archive: an entry missing a column is a config error, not a nameless report (#914)" {
+  # Short line: the trailing columns read as empty, so the absence report
+  # names the item with a blank description. The manifest IS the contract, so
+  # an under-specified entry is a config error, not a half-declared payload.
+  _seed 'Dockerfile'
+  _manifest \
+    'required|dockerfile|Dockerfile|the image definition|nothing to build' \
+    'optional|docs|doc/'
+  run _archive
+  [ "${status}" -eq 2 ]
+  assert_output --partial 'doc/'
+  assert_output --partial 'columns'
+  refute_output --partial 'assembled'
+}
+
 @test "release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)" {
   _seed 'Dockerfile'
   _manifest '# only a comment' ''

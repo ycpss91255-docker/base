@@ -1,0 +1,192 @@
+name: GHCR test-tools cleanup
+
+# Prunes untagged ORPHAN digests from the base-owned `test-tools`
+# package on ghcr.io.
+#
+# Why the package accumulates orphans at all: release-test-tools.yaml
+# publishes a MULTI-ARCH image. Every publish writes a tagged index plus
+# one child manifest per architecture (which GHCR reports as untagged),
+# and buildx/attestation tooling can add referrer manifests alongside.
+# When a MOVING tag (`latest`, `main`) is re-pushed, the index it used to
+# point at loses its tag and its children lose their reachable parent --
+# those are the orphans. Immutable `vX.Y.Z` tags never move, so a release
+# image never becomes an orphan.
+#
+# ── The footgun this workflow exists to avoid ────────────────────────
+#
+# `actions/delete-package-versions` with `delete-only-untagged-versions:
+# true` reads "untagged" straight off the GitHub packages API and never
+# opens a manifest. Under that definition the per-arch children of a
+# LIVE tag are untagged, so it deletes them, and `docker pull
+# <the-live-tag>` starts returning 404 for the affected platform. A
+# cleanup that succeeds while quietly destroying a published image is far
+# worse than the sprawl it was meant to fix.
+#
+# dataaxiom/ghcr-cleanup-action is manifest-aware instead. Before any
+# delete or keep rule runs, it walks every package version's manifest and
+# removes each referenced child digest (and each OCI 1.1 referrer /
+# `sha256-*` attestation digest) from the candidate set. A child of a
+# live tag is therefore not merely spared by a rule -- it is never a
+# candidate, because its parent index is still in the package. Children
+# are removed only transitively, when their own parent index is staged
+# for deletion, and a live tag's index is tagged so `delete-untagged`
+# never stages it.
+#
+# ── Safety inputs (do not weaken without re-reading the above) ───────
+#
+#   delete-untagged  the ONLY delete rule enabled. The riskier
+#                    `delete-tags` / `delete-ghost-images` /
+#                    `delete-partial-images` / `delete-orphaned-images`
+#                    rules stay off: they can remove TAGGED versions,
+#                    which is not what this workflow is for.
+#   exclude-tags     redundant by construction under delete-untagged
+#                    (nothing tagged is ever staged), kept as a strict
+#                    preserve list so a future edit that adds a
+#                    tag-matching rule still cannot take out the tags
+#                    downstream consumers pin.
+#   older-than       see the retention note below.
+#   validate         post-run scan that warns if any multi-arch image
+#                    lost a platform child. Informational -- it cannot
+#                    fail the run, but it makes a regression visible in
+#                    the log instead of at some downstream `docker pull`.
+#
+# ── Retention: 14 days ───────────────────────────────────────────────
+#
+# Floor -- the publish race. release-test-tools.yaml's build shards push
+# their single-arch images BY DIGEST (untagged), and the `merge` job
+# assembles the tagged manifest list from those digests later. In that
+# window the shards look exactly like orphans. GitHub caps a job at 6h,
+# and a queued `ubuntu-24.04-arm` runner can stretch the gap toward a
+# day; 14 days clears the worst plausible case by more than an order of
+# magnitude.
+#
+# Ceiling -- the notice window. Keeping an orphan past the point anyone
+# would still want it buys nothing. The only use for one is re-tagging a
+# previous good image by digest after a bad moving-tag push, and base's
+# own self-test pulls `:main` on every non-doc PR, so a bad `:main`
+# surfaces within days. Two weeks covers a quiet stretch with margin.
+#
+# Generations -- the `:main` trigger is paths-filtered to commits that
+# touch Dockerfile.test-tools or its publisher, so 14 days typically
+# holds the last one to three orphan generations rather than exactly one.
+#
+# Backstop -- GitHub restores a deleted package version for 30 days, and
+# the action logs the ID of every version it deletes, so a wrong delete
+# is recoverable rather than terminal.
+#
+# ── Rollout: dry-run is the default until a human opts in ────────────
+#
+# A destructive scheduled job that nobody has ever watched run is the
+# thing to be afraid of here, so enforcement is opt-in rather than
+# opt-out:
+#
+#   1. Merge. The weekly schedule immediately starts running in DRY-RUN
+#      and logs what it would delete, deleting nothing.
+#   2. Read a run's "would delete" list. Confirm it names only untagged
+#      orphans -- no `latest` / `main` / `vX.Y.Z`, and no digest those
+#      tags reference.
+#   3. Set the repository variable `GHCR_CLEANUP_ENFORCE` to `true`
+#      (Settings -> Secrets and variables -> Actions -> Variables). From
+#      the next scheduled run on, the cleanup deletes for real.
+#
+# Until step 3 the workflow cannot delete anything on a schedule, so
+# forgetting step 2 costs continued sprawl, never a broken tag. A manual
+# `workflow_dispatch` keeps its own `dry-run` input (defaulting to true)
+# so a one-off real clean is possible without flipping the variable.
+#
+# Scope is deliberately ONE package: `test-tools`, which base publishes
+# and owns. No wildcard, no `expand-packages`. Other packages in the org
+# are their own repos' business.
+#
+# The action is pinned to an immutable commit SHA rather than a floating
+# tag. It is the only third-party action in this repo that holds
+# `packages: write` on something we publish, so a maintainer moving the
+# tag would hand deletion rights over the test-tools package to
+# unreviewed code. Dependabot updates SHA pins and rewrites the trailing
+# version comment, so the pin does not go stale by itself.
+
+on:
+  schedule:
+    # Weekly, Monday ~03:23 UTC. Offset from the top of the hour because
+    # GitHub delays scheduled runs that pile onto :00, and offset from
+    # the downstream repos' cleanups so they do not all hit the packages
+    # API at once.
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Log what would be deleted without deleting it'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+# Deletion is destructive and not idempotent across concurrent actors: a
+# scheduled run firing while a manual dispatch is mid-flight would have
+# both computing candidate sets against a package the other is mutating.
+# Serialise instead, and never cancel a run that may already be deleting.
+concurrency:
+  group: ghcr-cleanup-test-tools
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve dry-run mode
+        id: mode
+        shell: bash
+        # Written as a step rather than an inline `a && b || c`
+        # expression because that idiom collapses to `c` whenever `b` is
+        # false -- which is exactly the dispatch-with-dry-run-false case,
+        # i.e. the one branch where getting it wrong deletes things the
+        # operator did not ask to delete.
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+          ENFORCE: ${{ vars.GHCR_CLEANUP_ENFORCE }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT}" == "workflow_dispatch" ]]; then
+            # Anything that is not literally `false` is dry-run. The
+            # input is declared boolean with a true default, so it should
+            # always arrive as `true` / `false` -- but the failure mode of
+            # reading an unexpected value as "go ahead and delete" is the
+            # one this whole workflow is built to avoid, so the ambiguous
+            # case resolves the safe way rather than the default way.
+            if [[ "${INPUT_DRY_RUN}" == "false" ]]; then
+              dry_run="false"
+            else
+              dry_run="true"
+            fi
+          elif [[ "${ENFORCE}" == "true" ]]; then
+            dry_run="false"
+          else
+            dry_run="true"
+            echo "::notice::Scheduled run is DRY-RUN: repository variable" \
+              "GHCR_CLEANUP_ENFORCE is not set to 'true'. Nothing will be" \
+              "deleted. Review the list below, then set the variable to" \
+              "enable real deletions."
+          fi
+          printf 'dry-run=%s\n' "${dry_run}" >> "${GITHUB_OUTPUT}"
+          echo "dry-run=${dry_run} (event=${EVENT})"
+
+      - name: Delete untagged test-tools orphans
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          owner: ycpss91255-docker
+          package: test-tools
+          delete-untagged: true
+          exclude-tags: latest,main,v*
+          older-than: 14 days
+          validate: true
+          dry-run: ${{ steps.mode.outputs.dry-run }}
+          # If this ever fails on permissions, the org package is not
+          # linked to this repo (Dockerfile.test-tools sets no
+          # org.opencontainers.image.source label). Either grant base
+          # write access under the package's "Manage Actions access"
+          # settings, or swap this for a PAT secret carrying
+          # write:packages + delete:packages.
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -20,9 +20,10 @@
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
 #                             # --bash-source-guard-only /
-#                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
-#                             # --early-close-reader-only.
+#                             # --early-close-reader-only /
+#                             # --self-hosted-guard-only.
+#                             # --changelog-entry-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -109,6 +110,10 @@ source "${SCRIPT_DIR}/drivers/early_close_reader.sh"
 source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 # shellcheck source=script/test/drivers/i18n_orphan.sh
 source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
+# shellcheck source=script/test/drivers/self_hosted_guard.sh
+source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
+# shellcheck source=script/test/drivers/changelog_entry.sh
+source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -137,6 +142,8 @@ readonly _LINT_TOOLS=(
   early-close-reader
   derived-figures
   i18n-orphan
+  self-hosted-guard
+  changelog-entry
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -203,6 +210,8 @@ _run_lint_tool() {
     early-close-reader) _run_early_close_reader ;;
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
+    self-hosted-guard) _run_self_hosted_guard ;;
+    changelog-entry)  _run_changelog_entry ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -294,6 +303,21 @@ Options:
                           never names -- either a mechanism removed from the
                           code while the translation kept documenting it, or
                           a translation running ahead of the English)
+  --self-hosted-guard     With --lint: run only the self-hosted runner
+                          guard lint (every workflow job that can land on
+                          a self-hosted runner -- anything whose runs-on
+                          does not statically resolve to reserved
+                          ubuntu-* / windows-* / macos-* labels -- must
+                          carry the same-repository condition, so fork-PR
+                          code can never execute on the org's self-hosted
+                          machine)
+  --changelog-entry       With --lint: run only the changelog entry length
+                          lint ([Unreleased] entries only; measured over the
+                          whole entry with whitespace collapsed, so
+                          rewrapping the same prose or splitting it into
+                          sub-bullets buys no budget. Released sections are
+                          never checked -- rewriting a shipped entry
+                          falsifies it)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -316,6 +340,8 @@ Options:
                             --early-close-reader-only pure bash
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
+                            --self-hosted-guard-only pure bash
+                            --changelog-entry-only   pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -402,6 +428,8 @@ Examples:
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
+  ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
+  ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -447,7 +475,130 @@ _validate_spec_target() {
 
 # ── Released-tree fixture ────────────────────────────────────────────────────
 
-# _prepare_prev_release
+# The ONE spec that reads .prev-release/. Repo-root-relative, because that
+# is how the dispatch flags and the shard partition both name a spec.
+readonly _PREV_RELEASE_SPEC="test/bats/integration/prev_release_upgrade_spec.bats"
+
+# _prev_release_spec_under <path>
+#   True when <path> -- a repo-root-relative file or directory, as
+#   `--bats-path` / `--coverage-path` name one -- selects that spec.
+_prev_release_spec_under() {
+  local _path="${1%/}"
+  # A target naming the root selects everything under it.
+  if [[ -z "${_path}" || "${_path}" == "." ]]; then
+    return 0
+  fi
+  [[ "${_PREV_RELEASE_SPEC}" == "${_path}" \
+     || "${_PREV_RELEASE_SPEC}" == "${_path}/"* ]]
+}
+
+# _prev_release_spec_in_selection
+#   True when the newline-separated list of absolute spec paths on stdin
+#   contains that spec.
+_prev_release_spec_in_selection() {
+  grep -qxF "${REPO_ROOT}/${_PREV_RELEASE_SPEC}"
+}
+
+# _prev_release_spec_in_shard <n>/<total>
+#   True when the partition assigns that spec to shard <n>. Asked of
+#   _shard_unit_files -- the very function the in-container run partitions
+#   with -- rather than assumed, because its pool is
+#   test/bats/{unit,integration}/**: a "unit" shard genuinely carries
+#   integration specs, so a blanket "shards never need the fixture" would
+#   make the compatibility spec vacuous on whichever shard owns it.
+_prev_release_spec_in_shard() {
+  local _spec="${1:?BUG: _prev_release_spec_in_shard expects <n>/<total>}"
+  local _files _rc=0
+  _files="$(_shard_unit_files "${_spec}")" || _rc=$?
+  # A partition we could not compute (a malformed spec -- the in-container
+  # run rejects it by the same rule, a few seconds later) is answered YES:
+  # of the two guesses, only "not needed" can end in a vacuous spec.
+  if (( _rc != 0 )); then
+    return 0
+  fi
+  _prev_release_spec_in_selection <<< "${_files}"
+}
+
+# _dispatch_needs_prev_release <coverage>
+#   Whether the compose dispatch about to run will execute that spec.
+#   <coverage> is _run_via_compose's own COVERAGE flag (0 / 1).
+#
+#   Resolving the fixture costs release tags, and on a shallow or tagless
+#   checkout a network fetch of them. That cost used to be paid by EVERY
+#   compose dispatch, so an offline or tagless clone could not run
+#   `--bats-unit-shard`, `--bats-fragile` or a coverage shard at all, and a
+#   transient tag fetch in CI could turn e.g. `coverage (5/8)` red with a
+#   message naming nothing the job runs. It belongs to the runs that read
+#   the fixture.
+#
+#   Narrowing WHO pays, never how loudly it fails: wherever the answer here
+#   is yes, an unresolvable fixture still aborts the run before a container
+#   starts. A compatibility spec that silently shrinks to zero cases is the
+#   failure mode the fixture exists to prevent.
+#
+#   It answers by REPLAYING the in-container dispatch below (main's `ci`
+#   case) over the same variables _run_via_compose is about to forward, and
+#   the branch ORDER is part of that: COVERAGE_SHARD out-ranks a stale
+#   BATS_FILE under kcov exactly as the container's does, so an ambient
+#   variable cannot make this predict a different run from the one that
+#   happens. Membership questions go to the very selectors the container
+#   runs (_shard_unit_files / _fragile_unit_files), so nothing here drifts
+#   the day the partition pool or the fragile set changes -- which a
+#   hand-maintained list of modes would.
+_dispatch_needs_prev_release() {
+  local _coverage="${1:-0}"
+  # The lint dispatches run no bats at all.
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 1
+  fi
+  if [[ "${_coverage}" == "1" ]]; then
+    # kcov: ONE named spec, else a shard slice, else the whole suite.
+    if [[ -n "${COVERAGE_PATH:-}" ]]; then
+      _prev_release_spec_under "${COVERAGE_PATH}"
+      return
+    fi
+    if [[ -n "${COVERAGE_SHARD:-}" ]]; then
+      _prev_release_spec_in_shard "${COVERAGE_SHARD}"
+      return
+    fi
+    return 0
+  fi
+  # Plain: a named path, else a filter over unit + integration, else a
+  # shard slice, else the fragile set, else unit + integration.
+  if [[ -n "${BATS_FILE:-}" ]]; then
+    _prev_release_spec_under "${BATS_FILE}"
+    return
+  fi
+  if [[ -n "${BATS_FILTER:-}" ]]; then
+    # A bare filter runs bats over both directories. Its regex could still
+    # select none of that spec's tests, but the regex is bats' to evaluate
+    # and the conservative answer is the one that cannot hide a missing
+    # fixture.
+    return 0
+  fi
+  if [[ -n "${BATS_UNIT_SHARD:-}" ]]; then
+    _prev_release_spec_in_shard "${BATS_UNIT_SHARD}"
+    return
+  fi
+  # The kcov-fragile set is grepped out of the spec tree at runtime, so ask
+  # for it too rather than assuming it stays unit-only. Captured, not piped
+  # into the matcher: `grep -q` leaves as soon as it matches, which would
+  # strand the writer with SIGPIPE.
+  if [[ "${BATS_FRAGILE:-0}" == "1" ]]; then
+    local _fragile _frc=0
+    _fragile="$(_fragile_unit_files)" || _frc=$?
+    if (( _frc != 0 )); then
+      return 0
+    fi
+    _prev_release_spec_in_selection <<< "${_fragile}"
+    return
+  fi
+  # --bats-integration, --bats-only and bare `just test` all run the whole
+  # integration directory.
+  return 0
+}
+
+# _prepare_prev_release <coverage>
 #   Materialise the last few RELEASED trees into .prev-release/ so
 #   test/bats/integration/prev_release_upgrade_spec.bats can run their
 #   upgrade.sh against this tree.
@@ -457,10 +608,10 @@ _validate_spec_target() {
 #   pointing at a path outside that mount, so no in-container git command
 #   can read the tags. The host can, always.
 #
-#   Skipped for the lint-only dispatches -- they run no bats at all, and a
-#   fresh CI checkout would otherwise pay a tag fetch per lint job.
+#   Runs only for the dispatches that execute that spec (see
+#   _dispatch_needs_prev_release), and is fatal for all of them.
 _prepare_prev_release() {
-  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+  if ! _dispatch_needs_prev_release "${1:-0}"; then
     return 0
   fi
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
@@ -679,8 +830,10 @@ _run_via_compose() {
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
   # Fixture the released-caller spec reads. Prepared here because this is
-  # the last point that still runs on the host, where git works.
-  _prepare_prev_release
+  # the last point that still runs on the host, where git works -- and only
+  # for the dispatches that reach that spec, which is why the COVERAGE flag
+  # is handed over: it is what decides which in-container branch runs.
+  _prepare_prev_release "${_coverage}"
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.
@@ -767,6 +920,8 @@ main() {
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
+      --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
+      --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -778,6 +933,8 @@ main() {
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
+      --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
+      --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -813,7 +970,9 @@ main() {
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
-  # `--i18n-orphan-only`, `--early-close-reader-only`) short-circuit
+  # `--i18n-orphan-only`, `--early-close-reader-only`,
+  # `--self-hosted-guard-only`) short-circuit
+  # `--changelog-entry-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

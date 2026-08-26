@@ -98,6 +98,16 @@ jobs:
   # tagged manifest list from the digests.
   build:
     needs: compute-matrix
+    # Same-repository guard (see build-worker.yaml's `build` job for the
+    # full rationale). `runs-on` is a runtime-computed matrix label, so the
+    # job is self-hosted-eligible by the static rule and must carry it.
+    # Operationally inert today: this workflow has no `pull_request`
+    # trigger at all, so the first disjunct is always true. It is here so
+    # that adding one later cannot open the hole silently. Enforced by the
+    # self-hosted-guard lint.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}

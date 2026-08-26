@@ -176,6 +176,78 @@ _dangling_symlinks() {
   done < <(cd "${CONSUMER}" && find . -path ./.git -prune -o -type l -print)
 }
 
+# _dockerfile_copy_sources
+#   Every build-context path the consumer's post-upgrade Dockerfile hands to
+#   a COPY, one per line. Backslash continuations are folded first, so a
+#   hand-listed multi-line COPY is read as the one statement it is; a COPY
+#   with N sources contributes all N (the last argument is the destination).
+#
+#   Two classes are deliberately NOT emitted, because neither is a path in
+#   the build context:
+#     --from=<stage|image>  resolves inside another stage, not on disk
+#     an argument containing $  is a build ARG (ENTRYPOINT_FILE, CONFIG_SRC)
+#                               whose value only exists at build time
+_dockerfile_copy_sources() {
+  local _file="${1:?BUG: _dockerfile_copy_sources expects a Dockerfile}"
+  awk '
+    { line = line $0 }
+    /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, " ", line); next }
+    { print line; line = "" }
+    END { if (line != "") print line }
+  ' "${_file}" \
+    | awk '
+        /^[[:space:]]*COPY[[:space:]]/ {
+          if ($0 ~ /--from=/) { next }
+          n = 0
+          for (i = 2; i <= NF; i++) {
+            if ($i ~ /^--/) { continue }
+            arg[++n] = $i
+          }
+          for (i = 1; i < n; i++) {
+            src = arg[i]
+            gsub(/^"|"$/, "", src)
+            if (src ~ /\$/) { continue }
+            print src
+          }
+        }
+      '
+}
+
+# _assert_dockerfile_copy_sources_exist
+#   Every COPY source the post-upgrade Dockerfile names must be present in
+#   the consumer. This is the assertion the rest of this spec structurally
+#   could not make: exit status, .version, dangling symlinks and
+#   `just --list` are all satisfied by a consumer whose Dockerfile still
+#   names the pre-move layout, and the first thing that notices is
+#   BuildKit refusing to compute a cache key -- at the user's terminal,
+#   after the subtree pull has already committed.
+#
+#   It names no path of its own: it reads whatever the Dockerfile ends up
+#   saying and asks the filesystem, so it keeps working across any future
+#   relocation instead of encoding today's one.
+_assert_dockerfile_copy_sources_exist() {
+  local _missing=()
+  local _src _ok
+  while IFS= read -r _src; do
+    [[ -n "${_src}" ]] || continue
+    # A glob source is satisfied by any match; a plain source by itself.
+    # `compgen -G` is used ONLY for real globs: handed a pattern with no
+    # metacharacter but a trailing slash it reports success for a path that
+    # does not exist, which is precisely how `.base/test/smoke/` would slip
+    # through the assertion written to catch it.
+    _ok=0
+    if [[ "${_src}" == *[*?[]* ]]; then
+      compgen -G "${CONSUMER}/${_src}" > /dev/null 2>&1 && _ok=1
+    elif [[ -e "${CONSUMER}/${_src%/}" ]]; then
+      _ok=1
+    fi
+    [[ "${_ok}" -eq 1 ]] || _missing+=("${_src}")
+  done < <(_dockerfile_copy_sources "${CONSUMER}/Dockerfile")
+
+  [[ "${#_missing[@]}" -eq 0 ]] \
+    || fail "post-upgrade Dockerfile COPYs sources that do not exist -- the consumer cannot build: ${_missing[*]}"
+}
+
 # ── The compatibility contract ──────────────────────────────────────────────
 
 # _assert_release_can_upgrade <tag>
@@ -207,6 +279,10 @@ _assert_release_can_upgrade() {
   # The single documented entry point still resolves.
   run just --list
   assert_success
+
+  # The repo can still be BUILT. Everything above is satisfied by a
+  # consumer whose Dockerfile names the layout the release just deleted.
+  _assert_dockerfile_copy_sources_exist
 }
 # NOTE: a clean `git status` is deliberately NOT asserted. A released
 # upgrade.sh stages only the specific paths it rewrites, so a genuine

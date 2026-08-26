@@ -51,7 +51,7 @@ setup() {
         "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
   # schema.sh joined the _lib.sh chain in; it sources _tui_conf.sh
   # for the validator bodies, so symlink both alongside the rest.
-  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook; do
+  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook dockerfile_migrate; do
     ln -s "/source/dist/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/dist/script/docker/lib/${_sl}.sh"
   done
@@ -571,6 +571,36 @@ REMOTE
   assert [ -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml" ]
 }
 
+# An upgrade is driven by the consumer's OWN vendored upgrade.sh, and every
+# release up to v0.41.0 carries a hardcoded Dockerfile-patch step that knows
+# only the paths that existed when it shipped. The one piece of CURRENT code
+# such an upgrade runs is this file, re-executed from the freshly pulled
+# tree -- so this is where a heal has to live if it is to reach a consumer
+# upgrading FROM an old release rather than only one already on the new one.
+@test "_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  _init_existing_repo
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${TMP_REPO}/Dockerfile"
+  grep -Fq "COPY .base/dist/config /tmp/config" "${TMP_REPO}/Dockerfile"
+}
+
+@test "_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  local _before
+  _before="$(cat "${TMP_REPO}/Dockerfile")"
+  _init_existing_repo
+  [[ "$(cat "${TMP_REPO}/Dockerfile")" == "${_before}" ]]
+}
+
 @test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
@@ -783,4 +813,108 @@ _stage_missing_template_conf() {
   LOG_FORMAT=json run _gen_setup_conf "false"
   assert_failure
   assert_output --partial '"display":"Template setup.conf not found'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Existing-repo resync rollback
+# ════════════════════════════════════════════════════════════════════
+#
+# init.sh cannot roll back the way upgrade.sh does. It runs mid-upgrade
+# with the subtree pull already committed, so `git reset --hard` would undo
+# the caller's work, and the files most worth protecting -- a hand-written,
+# gitignored .env -- are not in git at all. "Restore" here therefore means a
+# byte copy of the paths the resync can touch, taken before the first
+# mutation and put back on failure.
+
+@test "_init_protected_paths: covers the .env pair the env-naming rename moves (#937)" {
+  _source_init
+  run _init_protected_paths
+  assert_success
+  assert_line ".env"
+  assert_line ".env.local"
+}
+
+@test "_init_protected_paths: covers every root the resync writes into (#937)" {
+  _source_init
+  run _init_protected_paths
+  assert_success
+  assert_line "Dockerfile"
+  assert_line "script"
+  assert_line "config"
+  assert_line ".gitignore"
+  assert_line ".dockerignore"
+  assert_line "justfile"
+}
+
+# The env-naming rename moves a hand-written, gitignored file. Nothing in
+# git can put it back, so the snapshot has to hold the bytes themselves.
+@test "_init_restore_tree: an .env moved to .env.local is put back (#937)" {
+  _source_init
+  printf 'IMAGE_NAME=hand-written\n' > "${TMP_REPO}/.env"
+  _init_snapshot
+  mv "${TMP_REPO}/.env" "${TMP_REPO}/.env.local"
+
+  _init_restore_tree
+  assert [ -f "${TMP_REPO}/.env" ]
+  assert [ ! -e "${TMP_REPO}/.env.local" ]
+  [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+@test "_init_restore_tree: removes what the resync created (#937)" {
+  _source_init
+  _init_snapshot
+  mkdir -p "${TMP_REPO}/script/hooks/pre"
+  : > "${TMP_REPO}/script/hooks/pre/build.sh"
+  ln -sf script/justfile "${TMP_REPO}/justfile"
+
+  _init_restore_tree
+  assert [ ! -e "${TMP_REPO}/script" ]
+  assert [ ! -e "${TMP_REPO}/justfile" ]
+  _init_rollback_cleanup
+}
+
+@test "_init_restore_tree: restores a rewritten file byte for byte (#937)" {
+  _source_init
+  printf 'FROM busybox\nCOPY .base/config /tmp/config\n' > "${TMP_REPO}/Dockerfile"
+  _init_snapshot
+  printf 'FROM busybox\nCOPY .base/dist/config /tmp/config\n' > "${TMP_REPO}/Dockerfile"
+
+  _init_restore_tree
+  [ "$(cat "${TMP_REPO}/Dockerfile")" = "$(printf 'FROM busybox\nCOPY .base/config /tmp/config')" ]
+  _init_rollback_cleanup
+}
+
+# A restore that cannot find its own copy must not "restore" by deleting.
+# Reporting failure is the whole contract: a rollback that quietly removes
+# the user's file is worse than the half-written state it was undoing.
+@test "_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)" {
+  _source_init
+  printf 'IMAGE_NAME=hand-written\n' > "${TMP_REPO}/.env"
+  _init_snapshot
+  rm -f "${_INIT_ROLLBACK_DIR}/tree/.env"
+
+  run _init_restore_tree
+  assert_failure
+  assert [ -f "${TMP_REPO}/.env" ]
+  [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+# The rollback is armed with an EXIT trap. When init.sh is sourced rather
+# than executed, that trap is installed into someone else's shell, so a
+# successful resync has to hand it back exactly as it found it.
+@test "_init_existing_repo: hands back the caller's EXIT trap on success (#937)" {
+  : > "${TMP_REPO}/Dockerfile"
+  run bash -c '
+    cd "$1" || exit 1
+    # shellcheck disable=SC1091
+    source "$1/.base/dist/script/base/init.sh"
+    trap "echo CALLER-TRAP-RAN" EXIT
+    _init_existing_repo >/dev/null 2>&1
+    trap -p EXIT
+  ' _ "${TMP_REPO}"
+  assert_success
+  assert_output --partial "CALLER-TRAP-RAN"
+  assert_output --partial "echo CALLER-TRAP-RAN"
 }

@@ -612,6 +612,45 @@ _render_run_names() {
   assert_output --partial 'success'
 }
 
+# ── Fork PRs cannot make the rollup vacuously green ────────────
+
+@test "self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)" {
+  # The self-hosted guard's effect is a SKIP, and SKIPPED is
+  # pass-equivalent in the conditionally-gated bucket above. worker-selftest
+  # calls build-worker.yaml, whose `build` job carries the guard: on a fork
+  # PR that job skips while the worker's other jobs succeed, so
+  # needs.worker-selftest.result is `success` and the loop would collapse a
+  # build that never ran into a green REQUIRED check -- for exactly the
+  # untrusted PR. A required check is a claim the commit was fully tested;
+  # on a fork PR that claim is false, so the rollup has to say so rather
+  # than pass.
+  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'IS_FORK_PR:'
+  assert_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
+  assert_output --partial 'if [[ "${IS_FORK_PR}" == "true" ]]; then'
+}
+
+@test "self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)" {
+  # An advisory warning next to a green required check is the vacuous
+  # rollup with extra steps.
+  run bash -c "awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' '${WF}' \
+    | grep -A3 -F 'if [[ \"\${IS_FORK_PR}\" == \"true\" ]]; then' \
+    | grep -c -F 'fail=1'"
+  assert_success
+  [ "${output}" -ge 1 ] \
+    || fail "the fork-PR branch does not set fail=1; the rollup would still report green"
+}
+
+@test "self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)" {
+  # Belt to the _LINT_TOOLS completeness guard's braces: that check proves
+  # SOME job names every lint, this one names the join the guard is meant
+  # to have. A guard whose own CI job vanished would gate nothing.
+  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial '- self-hosted-guard'
+}
+
 # ── System-level build-worker self-test ────────────────────────
 
 @test "self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)" {
@@ -851,11 +890,11 @@ _render_run_names() {
   # assert nothing at all, which is the exact failure mode this test
   # exists to prevent. Pin both the size and the four lints this issue
   # wired.
-  [ "${#_tools[@]}" -ge 11 ] \
+  [ "${#_tools[@]}" -ge 13 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
   for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal \
-    bash-source-guard i18n-orphan early-close-reader; do
+    bash-source-guard i18n-orphan early-close-reader changelog-entry; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

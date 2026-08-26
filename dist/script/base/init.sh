@@ -56,6 +56,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/_lib.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/template_guard.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -527,9 +529,295 @@ MD
   _log "  Created script/hooks/{pre,post}/ stubs"
 }
 
+# ── Existing-repo resync rollback ───────────────────────────────────────────
+#
+# The resync rewrites files the CONSUMER owns -- the Dockerfile's COPY
+# sources, .gitignore / .dockerignore, the wrapper symlinks -- and it runs
+# inside an upgrade that has ALREADY committed the subtree pull. Whether a
+# rewrite that fails partway is undone used to depend entirely on WHICH
+# caller drove it: the current upgrade.sh arms an EXIT trap around its whole
+# post-pull window, the vendored v0.41.0 copy every deployed consumer still
+# runs has no trap at all, and `just base init` has none either. Protection
+# that lives in the caller therefore reaches only the caller that does not
+# need it. It lives here instead, so the guarantee travels with the
+# mutation rather than with whoever happened to invoke it.
+#
+# WHAT "RESTORE" MEANS HERE. upgrade.sh restores with `git reset --hard`
+# plus a sweep of the paths that became untracked. init.sh cannot do either.
+# It runs mid-upgrade with the pull already committed, so a reset would undo
+# the CALLER'S work -- history is the caller's to own, and this rollback
+# touches none of it. It cannot lean on git for content either: a `.env` is
+# gitignored, and a `just base init` over a dirty tree would lose the user's
+# uncommitted edits. So the snapshot is a BYTE COPY of every root the resync
+# can write into, taken before the first mutation and kept OUTSIDE the repo
+# (a copy inside it would show up in the caller's own untracked sweep).
+# Restoring replaces each root wholesale, which returns what the run
+# deleted and removes what it created in one step. The index is restored
+# separately, because the resync's `git rm --cached` of now-derived
+# artifacts is state the working tree cannot show.
+#
+# HOW THE TWO TRAPS COMPOSE. Every caller runs init.sh as a SEPARATE
+# PROCESS -- upgrade.sh Step 3 and the `just base init` recipe both invoke
+# the script -- so the two traps never share a shell and cannot disarm each
+# other. This one fires when init.sh exits, restores the files init.sh
+# rewrote, touches no history, and exits non-zero; the caller's `set -e`
+# then aborts and its own trap (when it has one) undoes the commit the pull
+# made. Inner is a strict subset of outer and runs first, so the outer reset
+# lands on an already-restored tree and finds nothing left to disagree with.
+# When init.sh is SOURCED instead (the unit specs), any EXIT trap already
+# installed is saved and handed back rather than clobbered.
+
+_INIT_ROLLBACK_DIR=""
+_INIT_ROLLBACK_ARMED=false
+_INIT_ROLLBACK_PREV_TRAP=""
+
+# _init_protected_paths
+#   Every repo-root-relative path the existing-repo resync can create,
+#   rewrite or delete. Directories are listed AS directories: the resync
+#   both adds to and removes from them, and putting a whole root back is
+#   what makes "the way it was" one operation rather than a diff.
+#
+#   Grouped by the mutation that puts each entry here:
+#     _create_symlinks             justfile, script/, config/,
+#                                  .hadolint.yaml, and the pre-relocation
+#                                  root wrappers it deletes on sight
+#     _sync_existing_gitignore     .gitignore, .dockerignore
+#     _create_hook_stubs           script/hooks/
+#     _sync_base_monitor_workflow  the generated monitor workflow
+#     _migrate_dockerfile          Dockerfile, script/entrypoint.sh
+#     the .env -> .env.local rename  both names. Neither is recoverable
+#                                  from git -- they are gitignored and
+#                                  hand-written -- so they are named here
+#                                  even though the migration that moves
+#                                  them lands separately.
+_init_protected_paths() {
+  cat <<'EOF'
+Dockerfile
+justfile
+.hadolint.yaml
+.gitignore
+.dockerignore
+.env
+.env.local
+script
+config
+.github/workflows/base-version-monitor.yaml
+build.sh
+run.sh
+exec.sh
+stop.sh
+prune.sh
+setup.sh
+setup_tui.sh
+tui.sh
+Makefile
+EOF
+}
+
+# _init_snapshot
+#   Copy every protected root that exists into a scratch tree outside the
+#   repo and record which ones existed. Runs BEFORE the first mutation, so
+#   a snapshot that cannot be taken aborts a run that has changed nothing
+#   -- the one moment where failing is free.
+_init_snapshot() {
+  _INIT_ROLLBACK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/base-init-resync.XXXXXX")" \
+    || _error "cannot create the resync snapshot directory"
+  mkdir -p "${_INIT_ROLLBACK_DIR}/tree" \
+    || _error "cannot create the resync snapshot directory"
+  : > "${_INIT_ROLLBACK_DIR}/present" \
+    || _error "cannot write the resync snapshot manifest"
+
+  local _path _live _copy
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _live="${REPO_ROOT:?}/${_path}"
+    # `-e` follows the link, so a DANGLING symlink reads as absent. It is
+    # still a path that is there and has to come back -- the retired root
+    # wrappers are exactly that shape -- so test for the link itself too.
+    [[ -e "${_live}" || -L "${_live}" ]] || continue
+    _copy="${_INIT_ROLLBACK_DIR}/tree/${_path}"
+    mkdir -p "$(dirname -- "${_copy}")" \
+      || _error "cannot snapshot ${_path} before the resync"
+    cp -a -- "${_live}" "${_copy}" \
+      || _error "cannot snapshot ${_path} before the resync"
+    printf '%s\n' "${_path}" >> "${_INIT_ROLLBACK_DIR}/present"
+  done < <(_init_protected_paths)
+
+  _init_snapshot_index
+}
+
+# _init_snapshot_index
+#   Record the index entries of the canonical derived artifacts -- the only
+#   paths the resync removes from the index, via `git rm --cached`. A staged
+#   deletion left behind by an aborted run is a change the consumer never
+#   made and cannot see in the working tree. No-op outside a git repo.
+_init_snapshot_index() {
+  : > "${_INIT_ROLLBACK_DIR}/index"
+  git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  local _entry
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    git -C "${REPO_ROOT}" ls-files -s -z -- "${_entry%/}" \
+      >> "${_INIT_ROLLBACK_DIR}/index" 2>/dev/null || true
+  done < <(_canonical_gitignore_entries)
+}
+
+# _init_restore_tree
+#   Put every protected root back the way the snapshot found it: a root
+#   that existed is replaced by its copy, a root that did not is removed.
+#
+#   Returns non-zero if ANY root could not be restored. A root whose
+#   snapshot copy has gone missing is deliberately LEFT ALONE rather than
+#   removed: a rollback that "restores" by deleting the user's file is
+#   worse than the half-written state it was undoing, and the caller
+#   reports the failure instead of claiming a restore that did not happen.
+_init_restore_tree() {
+  local -a _present=()
+  if [[ -f "${_INIT_ROLLBACK_DIR}/present" ]]; then
+    mapfile -t _present < "${_INIT_ROLLBACK_DIR}/present"
+  fi
+
+  local _path _live _copy _known _was_there
+  local _rc=0
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _live="${REPO_ROOT:?}/${_path}"
+    _copy="${_INIT_ROLLBACK_DIR}/tree/${_path}"
+
+    _was_there=false
+    for _known in ${_present[@]+"${_present[@]}"}; do
+      if [[ "${_known}" == "${_path}" ]]; then
+        _was_there=true
+        break
+      fi
+    done
+
+    if [[ "${_was_there}" != "true" ]]; then
+      rm -rf -- "${_live}" || _rc=1
+      continue
+    fi
+    if [[ ! -e "${_copy}" && ! -L "${_copy}" ]]; then
+      _rc=1
+      continue
+    fi
+    rm -rf -- "${_live}" || { _rc=1; continue; }
+    mkdir -p -- "$(dirname -- "${_live}")" || { _rc=1; continue; }
+    cp -a -- "${_copy}" "${_live}" || _rc=1
+  done < <(_init_protected_paths)
+
+  return "${_rc}"
+}
+
+# _init_restore_index
+#   Re-add the index entries the resync removed. Only entries that are GONE
+#   from the index are put back; one that is still there is left exactly as
+#   it is, so nothing staged around this run is overwritten by a stale
+#   snapshot. NUL-delimited on both sides so a path needing quoting round-
+#   trips unchanged.
+_init_restore_index() {
+  [[ -s "${_INIT_ROLLBACK_DIR}/index" ]] || return 0
+  git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  local _entry _path _readd=""
+  while IFS= read -r -d '' _entry; do
+    [[ -n "${_entry}" ]] || continue
+    _path="${_entry#*$'\t'}"
+    if [[ -n "$(git -C "${REPO_ROOT}" ls-files -- "${_path}" 2>/dev/null)" ]]; then
+      continue
+    fi
+    _readd+="${_entry}"$'\0'
+  done < "${_INIT_ROLLBACK_DIR}/index"
+
+  [[ -n "${_readd}" ]] || return 0
+  printf '%s' "${_readd}" | git -C "${REPO_ROOT}" update-index -z --index-info
+}
+
+# _init_rollback_cleanup
+#   Drop the scratch snapshot. Never called on the rollback-FAILED path:
+#   there the copy is the user's only way back, and the error names it.
+_init_rollback_cleanup() {
+  [[ -n "${_INIT_ROLLBACK_DIR}" ]] || return 0
+  rm -rf -- "${_INIT_ROLLBACK_DIR}"
+  _INIT_ROLLBACK_DIR=""
+}
+
+# _init_run_prev_exit_trap
+#   Run the EXIT trap that was installed before this one, if any. Only a
+#   SOURCED init.sh can have one -- all three real callers execute it as a
+#   separate process -- but a trap installed into someone else's shell must
+#   not swallow theirs.
+#
+#   `trap -p EXIT` prints `trap -- 'BODY' EXIT`, BODY single-quoted. The
+#   outer eval strips that quoting and hands BODY to the inner eval, which
+#   runs it. bash does not re-enter an EXIT trap from inside one, so
+#   re-installing it would not be enough.
+_init_run_prev_exit_trap() {
+  [[ -n "${_INIT_ROLLBACK_PREV_TRAP}" ]] || return 0
+  local _body="${_INIT_ROLLBACK_PREV_TRAP}"
+  _body="${_body#trap -- }"
+  _body="${_body% EXIT}"
+  _INIT_ROLLBACK_PREV_TRAP=""
+  eval "eval ${_body}"
+}
+
+# _init_rollback_trap
+#   Armed for the whole existing-repo resync and disarmed once its last
+#   mutation has succeeded. A non-zero exit in between restores the
+#   consumer's files; a zero exit does nothing but tidy up.
+#
+#   A restore that did not fully work exits 1 with the tree named as NOT
+#   restored and the manual command spelled out, rather than reporting the
+#   original failure over a tree it left half-way. Reporting success -- or
+#   reporting only the first failure -- is what let this class through.
+_init_rollback_trap() {
+  local _status=$?
+  trap - EXIT
+  if (( _status == 0 )) || [[ "${_INIT_ROLLBACK_ARMED}" != "true" ]]; then
+    _init_rollback_cleanup
+    _init_run_prev_exit_trap
+    exit "${_status}"
+  fi
+  _INIT_ROLLBACK_ARMED=false
+
+  _log_err init init_rollback "display=resync failed (exit ${_status}); restoring the consumer files it had already rewritten." "status=${_status}"
+  local _rc=0
+  _init_restore_tree || _rc=1
+  _init_restore_index || _rc=1
+  if (( _rc != 0 )); then
+    _log_err init init_rollback_failed "display=rollback FAILED -- the working tree is NOT restored. The pre-resync copy is kept at ${_INIT_ROLLBACK_DIR}; restore it by hand with: cp -a ${_INIT_ROLLBACK_DIR}/tree/. ${REPO_ROOT}/" "snapshot=${_INIT_ROLLBACK_DIR}"
+    exit 1
+  fi
+  _log_err init init_rollback "display=resync aborted; the consumer's files are back as they were"
+  _init_rollback_cleanup
+  _init_run_prev_exit_trap
+  exit "${_status}"
+}
+
+# _init_arm_rollback / _init_disarm_rollback
+#   The bracket around the resync. Arming snapshots first and installs the
+#   trap second, so the trap is never live over a snapshot that does not
+#   exist; disarming hands the caller's own EXIT trap back untouched.
+_init_arm_rollback() {
+  _init_snapshot
+  _INIT_ROLLBACK_PREV_TRAP="$(trap -p EXIT)"
+  _INIT_ROLLBACK_ARMED=true
+  trap _init_rollback_trap EXIT
+}
+
+_init_disarm_rollback() {
+  _INIT_ROLLBACK_ARMED=false
+  trap - EXIT
+  if [[ -n "${_INIT_ROLLBACK_PREV_TRAP}" ]]; then
+    eval "${_INIT_ROLLBACK_PREV_TRAP}"
+    _INIT_ROLLBACK_PREV_TRAP=""
+  fi
+  _init_rollback_cleanup
+}
+
 # ── Existing repo initialization ────────────────────────────────────────────
 
 _init_existing_repo() {
+  _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
   # BEFORE anything can regenerate: a `.env` written back when that name
   # meant "yours" is moved to `.env.local`. This runs here, not in
@@ -549,6 +837,33 @@ _init_existing_repo() {
   # ensure the base version monitor workflow exists; existing repos
   # pick it up on their next upgrade (upgrade.sh Step 3 re-runs init).
   _sync_base_monitor_workflow
+  _migrate_dockerfile
+  _init_disarm_rollback
+}
+
+# _migrate_dockerfile
+#   Heal a repo-root Dockerfile (and its sibling entrypoint) that still
+#   names a layout a base release has since moved, via the shared
+#   declarative migration list.
+#
+#   Why HERE and not only in upgrade.sh: an upgrade is driven by the
+#   consumer's OWN vendored upgrade.sh, which shipped in an older release
+#   and cannot be changed retroactively. Every release up to v0.41.0
+#   carries its own hardcoded Dockerfile-patch step that knows only the
+#   paths that existed when it shipped, and it short-circuits ("already
+#   copies ... - skip") on exactly the lines the dist relocation deleted.
+#   The one piece of CURRENT code such an upgrade runs is this file,
+#   re-executed from the freshly pulled subtree as its resync step -- so
+#   this is the only place a new heal reaches a consumer upgrading FROM an
+#   old release rather than one already on the new one.
+#
+#   Every migration is idempotent, so the current upgrade.sh running the
+#   same dispatcher again at its own Step 5 is a no-op. It is also what
+#   makes `just base init` a repair command for a repo that has ALREADY
+#   taken a bad upgrade, where the version check short-circuits before any
+#   migration would run.
+_migrate_dockerfile() {
+  apply_migrations "${REPO_ROOT}/Dockerfile"
 }
 
 # _create_hook_stubs
