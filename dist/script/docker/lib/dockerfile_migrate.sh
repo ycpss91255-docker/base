@@ -427,6 +427,110 @@ _migrate_nounset_source_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
+# ── Migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
+#
+# Up to v0.41.0 base shipped ONE flat smoke tree and the consumer Dockerfile
+# copied it whole:
+#   COPY .base/test/smoke/ /smoke_test/
+# The shipped specs now live under dist/test/bats/smoke/, split into a
+# shared/ baseline plus one folder per Dockerfile stage, so that source is
+# gone. Rewriting it to the shared baseline alone would build, but would
+# silently drop the specs the stage used to run -- so the statement is
+# replaced by the shared baseline PLUS the enclosing stage's own folder,
+# which is what the current template Dockerfile writes by hand.
+#
+# The stage folder is emitted only when the freshly pulled subtree actually
+# ships one for that stage: a stage base has no specs for (or an unnamed
+# final stage) gets the shared baseline and nothing else, rather than a COPY
+# of a directory that does not exist. Runs BEFORE flat_to_dist so the
+# generic .base/script rewrite never sees these lines.
+# Idempotent: once rewritten no flat .base/test/smoke reference remains.
+_migrate_smoke_copy_detect() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke/?[[:space:]]' "${_file}"
+}
+
+_migrate_smoke_copy_apply() {
+  local _file="$1"
+
+  # Which stage folders the subtree ships, as a ":a:b:" membership string
+  # awk can test with index(). Read from the tree next to the Dockerfile,
+  # i.e. the subtree the upgrade just pulled.
+  local _root
+  _root="$(dirname -- "${_file}")"
+  local _stages=":"
+  local _dir
+  for _dir in "${_root}"/.base/dist/test/bats/smoke/*/; do
+    [[ -d "${_dir}" ]] || continue
+    _stages+="$(basename -- "${_dir}"):"
+  done
+
+  local _tmp
+  _tmp="$(mktemp)"
+  # Track the enclosing build stage (`FROM ... AS <name>`) so each rewritten
+  # COPY can name its own folder. Substituting into a COPY of the original
+  # line preserves whatever flags, destination and column alignment the
+  # consumer had.
+  awk -v stages="${_stages}" '
+    toupper($1) == "FROM" {
+      stage = ""
+      for (i = 2; i < NF; i++) {
+        if (toupper($i) == "AS") { stage = $(i + 1) }
+      }
+    }
+    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke\/?[[:space:]]/ {
+      shared = $0
+      sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
+      print shared
+      if (stage != "" && index(stages, ":" stage ":") > 0) {
+        own = $0
+        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
+        print own
+      }
+      next
+    }
+    { print }
+  ' "${_file}" > "${_tmp}"
+  mv "${_tmp}" "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+}
+
+# ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────
+#
+# base's shipped tree moved under dist/. downstream_to_dist above heals the
+# `.base/downstream/` spelling, but that layout only ever shipped as a
+# prerelease: the layout every stable consumer is actually sitting on is the
+# FLAT one that v0.41.0 shipped --
+#   COPY .base/script/docker/runtime/logging.sh ...
+#   COPY .base/config "${CONFIG_DIR}"
+#   COPY .base/script/docker/lib     /lint/lib
+#   COPY .base/script/docker/wrapper /lint/wrapper
+# -- and the relocation deleted every one of those paths. Nothing migrated
+# it, so the upgrade completed cleanly onto a Dockerfile whose first COPY
+# BuildKit resolves does not exist, and the repo could not be built.
+#
+# Rewrites both prefixes wherever they appear, comments included, so the
+# commented-out runtime-stage hints a consumer later uncomments are correct
+# too. `.base/test` is deliberately NOT in this table: the smoke tree did not
+# just move, it was restructured, and smoke_copy above owns it.
+#
+# Order is load-bearing. It runs AFTER the migrations whose detect anchors on
+# the flat spelling (wrapper_copy, explicit_copy) so those still recognise it,
+# and BEFORE logrotate_copy / watchdog_copy, which clone the logging.sh COPY
+# line -- from the flat path they would append two MORE COPYs of files that
+# no longer exist. Idempotent: `.base/dist/...` does not match.
+_migrate_flat_to_dist_detect() {
+  local _file="$1"
+  grep -qE '\.base/(config|script)' "${_file}"
+}
+
+_migrate_flat_to_dist_apply() {
+  local _file="$1"
+  sed -i -e 's#\.base/config#.base/dist/config#g' \
+    -e 's#\.base/script#.base/dist/script#g' "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
+}
+
 # ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
 #
 # runtime/logging.sh now sources a sibling logrotate.sh from the in-image
@@ -512,6 +616,8 @@ _MIGRATIONS=(
   pip_helper
   explicit_copy
   logging_rename
+  smoke_copy
+  flat_to_dist
   logrotate_copy
   watchdog_copy
   hadolint
