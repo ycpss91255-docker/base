@@ -83,6 +83,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
+### Changed
+- **the emitted `compose.yaml` no longer names containers, and the project
+  name falls back to the OS user (closes #920)** -- a baked `container_name`
+  is namespaced by the daemon, not by the project, so a second stack of one
+  repo died with `name ... is already in use` however it was named, and
+  compose refused `--scale`. Compose now derives `<project>-<service>-<n>`,
+  so per-host isolation rests on the project name alone, whose fallback
+  moves from the literal `local` -- one string for every OS user -- to
+  `${USER_NAME}`; `[project] name` still wins. `just run` / `exec` / `stop`
+  behave identically; a hand-typed `docker exec <name>` has no fixed name
+  any more -- ask `just exec`.
+
 ## [v0.42.0] - 2026-08-25
 
 `v0.42.0-rc4` promoted unchanged -- the tree is identical apart from this

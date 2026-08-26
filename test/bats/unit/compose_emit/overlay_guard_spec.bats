@@ -10,8 +10,11 @@
 # a future change that hardcodes a per-instance field fails here immediately.
 #
 # The override channels differ by field kind (recorded in ADR-00000022):
-#   - structural interpolation (${VAR}): project name, container_name,
-#     network_mode, ports  -- checked here.
+#   - structural interpolation (${VAR}): project name, network_mode,
+#     ports -- checked here.
+#   - not emitted at all: container_name. A container name is namespaced by
+#     the daemon rather than by the project, so no value of it is
+#     per-instance safe and the guard asserts its absence.
 #   - .env env_file overlay + baked ENV: workload env vars (ROS_DOMAIN_ID
 #     and friends).
 #   - compose-merge overlay: writable volume topology.

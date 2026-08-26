@@ -304,7 +304,7 @@ Any `FROM <base> AS <stage>` outside the baseline blocklist
 auto-emitted as a compose service that
 `extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
 additional_contexts) and overrides only `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`. Use case:
+`stdin_open` / `tty` / `profiles`. Use case:
 entrypoint variants like NVIDIA Isaac Sim's `headless` + `gui` on top
 of `devel`.
 
@@ -1192,49 +1192,60 @@ fi
 
 ### Naming scheme: three namespaces, two user identities
 
-`setup.sh` emits three names in `.env` / `compose.yaml`. They look
-similar on a single-user dev machine, but they live in **three
-different namespaces** and pick their user prefix from **two
-different identities**. Sysadmins running shared hosts need to know
-the difference; solo developers can treat the two identities as the
-same and move on.
+`setup.sh` emits two names in `.env` / `compose.yaml`, and compose
+derives the third. They look similar on a single-user dev machine, but
+they live in **three different namespaces** and pick their user prefix
+from **two different identities**. Sysadmins running shared hosts need
+to know the difference; solo developers can treat the two identities as
+the same and move on.
 
 | Name | Format | Namespace | User prefix |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **Host daemon** (scopes containers / default network / volume labels) | `DOCKER_HUB_USER`, else `USER_NAME` |
+| container name | `<project>-<service>-<n>`, derived by compose | **Host daemon** (flat global) | inherited from the project |
 
 - `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
   images on the registry side. Image tags are addressable as
   `<DOCKER_HUB_USER>/<repo>:<tag>` whether or not you actually push.
-- `USER_NAME` — the OS user (from `id -un`), used to keep two OS
-  users on the same host from colliding on the daemon's flat
-  container-name namespace.
+- `USER_NAME` — the OS user (from `id -un`). It is the project-name
+  prefix whenever there is no Docker Hub account to use, which keeps
+  two OS users on the same host out of each other's containers,
+  networks and volumes with nothing configured.
 
 The two identities are deliberately separate. Image names use the
 Docker Hub identity because images are addressable on the registry,
 and forcing per-OS-user image tags would shatter buildx cache reuse
-and Docker Hub layer sharing. Container names use the OS identity
-because the conflict it fixes (two users on the same host running
-the same repo) is a host-daemon problem with no registry component.
+and Docker Hub layer sharing. The project name prefers that same
+identity so the two line up on a single-user machine, and falls back to
+the OS one because the conflict it fixes (two users on the same host
+running the same repo) is a host-daemon problem with no registry
+component — and because a machine with no Docker Hub account has no
+registry identity to fall back to at all.
 
-Project-name choice of `DOCKER_HUB_USER` predates #322 and was kept
-unchanged: on a single-user dev machine the two identities coincide
-so the names line up visually with `container_name`; on a shared
-host the project name still avoids cross-user collision *because*
-`DOCKER_HUB_USER` happens to differ per user too. The `#322`
-CHANGELOG entry's phrasing "aligns container-level naming with
-project-level naming" is true under that single-user-machine
-assumption — both are user-prefixed, just via different vars — not
-literally the same prefix string in the multi-user case.
+**base emits no `container_name:`.** A container name is namespaced by
+the daemon rather than by the project, so a fixed one pins the service
+to a single instance per host: a second stack of the same repo fails to
+start with `name ... is already in use` however it is named, and compose
+refuses `--scale` while the directive is present. Letting compose derive
+`<project>-<service>-<n>` makes the name unique by construction, which
+is what puts per-host isolation entirely in the project name.
 
-base is **single-instance** (#600): one fixed-name container/project
-per repo. Multi-instance orchestration (running the same repo as N
-parallel containers with unique project names and port overrides)
-belongs to the compose layer, mirroring how `docker` has no project
-concept and `docker compose` owns `-p` — base does not do multi at
-all.
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+Nothing you type changes: `just exec -t <target>` takes a compose
+**service** name (it always did — it is passed straight to `compose
+exec`), and `just run` / `just stop` are project-scoped already. What
+does change is that `docker exec <fixed-name>` by hand no longer has a
+fixed name to use; ask compose (`just exec`) instead.
+
+base's own control surface stays **single-instance** (#600): one project
+per repo, resolved once by `setup apply`. Running the same repo as N
+parallel stacks is the compose layer's job, mirroring how `docker` has
+no project concept and `docker compose` owns `-p`.
 
 Two *checkouts* of the same repo are a different question, and base
 does answer that one: give each checkout its own project name with
@@ -1246,22 +1257,23 @@ Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (derived by compose)
 ```
 
-A second OS user `bob` on the same host:
+A second OS user `bob` on the same host, with no Docker Hub account
+configured:
 
 ```
-image:          bob-hub/claude_code:devel          (different registry tag, no cache reuse)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          local/claude_code:devel
+project name:   bob-claude_code                 (OS user, no configuration)
+container:      bob-claude_code-devel-1         (derived by compose)
 ```
 
 If `alice` and `bob` share `DOCKER_HUB_USER` (e.g. a shared CI
-service account), `image` collides on Docker Hub but `container_name`
-still differentiates — registry pulls share the cached image and
-hosts stay deconflicted.
+service account) they also share a project name, and that is the case
+to set `[project] name` for — the setting exists, and with no
+`container_name` baked over it, it now reaches the containers too.
 
 ## Quick Start
 

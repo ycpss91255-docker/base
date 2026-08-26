@@ -257,7 +257,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a d0dd264be639 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf 478d8c1193b8 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -265,7 +265,7 @@ baseline blocklist `{sys, devel-base, devel, runtime-test}`
 `FROM <base> AS <stage>` は、自動的に compose サービスとして
 emit されます — `extends: devel`（volumes / network / GPU / GUI /
 cap_add / additional_contexts を継承）し、`build.target` /
-`image` / `container_name` / `stdin_open` / `tty` / `profiles`
+`image` / `stdin_open` / `tty` / `profiles`
 のみを override します。典型的な用途は entrypoint バリアント、
 例えば NVIDIA Isaac Sim の `devel` 上に乗せる `headless` + `gui`
 の 2 種類の起動モード。
@@ -835,53 +835,67 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 bd1b2a0c153c -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 9bf1068e7979 2ed447e8aa60 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
-`setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
-単一ユーザの開発機では見た目が似通っていますが、これらは**3 つの
-独立した namespace**に属し、**2 つの異なる user identity**から
-プレフィックスを取ります。共用ホスト（複数 OS user）のシナリオで
-は区別が顕在化します。個人開発機では 2 つの identity が一致する
-ことが多く、深追いする必要はありません。
+`setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
+3 つめは compose が導出します。単一ユーザの開発機では見た目が
+似通っていますが、これらは**3 つの独立した namespace**に属し、
+**2 つの異なる user identity**からプレフィックスを取ります。共用
+ホスト（複数 OS user）のシナリオでは区別が顕在化します。個人開発
+機では 2 つの identity が一致することが多く、深追いする必要は
+ありません。
 
 | 名前 | 形式 | Namespace | User プレフィックス |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **ローカル daemon**（container / デフォルト network / volume label のスコープ） | `DOCKER_HUB_USER`、無ければ `USER_NAME` |
+| container 名 | `<project>-<service>-<n>`、compose が導出 | **ローカル daemon**（フラットなグローバル） | project から継承 |
 
 - `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
   に名前空間を付けるために使います。実際に push しない場合でも、
   image tag は `<DOCKER_HUB_USER>/<repo>:<tag>` という形で
   この identity を含みます。
-- `USER_NAME` — ホストの OS user（`id -un`）。同じマシン上の
-  異なる OS user が daemon のフラットな container 名前空間で
-  衝突するのを防ぐために使います。
+- `USER_NAME` — ホストの OS user（`id -un`）。Docker Hub アカウント
+  が無いときは、これが project name のプレフィックスになります。
+  設定なしで、同じマシン上の 2 人の OS user の container /
+  network / volume が互いに分離されます。
 
 2 つの identity を意図的に分けています。Image は registry 上で
 アドレス可能なオブジェクトなので Docker Hub identity を使う —
 OS user でプレフィックスを付けてしまうと buildx cache や Docker
-Hub の layer 共有が破綻します。Container name に OS identity を
-使うのは、ここで解決したい衝突（同一ホスト上の 2 user が同一 repo
-を同時実行）が daemon 側の問題であり、registry とは無関係だからです。
+Hub の layer 共有が破綻します。Project name は同じ identity を
+優先し（個人開発機で両者が揃うのはそのため）、無ければ OS
+identity にフォールバックします。ここで解決したい衝突（同一ホスト
+上の 2 user が同一 repo を同時実行）は daemon 側の問題で registry
+とは無関係であり、そもそも Docker Hub アカウントの無いマシンには
+フォールバックできる registry identity が存在しないからです。
 
-Project name に `DOCKER_HUB_USER` を使うのは #322 以前からの
-決定で、そのまま据え置きました。個人開発機では 2 つの identity
-が重なるため `container_name` と視覚的に揃います。共用ホストでは
-`DOCKER_HUB_USER` も user ごとに異なるのが普通なので、project
-name も結果としてユーザ間衝突を回避できます。`#322` の CHANGELOG
-が言う「container レベルの命名を project レベルに揃える」とは
-「単一ユーザ機」前提での記述です — どちらも user プレフィックス
-を持つという意味では揃っていますが、複数ユーザ機ではそれぞれ別の
-変数から来るので前綴文字列は同一ではありません。
+**base は `container_name:` を emit しません。** container 名は
+project ではなく daemon の namespace に属するため、固定名を書くと
+その service は「1 ホストにつき 1 インスタンス」に固定されます:
+同一 repo の 2 つめの stack は project name を何にしても
+`name ... is already in use` で起動できず、このフィールドがある限り
+compose は `--scale` を拒否します。compose に
+`<project>-<service>-<n>` を導出させれば名前は構造上一意になり、
+ホスト内の分離は完全に project name の担当になります。
 
-base は**単一インスタンス**です（#600）: repo ごとに固定名の
-container / project が 1 組だけ。マルチインスタンスのオーケストレーション
-（同一 repo を N 個の並行 container として、それぞれ独自の project name と
-port override で動かすこと）は compose レイヤの仕事です。`docker` 自体に
-project の概念がなく `-p` は `docker compose` が持つのと同じ構図で、base は
-multi には一切関与しません。
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+利用者の操作は何も変わりません: `just exec -t <target>` が受け取る
+のは以前から compose の**サービス**名で（そのまま `compose exec`
+に渡されます）、`just run` / `just stop` はもともと project 単位
+です。変わるのは、手作業の `docker exec <固定名>` に使える固定名が
+無くなることだけ — compose に尋ねてください（`just exec`）。
+
+base 自身の操作面は**単一インスタンス**のままです（#600）: repo
+ごとに project は 1 つで、`setup apply` が一度だけ解決します。同一
+repo を N 個の並行 stack として動かすのは compose レイヤの仕事で、
+`docker` 自体に project の概念がなく `-p` は `docker compose` が
+持つのと同じ構図です。
 
 同一 repo の 2 つの *checkout* は別の話で、そちらには base の答えがあります:
 `.setup.conf.local` の `[project] name` で checkout ごとに固有の project name
@@ -893,23 +907,23 @@ multi には一切関与しません。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose が導出)
 ```
 
-同じホスト上の別の OS user `bob`:
+同じホスト上の別の OS user `bob`（Docker Hub アカウント未設定）:
 
 ```
-image:          bob-hub/claude_code:devel          (registry tag が異なり cache 共有なし)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          local/claude_code:devel
+project name:   bob-claude_code                 (OS user、設定不要)
+container:      bob-claude_code-devel-1         (compose が導出)
 ```
 
 `alice` と `bob` が同じ `DOCKER_HUB_USER` を共有している場合
-（例: 共用 CI サービスアカウント）、`image` は Docker Hub 上で
-衝突しますが `container_name` で区別できます — registry pull は
-キャッシュされた image を共有し、ホスト内の daemon では互いに
-分離されたままです。
+（例: 共用 CI サービスアカウント）、project name も同一になります。
+それこそが `[project] name` を設定すべきケースです — この設定は
+以前から存在し、`container_name` が上書きしなくなった今、ようやく
+container にも効くようになりました。
 
 <!-- sync: quick-start 629a4900e292 c1409df67119 -->
 ## クイックスタート

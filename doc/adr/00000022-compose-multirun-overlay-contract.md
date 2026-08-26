@@ -70,7 +70,7 @@ channel differs by kind:
 | Field kind | Per-instance override channel | Emitted form |
 |---|---|---|
 | project `name:` | compose interpolation from `--env-file` | `${PROJECT_NAME}` (was `${DOCKER_HUB_USER}-${IMAGE_NAME}`; see the 2026-08-05 amendment below) |
-| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` |
+| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` -- **no longer emitted at all; see the 2026-08-26 amendment below** |
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
 | **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = **1-based** index within the service's port list -- `PORT_1` = first port, matching base's 1-based indexed-key convention `port_1` / `mount_1` / `arg_1`) |
@@ -100,6 +100,28 @@ second worktree and multi_run's Nth instance are different stages of the
 pipeline, and neither mechanism can do the other's job. ADR-00000025 sec. 5
 carries the full division of labour.
 
+**Amendment (2026-08-26, issue #920): base stopped emitting
+`container_name:` itself.** §4 below records that the field is removable and
+that `multi_run` *may* drop it; the emitter has now dropped it, so there is
+no `container_name:` line in a generated `compose.yaml` for an overlay to
+override or remove. The reason the weaker form was not enough: the guard
+asked only that the value carry an interpolation, and `${USER_NAME}-<repo>`
+satisfied that -- yet a container name is namespaced by the DAEMON, not by
+the project, and `${USER_NAME}` is one string for all of a user's instances.
+Two co-located stacks under distinct project names therefore still collided
+at `up` (`name ... is already in use`), and compose refuses `--scale` while
+any container_name is present. No value of the field can be per-instance
+safe, so the guard now asserts its ABSENCE rather than its shape.
+
+Per-host isolation moved entirely into the project name as a consequence,
+which required the second half of that change: `_resolve_project_name`'s
+prefix falls back to the OS user (`${DOCKER_HUB_USER:-${USER_NAME}}-<image>`)
+rather than to the literal `local`. `DOCKER_HUB_USER` is frequently unset,
+and `local` is the same string for every OS user on a host -- with the
+container name gone, deriving `local-<image>` would have put two users in
+ONE project, promoting the collision from a container to a whole stack. A
+configured `[project] name` still wins.
+
 The concrete change this decision required was `ports`: they were baked
 literals and are now `${PORT_<n>:-<default>}`, `n` 1-based per the
 convention above (a human who configured `[network] port_1` overrides
@@ -107,6 +129,8 @@ convention above (a human who configured `[network] port_1` overrides
 interpolation-
 channel fields (`name` / `container_name` / `network_mode` / `ipc` /
 `privileged` / `pid`) were already compliant; the guard locks them.
+(`container_name` is since gone entirely -- see the 2026-08-26 amendment
+above.)
 
 ### 4. Contract `multi_run` depends on (held, verified)
 
@@ -115,7 +139,10 @@ channel fields (`name` / `container_name` / `network_mode` / `ipc` /
 - `container_name` is **removable** without breaking the service: no
   service references it, and the top-level project `name:` namespaces the
   container, so `multi_run` may drop it entirely to let compose auto-name
-  `<project>-<service>-<n>` per instance.
+  `<project>-<service>-<n>` per instance. (Verified, and then taken: base
+  itself stopped emitting it -- 2026-08-26 amendment in §3. The wrapper
+  prechecks that used to rebuild the name now ask `compose ps` for the
+  service inside `-p <project>`.)
 - Stage / service identity is **not tied to the literal name `devel`**:
   each service carries `build.target: <stage>`, `image: .../<stage>`, and
   `profiles: [<stage>]`, so `multi_run` extracts the stage stage-

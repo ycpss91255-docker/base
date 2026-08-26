@@ -162,9 +162,12 @@ _Avoid_: local config, instance config, per-instance override.
 **Project name**:
 The compose project a checkout runs under, resolved ONCE by
 `_resolve_project_name` (`lib/compose.sh`) from `[project] name` (empty =
-derive `<DOCKER_HUB_USER>-<IMAGE_NAME>`) into `.env.generated` as
-`PROJECT_NAME`. Both the wrapper's `-p` and the emitted `name:` read that
-one value. Not the image tag, which is a separate axis.
+derive `<DOCKER_HUB_USER, else USER_NAME>-<IMAGE_NAME>`) into
+`.env.generated` as `PROJECT_NAME`. Both the wrapper's `-p` and the emitted
+`name:` read that one value. It is also the ONLY per-host isolation the
+stack has: no `container_name:` is emitted, so compose derives
+`<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment). Not the
+image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.
 
 **setup.conf schema**:
