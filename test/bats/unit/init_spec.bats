@@ -814,3 +814,107 @@ _stage_missing_template_conf() {
   assert_failure
   assert_output --partial '"display":"Template setup.conf not found'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Existing-repo resync rollback
+# ════════════════════════════════════════════════════════════════════
+#
+# init.sh cannot roll back the way upgrade.sh does. It runs mid-upgrade
+# with the subtree pull already committed, so `git reset --hard` would undo
+# the caller's work, and the files most worth protecting -- a hand-written,
+# gitignored .env -- are not in git at all. "Restore" here therefore means a
+# byte copy of the paths the resync can touch, taken before the first
+# mutation and put back on failure.
+
+@test "_init_protected_paths: covers the .env pair the env-naming rename moves (#937)" {
+  _source_init
+  run _init_protected_paths
+  assert_success
+  assert_line ".env"
+  assert_line ".env.local"
+}
+
+@test "_init_protected_paths: covers every root the resync writes into (#937)" {
+  _source_init
+  run _init_protected_paths
+  assert_success
+  assert_line "Dockerfile"
+  assert_line "script"
+  assert_line "config"
+  assert_line ".gitignore"
+  assert_line ".dockerignore"
+  assert_line "justfile"
+}
+
+# The env-naming rename moves a hand-written, gitignored file. Nothing in
+# git can put it back, so the snapshot has to hold the bytes themselves.
+@test "_init_restore_tree: an .env moved to .env.local is put back (#937)" {
+  _source_init
+  printf 'IMAGE_NAME=hand-written\n' > "${TMP_REPO}/.env"
+  _init_snapshot
+  mv "${TMP_REPO}/.env" "${TMP_REPO}/.env.local"
+
+  _init_restore_tree
+  assert [ -f "${TMP_REPO}/.env" ]
+  assert [ ! -e "${TMP_REPO}/.env.local" ]
+  [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+@test "_init_restore_tree: removes what the resync created (#937)" {
+  _source_init
+  _init_snapshot
+  mkdir -p "${TMP_REPO}/script/hooks/pre"
+  : > "${TMP_REPO}/script/hooks/pre/build.sh"
+  ln -sf script/justfile "${TMP_REPO}/justfile"
+
+  _init_restore_tree
+  assert [ ! -e "${TMP_REPO}/script" ]
+  assert [ ! -e "${TMP_REPO}/justfile" ]
+  _init_rollback_cleanup
+}
+
+@test "_init_restore_tree: restores a rewritten file byte for byte (#937)" {
+  _source_init
+  printf 'FROM busybox\nCOPY .base/config /tmp/config\n' > "${TMP_REPO}/Dockerfile"
+  _init_snapshot
+  printf 'FROM busybox\nCOPY .base/dist/config /tmp/config\n' > "${TMP_REPO}/Dockerfile"
+
+  _init_restore_tree
+  [ "$(cat "${TMP_REPO}/Dockerfile")" = "$(printf 'FROM busybox\nCOPY .base/config /tmp/config')" ]
+  _init_rollback_cleanup
+}
+
+# A restore that cannot find its own copy must not "restore" by deleting.
+# Reporting failure is the whole contract: a rollback that quietly removes
+# the user's file is worse than the half-written state it was undoing.
+@test "_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)" {
+  _source_init
+  printf 'IMAGE_NAME=hand-written\n' > "${TMP_REPO}/.env"
+  _init_snapshot
+  rm -f "${_INIT_ROLLBACK_DIR}/tree/.env"
+
+  run _init_restore_tree
+  assert_failure
+  assert [ -f "${TMP_REPO}/.env" ]
+  [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+# The rollback is armed with an EXIT trap. When init.sh is sourced rather
+# than executed, that trap is installed into someone else's shell, so a
+# successful resync has to hand it back exactly as it found it.
+@test "_init_existing_repo: hands back the caller's EXIT trap on success (#937)" {
+  : > "${TMP_REPO}/Dockerfile"
+  run bash -c '
+    cd "$1" || exit 1
+    # shellcheck disable=SC1091
+    source "$1/.base/dist/script/base/init.sh"
+    trap "echo CALLER-TRAP-RAN" EXIT
+    _init_existing_repo >/dev/null 2>&1
+    trap -p EXIT
+  ' _ "${TMP_REPO}"
+  assert_success
+  assert_output --partial "CALLER-TRAP-RAN"
+  assert_output --partial "echo CALLER-TRAP-RAN"
+}
