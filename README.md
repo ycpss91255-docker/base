@@ -1333,6 +1333,29 @@ running it on a repo with a live field deployment. The numbered cycle:
 Don't `git subtree pull` by hand — the integrity check, init.sh
 resync, sed and migration steps are easy to forget.
 
+**If any step after the pull fails, the whole upgrade is undone.** The pull
+commits before steps 2-5 run, so an abort there used to leave the repo
+claiming the new version with the resync never applied — a clean
+`git status` over dangling wrappers. Now the run resets to the commit it
+started from and removes what it created, so a failed upgrade leaves the
+repo *unchanged, with an error*. Nothing you had in flight is at risk:
+`git subtree` refuses to start against a dirty tree, so every change
+present after the pull is one the upgrade itself made.
+
+> **Upgrading from `v0.41.0` or earlier, into a tree that already moved
+> on.** The script that drives an upgrade is the one vendored in *your*
+> `.base/`, so it is the old release's copy that runs. Releases up to
+> `v0.41.0` invoke `./.base/init.sh`, which the `dist/` reorganisation
+> relocated; a compatibility forwarder at that path keeps them working. If
+> you already hit the failure (`.base/.version` bumped, `just --list`
+> reporting no justfile), nothing is corrupt — the resync simply never
+> ran. Run it and commit the result:
+>
+> ```bash
+> ./.base/dist/script/base/init.sh
+> git add -A && git commit -m "chore: resync .base wrappers"
+> ```
+
 #### Pointing `.base` at a different upstream
 
 `TEMPLATE_REMOTE` is the git remote every `.base` operation reads: the

@@ -33,12 +33,23 @@ _log_warn() { printf '[%s] WARNING: %s\n' "$1" "${*:2}" >&2; }
 _log_err()  { printf '[%s] ERROR: %s\n' "$1" "${*:2}" >&2; }
 _log()    { _log_info upgrade "$*"; }
 _error()  { _log_err upgrade "$*"; exit 1; }
+# The rollback path's own state. Production sets these at the top of
+# upgrade.sh and just before the subtree pull; the harness sources only
+# function bodies, so it stands them up here. REPO_ROOT is resolved at
+# source time, i.e. after the caller has cd-ed into the fixture repo --
+# the sweep refuses to run without it rather than deleting from /.
+_UPGRADE_PRE_HEAD=""
+_UPGRADE_UNTRACKED_SNAPSHOT=()
+REPO_ROOT="$(pwd -P)"
 EOS
   sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_git_identity() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_clean_merge_state() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_verify_subtree_intact() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_rollback_subtree_pull() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_restore_pre_upgrade_state() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_remove_untracked_since_snapshot() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_was_untracked_before_upgrade() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"

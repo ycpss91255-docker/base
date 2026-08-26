@@ -406,10 +406,17 @@ setup() {
 
 @test "build-worker.yaml: compute-matrix and build are gated on code_changed (#273)" {
   # Both heavy jobs need needs.path-filter.outputs.code_changed == 'true'.
-  # Count = 2 means both jobs have the gate.
-  run grep -c "if: needs\\.path-filter\\.outputs\\.code_changed == 'true'" "${WF}"
+  # Asserted per job rather than by counting the `if:` line: `build`'s gate
+  # is now a block scalar that ANDs the same-repo guard beside it, so a
+  # whole-file count of the single-line form reads 1 and says nothing about
+  # WHICH job lost its gate. Per-job is the claim that was meant.
+  run awk '/^  compute-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output "2"
+  assert_output --partial "needs.path-filter.outputs.code_changed == 'true'"
+
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "needs.path-filter.outputs.code_changed == 'true'"
 }
 
 @test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
@@ -572,4 +579,32 @@ setup() {
   run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
     | grep -E 'docker system prune|image prune -a|docker volume prune'"
   assert_failure
+}
+
+# ── Same-repository guard on the self-hosted-eligible build job ────────
+
+@test "build-worker.yaml: the build job carries the same-repo guard AND-ed with its code_changed gate (#766)" {
+  # `runs-on: ${{ matrix.runner }}` over a `fromJSON` matrix: the label
+  # set is computed at runtime, so nothing static can prove this job stays
+  # on a GitHub-hosted machine -- and the org registers an org-level
+  # self-hosted runner that public repos may use. The guard must not
+  # REPLACE the existing gate, or a doc-only PR would start paying for a
+  # full build; both conditions have to survive.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "needs.path-filter.outputs.code_changed == 'true' &&"
+  assert_output --partial "(github.event_name != 'pull_request' ||"
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository)'
+}
+
+@test "build-worker.yaml: the guard tests the FORK, not the PR (#766)" {
+  # A condition that skipped on every pull_request would disable the
+  # worker for the same-repo PRs that are its entire PR-time workload.
+  # The first disjunct is what lets a same-repo PR -- and a tag push, a
+  # schedule, a workflow_dispatch -- through.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "github.event_name != 'pull_request'"
+  # The negated form would invert the meaning: only fork PRs would run.
+  refute_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
 }

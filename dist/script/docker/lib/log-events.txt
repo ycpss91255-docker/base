@@ -69,6 +69,12 @@ build_prune_skip_tagged
 build_no_env
 build_rerun_setup
 build_test_tools_version_missing
+build_verify_capture_failed
+build_verify_step_unresolved
+build_verify_no_steps
+build_verify_all_cached
+build_verify_partly_cached
+build_verify_all_ran
 
 # run.sh
 run_started
@@ -161,6 +167,8 @@ ci_bash_source_guard
 ci_early_close_reader
 ci_derived_figures
 ci_i18n_orphan
+ci_self_hosted_guard
+ci_changelog_entry
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint
@@ -169,6 +177,8 @@ ci_lint_driver_failed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
 ci_host_id_not_numeric
+ci_prev_release_progress
+ci_prev_release_unavailable
 
 # transcript.sh (#606)
 # Only genuine setup FAILURES are emitted via the logger (to stderr,

@@ -152,7 +152,9 @@ EOF
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
   assert_success
-  grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" Dockerfile
+  # wrapper_copy writes the flat path and flat_to_dist, later in the list,
+  # carries it to the shipped tree; the settled result is the dist one.
+  grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" Dockerfile
   ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
   # The rewritten Dockerfile is staged into the upgrade's commit.
   git diff --cached --quiet
@@ -191,9 +193,13 @@ EOF
 
 @test "upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)" {
   cd "${DOWN_DIR}"
+  # "Already migrated" is the DIST spelling: the flat wrapper path this
+  # fixture used to carry is one the shipped-tree move deleted, so a
+  # Dockerfile still naming it is not a fixed point -- it is a repo that
+  # cannot build, and the dispatcher is right to rewrite it.
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/wrapper/*.sh /lint/
+COPY .base/dist/script/docker/wrapper/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   git add Dockerfile
@@ -486,6 +492,48 @@ STUB
   [ "$(cat .base/.version)" = "v0.9.5" ]
   [ -f ".base/dist/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
+}
+
+# ── A failed step leaves the repo unchanged, not half-upgraded ──────────────
+#
+# Rollback used to fire only from the post-pull integrity check, so a
+# failure in any LATER step left the pull committed: .version claiming the
+# new release, `git status` clean, and the resync that makes the repo usable
+# never run. That is a repo that says it upgraded and did not, with no
+# signal for anyone who is not reading the terminal. Every post-pull step
+# now rolls back the same way the integrity check does.
+@test "upgrade.sh rolls back the whole upgrade when a post-pull step fails" {
+  # A v0.9.7 whose init.sh writes something and then fails. The write is
+  # the interesting half: `git reset --hard` alone does not remove a file
+  # that was never tracked, so without an explicit sweep the "restored"
+  # tree would still be carrying the aborted upgrade's leftovers.
+  cat > "${TMPL_WORK}/dist/script/base/init.sh" <<'INIT'
+#!/usr/bin/env bash
+touch "$(dirname "${BASH_SOURCE[0]:-$0}")/../../../../half_written_wrapper.sh"
+exit 1
+INIT
+  chmod +x "${TMPL_WORK}/dist/script/base/init.sh"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 whose init.sh fails"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure
+  assert_output --partial "Rolling back"
+  assert_output --partial "upgrade aborted"
+
+  # Unchanged, with an error -- the whole point.
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+  [ ! -e "half_written_wrapper.sh" ]
+  run git status --porcelain
+  assert_output ""
 }
 
 # ──walk-up self-location resolves --prefix to the subtree basename ─────

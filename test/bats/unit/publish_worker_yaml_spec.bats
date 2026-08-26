@@ -116,3 +116,16 @@ setup() {
   assert_success
   [ "${output}" -ge 2 ]
 }
+
+# ── Same-repository guard on the self-hosted-eligible publish job ──────
+
+@test "publish-worker.yaml: the publish job carries the same-repo guard (#766)" {
+  # Self-hosted-eligible by the static rule: `runs-on: ${{ matrix.runner }}`
+  # over a runtime-computed matrix. Inert today (the callers are tag-push
+  # release flows, and every non-PR event passes the first disjunct), which
+  # is exactly when insurance is cheap to install.
+  run awk '/^  publish:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "github.event_name != 'pull_request' ||"
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
+}

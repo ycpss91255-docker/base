@@ -38,6 +38,7 @@ coverage/
 .Dockerfile.generated
 .docker.xauth
 log/
+.prev-release/
 
 # ── Editor / OS / backup cruft ───────────────────────────────────────
 *.bak

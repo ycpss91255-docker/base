@@ -51,6 +51,10 @@ _run_shellcheck() {
   # references the way test.sh sees them.
   find "${REPO_ROOT}/script" -name "*.sh" -type f -print0 \
     | xargs -0 shellcheck -x
+  # The repo-root compatibility forwarder. Named explicitly because the
+  # find roots above are all subdirectories, so a script at the root would
+  # otherwise go unlinted.
+  shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
   shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/dist/config/shell/terminator/setup.sh"

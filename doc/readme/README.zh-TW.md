@@ -876,7 +876,7 @@ git subtree add --prefix=.base \
 
 > `git subtree add` 需要 `HEAD` 存在。在剛 `git init` 且沒有任何 commit 的 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 進來。
 
-<!-- sync: updating 7ffccdece8ee 40a9829b9ed5 -->
+<!-- sync: updating 11a2eb107f15 19316ed066d1 -->
 ### 升級
 
 前置條件：`git config user.name` / `user.email` 必須有設，working tree
@@ -922,6 +922,26 @@ just base upgrade v0.3.0
 
 不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 與 migration
 步驟很容易漏掉。
+
+**pull 之後任何一步失敗，整個升級都會被還原。** pull 會先 commit，步驟
+2-5 才跑，所以以前在那裡中斷會留下一個「版本號已經跳、resync 從沒跑過」
+的 repo — 一堆斷掉的 wrapper 配上乾淨的 `git status`。現在整個 run 會
+reset 回它開始時的 commit，並把自己建立的檔案清掉，失敗的升級留下的是
+「沒有任何變化，加上一個錯誤」。你手上未 commit 的東西不會有風險：
+`git subtree` 本來就拒絕在 dirty tree 上啟動，所以 pull 之後出現的每個
+變更都是這次升級自己造成的。
+
+> **從 `v0.41.0`（或更早）升級到已經搬過檔案的 tree。** 驅動升級的腳本
+> 是你自己 `.base/` 裡 vendored 的那一份，所以實際跑的是舊 release 的版
+> 本。`v0.41.0` 以前的 release 呼叫 `./.base/init.sh`，而 `dist/` 重整
+> 把它搬走了；舊路徑上的相容轉發器讓它們繼續可用。如果你已經踩到這個失
+> 敗（`.base/.version` 已經跳版、`just --list` 說找不到 justfile），沒
+> 有任何東西損壞 — 只是 resync 沒跑到。手動跑一次並 commit：
+>
+> ```bash
+> ./.base/dist/script/base/init.sh
+> git add -A && git commit -m "chore: resync .base wrappers"
+> ```
 
 <!-- sync: pointing-base-at-a-different-upstream 46d9dded3008 e4511b89cc20 -->
 #### 把 `.base` 指到別的 upstream
