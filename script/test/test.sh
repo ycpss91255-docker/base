@@ -461,7 +461,130 @@ _validate_spec_target() {
 
 # ── Released-tree fixture ────────────────────────────────────────────────────
 
-# _prepare_prev_release
+# The ONE spec that reads .prev-release/. Repo-root-relative, because that
+# is how the dispatch flags and the shard partition both name a spec.
+readonly _PREV_RELEASE_SPEC="test/bats/integration/prev_release_upgrade_spec.bats"
+
+# _prev_release_spec_under <path>
+#   True when <path> -- a repo-root-relative file or directory, as
+#   `--bats-path` / `--coverage-path` name one -- selects that spec.
+_prev_release_spec_under() {
+  local _path="${1%/}"
+  # A target naming the root selects everything under it.
+  if [[ -z "${_path}" || "${_path}" == "." ]]; then
+    return 0
+  fi
+  [[ "${_PREV_RELEASE_SPEC}" == "${_path}" \
+     || "${_PREV_RELEASE_SPEC}" == "${_path}/"* ]]
+}
+
+# _prev_release_spec_in_selection
+#   True when the newline-separated list of absolute spec paths on stdin
+#   contains that spec.
+_prev_release_spec_in_selection() {
+  grep -qxF "${REPO_ROOT}/${_PREV_RELEASE_SPEC}"
+}
+
+# _prev_release_spec_in_shard <n>/<total>
+#   True when the partition assigns that spec to shard <n>. Asked of
+#   _shard_unit_files -- the very function the in-container run partitions
+#   with -- rather than assumed, because its pool is
+#   test/bats/{unit,integration}/**: a "unit" shard genuinely carries
+#   integration specs, so a blanket "shards never need the fixture" would
+#   make the compatibility spec vacuous on whichever shard owns it.
+_prev_release_spec_in_shard() {
+  local _spec="${1:?BUG: _prev_release_spec_in_shard expects <n>/<total>}"
+  local _files _rc=0
+  _files="$(_shard_unit_files "${_spec}")" || _rc=$?
+  # A partition we could not compute (a malformed spec -- the in-container
+  # run rejects it by the same rule, a few seconds later) is answered YES:
+  # of the two guesses, only "not needed" can end in a vacuous spec.
+  if (( _rc != 0 )); then
+    return 0
+  fi
+  _prev_release_spec_in_selection <<< "${_files}"
+}
+
+# _dispatch_needs_prev_release <coverage>
+#   Whether the compose dispatch about to run will execute that spec.
+#   <coverage> is _run_via_compose's own COVERAGE flag (0 / 1).
+#
+#   Resolving the fixture costs release tags, and on a shallow or tagless
+#   checkout a network fetch of them. That cost used to be paid by EVERY
+#   compose dispatch, so an offline or tagless clone could not run
+#   `--bats-unit-shard`, `--bats-fragile` or a coverage shard at all, and a
+#   transient tag fetch in CI could turn e.g. `coverage (5/8)` red with a
+#   message naming nothing the job runs. It belongs to the runs that read
+#   the fixture.
+#
+#   Narrowing WHO pays, never how loudly it fails: wherever the answer here
+#   is yes, an unresolvable fixture still aborts the run before a container
+#   starts. A compatibility spec that silently shrinks to zero cases is the
+#   failure mode the fixture exists to prevent.
+#
+#   It answers by REPLAYING the in-container dispatch below (main's `ci`
+#   case) over the same variables _run_via_compose is about to forward, and
+#   the branch ORDER is part of that: COVERAGE_SHARD out-ranks a stale
+#   BATS_FILE under kcov exactly as the container's does, so an ambient
+#   variable cannot make this predict a different run from the one that
+#   happens. Membership questions go to the very selectors the container
+#   runs (_shard_unit_files / _fragile_unit_files), so nothing here drifts
+#   the day the partition pool or the fragile set changes -- which a
+#   hand-maintained list of modes would.
+_dispatch_needs_prev_release() {
+  local _coverage="${1:-0}"
+  # The lint dispatches run no bats at all.
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 1
+  fi
+  if [[ "${_coverage}" == "1" ]]; then
+    # kcov: ONE named spec, else a shard slice, else the whole suite.
+    if [[ -n "${COVERAGE_PATH:-}" ]]; then
+      _prev_release_spec_under "${COVERAGE_PATH}"
+      return
+    fi
+    if [[ -n "${COVERAGE_SHARD:-}" ]]; then
+      _prev_release_spec_in_shard "${COVERAGE_SHARD}"
+      return
+    fi
+    return 0
+  fi
+  # Plain: a named path, else a filter over unit + integration, else a
+  # shard slice, else the fragile set, else unit + integration.
+  if [[ -n "${BATS_FILE:-}" ]]; then
+    _prev_release_spec_under "${BATS_FILE}"
+    return
+  fi
+  if [[ -n "${BATS_FILTER:-}" ]]; then
+    # A bare filter runs bats over both directories. Its regex could still
+    # select none of that spec's tests, but the regex is bats' to evaluate
+    # and the conservative answer is the one that cannot hide a missing
+    # fixture.
+    return 0
+  fi
+  if [[ -n "${BATS_UNIT_SHARD:-}" ]]; then
+    _prev_release_spec_in_shard "${BATS_UNIT_SHARD}"
+    return
+  fi
+  # The kcov-fragile set is grepped out of the spec tree at runtime, so ask
+  # for it too rather than assuming it stays unit-only. Captured, not piped
+  # into the matcher: `grep -q` leaves as soon as it matches, which would
+  # strand the writer with SIGPIPE.
+  if [[ "${BATS_FRAGILE:-0}" == "1" ]]; then
+    local _fragile _frc=0
+    _fragile="$(_fragile_unit_files)" || _frc=$?
+    if (( _frc != 0 )); then
+      return 0
+    fi
+    _prev_release_spec_in_selection <<< "${_fragile}"
+    return
+  fi
+  # --bats-integration, --bats-only and bare `just test` all run the whole
+  # integration directory.
+  return 0
+}
+
+# _prepare_prev_release <coverage>
 #   Materialise the last few RELEASED trees into .prev-release/ so
 #   test/bats/integration/prev_release_upgrade_spec.bats can run their
 #   upgrade.sh against this tree.
@@ -471,10 +594,10 @@ _validate_spec_target() {
 #   pointing at a path outside that mount, so no in-container git command
 #   can read the tags. The host can, always.
 #
-#   Skipped for the lint-only dispatches -- they run no bats at all, and a
-#   fresh CI checkout would otherwise pay a tag fetch per lint job.
+#   Runs only for the dispatches that execute that spec (see
+#   _dispatch_needs_prev_release), and is fatal for all of them.
 _prepare_prev_release() {
-  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+  if ! _dispatch_needs_prev_release "${1:-0}"; then
     return 0
   fi
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
@@ -693,8 +816,10 @@ _run_via_compose() {
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
   # Fixture the released-caller spec reads. Prepared here because this is
-  # the last point that still runs on the host, where git works.
-  _prepare_prev_release
+  # the last point that still runs on the host, where git works -- and only
+  # for the dispatches that reach that spec, which is why the COVERAGE flag
+  # is handed over: it is what decides which in-container branch runs.
+  _prepare_prev_release "${_coverage}"
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.

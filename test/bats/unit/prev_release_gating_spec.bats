@@ -170,6 +170,28 @@ _shard_carrying_prev_release() {
   assert [ ! -f "${DOCKER_LOG}" ]
 }
 
+@test "prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE" {
+  local _carrier
+  _carrier="$(_shard_carrying_prev_release 2)"
+  assert [ -n "${_carrier}" ]
+  _mock_tagless_offline_git
+
+  # The in-container kcov branch reads COVERAGE_SHARD and ignores BATS_FILE,
+  # so a BATS_FILE left in the environment must not talk the host out of the
+  # fixture either -- that is how the shard would run the spec with nothing
+  # for it to read.
+  run env \
+    -u COVERAGE -u COVERAGE_PATH \
+    -u BATS_ONLY -u BATS_UNIT_SHARD -u BATS_FRAGILE -u BATS_INTEGRATION \
+    -u BATS_FILTER -u LINT_ONLY -u LINT_TOOL \
+    BATS_FILE=test/bats/unit/ci_spec.bats \
+    bash /source/script/test/test.sh --coverage-shard "${_carrier}/2"
+  assert_failure
+  assert_output --partial "stable release tags"
+
+  assert [ ! -f "${DOCKER_LOG}" ]
+}
+
 @test "prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved" {
   _mock_tagless_offline_git
 
