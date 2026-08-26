@@ -192,7 +192,9 @@ given repo) live in the README, not here -- this records the routing
 - Open questions deferred to #497: `deploy.sh` confirm-step UX (extend
   `setup_tui.sh` vs new flow), final naming (`deploy.sh` vs `field-run.sh`),
   the fate of `runtime.env` (#462), and interaction with #439 (legacy
-  `.env.example` / IMAGE_NAME fallback).
+  `.env.example` / IMAGE_NAME fallback). The last of those is settled in
+  the 2026-08-26 amendment below: `.env.example` has no role and no code
+  left reading it.
 
 ## Amendment: the env-file naming rule (2026-08-26, #868)
 
@@ -253,6 +255,30 @@ leaves genuinely unknown names visible rather than silently empty. Values
 are written single-quoted for the same class of reason -- an unquoted
 env_file value is truncated at an inline ` #` and a double-quoted one has
 `${...}` expanded, both silently.
+
+### The sub-questions the epic left open
+
+- **Is `.env` committed or gitignored?** Gitignored, and it already was.
+  It is generated from `.setup.conf` and host detection, so committing it
+  would put a machine-specific render in everyone's tree and churn git on
+  every apply. `.env.local` joins it in the canonical gitignore list, for
+  the reason `.setup.conf.local` is there: an untracked layer that got
+  committed silently becomes everyone's config.
+- **Does `.env.example` still have a role?** No, and there is nothing left
+  to remove -- the check the epic asked for came back empty. `init.sh`
+  stopped generating it, and the `IMAGE_NAME` fallback #439 touched no
+  longer reads it: detection resolves the name through `[image] rules`
+  with `@default:unknown` as the last resort (`detect_image_name`), and
+  two specs already assert the file is NOT created. The generated `.env`
+  is the example now: it lists every container-bound value in effect, with
+  its resolved value, which is strictly more than a sample file could
+  carry. base's only remaining mention is the harness `CLAUDE.md`, which
+  is a symlink to a file base cannot change.
+- **Suffix wording.** `.env.local`, over `.env.site` / `.env.override`.
+  It matches the Next.js precedent this rule is otherwise aligned with,
+  and -- more decisive here -- it matches `.setup.conf.local`, which
+  already means exactly this in this repo. A second word for one concept
+  is a second thing to learn.
 
 ### Migration
 
