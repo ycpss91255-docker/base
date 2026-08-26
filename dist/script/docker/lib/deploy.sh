@@ -800,9 +800,17 @@ Self-contained deploy of the image ${_image}.
 Contents:
   image.tar.xz   the container image (deploy.sh docker-loads it)
   compose.yaml   fully-resolved, self-contained (do NOT edit)
+  .env           the container's env defaults, generated (do NOT edit)
+  .env.local     YOUR env overrides (edit, then ./deploy.sh up)
   config/        operator-tunable config copies (edit, then ./deploy.sh up)
   deploy.sh      this launcher
   README         this file
+
+The naming rule: the standard name is the tool's and is regenerated, a
+suffix marks the local variant that is yours. To retune an env value
+(a watchdog threshold, a component default), copy its line out of .env
+into .env.local and edit it there -- compose loads .env first and
+.env.local second, so yours wins, and .env.local survives a bundle update.
 
 Caution: compose.yaml is machine-generated and fully resolved. To adjust a
 tunable value in the field, edit the matching file under config/ (a mounted
