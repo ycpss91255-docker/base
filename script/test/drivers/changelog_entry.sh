@@ -76,6 +76,26 @@
 # line that silently stands for zero inspected entries is the vacuous pass
 # this repo keeps having to fix.
 #
+# The same rule applied line by line: EVERY non-blank line of the section
+# must end up inside some entry, or be a heading, or sit in an allow
+# region. A line that is none of those is text the parser did not
+# recognise -- '* ' / '+ ' bullets, an indented '- ', a stray paragraph --
+# and it fails the lint by name. Without that, an entry written with a '*'
+# is not an entry, so the section measures nothing and reports either
+# "holds no entries" or, with one honest entry above it, an affirmative
+# "clean (1 entries)". Both are the vacuous pass wearing a green line. The
+# clean line therefore states what was actually measured: entries checked
+# AND entries an allow region suppressed, so zero checked is never printed
+# as zero present.
+#
+# Fenced code blocks are structurally INERT. Inside ``` / ~~~ a '## [' is
+# an example of a heading and a '- ' is an example of a bullet, so neither
+# may move the section boundary or open an entry; the text still counts
+# toward the entry it sits under, because fencing prose must not buy any
+# budget either. This file documents its own format in fenced examples, so
+# the case is not hypothetical: the convention note's ```markdown block is
+# one edit away from showing the surrounding heading.
+#
 # Allowlist: an explicit, region-delimited opt-out, the same shape
 # home_literal.sh uses. Bracket the entry with
 #   <!-- changelog-entry-lint: allow-begin -- <why> -->
@@ -84,9 +104,19 @@
 # HTML comments so the markers do not render. This does not re-open the
 # rewrapping hole: a marker is a visible line in the diff carrying a stated
 # reason, which a reviewer sees, whereas rewrapping is invisible.
-# Unbalanced markers (an unterminated begin, an unmatched end) fail the
-# lint -- a silently swallowed region would re-open exactly the hole this
-# guard closes.
+# Unbalanced markers (an unterminated begin, an unmatched end, both on one
+# line) fail the lint -- a silently swallowed region would re-open exactly
+# the hole this guard closes.
+#
+# A marker is recognised only where the line IS a lone HTML comment, never
+# where it merely CONTAINS the string. The entry that documents this
+# escape hatch has to quote it, and the convention note above [Unreleased]
+# hands contributors the exact text to paste; a substring match turns that
+# entry into an unterminated region -- a false failure on a clean file
+# that also stops the scan dead. And an unterminated begin, when it is
+# real, is reported WITHOUT suppressing what follows: one run should name
+# the dangling marker and the entries it was hiding, not trade one for the
+# other.
 
 # ── Changelog entry length lint ──────────────────────────────────────────────
 
@@ -105,17 +135,111 @@ readonly _CHANGELOG_ENTRY_MAX=700
 readonly _CHANGELOG_ENTRY_ALLOW_BEGIN='changelog-entry-lint: allow-begin'
 readonly _CHANGELOG_ENTRY_ALLOW_END='changelog-entry-lint: allow-end'
 
-# _changelog_entry_measure <line>... -- the entry's length: every line
-# stripped, joined with single spaces, internal whitespace runs collapsed.
-# This is the wrap-invariant half of the rule and the only place the count
-# is defined.
+# _changelog_entry_measure <line>... -- the entry's length in CHARACTERS:
+# every line stripped, joined with single spaces, internal whitespace runs
+# collapsed. This is the wrap-invariant half of the rule and the only place
+# the count is defined.
+#
+# Characters, and the same number in every environment. bash's
+# parameter-length expansion counts characters where the locale is UTF-8
+# and BYTES where it is C/POSIX, and the two ways this lint runs do not
+# share a locale: the lint-static CI job runs on a bare runner with LANG
+# unset (glibc, so POSIX, so bytes) while the local gate runs inside the
+# musl test-tools image (which falls back to UTF-8, so characters). Same
+# file, opposite verdicts, and nothing in the diff to point at. Counting
+# characters rather than bytes is also the fairer of the two: an entry that
+# legitimately quotes a path or a heading from the ja / zh-TW / zh-CN
+# guides would otherwise be charged three times over for it.
+#
+# So the count is derived from the bytes, with no locale involved at all:
+# in UTF-8 every byte except a continuation byte (0x80-0xBF) starts exactly
+# one character, so dropping those and counting what is left IS the
+# character count -- and `wc -c` counts bytes by definition, where the
+# shell's own expansion would not. Pinning LC_ALL for the two filters keeps
+# them byte-oriented too, which is what makes dropping the range safe.
 _changelog_entry_measure() {
-  local _joined
-  _joined="$(printf '%s\n' "$@" | tr -s '[:space:]' ' ')"
+  local _joined _chars
+  _joined="$(printf '%s\n' "$@" | LC_ALL=C tr -s '[:space:]' ' ')"
   # tr leaves one leading / trailing space where the input had any.
   _joined="${_joined# }"
   _joined="${_joined% }"
-  printf '%s' "${#_joined}"
+  _chars="$(printf '%s' "${_joined}" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+  printf '%s' "$(( _chars ))"
+}
+
+# _changelog_entry_trim <line> -- the line with leading and trailing
+# whitespace removed.
+_changelog_entry_trim() {
+  local _line="${1}"
+  _line="${_line#"${_line%%[![:space:]]*}"}"
+  _line="${_line%"${_line##*[![:space:]]}"}"
+  printf '%s' "${_line}"
+}
+
+# _changelog_entry_marker <line> -- 'begin', 'end', 'both' or nothing:
+# which allow marker the line IS. Recognition is anchored on purpose. A
+# line that merely MENTIONS a marker is prose -- and the entry announcing a
+# change to this lint is the one entry guaranteed to mention both, because
+# the convention note tells contributors to paste exactly that text. Under
+# a substring match such an entry opens a region that never closes: the
+# file fails for a marker nobody wrote, and every entry after it goes
+# unmeasured. So a marker is a LONE HTML comment carrying exactly one of
+# the two strings; a comment carrying both is refused rather than resolved
+# in favour of either.
+_changelog_entry_marker() {
+  local _trimmed _begin=0 _end=0
+  _trimmed="$(_changelog_entry_trim "${1}")"
+  if [[ "${_trimmed}" != '<!--'*'-->' ]]; then
+    return 0
+  fi
+  # Two comments on one line is not a marker line either: whatever else it
+  # is, it is not the one-marker-per-line shape a region is built from.
+  if [[ "${_trimmed}" == *'<!--'*'<!--'* ]]; then
+    return 0
+  fi
+  if [[ "${_trimmed}" == *"${_CHANGELOG_ENTRY_ALLOW_BEGIN}"* ]]; then
+    _begin=1
+  fi
+  if [[ "${_trimmed}" == *"${_CHANGELOG_ENTRY_ALLOW_END}"* ]]; then
+    _end=1
+  fi
+  if [[ "${_begin}" -eq 1 && "${_end}" -eq 1 ]]; then
+    printf 'both'
+  elif [[ "${_begin}" -eq 1 ]]; then
+    printf 'begin'
+  elif [[ "${_end}" -eq 1 ]]; then
+    printf 'end'
+  fi
+}
+
+# _changelog_entry_fences <assoc-array-name> <line>... -- fill the named
+# associative array with the index of every line a fenced code block makes
+# structurally inert: the ``` / ~~~ delimiters and everything between them.
+# An unterminated fence runs to the end of the file, as CommonMark says.
+_changelog_entry_fences() {
+  local -n _fm_out="${1}"
+  shift
+  local -a _fm_lines=("$@")
+  local _fm_i _fm_trimmed _fm_open=''
+  _fm_out=()
+  for (( _fm_i = 0; _fm_i < ${#_fm_lines[@]}; _fm_i++ )); do
+    _fm_trimmed="$(_changelog_entry_trim "${_fm_lines[_fm_i]}")"
+    if [[ -z "${_fm_open}" ]]; then
+      if [[ "${_fm_trimmed}" =~ ^(\`\`\`+|~~~+) ]]; then
+        _fm_open="${BASH_REMATCH[1]}"
+        _fm_out["${_fm_i}"]=1
+      fi
+      continue
+    fi
+    _fm_out["${_fm_i}"]=1
+    # A closing fence is the same character, at least as long as the
+    # opening one, and carries no info string.
+    if [[ "${_fm_trimmed}" =~ ^(\`\`\`+|~~~+)$ ]] \
+      && [[ "${BASH_REMATCH[1]:0:1}" == "${_fm_open:0:1}" ]] \
+      && [[ "${#BASH_REMATCH[1]}" -ge "${#_fm_open}" ]]; then
+      _fm_open=''
+    fi
+  done
 }
 
 _run_changelog_entry() {
@@ -133,12 +257,22 @@ _run_changelog_entry() {
   local -a _lines=()
   mapfile -t _lines < "${_abs}"
 
+  # Which lines a fenced code block makes inert. Resolved once, up front,
+  # because every scan below has to agree about it -- a boundary that
+  # counts a fenced heading and an entry walker that does not would
+  # disagree about what the section even is.
+  local -A _fenced=()
+  _changelog_entry_fences _fenced "${_lines[@]}"
+
   # Locate the section: from the heading to the next '## [' heading (or
   # EOF). Walking past that boundary into a released section is THE failure
   # mode this lint has to avoid, so the end is found explicitly rather than
   # by falling off the end of the file.
   local _i _start=-1 _end="${#_lines[@]}"
   for (( _i = 0; _i < ${#_lines[@]}; _i++ )); do
+    if [[ -n "${_fenced[${_i}]:-}" ]]; then
+      continue
+    fi
     if [[ "${_lines[_i]}" == "${_CHANGELOG_ENTRY_HEADING}"* ]]; then
       _start=$(( _i + 1 ))
       break
@@ -150,6 +284,9 @@ _run_changelog_entry() {
     return 1
   fi
   for (( _i = _start; _i < ${#_lines[@]}; _i++ )); do
+    if [[ -n "${_fenced[${_i}]:-}" ]]; then
+      continue
+    fi
     if [[ "${_lines[_i]}" == '## ['* ]]; then
       _end="${_i}"
       break
@@ -162,31 +299,65 @@ _run_changelog_entry() {
   # validate the markers' balance. Marker lines are themselves excluded, so
   # a region never becomes part of an entry.
   local -A _skip=()
-  local _in_allow=0 _begin_line=0
+  local _in_allow=0 _begin_line=0 _begin_idx=-1 _marker
   for (( _i = _start; _i < _end; _i++ )); do
-    if [[ "${_lines[_i]}" == *"${_CHANGELOG_ENTRY_ALLOW_BEGIN}"* ]]; then
-      _in_allow=1
-      _begin_line=$(( _i + 1 ))
-      _skip["${_i}"]=1
+    if [[ -n "${_fenced[${_i}]:-}" ]]; then
       continue
     fi
-    if [[ "${_lines[_i]}" == *"${_CHANGELOG_ENTRY_ALLOW_END}"* ]]; then
-      if [[ "${_in_allow}" -eq 0 ]]; then
-        printf '%s:%d: unmatched allow-end (no open allow-begin)\n' \
+    _marker="$(_changelog_entry_marker "${_lines[_i]}")"
+    case "${_marker}" in
+      both)
+        printf '%s:%d: malformed allow marker (allow-begin and allow-end in one comment)\n' \
           "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))"
         _violations=$(( _violations + 1 ))
-      fi
-      _in_allow=0
+        _skip["${_i}"]=1
+        continue
+        ;;
+      begin)
+        _in_allow=1
+        _begin_line=$(( _i + 1 ))
+        _begin_idx="${_i}"
+        _skip["${_i}"]=1
+        continue
+        ;;
+      end)
+        if [[ "${_in_allow}" -eq 0 ]]; then
+          printf '%s:%d: unmatched allow-end (no open allow-begin)\n' \
+            "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))"
+          _violations=$(( _violations + 1 ))
+        fi
+        _in_allow=0
+        _skip["${_i}"]=1
+        continue
+        ;;
+    esac
+    if [[ "${_in_allow}" -eq 1 ]]; then
       _skip["${_i}"]=1
-      continue
     fi
-    [[ "${_in_allow}" -eq 1 ]] && _skip["${_i}"]=1
   done
   if [[ "${_in_allow}" -eq 1 ]]; then
     printf '%s:%d: unterminated allow-begin (no closing allow-end)\n' \
       "${_CHANGELOG_ENTRY_FILE}" "${_begin_line}"
     _violations=$(( _violations + 1 ))
+    # The region never closed, so it swallowed the whole rest of the
+    # section. Hand those lines back: a dangling marker is one violation to
+    # report, not a licence to stop measuring, and an author who has to fix
+    # the marker before the entries even become visible pays for the same
+    # mistake twice.
+    for (( _i = _begin_idx + 1; _i < _end; _i++ )); do
+      unset "_skip[${_i}]"
+    done
   fi
+
+  # How many entries the regions took off the table. Reported alongside the
+  # count that WAS checked, so a suppressed section never reads as an empty
+  # one.
+  local _idx _suppressed=0
+  for _idx in "${!_skip[@]}"; do
+    if [[ "${_lines[_idx]}" =~ ^-\  ]]; then
+      _suppressed=$(( _suppressed + 1 ))
+    fi
+  done
 
   # Pass 2: split the section into entries and measure each. An entry runs
   # from its top-level bullet to the next top-level bullet, the next
@@ -194,31 +365,46 @@ _run_changelog_entry() {
   # is neither indented nor a bullet. Indented lines and nested bullets
   # belong to the entry above them, which is what makes re-shaping prose
   # into a sub-list cost the same as leaving it in the paragraph.
+  #
+  # Structure -- what opens an entry, what ends one -- is read only OUTSIDE
+  # a fenced block. Inside one the same characters are an example of
+  # markdown, so they neither start nor stop anything, while the text still
+  # joins the entry it sits under.
   local _entries=0 _j _k _len _label
+  local -A _seen=()
   local -a _body=()
   for (( _i = _start; _i < _end; _i++ )); do
     [[ -n "${_skip[${_i}]:-}" ]] && continue
+    [[ -n "${_fenced[${_i}]:-}" ]] && continue
     [[ "${_lines[_i]}" =~ ^-\  ]] || continue
 
     _body=("${_lines[_i]}")
+    _seen["${_i}"]=1
     for (( _j = _i + 1; _j < _end; _j++ )); do
       [[ -n "${_skip[${_j}]:-}" ]] && continue
-      [[ "${_lines[_j]}" == '#'* ]] && break
-      [[ "${_lines[_j]}" =~ ^-\  ]] && break
-      if [[ -z "${_lines[_j]// }" ]]; then
-        # A blank line continues the entry only if the next non-blank line
-        # is indented: that is a loose list item, not a new paragraph.
-        for (( _k = _j + 1; _k < _end; _k++ )); do
-          [[ -n "${_skip[${_k}]:-}" ]] && continue
-          [[ -n "${_lines[_k]// }" ]] && break
-        done
-        [[ "${_k}" -ge "${_end}" ]] && break
-        [[ "${_lines[_k]}" == '#'* ]] && break
-        [[ "${_lines[_k]}" =~ ^-\  ]] && break
-        [[ "${_lines[_k]}" =~ ^[[:space:]] ]] || break
-        continue
+      if [[ -z "${_fenced[${_j}]:-}" ]]; then
+        [[ "${_lines[_j]}" == '#'* ]] && break
+        [[ "${_lines[_j]}" =~ ^-\  ]] && break
+        if [[ -z "${_lines[_j]// }" ]]; then
+          # A blank line continues the entry only if the next non-blank
+          # line is indented -- that is a loose list item, not a new
+          # paragraph -- or fenced, which is a code block belonging to the
+          # entry that introduced it.
+          for (( _k = _j + 1; _k < _end; _k++ )); do
+            [[ -n "${_skip[${_k}]:-}" ]] && continue
+            [[ -n "${_lines[_k]// }" ]] && break
+          done
+          [[ "${_k}" -ge "${_end}" ]] && break
+          if [[ -z "${_fenced[${_k}]:-}" ]]; then
+            [[ "${_lines[_k]}" == '#'* ]] && break
+            [[ "${_lines[_k]}" =~ ^-\  ]] && break
+            [[ "${_lines[_k]}" =~ ^[[:space:]] ]] || break
+          fi
+          continue
+        fi
       fi
       _body+=("${_lines[_j]}")
+      _seen["${_j}"]=1
     done
 
     _entries=$(( _entries + 1 ))
@@ -233,20 +419,41 @@ _run_changelog_entry() {
     _i=$(( _j - 1 ))
   done
 
+  # Pass 3: every line has to be accounted for. Anything left -- a '* ' or
+  # '+ ' bullet, an indented '- ', a stray paragraph, a code block under no
+  # entry -- renders as content but opened no entry, so it was measured by
+  # nothing. Reporting it is what stops "the section holds no entries" and
+  # "clean (1 entries)" from being said over text nobody looked at.
+  for (( _i = _start; _i < _end; _i++ )); do
+    [[ -n "${_seen[${_i}]:-}" ]] && continue
+    [[ -n "${_skip[${_i}]:-}" ]] && continue
+    [[ -z "${_lines[_i]// }" ]] && continue
+    [[ "${_lines[_i]}" == '#'* ]] && continue
+    printf '%s:%d: unrecognised content, measured by no entry -- %s\n' \
+      "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" "${_lines[_i]:0:72}"
+    _violations=$(( _violations + 1 ))
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_changelog_entry \
-      "${_violations} over-long entry / unbalanced allow marker in '${_CHANGELOG_ENTRY_HEADING}'. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
+      "${_violations} over-long entry / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
     return 1
   fi
 
   if [[ "${_entries}" -eq 0 ]]; then
     # Legitimate right after a release. Said out loud so a green line is
-    # never read as a green verdict over entries that were never there.
-    echo "changelog entry lint: '${_CHANGELOG_ENTRY_HEADING}' holds no entries -- nothing to check"
+    # never read as a green verdict over entries that were never there --
+    # and an empty section and a fully suppressed one are different facts,
+    # so they get different sentences.
+    if [[ "${_suppressed}" -gt 0 ]]; then
+      echo "changelog entry lint: no entries checked -- all ${_suppressed} in '${_CHANGELOG_ENTRY_HEADING}' sit inside an allow region"
+    else
+      echo "changelog entry lint: '${_CHANGELOG_ENTRY_HEADING}' holds no entries -- nothing to check"
+    fi
     return 0
   fi
-  echo "changelog entry lint: clean (${_entries} entries, max ${_CHANGELOG_ENTRY_MAX} chars)"
+  echo "changelog entry lint: clean (${_entries} entries checked, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
 }

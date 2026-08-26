@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2842 tests**.
+Unit specs under `test/bats/unit/`: **2855 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3181,7 +3181,7 @@ fails naming the path and what its absence costs.
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (19)
+### test/bats/unit/changelog_entry_lint_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -3201,6 +3201,19 @@ fails naming the path and what its absence costs.
 | `_run_changelog_entry: FAILS on an over-long entry AFTER an allow-end (the region does not leak) (#917)` | - |
 | `_run_changelog_entry: FAILS on an unterminated allow-begin (#917)` | - |
 | `_run_changelog_entry: FAILS on an allow-end with no open allow-begin (#917)` | - |
+| `_run_changelog_entry: an entry that QUOTES the allow markers is prose, not a region (#917)` | - |
+| `_run_changelog_entry: a quoted allow marker does not silence the entries after it (#917)` | - |
+| `_run_changelog_entry: an unterminated allow-begin is reported AND what follows is still measured (#917)` | - |
+| `_run_changelog_entry: FAILS on one comment carrying BOTH allow markers (#917)` | - |
+| `_run_changelog_entry: the clean line reports how many entries an allow region suppressed (#917)` | - |
+| `_run_changelog_entry: a section whose only entry is allowed says so, not 'nothing to check' (#917)` | - |
+| `_run_changelog_entry: a heading shown inside a fenced example does not relocate the section (#917)` | - |
+| `_run_changelog_entry: a released heading inside a fenced example does not truncate the section (#917)` | - |
+| `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | - |
+| `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | - |
+| `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | - |
+| `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | - |
+| `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |

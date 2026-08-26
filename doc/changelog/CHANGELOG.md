@@ -29,6 +29,14 @@ failure:
 - **Whitespace is collapsed first**, so wrapping at 79 columns and indenting a
   sub-list cost nothing. A short lead plus a four-item migration sub-list
   measures about 450 and fits comfortably.
+- The count is in **characters**, the same number on every machine -- quoting
+  a path or a heading from the ja / zh-TW / zh-CN guides costs one per
+  character, not three.
+
+An entry opens with a `- ` bullet **at column 0**. `*`, `+` and an indented
+`-` render the same but are refused by name, because a line that opens no
+entry is a line the cap never applies to. Inside a fenced code block nothing
+is structure, so an example may safely show a heading or a bullet.
 
 The cap is not the median of past entries; it is set above what a complete
 entry actually needs. Ten entries written in this style for the v0.42.0 cycle's
@@ -46,6 +54,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Added
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 ### Fixed
+- **`changelog-entry`: the lint could report clean while measuring nothing (refs #917)** -- four ways it did. An entry quoting the marker syntax, e.g. `<!-- changelog-entry-lint: allow-begin -- why -->`, was read as an unclosed region and skipped every entry after it; a `## [` inside a fenced example moved the scanned section; a `*`, `+` or indented bullet reported "holds no entries"; and the length was characters or bytes depending on the caller's locale. Affects anyone adding an entry: unrecognised bullets now fail by name, and the clean line reports how many entries it checked and how many an allow region suppressed.
 - **`just docker build test` reported success whether the checks ran or were CACHED (closes #882)** -- a `-test` stage asserts by RUNning shellcheck / hadolint / bats as build layers, so a cache hit reproduces it without executing one of them, and the wrapper printed the same thing either way. Verification targets (`test`, `<stage>-test`, `smoke`) now report per step which checks executed and which were CACHED; an all-cached build says in words that it is not evidence the checks pass. An output the report cannot read exits non-zero rather than reporting a pass. Consumer-visible: those targets pin `BUILDKIT_PROGRESS=plain` and their build output now arrives on stdout.
 - **`just docker build <stage>-test` no longer fails a consumer stage that verifies its own way (refs #882)** -- a check was defined as a RUN naming bats / hadolint / shellcheck, so a Playwright gate, a heredoc `RUN` or the template's own `RUN bash -c "${RUNTIME_SMOKE_CMD}"` exited 1 on a build that succeeded, while `apt-get install shellcheck` counted as a check that ran. WHICH steps are reported is now decided by the stage and ran-vs-CACHED by the progress state; each is named by the command it invokes. A stage with no RUN step warns instead of failing, and only output carrying no BuildKit progress exits non-zero. The shipped `devel-test` reports 4 steps, not 3.
 - **a `v0.41.0` consumer half-upgraded to `v0.42.0` and lost `just` entirely (closes #915)** -- an upgrade is driven by the consumer's OWN vendored `upgrade.sh`, which resyncs by calling `init.sh` at the repo root; the `dist/` reorganisation moved that file and left nothing behind. The subtree pull commits before that step, so the upgrade died at exit 127 with `.base/.version` claiming `v0.42.0`, `git status` clean, and `justfile` plus every `script/*.sh` wrapper dangling. A repo-root `init.sh` forwarder restores the name, not the layout. A repo that already hit this is only un-resynced: run `./.base/dist/script/base/init.sh` and commit.
