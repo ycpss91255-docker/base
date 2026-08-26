@@ -1341,7 +1341,7 @@ _setup_apply() {
   local _project_name_conf="" project_name=""
   _conf_get_into _APPLY_CONF project name "" _project_name_conf
   _resolve_project_name "${_project_name_conf}" "${docker_hub_user}" \
-    "${image_name}" "${_base_path}" project_name
+    "${user_name}" "${image_name}" "${_base_path}" project_name
 
   # ── Compute hashes for drift detection ──
   local conf_hash=""

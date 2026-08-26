@@ -23,12 +23,12 @@ _compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_compose_dir}/log.sh"
 
-# _resolve_project_name <configured> <hub_user> <image_name> <path> <outvar>
+# _resolve_project_name <configured> <hub_user> <os_user> <image_name> <path> <outvar>
 #
 # The ONE producer of a compose project name. Given the configured
 # `[project] name` (empty = "derive as before"), it yields the project
-# name; with nothing configured it derives `<hub>-<image>`, and with
-# neither of those it falls back to `local-<directory basename>`.
+# name; with nothing configured it derives `<hub>-<image>`, falling back to
+# the OS user for the prefix and to the directory basename for the suffix.
 #
 # One producer is the point. Both consumers -- the wrapper's `-p` and the
 # emitted compose.yaml's `name:` -- read the SAME resolved value out of
@@ -38,23 +38,39 @@ source "${_compose_dir}/log.sh"
 # wrapper calls it only when there is no `.env.generated` to read at all
 # (base self-use, pre-bootstrap).
 #
+# Why the prefix falls back to the OS USER and not to a literal: the
+# emitted compose names no container (see compose_emit.sh's header), so
+# compose derives `<project>-<service>-<n>` and the project name is the ONLY
+# thing keeping two OS users on one host out of each other's containers,
+# networks and volumes. `DOCKER_HUB_USER` is frequently unset -- it is a
+# registry identity, and a host with no Docker Hub account has none -- and
+# the literal `local` it used to fall back to is the SAME string for every
+# user on that host. Deriving `local-<image>` would have put both users in
+# one project: the collision promoted from one container to a whole stack.
+# The OS user is the identity that is always present and always differs,
+# which is why the container name used it. Order of preference is unchanged
+# where it was already right: a configured `[project] name` wins, then the
+# hub user, then the OS user.
+#
 # base stays single-instance: `[project] name` is CONFIGURATION -- one name
 # for this checkout, recorded in a file -- not multi-instance orchestration,
 # which remains the compose layer's job (ADR-00000022).
 _resolve_project_name() {
   local _configured="${1-}"
   local _hub="${2-}"
-  local _image="${3-}"
-  local _path="${4-}"
-  local -n _rpn_out="${5:?"${FUNCNAME[0]}: missing outvar"}"
+  local _user="${3-}"
+  local _image="${4-}"
+  local _path="${5-}"
+  local -n _rpn_out="${6:?"${FUNCNAME[0]}: missing outvar"}"
 
   if [[ -n "${_configured}" ]]; then
     _rpn_out="${_configured}"
     return 0
   fi
-  # The directory-basename fallback is the LAST resort, not a naming
-  # policy: it applies only when there is no resolved config to read.
-  _rpn_out="${_hub:-local}-${_image:-$(basename -- "${_path:-${PWD}}")}"
+  # `local` and the directory basename are the LAST resorts, not a naming
+  # policy: they apply only when there is no identity / no resolved config
+  # to read at all.
+  _rpn_out="${_hub:-${_user:-local}}-${_image:-$(basename -- "${_path:-${PWD}}")}"
 }
 
 # _compute_project_name puts PROJECT_NAME in scope for the current
@@ -82,8 +98,8 @@ _compute_project_name() {
   fi
 
   # shellcheck disable=SC2034  # PROJECT_NAME is consumed by callers, not _lib.sh
-  _resolve_project_name "" "${DOCKER_HUB_USER:-}" "${IMAGE_NAME:-}" \
-    "${FILE_PATH:-${PWD}}" PROJECT_NAME
+  _resolve_project_name "" "${DOCKER_HUB_USER:-}" "${USER_NAME:-}" \
+    "${IMAGE_NAME:-}" "${FILE_PATH:-${PWD}}" PROJECT_NAME
 }
 
 # _compose runs `docker compose` with the given args, or prints what it would

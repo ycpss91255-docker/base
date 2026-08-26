@@ -488,6 +488,10 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
     echo "PROJECT_NAME=mockimg-wt2"
   } > "${SANDBOX}/.env.generated"
+  # Both present so the bootstrap does not regenerate .env.generated over
+  # the resolved project name this test is about.
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/.setup.conf"
   # Nothing running in mockimg-wt2 (the probe's answer is per project, and
   # the stub answers only what this project asked about).
   : > "${COMPOSE_PS_FILE}"

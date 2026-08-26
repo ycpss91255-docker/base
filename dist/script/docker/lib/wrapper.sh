@@ -80,42 +80,54 @@ _wrapper_lang_prepass() {
   done
 }
 
-# ── container-running probe (run + exec) ──────────────────────────────
+# ── service-running probe (run + exec) ────────────────────────────────
 #
-# _wrapper_container_running <name>
+# _wrapper_service_running <service>
 #
-# Exit 0 iff a container named EXACTLY <name> is currently running.
+# Exit 0 iff <service> has at least one running container IN THIS PROJECT.
 #
-# run.sh asks this to refuse starting on top of a live container; exec.sh
-# asks the negation to refuse exec'ing into a dead one. Both spelled it
-# `docker ps --format '{{.Names}}' | grep -qx "${name}"`, and that spelling
-# hands the answer to a reader that stops reading: `grep -q` leaves the
-# instant it matches, a `docker ps` still writing then takes SIGPIPE and
-# exits 141, and the file-scope `pipefail` of both wrappers makes 141 the
-# PIPELINE's status. An `if` reads 141 as false, so a SUCCESSFUL match is
-# reported as "no such container". The status is not lost -- it is
-# INVERTED, and neither caller fails loudly: run.sh silently starts a
-# second container over the live one, exec.sh silently refuses a running
-# one. `docker ps` on a busy host is exactly the writer that has not
-# finished, and this ships to every downstream repo, on whatever host they
-# have.
+# run.sh asks this to refuse starting on top of a live service; exec.sh
+# asks the negation to refuse exec'ing into a dead one.
 #
-# There is no reader to leave early here. The loop drains the whole stream
-# and compares in-shell, so no exit status depends on how two processes
-# were scheduled. Process substitution rather than a pipe, so the loop body
-# runs in THIS shell; `docker`'s own stderr is left alone so a genuinely
-# broken daemon still says so on the terminal (an empty stream then reads
-# as "not running", which is what the pipeline reported too).
-_wrapper_container_running() {
-  local _name="${1:?_wrapper_container_running requires a container name}"
-  local _line
-  local _found=1
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" == "${_name}" ]]; then
-      _found=0
-    fi
-  done < <(docker ps --format '{{.Names}}')
-  return "${_found}"
+# It asks COMPOSE, not the daemon's container list, and the scoping is the
+# reason. The emitted compose.yaml names no container, so the name a running
+# container carries is `<project>-<service>-<n>` -- compose's to derive, and
+# nothing a wrapper should reassemble to compare against. Reconstructing one
+# made the wrapper a second answerer to "what is this container called", and
+# it answered per HOST: two stacks of one repo under two project names were
+# indistinguishable to it. `_compose_project` already carries `-p`, so the
+# question is project-scoped by construction -- the same mechanism that lets
+# those two stacks coexist at all.
+#
+# Requires PROJECT_NAME + FILE_PATH (both callers have run _load_env +
+# _compute_project_name before asking).
+#
+# The answer is CAPTURED, never piped into a reader that can leave early.
+# The predecessor spelled it `docker ps --format '{{.Names}}' | grep -qx
+# "${name}"`, and that hands the answer to a reader that stops reading:
+# `grep -q` leaves the instant it matches, a probe still writing then takes
+# SIGPIPE and exits 141, and the file-scope `pipefail` of both wrappers
+# makes 141 the PIPELINE's status. An `if` reads 141 as false, so a
+# SUCCESSFUL match is reported as "not running". The status was not lost --
+# it was INVERTED, and neither caller failed loudly: run.sh silently started
+# a second container over the live one, exec.sh silently refused a running
+# one. A busy host is exactly the writer that has not finished, and this
+# ships to every downstream repo, on whatever host they have.
+#
+# A failing probe (no daemon, no compose.yaml yet) reads as "not running",
+# which is what the caller would conclude anyway; its stderr is dropped so a
+# broken-daemon message does not masquerade as the precheck's own error --
+# the command the caller runs next says so on the terminal instead.
+_wrapper_service_running() {
+  local _service="${1:?_wrapper_service_running requires a service name}"
+  local _ids=""
+  # A read-only question, so it is asked even under DRY_RUN -- hence the
+  # subshell around the override rather than a caller-visible assignment.
+  # Both callers skip the precheck under --dry-run anyway; this keeps the
+  # probe honest for any future one that does not.
+  _ids="$(DRY_RUN=false _compose_project ps --status running -q "${_service}" \
+            2>/dev/null)" || return 1
+  [[ -n "${_ids}" ]]
 }
 
 # ── setup / drift orchestration (build + run) ─────────────────────────
