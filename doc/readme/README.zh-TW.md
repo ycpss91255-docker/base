@@ -1100,7 +1100,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 25353d9e9485 9fc71eb8e9b2 -->
+<!-- sync: directory-structure cdf5e1772b27 eb4bd3f434db -->
 ## 目錄結構
 
 ```
@@ -1174,7 +1174,8 @@ just --list  # 顯示 CI 指令
 │       ├── release-worker.yaml         # 可重用 release（source archive）workflow
 │       ├── publish-worker.yaml         # 可重用 image publish workflow（opt-in）
 │       ├── multi-distro-build-worker.yaml # 多 distro build workflow
-│       └── release-test-tools.yaml     # base 自身的 test-tools image release
+│       ├── release-test-tools.yaml     # base 自身的 test-tools image release
+│       └── ghcr-cleanup.yaml           # 每週清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
