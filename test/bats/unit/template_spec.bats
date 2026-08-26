@@ -1577,9 +1577,24 @@ EOF
 
 # _manifest_declares <manifest> <path> -- succeed when <manifest> declares
 # <path> as a candidate of some payload entry.
+#
+# Reads the assembler's own `--list` view of the parsed entries and compares
+# whole candidate tokens, so ONLY the paths column can satisfy it. Matching
+# anywhere in a declaration line also matches the description column, where
+# the wrappers entry names `.base/` and the hadolint entry names
+# `Dockerfile` -- one entry's prose then stands in for another entry's
+# payload.
 _manifest_declares() {
-  local _manifest="$1" _want="$2"
-  grep -E '^(required|optional)\|' "${_manifest}" | grep -F "${_want}" > /dev/null
+  local _manifest="$1" _want="$2" _line _candidate
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ^[[:space:]]+paths:[[:space:]](.*)$ ]] || continue
+    for _candidate in ${BASH_REMATCH[1]}; do
+      if [[ "${_candidate}" == "${_want}" ]]; then
+        return 0
+      fi
+    done
+  done < <(bash /source/script/ci/release-archive.sh --list "${_manifest}")
+  return 1
 }
 
 @test "release archive payload still declares Dockerfile + script/ + .base/" {
