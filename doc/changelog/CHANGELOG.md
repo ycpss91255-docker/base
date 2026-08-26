@@ -48,6 +48,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Fixed
 - **`just docker build test` reported success whether the checks ran or were CACHED (closes #882)** -- a `-test` stage asserts by RUNning shellcheck / hadolint / bats as build layers, so a cache hit reproduces it without executing one of them, and the wrapper printed the same thing either way. Verification targets (`test`, `<stage>-test`, `smoke`) now report per step which checks executed and which were CACHED; an all-cached build says in words that it is not evidence the checks pass. An output the report cannot read exits non-zero rather than reporting a pass. Consumer-visible: those targets pin `BUILDKIT_PROGRESS=plain` and their build output now arrives on stdout.
 - **a `v0.41.0` consumer half-upgraded to `v0.42.0` and lost `just` entirely (closes #915)** -- an upgrade is driven by the consumer's OWN vendored `upgrade.sh`, which resyncs by calling `init.sh` at the repo root; the `dist/` reorganisation moved that file and left nothing behind. The subtree pull commits before that step, so the upgrade died at exit 127 with `.base/.version` claiming `v0.42.0`, `git status` clean, and `justfile` plus every `script/*.sh` wrapper dangling. A repo-root `init.sh` forwarder restores the name, not the layout. A repo that already hit this is only un-resynced: run `./.base/dist/script/base/init.sh` and commit.
+- **the same upgrade then left a Dockerfile that could not be built (refs #915)**
+  -- the `dist/` move deleted `.base/config`, `.base/script/...` and
+  `.base/test/smoke/`, and no migration rewrote the flat layout every deployed
+  consumer is on, so the upgrade reported success and the next `just build`
+  died on its first `COPY`. The migration list now rewrites those paths and
+  splits the smoke COPY into the shared plus per-stage `dist/` folders, and
+  `init.sh` applies it on every resync -- the one current code path an OLDER
+  vendored `upgrade.sh` runs. Repairs a repo already broken this way:
+  `just base init`.
 - **a failed upgrade no longer leaves the subtree pull committed (refs #915)** -- rollback fired from one place only, so a failure in any later step aborted with the pull already in history. An EXIT trap now covers the whole post-pull window, armed the moment the pull commits and disarmed after the last failable step -- before the advisory drift warnings, so a warning can never undo a landed upgrade. Half-upgraded becomes unchanged-with-an-error. Resetting is safe precisely because git-subtree refuses a dirty tree, so everything present afterwards was made by this run; the reset is paired with a sweep of files that became untracked during it.
 
 ### Added

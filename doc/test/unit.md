@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2834 tests**.
+Unit specs under `test/bats/unit/`: **2835 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -965,7 +965,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (52)
+### test/bats/unit/dockerfile_migrate_spec.bats (53)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -989,6 +989,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 1 (wrapper-copy): rewrites shape A 'COPY *.sh /lint/' (#567)` | - |
 | `migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)` | - |
 | `migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)` | - |
+| `migration 1 (wrapper-copy): the dispatcher lands shape A on the dist wrapper glob (#915)` | - |
 | `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
 | `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |

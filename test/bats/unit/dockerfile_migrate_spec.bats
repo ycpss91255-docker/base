@@ -130,16 +130,32 @@ EOF
   ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${DF}"
 }
 
+# The settled shape is the DIST one: wrapper_copy writes the flat
+# .base/script/docker/wrapper/*.sh and flat_to_dist (which runs later in
+# the list, by design) carries it the rest of the way. A Dockerfile already
+# on the flat path is therefore not a fixed point of the dispatcher -- that
+# path no longer exists -- so the no-op fixture is the dist spelling.
 @test "migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/wrapper/*.sh /lint/
+COPY .base/dist/script/docker/wrapper/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   cp "${DF}" "${DF}.orig"
   run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
   diff "${DF}" "${DF}.orig"
+}
+
+@test "migration 1 (wrapper-copy): the dispatcher lands shape A on the dist wrapper glob (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY *.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" "${DF}"
 }
 
 @test "migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)" {
