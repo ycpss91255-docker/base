@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2815 tests**.
+Unit specs under `test/bats/unit/`: **2816 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3148,7 +3148,7 @@ fails naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/ghcr_cleanup_yaml_spec.bats (21)
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
 
 Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the
 weekly job that prunes untagged orphan digests from the base-owned
@@ -3195,6 +3195,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `ghcr-cleanup.yaml: dry-run is computed, never hardcoded false` | The rollout safety net cannot be removed by flipping one literal |
 | `ghcr-cleanup.yaml: workflow_dispatch dry-run input defaults to true` | A manual run previews unless the operator asks otherwise |
 | `ghcr-cleanup.yaml: scheduled runs stay dry until GHCR_CLEANUP_ENFORCE opts in` | An unfinished rollout costs sprawl, never a broken tag |
+| `ghcr-cleanup.yaml: a dispatch deletes only on a literal false, not on anything-but-true` | Fail-safe, not fail-open: an unexpected input value resolves to dry-run |
 | `ghcr-cleanup.yaml: resolves dry-run in a step, not an && \|\| expression` | `a && b || c` collapses to `c` on the one branch that deletes |
 | `ghcr-cleanup.yaml: targets exactly the test-tools package` | One owner, one package: the one base publishes and owns |
 | `ghcr-cleanup.yaml: does not enable wildcard package expansion` | `expand-packages` would widen this to every package in the org |

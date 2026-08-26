@@ -150,7 +150,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${EVENT}" == "workflow_dispatch" ]]; then
-            dry_run="${INPUT_DRY_RUN}"
+            # Anything that is not literally `false` is dry-run. The
+            # input is declared boolean with a true default, so it should
+            # always arrive as `true` / `false` -- but the failure mode of
+            # reading an unexpected value as "go ahead and delete" is the
+            # one this whole workflow is built to avoid, so the ambiguous
+            # case resolves the safe way rather than the default way.
+            if [[ "${INPUT_DRY_RUN}" == "false" ]]; then
+              dry_run="false"
+            else
+              dry_run="true"
+            fi
           elif [[ "${ENFORCE}" == "true" ]]; then
             dry_run="false"
           else

@@ -192,6 +192,17 @@ _exclude_tags() {
   assert_success
 }
 
+@test "ghcr-cleanup.yaml: a dispatch deletes only on a literal false, not on anything-but-true" {
+  # Fail-safe rather than fail-open: the dispatch branch opts INTO
+  # deleting on an exact `false` and treats every other value -- empty
+  # included, which is what an input declaration change would produce --
+  # as dry-run.
+  run _code_lines
+  assert_success
+  assert_output --partial 'INPUT_DRY_RUN}" == "false"'
+  refute_output --partial 'INPUT_DRY_RUN}" == "true"'
+}
+
 @test "ghcr-cleanup.yaml: resolves dry-run in a step, not an && || expression" {
   # `a && b || c` collapses to `c` when b is false -- which here is the
   # dispatch-with-dry-run-false branch, the one case where getting it
