@@ -286,6 +286,212 @@ _long_prose() {
   assert_output --partial 'unmatched allow-end'
 }
 
+@test "_run_changelog_entry: an entry that QUOTES the allow markers is prose, not a region (#917)" {
+  # The one entry certain to contain both marker strings is the entry that
+  # documents this lint's own escape hatch -- and the convention note at the
+  # top of the changelog hands the contributor the exact string to paste. A
+  # substring match reads that prose as an opening marker and fails a clean
+  # file, which is the muted-lint outcome this lint exists to prevent.
+  _write_changelog '### Added' \
+    '- **the lint** -- opt out with `<!-- changelog-entry-lint: allow-begin -- why -->` / `<!-- changelog-entry-lint: allow-end -->`.'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'unterminated'
+}
+
+@test "_run_changelog_entry: a quoted allow marker does not silence the entries after it (#917)" {
+  # The second half, and the worse one: prose read as an opening marker
+  # leaves the region open, so every remaining line of the section is
+  # skipped and an over-long entry below it is never measured.
+  _write_changelog '### Added' \
+    '- **the lint** -- opt out with `<!-- changelog-entry-lint: allow-begin -- why -->` / `<!-- changelog-entry-lint: allow-end -->`.' \
+    "- **a long one** -- $(_long_prose)"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'a long one'
+  refute_output --partial 'unterminated allow-begin'
+}
+
+@test "_run_changelog_entry: an unterminated allow-begin is reported AND what follows is still measured (#917)" {
+  # A dangling marker is a violation on its own; it must not also buy the
+  # rest of the section a free pass, or fixing the marker is the only way
+  # to discover the entries it was hiding.
+  _write_changelog '### Added' \
+    '<!-- changelog-entry-lint: allow-begin -- migration guide -->' \
+    "- **a long one** -- $(_long_prose)"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'unterminated allow-begin'
+  assert_output --partial 'a long one'
+}
+
+@test "_run_changelog_entry: FAILS on one comment carrying BOTH allow markers (#917)" {
+  # Recognising a marker by "the line is a lone HTML comment" leaves one
+  # ambiguous shape. Picking a side silently would re-open the swallowed
+  # region hole, so it is refused by name.
+  _write_changelog '### Added' \
+    '<!-- changelog-entry-lint: allow-begin -- why -- changelog-entry-lint: allow-end -->' \
+    "- **a long one** -- $(_long_prose)"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'malformed allow marker'
+}
+
+@test "_run_changelog_entry: the clean line reports how many entries an allow region suppressed (#917)" {
+  _write_changelog '### Added' \
+    '- **a small honest entry** -- fine.' \
+    '<!-- changelog-entry-lint: allow-begin -- migration guide -->' \
+    "- **an allowed entry** -- $(_long_prose)" \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial '1 entries checked'
+  assert_output --partial '1 suppressed'
+}
+
+@test "_run_changelog_entry: a section whose only entry is allowed says so, not 'nothing to check' (#917)" {
+  # Zero entries CHECKED is not the same fact as zero entries PRESENT, and
+  # a line that reports the second when the first is true is the vacuous
+  # pass in its purest form.
+  _write_changelog '### Added' \
+    '<!-- changelog-entry-lint: allow-begin -- migration guide -->' \
+    "- **an allowed entry** -- $(_long_prose)" \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial 'allow region'
+  refute_output --partial 'nothing to check'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Fenced code blocks: an example of markdown is not markdown
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: a heading shown inside a fenced example does not relocate the section (#917)" {
+  # The changelog's own convention note is one edit away from this: extend
+  # its ```markdown example to show the surrounding heading and a prefix
+  # match latches onto the example, making the REAL section the boundary
+  # and scanning two lines of sample text.
+  {
+    printf '# Changelog\n\n'
+    printf '## Writing an entry\n\n'
+    printf '```markdown\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **One sentence on what changed** -- who is affected.\n'
+    printf '```\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a long one** -- %s\n' "$(_long_prose)"
+    printf '\n## [v0.1.0] - 2026-03-28\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'a long one'
+}
+
+@test "_run_changelog_entry: a released heading inside a fenced example does not truncate the section (#917)" {
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **the heading shape** -- a released section opens with:\n\n'
+    printf '```markdown\n'
+    printf '## [v9.9.9] - 2026-01-01\n'
+    printf '```\n\n'
+    printf -- '- **a long one** -- %s\n' "$(_long_prose)"
+    printf '\n## [v0.1.0] - 2026-03-28\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'a long one'
+}
+
+@test "_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)" {
+  # The mirror of the two above, and the third escape hatch: fencing the
+  # prose must neither open an entry per line nor buy the entry above it
+  # any budget.
+  local _i _fence=()
+  for _i in $(seq 1 12); do
+    _fence+=('- This sentence explains a rejected alternative in some detail, again.')
+  done
+  _write_changelog '### Added' \
+    '- **a thing** -- the shape is:' \
+    '' \
+    '```markdown' \
+    "${_fence[@]}" \
+    '```'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'a thing'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Content the parser does not recognise is never a silent pass
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)" {
+  # '*' and '+' are valid CommonMark bullets that render identically, and a
+  # two-space indent is a routine auto-format outcome. Each used to leave
+  # the section measuring nothing while reporting that it holds no entries.
+  local _marker
+  for _marker in '*' '+' '  -'; do
+    _write_changelog '### Added' "${_marker} **a thing** -- $(_long_prose)"
+    run _run_changelog_entry
+    assert_failure
+    assert_output --partial 'unrecognised'
+  done
+}
+
+@test "_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)" {
+  # Worse than the hedge: with one honest entry present the driver reported
+  # an affirmative 'clean (1 entries)' over a 900-character bullet it never
+  # looked at, so nothing in the output hinted anything had been skipped.
+  _write_changelog '### Added' \
+    '- **a small honest entry** -- fine.' \
+    '' \
+    "* **a thing** -- $(_long_prose)"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'unrecognised'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The measure is characters, in every locale
+# ════════════════════════════════════════════════════════════════════
+
+@test "_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)" {
+  # bash's parameter-length expansion counts characters under a UTF-8
+  # locale and BYTES under C/POSIX, and the two execution paths do not
+  # share one: the lint-static CI job runs on a bare runner with no LANG
+  # (glibc -> POSIX -> bytes), the local gate runs inside the musl
+  # test-tools image (-> characters). Written as raw UTF-8 bytes so the
+  # fixture does not itself depend on the locale that built it.
+  local _text
+  _text=$'- \xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97\xe5\x85\x83'
+  local _utf8 _c
+  export LC_ALL=C.UTF-8
+  _utf8="$(_changelog_entry_measure "${_text}")"
+  export LC_ALL=C
+  _c="$(_changelog_entry_measure "${_text}")"
+  unset LC_ALL
+  # Four characters of twelve bytes, plus the two-character bullet marker.
+  assert_equal "${_utf8}" 6
+  assert_equal "${_c}" 6
+}
+
+@test "_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)" {
+  # End to end: 402 characters, 1202 bytes. Measured as bytes this fails in
+  # CI and passes on the contributor's desktop, with no diff to point at.
+  local _cjk
+  _cjk="$(printf '\xe4\xb8\xad%.0s' $(seq 1 400))"
+  _write_changelog '### Added' "- ${_cjk}"
+  export LC_ALL=C
+  run _run_changelog_entry
+  unset LC_ALL
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Non-vacuity
 # ════════════════════════════════════════════════════════════════════

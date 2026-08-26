@@ -51,7 +51,7 @@ setup() {
         "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
   # schema.sh joined the _lib.sh chain in; it sources _tui_conf.sh
   # for the validator bodies, so symlink both alongside the rest.
-  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook; do
+  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook dockerfile_migrate; do
     ln -s "/source/dist/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/dist/script/docker/lib/${_sl}.sh"
   done
@@ -569,6 +569,36 @@ REMOTE
   _source_init
   _create_new_repo "main"
   assert [ -f "${TMP_REPO}/.github/workflows/base-version-monitor.yaml" ]
+}
+
+# An upgrade is driven by the consumer's OWN vendored upgrade.sh, and every
+# release up to v0.41.0 carries a hardcoded Dockerfile-patch step that knows
+# only the paths that existed when it shipped. The one piece of CURRENT code
+# such an upgrade runs is this file, re-executed from the freshly pulled
+# tree -- so this is where a heal has to live if it is to reach a consumer
+# upgrading FROM an old release rather than only one already on the new one.
+@test "_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  _init_existing_repo
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${TMP_REPO}/Dockerfile"
+  grep -Fq "COPY .base/dist/config /tmp/config" "${TMP_REPO}/Dockerfile"
+}
+
+@test "_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  local _before
+  _before="$(cat "${TMP_REPO}/Dockerfile")"
+  _init_existing_repo
+  [[ "$(cat "${TMP_REPO}/Dockerfile")" == "${_before}" ]]
 }
 
 @test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {

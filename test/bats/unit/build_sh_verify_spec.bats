@@ -1,17 +1,26 @@
 #!/usr/bin/env bats
 #
 # Unit tests for build.sh's verification-run report: the answer to "did
-# this build EXECUTE the stage's shellcheck / hadolint / bats steps, or
-# re-use CACHED layers?".
+# this build EXECUTE the verification stage's steps, or re-use CACHED
+# layers?".
 #
 # The failure this pins is asymmetric -- a fully-cached `-test` build always
 # looked like a passing one, because the wrapper printed the same thing
 # either way. So the interesting spec is not "a passing run says pass", it
 # is "a CACHED run cannot be read as a passing one", plus the two ways the
-# report itself can go wrong (nothing recognisable in the output, or a step
-# whose state never arrived). Both of those are FAILURES here: an
-# unreadable build output is not evidence, and silence must never be
-# reported as a pass.
+# report itself can go wrong (no progress steps in the captured output at
+# all, or a step whose state never arrived). Both of those are FAILURES
+# here: an unreadable build output is not evidence, and silence must never
+# be reported as a pass.
+#
+# The second half of the file is about WHOSE steps those are. base emits a
+# compose service for every `<stage>-test` in a consumer's Dockerfile, so
+# the report runs over stages base has never seen and cannot name the
+# commands of. Two symmetrical mistakes are pinned: refusing to call an
+# unfamiliar check a check (a Playwright gate, a heredoc RUN, the
+# template's own RUNTIME_SMOKE_CMD install-check -- each of which used to
+# exit 1 on a build that succeeded), and calling an INSTALL of a familiar
+# tool a check that ran.
 #
 # The build output is SYNTHESISED, never a real cache hit: arranging a real
 # one needs a daemon, a warm buildx cache and a stage that happens not to
@@ -103,7 +112,7 @@ EOF
 )"
   export ALL_CACHED
 
-  # The same stage with every check step re-executed.
+  # The same stage with every step re-executed.
   ALL_RAN="$(cat <<'EOF'
 #30 [devel-test  8/16] RUN shellcheck -S warning /lint/wrapper/*.sh /lint/lib/*.sh
 #30 DONE 1.2s
@@ -121,12 +130,35 @@ teardown() {
   rm -rf "${TEMP_DIR}"
 }
 
+# Narrows ${output} to build.sh's OWN log lines, discarding the BuildKit
+# progress log the stub replays and build.sh tees straight to stdout.
+#
+# Without this, an assertion over the captured stream is satisfied by the
+# FIXTURE rather than by the reporter: the words CACHED, bats, hadolint
+# and shellcheck are all literally present in the replayed log whatever
+# _report_verification_run does with them. Measured: gutting the report so
+# it named one cached tool instead of three, and then so it named none and
+# dropped the word CACHED from its own text, left every assertion in the
+# headline spec below passing. A report assertion has to read the report.
+narrow_to_report() {
+  output="$(printf '%s\n' "${output}" \
+    | grep -E '\[build\] (INFO|WARN|ERROR|DEBUG)' || true)"
+  # bats-assert's assert_line / refute_line read ${lines}; keep the two
+  # halves of bats' result contract consistent with each other.
+  # shellcheck disable=SC2034  # consumed by bats-assert, not by this file
+  mapfile -t lines <<< "${output}"
+}
+
 # ── the load-bearing spec: CACHED must not read as a pass ────────────
 
 @test "build.sh test: a fully CACHED verification stage is not reported as a pass" {
   export DOCKER_BUILD_OUTPUT="${ALL_CACHED}"
   run bash "${SANDBOX}/build.sh" test
   assert_success
+  # Asserted against build.sh's own output alone (see narrow_to_report):
+  # every literal below also appears in the replayed progress log, so
+  # over the whole stream none of them would be evidence about the report.
+  narrow_to_report
   # Names the state, names every check that did not run, and says in
   # words that this run verified nothing.
   assert_output --partial "CACHED"
@@ -142,7 +174,7 @@ teardown() {
   export DOCKER_BUILD_OUTPUT="${ALL_RAN}"
   run bash "${SANDBOX}/build.sh" test
   assert_success
-  assert_output --partial "executed all 3 check step"
+  assert_output --partial "executed all 3 step(s) of its verification stage"
   refute_output --partial "nothing ran in this invocation"
 }
 
@@ -160,25 +192,181 @@ EOF
 )"
   run bash "${SANDBOX}/build.sh" test
   assert_success
-  assert_output --partial "executed 1 of 3 check step"
+  assert_output --partial "executed 1 of its verification stage's 3 step"
   # Listed in Dockerfile order (by step id), not hash order: two runs of
   # the same build have to produce the same line.
   assert_output --partial "cached: shellcheck, hadolint"
 }
 
+# ── a consumer's own verification stage is verification ──────────────
+#
+# base emits every non-blocklisted `<stage>-test` in a consumer Dockerfile
+# as a compose service, so `just docker build <stage>-test` is a supported
+# call on a stage base has never seen. What that stage RUNs is the
+# consumer's business -- a Playwright gate, pytest, colcon test, the
+# template's own `RUN bash -c "${RUNTIME_SMOKE_CMD}"` install-check, a
+# heredoc script. The report may not require it to be one of three
+# binaries base happens to know.
+
+@test "build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check" {
+  # dist/dockerfile/Dockerfile documents this as style (a), "the bare,
+  # dependency-free default" for a `-test` stage: an ldd-based
+  # install-check run through a bash -c wrapper. It names none of
+  # bats / hadolint / shellcheck.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#9 [field-test 3/3] RUN bash -c "whoami && bash --version && bash /usr/local/lib/base/smoke.sh"
+#9 0.312 tester
+#9 DONE 1.7s
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" field-test
+  assert_success
+  narrow_to_report
+  assert_output --partial "executed all 1 step(s) of its verification stage"
+  refute_output --partial "ERROR"
+}
+
+@test "build.sh e2e-test: a Playwright gate's own steps are what is reported" {
+  # omniverse_web_viewer's shipped stage, verbatim. Its first step was
+  # cached and its second ran, which is the report that has to come out.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#14 [e2e-test 4/5] RUN npm install && npx playwright install --with-deps chromium
+#14 CACHED
+#17 [e2e-test 5/5] RUN bash /e2e/run-in-image.sh
+#17 12.4 Running 24 tests using 4 workers
+#17 DONE 12.4s
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" e2e-test
+  assert_success
+  narrow_to_report
+  assert_output --partial "executed 1 of its verification stage's 2 step"
+  # Named by what the step actually invokes, so the line can be checked
+  # against the Dockerfile.
+  assert_output --partial "cached: npm"
+}
+
+@test "build.sh cli-test: a heredoc RUN step is reported like any other" {
+  # BuildKit's vertex name for a heredoc RUN is the header line alone --
+  # the body never appears as a step at all -- so any rule that reads the
+  # COMMAND to decide what a check is cannot see this stage's checks.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#7 [cli-test 2/3] RUN <<EOF
+#7 CACHED
+#8 [cli-test 3/3] RUN <<EOF
+#8 CACHED
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" cli-test
+  assert_success
+  narrow_to_report
+  assert_output --partial "all 2 step(s) of target 'cli-test's verification stage"
+  assert_output --partial "nothing ran in this invocation"
+  # Two steps with no command word to name them fall back to the stage,
+  # collapsed rather than repeated: "cli-test, cli-test" reads as a bug
+  # in the report rather than as two steps.
+  assert_output --partial "cli-test x2"
+}
+
+@test "build.sh custom-test: a verification stage with no RUN step warns, it does not fail" {
+  # The build was read fine; the stage simply has no RUN of its own. base
+  # has no authority to call a consumer's stage meaningless, so this says
+  # out loud that nothing was checked and leaves the exit status alone.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#5 [internal] load build definition from Dockerfile
+#5 DONE 0.0s
+#9 [custom-test 2/2] COPY --from=builder /out /out
+#9 CACHED
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" custom-test
+  assert_success
+  narrow_to_report
+  assert_output --partial "WARN"
+  assert_output --partial "not evidence"
+}
+
+# ── installing a check binary is not running one ─────────────────────
+
+@test "build.sh test: an install step in a side stage is not a check that ran" {
+  # A `COPY --from` toolchain stage can re-run while the -test stage it
+  # feeds stays fully cached, so this is the one shape that can produce
+  # "something executed" over checks that all came from cache. Counting
+  # the install as a check downgrades the load-bearing all-cached warning
+  # and names a tool that did not run -- the very failure this report
+  # exists to remove, re-sourced.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#4 [tools 2/2] RUN apk add --no-cache bats shellcheck
+#4 DONE 6.1s
+#30 [devel-test  8/16] RUN shellcheck -S warning /lint/wrapper/*.sh /lint/lib/*.sh
+#30 CACHED
+#33 [devel-test 10/16] RUN hadolint Dockerfile
+#33 CACHED
+#42 [devel-test 16/16] RUN bats /smoke_test/
+#42 CACHED
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" test
+  assert_success
+  narrow_to_report
+  assert_output --partial "all 3 step(s) of target 'test's verification stage"
+  assert_output --partial "nothing ran in this invocation"
+  refute_output --partial "executed 1 of"
+}
+
+@test "build.sh test: a -test stage that only INSTALLS a tool is not reported as running it" {
+  # The step executed, so the build is not silent about it -- but the
+  # report may not put shellcheck in the ran list, because shellcheck did
+  # not run. Naming the command word is what keeps the line checkable.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#12 [devel-test 5/9] RUN apt-get install -y --no-install-recommends shellcheck
+#12 DONE 4.2s
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" test
+  assert_success
+  narrow_to_report
+  assert_output --partial "executed all 1 step(s) of its verification stage"
+  assert_output --partial "apt-get"
+  refute_output --partial "(shellcheck)"
+}
+
+@test "build.sh test: a tool named only as an argument is not a step of the check" {
+  # `ln -sf /opt/bats/bin/bats /usr/local/bin/bats` is the example the
+  # matcher's comment always cited; `pip install bats` is the one it never
+  # survived. Neither is a stage this target's report may count, and
+  # neither is in a verification stage here.
+  export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
+#6 [builder 3/7] RUN pip install bats
+#6 DONE 2.0s
+#7 [builder 4/7] RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
+#7 DONE 0.1s
+#42 [devel-test 16/16] RUN bats /smoke_test/
+#42 DONE 3.1s
+EOF
+)"
+  run bash "${SANDBOX}/build.sh" test
+  assert_success
+  narrow_to_report
+  assert_output --partial "executed all 1 step(s) of its verification stage"
+  assert_output --partial "(bats)"
+}
+
 # ── the report can fail, and failing is never a pass ─────────────────
 
-@test "build.sh test: build output with no recognisable steps fails the build" {
-  # The parse found nothing. Under this repo's rules that is an error, not
-  # a pass: reporting success here is exactly the bug being fixed.
+@test "build.sh test: build output with no BuildKit progress lines fails the build" {
+  # Not "the stage ran no checks" -- the captured output carries no
+  # progress steps AT ALL, which means the format the report is read from
+  # moved or the output was lost. That is the mechanism itself failing,
+  # and it is the one thing that still stops the build.
   export DOCKER_BUILD_OUTPUT="Successfully built abc123"
   run bash "${SANDBOX}/build.sh" test
   assert_failure
-  assert_output --partial "no verification step"
+  assert_output --partial "no BuildKit progress"
   assert_output --partial "ERROR"
 }
 
-@test "build.sh test: a check step with no CACHED/DONE state fails the build" {
+@test "build.sh test: a step with no CACHED/DONE state fails the build" {
   # The step was announced and then never resolved (truncated output, a
   # progress printer that changed shape). Neither branch is provable, so
   # neither is claimed.
