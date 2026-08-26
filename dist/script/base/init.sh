@@ -571,6 +571,76 @@ _INIT_ROLLBACK_DIR=""
 _INIT_ROLLBACK_ARMED=false
 _INIT_ROLLBACK_PREV_TRAP=""
 
+# _init_installed_paths
+#   Every repo-relative path the existing-repo resync guarantees a
+#   consumer will carry, as one path per line, sorted (LC_ALL=C) and
+#   duplicate-free.
+#
+#   WHY THIS IS A PUBLISHED LIST AND NOT AN INTERNAL ONE. These files
+#   reach a consumer through exactly one route -- init.sh, run as the
+#   resync step of an upgrade -- so a repo that cannot upgrade never gets
+#   them, and until now nothing could even name what it was missing. The
+#   version marker answers "which release is this repo pinned to"; this
+#   answers "did that release's files arrive", which is a different
+#   question and the one that went unasked while the base-version monitor
+#   sat at zero adoption.
+#
+#   SCOPE: committable files only. The resync also materialises derived
+#   artifacts (.env, .env.local, compose.yaml, the log tree); those are
+#   gitignored by the same run, so no remote audit can see them, and
+#   listing them would report every repo as broken. Parent directories
+#   are implied by their entries, never listed. Contrast
+#   _init_protected_paths below, which is the ROLLBACK surface -- the
+#   roots a failed run must restore, derived artifacts included.
+#
+#   Both directions of this list are enforced by
+#   test/bats/integration/init_installed_paths_spec.bats, which runs a
+#   real resync against a real consumer and diffs what it wrote against
+#   what this prints. Adding a file to the resync without adding it here
+#   fails that spec, which is what keeps the list from decaying into the
+#   hand-maintained copy it exists to replace.
+_init_installed_paths() {
+  cat <<'EOF'
+.dockerignore
+.github/workflows/base-version-monitor.yaml
+.gitignore
+.hadolint.yaml
+.setup.conf
+config/.gitkeep
+justfile
+script/base/completions.sh
+script/base/justfile.base
+script/build.sh
+script/docker/justfile.docker
+script/exec.sh
+script/hooks/post/build.sh
+script/hooks/post/exec.sh
+script/hooks/post/prune.sh
+script/hooks/post/run.sh
+script/hooks/post/setup.sh
+script/hooks/post/setup_tui.sh
+script/hooks/post/stop.sh
+script/hooks/pre/build.sh
+script/hooks/pre/exec.sh
+script/hooks/pre/prune.sh
+script/hooks/pre/run.sh
+script/hooks/pre/setup.sh
+script/hooks/pre/setup_tui.sh
+script/hooks/pre/stop.sh
+script/justfile
+script/local/justfile.local
+script/local/local.sh
+script/prune.sh
+script/run.sh
+script/setup.sh
+script/setup_tui.sh
+script/stop.sh
+script/template/justfile.template
+script/template/new.sh
+script/template/skel
+EOF
+}
+
 # _init_protected_paths
 #   Every repo-root-relative path the existing-repo resync can create,
 #   rewrite or delete. Directories are listed AS directories: the resync
@@ -1119,7 +1189,8 @@ main() {
 
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
-Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--bootstrap-just] [--lang <en|zh-TW|zh-CN|ja>]
+Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--bootstrap-just]
+       [--list-installed-paths] [--lang <en|zh-TW|zh-CN|ja>]
 
 Initialize a repo with the template subtree. Auto-detects:
   - Has Dockerfile → create symlinks, then run setup.sh
@@ -1142,6 +1213,11 @@ Options:
   --force            With --gen-conf: overwrite existing setup.conf,
                      backing up the previous .setup.conf to .setup.conf.bak
                      and .env to .env.bak first.
+  --list-installed-paths
+                     Print, one per line, every repo-relative path an
+                     existing-repo resync guarantees a consumer carries,
+                     then exit without touching anything. The delivery
+                     audit reads this instead of keeping its own copy.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
                      init proceeds. Without this flag, a missing `just`
@@ -1156,6 +1232,18 @@ Run from the repo root after:
   git subtree add --prefix=<subtree-prefix> \
       <template-remote-url> <version> --squash
 EOF
+    return 0
+  fi
+
+  # `--list-installed-paths` is a QUERY, answered here for the same reason
+  # --help is answered above: before the template-source guard and before
+  # the `cd` into REPO_ROOT. The caller is an auditor asking the base
+  # checkout what a consumer should contain, not a consumer being
+  # initialized, so the guard that (correctly) refuses to scaffold inside
+  # base must not refuse to answer a question. Nothing below this point is
+  # reached, so the run mutates nothing.
+  if [[ "${1:-}" == "--list-installed-paths" ]]; then
+    _init_installed_paths
     return 0
   fi
 

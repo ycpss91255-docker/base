@@ -23,7 +23,10 @@ setup() {
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   CONSUMER="${BATS_TEST_TMPDIR}/consumer"
-  INIT="/source/dist/script/base/init.sh"
+  # The consumer's OWN vendored copy, not /source: base's checkout carries
+  # .git, which the self-run guard reads as "this is the template source"
+  # and refuses. The vendored copy is also what a real upgrade executes.
+  INIT="./.base/dist/script/base/init.sh"
 }
 
 # _seed_consumer
