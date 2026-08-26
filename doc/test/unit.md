@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2824 tests**.
+Unit specs under `test/bats/unit/`: **2831 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3186,3 +3186,15 @@ fails naming the path and what its absence costs.
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
+
+### test/bats/unit/prev_release_gating_spec.bats (7)
+
+| Test | Description |
+|------|-------------|
+| `prev-release gate: --bats-path over a unit spec dispatches with no release tags` | - |
+| `prev-release gate: --bats-fragile dispatches with no release tags` | - |
+| `prev-release gate: a shard that does not carry the spec dispatches with no release tags` | - |
+| `prev-release gate: --lint dispatches with no release tags` | - |
+| `prev-release gate: --bats-integration refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
