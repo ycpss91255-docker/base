@@ -431,7 +431,20 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   build:
     needs: [path-filter, compute-matrix, preflight]
-    if: needs.path-filter.outputs.code_changed == 'true'
+    # Same-repository guard, AND-ed with the existing code_changed gate.
+    # `runs-on` here is a runtime-computed matrix label, so no static check
+    # can prove this job stays on a GitHub-hosted machine -- and the org
+    # registers an org-level self-hosted runner that public repos may use.
+    # The condition is a FORK test, not a PR test: a same-repo PR, a branch
+    # push, a tag push, `schedule` and `workflow_dispatch` all pass it. Under
+    # `workflow_call` the github context is the CALLER's, so this reads "the
+    # calling repo's run was not started by a fork PR against that repo",
+    # which is the right question -- it is the caller's fork PR whose code
+    # this job would build. Enforced by the self-hosted-guard lint.
+    if: >-
+      needs.path-filter.outputs.code_changed == 'true' &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}

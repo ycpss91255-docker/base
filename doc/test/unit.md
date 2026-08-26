@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2794 tests**.
+Unit specs under `test/bats/unit/`: **2826 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -452,7 +452,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (50)
+### test/bats/unit/build_worker_yaml_spec.bats (52)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -550,7 +550,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (101)
+### test/bats/unit/self_test_yaml_spec.bats (104)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -789,7 +789,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (14)
+### test/bats/unit/release_test_tools_yaml_spec.bats (15)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -840,7 +840,7 @@ behaviour is covered by `release_archive_spec.bats` and
 | Assembler is version-matched to the worker (`job_workflow_sha`, checkout path) | 2 |
 | Caller input reaches the step via `env:`, never run-block interpolation | 2 |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (11)
+### test/bats/unit/publish_worker_yaml_spec.bats (12)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -3147,3 +3147,33 @@ fails naming the path and what its absence costs.
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
+
+### test/bats/unit/self_hosted_guard_lint_spec.bats (25)
+
+| Test | Description |
+|------|-------------|
+| `self-hosted guard: FAILS on a new job with a literal self-hosted runs-on` | - |
+| `self-hosted guard: FAILS on a new job whose runs-on is a label array` | - |
+| `self-hosted guard: FAILS on the block-sequence runs-on form` | - |
+| `self-hosted guard: FAILS on a runner GROUP, which has no hosted reading` | - |
+| `self-hosted guard: FAILS when a literal matrix contributes a non-hosted label` | - |
+| `self-hosted guard: FAILS when the matrix is computed at runtime (fromJSON)` | - |
+| `self-hosted guard: FAILS when runs-on is a caller-supplied input expression` | - |
+| `self-hosted guard: FAILS when runs-on reads a matrix key the job never declares` | - |
+| `self-hosted guard: FAILS on a job calling a REMOTE reusable workflow` | - |
+| `self-hosted guard: FAILS on a bare hostname label` | - |
+| `self-hosted guard: names the exact condition to paste in the failure message` | - |
+| `self-hosted guard: PASSES a literal GitHub-hosted runs-on with no guard` | - |
+| `self-hosted guard: PASSES the arm + amd hosted families and a windows/macos runner` | - |
+| `self-hosted guard: PASSES a literal matrix that resolves entirely to hosted labels` | - |
+| `self-hosted guard: PASSES a LOCAL reusable-workflow call` | - |
+| `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
+| `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
+| `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
+| `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
+| `self-hosted guard: FAILS when the workflow directory is missing` | - |
+| `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
+| `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
+| `self-hosted guard: scans every workflow in the directory, not a named list` | - |
+| `self-hosted guard: the real repo tree has every eligible job guarded` | - |
+| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |

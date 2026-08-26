@@ -141,3 +141,16 @@ setup() {
   run grep -E '^\s+packages:\s+write' "${WF}"
   assert_success
 }
+
+# ── Same-repository guard on the self-hosted-eligible build job ────────
+
+@test "release-test-tools.yaml: the build job carries the same-repo guard (#766)" {
+  # Self-hosted-eligible by the static rule: `runs-on: ${{ matrix.runner }}`
+  # over a runtime-computed matrix. This workflow has no `pull_request`
+  # trigger at all today, so the condition is inert -- it is here so that
+  # adding one later cannot open the hole silently.
+  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "github.event_name != 'pull_request' ||"
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
+}
