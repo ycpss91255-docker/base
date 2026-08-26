@@ -266,6 +266,11 @@ jobs:
     #                     with whitespace collapsed, so rewrapping it or
     #                     splitting it into sub-bullets buys no budget;
     #                     released sections are never checked
+    #   catalog-description every doc/test/ catalogue row carries a
+    #                     description. The rows that predate the rule are
+    #                     parked in a shrink-only baseline, so the rule
+    #                     applies forward only; a rename drops a row out of
+    #                     the baseline and forces one
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -304,6 +309,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - catalog-description
     steps:
       - name: Checkout
         uses: actions/checkout@v7

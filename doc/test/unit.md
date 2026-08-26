@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2927 tests**.
+Unit specs under `test/bats/unit/`: **2952 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -21,15 +21,23 @@ reporting "in sync".
 
 What that means when you edit:
 
-- **Descriptions are yours.** A row is keyed on the test name exactly as bats
-  reports it, so prose you write survives regeneration. A test with no
-  description shows `-`; filling one in is welcome and never required.
+- **Descriptions are yours, and they are required.** A row is keyed on the
+  test name exactly as bats reports it, so prose you write survives
+  regeneration. A test with no description shows `-`, and the
+  `catalog-description` lint fails on one -- the description answers **why
+  this case matters** (what it defends, whether it is the load-bearing one),
+  never what the test does, which the name already says. See
+  [TEST.md](TEST.md#writing-a-test-description). Rows that predate the rule
+  are parked in `script/test/catalog-description-baseline.txt`, which may
+  only shrink.
 - **Do not hand-add or hand-delete rows or sections.** Add the `@test`, run
   `just test sync-docs`, then write the description. Deleting a test removes
   its row on the next run.
 - **Renaming a test loses its description** (a rename is indistinguishable
   from delete-plus-add). To carry the prose across, rename the row here in the
-  same commit, then regenerate.
+  same commit, then regenerate. A rename also drops the test out of the
+  baseline, so a row that was parked there comes back needing a sentence:
+  touch it, describe it.
 - **Rows follow spec file order**, so the table reads the way the spec reads.
 - A section may summarise instead, with a `| Category | Tests |` table or plain
   prose, for specs where a per-test row each is noise. That is an explicit
@@ -2002,7 +2010,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (108)
+### test/bats/unit/ci_spec.bats (109)
 
 | Test | Description |
 |------|-------------|
@@ -2075,7 +2083,8 @@ builds the env block only for the knobs the conf sets.
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
-| `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | - |
+| `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | The CI join: the lint-static matrix calls this primitive, so a missing arm ships the lint local-only |
+| `main --catalog-description-only: runs the catalogue description lint on the host, no compose (#922)` | The CI join: the lint-static matrix calls this primitive, so a missing arm ships the lint local-only |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -3281,38 +3290,38 @@ ways this goes catastrophically wrong are all edits to the file:
 
 | Test | Description |
 |------|-------------|
-| `_run_changelog_entry: FAILS on an [Unreleased] entry over the cap (#917)` | - |
-| `_run_changelog_entry: names the entry's line, its measured length and the cap (#917)` | - |
-| `_run_changelog_entry: reports EVERY over-long entry, not just the first (#917)` | - |
-| `_run_changelog_entry: the SAME text rewrapped across continuation lines still FAILS (#917)` | - |
-| `_run_changelog_entry: the SAME text re-shaped into sub-bullets still FAILS (#917)` | - |
-| `_run_changelog_entry: the measure is unchanged by re-indenting a passing entry (#917)` | - |
-| `_run_changelog_entry: PASSES an entry of exactly the cap (#917)` | - |
-| `_run_changelog_entry: FAILS an entry one character over the cap (#917)` | - |
-| `_run_changelog_entry: PASSES a structured entry -- short lead plus a sub-list (#917)` | - |
-| `_run_changelog_entry: an over-long entry in a RELEASED section is never checked (#917)` | - |
-| `_run_changelog_entry: stops at the next '## [' heading, not at the end of file (#917)` | - |
-| `_run_changelog_entry: an empty [Unreleased] passes and SAYS it checked nothing (#917)` | - |
-| `_run_changelog_entry: an allow region suppresses the entry inside it (#917)` | - |
-| `_run_changelog_entry: FAILS on an over-long entry AFTER an allow-end (the region does not leak) (#917)` | - |
-| `_run_changelog_entry: FAILS on an unterminated allow-begin (#917)` | - |
-| `_run_changelog_entry: FAILS on an allow-end with no open allow-begin (#917)` | - |
-| `_run_changelog_entry: an entry that QUOTES the allow markers is prose, not a region (#917)` | - |
-| `_run_changelog_entry: a quoted allow marker does not silence the entries after it (#917)` | - |
-| `_run_changelog_entry: an unterminated allow-begin is reported AND what follows is still measured (#917)` | - |
-| `_run_changelog_entry: FAILS on one comment carrying BOTH allow markers (#917)` | - |
-| `_run_changelog_entry: the clean line reports how many entries an allow region suppressed (#917)` | - |
-| `_run_changelog_entry: a section whose only entry is allowed says so, not 'nothing to check' (#917)` | - |
-| `_run_changelog_entry: a heading shown inside a fenced example does not relocate the section (#917)` | - |
-| `_run_changelog_entry: a released heading inside a fenced example does not truncate the section (#917)` | - |
-| `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | - |
-| `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | - |
-| `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | - |
-| `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | - |
-| `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
-| `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
-| `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
-| `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
+| `_run_changelog_entry: FAILS on an [Unreleased] entry over the cap (#917)` | The rule itself; every other case here is a way round it |
+| `_run_changelog_entry: names the entry's line, its measured length and the cap (#917)` | A finding nobody can act on is a finding that gets muted |
+| `_run_changelog_entry: reports EVERY over-long entry, not just the first (#917)` | One run, one fix list -- stopping at the first costs a CI round per entry |
+| `_run_changelog_entry: the SAME text rewrapped across continuation lines still FAILS (#917)` | Load-bearing: this is the case that rules out a per-line cap |
+| `_run_changelog_entry: the SAME text re-shaped into sub-bullets still FAILS (#917)` | The other escape hatch -- one paragraph chopped into twenty short bullets |
+| `_run_changelog_entry: the measure is unchanged by re-indenting a passing entry (#917)` | Wrap-invariance the other way: an honest entry must not start failing for being wrapped politely |
+| `_run_changelog_entry: PASSES an entry of exactly the cap (#917)` | Boundary: the cap is inclusive, so the number stated is the number enforced |
+| `_run_changelog_entry: FAILS an entry one character over the cap (#917)` | The far side of the same boundary; the pair pins the comparison rather than the constant |
+| `_run_changelog_entry: PASSES a structured entry -- short lead plus a sub-list (#917)` | The shape a whole-entry measure was said to endanger; it fits with room to spare, and that claim is worth holding |
+| `_run_changelog_entry: an over-long entry in a RELEASED section is never checked (#917)` | The scoping that keeps the lint honest: it can never fail on an entry nobody is allowed to rewrite |
+| `_run_changelog_entry: stops at the next '## [' heading, not at the end of file (#917)` | The mechanism behind that scoping -- an end found explicitly, not by falling off the file |
+| `_run_changelog_entry: an empty [Unreleased] passes and SAYS it checked nothing (#917)` | Legitimate right after a release, but a green line silently standing for zero entries is this repo's recurring vacuous pass |
+| `_run_changelog_entry: an allow region suppresses the entry inside it (#917)` | The escape hatch exists at all; the four cases after it are about it not leaking |
+| `_run_changelog_entry: FAILS on an over-long entry AFTER an allow-end (the region does not leak) (#917)` | A region that leaks disables the lint for everything below it, and says nothing |
+| `_run_changelog_entry: FAILS on an unterminated allow-begin (#917)` | An unbalanced marker would otherwise swallow the rest of the section and still report clean |
+| `_run_changelog_entry: FAILS on an allow-end with no open allow-begin (#917)` | The mirror case; both directions have to be errors or the balance check is decorative |
+| `_run_changelog_entry: an entry that QUOTES the allow markers is prose, not a region (#917)` | Load-bearing for anchored matching: the entry announcing this lint is the one entry guaranteed to quote both markers |
+| `_run_changelog_entry: a quoted allow marker does not silence the entries after it (#917)` | What a substring match would actually cost -- a false region that also stops the scan dead |
+| `_run_changelog_entry: an unterminated allow-begin is reported AND what follows is still measured (#917)` | One run names the dangling marker and the entries it was hiding, instead of trading one for the other |
+| `_run_changelog_entry: FAILS on one comment carrying BOTH allow markers (#917)` | Refused rather than resolved in favour of either; guessing picks the author's meaning at random |
+| `_run_changelog_entry: the clean line reports how many entries an allow region suppressed (#917)` | A fully suppressed section must never read as an empty one |
+| `_run_changelog_entry: a section whose only entry is allowed says so, not 'nothing to check' (#917)` | The same fact from the other side: zero checked is not zero present |
+| `_run_changelog_entry: a heading shown inside a fenced example does not relocate the section (#917)` | The driver documents its own format in fenced examples, so this is one edit away rather than hypothetical |
+| `_run_changelog_entry: a released heading inside a fenced example does not truncate the section (#917)` | The expensive direction of that bug: the section ends early and everything after it goes unmeasured |
+| `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | Fencing prose must not buy budget either |
+| `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | A '*' bullet opens no entry, so the section measures nothing and reports clean over text nobody looked at |
+| `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | The worse version: one honest entry above it turns that vacuous pass into an affirmative 'clean (1 entries)' |
+| `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | Load-bearing: local (musl, UTF-8) and CI (glibc, LANG unset) would otherwise reach opposite verdicts on the same file, with nothing in the diff to blame |
+| `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | The same defect from the author's side -- an entry quoting the ja / zh guides charged three times over for it |
+| `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | Non-vacuity: a lint that scanned nothing must not report clean |
+| `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | Distinct from an empty-but-present section, which is legitimate; the file's shape changing is not |
+| `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | Dogfood: the rule is applied to the file carrying this change's own entry |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
@@ -3326,3 +3335,32 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+
+### test/bats/unit/catalog_description_lint_spec.bats (24)
+
+| Test | Description |
+|------|-------------|
+| `_run_catalog_description: FAILS on a placeholder row that is not on the baseline (#922)` | The rule itself; everything else here is about who it spares |
+| `_run_catalog_description: names the catalog file, the line, the spec and the test (#922)` | A finding nobody can act on is a finding that gets muted |
+| `_run_catalog_description: reports EVERY undescribed row, not just the first (#922)` | One run, one fix list -- stopping at the first costs a CI round per row |
+| `_run_catalog_description: an EMPTY description cell counts as a placeholder (#922)` | A hand-edited blank is the same missing sentence wearing less ink, and only `-` is generated |
+| `_run_catalog_description: PASSES a described row (#922)` | Non-vacuity from the other end: a lint that fails everything proves nothing |
+| `_run_catalog_description: PASSES a placeholder row that IS on the baseline (#922)` | The ratchet: 714 rows predate the rule and failing them would hold everyone hostage to a backfill |
+| `_run_catalog_description: renaming a baselined test forces a description (#922)` | Load-bearing: the property the whole design turns on, and the reason the baseline is a name list rather than a count |
+| `_run_catalog_description: MOVING a baselined test to another spec forces a description (#922)` | Why the key carries the spec path -- three names in this tree already live in two specs, so a name-only key excuses a row nobody looked at |
+| `_run_catalog_description: FAILS on a baseline entry whose row is now DESCRIBED (#922)` | What actually drives the ratchet down; without it a described row keeps its excuse and the count stops meaning anything |
+| `_run_catalog_description: FAILS on a baseline entry whose row is GONE (#922)` | The same rule reached by deletion; a baseline that outlives its rows silently re-arms for whatever reclaims the name |
+| `_run_catalog_description: FAILS when the declared entry count is too LOW (#922)` | Growth is the move the ratchet exists to stop: an added line stays red until somebody also raises the number that states the remaining debt |
+| `_run_catalog_description: FAILS when the declared entry count is too HIGH (#922)` | A count left behind by a deletion is headroom to grow back into, quietly |
+| `_run_catalog_description: DIES when the baseline declares no count at all (#922)` | Deleting the directive would turn the shrink-only lock off, which is the one edit it exists to make loud |
+| `_run_catalog_description: FAILS on an unsorted baseline (#922)` | A 700-line file is reviewable only while its diff is one line per change; unsorted, an insertion hides anywhere |
+| `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
+| `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 713 excuses under a count of 714 |
+| `_run_catalog_description: a summary table is not a per-test catalog (#922)` | A section may summarise with `| Category | Tests |` instead; reading those cells as tests invents findings for rows nobody claimed were tests |
+| `_run_catalog_description: a table under no spec section is not scanned (#922)` | TEST.md's own index tables belong to no spec, and this file's convention section shows an example row |
+| `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the rows, so a scan that quietly stopped there would still look busy |
+| `_run_catalog_description: DIES when the catalog directory is missing (#922)` | Non-vacuity: a lint that scanned nothing must not report clean |
+| `_run_catalog_description: DIES when the baseline file is missing (#922)` | It is a record of what was already there, not a cache -- losing it must say so rather than bury it under 714 findings |
+| `_run_catalog_description: the clean line says how many rows it checked and excused (#922)` | A green line standing for zero inspected rows is this repo's recurring vacuous pass, and a parked row is not a passing one |
+| `_run_catalog_description: the real doc/test catalogs are clean (#922)` | Dogfood: the rule is applied to the catalogues this change's own rows land in |
+| `_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)` | Pins the one backfill this change did make, so a later sweep cannot quietly park those rows instead |

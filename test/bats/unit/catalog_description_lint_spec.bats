@@ -370,8 +370,8 @@ _write_baseline() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|beta does another thing'
   run _run_catalog_description
   assert_success
-  assert_output --partial '2 rows'
-  assert_output --partial '1 '
+  assert_output --partial '2 rows checked'
+  assert_output --partial '1 still on the baseline'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -389,6 +389,6 @@ _write_baseline() {
   # author's intent was still recoverable, which is why they were written
   # rather than parked -- and pinning that here stops a later sweep from
   # quietly moving them onto the baseline.
-  run grep -c '(#917)' /source/script/test/catalog-description-baseline.txt
+  run grep -c '(#917)' "/source/${_CATALOG_DESC_BASELINE_FILE}"
   assert_output '0'
 }

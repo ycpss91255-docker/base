@@ -23,7 +23,8 @@
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
 #                             # --self-hosted-guard-only.
-#                             # --changelog-entry-only.
+#                             # --changelog-entry-only,
+#                             # --catalog-description-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -114,6 +115,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/catalog_description.sh
+source "${SCRIPT_DIR}/drivers/catalog_description.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -144,6 +147,7 @@ readonly _LINT_TOOLS=(
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  catalog-description
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -212,6 +216,7 @@ _run_lint_tool() {
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    catalog-description) _run_catalog_description ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -318,6 +323,13 @@ Options:
                           sub-bullets buys no budget. Released sections are
                           never checked -- rewriting a shipped entry
                           falsifies it)
+  --catalog-description   With --lint: run only the catalogue description
+                          lint (every doc/test/ catalogue row carries a
+                          description; the rows that predate the rule are
+                          parked in a shrink-only baseline, and a rename
+                          drops a row out of it and forces one). The
+                          description answers why the case matters, not
+                          what the test does
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -342,6 +354,7 @@ Options:
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --catalog-description-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -430,6 +443,7 @@ Examples:
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
+  ./test.sh --catalog-description-only # Direct catalogue description lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -922,6 +936,7 @@ main() {
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --catalog-description) lint_tool="catalog-description"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -935,6 +950,7 @@ main() {
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --catalog-description-only) host_lint="catalog-description"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -972,7 +988,7 @@ main() {
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
   # `--self-hosted-guard-only`) short-circuit
-  # `--changelog-entry-only`) short-circuit
+  # `--changelog-entry-only`, `--catalog-description-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

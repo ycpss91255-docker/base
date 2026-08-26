@@ -1,0 +1,737 @@
+# doc/test catalogue description baseline.
+#
+# The rows that already carried the `-` placeholder on 2026-08-26, the day
+# the Description column became REQUIRED (see
+# script/test/drivers/catalog_description.sh and doc/test/TEST.md). They are
+# parked here so the rule applies forward only: nobody is blocked on a
+# backfill of 714 retrospective sentences, and a rushed backfill would
+# produce filler that restates the test name -- which passes the lint and is
+# worse than the placeholder.
+#
+# Format: <spec path> TAB <test name>, sorted LC_ALL=C, no duplicates. The
+# key includes the spec path because three test names in this tree live in
+# two specs at once.
+#
+# THIS FILE MAY ONLY SHRINK. Describing a row means deleting its line here
+# and lowering the count below in the same commit -- the lint refuses a
+# baselined row that is no longer an undescribed row, so the two cannot
+# drift. Renaming or moving a test drops it out of the baseline and forces
+# a description: touch it, describe it; leave it alone, leave it alone.
+# Raising the count is how the ratchet is loosened, and it is one visible
+# line in a diff that a reviewer has to accept.
+#
+# entries: 714
+dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang ja prints ja usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-CN prints zh-CN usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-TW prints zh-TW usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	exec.sh --help --lang ja prints ja usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	exec.sh --help --lang zh-TW prints zh-TW usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	run.sh --help --lang ja prints ja usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	run.sh --help --lang zh-TW prints zh-TW usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	stop.sh --help --lang ja prints ja usage (#222)
+dist/test/bats/smoke/devel-test/script_help.bats	stop.sh --help --lang zh-TW prints zh-TW usage (#222)
+test/bats/integration/compose_host_identity_spec.bats	compose.yaml: an unset HOST_GID fails the same way (#895)
+test/bats/integration/compose_host_identity_spec.bats	compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)
+test/bats/integration/compose_host_identity_spec.bats	compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)
+test/bats/integration/deploy_bundle_flow_spec.bats	deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)
+test/bats/integration/deploy_bundle_flow_spec.bats	deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)
+test/bats/integration/doc_counts_merge_spec.bats	resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)
+test/bats/integration/doc_counts_merge_spec.bats	resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)
+test/bats/integration/fresh_clone_portability_spec.bats	fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)
+test/bats/integration/gitignore_sync_spec.bats	init.sh existing-repo: appends missing canonical entries to a user .dockerignore, preserving build-context lines (#604)
+test/bats/integration/gitignore_sync_spec.bats	init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)
+test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .dockerignore contains all canonical derived entries (#604)
+test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)
+test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)
+test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)
+test/bats/integration/init_new_repo_spec.bats	Dockerfile.example references CONFIG_SRC="config" (not .base/dist/config)
+test/bats/integration/init_new_repo_spec.bats	new repo: .dockerignore contains compose.yaml (derived artifact) (#604)
+test/bats/integration/init_new_repo_spec.bats	new repo: .dockerignore exists (#604)
+test/bats/integration/init_new_repo_spec.bats	new repo: .github/workflows/base-version-monitor.yaml exists (#777)
+test/bats/integration/init_new_repo_spec.bats	new repo: Dockerfile contains logging.sh in-image COPY (#368)
+test/bats/integration/init_new_repo_spec.bats	new repo: TEST.md per-file heading is level-3 (### path (N)) so sync-doc-counts can match (S4 item 6)
+test/bats/integration/init_new_repo_spec.bats	new repo: TEST.md total matches the actual generated @test count (no stale 1 test) (S4 item 6)
+test/bats/integration/init_new_repo_spec.bats	new repo: compose.yaml omits devices block by default (#466 opt-in)
+test/bats/integration/init_new_repo_spec.bats	new repo: init.sh preserves a pre-existing script/local/local.sh (no clobber, S4 item 7)
+test/bats/integration/init_new_repo_spec.bats	new repo: init.sh seeds local.sh even when justfile.local already exists (independent guards, S4 item 7)
+test/bats/integration/init_new_repo_spec.bats	new repo: script/local/ seeds a bash companion template alongside justfile.local (S4 item 7)
+test/bats/integration/init_new_repo_spec.bats	new repo: setup.sh symlink under script/ → ../.base/dist/script/docker/wrapper/setup.sh
+test/bats/integration/init_new_repo_spec.bats	new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)
+test/bats/integration/init_new_repo_spec.bats	new repo: smoke tree is per-stage tool-first (shared/devel-test/runtime-test), not flat test/smoke/ (S4 items 5,8)
+test/bats/integration/init_rollback_spec.bats	a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)
+test/bats/integration/init_rollback_spec.bats	just base init: a mid-migration failure leaves the consumer byte-identical (#937)
+test/bats/integration/init_rollback_spec.bats	just base init: the failed resync says it restored the files (#937)
+test/bats/integration/init_rollback_spec.bats	just base init: the recipe passes straight through to init.sh (#937)
+test/bats/integration/init_rollback_spec.bats	the current upgrade.sh: inner and outer rollback compose, not fight (#937)
+test/bats/integration/prev_release_upgrade_spec.bats	the newest released upgrade.sh drives the current tree to a working consumer
+test/bats/integration/prev_release_upgrade_spec.bats	the previous released upgrade.sh drives the current tree to a working consumer (N-1)
+test/bats/integration/upgrade_spec.bats	upgrade.sh leaves a deliberately configured restart policy alone
+test/bats/integration/upgrade_spec.bats	upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default
+test/bats/integration/upgrade_spec.bats	upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)
+test/bats/integration/upgrade_spec.bats	upgrade.sh rolls back the whole upgrade when a post-pull step fails
+test/bats/integration/upgrade_spec.bats	upgrade.sh v0.9.7: bumps .base/.version, pulls new content, updates main.yaml
+test/bats/integration/wrapper_compose_dispatch_spec.bats	[project] name in .setup.conf.local moves BOTH the -p and the emitted name:
+test/bats/integration/wrapper_compose_dispatch_spec.bats	an unchanged repo keeps the project name it resolved before [project] existed
+test/bats/integration/wrapper_compose_dispatch_spec.bats	the -p project name and compose.yaml's name: are one value, not two computations
+test/bats/integration/wrapper_compose_dispatch_spec.bats	two checkouts of one repo dispatch different projects after a local override
+test/bats/unit/base_version_monitor_spec.bats	compare: equal versions are not behind
+test/bats/unit/base_version_monitor_spec.bats	compare: newer major is behind (v0.41.0 < v1.0.0)
+test/bats/unit/base_version_monitor_spec.bats	compare: newer minor is behind (v0.41.0 < v0.42.0)
+test/bats/unit/base_version_monitor_spec.bats	compare: newer patch is behind
+test/bats/unit/base_version_monitor_spec.bats	compare: numeric not lexical (v0.9.7 < v0.10.0)
+test/bats/unit/base_version_monitor_spec.bats	compare: older remote is not behind
+test/bats/unit/base_version_monitor_spec.bats	compare: tolerates a missing leading v
+test/bats/unit/base_version_monitor_spec.bats	run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)
+test/bats/unit/base_version_monitor_spec.bats	run: behind -> opens a tracking issue naming the target version
+test/bats/unit/base_version_monitor_spec.bats	run: empty latest from API -> fails without creating an issue
+test/bats/unit/base_version_monitor_spec.bats	run: existing open issue for the target -> skip (dedup)
+test/bats/unit/base_version_monitor_spec.bats	run: opened issue carries the base-upgrade label
+test/bats/unit/base_version_monitor_spec.bats	run: up to date -> no issue created
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: EXEMPTS a read inside an allow-begin/allow-end region (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a bare indexed read, naming file and line (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a caller-frame read (${BASH_SOURCE[1]}) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a read AFTER an allow-end (region does not leak) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a read in base's own tooling tree, not just dist/ (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a subscript-less read (${BASH_SOURCE}) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on a suffix-stripped read (${BASH_SOURCE[0]%/*}) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on an allow-end with no matching allow-begin (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS on an unterminated allow-begin region (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: PASSES a comment that merely names the array (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: PASSES a defaulted higher frame (${BASH_SOURCE[2]:-unknown}) (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: PASSES the $0-defaulted read (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: PASSES the empty-defaulted sourced-vs-executed guard (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: PASSES whole-array expansions, which nounset tolerates (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: ignores non-.sh files and files outside the scanned trees (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: names the default form in the failure message (#869)
+test/bats/unit/bash_source_guard_lint_spec.bats	_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)
+test/bats/unit/bashrc_spec.bats	bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh
+test/bats/unit/bashrc_spec.bats	bashrc.d bootstrap loop guards on directory existing
+test/bats/unit/bashrc_spec.bats	bashrc.d/ directory exists in .base/dist/config/shell/
+test/bats/unit/cd_guard_spec.bats	cd-guard: a tag that does not point at HEAD is still an untagged HEAD
+test/bats/unit/cd_guard_spec.bats	cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)
+test/bats/unit/cd_guard_spec.bats	cd-guard: refuses a dirty tree even when HEAD is on a tag (exit 1 + 'working tree is dirty')
+test/bats/unit/cd_guard_spec.bats	cd-guard: refuses an untagged HEAD on a clean tree (exit 1 + 'HEAD is not on a tag')
+test/bats/unit/cd_guard_spec.bats	cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')
+test/bats/unit/cd_guard_spec.bats	cd-guard: ships executable, so the documented ./.base/... invocation works
+test/bats/unit/cd_guard_spec.bats	cd-guard: the accept path reports the tag on stdout, refusals on stderr
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a nonexistent scan root, naming it (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a scan root with no doc/test (no vacuous pass) (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a spec-free scan root (no vacuous pass) (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS when a spec has more tests than catalog rows (#859)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: a RELATIVE root gives the same verdict as the absolute one (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: a RELATIVE root still detects real drift (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: counts a shipped smoke spec as spec files (#848)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: exits 0 on an in-sync tree (#782)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: exits non-zero and names the drifted doc on a stale count (#782)
+test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --dry-run reports without removing anything
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --help exits 0 and shows usage
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --run does not mistake attempt 10 for attempt 1
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --run finds an artifact by its ownership label alone
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --run leaves a CONCURRENT run's artifacts alone (the trap)
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --run never issues a blanket prune
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --run removes this run's artifacts across all four kinds
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale collects a killed runner's leftovers
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale delegates the unowned classes to prune.sh with the same window
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale ignores artifacts that are not CI-owned
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale never touches volumes
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale spares an in-flight run inside the window
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh --stale spares the current run even when its clock says old
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh rejects a --stale window that is not a duration
+test/bats/unit/ci_reclaim_spec.bats	reclaim.sh with no scope refuses (a scopeless sweep is the trap)
+test/bats/unit/ci_spec.bats	_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)
+test/bats/unit/ci_spec.bats	_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)
+test/bats/unit/ci_spec.bats	_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)
+test/bats/unit/ci_spec.bats	_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)
+test/bats/unit/ci_spec.bats	_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)
+test/bats/unit/ci_spec.bats	_run_shellcheck: picks up every .sh file in script/test/ (#876)
+test/bats/unit/ci_spec.bats	_run_via_compose: the real ids are in the environment compose interpolates (#895)
+test/bats/unit/ci_spec.bats	_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)
+test/bats/unit/ci_spec.bats	_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)
+test/bats/unit/ci_spec.bats	_spec_weight: falls back to @test count when no SHARD_WEIGHTS_FILE is set (#724)
+test/bats/unit/ci_spec.bats	_spec_weight: falls back to @test count when the spec has no recorded time (#724)
+test/bats/unit/ci_spec.bats	_spec_weight: reads the default repo weights file when SHARD_WEIGHTS_FILE is unset (#733)
+test/bats/unit/ci_spec.bats	_spec_weight: returns the recorded seconds from SHARD_WEIGHTS_FILE (#724)
+test/bats/unit/ci_spec.bats	main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)
+test/bats/unit/ci_spec.bats	main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)
+test/bats/unit/ci_spec.bats	main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)
+test/bats/unit/ci_spec.bats	main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)
+test/bats/unit/ci_spec.bats	main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)
+test/bats/unit/ci_spec.bats	main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)
+test/bats/unit/completions_spec.bats	install zsh: a zsh still printing fpath cannot re-hint a dir already on it (#905)
+test/bats/unit/compose_emit/blocks_spec.bats	_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)
+test/bats/unit/compose_emit/blocks_spec.bats	_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR env (Wayland socket dir)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml GUI enabled => XDG_RUNTIME_DIR mounted rw at the same path
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml accepts /dev:/dev (full /dev tree bind)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml bind mounts never enter top-level volumes: (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml bind-only repo is zero-diff (no top-level volumes:) (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml dedups a named volume referenced twice (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml default (no network_name) keeps network_mode env var
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits TARGETARCH build arg on devel (test inherits via extends, #493)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits TZ build arg with Asia/Taipei default
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits build.network on devel (test inherits via extends, #493)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits cap_add from security list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits cap_drop from security list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits device_cgroup_rules: when cgroup rules provided
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits devices: block from device list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits environment block from env_ list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits exactly one top-level name: (#472)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits no duplicate key within a service (GUI off)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits no duplicate key within a service (GUI on)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits no restart: field at all for restart = no (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits ports block only under network_mode=bridge
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits restart: on a deployable stage service (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits restart: on a deployable stage that carries overrides (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits runtime: nvidia under devel when runtime=nvidia
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits security_opt from security list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits shm_size only when ipc_mode != host
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits tmpfs block from tmpfs_ list
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits top-level name: as the resolved PROJECT_NAME (#472)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits volumes: before networks: (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits workspace mount when present in extras
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml named volume mount emits top-level volumes: stub (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml named volume with :mode strips mode from top-level name (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml never emits restart: on the devel service (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits TARGETARCH line when target_arch empty (BuildKit auto-fill)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits build.network line when build_network empty
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits cap_add / cap_drop / security_opt blocks when empty
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits device_cgroup_rules: when rules list is empty
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits devices block when both inputs empty
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits restart: on a *-test stage -- it exits by design (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits runtime: when runtime arg is empty (desktop default)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml omits workspace when extras is empty (opt-out)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml placement: runtime: appears between tty and cap_add region
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml quotes an on-failure:N policy on the deployable stage (#840)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml top-level name: precedes services: (#472)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml top-level volumes: stub has no driver/labels (#482)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml with network_name emits networks list + bridge driver block (compose self-managed)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: all devices have propagation → no devices: section (#450)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: device rw,rslave emits combined propagation (#450 P1)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: device with propagation emits to volumes long-form (#450 P1)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: device without propagation stays in devices: (#450 P1)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: mixed devices split correctly (#450 P1)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)
+test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)
+test/bats/unit/compose_emit/gen_spec.bats	the duplicate-key detector actually fires on a duplicated service key
+test/bats/unit/compose_emit/hostname_spec.bats	GUI + bridge injects hostname pinned to the host name on devel (#794)
+test/bats/unit/compose_emit/hostname_spec.bats	GUI + host mode injects NO hostname on devel (#794)
+test/bats/unit/compose_emit/hostname_spec.bats	GUI off + bridge injects NO hostname on devel (#794)
+test/bats/unit/compose_emit/hostname_spec.bats	per-stage GUI+bridge override injects hostname on that stage (#794)
+test/bats/unit/compose_emit/hostname_spec.bats	per-stage GUI-off under bridge injects NO hostname (#794)
+test/bats/unit/compose_logging_spec.bats	local_path emits CONTAINER_LOG_KEEP/DAYS retention env, default fallback (#805)
+test/bats/unit/compose_logging_spec.bats	local_path retention env honors container_log_keep/days overrides (#805)
+test/bats/unit/conf_accessor_spec.bats	_conf_get returns a value by section and key
+test/bats/unit/conf_accessor_spec.bats	_conf_get_into writes the value into the named outvar, no subshell (#742)
+test/bats/unit/conf_accessor_spec.bats	_conf_list lists a section's keys in file order
+test/bats/unit/conf_accessor_spec.bats	_conf_list_sorted returns prefix_N values in numeric order, skipping empties
+test/bats/unit/conf_accessor_spec.bats	_conf_load_merged: repo section replaces template section wholesale
+test/bats/unit/conf_accessor_spec.bats	_conf_sections lists section names in first-appearance order
+test/bats/unit/conf_accessor_spec.bats	_ini_tokenize keeps dotted keys verbatim (per-stage override keys)
+test/bats/unit/conf_accessor_spec.bats	_ini_tokenize tracks the owning section per entry and dedups headers
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section does not absorb dotted sub-sections
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section isolates sections (entries from other sections ignored)
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section preserves duplicate keys and reopened sections in order
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section reads a dotted section name
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section reads keys and values for one section
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section returns empty arrays for absent section
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section returns empty arrays for missing file
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section skips comment and empty lines
+test/bats/unit/conf_accessor_spec.bats	_parse_ini_section trims whitespace around key and value
+test/bats/unit/conf_logging_spec.bats	_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)
+test/bats/unit/conf_logging_spec.bats	_collect_logging: .setup.conf.local replaces the [logging] section (#893)
+test/bats/unit/conf_logging_spec.bats	_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)
+test/bats/unit/coverage_gate_spec.bats	coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)
+test/bats/unit/coverage_gate_spec.bats	coverage_gate --merge-timings: no input files yields an empty weights file (#733)
+test/bats/unit/coverage_gate_spec.bats	coverage_gate: SHARED source across shards is unioned, not double-counted (#730)
+test/bats/unit/coverage_gate_spec.bats	coverage_gate: merges DISJOINT shards by union (= sum), not averaging
+test/bats/unit/deploy_spec.bats	_generate_deploy_bundle: hands the untracked sections to the bundle README (#893)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)
+test/bats/unit/deploy_spec.bats	_render_deploy_readme: records the untracked sections a bundle was built from (#893)
+test/bats/unit/deploy_spec.bats	_render_deploy_readme: says nothing about local overrides when there were none (#893)
+test/bats/unit/deploy_spec.bats	_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)
+test/bats/unit/deploy_spec.bats	_resolve_deploy_context: builds the WATCHDOG_* env block from [lifecycle] watchdog_* (#840)
+test/bats/unit/deploy_spec.bats	_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)
+test/bats/unit/deploy_spec.bats	_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)
+test/bats/unit/deploy_spec.bats	_setup_deploy: no refusal when there is no local override (#893)
+test/bats/unit/deploy_spec.bats	_setup_deploy: refuses while .setup.conf.local is present (#893)
+test/bats/unit/deploy_word_collision_spec.bats	a non-aliased section canonicalises to itself (#879)
+test/bats/unit/deploy_word_collision_spec.bats	an unknown word is still rejected (#879)
+test/bats/unit/deploy_word_collision_spec.bats	gpu canonicalises to the deploy section editor (#879)
+test/bats/unit/deploy_word_collision_spec.bats	no subcommand at all is silent (#879)
+test/bats/unit/deploy_word_collision_spec.bats	setup.sh --help distinguishes the deploy subcommand from the section (#879)
+test/bats/unit/deploy_word_collision_spec.bats	setup_tui --help lists gpu and denies the field-bundle reading (#879)
+test/bats/unit/deploy_word_collision_spec.bats	setup_tui --help names the distinction in all four locales (#879)
+test/bats/unit/deploy_word_collision_spec.bats	setup_tui accepts gpu as a subcommand (#879)
+test/bats/unit/deploy_word_collision_spec.bats	setup_tui still accepts deploy as a subcommand (alias kept) (#879)
+test/bats/unit/deploy_word_collision_spec.bats	the deploy spelling explains it is the GPU editor, not the bundle (#879)
+test/bats/unit/deploy_word_collision_spec.bats	the disambiguation notice is translated in all four locales (#879)
+test/bats/unit/deploy_word_collision_spec.bats	the gpu spelling is silent -- the alias is the way out of the notice (#879)
+test/bats/unit/derived_figures_lint_spec.bats	_derived_baseline_renderings: derives the forward-looking and legacy sets from _validate_stage_name (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_derived_baseline_renderings: does NOT include devel-test -- the predicate emits it as a service (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_derived_baseline_renderings: every derived name probes back as a baseline collision (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS on a README baseline set that lists devel-test, naming file and line (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the count is a number but the wrong one (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the listed sections are out of template order (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the listed sections differ from SCHEMA_SECTIONS (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: PASSES on the canonical forward-looking and legacy renderings (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: catches a stale set split by an escaped newline in a shell string (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: catches a stale set wrapped across markdown lines (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: ignores a brace set that names no baseline stage (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)
+test/bats/unit/derived_figures_lint_spec.bats	_run_derived_figures: the REAL tree passes today (#874)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: a hand-written description survives regeneration (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: a heading whose spec path does not resolve is left alone (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: a pipe in a test name is escaped so the table stays well formed (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: a renamed test is a delete plus an add, prose does not follow (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: a section without a per-test table is left alone (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: backslash escapes resolve to the name bats reports (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: generates a row for every @test the table is missing (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: is idempotent on an already-generated catalog (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: rows follow spec file order, not the old table order (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_catalog_rows: the row of a deleted test goes away (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)
+test/bats/unit/doc_counts_spec.bats	_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)
+test/bats/unit/doc_counts_spec.bats	_sync_doc_sections: a shipped smoke spec lands in smoke.md (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_doc_sections: a spec file with no section at all gets one (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_doc_sections: an existing section is never duplicated (#859)
+test/bats/unit/doc_counts_spec.bats	_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)
+test/bats/unit/doc_counts_spec.bats	_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)
+test/bats/unit/dockerfile_migrate_spec.bats	apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (flat-to-dist): rewrites the flat config COPY (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (logrotate-copy): detect false when no logging.sh COPY present (#805)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (watchdog-copy): detect false when no logging.sh COPY present (#797)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)
+test/bats/unit/dockerfile_migrate_spec.bats	migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 0 (downstream-to-dist): detect false when no .base/downstream/ reference (#714)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 0 (downstream-to-dist): idempotent — second run is a no-op (#714)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 0 (downstream-to-dist): rewrites lib/wrapper COPY sources to .base/dist/ (#714)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 1 (wrapper-copy): rewrites shape A 'COPY *.sh /lint/' (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 1 (wrapper-copy): the dispatcher lands shape A on the dist wrapper glob (#915)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 2 (pip-helper): idempotent — no pip line means detect false (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 4 (logging-rename): detect false when already on new name (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 4 (logging-rename): rewrites the Dockerfile COPY to runtime/logging.sh (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3006 idempotent — does not double-insert (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3006 inline ignore before parameterized FROM (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3042 adds pip --no-cache-dir (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL3046 adds useradd -l (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): DL4006 adds SHELL pipefail to alpine lint-tools (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 5 (hadolint): detect false on a clean Dockerfile (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 6 (sc1090): broadens the entrypoint directive to SC1090,SC1091 (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 6 (sc1090): detect false when no sibling entrypoint (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 6 (sc1090): idempotent when already SC1090,SC1091 (#567)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 7 (arg-user): does not touch an unrelated ARG (#579)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 7 (arg-user): idempotent — already defaulted is not detected (#579)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)
+test/bats/unit/dockerfile_migrate_spec.bats	migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)
+test/bats/unit/dockerignore_spec.bats	_canonical_dockerignore_entries: includes log/ via the shared canonical source (#606) (#604)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: EXEMPTS a pipeline inside an allow-begin/allow-end region (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS in base's own tooling tree, not just dist/ (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a clustered quiet flag (-qxF) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a pipeline AFTER an allow-end (region does not leak) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a pipeline into grep -q, naming file and line (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a pipeline into head, with or without -n (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a quiet flag that is not the first argument (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on a reader on its own continuation line (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on an allow-end with no matching allow-begin (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on an unterminated allow-begin region (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS on the long-form --quiet (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES a comment that merely describes the shape (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES a here-string into grep -q (no writer process) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES a logical OR that merely precedes grep -q (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES a reader that drains the stream (grep -v, grep -c) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES an in-shell drain (the shape the fixes use) (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: PASSES grep -q reading a FILE, which strands nobody (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: ignores non-.sh files and files outside the scanned trees (#905)
+test/bats/unit/early_close_reader_lint_spec.bats	_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging bumps past an occupied base per-start name, still tees (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging clamps a non-positive CONTAINER_LOG_KEEP back to the default (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging retention honors CONTAINER_LOG_DAYS by age (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging retention honors CONTAINER_LOG_KEEP, never the symlink (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging same wall-clock second: second start bumps suffix, never truncates the first (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging second start adds a new per-start file + repoints symlink, keeps the old (#805)
+test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging writes a per-start file + points the stable symlink at it (#805)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: en setup summary names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: ja setup summary names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-CN setup summary names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-TW setup summary names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	justfile.docker: the setup doc comment names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	no shipped surface claims setup regenerates a bare .env (#879)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh --help: usage names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh add: the next hint names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh env done message names .env.generated in all four locales (#879)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh remove: the next hint names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh set: the next hint names .env.generated (#879)
+test/bats/unit/gitignore_spec.bats	_canonical_gitignore_entries: advertises .setup.conf.local again (#893)
+test/bats/unit/gitignore_spec.bats	_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)
+test/bats/unit/gitignore_spec.bats	_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)
+test/bats/unit/gitignore_spec.bats	_retired_gitignore_entries: retires nothing today (#893)
+test/bats/unit/gitignore_spec.bats	_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)
+test/bats/unit/gitignore_spec.bats	_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)
+test/bats/unit/gitignore_spec.bats	_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)
+test/bats/unit/gitignore_spec.bats	_sync_gitignore: prunes a retired entry from the managed block (#879)
+test/bats/unit/gitignore_spec.bats	_sync_gitignore: pruning a retired entry is idempotent (#879)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore collects from both global + per-svc (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore is idempotent (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore is no-op when no local_path keys (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore preserves user entries outside managed block (#402, ex-#390)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore skips absolute paths (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore skips ~ paths (#402, ex-#328)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: an end marker with no begin marker is an error (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: an unterminated managed block is an error (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: emits an explicit end marker bounding the block (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: legacy migration keeps a following canonical entry (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: legacy migration reports orphaned entries (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: migrates a legacy begin-marker-only block (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: preserves a user entry BELOW the managed block (#876)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)
+test/bats/unit/gitignore_spec.bats	_sync_logging_gitignore: user entry below the block survives a value change (#876)
+test/bats/unit/gitignore_spec.bats	_sync_managed_entries: appends without a spurious blank line (#876)
+test/bats/unit/gitignore_spec.bats	no entry is both canonical and retired (#893)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: EXEMPTS a literal inside an allow-begin/allow-end region (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on a hardcoded home path in a non-.sh in-image config file (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on a hardcoded home path in a runtime entrypoint (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on a hardcoded home path in the shipped Dockerfile, naming file and line (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on a hardcoded home path inside a comment too (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on an allow-end with no matching allow-begin (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS on an unterminated allow-begin region (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: PASSES an absolute /opt artifact path (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: PASSES the ${USER_NAME} build-arg form (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: PASSES the angle-bracket placeholder form (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: PASSES the backslash-escaped \${USER_NAME} form (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: ignores files OUTSIDE the shipped tree (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: names the offending literal in the failure message (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: points at the /opt convention in the failure message (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: scans the repo-root dockerfile/ tree too (#799)
+test/bats/unit/home_literal_lint_spec.bats	_run_home_literal: the REAL shipped tree passes today (#799)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: DIES when README.md is missing rather than passing vacuously (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: DIES when no translation yields a single scanned token (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: DIES when the English README yields no identifier at all (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: DIES when the translation directory holds no translation (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: DIES when the translation directory is missing (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on a long option the English README never mentions (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on an allow-end with no open allow-begin (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on an env-var identifier in a fenced block that the English README never mentions (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on an env-var identifier in an INLINE code span, which a fence-only scan walks past (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on an orphan AFTER an allow-end (the region does not leak) (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: FAILS on an unterminated allow-begin (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: PASSES on a bare '--' separator and on a lone hyphenated word (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: PASSES on a path-shaped token absent from the English README (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: PASSES on an identifier-shaped token in translation prose OUTSIDE any code span (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: PASSES when the identifier appears in English PROSE without backticks (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: an allow region suppresses the finding inside it (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: does NOT flag a longer identifier as a match for a shorter English one (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: names both readings and the opt-out in the failure message (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: reports EVERY translation that carries an orphan, not just the first (#902)
+test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)
+test/bats/unit/init_spec.bats	TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/
+test/bats/unit/init_spec.bats	TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable
+test/bats/unit/init_spec.bats	_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)
+test/bats/unit/init_spec.bats	_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)
+test/bats/unit/init_spec.bats	_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)
+test/bats/unit/init_spec.bats	_create_new_repo: .gitignore includes .setup.conf.bak and .env.bak
+test/bats/unit/init_spec.bats	_create_new_repo: also generates base-version-monitor.yaml
+test/bats/unit/init_spec.bats	_create_new_repo: includes hook stubs in new-repo layout (#440)
+test/bats/unit/init_spec.bats	_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)
+test/bats/unit/init_spec.bats	_detect_template_version: an early-closing reader cannot empty the tag scan (#905)
+test/bats/unit/init_spec.bats	_error: carries a registered event id under LOG_FORMAT=json (#876)
+test/bats/unit/init_spec.bats	_error: text output is framed like every other init record (#876)
+test/bats/unit/init_spec.bats	_error: the human message rides the display attribute (#876)
+test/bats/unit/init_spec.bats	_gen_setup_conf --force also backs up .env to .env.bak
+test/bats/unit/init_spec.bats	_gen_setup_conf --force on clean repo does not create spurious .bak
+test/bats/unit/init_spec.bats	_gen_setup_conf --force overwrites and backs up existing setup.conf
+test/bats/unit/init_spec.bats	_gen_setup_conf default refuses to overwrite existing setup.conf
+test/bats/unit/init_spec.bats	_init_existing_repo: creates missing hook stubs on upgrade (#440)
+test/bats/unit/init_spec.bats	_init_existing_repo: hands back the caller's EXIT trap on success (#937)
+test/bats/unit/init_spec.bats	_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)
+test/bats/unit/init_spec.bats	_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)
+test/bats/unit/init_spec.bats	_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)
+test/bats/unit/init_spec.bats	_init_protected_paths: covers every root the resync writes into (#937)
+test/bats/unit/init_spec.bats	_init_protected_paths: covers the .env pair the env-naming rename moves (#937)
+test/bats/unit/init_spec.bats	_init_restore_tree: an .env moved to .env.local is put back (#937)
+test/bats/unit/init_spec.bats	_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)
+test/bats/unit/init_spec.bats	_init_restore_tree: removes what the resync created (#937)
+test/bats/unit/init_spec.bats	_init_restore_tree: restores a rewritten file byte for byte (#937)
+test/bats/unit/init_spec.bats	_smoke_test_count: returns 0 when the smoke tree has no specs (S4 item 6)
+test/bats/unit/init_spec.bats	_smoke_test_count: sums ^@test across the per-stage smoke tree (S4 item 6)
+test/bats/unit/init_spec.bats	_sync_base_monitor_workflow: generates base-version-monitor.yaml
+test/bats/unit/init_spec.bats	_sync_base_monitor_workflow: grants issues: write
+test/bats/unit/init_spec.bats	_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file
+test/bats/unit/init_spec.bats	_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix
+test/bats/unit/init_spec.bats	_sync_base_monitor_workflow: schedules weekly + manual dispatch
+test/bats/unit/justfile_spec.bats	base module declares upgrade + update (apt-aligned) forwarding to .base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)
+test/bats/unit/justfile_spec.bats	base update recipe forwards -h|--help to upgrade.sh usage without the check (#789)
+test/bats/unit/justfile_spec.bats	every shipped namespace module ships a help recipe + h alias (#789)
+test/bats/unit/justfile_user_spec.bats	dashed just <ns> --help errors but hints 'help' (documented just limit, #789)
+test/bats/unit/justfile_user_spec.bats	just base help + h alias list the base verbs (#789)
+test/bats/unit/justfile_user_spec.bats	just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)
+test/bats/unit/justfile_user_spec.bats	just base init forwards to ./.base/dist/script/base/init.sh (#653, #654, ADR-00000011)
+test/bats/unit/justfile_user_spec.bats	just base update --help reaches upgrade.sh usage, not the check (#789)
+test/bats/unit/justfile_user_spec.bats	just base update -h reaches upgrade.sh usage (#789)
+test/bats/unit/justfile_user_spec.bats	just base upgrade forwards to ./.base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)
+test/bats/unit/justfile_user_spec.bats	just docker help + h alias list the docker verbs (#789)
+test/bats/unit/justfile_user_spec.bats	just docker help --lang overrides LANG for the listing (i18n)
+test/bats/unit/justfile_user_spec.bats	just docker help English default still renders the translated listing (i18n)
+test/bats/unit/justfile_user_spec.bats	just docker help renders Japanese recipe summaries under LANG=ja (i18n)
+test/bats/unit/justfile_user_spec.bats	just docker help renders zh-TW recipe summaries under LANG=zh-TW (i18n)
+test/bats/unit/justfile_user_spec.bats	just docker setup-tui forwards to ./script/setup_tui.sh
+test/bats/unit/justfile_user_spec.bats	just docker start --help prints composite usage and does NOT build or run (#779)
+test/bats/unit/justfile_user_spec.bats	just docker start -h short-circuits like --help (#779)
+test/bats/unit/justfile_user_spec.bats	just template help + h alias print the template usage (#789)
+test/bats/unit/justfile_user_spec.bats	just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)
+test/bats/unit/justfile_user_spec.bats	just template new --help shows the recipe usage (recipe-level help, #789)
+test/bats/unit/lib_spec.bats	_compose_project omits --env-file when .env.generated is absent (self-managed repo)
+test/bats/unit/lib_spec.bats	_compose_project passes the resolved PROJECT_NAME to -p (#893)
+test/bats/unit/lib_spec.bats	_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)
+test/bats/unit/lib_spec.bats	_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)
+test/bats/unit/lib_spec.bats	_dump_conf_section hides keys with empty values (using default)
+test/bats/unit/lib_spec.bats	_lib_msg falls back to English for unknown _LANG value
+test/bats/unit/lib_spec.bats	_lib_msg returns English by default
+test/bats/unit/lib_spec.bats	_lib_msg returns count / caps across all languages
+test/bats/unit/lib_spec.bats	_lib_msg returns ja translations
+test/bats/unit/lib_spec.bats	_lib_msg returns zh-CN translations
+test/bats/unit/lib_spec.bats	_lib_msg returns zh-TW translations
+test/bats/unit/lib_spec.bats	_print_config_summary conf_missing hint is translated (zh-TW)
+test/bats/unit/lib_spec.bats	_print_config_summary names an active .setup.conf.local and its sections (#893)
+test/bats/unit/lib_spec.bats	_print_config_summary says nothing about a .setup.conf.local that is absent (#893)
+test/bats/unit/lib_spec.bats	_print_config_summary uses ja labels when _LANG=ja
+test/bats/unit/lib_spec.bats	_print_config_summary uses zh-TW labels when _LANG=zh-TW
+test/bats/unit/lib_spec.bats	_resolve_project_name: a configured name is used verbatim (#893)
+test/bats/unit/lib_spec.bats	_resolve_project_name: empty configured name derives the historical default (#893)
+test/bats/unit/lib_spec.bats	_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)
+test/bats/unit/lib_spec.bats	_sanitize_lang warning is localized to system LANG (ja)
+test/bats/unit/lib_spec.bats	_sanitize_lang warning is localized to system LANG (zh-CN)
+test/bats/unit/lib_spec.bats	_sanitize_lang warning is localized to system LANG (zh-TW)
+test/bats/unit/logrotate_spec.bats	_logrotate_prune: drops files older than <days> regardless of count (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_prune: keeps the N most recent real files, drops the rest (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_prune: missing dir is a no-op (best-effort) (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_prune: never removes the stable symlink itself (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_repoint: points the stable symlink at the newest real file (#805)
+test/bats/unit/logrotate_spec.bats	_logrotate_repoint: repointing to a newer file does NOT delete the old one (#805)
+test/bats/unit/network_ports_inert_spec.bats	--quiet suppresses the confirmation but never the port diagnostic (#879)
+test/bats/unit/network_ports_inert_spec.bats	_generate_resolved_compose stays quiet when the field bundle emits ports (#879)
+test/bats/unit/network_ports_inert_spec.bats	_generate_resolved_compose warns when the field bundle drops ports (#879)
+test/bats/unit/network_ports_inert_spec.bats	add network.port under mode = bridge stays quiet (#879)
+test/bats/unit/network_ports_inert_spec.bats	add network.port under the shipped host default warns (#879)
+test/bats/unit/network_ports_inert_spec.bats	generate_compose_yaml stays quiet under host mode with no ports (#879)
+test/bats/unit/network_ports_inert_spec.bats	generate_compose_yaml stays quiet when it emits ports under bridge (#879)
+test/bats/unit/network_ports_inert_spec.bats	generate_compose_yaml warns when it drops ports under host mode (#879)
+test/bats/unit/network_ports_inert_spec.bats	set network.mode bridge with ports already configured stays quiet (#879)
+test/bats/unit/network_ports_inert_spec.bats	set network.mode host with no ports configured stays quiet (#879)
+test/bats/unit/network_ports_inert_spec.bats	set network.mode host with ports already configured warns (#879)
+test/bats/unit/network_ports_inert_spec.bats	set network.port_N under mode = bridge stays quiet (#879)
+test/bats/unit/network_ports_inert_spec.bats	set network.port_N under the shipped host default warns (#879)
+test/bats/unit/network_ports_inert_spec.bats	the ports-inert diagnostic differs per locale (no untranslated arms) (#879)
+test/bats/unit/network_ports_inert_spec.bats	the ports-inert diagnostic is translated in all four locales (#879)
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: --bats-fragile dispatches with no release tags
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: --bats-integration refuses to start when the tags cannot be resolved
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: --bats-path over a unit spec dispatches with no release tags
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: --lint dispatches with no release tags
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: a shard that does not carry the spec dispatches with no release tags
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved
+test/bats/unit/prev_release_gating_spec.bats	prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_assert_no_markers: FAILS naming the file and line of a survivor (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: FAILS on a RELATIVE root, naming it (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: FAILS on a nonexistent root, naming it (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: FAILS when the two sides describe the same test differently (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: an unconflicted tree is verified, not rewritten (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: collapses a counter-only conflict and regenerates (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: drops the diff3 base section too (#857)
+test/bats/unit/resolve_doc_counts_spec.bats	_resolve_doc_counts: rescues the catalog prose from BOTH sides (#857)
+test/bats/unit/schema_coverage_spec.bats	every SCHEMA_FREEFORM entry carries a written reason (#876)
+test/bats/unit/schema_coverage_spec.bats	every shipped setup.conf key is registered or an explicit free-form opt-out (#876)
+test/bats/unit/schema_coverage_spec.bats	no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)
+test/bats/unit/schema_spec.bats	_schema_section_keys returns the rule_ list key for image (#561, #876)
+test/bats/unit/schema_spec.bats	_schema_validate gates gui.mode the way the --gui flag does (#876)
+test/bats/unit/schema_spec.bats	_schema_validate gates image.rule_N against the dispatch prefixes (#876)
+test/bats/unit/schema_spec.bats	_schema_validate gates the [deploy] keys the resolver reads (#876)
+test/bats/unit/schema_spec.bats	_schema_validate gates the [security] keys the resolver reads (#876)
+test/bats/unit/schema_spec.bats	_schema_validate normalises logging.<svc> to the logging key set (accept)
+test/bats/unit/schema_spec.bats	_schema_validate normalises logging.<svc> to the logging key set (reject)
+test/bats/unit/schema_spec.bats	_schema_validate numeric validators are shape-only, not range-bound (#687)
+test/bats/unit/schema_spec.bats	_schema_validate rejects embedded-newline values (YAML injection) (#687)
+test/bats/unit/schema_spec.bats	_schema_validate routes deploy.gpu_count to _validate_gpu_count (accept)
+test/bats/unit/schema_spec.bats	_schema_validate routes deploy.gpu_count to _validate_gpu_count (reject)
+test/bats/unit/schema_spec.bats	_schema_validate routes logging.driver to _validate_log_driver (accept)
+test/bats/unit/schema_spec.bats	_schema_validate routes logging.driver to _validate_log_driver (reject)
+test/bats/unit/schema_spec.bats	_schema_validate routes network.port_N to _validate_port_mapping (accept)
+test/bats/unit/schema_spec.bats	_schema_validate routes network.port_N to _validate_port_mapping (reject)
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS an eligible job whose if: is a near-miss reword
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on a bare hostname label
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on a job calling a REMOTE reusable workflow
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on a new job whose runs-on is a label array
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on a new job with a literal self-hosted runs-on
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on a runner GROUP, which has no hosted reading
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS on the block-sequence runs-on form
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when a literal matrix contributes a non-hosted label
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when runs-on is a caller-supplied input expression
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when runs-on reads a matrix key the job never declares
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when the matrix is computed at runtime (fromJSON)
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when the workflow directory holds no workflow
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when the workflow directory is missing
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: FAILS when the workflows parse to zero jobs
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES a LOCAL reusable-workflow call
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES a literal GitHub-hosted runs-on with no guard
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES a literal matrix that resolves entirely to hosted labels
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES an eligible job that carries the guard alone
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: PASSES the arm + amd hosted families and a windows/macos runner
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: an unrelated job-level if: does not satisfy the guard
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: names the exact condition to paste in the failure message
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: scans every workflow in the directory, not a named list
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: the real repo tree has every eligible job guarded
+test/bats/unit/self_hosted_guard_lint_spec.bats	self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs
+test/bats/unit/smoke_harness_spec.bats	every harness COPY exemption is still a real devel-test COPY
+test/bats/unit/smoke_harness_spec.bats	just test smoke builds through the docker namespace, not a raw docker build (ADR-00000011 sec.5)
+test/bats/unit/smoke_harness_spec.bats	just test smoke is NOT wired into the default just test gate
+test/bats/unit/smoke_harness_spec.bats	just test smoke names the image it builds after the resolved project, not the directory (#891)
+test/bats/unit/smoke_harness_spec.bats	just test smoke resolves the tooling image and names the compose project (#896, #891)
+test/bats/unit/smoke_harness_spec.bats	runtime-test ships no specs, which is why the harness covers devel-test only
+test/bats/unit/smoke_harness_spec.bats	the harness asserts at BUILD time, exactly like the stage it stands in for
+test/bats/unit/smoke_harness_spec.bats	the harness exports BATS_LIB_PATH like the devel-test stage does
+test/bats/unit/smoke_harness_spec.bats	the harness has no compose image name to displace a sibling checkout's (#891)
+test/bats/unit/smoke_harness_spec.bats	the harness installs the entrypoint the shared smoke baseline asserts
+test/bats/unit/smoke_harness_spec.bats	the harness reproduces every devel-test COPY into /lint and /smoke_test
+test/bats/unit/smoke_harness_spec.bats	the harness runs the specs as a non-root user, after the COPYs
+test/bats/unit/smoke_harness_spec.bats	the smoke harness ships a dockerfile and a compose service that builds it
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: an unset XDG_SESSION_TYPE falls back to the X11 grant
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: errors when the wrapper path arg is missing
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: fails loudly when the wrapper makes no xhost call
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: fails when the wrapper exits non-zero
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: fails when the wrapper path does not exist
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: fails when the wrapper's lib/ cannot be located
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: reports every xhost call, one per line
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: wayland session grants +SI:localuser to the .env user
+test/bats/unit/smoke_helper_spec.bats	run_wrapper_xhost: x11 session grants +local:
+test/bats/unit/sourceable_scripts_spec.bats	self-location: every docker lib module loads with BASH_SOURCE unpopulated (#869)
+test/bats/unit/sourceable_scripts_spec.bats	self-location: the TUI wrapper loads with BASH_SOURCE unpopulated (#869)
+test/bats/unit/sourceable_scripts_spec.bats	self-location: the lib umbrella loads with BASH_SOURCE unpopulated (#869)
+test/bats/unit/sourceable_scripts_spec.bats	self-location: the self-test dispatcher loads with BASH_SOURCE unpopulated (#869)
+test/bats/unit/sourceable_scripts_spec.bats	self-location: the setup wrapper loads with BASH_SOURCE unpopulated (#869)
+test/bats/unit/sourceable_scripts_spec.bats	sourceable scripts: each loads and returns control to the caller (#869)
+test/bats/unit/sourceable_scripts_spec.bats	sourceable scripts: none leaves nounset or errexit on in its caller (#869)
+test/bats/unit/sourceable_scripts_spec.bats	sourceable scripts: the discovered set is non-empty and covers the known entry points (#869)
+test/bats/unit/template_new_spec.bats	new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)
+test/bats/unit/template_new_spec.bats	new.sh source ships with the executable bit set (recipe invokes it directly) (#785)
+test/bats/unit/template_spec.bats	Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)
+test/bats/unit/template_spec.bats	Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)
+test/bats/unit/template_spec.bats	Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)
+test/bats/unit/template_spec.bats	Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)
+test/bats/unit/template_spec.bats	Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)
+test/bats/unit/template_spec.bats	Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)
+test/bats/unit/template_spec.bats	Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)
+test/bats/unit/template_spec.bats	Dockerfile.example documents 3 builder/runtime split lessons (#239)
+test/bats/unit/template_spec.bats	Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)
+test/bats/unit/template_spec.bats	Dockerfile.example has no SETUP_DIR or pip references (#407)
+test/bats/unit/template_spec.bats	Dockerfile.example runtime-test does NOT set USER root (DL3002 regression guard)
+test/bats/unit/template_spec.bats	Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)
+test/bats/unit/template_spec.bats	Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)
+test/bats/unit/template_spec.bats	Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)
+test/bats/unit/template_spec.bats	Dockerfile.example states the /opt-not-$HOME baking convention (#799)
+test/bats/unit/template_spec.bats	Dockerfile.example top stage-list documents builder stage (#239)
+test/bats/unit/template_spec.bats	Dockerfile.test-tools branches case for amd64 and arm64
+test/bats/unit/template_spec.bats	Dockerfile.test-tools curl release downloads retry on transient failure (#550)
+test/bats/unit/template_spec.bats	Dockerfile.test-tools declares ARG TARGETARCH
+test/bats/unit/template_spec.bats	Dockerfile.test-tools fails loud on unsupported TARGETARCH
+test/bats/unit/template_spec.bats	Dockerfile.test-tools installs just (justfile entry-point execution in CI)
+test/bats/unit/template_spec.bats	all 7 wrappers call _run_post_hook with their own name (#440)
+test/bats/unit/template_spec.bats	all 7 wrappers call _run_pre_hook with their own name (#440)
+test/bats/unit/template_spec.bats	build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs
+test/bats/unit/template_spec.bats	build.sh + run.sh route setup/drift through _wrapper_setup_sync (#565)
+test/bats/unit/template_spec.bats	build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)
+test/bats/unit/template_spec.bats	build.sh _msg keys survive sourcing setup.sh (#101 behavioral)
+test/bats/unit/template_spec.bats	build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)
+test/bats/unit/template_spec.bats	dist/script/docker/lib/i18n.sh exists
+test/bats/unit/template_spec.bats	exec.sh -h works in /lint/ layout
+test/bats/unit/template_spec.bats	justfile.test carries no stale init/upgrade recipes at nonexistent root scripts (#779)
+test/bats/unit/template_spec.bats	lib/compose.sh defines _compose wrapper
+test/bats/unit/template_spec.bats	lib/compose.sh defines _compute_project_name helper
+test/bats/unit/template_spec.bats	lib/compose.sh is the ONLY producer of a project name (#893)
+test/bats/unit/template_spec.bats	lib/env.sh defines _load_env helper
+test/bats/unit/template_spec.bats	lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)
+test/bats/unit/template_spec.bats	lib/hook.sh skips both helpers under DRY_RUN (#440, #13)
+test/bats/unit/template_spec.bats	lib/wrapper.sh references .base/dist/script/docker/wrapper/setup.sh (#565)
+test/bats/unit/template_spec.bats	lib/wrapper.sh uses subprocess check-drift (#49 Phase B-1, #565)
+test/bats/unit/template_spec.bats	no inline _detect_lang fallbacks remain after dedupe (issue #104)
+test/bats/unit/template_spec.bats	run.sh -h works in /lint/ layout
+test/bats/unit/template_spec.bats	run.sh _app_cleanup runs post-hook before compose down (#440)
+test/bats/unit/template_spec.bats	runtime/entrypoint.sh sources the watchdog helper after logging (#797)
+test/bats/unit/template_spec.bats	runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)
+test/bats/unit/template_spec.bats	setup.sh defines _setup_msg, not _msg (closes #101)
+test/bats/unit/template_spec.bats	stop.sh -h works in /lint/ layout
+test/bats/unit/template_spec.bats	template no longer ships config/pip/ (#261 relocation regression guard)
+test/bats/unit/template_spec.bats	template no longer ships dockerfile/setup/ (#407, reverses #261)
+test/bats/unit/template_spec.bats	upgrade.sh reads version from <subtree-prefix>/.version
+test/bats/unit/upgrade_spec.bats	_get_latest_version: an early-closing reader cannot empty the tag scan (#905)
+test/bats/unit/upgrade_spec.bats	_get_latest_version: returns 0 with an empty result when the remote is unreachable
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default is a no-op without a vendored template baseline
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default is inert once the vendored template ships the new default
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone
+test/bats/unit/upgrade_spec.bats	_migrate_lifecycle_restart_default rewrites the stale template default, loudly
+test/bats/unit/upgrade_spec.bats	_verify_subtree_intact rolls back when .base/ dir is empty (#477)
+test/bats/unit/upgrade_spec.bats	_verify_subtree_intact rolls back when .base/ dir is missing (#477 destructive-FF detector)
+test/bats/unit/upgrade_spec.bats	_verify_subtree_intact rolls back when .base/.version is missing
+test/bats/unit/upgrade_spec.bats	_warn_config_drift silent when no .base/dist/config in HEAD
+test/bats/unit/upgrade_spec.bats	upgrade.sh calls _assert_not_template_source with the resolved subtree root
+test/bats/unit/upgrade_spec.bats	upgrade.sh captures pre-pull <subtree-prefix>/config tree hash
+test/bats/unit/upgrade_spec.bats	upgrade.sh sources lib/template_guard.sh
+test/bats/unit/upstream_spec.bats	a caller's TEMPLATE_REMOTE still wins over the shared default (#895)
+test/bats/unit/upstream_spec.bats	check-base-version.sh defaults BASE_REPO to the shared constant (#895)
+test/bats/unit/upstream_spec.bats	check-base-version.sh still resolves its default with no override set (#895)
+test/bats/unit/upstream_spec.bats	exactly one shipped file names the upstream in code (#895)
+test/bats/unit/upstream_spec.bats	init.sh defaults its version query to the shared constant (#895)
+test/bats/unit/upstream_spec.bats	upgrade.sh defaults TEMPLATE_REMOTE to the shared constant (#895)
+test/bats/unit/upstream_spec.bats	upstream.sh: defines the slug and derives the clone URL from it (#895)
+test/bats/unit/upstream_spec.bats	upstream.sh: reads nothing from the environment (#895)
+test/bats/unit/upstream_spec.bats	upstream.sh: sourcing it twice is inert (#895)

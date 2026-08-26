@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3074 tests** total (2927 unit + 147 integration).
+Template self-tests: **3099 tests** total (2952 unit + 147 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (12) and smoke (34) tests are tracked here
-> too but are **not** in the 3074 figure: System specs need host docker
+> too but are **not** in the 3099 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2927 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2952 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 147 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 12 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **3074**.
+Self-test grand total (unit + integration): **3099**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -92,6 +92,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |
+| `catalog-description` | every catalogue row below carries a description, ratcheted against `script/test/catalog-description-baseline.txt` | `lint-static (catalog-description)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are
@@ -106,6 +107,31 @@ not this table, is what keeps the list honest -- four lints shipped local-only
 before it existed, and `home-literal` / `bash-source-guard` /
 `early-close-reader` each joined the matrix in the same change that introduced
 them.
+
+## Writing a test description
+
+**The `Description` column in the catalogues below is required, and it
+answers WHY THIS CASE MATTERS.** What it defends, whether it is the
+load-bearing one, what breaks if it goes. It does **not** restate what the
+test does -- the `@test` name already does that, at length, which is the
+whole reason the column is worth a sentence:
+
+| Test | Description |
+|------|-------------|
+| `build.sh test: a fully CACHED verification stage is not reported as a pass` | The load-bearing case: every check CACHED reports that nothing ran |
+
+A description that restates the name is worse than no description, because
+it looks like information and passes the lint. If nothing comes to mind,
+the honest questions are "why did I write this case rather than stop at the
+one above it?" and "what would silently start passing if I deleted it?".
+
+`just test sync-docs` writes `-` into a new row; filling it in is the
+second half of adding a test, and the `catalog-description` lint fails the
+build until it is done. 714 rows carried `-` before the rule landed and are
+parked in `script/test/catalog-description-baseline.txt`, which may only
+**shrink** -- so nobody inherits a backfill, but renaming or moving a test
+drops it out of that file and forces a description. Touch it, describe it;
+leave it alone, leave it alone.
 
 ## Maintaining these docs
 
