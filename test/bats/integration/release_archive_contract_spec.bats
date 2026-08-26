@@ -73,6 +73,13 @@ _archive() {
   bash "${ARCHIVE}" "${MANIFEST}" "${DEST}"
 }
 
+# _manifest_declares <manifest> <path> -- succeed when <manifest> declares
+# <path> as a candidate of some payload entry.
+_manifest_declares() {
+  local _manifest="$1" _want="$2"
+  grep -F "${_want}" "${_manifest}" > /dev/null
+}
+
 # ── both historical smoke layouts, same workflow ─────────────────────────────
 
 @test "archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)" {
@@ -171,11 +178,30 @@ _archive() {
 
 @test "archive manifest: still declares every path the hardcoded cp list carried (#914)" {
   # The payload must not be pruned by accident while making it tolerant.
+  local _path
   for _path in 'Dockerfile' 'script/' '.hadolint.yaml' 'test/bats/smoke/' \
     'test/smoke/' '.base/' 'README.md' 'doc/'; do
-    run grep -F "${_path}" "${MANIFEST}"
+    run _manifest_declares "${MANIFEST}" "${_path}"
     assert_success
   done
+}
+
+@test "archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)" {
+  # The guard above is only worth its name if deleting a payload line makes it
+  # go red. The manifest's header prose names `Dockerfile`, `.base/` and
+  # `script/`'s wrappers in plain English, so any reader that searches the
+  # WHOLE FILE keeps answering "declared" for a payload that no longer
+  # declares anything -- the assertion is then satisfied by the comment that
+  # explains the entry rather than by the entry.
+  local _pruned="${TMP_DIR}/pruned.manifest"
+  grep -v '^optional|wrappers|' "${MANIFEST}" > "${_pruned}"
+
+  # The prose survives the deletion. This is the trap, pinned.
+  run grep -F 'script/' "${_pruned}"
+  assert_success
+
+  run _manifest_declares "${_pruned}" 'script/'
+  assert_failure
 }
 
 @test "archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)" {
