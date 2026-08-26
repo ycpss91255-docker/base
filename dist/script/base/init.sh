@@ -56,6 +56,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/_lib.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/template_guard.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -540,6 +542,32 @@ _init_existing_repo() {
   # ensure the base version monitor workflow exists; existing repos
   # pick it up on their next upgrade (upgrade.sh Step 3 re-runs init).
   _sync_base_monitor_workflow
+  _migrate_dockerfile
+}
+
+# _migrate_dockerfile
+#   Heal a repo-root Dockerfile (and its sibling entrypoint) that still
+#   names a layout a base release has since moved, via the shared
+#   declarative migration list.
+#
+#   Why HERE and not only in upgrade.sh: an upgrade is driven by the
+#   consumer's OWN vendored upgrade.sh, which shipped in an older release
+#   and cannot be changed retroactively. Every release up to v0.41.0
+#   carries its own hardcoded Dockerfile-patch step that knows only the
+#   paths that existed when it shipped, and it short-circuits ("already
+#   copies ... - skip") on exactly the lines the dist relocation deleted.
+#   The one piece of CURRENT code such an upgrade runs is this file,
+#   re-executed from the freshly pulled subtree as its resync step -- so
+#   this is the only place a new heal reaches a consumer upgrading FROM an
+#   old release rather than one already on the new one.
+#
+#   Every migration is idempotent, so the current upgrade.sh running the
+#   same dispatcher again at its own Step 5 is a no-op. It is also what
+#   makes `just base init` a repair command for a repo that has ALREADY
+#   taken a bad upgrade, where the version check short-circuits before any
+#   migration would run.
+_migrate_dockerfile() {
+  apply_migrations "${REPO_ROOT}/Dockerfile"
 }
 
 # _create_hook_stubs

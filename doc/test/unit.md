@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2827 tests**.
+Unit specs under `test/bats/unit/`: **2858 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -965,7 +965,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (44)
+### test/bats/unit/dockerfile_migrate_spec.bats (53)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -989,6 +989,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 1 (wrapper-copy): rewrites shape A 'COPY *.sh /lint/' (#567)` | - |
 | `migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)` | - |
 | `migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)` | - |
+| `migration 1 (wrapper-copy): the dispatcher lands shape A on the dist wrapper glob (#915)` | - |
 | `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
 | `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
@@ -999,6 +1000,14 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)` | - |
 | `migration 4 (logging-rename): detect false when already on new name (#567)` | - |
 | `migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)` | - |
+| `migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)` | - |
+| `migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)` | - |
+| `migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)` | - |
+| `migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)` | - |
+| `migration (flat-to-dist): rewrites the flat config COPY (#915)` | - |
+| `migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)` | - |
+| `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
+| `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
 | `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
 | `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
@@ -2290,7 +2299,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (53)
+### test/bats/unit/init_spec.bats (55)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2338,6 +2347,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix` | - |
 | `_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file` | - |
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
+| `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
+| `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
@@ -3152,21 +3163,28 @@ fails naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/build_sh_verify_spec.bats (10)
+### test/bats/unit/build_sh_verify_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
 | `build.sh test: a fully CACHED verification stage is not reported as a pass` | The load-bearing case: every check CACHED reports that nothing ran |
 | `build.sh test: an executed verification stage reports every check as executed` | A real run says so, and says nothing about caching |
 | `build.sh test: a partially cached stage names which checks were CACHED` | Per-step truth: a re-run bats over cached linters names both |
-| `build.sh test: build output with no recognisable steps fails the build` | No recognisable step is an error, never a silent pass |
-| `build.sh test: a check step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
+| `build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check` | The shipped `-test` idiom names none of the three known tools |
+| `build.sh e2e-test: a Playwright gate's own steps are what is reported` | A live consumer stage base has never seen, reported not failed |
+| `build.sh cli-test: a heredoc RUN step is reported like any other` | BuildKit shows only the header, so no rule may read the command |
+| `build.sh custom-test: a verification stage with no RUN step warns, it does not fail` | base can say nothing was checked, not that the stage is worthless |
+| `build.sh test: an install step in a side stage is not a check that ran` | A re-run toolchain stage may not read as a check over cached ones |
+| `build.sh test: a -test stage that only INSTALLS a tool is not reported as running it` | Installing shellcheck is not shellcheck running |
+| `build.sh test: a tool named only as an argument is not a step of the check` | Command position, not word presence, is what names an invocation |
+| `build.sh test: build output with no BuildKit progress lines fails the build` | The mechanism failing is the one thing still worth a non-zero exit |
+| `build.sh test: a step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
 | `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
 | `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (19)
+### test/bats/unit/changelog_entry_lint_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -3186,6 +3204,19 @@ fails naming the path and what its absence costs.
 | `_run_changelog_entry: FAILS on an over-long entry AFTER an allow-end (the region does not leak) (#917)` | - |
 | `_run_changelog_entry: FAILS on an unterminated allow-begin (#917)` | - |
 | `_run_changelog_entry: FAILS on an allow-end with no open allow-begin (#917)` | - |
+| `_run_changelog_entry: an entry that QUOTES the allow markers is prose, not a region (#917)` | - |
+| `_run_changelog_entry: a quoted allow marker does not silence the entries after it (#917)` | - |
+| `_run_changelog_entry: an unterminated allow-begin is reported AND what follows is still measured (#917)` | - |
+| `_run_changelog_entry: FAILS on one comment carrying BOTH allow markers (#917)` | - |
+| `_run_changelog_entry: the clean line reports how many entries an allow region suppressed (#917)` | - |
+| `_run_changelog_entry: a section whose only entry is allowed says so, not 'nothing to check' (#917)` | - |
+| `_run_changelog_entry: a heading shown inside a fenced example does not relocate the section (#917)` | - |
+| `_run_changelog_entry: a released heading inside a fenced example does not truncate the section (#917)` | - |
+| `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | - |
+| `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | - |
+| `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | - |
+| `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | - |
+| `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
