@@ -175,13 +175,15 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: runtime-test build step is gated on inputs.build_runtime" {
-  # Same gate as the runtime stage build, so agent/* repos
-  # (build_runtime: false) skip both cleanly. Asserts the gate appears
-  # at least twice in the file (once for runtime-test, once for runtime).
-  run grep -c '^        if: ${{ inputs.build_runtime }}$' "${WF}"
+@test "build-worker.yaml: runtime-test build step is gated on the resolved runtime answer" {
+  # Same gate as the runtime stage build, so a repo whose Dockerfile
+  # declares no runtime split skips both cleanly. The gate used to read
+  # `inputs.build_runtime` directly, the disagreement the resolver removed;
+  # it now reads the resolver step, asserted twice below (runtime-test and
+  # runtime).
+  run grep -c "^        if: \${{ steps.runtime.outputs.build_runtime == 'true' }}\$" "${WF}"
   assert_success
-  [[ "${output}" -ge 2 ]] || { echo "expected >=2 build_runtime gates, got ${output}"; return 1; }
+  [[ "${output}" -ge 2 ]] || { echo "expected >=2 runtime gates, got ${output}"; return 1; }
 }
 
 @test "build-worker.yaml: resolves the runtime gate from the caller's Dockerfile (#925)" {
