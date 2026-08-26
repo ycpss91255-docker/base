@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2824 tests**.
+Unit specs under `test/bats/unit/`: **2834 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -965,7 +965,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (44)
+### test/bats/unit/dockerfile_migrate_spec.bats (52)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -999,6 +999,14 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)` | - |
 | `migration 4 (logging-rename): detect false when already on new name (#567)` | - |
 | `migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)` | - |
+| `migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)` | - |
+| `migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)` | - |
+| `migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)` | - |
+| `migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)` | - |
+| `migration (flat-to-dist): rewrites the flat config COPY (#915)` | - |
+| `migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)` | - |
+| `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
+| `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
 | `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
 | `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
@@ -2289,7 +2297,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (53)
+### test/bats/unit/init_spec.bats (55)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2337,6 +2345,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix` | - |
 | `_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file` | - |
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
+| `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
+| `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
