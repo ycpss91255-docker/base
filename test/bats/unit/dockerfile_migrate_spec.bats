@@ -130,16 +130,32 @@ EOF
   ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${DF}"
 }
 
+# The settled shape is the DIST one: wrapper_copy writes the flat
+# .base/script/docker/wrapper/*.sh and flat_to_dist (which runs later in
+# the list, by design) carries it the rest of the way. A Dockerfile already
+# on the flat path is therefore not a fixed point of the dispatcher -- that
+# path no longer exists -- so the no-op fixture is the dist spelling.
 @test "migration 1 (wrapper-copy): idempotent — second run is a no-op (#567)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS lint
-COPY .base/script/docker/wrapper/*.sh /lint/
+COPY .base/dist/script/docker/wrapper/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 EOF
   cp "${DF}" "${DF}.orig"
   run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
   diff "${DF}" "${DF}.orig"
+}
+
+@test "migration 1 (wrapper-copy): the dispatcher lands shape A on the dist wrapper glob (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY *.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" "${DF}"
 }
 
 @test "migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)" {
@@ -298,6 +314,139 @@ EOF
   assert_success
   grep -Fq ". /usr/local/lib/base/logging.sh" "${TEMP_DIR}/script/entrypoint.sh"
   ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# ── migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
+# v0.41.0 shipped one flat smoke tree and the consumer Dockerfile copied it
+# whole. The shipped specs now live under dist/test/bats/smoke/ split into
+# shared/ + one folder per Dockerfile stage, so the flat COPY source is
+# gone. The migration rewrites the single COPY into the shared baseline
+# plus the enclosing stage's own folder, keeping the specs that stage used
+# to run instead of quietly dropping them.
+
+@test "migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/ /smoke_test/
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/" "${DF}"
+  ! grep -q '\.base/test/smoke/' "${DF}"
+  # The repo's OWN smoke COPY is not a base path and is left alone.
+  grep -Fq "COPY test/smoke/ /smoke_test/" "${DF}"
+}
+
+@test "migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS custom-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  ! grep -q 'smoke/custom-test/' "${DF}"
+}
+
+@test "migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}'"
+  assert_failure
+}
+
+# ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
+# The stable layout deployed on every consumer is the FLAT one: .base/config,
+# .base/script/... . The dist relocation deleted both. downstream_to_dist
+# only ever matched .base/downstream/, a layout that shipped as a
+# prerelease and that no stable consumer is on -- so nothing migrated the
+# layout that is actually out there, and the upgrade completed cleanly onto
+# a Dockerfile whose every base COPY source had just been deleted.
+
+@test "migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/script/docker/wrapper /lint/wrapper
+EOF
+  run bash -c "$(_src); _migrate_flat_to_dist_detect '${DF}' && _migrate_flat_to_dist_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
+  grep -Fq "COPY .base/dist/script/docker/wrapper /lint/wrapper" "${DF}"
+  ! grep -q '\.base/script/' "${DF}"
+}
+
+@test "migration (flat-to-dist): rewrites the flat config COPY (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+EOF
+  run bash -c "$(_src); _migrate_flat_to_dist_apply '${DF}'"
+  assert_success
+  grep -Fq '.base/dist/config "${CONFIG_DIR}"' "${DF}"
+}
+
+@test "migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+COPY .base/dist/config /tmp/config
+EOF
+  run bash -c "$(_src); _migrate_flat_to_dist_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
+  ! grep -q '\.base/dist/dist/' "${DF}"
+}
+
+# ── dispatcher over the whole v0.41.0 shape ─────────────────────────────────
+# The unit tests above drive one {detect, transform} pair each. This one
+# drives the dispatcher over the shape a real v0.41.0 consumer carries,
+# because ORDER is what decides whether the logrotate / watchdog twins are
+# generated from an already-dist-rooted logging COPY or from the flat one --
+# and appending two more COPYs of paths that no longer exist is a strictly
+# worse outcome than leaving the Dockerfile alone.
+
+@test "apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM ${BASE_IMAGE} AS devel
+# hadolint ignore=DL3006
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+
+FROM devel AS devel-test
+COPY .base/script/docker/lib /lint/lib
+COPY .base/script/docker/wrapper /lint/wrapper
+RUN shellcheck -S warning /lint/wrapper/*.sh /lint/lib/*.sh
+COPY .base/test/smoke/ /smoke_test/
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  # Nothing may still name the deleted flat layout -- including the
+  # logrotate / watchdog COPYs the dispatcher itself appends.
+  run grep -nE '\.base/(config|script|test)/' "${DF}"
+  assert_failure
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
 }
 
 # ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
