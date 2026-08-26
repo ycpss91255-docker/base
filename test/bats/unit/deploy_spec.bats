@@ -370,9 +370,9 @@ _write_headless_conf() {
   _generate_bundle_env "${_d}/.env" _ctx
   run cat "${_d}/.env"
   assert_success
-  assert_output --partial "APP_MODE=default"
-  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
-  assert_output --partial "WATCHDOG_INTERVAL=30"
+  assert_output --partial "APP_MODE='default'"
+  assert_output --partial "WATCHDOG_CHECK='pgrep -f my_node'"
+  assert_output --partial "WATCHDOG_INTERVAL='30'"
   rm -rf "${_d}"
 }
 

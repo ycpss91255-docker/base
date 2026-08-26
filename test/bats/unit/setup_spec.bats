@@ -885,7 +885,7 @@ EOF
   printf '\n[environment]\nenv_1 = ROS_DOMAIN_ID=42\n' >> "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  run grep -xF 'ROS_DOMAIN_ID=42' "${TEMP_DIR}/.env"
+  run grep -xF "ROS_DOMAIN_ID='42'" "${TEMP_DIR}/.env"
   assert_success
   run grep -F 'ROS_DOMAIN_ID' "${TEMP_DIR}/compose.yaml"
   assert_failure
@@ -1606,7 +1606,7 @@ EOC
   assert [ ! -f "${TEMP_DIR}/runtime.env" ]
   # The resolved (cross-ref expanded) values still reach the container --
   # through the generated .env now, not the compose environment: list.
-  run grep -xF 'BAR=bar_x' "${TEMP_DIR}/.env"
+  run grep -xF "BAR='bar_x'" "${TEMP_DIR}/.env"
   assert_success
 }
 

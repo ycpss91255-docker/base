@@ -224,6 +224,50 @@ EOF
 # Cache entries are fed to the shared expander as earlier siblings and then
 # dropped, so only the `[environment]` lines are emitted.
 # ════════════════════════════════════════════════════════════════════
+# _env_file_dq <value> <out_var>
+#
+# Render <value> as a SINGLE-quoted env_file scalar in <out_var>.
+#
+# An env_file is not YAML and not shell; it is compose's own dotenv
+# parser, and the other two forms it accepts both lose data on values this
+# tree legitimately produces. Unquoted, an inline " #" starts a comment, so
+# `NOTE=a #b` arrives as `a` and a watchdog check command or a token
+# silently loses its tail. Double-quoted, `${VAR}` is expanded and `\$`
+# does not stop it (measured against the real parser in
+# deploy_bundle_e2e_spec), so a reference deliberately left literal is
+# substituted away instead of reaching the container intact.
+#
+# Single-quoted, nothing is expanded and nothing is treated as a comment.
+# The parser unescapes `\'` -- and ONLY that; a `\\` stays two characters
+# -- so the delimiter is the one character that needs escaping and a
+# backslash must be passed through untouched. Both facts are measured, not
+# assumed: the e2e reads each shape back out of a running container.
+#
+# The one value this cannot express is one ENDING in a backslash: the
+# closing delimiter would read as escaped. That is a loud compose parse
+# error, not a silent wrong value, which is the right way round.
+_env_file_dq() {
+  local _v="${1-}"
+  local -n _efdq_out="${2:?"${FUNCNAME[0]}: missing out var"}"
+  # The delimiter and its escaped form as variables: a bare `'` inside a
+  # `${var//pat/rep}` pattern re-opens quoting to bash's own parser.
+  local _apos=\' _esc
+  _esc="\\${_apos}"
+  _v="${_v//"${_apos}"/"${_esc}"}"
+  _efdq_out="${_apos}${_v}${_apos}"
+}
+
+# _emit_env_file_line <KEY=VALUE>
+#   Print one quoted env_file assignment. A line with no `=` is not an
+#   assignment and is dropped rather than emitted as a malformed one.
+_emit_env_file_line() {
+  local _entry="${1-}"
+  [[ "${_entry}" == *=* ]] || return 0
+  local _k="${_entry%%=*}" _v="${_entry#*=}" _dq=""
+  _env_file_dq "${_v}" _dq
+  printf '%s=%s\n' "${_k}" "${_dq}"
+}
+
 write_container_env() {
   local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
   local _env_str="${2-}"
@@ -269,7 +313,7 @@ EOF
       local _i
       for (( _i = _cache_count; _i < ${#_wce_lines[@]}; _i++ )); do
         [[ -z "${_wce_lines[_i]}" ]] && continue
-        printf '%s\n' "${_wce_lines[_i]}"
+        _emit_env_file_line "${_wce_lines[_i]}"
       done
     fi
     if [[ -n "${_watchdog_env_str}" ]]; then
@@ -277,7 +321,7 @@ EOF
       local _wl
       while IFS= read -r _wl; do
         [[ -z "${_wl}" ]] && continue
-        printf '%s\n' "${_wl}"
+        _emit_env_file_line "${_wl}"
       done <<< "${_watchdog_env_str}"
     fi
   } > "${_out}"

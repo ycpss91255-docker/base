@@ -84,6 +84,9 @@ setup_file() {
     "[gui]" "mode = off" \
     "[environment]" "env_1 = APP_MODE=shipped-default" \
     "env_2 = APP_NOTE=a #b" \
+    'env_3 = APP_LIT=${NOT_SET_ANYWHERE}' \
+    'env_4 = APP_QB=a"b\c' \
+    "env_5 = APP_APOS=it's fine" \
     "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
     > "${REPO}/.setup.conf"
 
@@ -235,6 +238,32 @@ teardown_file() {
   run docker exec "${CNAME}" printenv APP_NOTE
   [ "${status}" -eq 0 ] || { echo "printenv APP_NOTE failed: ${output}"; false; }
   [[ "${output}" == "a #b" ]] || { echo "env_file value truncated; got: ${output}"; false; }
+
+  # ... and a `$` reaches the container as a `$`. The writer escapes it
+  # because a quoted env_file value is variable-expanded, and it must not
+  # be: an unresolved reference is left literal on purpose so a genuinely
+  # undefined name is visible rather than silently empty. Getting the
+  # escape wrong in the other direction leaks the backslash, which only a
+  # real parser can tell us.
+  # ... a `$` reaches the container as a `$`. The writer keeps it literal
+  # on purpose so a genuinely undefined name stays visible instead of
+  # silently resolving to empty -- and a double-quoted env_file value would
+  # have expanded it away.
+  run docker exec "${CNAME}" printenv APP_LIT
+  [ "${status}" -eq 0 ] || { echo "printenv APP_LIT failed: ${output}"; false; }
+  [[ "${output}" == '${NOT_SET_ANYWHERE}' ]] || { echo "reference expanded away; got: ${output}"; false; }
+
+  # ... a double quote and a backslash pass through unchanged (the parser
+  # does not unescape a doubled backslash, so the writer must not double
+  # one), and the quote character that delimits the value survives being
+  # inside it.
+  run docker exec "${CNAME}" printenv APP_QB
+  [ "${status}" -eq 0 ] || { echo "printenv APP_QB failed: ${output}"; false; }
+  [[ "${output}" == 'a"b\c' ]] || { echo "backslash mangled; got: ${output}"; false; }
+
+  run docker exec "${CNAME}" printenv APP_APOS
+  [ "${status}" -eq 0 ] || { echo "printenv APP_APOS failed: ${output}"; false; }
+  [[ "${output}" == "it's fine" ]] || { echo "delimiter escape mangled; got: ${output}"; false; }
 
   # The operator edits .env.local in the field and re-ups. No rebuild, no
   # regenerate, no edit to the machine-generated compose.yaml.

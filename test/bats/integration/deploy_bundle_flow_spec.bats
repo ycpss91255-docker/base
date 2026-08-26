@@ -167,9 +167,9 @@ teardown() {
   # not knowledge hidden inside the image.
   run cat "${_bundle}/.env"
   assert_success
-  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
-  assert_output --partial "WATCHDOG_INTERVAL=30"
-  assert_output --partial "APP_MODE=default"
+  assert_output --partial "WATCHDOG_CHECK='pgrep -f my_node'"
+  assert_output --partial "WATCHDOG_INTERVAL='30'"
+  assert_output --partial "APP_MODE='default'"
   # ... and the override file the operator edits ships alongside it.
   assert [ -f "${_bundle}/.env.local" ]
 }

@@ -1231,7 +1231,7 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'ROS_DOMAIN_ID=7' '${TEMP_DIR}/.env'
+    grep -F \"ROS_DOMAIN_ID='7'\" '${TEMP_DIR}/.env'
   "
   assert_success
 }
@@ -1427,7 +1427,7 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'MSG=a: b' '${TEMP_DIR}/.env'
+    grep -F \"MSG='a: b'\" '${TEMP_DIR}/.env'
   "
   assert_success
 }
@@ -1457,7 +1457,7 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'NOTE=a #b' '${TEMP_DIR}/.env'
+    grep -F \"NOTE='a #b'\" '${TEMP_DIR}/.env'
   "
   assert_success
 }
