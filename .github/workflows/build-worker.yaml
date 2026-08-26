@@ -660,7 +660,7 @@ jobs:
         # `FROM ... AS runtime-test` stage the template ships COMMENTED OUT.
         # Nothing checked that the two agreed, so every repo created from the
         # template was born asking buildx for a target that does not exist
-        # ("target stage \"runtime-test\" could not be found") and stayed red
+        # (`target stage "runtime-test" could not be found`) and stayed red
         # until someone edited one side by hand.
         #
         # The resolver reads the caller's Dockerfile and answers; the input
