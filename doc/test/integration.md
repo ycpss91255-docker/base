@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **142 tests**.
+Integration specs under `test/bats/integration/`: **147 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -294,3 +294,13 @@ vacuity is why the same defect shipped twice.
 |------|-------------|
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
+
+### test/bats/integration/init_rollback_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `just base init: the recipe passes straight through to init.sh (#937)` | - |
+| `just base init: a mid-migration failure leaves the consumer byte-identical (#937)` | - |
+| `just base init: the failed resync says it restored the files (#937)` | - |
+| `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
+| `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |

@@ -133,6 +133,8 @@ init_progress
 init_just_missing
 init_bootstrap_just
 init_failed
+init_rollback
+init_rollback_failed
 
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
