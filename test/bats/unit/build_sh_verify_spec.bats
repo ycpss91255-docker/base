@@ -1,17 +1,26 @@
 #!/usr/bin/env bats
 #
 # Unit tests for build.sh's verification-run report: the answer to "did
-# this build EXECUTE the stage's shellcheck / hadolint / bats steps, or
-# re-use CACHED layers?".
+# this build EXECUTE the verification stage's steps, or re-use CACHED
+# layers?".
 #
 # The failure this pins is asymmetric -- a fully-cached `-test` build always
 # looked like a passing one, because the wrapper printed the same thing
 # either way. So the interesting spec is not "a passing run says pass", it
 # is "a CACHED run cannot be read as a passing one", plus the two ways the
-# report itself can go wrong (nothing recognisable in the output, or a step
-# whose state never arrived). Both of those are FAILURES here: an
-# unreadable build output is not evidence, and silence must never be
-# reported as a pass.
+# report itself can go wrong (no progress steps in the captured output at
+# all, or a step whose state never arrived). Both of those are FAILURES
+# here: an unreadable build output is not evidence, and silence must never
+# be reported as a pass.
+#
+# The second half of the file is about WHOSE steps those are. base emits a
+# compose service for every `<stage>-test` in a consumer's Dockerfile, so
+# the report runs over stages base has never seen and cannot name the
+# commands of. Two symmetrical mistakes are pinned: refusing to call an
+# unfamiliar check a check (a Playwright gate, a heredoc RUN, the
+# template's own RUNTIME_SMOKE_CMD install-check -- each of which used to
+# exit 1 on a build that succeeded), and calling an INSTALL of a familiar
+# tool a check that ran.
 #
 # The build output is SYNTHESISED, never a real cache hit: arranging a real
 # one needs a daemon, a warm buildx cache and a stage that happens not to
@@ -242,15 +251,21 @@ EOF
   # the body never appears as a step at all -- so any rule that reads the
   # COMMAND to decide what a check is cannot see this stage's checks.
   export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
-#8 [cli-test 2/2] RUN <<EOF
+#7 [cli-test 2/3] RUN <<EOF
+#7 CACHED
+#8 [cli-test 3/3] RUN <<EOF
 #8 CACHED
 EOF
 )"
   run bash "${SANDBOX}/build.sh" cli-test
   assert_success
   narrow_to_report
+  assert_output --partial "all 2 check step"
   assert_output --partial "nothing ran in this invocation"
-  assert_output --partial "cli-test"
+  # Two steps with no command word to name them fall back to the stage,
+  # collapsed rather than repeated: "cli-test, cli-test" reads as a bug
+  # in the report rather than as two steps.
+  assert_output --partial "cli-test x2"
 }
 
 @test "build.sh custom-test: a verification stage with no RUN step warns, it does not fail" {
@@ -278,7 +293,8 @@ EOF
   # feeds stays fully cached, so this is the one shape that can produce
   # "something executed" over checks that all came from cache. Counting
   # the install as a check downgrades the load-bearing all-cached warning
-  # and names a tool that did not run -- #882's own failure, re-sourced.
+  # and names a tool that did not run -- the very failure this report
+  # exists to remove, re-sourced.
   export DOCKER_BUILD_OUTPUT="$(cat <<'EOF'
 #4 [tools 2/2] RUN apk add --no-cache bats shellcheck
 #4 DONE 6.1s
