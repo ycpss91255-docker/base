@@ -89,15 +89,18 @@ CONF
   _is_overlay_overridable "${_val}"
 }
 
-@test "overlay guard: every container_name: carries an interpolation (not a baked literal)" {
+@test "overlay guard: container_name: is never emitted at all (#920)" {
+  # The weaker predicate this replaces asked only that the value carry SOME
+  # interpolation, and `${USER_NAME}-myrepo-headless` satisfied it -- yet
+  # ${USER_NAME} is one string for all of a user's instances, so the name it
+  # produces is as global as a literal. A container name is namespaced by the
+  # daemon, not by the project, so no value of it can be per-instance safe;
+  # the only overlay-compatible container_name is an absent one, which lets
+  # compose derive <project>-<service>-<n>.
   _emit_exercised_compose
-  local _line _val
-  while IFS= read -r _line; do
-    [[ -z "${_line}" ]] && continue
-    _val="$(sed -E 's/^[[:space:]]*container_name:[[:space:]]*//' <<< "${_line}")"
-    _is_overlay_overridable "${_val}" \
-      || { echo "baked container_name literal: ${_val}"; return 1; }
-  done < <(grep -E '^[[:space:]]*container_name:' "${COMPOSE_OUT}")
+  local _found
+  _found="$(grep -nE '^[[:space:]]*container_name:' "${COMPOSE_OUT}" || true)"
+  [[ -z "${_found}" ]] || { echo "container_name emitted: ${_found}"; return 1; }
 }
 
 @test "overlay guard: network_mode: is an env interpolation, never a baked literal" {

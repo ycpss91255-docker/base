@@ -1,11 +1,12 @@
 #!/usr/bin/env bats
 #
 # Unit tests for dist/script/docker/wrapper/exec.sh argument handling, i18n log lines,
-# and the "container not running" guard. Mirrors the sandbox/mock strategy
+# and the "service not running" guard. Mirrors the sandbox/mock strategy
 # from build_sh_spec.bats / run_sh_spec.bats: a sandbox tree with symlinked
 # exec.sh, real _lib.sh / i18n.sh, and a PATH-shimmed `docker` stub whose
-# `docker ps` output is controlled by ${DOCKER_PS_FILE} so individual tests
-# can toggle "container running" state.
+# `docker compose ... ps` answer is controlled by ${COMPOSE_PS_FILE} (one
+# running SERVICE name per line) so individual tests can toggle "service
+# running" state.
 
 bats_require_minimum_version 1.5.0
 
@@ -36,23 +37,39 @@ setup() {
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
 
-  DOCKER_PS_FILE="${TEMP_DIR}/docker_ps.out"
-  export DOCKER_PS_FILE
-  : > "${DOCKER_PS_FILE}"
+  # One running SERVICE name per line -- the probe asks compose for the
+  # project's containers of ONE service, so the stub answers per service.
+  COMPOSE_PS_FILE="${TEMP_DIR}/compose_ps.out"
+  export COMPOSE_PS_FILE
+  : > "${COMPOSE_PS_FILE}"
 
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
-if [[ "$1" == "ps" ]]; then
-  cat "${DOCKER_PS_FILE}"
-  # Opt-in late write (${DOCKER_PS_LATE_FILE}): names that arrive only
-  # after a reader which stops reading has already left, so the write
-  # finds no reader. `exec` so the SIGPIPE is this stub's own exit
-  # status rather than being swallowed by the `exit 0` below.
-  if [[ -n "${DOCKER_PS_LATE_FILE:-}" ]]; then
-    sleep 0.2
-    exec cat "${DOCKER_PS_LATE_FILE}"
+# `docker compose [-p X -f Y ...] ps ... <service>` is the running probe:
+# answer it from ${COMPOSE_PS_FILE} instead of echoing the argv, so a
+# probe of a stopped service reads as empty output rather than as a
+# command echo. Every other compose verb keeps echoing (the dispatch
+# specs assert on that line).
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  for _arg in "$@"; do
+    [[ "${_arg}" == "ps" ]] && _is_ps=1
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    # Opt-in late write (${COMPOSE_PS_LATE_FILE}): ids that arrive only
+    # after a reader which stops reading has already left, so the write
+    # finds no reader. `exec` so the SIGPIPE is this stub's own exit
+    # status rather than being swallowed by the `exit 0` below.
+    if [[ -n "${COMPOSE_PS_LATE_FILE:-}" ]]; then
+      sleep 0.2
+      exec cat "${COMPOSE_PS_LATE_FILE}"
+    fi
+    exit 0
   fi
-  exit 0
 fi
 printf 'docker'
 printf ' %q' "$@"
@@ -145,63 +162,74 @@ teardown() {
   assert_success
 }
 
-@test "exec.sh runs docker compose exec when container is running" {
-  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+@test "exec.sh runs docker compose exec when the service is running" {
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run
   assert_success
   assert_output --partial "exec"
 }
 
-# ── -t <non-devel> precheck container name ──────────────────────
+# ── -t <non-devel> precheck is per SERVICE, inside the project ───
 
-@test "exec.sh -t <non-devel>: precheck name suffixes the target stage (#335)" {
-  # Previously the precheck always grepped `tester-mockimg` regardless of
-  # -t, so any non-devel target aborted with "not running". After the fix:
-  # -t devel    -> tester-mockimg
-  # -t headless -> tester-mockimg-headless
+@test "exec.sh -t <non-devel>: the precheck asks about the named service (#335)" {
+  # Previously the precheck always asked about the devel container
+  # regardless of -t, so any non-devel target aborted with "not running".
+  # The question is now `is service <TARGET> up in this project`, and the
+  # error says which service and which project.
   run bash "${SANDBOX}/exec.sh" -t headless
   assert_failure
-  assert_output --partial "tester-mockimg-headless"
-  refute_output --partial "'tester-mockimg' is not running"
+  assert_output --partial "headless"
+  assert_output --partial "mockuser-mockimg"
 }
 
-@test "exec.sh -t devel: precheck name has no stage suffix (parity, #335)" {
+@test "exec.sh -t devel: the precheck asks about the devel service (parity, #335)" {
   run bash "${SANDBOX}/exec.sh" -t devel
   assert_failure
-  assert_output --partial "tester-mockimg"
-  refute_output --partial "tester-mockimg-devel"
+  assert_output --partial "devel"
+  assert_output --partial "mockuser-mockimg"
 }
 
-@test "exec.sh -t headless: precheck name carries the stage suffix (#335)" {
-  # Order in compose.yaml: ${USER_NAME}-${IMAGE_NAME}-${TARGET}
+@test "exec.sh: the precheck never names a reconstructed container (#920)" {
+  # `${USER_NAME}-${IMAGE_NAME}` is a name nothing owns any more: with no
+  # container_name emitted, compose derives <project>-<service>-<n>. Naming
+  # the old string would send the user looking for a container that does
+  # not exist under that name.
   run bash "${SANDBOX}/exec.sh" -t headless
   assert_failure
-  assert_output --partial "tester-mockimg-headless"
+  refute_output --partial "tester-mockimg"
 }
 
-@test "exec.sh -t <non-devel>: precheck passes when matching container is running (#335)" {
-  echo "tester-mockimg-headless" > "${DOCKER_PS_FILE}"
+@test "exec.sh -t <non-devel>: precheck passes when that service is running (#335)" {
+  echo "headless" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" -t headless --dry-run
   assert_success
   assert_output --partial "exec"
 }
 
-@test "exec.sh: a docker ps still writing cannot make the precheck miss a running container (#905)" {
+@test "exec.sh: another service being up does not satisfy the precheck (#920)" {
+  # The probe is per service inside the project, not "anything is running".
+  echo "devel" > "${COMPOSE_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" -t headless
+  assert_failure
+  assert_output --partial "headless"
+}
+
+@test "exec.sh: a probe still writing cannot make the precheck miss a running service (#905)" {
   # Same inverted answer as run.sh's guard, taken through a NEGATION:
-  # `! docker ps ... | <reader>`. A reader that stops reading strands a
-  # `docker ps` still writing, exec.sh's file-scope `pipefail` makes the
-  # pipeline 141, the `if` reads that as "no match", and the `!` turns it
-  # into "not running" -- so exec.sh refuses a container that is running,
-  # exits 1, and tells the user to start it. Loud, and wrong.
+  # `! <probe> | <reader>`. A reader that stops reading strands a probe
+  # still writing, exec.sh's file-scope `pipefail` makes the pipeline 141,
+  # the `if` reads that as "no match", and the `!` turns it into "not
+  # running" -- so exec.sh refuses a service that is running, exits 1, and
+  # tells the user to start it. Loud, and wrong. The probe captures the
+  # whole stream instead of piping it into a reader that leaves early.
   #
-  # The matching name is written first so a real early-closing reader
+  # The matching id is written first so a real early-closing reader
   # genuinely matches and genuinely leaves; the late write then finds
   # nobody. Draining the whole stream is unaffected by either half.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
-  DOCKER_PS_LATE_FILE="${TEMP_DIR}/docker_ps.late"
-  export DOCKER_PS_LATE_FILE
-  echo "someone-elses-container" > "${DOCKER_PS_LATE_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
+  COMPOSE_PS_LATE_FILE="${TEMP_DIR}/compose_ps.late"
+  export COMPOSE_PS_LATE_FILE
+  echo "cid-someone-else" > "${COMPOSE_PS_LATE_FILE}"
 
   run bash "${SANDBOX}/exec.sh" -- true
   assert_success
@@ -211,8 +239,7 @@ teardown() {
 # ── -- flag/CMD separator ──────────────────────────────────────
 
 @test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
-  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
   assert_success
   assert_output --partial " ls /tmp"
@@ -224,8 +251,7 @@ teardown() {
 @test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
   # The whole point of -- is to send a CMD starting with a dash to the
   # container without exec.sh's own option parser capturing it.
-  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
   assert_success
   assert_output --partial "my-tool"
@@ -234,8 +260,7 @@ teardown() {
 }
 
 @test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
-  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
   assert_success
   assert_output --partial "echo hi"
@@ -243,8 +268,7 @@ teardown() {
 }
 
 @test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
-  # container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
   assert_success
   assert_output --partial "ls"
@@ -314,8 +338,9 @@ teardown() {
     echo "DOCKER_HUB_USER=altuser"
   } > "${ALT}/.env.generated"
 
-  # Make `docker ps` claim the alt container is running so exec proceeds.
-  echo "altuser-altimg" > "${DOCKER_PS_FILE}"
+  # Make the probe claim the alt project's devel service is up so exec
+  # proceeds.
+  echo "devel" > "${COMPOSE_PS_FILE}"
 
   run bash "${SANDBOX}/exec.sh" -C "${ALT}" --dry-run
   assert_success
@@ -337,7 +362,7 @@ teardown() {
     echo "IMAGE_NAME=altimg2"
     echo "DOCKER_HUB_USER=altuser2"
   } > "${ALT}/.env.generated"
-  echo "altuser2-altimg2" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
 
   run bash "${SANDBOX}/exec.sh" --chdir "${ALT}" --dry-run
   assert_success
@@ -414,7 +439,7 @@ teardown() {
 # the target name.
 
 @test "exec.sh --dry-run with no CMD: no -T (default interactive bash entry, #382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run
   assert_success
   assert_output --partial "exec devel"
@@ -422,42 +447,42 @@ teardown() {
 }
 
 @test "exec.sh --dry-run with interactive binary (htop): no -T (auto-detect doesn't fire, #382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run htop
   assert_success
   refute_output --partial "exec -T"
 }
 
 @test "exec.sh --dry-run bash -c '...': auto-detect adds -T (#382 Option 2)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run bash -c 'echo hi'
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run sh -c '...': auto-detect adds -T (#382 Option 2)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run sh -c 'echo hi'
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run dash -c '...': auto-detect adds -T (#382 Option 2)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run dash -c 'echo hi'
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run zsh -c '...': auto-detect adds -T (#382 Option 2)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run zsh -c 'echo hi'
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run bash hello.sh: no -T (no -c → not a one-shot, #382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run bash hello.sh
   assert_success
   refute_output --partial "exec -T"
@@ -466,14 +491,14 @@ teardown() {
 @test "exec.sh --dry-run -T whoami: explicit -T forces no-TTY (#382 Option 1)" {
   # Heuristic doesn't fire (whoami isn't bash/sh + -c); explicit -T
   # covers this leaked-output case.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -T whoami
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run --no-tty long form forces no-TTY (#382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run --no-tty whoami
   assert_success
   assert_output --partial "exec -T devel"
@@ -482,7 +507,7 @@ teardown() {
 @test "exec.sh --dry-run -T env BAR=1 bash -c '...': covers auto-detect's heuristic gap (#382)" {
   # `env` is the first positional so the bash + -c heuristic misses;
   # explicit -T is the escape hatch for this case.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -T env BAR=1 bash -c 'echo $BAR'
   assert_success
   assert_output --partial "exec -T devel"
@@ -491,14 +516,14 @@ teardown() {
 @test "exec.sh --dry-run -i bash -c '...': explicit -i overrides heuristic (#382 Option 1)" {
   # User wants TTY for `bash -c 'tput cols'`-style commands; -i wins
   # over the auto-detect -T.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -i bash -c 'tput cols'
   assert_success
   refute_output --partial "exec -T"
 }
 
 @test "exec.sh --dry-run --tty long form overrides heuristic (#382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run --tty bash -c 'tput cols'
   assert_success
   refute_output --partial "exec -T"
@@ -506,21 +531,21 @@ teardown() {
 
 @test "exec.sh --dry-run -T -i: last-wins gives TTY (#382)" {
   # Standard CLI last-wins precedence. -T then -i → -i (TTY).
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -T -i bash -c 'echo hi'
   assert_success
   refute_output --partial "exec -T"
 }
 
 @test "exec.sh --dry-run -i -T: last-wins gives no-TTY (#382)" {
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -i -T bash -c 'echo hi'
   assert_success
   assert_output --partial "exec -T devel"
 }
 
 @test "exec.sh --dry-run -T after -t TARGET still attaches to the right service (#382)" {
-  echo "tester-mockimg-headless" > "${DOCKER_PS_FILE}"
+  echo "headless" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -t headless -T whoami
   assert_success
   assert_output --partial "exec -T headless"
@@ -528,7 +553,7 @@ teardown() {
 
 @test "exec.sh --dry-run -- separator: -T propagates, CMD flows through (#382 + #289)" {
   # The -- separator stops exec.sh option parsing. -T must be BEFORE --.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -T -- my-tool --version
   assert_success
   assert_output --partial "exec -T devel"
@@ -552,18 +577,27 @@ teardown() {
 # `./exec.sh false` / `./exec.sh my-test` propagate a container-command
 # failure for scripting/CI (exec.sh: `_compose_project exec ...;
 # _exec_rc=$?; ...; return "${_exec_rc}"`). The default docker stub in
-# this file always exits 0 for non-`ps` calls, so a non-zero container
+# this file always exits 0 for non-probe calls, so a non-zero container
 # exit was never exercised. _exec_rc_fixture swaps in a docker stub whose
 # `compose exec` exits ${DOCKER_EXEC_RC}, so a test can drive the wrapper
 # exit code. Mirrors run_sh_spec's _exit_code_fixture pattern.
 _exec_rc_fixture() {
-  # Container running so the not-running guard passes and exec proceeds.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  # Service running so the not-running guard passes and exec proceeds.
+  echo "devel" > "${COMPOSE_PS_FILE}"
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
-if [[ "$1" == "ps" ]]; then
-  cat "${DOCKER_PS_FILE}"
-  exit 0
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  for _a in "$@"; do
+    [[ "${_a}" == "ps" ]] && _is_ps=1
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    exit 0
+  fi
 fi
 _has_exec=0
 for _a in "$@"; do

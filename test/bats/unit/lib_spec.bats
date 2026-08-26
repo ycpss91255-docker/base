@@ -162,6 +162,20 @@ EOF
   assert_output "alice-myrepo"
 }
 
+@test "_compute_project_name falls back to USER_NAME when the hub user is unset (#920)" {
+  # The wrapper's pre-bootstrap path derives the same name setup records,
+  # so the OS-user fallback has to be visible from here too -- otherwise a
+  # repo with no .env.generated lands in a project named after nobody.
+  run bash -c "
+    source ${LIB}
+    USER_NAME=tester IMAGE_NAME=myrepo
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  assert_success
+  assert_output "tester-myrepo"
+}
+
 @test "_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)" {
   # The wrapper's -p and compose.yaml's `name:` must be ONE value. That
   # value is resolved once at setup time and recorded in .env.generated;
@@ -200,7 +214,7 @@ EOF
 @test "_resolve_project_name: a configured name is used verbatim (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name 'myrepo-wt2' alice myrepo /tmp/whatever _out
+    _resolve_project_name 'myrepo-wt2' alice tester myrepo /tmp/whatever _out
     echo \"\${_out}\"
   "
   assert_success
@@ -210,7 +224,55 @@ EOF
 @test "_resolve_project_name: empty configured name derives the historical default (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name '' alice myrepo /tmp/whatever _out
+    _resolve_project_name '' alice tester myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "alice-myrepo"
+}
+
+@test "_resolve_project_name: a configured name still wins over the OS user (#920)" {
+  # The project name is now the ONLY per-host isolation the emitted stack
+  # has, so the setting that overrides it has to keep overriding it.
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name 'myrepo-wt2' '' tester myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "myrepo-wt2"
+}
+
+@test "_resolve_project_name: an unset hub user falls back to the OS user (#920)" {
+  # DOCKER_HUB_USER is frequently unset, and the literal 'local' it used to
+  # fall back to is the SAME string for every OS user on the host. With the
+  # per-container name gone, that would put two users' whole stacks in one
+  # project -- the collision promoted, not fixed. The OS user is the
+  # identity that is always set and always differs.
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name '' '' tester myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "tester-myrepo"
+}
+
+@test "_resolve_project_name: two OS users derive distinct project names (#920)" {
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name '' '' alice myrepo /tmp/whatever _a
+    _resolve_project_name '' '' bob   myrepo /tmp/whatever _b
+    echo \"\${_a} \${_b}\"
+  "
+  assert_success
+  assert_output "alice-myrepo bob-myrepo"
+}
+
+@test "_resolve_project_name: the hub user still wins over the OS user (#920)" {
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name '' alice tester myrepo /tmp/whatever _out
     echo \"\${_out}\"
   "
   assert_success
@@ -220,7 +282,7 @@ EOF
 @test "_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name '' '' '' /tmp/some-checkout _out
+    _resolve_project_name '' '' '' '' /tmp/some-checkout _out
     echo \"\${_out}\"
   "
   assert_success

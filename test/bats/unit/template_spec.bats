@@ -319,8 +319,8 @@ setup() {
 # of grepping the `_app_cleanup` identifier (renamed in).
 
 @test "run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)" {
-  # non-devel + no CMD uses foreground `compose up` so container_name
-  # takes effect (Dockerfile CMD runs).
+  # non-devel + no CMD uses foreground `compose up` so the Dockerfile CMD
+  # runs.
   run grep -E 'up "?\$\{TARGET\}"?' /source/dist/script/docker/wrapper/run.sh
   assert_success
   # non-devel + CMD uses `compose run --rm` so the ENTRYPOINT runs
@@ -416,18 +416,32 @@ setup() {
 # exec.sh container precheck (PR B)
 # ════════════════════════════════════════════════════════════════════
 
-@test "exec.sh checks container is running before exec" {
-  # The precheck asks the shared probe rather than spelling `docker ps`
+@test "exec.sh checks the service is running before exec (#920)" {
+  # The precheck asks the shared probe rather than spelling the query
   # inline: run.sh asks the identical question, and the two inline copies
   # were identical down to the `| grep -qx` that made both of them answer
   # backwards. Assert the seam from both ends -- exec.sh calls the probe,
-  # and the probe is the thing that queries the daemon -- so this stays a
-  # check that the precheck EXISTS rather than a pin on where the string
-  # `docker ps` happens to sit today.
-  run grep -F '_wrapper_container_running' /source/dist/script/docker/wrapper/exec.sh
+  # and the probe is the thing that asks compose -- so this stays a check
+  # that the precheck EXISTS rather than a pin on the exact query.
+  #
+  # The question is asked of the PROJECT now, not of the daemon's global
+  # container-name namespace: with no container_name emitted, a derived name
+  # is compose's to compute, and `compose ps` is where it is already known.
+  run grep -F '_wrapper_service_running' /source/dist/script/docker/wrapper/exec.sh
   assert_success
-  run grep -E 'docker (ps|inspect)' /source/dist/script/docker/lib/wrapper.sh
+  run grep -E '_compose_project ps' /source/dist/script/docker/lib/wrapper.sh
   assert_success
+}
+
+@test "no wrapper reconstructs a container name from USER_NAME (#920)" {
+  # The derived-name reconstruction is what made the precheck a second
+  # answerer to "what is this container called". Compose owns that name now;
+  # nothing in the wrappers may assemble one to compare against.
+  local _hit
+  _hit="$(grep -rn '\${USER_NAME}-\${IMAGE_NAME}' \
+            /source/dist/script/docker/wrapper /source/dist/script/docker/lib \
+            2>/dev/null || true)"
+  [[ -z "${_hit}" ]] || { echo "container name reconstructed: ${_hit}"; return 1; }
 }
 
 @test "exec.sh precheck error mentions run.sh hint" {

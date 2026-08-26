@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2927 tests**.
+Unit specs under `test/bats/unit/`: **2936 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -40,7 +40,7 @@ What that means when you edit:
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (54)
+### test/bats/unit/lib_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -58,10 +58,15 @@ What that means when you edit:
 | `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
 | `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
+| `_compute_project_name falls back to USER_NAME when the hub user is unset (#920)` | OS-user fallback (pre-bootstrap path) |
 | `_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)` | - |
 | `_compose_project passes the resolved PROJECT_NAME to -p (#893)` | - |
 | `_resolve_project_name: a configured name is used verbatim (#893)` | - |
 | `_resolve_project_name: empty configured name derives the historical default (#893)` | - |
+| `_resolve_project_name: a configured name still wins over the OS user (#920)` | `[project] name` keeps priority |
+| `_resolve_project_name: an unset hub user falls back to the OS user (#920)` | OS user, not the literal `local` |
+| `_resolve_project_name: two OS users derive distinct project names (#920)` | multi-user isolation with no config |
+| `_resolve_project_name: the hub user still wins over the OS user (#920)` | precedence unchanged |
 | `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
 | `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
@@ -1099,10 +1104,11 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (67)
+### test/bats/unit/run_sh_spec.bats (69)
 
-Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
-`docker ps` reads from a controllable stub file so tests can simulate
+Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the
+`docker compose ... ps` probe reads from a controllable stub file (one
+running service name per line) so tests can simulate
 "container already running" scenarios.
 
 Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on
@@ -1149,9 +1155,9 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (58)
+### test/bats/unit/exec_sh_spec.bats (59)
 
-Unit tests for `exec.sh` argument parsing, the container-running
+Unit tests for `exec.sh` argument parsing, the service-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
 `docker ps` reads from a controllable stub file so tests can toggle
 "container running" state without a real docker daemon. `.env` is
@@ -1578,7 +1584,7 @@ per-instance field fails immediately.
 |------|-------------|
 | `overlay guard predicate rejects a baked literal, accepts an interpolation` | self-check discrimination |
 | `overlay guard: project name: is an overlay interpolation` | name interpolated |
-| `overlay guard: every container_name: carries an interpolation (not a baked literal)` | container_name interpolated |
+| `overlay guard: container_name: is never emitted at all (#920)` | no container name to collide on |
 | `overlay guard: network_mode: is an env interpolation, never a baked literal` | network_mode interpolated |
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
@@ -1822,7 +1828,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (155)
+### test/bats/unit/template_spec.bats (156)
 
 | Test | Description |
 |------|-------------|
@@ -1882,7 +1888,8 @@ builds the env block only for the knobs the conf sets.
 | `run.sh -h shows --dry-run in help` | --dry-run help |
 | `exec.sh -h shows --dry-run in help` | --dry-run help |
 | `stop.sh -h shows --dry-run in help` | --dry-run help |
-| `exec.sh checks container is running before exec` | precheck |
+| `exec.sh checks the service is running before exec (#920)` | precheck asks compose |
+| `no wrapper reconstructs a container name from USER_NAME (#920)` | compose owns the derived name |
 | `exec.sh precheck error mentions run.sh hint` | friendly hint |
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |

@@ -306,7 +306,7 @@ EOF
   assert_output "2"
 }
 
-@test "auto-emit: each emitted stage carries target / image / container_name / profiles" {
+@test "auto-emit: each emitted stage carries target / image / profiles and no container_name" {
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS base
@@ -325,10 +325,11 @@ EOF
   # template's [image] rules — exact value irrelevant; pattern matters)
   run grep -E '^    image: \$\{DOCKER_HUB_USER:-local\}/[a-z0-9_-]+:headless$' "${TEMP_DIR}/compose.yaml"
   assert_success
-  # container_name: ${USER_NAME} prefix (multi-user disambiguation)
-  # + ${IMAGE_NAME}-headless
-  run grep -E '^    container_name: \$\{USER_NAME\}-[a-z0-9_-]+-headless$' "${TEMP_DIR}/compose.yaml"
-  assert_success
+  # No container_name: the daemon's container-name namespace is flat and
+  # global, so a name emitted here pins the stage to one instance per host
+  # and makes compose refuse `--scale`.
+  run grep -F 'container_name:' "${TEMP_DIR}/compose.yaml"
+  assert_failure
   # profiles list contains the stage name
   run grep -F '      - headless' "${TEMP_DIR}/compose.yaml"
   assert_success
@@ -912,7 +913,7 @@ EOF
   # not merge devel's X11 list back in.
   refute_output --partial "extends:"
   refute_output --partial "service: devel"
-  # Standalone block has its own image / container_name / target.
+  # Standalone block has its own image / target.
   assert_output --partial "target: headless"
   assert_output --partial ":headless"
   # No X11 anywhere in the headless block.

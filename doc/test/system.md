@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **12 tests**.
+System specs under `test/bats/system/`: **15 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -146,3 +146,17 @@ at all.
 | `the smoke harness runs the shipped specs and they pass` | The shipped specs, unmodified, pass in the harness -- and bats reported a plan, so an empty `/smoke_test` cannot pass by doing nothing |
 | `the smoke harness runs the specs as a non-root user` | Fixture specs reading `id -u` and attempting a write into `/lint` prove the runtime identity, not just the Dockerfile's `USER` line |
 | `the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)` | Negative case: a deliberately failing spec fails the build, so a future `\|\| true` cannot turn the entry point into a report that always says green |
+
+### test/bats/system/compose_multi_stack_e2e_spec.bats (3)
+
+Two stacks of ONE repo, co-hosted, driven against a real daemon. Compose
+is what refuses a duplicate container name and what refuses to scale a
+service that declares one, so neither question can be answered by reading
+the emitted file -- these run it. The fixture is a real repo put through
+`setup apply` (the emitter is the subject) and needs no bind mounts.
+
+| Test | Description |
+|------|-------------|
+| `co-hosted stacks: two project names bring the SAME repo up twice (#920)` | Both `up`s succeed and land in their own project, with project-scoped names |
+| `co-hosted stacks: tearing one down leaves the other running (#920)` | Project-scoped teardown reaps one stack and leaves the co-hosted one alone |
+| `--scale: one service runs as more than one container (#920)` | `--scale devel=2` yields two running containers instead of a refusal |

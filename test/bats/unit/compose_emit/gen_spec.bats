@@ -1054,10 +1054,11 @@ DOCK
   # image tag is :runtime (not :devel)
   run grep -E '^    image:.*:runtime$' "${COMPOSE_OUT}"
   assert_success
-  # container_name: ${USER_NAME} prefix (multi-user disambiguation)
-  # + -runtime stage suffix
-  run grep -F 'container_name: ${USER_NAME}-myrepo-runtime' "${COMPOSE_OUT}"
-  assert_success
+  # No container_name: a fixed name is global to the daemon, so it pins the
+  # stage to one instance per host and makes compose refuse `--scale`. The
+  # name compose derives instead is project-scoped.
+  run grep -F 'container_name:' "${COMPOSE_OUT}"
+  assert_failure
   # non-interactive (runtime is headless auto-run, Dockerfile CMD drives)
   run grep -E '^    stdin_open: false$' "${COMPOSE_OUT}"
   assert_success
@@ -1307,7 +1308,6 @@ services:
         USER_UID: ${USER_UID}
         USER_GID: ${USER_GID}
     image: ${DOCKER_HUB_USER:-local}/myrepo:devel
-    container_name: ${USER_NAME}-myrepo
     privileged: ${PRIVILEGED}
     ipc: ${IPC_MODE}
     stdin_open: true
@@ -1349,7 +1349,6 @@ services:
       dockerfile: Dockerfile
       target: devel-test
     image: ${DOCKER_HUB_USER:-local}/myrepo:test
-    container_name: ${USER_NAME}-myrepo-test
     stdin_open: false
     tty: false
     profiles:
@@ -1370,7 +1369,6 @@ services:
         USER_UID: ${USER_UID}
         USER_GID: ${USER_GID}
     image: ${DOCKER_HUB_USER:-local}/myrepo:headless
-    container_name: ${USER_NAME}-myrepo-headless
     stdin_open: false
     tty: false
     profiles:
