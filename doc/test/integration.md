@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **147 tests**.
+Integration specs under `test/bats/integration/`: **148 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -304,3 +304,9 @@ vacuity is why the same defect shipped twice.
 | `just base init: the failed resync says it restored the files (#937)` | - |
 | `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
 | `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |
+
+### test/bats/integration/init_installed_paths_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `the printed manifest equals what the resync installs (refs #927)` | - |
