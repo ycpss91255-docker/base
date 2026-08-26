@@ -39,6 +39,27 @@
   silently drops it). See the re-pointed frozen-path list note below.
   This reverses #262, which had nested setup.conf under `config/docker/`
   for layout uniformity.
+- **Amended:** 2026-08-25 by #915 -- the 2026-06-24 amendment above was
+  wrong on one point, and a consumer paid for it. It records that Region
+  A's `init.sh` call "moved in the same change" as the file, which is
+  true of THIS repo's copy and irrelevant to the failure: the copy of
+  `upgrade.sh` that drives an upgrade is the CONSUMER'S, vendored at
+  their current release, and it cannot be updated in lockstep with
+  anything because it has already shipped. Every release up to
+  `v0.41.0` still names `./${TEMPLATE_REL}/init.sh`, so on the first
+  upgrade into a `dist/`-era tree step 3 died with exit 127 -- after
+  the pull had committed -- leaving the repo claiming `v0.42.0` with a
+  clean `git status` and every wrapper dangling. **The correction to the
+  contract:** lockstep is necessary but NOT sufficient for any path an
+  ALREADY-RELEASED caller names. Such a path must keep a forwarder at
+  the old location for as long as a release that names it is supported.
+  A repo-root `init.sh` now forwards to `dist/script/base/init.sh`; it
+  is three lines with no logic of its own, so it cannot drift from the
+  implementation, and it restores one name rather than the flat layout.
+  The regression guard is behavioural rather than remembered:
+  `test/bats/integration/prev_release_upgrade_spec.bats` runs the real
+  released `upgrade.sh` against the current tree, so the next move of a
+  frozen path fails in CI instead of at a consumer's terminal.
 
 ## Context
 

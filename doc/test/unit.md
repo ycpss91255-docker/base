@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2826 tests**.
+Unit specs under `test/bats/unit/`: **2856 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1992,7 +1992,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (107)
+### test/bats/unit/ci_spec.bats (108)
 
 | Test | Description |
 |------|-------------|
@@ -2065,6 +2065,7 @@ builds the env block only for the knobs the conf sets.
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
+| `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | - |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -3177,3 +3178,40 @@ fails naming the path and what its absence costs.
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
+### test/bats/unit/build_sh_verify_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `build.sh test: a fully CACHED verification stage is not reported as a pass` | The load-bearing case: every check CACHED reports that nothing ran |
+| `build.sh test: an executed verification stage reports every check as executed` | A real run says so, and says nothing about caching |
+| `build.sh test: a partially cached stage names which checks were CACHED` | Per-step truth: a re-run bats over cached linters names both |
+| `build.sh test: build output with no recognisable steps fails the build` | No recognisable step is an error, never a silent pass |
+| `build.sh test: a check step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
+| `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
+| `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
+| `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
+| `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
+| `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
+### test/bats/unit/changelog_entry_lint_spec.bats (19)
+
+| Test | Description |
+|------|-------------|
+| `_run_changelog_entry: FAILS on an [Unreleased] entry over the cap (#917)` | - |
+| `_run_changelog_entry: names the entry's line, its measured length and the cap (#917)` | - |
+| `_run_changelog_entry: reports EVERY over-long entry, not just the first (#917)` | - |
+| `_run_changelog_entry: the SAME text rewrapped across continuation lines still FAILS (#917)` | - |
+| `_run_changelog_entry: the SAME text re-shaped into sub-bullets still FAILS (#917)` | - |
+| `_run_changelog_entry: the measure is unchanged by re-indenting a passing entry (#917)` | - |
+| `_run_changelog_entry: PASSES an entry of exactly the cap (#917)` | - |
+| `_run_changelog_entry: FAILS an entry one character over the cap (#917)` | - |
+| `_run_changelog_entry: PASSES a structured entry -- short lead plus a sub-list (#917)` | - |
+| `_run_changelog_entry: an over-long entry in a RELEASED section is never checked (#917)` | - |
+| `_run_changelog_entry: stops at the next '## [' heading, not at the end of file (#917)` | - |
+| `_run_changelog_entry: an empty [Unreleased] passes and SAYS it checked nothing (#917)` | - |
+| `_run_changelog_entry: an allow region suppresses the entry inside it (#917)` | - |
+| `_run_changelog_entry: FAILS on an over-long entry AFTER an allow-end (the region does not leak) (#917)` | - |
+| `_run_changelog_entry: FAILS on an unterminated allow-begin (#917)` | - |
+| `_run_changelog_entry: FAILS on an allow-end with no open allow-begin (#917)` | - |
+| `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |

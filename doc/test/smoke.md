@@ -103,11 +103,16 @@ devel-shaped harness and labelling the result `runtime-test` would be a
 false green. A unit test fails the day `smoke/runtime-test/` gains a spec,
 which is when that decision is due.
 
-**A `CACHED` run is a true statement, not a skipped one.** The specs, the
-wrappers and the lib chain are all COPYed in the layers directly above
-`RUN bats`, so touching any of them invalidates it; a cache hit means
-these exact inputs already passed. Use `--no-cache` when you want to watch
-it happen anyway.
+**A `CACHED` run is a true statement, not a skipped one -- and it now says
+so.** The specs, the wrappers and the lib chain are all COPYed in the
+layers directly above `RUN bats`, so touching any of them invalidates it;
+a cache hit means these exact inputs already passed. What used to be left
+to the reader is that a cache hit and a real run printed the same thing,
+so `just test smoke` could be read as evidence of a run that never
+happened. The build wrapper now reports which check steps executed and
+which were CACHED, and an all-cached run warns that this invocation
+verified nothing. Use `--no-cache` when you want to watch it happen
+anyway.
 
 **Not part of the default `just test`.** That gate is the fast self-test
 -- no daemon, no image build -- and these are a different level: a

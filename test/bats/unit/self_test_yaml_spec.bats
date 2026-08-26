@@ -890,11 +890,11 @@ _render_run_names() {
   # assert nothing at all, which is the exact failure mode this test
   # exists to prevent. Pin both the size and the four lints this issue
   # wired.
-  [ "${#_tools[@]}" -ge 11 ] \
+  [ "${#_tools[@]}" -ge 13 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
   for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal \
-    bash-source-guard i18n-orphan early-close-reader; do
+    bash-source-guard i18n-orphan early-close-reader changelog-entry; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

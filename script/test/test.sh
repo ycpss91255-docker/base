@@ -23,6 +23,7 @@
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
 #                             # --self-hosted-guard-only.
+#                             # --changelog-entry-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -111,6 +112,8 @@ source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 # shellcheck source=script/test/drivers/self_hosted_guard.sh
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
+# shellcheck source=script/test/drivers/changelog_entry.sh
+source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -140,6 +143,7 @@ readonly _LINT_TOOLS=(
   derived-figures
   i18n-orphan
   self-hosted-guard
+  changelog-entry
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -207,6 +211,7 @@ _run_lint_tool() {
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
+    changelog-entry)  _run_changelog_entry ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -306,6 +311,13 @@ Options:
                           carry the same-repository condition, so fork-PR
                           code can never execute on the org's self-hosted
                           machine)
+  --changelog-entry       With --lint: run only the changelog entry length
+                          lint ([Unreleased] entries only; measured over the
+                          whole entry with whitespace collapsed, so
+                          rewrapping the same prose or splitting it into
+                          sub-bullets buys no budget. Released sections are
+                          never checked -- rewriting a shipped entry
+                          falsifies it)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -329,6 +341,7 @@ Options:
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
+                            --changelog-entry-only   pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -416,6 +429,7 @@ Examples:
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
+  ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -457,6 +471,27 @@ _validate_spec_target() {
   [[ -e "${REPO_ROOT}/${_path}" ]] \
     || _die ci_bats_path_not_found \
       "No such spec file or directory: ${_path} (path is repo-root-relative, resolved as \${REPO_ROOT}/${_path})."
+}
+
+# ── Released-tree fixture ────────────────────────────────────────────────────
+
+# _prepare_prev_release
+#   Materialise the last few RELEASED trees into .prev-release/ so
+#   test/bats/integration/prev_release_upgrade_spec.bats can run their
+#   upgrade.sh against this tree.
+#
+#   Host-side, and it has to be: the suite runs in a container that
+#   bind-mounts the checkout, and a worktree checkout's `.git` is a file
+#   pointing at a path outside that mount, so no in-container git command
+#   can read the tags. The host can, always.
+#
+#   Skipped for the lint-only dispatches -- they run no bats at all, and a
+#   fresh CI checkout would otherwise pay a tag fetch per lint job.
+_prepare_prev_release() {
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  "${REPO_ROOT}/script/test/prepare-prev-release.sh"
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
@@ -671,6 +706,9 @@ _run_via_compose() {
   # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
+  # Fixture the released-caller spec reads. Prepared here because this is
+  # the last point that still runs on the host, where git works.
+  _prepare_prev_release
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.
@@ -758,6 +796,7 @@ main() {
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
+      --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -770,6 +809,7 @@ main() {
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
+      --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -807,6 +847,7 @@ main() {
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
   # `--self-hosted-guard-only`) short-circuit
+  # `--changelog-entry-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain
