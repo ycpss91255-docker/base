@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2855 tests**.
+Unit specs under `test/bats/unit/`: **2862 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2298,7 +2298,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (55)
+### test/bats/unit/init_spec.bats (62)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2364,6 +2364,13 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_error: carries a registered event id under LOG_FORMAT=json (#876)` | - |
 | `_error: text output is framed like every other init record (#876)` | - |
 | `_error: the human message rides the display attribute (#876)` | - |
+| `_init_protected_paths: covers the .env pair the env-naming rename moves (#937)` | - |
+| `_init_protected_paths: covers every root the resync writes into (#937)` | - |
+| `_init_restore_tree: an .env moved to .env.local is put back (#937)` | - |
+| `_init_restore_tree: removes what the resync created (#937)` | - |
+| `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
+| `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
+| `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
 
 ### test/bats/unit/smoke_helper_spec.bats (28)
 
