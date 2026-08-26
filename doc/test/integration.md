@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **146 tests**.
+Integration specs under `test/bats/integration/`: **147 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -264,7 +264,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
 | `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
 
-### test/bats/integration/release_archive_contract_spec.bats (10)
+### test/bats/integration/release_archive_contract_spec.bats (11)
 
 Drives `script/ci/release-archive.sh` against the REAL shipped payload
 manifest (`script/ci/release/archive.manifest`) over synthesised consumer
@@ -285,6 +285,7 @@ vacuity is why the same defect shipped twice.
 | `archive manifest: a tree with no .base/ subtree fails, naming .base/ (#914)` | Mandatory gap fails naming `.base/`, never `cp: cannot stat` |
 | `archive manifest: declares exactly two required entries (Dockerfile and .base/) (#914)` | Pins the mandatory set so widening it is a deliberate, reviewed edit |
 | `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
+| `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
 
 ### test/bats/integration/prev_release_upgrade_spec.bats (2)

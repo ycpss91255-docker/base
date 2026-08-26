@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2862 tests**.
+Unit specs under `test/bats/unit/`: **2927 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -452,7 +452,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (50)
+### test/bats/unit/build_worker_yaml_spec.bats (52)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -550,7 +550,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (101)
+### test/bats/unit/self_test_yaml_spec.bats (104)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -789,7 +789,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (14)
+### test/bats/unit/release_test_tools_yaml_spec.bats (15)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -840,7 +840,7 @@ behaviour is covered by `release_archive_spec.bats` and
 | Assembler is version-matched to the worker (`job_workflow_sha`, checkout path) | 2 |
 | Caller input reaches the step via `env:`, never run-block interpolation | 2 |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (11)
+### test/bats/unit/publish_worker_yaml_spec.bats (12)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -1822,7 +1822,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (154)
+### test/bats/unit/template_spec.bats (155)
 
 | Test | Description |
 |------|-------------|
@@ -1970,6 +1970,7 @@ builds the env block only for the knobs the conf sets.
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
 | `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
+| `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
@@ -3131,7 +3132,7 @@ host so the boundary between them can be asserted at all.
 | `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
 | `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |
 
-### test/bats/unit/release_archive_spec.bats (24)
+### test/bats/unit/release_archive_spec.bats (26)
 
 Unit coverage for `script/ci/release-archive.sh`, the payload assembler
 the reusable release worker runs at tag time. Synthetic manifests over
@@ -3161,12 +3162,100 @@ fails naming the path and what its absence costs.
 | `release-archive: an extra_file escaping the repo root is refused, not copied out (#914)` | `..` in a caller path would write outside the archive: refused |
 | `release-archive: an absolute extra_file path is refused (#914)` | Same guard for an absolute caller path |
 | `release-archive: an unknown manifest kind fails loudly, naming it (#914)` | Fail closed: a typo'd kind never decides whether a path is archived |
+| `release-archive: an entry declaring no candidate path is a config error, not an absent path (#914)` | An empty `<paths>` column is a typo, and a typo is not an absence |
+| `release-archive: an entry missing a column is a config error, not a nameless report (#914)` | A short line under-declares the entry: refused, never half-read |
 | `release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)` | An empty payload is a config error, not an empty release |
 | `release-archive: an all-optional manifest matching nothing refuses to build an empty archive (#914)` | Tolerance stops short of uploading an empty tarball as a release |
 | `release-archive: a missing manifest file is a config error` | Config error (exit 2), distinct from a payload gap |
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
+
+Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the
+weekly job that prunes untagged orphan digests from the base-owned
+`test-tools` package on GHCR.
+
+A scheduled job against a real registry cannot be exercised from here —
+there is no local GHCR, and a real run's only honest test is a real run.
+So the spec pins the workflow's SHAPE instead, on the theory that the
+ways this goes catastrophically wrong are all edits to the file:
+
+- **The footgun.** `actions/delete-package-versions` with
+  `delete-only-untagged-versions` calls anything the packages API reports
+  as untagged a candidate without opening a manifest, so it deletes the
+  per-arch children of a LIVE tag and `docker pull` starts 404ing. The
+  spec asserts neither the action nor that input appears in the file's
+  code (the header comment names both on purpose, to say why they are
+  absent, so the assertions run over comment-stripped lines).
+- **The safety inputs.** `delete-untagged` is the only delete rule
+  enabled, `older-than` keeps a retention window, `exclude-tags`
+  preserves the tags downstream Dockerfiles pin, `validate` surfaces a
+  lost platform child in the log, and the tagged / partial-image rules
+  stay off.
+- **Dry-run defaults.** Enforcement is opt-in through the
+  `GHCR_CLEANUP_ENFORCE` repository variable, so a scheduled run deletes
+  nothing until a human has read a dry run. `dry-run` is resolved in a
+  step rather than an `a && b || c` expression, because that idiom
+  collapses to `c` exactly on the dispatch-with-dry-run-false branch.
+- **Scope and pinning.** One owner, one package, no wildcard expansion;
+  the action pinned to an immutable commit SHA rather than a floating tag
+  a third party can move under a job holding `packages: write`.
+
+| Test | Description |
+|------|-------------|
+| `ghcr-cleanup.yaml: never uses actions/delete-package-versions` | The unsafe action never returns: its untagged filter never opens a manifest |
+| `ghcr-cleanup.yaml: never sets delete-only-untagged-versions` | The specific input that breaks live tags, named separately from the action |
+| `ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action` | The action that resolves manifest references is the one in use |
+| `ghcr-cleanup.yaml: pins the cleanup action to an immutable commit SHA` | A moved tag would hand deletion rights over our package to unreviewed code |
+| `ghcr-cleanup.yaml: records the pinned action's version in a trailing comment` | Keeps the SHA readable; the form Dependabot rewrites on bump |
+| `ghcr-cleanup.yaml: enables delete-untagged as the delete rule` | Untagged orphans are the only thing this job collects |
+| `ghcr-cleanup.yaml: leaves the tagged-image delete rules off` | `delete-tags` / ghost / partial / orphaned can remove TAGGED versions: absent |
+| `ghcr-cleanup.yaml: keeps a retention window via older-than` | Without it, a run overlapping a release eats the by-digest pushes pre-merge |
+| `ghcr-cleanup.yaml: preserves the tags downstream consumers pin` | `latest`, `main` and the `v*` series are a strict preserve list |
+| `ghcr-cleanup.yaml: enables the post-run multi-arch validate scan` | A lost platform child shows in the log, not at someone's `docker pull` |
+| `ghcr-cleanup.yaml: dry-run is computed, never hardcoded false` | The rollout safety net cannot be removed by flipping one literal |
+| `ghcr-cleanup.yaml: workflow_dispatch dry-run input defaults to true` | A manual run previews unless the operator asks otherwise |
+| `ghcr-cleanup.yaml: scheduled runs stay dry until GHCR_CLEANUP_ENFORCE opts in` | An unfinished rollout costs sprawl, never a broken tag |
+| `ghcr-cleanup.yaml: a dispatch deletes only on a literal false, not on anything-but-true` | Fail-safe, not fail-open: an unexpected input value resolves to dry-run |
+| `ghcr-cleanup.yaml: resolves dry-run in a step, not an && \|\| expression` | `a && b || c` collapses to `c` on the one branch that deletes |
+| `ghcr-cleanup.yaml: targets exactly the test-tools package` | One owner, one package: the one base publishes and owns |
+| `ghcr-cleanup.yaml: does not enable wildcard package expansion` | `expand-packages` would widen this to every package in the org |
+| `ghcr-cleanup.yaml: runs on a cron schedule` | The job is scheduled, not merely dispatchable |
+| `ghcr-cleanup.yaml: cron avoids the top of the hour` | GitHub delays scheduled runs that pile onto `:00` |
+| `ghcr-cleanup.yaml: supports manual workflow_dispatch` | The dry-run review and one-off cleans need a manual entry point |
+| `ghcr-cleanup.yaml: declares packages: write and no broader write scope` | Enough to delete package versions, no more |
+| `ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete` | Two actors mutating the package concurrently, or a killed delete, is not a state to design for |
+### test/bats/unit/self_hosted_guard_lint_spec.bats (25)
+
+| Test | Description |
+|------|-------------|
+| `self-hosted guard: FAILS on a new job with a literal self-hosted runs-on` | - |
+| `self-hosted guard: FAILS on a new job whose runs-on is a label array` | - |
+| `self-hosted guard: FAILS on the block-sequence runs-on form` | - |
+| `self-hosted guard: FAILS on a runner GROUP, which has no hosted reading` | - |
+| `self-hosted guard: FAILS when a literal matrix contributes a non-hosted label` | - |
+| `self-hosted guard: FAILS when the matrix is computed at runtime (fromJSON)` | - |
+| `self-hosted guard: FAILS when runs-on is a caller-supplied input expression` | - |
+| `self-hosted guard: FAILS when runs-on reads a matrix key the job never declares` | - |
+| `self-hosted guard: FAILS on a job calling a REMOTE reusable workflow` | - |
+| `self-hosted guard: FAILS on a bare hostname label` | - |
+| `self-hosted guard: names the exact condition to paste in the failure message` | - |
+| `self-hosted guard: PASSES a literal GitHub-hosted runs-on with no guard` | - |
+| `self-hosted guard: PASSES the arm + amd hosted families and a windows/macos runner` | - |
+| `self-hosted guard: PASSES a literal matrix that resolves entirely to hosted labels` | - |
+| `self-hosted guard: PASSES a LOCAL reusable-workflow call` | - |
+| `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
+| `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
+| `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
+| `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
+| `self-hosted guard: FAILS when the workflow directory is missing` | - |
+| `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
+| `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
+| `self-hosted guard: scans every workflow in the directory, not a named list` | - |
+| `self-hosted guard: the real repo tree has every eligible job guarded` | - |
+| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
+### test/bats/unit/build_sh_verify_spec.bats (17)
 ### test/bats/unit/build_sh_verify_spec.bats (17)
 
 | Test | Description |
@@ -3224,3 +3313,16 @@ fails naming the path and what its absence costs.
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
+
+### test/bats/unit/prev_release_gating_spec.bats (8)
+
+| Test | Description |
+|------|-------------|
+| `prev-release gate: --bats-path over a unit spec dispatches with no release tags` | - |
+| `prev-release gate: --bats-fragile dispatches with no release tags` | - |
+| `prev-release gate: a shard that does not carry the spec dispatches with no release tags` | - |
+| `prev-release gate: --lint dispatches with no release tags` | - |
+| `prev-release gate: --bats-integration refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
+| `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |

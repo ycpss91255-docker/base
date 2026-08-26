@@ -1177,7 +1177,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 25353d9e9485 0165dd0e6930 -->
+<!-- sync: directory-structure cdf5e1772b27 807021cee6fe -->
 ## ディレクトリ構造
 
 ```
@@ -1251,7 +1251,8 @@ just --list  # CI ターゲット表示
 │       ├── release-worker.yaml         # 再利用可能な release（source archive）workflow
 │       ├── publish-worker.yaml         # 再利用可能な image publish workflow（opt-in）
 │       ├── multi-distro-build-worker.yaml # マルチ distro build workflow
-│       └── release-test-tools.yaml     # base 自身の test-tools image release
+│       ├── release-test-tools.yaml     # base 自身の test-tools image release
+│       └── ghcr-cleanup.yaml           # GHCR 上の test-tools untagged orphan を毎週整理
 ├── doc/
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）

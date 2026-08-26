@@ -77,14 +77,16 @@ so explicitly.
 | 00000023 -- config field-override + self-contained field-deploy contract | elevates-invariant (8) | invariant 8 (dev/field separation, provisioned by opposite means) -- established with ADR-00000003 | The git-tracked provisioning axis, baked-default + mount-wins `-v` override (file analog of ADR-3's env `-e`), deploy-as-resolved-self-contained-compose (amends ADR-3's "compose does not travel"), the deployable-stage rule, and the `config/<component>/deploy.manifest` tunability channel. Reconciled with ADR-00000022 (single-file config `-v` != general volume topology). Mechanism in #831 / #832 / #833. **Amended twice in-file (#874):** sec. 2 now states the mount-override is read-only by default with an explicit `rw` opt-in (#870), and sec. 4's `deployable = not devel and not *-test` is restated as what `_is_deployable_stage` actually enforces (it also rejects `sys` / `devel-base` and the legacy aliases). |
 | 00000024 -- bake self-built artifacts at `/opt`, not `$HOME` | keep | invariant 8 (dev/field separation) -- mechanism; also invariant 2 via the `home-literal` lint | `ENV HOME` resolves at BUILD time, so anything baked under `$HOME` is coupled to the build-time `USER_NAME` and breaks on a rebuild / GHCR pull / `docker save`+`load` under a different user. Artifacts go to absolute `/opt`; `~/x -> /opt/x` is a discoverability symlink nothing sources. Its mechanical rule (no concrete username in a path) is gated by the `home-literal` lint. |
 | 00000025 -- per-worktree `.setup.conf.local` override + one resolved project name | elevates-invariant (9) | invariant 9 (runtime-name divergence is a file-recorded override) -- established; also invariant 2 (shadowed-write warning, deploy refusal, config-summary row) and invariant 8 (the field refusal) | Third conf layer (`.setup.conf.local`, gitignored, section-replace like the two below it), `[project] name` shipped empty, and `_resolve_project_name` as the single producer both `-p` and compose's `name:` read via `.env.generated`. Un-retires the `.gitignore` entry #879 retired. Removes `SETUP_CONF`. Explicitly NOT a reversal of #600 (configuration, not orchestration) and NOT ADR-00000022's channel (acts before compose.yaml is generated) -- **amends ADR-00000022 in-file** with that division of labour and the `${PROJECT_NAME}` row. |
+| 00000026 -- self-hosted eligibility is a static property of `runs-on` | keep | invariant 7 (rigorous test bar) -- mechanism; also invariant 2 (the `self-hosted-guard` lint, and the fork-PR rollup failure instead of a vacuous green) | The org runs ONE org-level self-hosted runner in a `visibility: all` / `allows_public_repositories: true` group, on a shared workstation, and this repo is public. Eligibility is computed from `runs-on` (anything that does not statically resolve to a reserved `ubuntu-*` / `windows-*` / `macos-*` label is eligible and fails closed), so the guard cannot be missed by job N+1 the way `_LINT_TOOLS` / the downstream roster / the release archive path list each were. Enforced by the `self-hosted-guard` lint; `ci-rollup` fails a fork PR rather than collapsing a guarded skip into a green required check. Prerequisite named by ADR-00000017. |
 
 ## Audit conclusion
 
-- **keep:** 15 (00000001, 00000002, 00000003, 00000005, 00000006,
+- **keep:** 16 (00000001, 00000002, 00000003, 00000005, 00000006,
   00000007, 00000008, 00000012, 00000013, 00000014, 00000015, 00000016,
-  00000017, 00000021, 00000024) -- 00000003 is `keep (amended by
-  00000023)`, the amendment recorded inline in-file. 00000024 postdates
-  the audit itself and is listed for index completeness.
+  00000017, 00000021, 00000024, 00000026) -- 00000003 is `keep (amended
+  by 00000023)`, the amendment recorded inline in-file. 00000024 and
+  00000026 postdate the audit itself and are listed for index
+  completeness.
 - **supersede:** 1 (00000004, by 00000012 -- already recorded)
 - **elevates-invariant:** 8 (00000010, 00000011 -> inv 6; 00000018 -> inv
   7; 00000019 -> inv 4; 00000020 -> inv 1; 00000022 -> inv 3; 00000023 ->

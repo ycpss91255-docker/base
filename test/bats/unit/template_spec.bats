@@ -1575,6 +1575,28 @@ EOF
   assert_failure
 }
 
+# _manifest_declares <manifest> <path> -- succeed when <manifest> declares
+# <path> as a candidate of some payload entry.
+#
+# Reads the assembler's own `--list` view of the parsed entries and compares
+# whole candidate tokens, so ONLY the paths column can satisfy it. Matching
+# anywhere in a declaration line also matches the description column, where
+# the wrappers entry names `.base/` and the hadolint entry names
+# `Dockerfile` -- one entry's prose then stands in for another entry's
+# payload.
+_manifest_declares() {
+  local _manifest="$1" _want="$2" _line _candidate
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ^[[:space:]]+paths:[[:space:]](.*)$ ]] || continue
+    for _candidate in ${BASH_REMATCH[1]}; do
+      if [[ "${_candidate}" == "${_want}" ]]; then
+        return 0
+      fi
+    done
+  done < <(bash /source/script/ci/release-archive.sh --list "${_manifest}")
+  return 1
+}
+
 @test "release archive payload still declares Dockerfile + script/ + .base/" {
   # Positive guard: making the payload tolerant of absence must not become
   # an excuse to drop entries from it. The user-facing wrappers ship via
@@ -1582,11 +1604,29 @@ EOF
   # asserts `script/` rather than the removed root `build.sh`.
   local _manifest="/source/script/ci/release/archive.manifest"
   [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
-  run grep -E '^(required|optional)\|' "${_manifest}"
-  assert_success
-  assert_output --partial 'Dockerfile'
-  assert_output --partial 'script/'
-  assert_output --partial '.base/'
+  local _path
+  for _path in 'Dockerfile' 'script/' '.base/'; do
+    run _manifest_declares "${_manifest}" "${_path}"
+    assert_success
+  done
+}
+
+@test "release archive payload guard is not satisfied by another entry's description" {
+  # A manifest line is <kind>|<key>|<paths>|<description>|<consequence>, so a
+  # reader that matches anywhere in the line also matches the prose in the
+  # description column. `.base/` and `Dockerfile` both appear there (the
+  # wrappers entry describes itself as symlinks into `.base/`; the hadolint
+  # entry describes the `Dockerfile` lint config), so the guard above would
+  # keep answering "declared" for an entry that has been deleted -- satisfied
+  # by another entry's description rather than by the payload it names.
+  local _manifest="/source/script/ci/release/archive.manifest"
+  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  grep -v '^required|base-subtree|' "${_manifest}" > "${_tmp}/pruned.manifest"
+  run _manifest_declares "${_tmp}/pruned.manifest" '.base/'
+  rm -rf "${_tmp}"
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════
