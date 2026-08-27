@@ -16,7 +16,21 @@ on:
         required: false
         type: boolean
         default: true
-        description: "Whether to build runtime stage"
+        description: |
+          Opt OUT of the runtime / runtime-test build steps (#925).
+
+          Whether the stages EXIST is read from your Dockerfile, not from
+          this input: the worker builds them when it declares
+          `FROM ... AS runtime` + `FROM ... AS runtime-test`, and skips them
+          when it does not. So the default `true` means "build the runtime
+          split if there is one" -- a repo with no runtime stage needs no
+          change here, and uncommenting the template's runtime blocks is the
+          whole action needed to turn a runtime build on.
+
+          Pass `false` only for the repo that ships the stages but
+          deliberately does not want them built in CI. A Dockerfile that
+          declares one half of the pair fails the resolve step naming both
+          stages, rather than deep inside buildx.
       test_tools_version:
         required: false
         type: string
@@ -639,6 +653,31 @@ jobs:
             HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
 
+      - name: Resolve runtime stages from the Dockerfile
+        # #925 -- the Dockerfile is the single source of truth for whether
+        # this repo has a runtime split. It used to be stated twice: here as
+        # the caller's `build_runtime` input (default true) and there as the
+        # `FROM ... AS runtime-test` stage the template ships COMMENTED OUT.
+        # Nothing checked that the two agreed, so every repo created from the
+        # template was born asking buildx for a target that does not exist
+        # (`target stage "runtime-test" could not be found`) and stayed red
+        # until someone edited one side by hand.
+        #
+        # The resolver reads the caller's Dockerfile and answers; the input
+        # survives only as an opt-OUT (a repo that HAS the stages and does not
+        # want them built in CI). A Dockerfile declaring half the pair fails
+        # here naming both stages, instead of as an opaque buildx error.
+        # Same push-down + version-match pattern as the cache-scope resolver:
+        # the script comes from .worker-base at the worker's own ref, and this
+        # step keeps only the GITHUB_OUTPUT plumbing (ADR-00000018).
+        id: runtime
+        env:
+          DOCKERFILE: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          BUILD_RUNTIME: ${{ inputs.build_runtime }}
+        run: |
+          effective="$(bash .worker-base/script/ci/build_worker/runtime_stages.sh)"
+          echo "build_runtime=${effective}" >> "${GITHUB_OUTPUT}"
+
       - name: Build runtime-test stage (install check)
         # Mirrors the devel-test pattern (#243): ephemeral stage
         # FROM runtime, runs an inline `RUN <smoke>` so build failure
@@ -652,9 +691,10 @@ jobs:
         # (rqt, rviz2, gazebo-classic). Prefer `<binary> --help`,
         # `command -v <binary>`, package manager queries.
         #
-        # Gated by `inputs.build_runtime` so agent/* repos with no
-        # runtime stage skip cleanly.
-        if: ${{ inputs.build_runtime }}
+        # Gated on the resolver above, so a repo whose Dockerfile
+        # declares no runtime split skips cleanly with no second
+        # declaration to keep in sync.
+        if: ${{ steps.runtime.outputs.build_runtime == 'true' }}
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
@@ -674,7 +714,7 @@ jobs:
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
-        if: ${{ inputs.build_runtime }}
+        if: ${{ steps.runtime.outputs.build_runtime == 'true' }}
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
