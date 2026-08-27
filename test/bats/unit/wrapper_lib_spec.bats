@@ -349,8 +349,12 @@ EOS
 # The stub answers `docker ps --all --quiet --filter label=...`: the
 # projects named in ${DOCKER_OCCUPIED} own one container each, every other
 # project owns none, and DOCKER_PS_RC makes the daemon unreachable
-# instead. `docker compose ... ps` answers the service probe from
-# ${COMPOSE_PS_SERVICES} for the project passed in `-p`.
+# instead. `docker volume ls --quiet --filter label=...` is the second
+# half of the same question -- the projects in ${DOCKER_VOLUMED} own one
+# named volume each, DOCKER_VOLUME_RC makes that query fail -- and the two
+# are separate knobs because the case that matters is a project with a
+# volume and NO container. `docker compose ... ps` answers the service
+# probe from ${COMPOSE_PS_SERVICES} for the project passed in `-p`.
 
 _make_docker_stub() {
   local _bin="${TEMP_DIR}/bin"
@@ -376,6 +380,17 @@ if [[ "$1" == "ps" ]]; then
   fi
   for _p in ${DOCKER_OCCUPIED:-}; do
     [[ "${_p}" == "${_project}" ]] && printf 'cid-%s\n' "${_p}"
+  done
+  exit 0
+fi
+
+if [[ "$1" == "volume" ]]; then
+  if [[ -n "${DOCKER_VOLUME_RC:-}" ]] && (( DOCKER_VOLUME_RC != 0 )); then
+    printf 'Cannot connect to the Docker daemon\n' >&2
+    exit "${DOCKER_VOLUME_RC}"
+  fi
+  for _p in ${DOCKER_VOLUMED:-}; do
+    [[ "${_p}" == "${_project}" ]] && printf '%s_mydata\n' "${_p}"
   done
   exit 0
 fi
@@ -446,6 +461,61 @@ _seed_recorded_repo() {
   MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
   assert_success
   assert_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a rename is NOT adopted while the old project still holds named volumes (#920)" {
+  # `stop` runs `compose down` WITHOUT -v, so a torn-down stack routinely
+  # leaves its named volumes behind. Counting containers alone would read
+  # that project as empty, adopt the rename, and let compose create a
+  # fresh EMPTY volume under the new name -- the user's data left in an
+  # orphan no wrapper addresses and `prune --volumes` later deletes.
+  local R="${TEMP_DIR}/pending_volumes"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED=""
+  export DOCKER_VOLUMED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "still holds named volumes"
+  # And NOT the containers wording: './stop.sh' does not clear a volume,
+  # so sending the user there would be sending them nowhere.
+  refute_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a project holding BOTH containers and volumes is reported as containers (#920)" {
+  # The pair for the case above: with containers present, `stop` IS the
+  # next step, and it is what the user is told. Without this half the
+  # volume case passes on a stub that always says volumes.
+  local R="${TEMP_DIR}/pending_both"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED="local-mockimg"
+  export DOCKER_VOLUMED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a volume query the daemon cannot answer leaves the rename deferred (#920)" {
+  # The volume half is load-bearing, so failing it must be fail-safe in
+  # the same way the container half is: an unanswerable probe defers.
+  local R="${TEMP_DIR}/volume_probe_fail"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED=""
+  export DOCKER_VOLUME_RC=1
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "Could not ask the daemon"
+  assert_output --partial "Cannot connect to the Docker daemon"
   run cat "${R}/.env.generated"
   assert_output --partial "PROJECT_NAME=local-mockimg"
   assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
