@@ -506,6 +506,63 @@ printf 'count avg=%d max=%d verdict=%s\n' "${_cavg}" "${_cmax}" "${_cverdict}"
 PROBE
 }
 
+# _pool_denominator_audit
+#   Echo the shell program that asks the live probe WHICH POOL its total
+#   was summed over -- the defect behind the coverage-shard failure this
+#   guard was written for was a total taken over `test/bats/unit/` alone
+#   while the loads were summed over the pool `_shard_unit_files` actually
+#   partitions, which inflated max/avg and condemned a healthy partition.
+#   The caller must have defined `_probe` as a SUBSHELL wrapper around
+#   _shard_balance_probe: the audit reads the `weight avg=` the probe
+#   printed and matches it against the two candidate denominators computed
+#   here independently, through the same _spec_weight the probe uses, so
+#   it follows whichever weight source is in force. Wrapping in a subshell
+#   keeps the probe's own BALANCED/IMBALANCED gate from ending this
+#   program -- the denominator is a separate question from the verdict.
+_pool_denominator_audit() {
+  cat <<'AUDIT'
+_n="${PROBE_SHARDS:?BUG: _pool_denominator_audit expects PROBE_SHARDS}"
+# The probe runs FIRST, and this program sources test.sh only afterwards:
+# test.sh marks SCRIPT_DIR readonly, so a shell that has already sourced it
+# kills the second source -- including the one inside the probe subshell,
+# which would leave the probe silent and this audit reporting `neither`.
+_out="$(_probe)" || true
+printf '%s\n' "${_out}"
+source /source/script/test/test.sh
+shopt -s globstar
+_avg="$(printf '%s\n' "${_out}" | sed -n 's/^weight avg=\([0-9][0-9]*\) .*/\1/p')"
+_unit=0
+for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _unit=$(( _unit + ${_w:-0} ))
+done
+_pool="${_unit}"
+for _f in "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _pool=$(( _pool + ${_w:-0} ))
+done
+# Compared as AVERAGES because that is what the probe prints; ceil'd the
+# same way, so the comparison is exact rather than a tolerance.
+_pavg=$(( (_pool + _n - 1) / _n ))
+_uavg=$(( (_unit + _n - 1) / _n ))
+if (( _pavg == _uavg )); then
+  # No integration weight to be short BY -- the audit cannot tell the two
+  # denominators apart, so it must not report a pass.
+  _dv=indistinguishable
+elif [[ "${_avg}" == "${_pavg}" ]]; then
+  _dv=pool
+elif [[ "${_avg}" == "${_uavg}" ]]; then
+  _dv=unit-only
+else
+  _dv=neither
+fi
+printf 'denominator=%s probe-avg=%s pool-avg=%d unit-only-avg=%d\n' \
+  "${_dv}" "${_avg:-none}" "${_pavg}" "${_uavg}"
+AUDIT
+}
+
 @test "_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)" {
   # The round-robin floor dumped the heaviest specs into one shard (~2x the
   # others). Greedy LPT must hold every shard within 1.5x of the bound NO
@@ -601,9 +658,42 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=BALANCED"
 }
 
+@test "_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)" {
+  # The regression guard proper, aimed at the LIVE probe rather than at a
+  # replay of constants: the coverage-shard failure this work came from was
+  # a total summed over `test/bats/unit/` while the per-shard loads were
+  # summed over the pool the partitioner walks, so the average was short by
+  # every integration spec and a healthy partition read as IMBALANCED.
+  #
+  # Reintroduce that short total in the probe -- restrict its total loop to
+  # unit specs -- and this case goes red on `denominator=unit-only`, at the
+  # eight shards CI runs. It asserts the identity of the denominator, not
+  # its value, so it stands under either weight source: `@test` counts on a
+  # bare checkout, recorded seconds under the coverage matrix.
+  #
+  # The probe's verdict is deliberately NOT asserted here. The balance
+  # gate is the live-probe case above; wrapping the probe in a subshell
+  # keeps a skewed timing distribution from also turning this case red and
+  # sending the reader after the wrong cause.
+  run bash -c "PROBE_SHARDS=8
+_probe() (
+$(_shard_balance_probe)
+)
+$(_pool_denominator_audit)"
+  assert_success
+  assert_line --partial "denominator=pool"
+}
+
 @test "_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)" {
-  # The regression this fix exists for, and the defect was the DENOMINATOR,
-  # not the axis. base#936's `coverage (6/8)` reported shard loads of
+  # The arithmetic of the rule, replayed on the numbers the failing run
+  # recorded. This case pins `_balance_lb`'s ceil and `_balance_verdict`'s
+  # 1.5x against real loads; the case ABOVE pins the probe's denominator.
+  # Neither substitutes for the other -- constants cannot detect a probe
+  # that walks the wrong pool, and the denominator audit says nothing
+  # about where the ceiling sits.
+  #
+  # The defect was the DENOMINATOR, not the axis. base#936's
+  # `coverage (6/8)` reported shard loads of
   # 576 / 699 / 688 / 1134 against "avg=737", and all five of those numbers
   # are `@test` COUNTS: the old assertion measured every load with
   # `grep -cE "^@test"`, and the arithmetic pins the rest. The loads sum to

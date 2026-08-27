@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2931 tests**.
+Unit specs under `test/bats/unit/`: **2932 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2002,7 +2002,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (112)
+### test/bats/unit/ci_spec.bats (113)
 
 | Test | Description |
 |------|-------------|
@@ -2025,7 +2025,8 @@ builds the env block only for the knobs the conf sets.
 | `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
 | `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over eight shards must FAIL the guard |
 | `_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)` | #940 the probe's shard total is load-bearing: N=4 passes what N=8 catches |
-| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 regression: the unit-only total, not the axis, condemned the partition |
+| `_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)` | #936 regression guard: a probe totalling `test/bats/unit/` alone is caught on the live tree |
+| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 arithmetic: the recorded loads clear the ceil'd bound once the total is pooled |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
