@@ -3,17 +3,23 @@
 # The rows that carried the `-` placeholder when the Description column
 # became REQUIRED (see script/test/drivers/catalog_description.sh and
 # doc/test/TEST.md). They are parked here so the rule applies forward only:
-# nobody is blocked on a backfill of 1534 retrospective sentences, and a
+# nobody is blocked on a backfill of 1517 retrospective sentences, and a
 # rushed backfill would produce filler that restates the test name -- which
 # passes the lint and is worse than the placeholder.
 #
 # It grew ONCE after it was first written, deliberately and in one commit:
-# 714 rows on 2026-08-26, 1534 on 2026-08-27, when the 25 catalogue sections
+# 714 rows on 2026-08-26, 1517 on 2026-08-27, when the 25 catalogue sections
 # that carried no per-test table AT ALL were given one. Those 820 rows --
 # among them the specs this tree edits most, setup_cmd / stage / setup /
 # run.sh / exec.sh / build.sh -- had never been in the catalogue, so the
 # rule reached none of them and 714 described the debt the catalogue could
 # see rather than the debt there was. From here the number only goes down.
+#
+# That pass also filled a DUPLICATED section heading, and parked its 17
+# rows here even though every one of them was already described in the
+# other copy of the same table -- debt that did not exist, excusing rows
+# that were fine. They are gone, and the lint now refuses both halves of
+# that: an entry over a described row, and a spec carrying two sections.
 #
 # Format: <spec path> TAB <test name>, sorted LC_ALL=C, no duplicates. The
 # key includes the spec path because three test names in this tree live in
@@ -27,7 +33,7 @@
 # Raising the count is how the ratchet is loosened, and it is one visible
 # line in a diff that a reviewer has to accept.
 #
-# entries: 1534
+# entries: 1517
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang ja prints ja usage (#222)
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-CN prints zh-CN usage (#222)
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-TW prints zh-TW usage (#222)
@@ -201,23 +207,6 @@ test/bats/unit/build_sh_spec.bats	build.sh positional + -t: last -t wins (#280)
 test/bats/unit/build_sh_spec.bats	build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)
 test/bats/unit/build_sh_spec.bats	build.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)
 test/bats/unit/build_sh_spec.bats	build.sh takes a self-managed repo's tooling tag from that repo's own resolver (#896)
-test/bats/unit/build_sh_verify_spec.bats	build.sh --dry-run test: no build ran, so nothing is reported about one
-test/bats/unit/build_sh_verify_spec.bats	build.sh --target test-tools: the tooling image build is not a verification target
-test/bats/unit/build_sh_verify_spec.bats	build.sh cli-test: a heredoc RUN step is reported like any other
-test/bats/unit/build_sh_verify_spec.bats	build.sh custom-test: a verification stage with no RUN step warns, it does not fail
-test/bats/unit/build_sh_verify_spec.bats	build.sh devel: a non-verification target gets no verification report
-test/bats/unit/build_sh_verify_spec.bats	build.sh e2e-test: a Playwright gate's own steps are what is reported
-test/bats/unit/build_sh_verify_spec.bats	build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check
-test/bats/unit/build_sh_verify_spec.bats	build.sh smoke: base's own smoke harness IS a verification target
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: a -test stage that only INSTALLS a tool is not reported as running it
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: a fully CACHED verification stage is not reported as a pass
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: a partially cached stage names which checks were CACHED
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: a step with no CACHED/DONE state fails the build
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: a tool named only as an argument is not a step of the check
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: an executed verification stage reports every check as executed
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: an install step in a side stage is not a check that ran
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: build output with no BuildKit progress lines fails the build
-test/bats/unit/build_sh_verify_spec.bats	build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target
 test/bats/unit/build_worker_cache_scope_spec.bats	cache_scope: aarch64 hardware threads through unchanged
 test/bats/unit/build_worker_cache_scope_spec.bats	cache_scope: cache_variant is inserted between image and hardware (#272)
 test/bats/unit/build_worker_cache_scope_spec.bats	cache_scope: distro-in-image_name repos need no variant (per-scope already unique)

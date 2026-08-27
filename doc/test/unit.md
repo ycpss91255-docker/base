@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2965 tests**.
+Unit specs under `test/bats/unit/`: **2969 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -29,7 +29,9 @@ What that means when you edit:
   never what the test does, which the name already says. See
   [TEST.md](TEST.md#writing-a-test-description). Rows that predate the rule
   are parked in `script/test/catalog-description-baseline.txt`, which may
-  only shrink.
+  only shrink and which never holds a row somebody has described — an entry
+  over a described row would unenforce that description, so the lint refuses
+  it.
 - **Do not hand-add or hand-delete rows or sections.** Add the `@test`, run
   `just test sync-docs`, then write the description. Deleting a test removes
   its row on the next run.
@@ -51,7 +53,10 @@ What that means when you edit:
   a place a section can arrive by accident: a section with no per-test table
   and no declared exemption fails.
 - A generated section lands at the end of the file; move it into its thematic
-  group freely — every pass keys on the heading, not the position.
+  group freely — every pass keys on the heading, not the position. Move the
+  whole block, **heading included**, and leave no copy behind: a spec
+  answering twice is refused, because `just test sync-docs` fills both copies
+  and a row described in one is then a placeholder in the other.
 
 ## Test Files
 
@@ -4136,27 +4141,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
-### test/bats/unit/build_sh_verify_spec.bats (17)
 
-| Test | Description |
-|------|-------------|
-| `build.sh test: a fully CACHED verification stage is not reported as a pass` | - |
-| `build.sh test: an executed verification stage reports every check as executed` | - |
-| `build.sh test: a partially cached stage names which checks were CACHED` | - |
-| `build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check` | - |
-| `build.sh e2e-test: a Playwright gate's own steps are what is reported` | - |
-| `build.sh cli-test: a heredoc RUN step is reported like any other` | - |
-| `build.sh custom-test: a verification stage with no RUN step warns, it does not fail` | - |
-| `build.sh test: an install step in a side stage is not a check that ran` | - |
-| `build.sh test: a -test stage that only INSTALLS a tool is not reported as running it` | - |
-| `build.sh test: a tool named only as an argument is not a step of the check` | - |
-| `build.sh test: build output with no BuildKit progress lines fails the build` | - |
-| `build.sh test: a step with no CACHED/DONE state fails the build` | - |
-| `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | - |
-| `build.sh devel: a non-verification target gets no verification report` | - |
-| `build.sh --target test-tools: the tooling image build is not a verification target` | - |
-| `build.sh smoke: base's own smoke harness IS a verification target` | - |
-| `build.sh --dry-run test: no build ran, so nothing is reported about one` | - |
 ### test/bats/unit/build_sh_verify_spec.bats (17)
 
 | Test | Description |
@@ -4228,7 +4213,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (36)
+### test/bats/unit/catalog_description_lint_spec.bats (40)
 
 | Test | Description |
 |------|-------------|
@@ -4248,6 +4233,9 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: FAILS on an unsorted baseline (#922)` | A 700-line file is reviewable only while its diff is one line per change; unsorted, an insertion hides anywhere |
 | `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
 | `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 713 excuses under a count of 714 |
+| `_run_catalog_description: a baseline entry may NOT excuse a row that is also described (#922)` | The ratchet from the other side: an entry over a described row silently unenforces that description |
+| `_run_catalog_description: FAILS when one spec carries TWO generated sections (#922)` | How a described row acquires a placeholder twin -- 17 real rows left the rule this way |
+| `_run_catalog_description: the SECOND copy of a section is not scanned as rows (#922)` | One finding per defect: a copied table must not also inflate the reach figures by its own length |
 | `_run_catalog_description: a summary table is not a per-test catalog (#922)` | A section may summarise with `| Category | Tests |` instead; reading those cells as tests invents findings for rows nobody claimed were tests |
 | `_run_catalog_description: FAILS on a section with no per-test table that nobody declared (#922)` | The hole: 45% of the suite sat outside a REQUIRED field by table shape, silently, and nothing bounded it |
 | `_run_catalog_description: a section with NO table at all must be declared too (#922)` | The rule is about the section, not about which table shape it carries -- answering with no table is not a way around it |
@@ -4267,4 +4255,5 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: DIES when the baseline file is missing (#922)` | It is a record of what was already there, not a cache -- losing it must say so rather than bury it under 714 findings |
 | `_run_catalog_description: the clean line says how many rows it checked and excused (#922)` | A green line standing for zero inspected rows is this repo's recurring vacuous pass, and a parked row is not a passing one |
 | `_run_catalog_description: the real doc/test catalogs are clean (#922)` | Dogfood: the rule is applied to the catalogues this change's own rows land in |
+| `_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)` | Read off the documents, not through the driver, so a regression in its duplicate check cannot hide |
 | `_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)` | Pins the one backfill this change did make, so a later sweep cannot quietly park those rows instead |

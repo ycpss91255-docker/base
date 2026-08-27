@@ -58,15 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 - **`catalog-description`: a `doc/test/` catalogue row without a description
-  fails the lint, over every catalogue section (closes #922)** -- 1534 of 2569
+  fails the lint, over every catalogue section (closes #922)** -- 1517 of 2556
   rows carried the `-` placeholder because nobody had decided whether the
   column was required. It is: the description says why a case matters, which
   the long test name never carries. Rows predating the rule sit in a
-  shrink-only baseline, so it applies forward only; renaming a test forces a
-  sentence. The unit is the section, not the table it carries: 25 sections
-  with no per-test table got one (820 tests), the 13 that summarise are
-  declared with a reason. After `just test sync-docs`, say why the case
-  matters -- see `doc/test/TEST.md`.
+  shrink-only baseline that records only what was already missing -- an entry
+  over a described row, or a spec answering twice, is refused. The unit is the
+  section, not the table: the 25 sections with no per-test table got one (820
+  tests), the 13 that summarise are declared with a reason. See
+  `doc/test/TEST.md`.
 
 ### Fixed
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.

@@ -11,9 +11,9 @@
 # generator and same review bar, came out opposite ways because nothing
 # said which was correct, and that divergence is what this lint stops.
 #
-# Three design decisions this spec pins:
+# The design decisions this spec pins:
 #
-#   - The guard is RATCHETED, not a wall. 1534 rows carried the
+#   - The guard is RATCHETED, not a wall. 1517 rows carried the
 #     placeholder when the rule landed; failing all of them would hold
 #     everyone hostage to a backfill nobody asked for, and a rushed
 #     backfill produces filler that passes the lint and is worse than `-`.
@@ -34,6 +34,12 @@
 #     so describing a row forces the list and the count DOWN in the same
 #     commit, and growing either one is a deliberate, reviewable edit of a
 #     number that states how much debt is left.
+#
+#   - The baseline records what was ALREADY missing, and nothing else. An
+#     entry over a row that IS described unenforces that description --
+#     the row can go back to `-` with the lint green -- so it is refused,
+#     as is the duplicated section that is how a described row acquires a
+#     placeholder twin in the first place.
 #
 #   - The rule REACHES every generated section. A section that answers
 #     with a summary instead of a row each is outside the rule, and that
@@ -593,7 +599,7 @@ _write_summary_section() {
 @test "_run_catalog_description: DIES when the baseline file is missing (#922)" {
   # A missing baseline would fail every predating row at once rather than
   # pass vacuously, but it is still the file's shape changing under the
-  # lint, and it should say so instead of burying it in 1534 findings.
+  # lint, and it should say so instead of burying it in 1517 findings.
   _write_catalog 'test/bats/unit/alpha_spec.bats' \
     "$(_row 'alpha does a thing' 'Why alpha matters')"
   rm -f "${BASELINE}"

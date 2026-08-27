@@ -52,11 +52,11 @@
 #
 # ── The ratchet ─────────────────────────────────────────────────────────
 #
-# 1534 of 2560 rows carry the placeholder (747 of 1711 when the rule was
+# 1517 of 2556 rows carry the placeholder (747 of 1711 when the rule was
 # first written, before the 25 sections that had no per-test table at all
 # were given one -- 820 rows the catalogue had never listed and the rule
 # had therefore never reached).
-# Failing all of them turns CI red until 1534 sentences exist, which blocks
+# Failing all of them turns CI red until 1517 sentences exist, which blocks
 # everyone on a backfill nobody asked for -- and a rushed backfill produces
 # exactly the filler above. So the rows that were already there are
 # recorded in a baseline file and the lint fails only on a placeholder that
@@ -95,8 +95,16 @@
 #      insertion hides anywhere, and a duplicate overstates the debt so
 #      that deleting one copy looks like progress.
 #
-# That is the honest boundary: (1) is mechanical and does the work, (2) and
-# (3) make the remaining move visible rather than impossible.
+#   4. An entry over a row that is already DESCRIBED is refused. The file
+#      records what was ALREADY missing; the moment it also holds a row
+#      that was fine, that row's description is unenforced -- it can go
+#      back to `-` with the lint green. The way a described row acquires a
+#      placeholder twin is a spec answering TWICE, so a duplicated
+#      `### <path> (N)` section is refused as well: it is a document
+#      contradicting itself, and the generator fills both copies.
+#
+# That is the honest boundary: (1) and (4) are mechanical and do the work,
+# (2) and (3) make the remaining move visible rather than impossible.
 #
 # Scope: doc/test/*.md, and within them only the tables that a generated
 # `### <path> (N)` section opens with a `| Test | Description |` header.
@@ -326,6 +334,15 @@ _run_catalog_description() {
 
   local _doc _rel _spec _line _lineno _in_table _rows=0 _catalogs=0 _excused=0
   local _name _desc _key
+  # Where each described row was read, keyed the way the baseline is. A
+  # baseline entry over one of these is refused below: the entry would
+  # excuse a row that does not need excusing, and the description it sits
+  # on stops being enforced.
+  local -A _described=()
+  # One section per spec, and where the first one was. A second copy is the
+  # document contradicting itself: the generator fills both, so the copies
+  # disagree the moment either is enriched.
+  local -A _section_at=()
   # Every generated section, whether or not it turned out to be a
   # catalogue: `<doc> TAB <heading line> TAB <spec> TAB <declared tests>`,
   # with _governed marking the ones that opened a per-test table. Deciding
@@ -350,11 +367,12 @@ _run_catalog_description() {
           _catalog_cell_split_into _name _desc "${_line}" || continue
           [[ -z "${_name}" ]] && continue
           _rows=$(( _rows + 1 ))
+          _key="${_spec}"$'\t'"${_name}"
           if [[ -n "${_desc}" ]] \
             && [[ "${_desc}" != "${_CATALOG_DESC_PLACEHOLDER}" ]]; then
+            _described["${_key}"]="${_rel}:${_lineno}"
             continue
           fi
-          _key="${_spec}"$'\t'"${_name}"
           if [[ -n "${_baselined[${_key}]:-}" ]]; then
             _used["${_key}"]=1
             _excused=$(( _excused + 1 ))
@@ -376,6 +394,18 @@ _run_catalog_description() {
         _cur=-1
         if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\(([0-9]+)\)[[:space:]]*$ ]]; then
           _spec="${BASH_REMATCH[1]}"
+          # A spec answers ONCE. The second copy is skipped rather than
+          # scanned -- both copies carry the same names, so reading it
+          # would report its rows a second time and count them a second
+          # time on top of the one finding that says what is wrong.
+          if [[ -n "${_section_at[${_spec}]:-}" ]]; then
+            printf '%s:%d: %s: duplicate section -- already opened at %s. Two sections for one spec are two answers: "just test sync-docs" fills both, so a row described in one is a placeholder in the other, and a placeholder the baseline excuses unenforces the description in its twin. Delete the copy, heading and table together.\n' \
+              "${_rel}" "${_lineno}" "${_spec}" "${_section_at[${_spec}]}"
+            _violations=$(( _violations + 1 ))
+            _spec=''
+            continue
+          fi
+          _section_at["${_spec}"]="${_rel}:${_lineno}"
           _sections+=(
             "${_rel}"$'\t'"${_lineno}"$'\t'"${_spec}"$'\t'"${BASH_REMATCH[2]}"
           )
@@ -429,6 +459,30 @@ _run_catalog_description() {
     done < <(printf '%s\n' "${_stale_exempt[@]}" | LC_ALL=C sort)
   fi
 
+  # The other half of "the baseline records what was ALREADY missing": an
+  # entry may only ever excuse an UNDESCRIBED row. A key that is also a
+  # described row leaves that description unenforced -- it can go back to
+  # the placeholder with the lint green -- which is the ratchet running
+  # backwards. Only entries a live placeholder still uses are reported
+  # here; one whose only match is the described row is already stale
+  # below, and one edit deserves one finding.
+  local -a _absorbed=()
+  for _key in "${!_baselined[@]}"; do
+    [[ -n "${_used[${_key}]:-}" ]] || continue
+    [[ -n "${_described[${_key}]:-}" ]] || continue
+    _absorbed+=("${_key}"$'\t'"${_described[${_key}]}")
+  done
+  if [[ "${#_absorbed[@]}" -gt 0 ]]; then
+    local _entry _where
+    while IFS= read -r _entry; do
+      _where="${_entry##*$'\t'}"
+      _entry="${_entry%$'\t'*}"
+      printf '%s: entry excuses a row that is DESCRIBED at %s -- %s\n' \
+        "${_CATALOG_DESC_BASELINE_FILE}" "${_where}" "${_entry//$'\t'/: }"
+      _violations=$(( _violations + 1 ))
+    done < <(printf '%s\n' "${_absorbed[@]}" | LC_ALL=C sort)
+  fi
+
   # The stale half of the ratchet.
   local -a _stale=()
   for _key in "${!_baselined[@]}"; do
@@ -455,7 +509,7 @@ _run_catalog_description() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_catalog_description \
-      "${_violations} undescribed catalogue row / ungoverned section / stale or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why."
+      "${_violations} undescribed catalogue row / ungoverned or duplicated section / stale, absorbing or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why. An entry that excuses a row somebody already described is refused too -- the baseline records what was missing, never a row that was fine -- and so is a spec carrying two sections, which is how a described row acquires a placeholder twin."
     return 1
   fi
 
