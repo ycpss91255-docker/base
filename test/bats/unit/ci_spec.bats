@@ -521,13 +521,26 @@ PROBE
   # pretending to track it; the totals either side of the default are
   # covered by the fixture cases below, which can discriminate between them.
   #
-  # What this case cannot do is fail. It measures the LIVE tree, where no
-  # weights file exists and every spec falls back to its `@test` count: the
-  # heaviest spec is a fraction of total/8, so the partition lands at ratio
-  # ~1.00 and no spec set this repo can present locally turns it red. Its
-  # job is to prove the probe runs against the real pool and that the pool
-  # is not pathological -- the cases that CAN go red are the fixture-driven
-  # ones below, which synthesise the distribution instead of reading it.
+  # What it measures depends on WHERE it runs, and the two are different
+  # gates:
+  #
+  #   - Bare checkout / local `just test` (and a CI weights-cache MISS):
+  #     no `test/bats/.shard-weights` exists, so every spec collapses onto
+  #     its `@test` count. The heaviest spec is a fraction of total/8, the
+  #     partition lands at ratio ~1.00, and no spec set this repo can
+  #     present locally turns it red. Here it proves only that the probe
+  #     runs against the real pool and that the pool is not pathological.
+  #   - The coverage matrix: the workflow restores the cached weights file
+  #     into the repo the container mounts BEFORE the shard runs, so
+  #     `_spec_weight` returns recorded kcov seconds and this case gates
+  #     the REAL timing distribution. It can go red there, and that is the
+  #     point -- a red verdict means the timings skewed past the bound (or
+  #     the partitioner regressed), not that the harness is broken. Read
+  #     the per-shard `weight=` lines in the log to see which.
+  #
+  # So the fixture-driven cases below are not the only ones that CAN fail;
+  # they are the ones that fail DETERMINISTICALLY, by synthesising the
+  # distribution instead of reading whichever one is in force.
   run bash -c "PROBE_SHARDS=8
 $(_shard_balance_probe)"
   assert_success
