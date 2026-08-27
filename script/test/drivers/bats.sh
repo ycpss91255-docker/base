@@ -367,18 +367,18 @@ _run_coverage() {
   # ${REPO_ROOT}/coverage. With no argument, runs the FULL suite (unit +
   # integration) — the local `just test coverage` / release path. With a
   # `<n>/<total>` shard spec, runs kcov over ONLY this shard's
-  # slice so the GHA `coverage` matrix mirrors the bats-unit matrix:
+  # slice, so the GHA `coverage` matrix spreads the kcov work evenly:
   #
-  #   - unit specs: the SAME round-robin slice _run_unit_shard selects
-  #     (via _shard_unit_files), so shard k covers the identical unit code
-  #     the unit-test matrix exercises.
-  #   - integration specs: run ONLY on the LAST shard (n == total) rather
-  #     than every shard, so the 87 integration specs aren't kcov'd T
-  #     times (wasted minutes + duplicated lines). The self-hosted
-  #     coverage-gate merges the per-shard cobertura reports back into one
-  #     line-weighted project figure, so where a slice runs doesn't matter
-  #     to the merged total — only that every slice runs exactly once
-  #     across the matrix.
+  #   - the slice is the greedy-LPT partition _shard_unit_files computes,
+  #     the same one _run_unit_shard selects, so shard k here instruments
+  #     exactly the code shard k runs.
+  #   - unit and integration specs are ONE pool, spread by runtime like any
+  #     other spec. Integration is NOT appended whole to the last shard:
+  #     that rule made the last shard the sole bottleneck and is superseded
+  #     (ADR-00000008 amendment). Every spec still runs exactly once across
+  #     the matrix, and the coverage-gate merges the per-shard cobertura
+  #     reports back into one line-weighted project figure, so WHERE a slice
+  #     runs does not matter to the merged total -- only that it runs once.
   #
   # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it
   # as a CI artifact; coverage_gate.sh sums covered/valid lines across all

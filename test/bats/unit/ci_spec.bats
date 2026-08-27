@@ -320,10 +320,11 @@ teardown() {
 # primitive: greedy weight-balanced bin-packing by per-spec _spec_weight
 # (recorded runtime in seconds, or the @test-count fallback -- heaviest
 # first into the lightest shard) so the slowest shard's load approaches
-# max(heaviest spec, total/N), the floor no partition beats.
-# _run_coverage <n>/<total> kcov's that slice (+ integration on the last
-# shard). main --coverage-shard plumbs COVERAGE_SHARD into the coverage
-# service.
+# max(heaviest spec, total/N), the floor no partition beats. Unit and
+# integration specs are ONE pool -- integration is NOT appended whole to the
+# last shard, a rule since superseded -- so _run_coverage <n>/<total> kcov's
+# exactly the slice it is handed. main --coverage-shard plumbs
+# COVERAGE_SHARD into the coverage service.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_shard_unit_files: a single shard returns real unit spec paths (#615)" {
