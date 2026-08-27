@@ -23,23 +23,23 @@ set working-directory := '../..'
 default:
     ./script/test/test.sh
 
-# just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
-# lint + ADR-numbering lint + stale setup.conf path lint + localized README
-# sync lint + doc/test count drift gate + hardcoded home path lint +
-# derived-figure lint) via the test-tools container (hadolint has no host binary; the alpine ci image
-# bakes it in).
-# Narrow with
-# `just test lint --shellcheck` / `just test lint --hadolint`
-# / `just test lint --issueref` / `just test lint --adr-numbering`
-# / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
-# / `just test lint --doc-counts` / `just test lint --home-literal`
-# / `just test lint --derived-figures` / `just test lint --changelog-entry`
-# (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
-# the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
-# `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
-# the lint-static matrix), which run the same drivers with no compose.
-# script/test/test.sh's _LINT_TOOLS table is the list of tools this phase
-# runs, and self_test_yaml_spec asserts every entry of it has a CI job.
+# just test lint -> every linter in script/test/test.sh's _LINT_TOOLS table,
+# via the test-tools container (hadolint has no host binary; the alpine ci
+# image bakes it in).
+# Narrow to one tool with `just test lint --<tool>` (ADR-00000011 sec.3
+# min->max), where <tool> is one of, in table order:
+#   --shellcheck        --hadolint            --issueref
+#   --adr-numbering     --stale-setup-conf    --readme-sync
+#   --doc-counts        --home-literal        --bash-source-guard
+#   --early-close-reader --derived-figures    --i18n-orphan
+#   --self-hosted-guard --changelog-entry     --catalog-description
+# Every narrowing flag runs in-container so the behaviour matches the bare
+# `lint`; the GHA lint jobs use the host-only `test.sh --<tool>-only`
+# primitives instead (shellcheck, doc-counts, and the lint-static matrix),
+# which run the same drivers with no compose. That list above is prose and
+# had drifted five tools behind the table, so it is held to it: ci_spec
+# asserts every _LINT_TOOLS entry appears here, the way self_test_yaml_spec
+# asserts every entry has a CI job.
 lint *args:
     ./script/test/test.sh --lint {{args}}
 
