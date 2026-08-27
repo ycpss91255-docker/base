@@ -509,6 +509,10 @@ _write_summary_section() {
   run _run_catalog_description
   assert_failure
   assert_output --partial "${_CATALOG_DESC_EXEMPT_FILE}"
+  # The path alone does not distinguish this from the ordinary violation
+  # message, which names the file too -- so the DIE's own sentence is what
+  # is asserted: this is the file missing, not a section failing.
+  assert_output --partial 'a record of decisions somebody made, not a cache'
 }
 
 @test "_run_catalog_description: the clean line says how much of the suite sits OUTSIDE the rule (#922)" {
@@ -551,10 +555,23 @@ _write_summary_section() {
   # Splitting from the right instead of at the first unescaped `|` would
   # cut this description in half and, for a short enough one, leave an
   # empty cell -- a finding invented by the reader.
+  #
+  # `assert_success` alone does not pin that: a described row is the one
+  # case the lint says nothing about, so ANY reading that leaves two
+  # non-empty cells passes, including one that puts half the description
+  # in the name. So the reading itself is asserted, through the same
+  # shared splitter the driver calls -- break the split and this goes red
+  # on the name, not just on a count.
   _write_catalog 'test/bats/unit/alpha_spec.bats' \
     '| `alpha` | Guards the `a | b` split |'
   run _run_catalog_description
   assert_success
+  local _name='' _desc=''
+  _catalog_cell_split_into _name _desc '| `alpha` | Guards the `a | b` split |'
+  [[ "${_name}" == 'alpha' ]] \
+    || fail "the name cell ended at the wrong pipe: ${_name}"
+  [[ "${_desc}" == 'Guards the `a | b` split' ]] \
+    || fail "the description was truncated: ${_desc}"
 }
 
 @test "_run_catalog_description: a table under no spec section is not scanned (#922)" {
@@ -606,6 +623,9 @@ _write_summary_section() {
   run _run_catalog_description
   assert_failure
   assert_output --partial "${_CATALOG_DESC_BASELINE_FILE}"
+  # Same standard as the exemptions case: the ordinary violation message
+  # names this file as well, so the assertion is on the DIE's own words.
+  assert_output --partial 'a record of what was already there, not a cache'
 }
 
 @test "_run_catalog_description: the clean line says how many rows it checked and excused (#922)" {
