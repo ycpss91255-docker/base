@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2953 tests**.
+Unit specs under `test/bats/unit/`: **2956 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3337,7 +3337,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (24)
+### test/bats/unit/catalog_description_lint_spec.bats (27)
 
 | Test | Description |
 |------|-------------|
@@ -3358,6 +3358,9 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
 | `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 713 excuses under a count of 714 |
 | `_run_catalog_description: a summary table is not a per-test catalog (#922)` | A section may summarise with `| Category | Tests |` instead; reading those cells as tests invents findings for rows nobody claimed were tests |
+| `_run_catalog_description: a name containing a PIPE is matched against the baseline unescaped (#922)` | The escaping contract between the generator and the lint: two readings of `\|` and every baselined row with a pipe silently loses its excuse |
+| `_run_catalog_description: a name containing a BACKTICK is matched against the baseline (#922)` | The other half of that contract: the double-backtick fence is the generator's, not part of the name |
+| `_run_catalog_description: a PIPE inside a description does not truncate it (#922)` | Splitting from the right would empty a short description and invent a finding the row does not have |
 | `_run_catalog_description: a table under no spec section is not scanned (#922)` | TEST.md's own index tables belong to no spec, and this file's convention section shows an example row |
 | `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the rows, so a scan that quietly stopped there would still look busy |
 | `_run_catalog_description: DIES when the catalog directory is missing (#922)` | Non-vacuity: a lint that scanned nothing must not report clean |

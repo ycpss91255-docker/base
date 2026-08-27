@@ -97,23 +97,43 @@
 #
 # Scope: doc/test/*.md, and within them only the tables that a generated
 # `### <path> (N)` section opens with a `| Test | Description |` header.
-# A section may legitimately summarise with a `| Category | Tests |` table
-# instead of a row each, and TEST.md's own index tables belong to no spec;
-# reading either as test rows would invent findings for rows nobody claimed
-# were tests.
+# TEST.md's own index tables belong to no spec, and reading those as test
+# rows would invent findings for rows nobody claimed were tests.
 #
-# The parser here is INDEPENDENT of sync-doc-counts.sh's rather than shared
-# with it. A lint that re-uses the generator's reader agrees with the
-# generator by construction, including about a table the generator has
-# stopped recognising -- which is the vacuous pass wearing a green line.
-# The two readers agreeing is a fact worth checking, not an axiom to build
-# on.
+# The row SPLITTER is SHARED with the generator, not copied:
+# sync-doc-counts.sh's _catalog_cell_split_into is sourced and called
+# directly, the way drivers/doc_counts.sh sources check_test_md_drift.sh.
+# One `| `name` | desc |` line has exactly one correct reading -- the first
+# UNESCAPED `|` ends the name cell, a `\|` inside a name does not, and a
+# bare `|` inside a description belongs to the description -- and a second
+# copy of that loop would agree with the generator on the day it was
+# pasted and drift afterwards, which is the defect class this repo keeps
+# paying for. It also has to be the same reading: the baseline records a
+# name as bats reports it, so the lint only ever meets a row's name if it
+# undoes the table escaping exactly as the generator applied it.
+#
+# What is deliberately NOT shared is the SCAN -- which sections and which
+# tables are in scope. That is where leaning on the generator goes vacuous:
+# a lint that inherits the generator's idea of a catalogue agrees, by
+# construction, that a table the generator has stopped recognising has no
+# rows to check. So the scan is this driver's own.
 #
 # Non-vacuity: a missing catalog directory, a missing baseline file, or a
 # scan that finds no catalog rows at all DIES rather than reporting clean.
 # The clean line states how many rows were checked and how many the
 # baseline still excuses, so a green line is never read as a verdict over
 # rows that were never there.
+
+_CATALOG_DESC_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" \
+  && pwd -P)"
+readonly _CATALOG_DESC_DRIVER_DIR
+
+# The row splitter, shared rather than copied. Sourcing is side-effect free:
+# sync-doc-counts.sh guards its `set -euo pipefail` and its main() on being
+# run directly, and defines no readonly globals, so a second source (the
+# doc-counts driver reaches it through check_test_md_drift.sh) is a no-op.
+# shellcheck source=script/test/sync-doc-counts.sh
+source "${_CATALOG_DESC_DRIVER_DIR}/../sync-doc-counts.sh"
 
 # ── Catalog description lint ─────────────────────────────────────────────────
 
@@ -131,58 +151,6 @@ readonly _CATALOG_DESC_PLACEHOLDER='-'
 # The directive the baseline declares its own size with. See the header:
 # this is the number that may only ever go down.
 readonly _CATALOG_DESC_COUNT_RE='^#[[:space:]]*entries:[[:space:]]*([0-9]+)[[:space:]]*$'
-
-# _catalog_desc_trim <text> -- <text> without leading / trailing whitespace.
-_catalog_desc_trim() {
-  local _text="${1}"
-  _text="${_text#"${_text%%[![:space:]]*}"}"
-  _text="${_text%"${_text##*[![:space:]]}"}"
-  printf '%s' "${_text}"
-}
-
-# _catalog_desc_split_row <name-outvar> <desc-outvar> <line> -- split a
-# `| `name` | description |` catalog row. Returns 1 for a line that is not
-# a table row.
-#
-# The split is on the first UNESCAPED `|`, matching what the generator
-# emits: a `|` inside a test name is written `\|` and must not end the
-# cell, while a `|` inside a DESCRIPTION is left alone and belongs to the
-# description. Splitting from the right instead would cut an honest
-# description containing a pipe in half.
-_catalog_desc_split_row() {
-  local -n _cd_name="${1}"
-  local -n _cd_desc="${2}"
-  local _line="${3}"
-  [[ "${_line}" == '|'* ]] || return 1
-  local _body="${_line#|}"
-  local _cell='' _rest='' _i _ch
-  local _bs=$'\\'
-  local _len="${#_body}"
-  for (( _i = 0; _i < _len; _i++ )); do
-    _ch="${_body:_i:1}"
-    if [[ "${_ch}" == "${_bs}" && $(( _i + 1 )) -lt "${_len}" ]]; then
-      _cell+="${_body:_i:2}"
-      (( _i++ ))
-      continue
-    fi
-    if [[ "${_ch}" == '|' ]]; then
-      _rest="${_body:_i+1}"
-      break
-    fi
-    _cell+="${_ch}"
-  done
-  # Trim, drop the code-span backticks (one or two, whatever the name
-  # needed) and undo the table-level `\|` escaping to recover the raw name.
-  _cell="$(_catalog_desc_trim "${_cell}")"
-  _cell="${_cell#\`\`}"
-  _cell="${_cell%\`\`}"
-  _cell="${_cell#\`}"
-  _cell="${_cell%\`}"
-  _cell="${_cell//\\|/|}"
-  _rest="${_rest%|}"
-  _cd_name="${_cell}"
-  _cd_desc="$(_catalog_desc_trim "${_rest}")"
-}
 
 # _catalog_desc_load_baseline <abs-path> <set-outvar> -- read the baseline
 # into an associative array keyed `<spec>\t<name>`, validating the file's
@@ -290,7 +258,7 @@ _run_catalog_description() {
         if [[ "${_line}" == '|'* ]]; then
           # The header's own separator rule is not a row.
           [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]] && continue
-          _catalog_desc_split_row _name _desc "${_line}" || continue
+          _catalog_cell_split_into _name _desc "${_line}" || continue
           [[ -z "${_name}" ]] && continue
           _rows=$(( _rows + 1 ))
           if [[ -n "${_desc}" ]] \

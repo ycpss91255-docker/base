@@ -309,6 +309,38 @@ _write_baseline() {
   assert_output --partial 'no catalog rows'
 }
 
+@test "_run_catalog_description: a name containing a PIPE is matched against the baseline unescaped (#922)" {
+  # The row renders the name with the table escaping the generator applies
+  # (`\|`); the baseline records the name as bats reports it. The two only
+  # ever meet if the lint undoes that escaping exactly as the generator
+  # applied it, which is why the splitter is the generator's own function
+  # and not a second copy of it.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' '| `alpha a \| b` | - |'
+  _write_baseline 'test/bats/unit/alpha_spec.bats|alpha a | b'
+  run _run_catalog_description
+  assert_success
+}
+
+@test "_run_catalog_description: a name containing a BACKTICK is matched against the baseline (#922)" {
+  # The other half of the same escaping contract: a name with a backtick is
+  # rendered in a double-backtick span so the span still closes where it
+  # should, and the fence is not part of the name.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' '| ``alpha `x` beta`` | - |'
+  _write_baseline 'test/bats/unit/alpha_spec.bats|alpha `x` beta'
+  run _run_catalog_description
+  assert_success
+}
+
+@test "_run_catalog_description: a PIPE inside a description does not truncate it (#922)" {
+  # Splitting from the right instead of at the first unescaped `|` would
+  # cut this description in half and, for a short enough one, leave an
+  # empty cell -- a finding invented by the reader.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    '| `alpha` | Guards the `a | b` split |'
+  run _run_catalog_description
+  assert_success
+}
+
 @test "_run_catalog_description: a table under no spec section is not scanned (#922)" {
   # TEST.md's own index tables are `| Lint | ... |` shaped and belong to
   # no spec; only a table under a generated `### <path> (N)` heading is a
