@@ -1348,9 +1348,12 @@ _setup_apply() {
   # beside it as pending until the wrapper can see the old project is
   # empty. Read from the FILE rather than from the `source` above, so an
   # inherited PROJECT_NAME in the environment cannot pose as a recorded
-  # one.
+  # one -- and through `_recorded_project_name`, which also recognises the
+  # older file shape that recorded no PROJECT_NAME key at all. Reading
+  # that one as "fresh checkout" is what would let the rename land
+  # silently on exactly the repos that are mid-migration.
   local _project_name_recorded=""
-  _env_file_value "${_env_file}" PROJECT_NAME _project_name_recorded
+  _recorded_project_name "${_env_file}" _project_name_recorded
   _carry_project_name "${_project_name_recorded}" "${_project_name_resolved}" \
     "${_project_name_conf}" project_name project_name_pending
   # A CONFIGURED rename is taken at once (see _carry_project_name), which
@@ -1362,7 +1365,7 @@ _setup_apply() {
   if [[ -n "${_project_name_conf}" && -n "${_project_name_recorded}" \
         && "${_project_name_recorded}" != "${project_name}" ]]; then
     _log_warn setup project_name_reconfigured \
-      "display=compose project renamed: '${_project_name_recorded}' -> '${project_name}' (from [project] name). Anything still running under '${_project_name_recorded}' is no longer addressed by this checkout -- './stop.sh' before renaming, or tear it down by hand." \
+      "display=compose project renamed: '${_project_name_recorded}' -> '${project_name}' (from [project] name). Anything still under '${_project_name_recorded}' is no longer addressed by this checkout -- containers, and named volumes, which './stop.sh' does not remove. Tear the old project down (or move its volumes) before renaming." \
       "from=${_project_name_recorded}" "to=${project_name}"
   fi
 

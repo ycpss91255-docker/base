@@ -265,8 +265,8 @@ EOF
   _derived="${_derived#PROJECT_NAME=}"
   [[ -n "${_derived}" ]] || fail "apply recorded no project name"
 
-  # What a repo on the previous release carries: the literal-`local`
-  # prefix the fallback used to derive.
+  # A recorded name that no longer matches what the default derives --
+  # the shape a repo carries once it has recorded one at all.
   sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=local-legacy/" \
     "${TEMP_DIR}/.env.generated"
   run bash -c "
@@ -278,6 +278,65 @@ EOF
   assert_success
   run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
   assert_success
+}
+
+@test "apply carries the name a PRE-record env file runs under, rather than reading it as fresh (#920)" {
+  # The population this deferral was written for is the one that has not
+  # upgraded yet, and its .env.generated has no PROJECT_NAME key at all:
+  # the emitter interpolated `name: ${DOCKER_HUB_USER}-${IMAGE_NAME}` and
+  # the wrapper assembled the same string for its -p. Read as a fresh
+  # checkout, that file would take the newly derived name with nothing
+  # pending -- the silent rename over a live stack, on precisely the repos
+  # that are mid-migration.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived="" _image=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+  _image="$(grep -m1 '^IMAGE_NAME=' "${TEMP_DIR}/.env.generated")"
+  _image="${_image#IMAGE_NAME=}"
+  [[ -n "${_derived}" && -n "${_image}" ]] || fail "apply recorded no name"
+
+  # Turn it back into the older shape: drop the key, and leave a hub user
+  # that detection no longer yields -- a `docker logout`, or a login as a
+  # different account, between the last apply and this one.
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  sed -i 's/^DOCKER_HUB_USER=.*/DOCKER_HUB_USER=bobhub/' \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # The name the LIVE containers carry, reconstructed from the same file.
+  run grep -Fx "PROJECT_NAME=bobhub-${_image}" "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply adds no pending name when a PRE-record env file still derives the same name (#920)" {
+  # The other half: the reconstruction must not manufacture a rename. A
+  # repo whose recorded hub user is still the detected one runs under the
+  # name apply resolves, so the ordinary upgrade stays silent.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
 }
 
 @test "apply on a fresh checkout records the resolved name with nothing pending (#920)" {

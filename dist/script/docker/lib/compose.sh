@@ -22,6 +22,10 @@ _DOCKER_LIB_COMPOSE_SOURCED=1
 _compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_compose_dir}/log.sh"
+# _recorded_project_name reads keys out of a generated env file, so env.sh
+# comes in the same way (also idempotent via its own guard).
+# shellcheck source=dist/script/docker/lib/env.sh
+source "${_compose_dir}/env.sh"
 
 # _resolve_project_name <configured> <hub_user> <os_user> <image_name> <path> <outvar>
 #
@@ -71,6 +75,50 @@ _resolve_project_name() {
   # policy: they apply only when there is no identity / no resolved config
   # to read at all.
   _rpn_out="${_hub:-${_user:-local}}-${_image:-$(basename -- "${_path:-${PWD}}")}"
+}
+
+# _recorded_project_name <env_file> <outvar>
+#
+# The project name this checkout is ALREADY running under, read out of its
+# generated env file. Empty only when the file records no name at all.
+#
+# Two file shapes answer that question, and reading only the newer one is
+# how the carry below misses the population it exists for.
+#
+#   PROJECT_NAME present -- the resolved value setup apply records since
+#                the project name became a resolved value. It IS the name.
+#
+#   PROJECT_NAME absent  -- the shape every consumer on the previous
+#                release carries. The name was never recorded then: the
+#                emitted compose.yaml said
+#                `name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}`
+#                and the wrapper assembled the same string for its `-p`,
+#                BOTH interpolating this very file. So the name is
+#                `<DOCKER_HUB_USER>-<IMAGE_NAME>` -- two keys still in the
+#                file, and the exact string the live containers carry as
+#                their `com.docker.compose.project` label.
+#
+# Reading an absent PROJECT_NAME as "fresh checkout" would record the newly
+# derived name with nothing pending -- the silent rename over a live stack
+# that `_carry_project_name` exists to prevent, on the one population that
+# is actually mid-migration.
+#
+# Both keys must be non-empty for the reconstruction: either half missing
+# leaves a string compose would have refused as a project name, so there is
+# no stack under it to keep continuity with. `INSTANCE_SUFFIX` is not part
+# of it -- it was a per-invocation flag, never recorded in the file.
+_recorded_project_name() {
+  local _file="${1:?_recorded_project_name requires a file}"
+  local -n _rpn_rec="${2:?_recorded_project_name requires an outvar}"
+
+  _env_file_value "${_file}" PROJECT_NAME _rpn_rec
+  [[ -n "${_rpn_rec}" ]] && return 0
+
+  local _hub="" _image=""
+  _env_file_value "${_file}" DOCKER_HUB_USER _hub
+  _env_file_value "${_file}" IMAGE_NAME _image
+  [[ -n "${_hub}" && -n "${_image}" ]] && _rpn_rec="${_hub}-${_image}"
+  return 0
 }
 
 # _carry_project_name <recorded> <resolved> <configured>
