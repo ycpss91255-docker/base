@@ -122,25 +122,55 @@ container name gone, deriving `local-<image>` would have put two users in
 ONE project, promoting the collision from a container to a whole stack. A
 configured `[project] name` still wins.
 
-That second half renames the project of every already-deployed consumer
-with `DOCKER_HUB_USER` unset (`local-<image>` -> `<osuser>-<image>`), and
-nobody asks for it: `upgrade` leaves `.setup.conf` drifted, the next
-`build` / `run` re-applies setup, and `PROJECT_NAME` is rewritten. The
-project name is the key compose looks its own containers up by, so doing
-that while a stack is up would hide the stack from every wrapper at once
--- `stop` would tear down the new, empty project and `run` would start a
-second copy over the first's bind mounts, host network and devices, with
-the original reachable only by raw `docker`. Compose cannot relabel a
-running container, so a rename can only take effect on an EMPTY project.
+A derived project name can therefore change under a deployed consumer,
+and nobody asks for it. The trigger is `just upgrade`: `upgrade.sh` runs
+`init.sh`, which runs `setup apply` during the upgrade itself. (Not the
+drift re-apply on the next `build` / `run`: `_check_setup_drift` hashes
+`setup.conf`, the Dockerfile stage list, GPU/GUI detection and `USER_UID`
+-- nothing about the `.base` version or `DOCKER_HUB_USER` -- so a subtree
+upgrade alone leaves check-drift green.) That apply re-detects
+`DOCKER_HUB_USER` from `docker info`, so any repo whose recorded prefix no
+longer matches what detection now yields -- a `docker logout`, a login as
+a different account, CI versus a workstation -- resolves a different name
+than the one its containers carry.
 
-**Decision: defer, do not skip.** While containers exist under the
-recorded name, the wrapper keeps `.env.generated` on it and records the
-resolved one as `PROJECT_NAME_PENDING`; the first `build` / `run` that
-finds the old project empty adopts it. Both steps are reported, so the
-name a checkout runs under never changes silently. `stop` is therefore the
-whole migration -- it needs no new flag and addresses the stack the user
-actually has, because `stop` / `exec` never regenerate and so read the
-recorded name. The costs, accepted: a consumer who never stops keeps the
+The population that made this urgent is the one still on the release
+BEFORE the project name became a recorded value. Those `.env.generated`
+files carry no `PROJECT_NAME` key at all: the emitter interpolated
+`name: ${DOCKER_HUB_USER}-${IMAGE_NAME}` and the wrapper assembled the
+same string for `-p`. Read naively, a missing key looks like a fresh
+checkout, and a fresh checkout is exactly the case that renames without
+deferring -- so the whole mechanism below would have skipped precisely the
+repos it was written for. `_recorded_project_name` (lib/compose.sh)
+reconstructs the old name from the two keys that ARE in the file.
+
+The project name is the key compose looks its own containers up by, so
+renaming while a stack is up would hide the stack from every wrapper at
+once -- `stop` would tear down the new, empty project and `run` would
+start a second copy over the first's bind mounts, host network and
+devices, with the original reachable only by raw `docker`. Compose cannot
+relabel a running container, so a rename can only take effect on an EMPTY
+project.
+
+**Decision: defer, do not skip.** While anything of the user's exists
+under the recorded name, the wrapper keeps `.env.generated` on it and
+records the resolved one as `PROJECT_NAME_PENDING`; the first `build` /
+`run` that finds the old project empty adopts it. Both steps are reported,
+so the name a checkout runs under never changes silently. "Empty" counts
+containers AND named volumes, because both are keyed by the project name
+and only one of them is recoverable afterwards: `stop` runs `compose down`
+without `-v`, so a torn-down stack routinely leaves its volumes, and
+adopting on a container-only probe would hand the user a fresh EMPTY
+volume under the new name while the data sat in an orphan `prune
+--volumes` later deletes. Project networks and built images are NOT
+counted -- `compose down` removes the network, and an image is named
+`<hub>/<repo>:<stage>` rather than by the project, so neither can be
+orphaned by a rename. `stop` is therefore the whole migration for a repo
+without named volumes -- it needs no new flag and addresses the stack the
+user actually has, because `stop` / `exec` never regenerate and so read
+the recorded name. A repo WITH named volumes keeps its old name until
+someone moves or removes the data or pins `[project] name`, and is told
+which of the two it is. The costs, accepted: a consumer who never stops keeps the
 old (colliding) name indefinitely -- one working stack rather than two --
 and while a stack is up the recorded `PROJECT_NAME` is deliberately not
 the one `setup apply` just resolved. `PROJECT_NAME_PENDING` is what keeps
@@ -236,5 +266,13 @@ spirit as the #800 worker preflight.
   the interpolation form; no runtime behaviour changed.
 - A consumer upgrading with its stack UP keeps that stack and its old
   project name until the next `stop`, and is told so on every `build` /
-  `run`; nothing is orphaned and nothing is duplicated (2026-08-26
-  amendment).
+  `run`; no container and no named volume is orphaned or duplicated
+  (2026-08-26 amendment).
+- A consumer whose project holds named volumes keeps its old project name
+  indefinitely -- `stop` does not clear them -- and is told, on every
+  `build` / `run`, that this is why and what would clear it. The accepted
+  cost of never orphaning data is a repeated notice and a project name
+  that stays on the pre-upgrade derivation.
+- A CONFIGURED `[project] name` still takes effect at once, so it remains
+  the one path that CAN strand an old project's containers and volumes;
+  `setup apply` says so when it renames.

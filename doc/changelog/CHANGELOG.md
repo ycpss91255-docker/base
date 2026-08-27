@@ -87,13 +87,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the emitted `compose.yaml` no longer names containers, and the project name
   falls back to the OS user (closes #920)** -- a baked `container_name` is
   namespaced by the daemon, not the project, so a second stack of one repo died
-  with `name ... is already in use` and compose refused `--scale`. Compose now
+  on `name ... is already in use` and compose refused `--scale`. Compose now
   derives `<project>-<service>-<n>`, so per-host isolation rests on the project
-  name, whose fallback moves from the literal `local` (one string for every OS
-  user) to `${USER_NAME}`; `[project] name` still wins. Upgrading with a stack
-  UP orphans nothing: the rename defers (as `PROJECT_NAME_PENDING`, reported
-  every run) until `just stop`. `docker exec <fixed-name>` is gone -- ask `just
-  exec`.
+  name, whose fallback moves from `local` to `${USER_NAME}`; `[project] name`
+  still wins. A derived rename now DEFERS as a reported `PROJECT_NAME_PENDING`
+  until the old project holds no container and no named volume, so an upgrade
+  orphans neither stack nor data. `docker exec <fixed-name>` is gone -- ask
+  `just exec`.
 
 ## [v0.42.0] - 2026-08-25
 
