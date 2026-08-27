@@ -363,9 +363,10 @@ teardown() {
 # _balance_rule
 #   Echo the shell program that DEFINES the balance rule -- the bound a
 #   partition is judged against, and the verdict on a given makespan --
-#   and measures nothing. The live probe and the regression over the
-#   coverage loads recorded on base#936 both run this one copy, so neither
-#   restates the rule the other applies.
+#   and measures nothing. Every case below runs this one copy -- the live
+#   probe, the fixture-driven partitions, and the replay of the coverage
+#   loads recorded on base#936 -- so none of them restates the rule the
+#   others apply.
 _balance_rule() {
   cat <<'RULE'
 # _balance_lb <total_weight> <shards> <heaviest_weight>
@@ -387,10 +388,16 @@ _balance_lb() {
 }
 
 # _balance_verdict <lower_bound> <max_shard_load>
-#   BALANCED while the heaviest shard stays within 1.5x the bound. Greedy
-#   LPT's own guarantee is tighter than that against the OPTIMAL makespan;
-#   the slack is what the bound gives away by being computable without
-#   solving the partition.
+#   BALANCED while the heaviest shard stays within 1.5x the bound. 1.5x is
+#   a QUALITY POLICY, deliberately TIGHTER than anything greedy LPT can be
+#   proven to deliver against this bound: the tight worst case is 2N/(N+1)
+#   -- 1.6x at four shards, 1.78x at eight -- attained by N+1 equally
+#   dominating specs, which no partition can beat either. Widening the
+#   ceiling to that guarantee would make the rule unfalsifiable by
+#   construction. It is held FLAT across N on purpose: it judges the
+#   partitions this repo actually presents, not the algorithm's proof, and
+#   a ceiling that grows with N would license the eight-way matrix to be
+#   the sloppiest one.
 _balance_verdict() {
   local _lb="${1}" _max="${2}"
   if (( _max * 2 > _lb * 3 )); then
@@ -506,7 +513,22 @@ PROBE
   # weight source is in force: recorded seconds where CI restored a weights
   # file, the `@test` fallback on a bare checkout. Either way it is the axis
   # the partitioner itself sorted by.
-  run bash -c "PROBE_SHARDS=4
+  #
+  # EIGHT shards, not four. The coverage matrix takes its total from the
+  # `CI_SHARDS` repo variable (default 8, clamped to [1,12]), so four was a
+  # partition CI never executes. That variable is a GitHub setting this
+  # container cannot read, so the case pins the DEFAULT rather than
+  # pretending to track it; the totals either side of the default are
+  # covered by the fixture cases below, which can discriminate between them.
+  #
+  # What this case cannot do is fail. It measures the LIVE tree, where no
+  # weights file exists and every spec falls back to its `@test` count: the
+  # heaviest spec is a fraction of total/8, so the partition lands at ratio
+  # ~1.00 and no spec set this repo can present locally turns it red. Its
+  # job is to prove the probe runs against the real pool and that the pool
+  # is not pathological -- the cases that CAN go red are the fixture-driven
+  # ones below, which synthesise the distribution instead of reading it.
+  run bash -c "PROBE_SHARDS=8
 $(_shard_balance_probe)"
   assert_success
   assert_output --partial "verdict=BALANCED"
@@ -534,19 +556,36 @@ $(_shard_balance_probe)"
 }
 
 @test "_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)" {
-  # The inverse, and the proof the guard is not vacuous: N+1 specs of equal
-  # dominating runtime over N shards forces one shard to carry two of them,
-  # so the best achievable makespan is 2w against a bound of (N+1)w/N --
-  # 1.6x at N=4, past the 1.5x ceiling for ANY partition, greedy or optimal.
-  # The heavy set is drawn from the specs with the MOST tests, which leaves
-  # the residual `@test` distribution even: a count-axis guard would pass
-  # this partition, so the fixture discriminates the two axes rather than
-  # tripping whichever one is in force.
-  run bash -c "FIXTURE_HEAVY=5 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=4
+  # The inverse, and the proof the guard is not vacuous, driven at the eight
+  # shards CI runs: N+1 specs of equal dominating runtime over N shards
+  # forces one shard to carry two of them, so the best achievable makespan
+  # is 2w against a bound of (N+1)w/N -- 1.78x at N=8, past the 1.5x ceiling
+  # for ANY partition, greedy or optimal. The heavy set is drawn from the
+  # specs with the MOST tests, which leaves the residual `@test`
+  # distribution even: a count-axis guard would pass this partition, so the
+  # fixture discriminates the two axes rather than tripping whichever one is
+  # in force.
+  run bash -c "FIXTURE_HEAVY=9 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=8
 $(_weights_fixture_prelude)
 $(_shard_balance_probe)"
   assert_failure
   assert_output --partial "verdict=IMBALANCED"
+}
+
+@test "_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)" {
+  # Why the probe's shard total is load-bearing, shown on the SAME
+  # distribution the case above condemns. Nine equally dominating specs over
+  # four shards pack 3+2+2+2: a makespan of 3w against a bound of 9w/4, ratio
+  # 1.33, comfortably inside the ceiling. Over eight they pack 2 and seven
+  # 1s: 2w against 9w/8, ratio 1.78. So a distribution that genuinely breaks
+  # the matrix CI executes reads as healthy at a total CI never selects --
+  # which is what the guard asserted before, and the reason the live probe
+  # above moved to eight.
+  run bash -c "FIXTURE_HEAVY=9 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=4
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_success
+  assert_output --partial "verdict=BALANCED"
 }
 
 @test "_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)" {
