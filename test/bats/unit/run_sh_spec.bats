@@ -68,8 +68,15 @@ EOS
   mkdir -p "${BIN_DIR}"
 
   # docker stub: `docker compose ... ps <service>` reads from
-  # COMPOSE_PS_FILE (one running SERVICE name per line) so individual tests
-  # can simulate a running service; everything else is a no-op.
+  # COMPOSE_PS_FILE so individual tests can simulate a running service;
+  # everything else is a no-op.
+  #
+  # A line is either `<service>` -- running, project not modelled, for the
+  # tests that are not about scoping -- or `<project>/<service>`, which
+  # only a probe carrying that same `-p` sees. The qualified form is what
+  # makes the project-scoping tests bite: the stub answers the question
+  # compose was actually asked, so a probe that dropped `-p` gets a
+  # different answer rather than the same one.
   COMPOSE_PS_FILE="${TEMP_DIR}/compose_ps.out"
   export COMPOSE_PS_FILE
   : > "${COMPOSE_PS_FILE}"
@@ -78,12 +85,17 @@ EOS
 #!/usr/bin/env bash
 if [[ "$1" == "compose" ]]; then
   _is_ps=0
+  _project=""
+  _prev=""
   for _a in "$@"; do
     [[ "${_a}" == "ps" ]] && _is_ps=1
+    [[ "${_prev}" == "-p" ]] && _project="${_a}"
+    _prev="${_a}"
   done
   if (( _is_ps )); then
     _svc="${!#}"
-    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null \
+       || grep -qxF -- "${_project}/${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
       printf '%s\n' "cid-${_svc}"
     fi
     # Opt-in late write (${COMPOSE_PS_LATE_FILE}): ids that arrive only
@@ -482,6 +494,9 @@ HOOK
   # coexist under distinct project names. The guard must therefore ask
   # about THIS project only -- which asking compose does by construction,
   # since the probe carries -p.
+  #
+  # Real mode, deliberately: --dry-run skips the guard outright, so a
+  # dry-run version of this test would assert nothing about it.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -492,13 +507,35 @@ HOOK
   # the resolved project name this test is about.
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/.setup.conf"
-  # Nothing running in mockimg-wt2 (the probe's answer is per project, and
-  # the stub answers only what this project asked about).
-  : > "${COMPOSE_PS_FILE}"
+  # devel IS up -- in the neighbouring project. Only a probe carrying
+  # `-p mockuser-mockimg` sees it, and this run carries -p mockimg-wt2.
+  echo "mockuser-mockimg/devel" > "${COMPOSE_PS_FILE}"
 
-  run bash "${SANDBOX}/run.sh" --dry-run
+  run bash "${SANDBOX}/run.sh"
   assert_success
+  refute_output --partial "already running"
   assert_output --partial "-p mockimg-wt2"
+}
+
+@test "run.sh: the SAME project's running service still blocks (#920)" {
+  # The other half of the pair above: same stub, same shape of seed, and
+  # the ONLY difference is which project owns the running devel. Without
+  # this, "another project does not block" would also pass against a probe
+  # that can never find anything at all.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+    echo "PROJECT_NAME=mockimg-wt2"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "mockimg-wt2/devel" > "${COMPOSE_PS_FILE}"
+
+  run bash "${SANDBOX}/run.sh"
+  assert_failure
+  assert_output --partial "already running"
+  assert_output --partial "mockimg-wt2"
 }
 
 @test "run.sh: a probe still writing cannot make the guard miss a running service (#905)" {
