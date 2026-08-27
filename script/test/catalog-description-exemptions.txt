@@ -1,0 +1,43 @@
+# doc/test catalogue per-test-table exemptions.
+#
+# The generated `### <path> (N)` sections that answer with a SUMMARY -- a
+# `| Category | Tests |` grouping -- instead of a row per test, and the
+# reason each one does. See script/test/drivers/catalog_description.sh
+# ("Reach") and doc/test/TEST.md.
+#
+# Why the file exists. The description rule is enforced over catalogue
+# ROWS, so a section with no per-test rows was outside it -- and it was
+# outside it by TABLE SHAPE, which nobody had to decide, nobody could see
+# and nothing bounded: 606 tests, 19% of the suite, sat outside a REQUIRED
+# field while both gates reported clean. Summarising is a legitimate
+# answer for a spec whose cases are near-identical assertions; being
+# outside a required rule by accident is not. So the answer is written
+# down here, per section, with the reason, and the lint prints how much of
+# the suite it accounts for on every run.
+#
+# Format: <spec path> TAB <reason>, sorted LC_ALL=C, no duplicates. The
+# reason is prose for a reader, not a token: it says what makes a row each
+# the wrong shape for THAT section. A blank one, or a `-`, is refused --
+# it is the same silence the rule refuses in a row's Description cell.
+#
+# This file is NOT shrink-only, and that is the difference between it and
+# the baseline: the baseline holds debt, this holds decisions, and a spec
+# written tomorrow may honestly belong here. What an addition costs is a
+# line, a sentence, and the `# entries:` count below, in front of a
+# reviewer. Giving a listed section a real per-test table makes its line
+# STALE and the lint refuses it, so an exemption cannot outlive its reason.
+#
+# entries: 13
+test/bats/unit/build_worker_yaml_spec.bats	grouped by the workflow change each cluster of assertions defends (cache backend, doc-only fast-pass, stage rename); the tests are near-identical yaml greps whose names carry no more than the group does
+test/bats/unit/log_spec.bats	grouped by logger concern (text format, stream routing, tty-detect, JSON escaping, registry); 69 rows would restate one level or one field each, and the grouping is what says which concern is covered
+test/bats/unit/multi_distro_build_worker_yaml_spec.bats	the summary is already one line per case, keyed by the contract clause it pins rather than by test name; a per-test table beside it would repeat the same 16 statements in the other order
+test/bats/unit/publish_worker_yaml_spec.bats	grouped by the publish mechanism each cluster pins (push-by-digest per shard, the manifest merge job, the parameterised registry); the reason a case exists is the group it is in
+test/bats/unit/release_test_tools_yaml_spec.bats	grouped by trigger and publish mode; the three tag-resolution cases are one statement with three inputs, and splitting them into rows loses that they are one statement
+test/bats/unit/release_worker_yaml_spec.bats	grouped by the delegation contract each pair pins (assembler + manifest, version-matching, env passthrough); the pairs are two directions of one assertion, not two independent cases
+test/bats/unit/self_test_yaml_spec.bats	grouped by CI job and by the wiring each group pins (needs edges, classify gating, obtain-with-fallback, the rollup); 104 rows of single yaml-key greps read as noise against 28 groups that say what the workflow guarantees
+test/bats/unit/transcript_lnav_spec.bats	grouped by lnav format facet (schema, level mapping, regex match, samples, coexistence); a row each would name the field being grepped, which the group already names
+test/bats/unit/transcript_spec.bats	grouped by transcript helper and by failure mode; the degrade-to-no-op and end-to-end groups are each one behaviour proved from several angles, which a row each hides
+test/bats/unit/tui_backend_spec.bats	grouped by TUI widget wrapper; every case is "this widget forwards these flags", so per-widget is the smallest grouping that says anything the name does not
+test/bats/unit/tui_flow_spec.bats	grouped by menu flow and by the issue that shaped it; the flows are long argv-driven walks whose names are already the walk, and the group is the only place the intent fits
+test/bats/unit/tui_spec.bats	grouped by validator and by conf round-trip concern; 135 rows of "_validate_x accepts / rejects y" restate the name by construction, which is the filler the rule refuses
+test/bats/unit/wrapper_lib_spec.bats	grouped by wrapper helper (`_msg` dispatch, lang prepass, setup sync); each group is one helper contract proved across its branches

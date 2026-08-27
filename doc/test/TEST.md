@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3103 tests** total (2956 unit + 147 integration).
+Template self-tests: **3112 tests** total (2965 unit + 147 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (12) and smoke (34) tests are tracked here
-> too but are **not** in the 3103 figure: System specs need host docker
+> too but are **not** in the 3112 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2956 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 2965 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 147 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 12 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **3103**.
+Self-test grand total (unit + integration): **3112**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -92,7 +92,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |
-| `catalog-description` | every catalogue row below carries a description, ratcheted against `script/test/catalog-description-baseline.txt` | `lint-static (catalog-description)` | ungated |
+| `catalog-description` | every catalogue row below carries a description, ratcheted against `script/test/catalog-description-baseline.txt`; every catalogue section is a per-test table or a reasoned entry in `script/test/catalog-description-exemptions.txt` | `lint-static (catalog-description)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are
@@ -132,6 +132,14 @@ parked in `script/test/catalog-description-baseline.txt`, which may only
 **shrink** -- so nobody inherits a backfill, but renaming or moving a test
 drops it out of that file and forces a description. Touch it, describe it;
 leave it alone, leave it alone.
+
+A section whose cases are near-identical assertions may answer with a
+`| Category | Tests |` summary rather than a row each -- 13 do, covering 606
+tests. That is a decision, so it is written down in
+`script/test/catalog-description-exemptions.txt` with the reason, and the
+lint reports how much of the suite those sections account for every time it
+runs. What it will not accept is a section drifting out of the rule because
+of the shape of the table it happens to carry.
 
 ## Maintaining these docs
 

@@ -66,9 +66,10 @@ setup() {
   REPO_ROOT="${SCRATCH}"
   CATALOG="${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/unit.md"
   BASELINE="${SCRATCH}/${_CATALOG_DESC_BASELINE_FILE}"
-  # Most cases are about the rows, not the baseline, so start from an
-  # empty-but-well-formed baseline and let the cases that care rewrite it.
+  # Most cases are about the rows, not the two sidecar files, so start from
+  # an empty-but-well-formed pair and let the cases that care rewrite them.
   _write_baseline
+  _write_exempt
 }
 
 teardown() {

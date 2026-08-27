@@ -121,11 +121,44 @@
 # construction, that a table the generator has stopped recognising has no
 # rows to check. So the scan is this driver's own.
 #
-# Non-vacuity: a missing catalog directory, a missing baseline file, or a
-# scan that finds no catalog rows at all DIES rather than reporting clean.
-# The clean line states how many rows were checked and how many the
-# baseline still excuses, so a green line is never read as a verdict over
-# rows that were never there.
+# ── Reach ─────────────────────────────────────────────────────────────
+#
+# A rule that does not apply to half of what it governs is close to no rule
+# at all, and the worse half is the silence. Scanning only the sections it
+# recognised, this lint reached 1736 of 3162 tests; the other 1426 sat
+# outside a REQUIRED field because their section answered with a
+# `| Category | Tests |` summary or with prose and no table, which nothing
+# recorded, nothing reported and nothing bounded. It was also an opt-out:
+# replacing a covered section's rows with a three-line summary took them
+# out of scope with both gates green and nothing in the diff saying why.
+#
+# So the unit of the rule is the generated SECTION, not the table the
+# section happens to carry. Every `### <path> (N)` heading in a scanned
+# document is either
+#
+#   1. a per-test catalogue (`| Test | Description |`), every row of which
+#      needs a description; or
+#   2. DECLARED, with a reason, in the exemptions file -- which the lint
+#      reads, holds to a declared count, refuses without a reason, and
+#      refuses to keep once the section has real rows again.
+#
+# There is no third answer, so a section cannot leave the rule by accident
+# and the clean line can state the reach it actually has: rows checked,
+# rows the baseline still excuses, sections declared out, and the tests
+# those sections account for.
+#
+# Summarising is a legitimate answer -- 13 sections here group 606 tests by
+# concern rather than list 606 near-identical assertion names -- and the
+# exemptions file is not shrink-only for that reason: unlike the baseline
+# it holds decisions, not debt. What it costs is a line, a sentence and a
+# bumped number, in front of a reviewer.
+#
+# Non-vacuity: a missing catalog directory, a missing baseline file, a
+# missing exemptions file, or a scan that finds no catalog rows at all DIES
+# rather than reporting clean. The clean line states how many rows were
+# checked, how many the baseline still excuses and how much of the suite is
+# declared out, so a green line is never read as a verdict over rows that
+# were never there.
 
 _CATALOG_DESC_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" \
   && pwd -P)"
@@ -140,11 +173,12 @@ source "${_CATALOG_DESC_DRIVER_DIR}/../sync-doc-counts.sh"
 
 # ── Catalog description lint ─────────────────────────────────────────────────
 
-# The scanned directory and the baseline, repo-root-relative. Both must
-# exist: either one missing would change what the lint means without
-# changing the lint.
+# The scanned directory and the two sidecar files, repo-root-relative. All
+# three must exist: any one missing would change what the lint means
+# without changing the lint.
 readonly _CATALOG_DESC_DOC_DIR='doc/test'
 readonly _CATALOG_DESC_BASELINE_FILE='script/test/catalog-description-baseline.txt'
+readonly _CATALOG_DESC_EXEMPT_FILE='script/test/catalog-description-exemptions.txt'
 
 # The placeholder sync-doc-counts.sh writes for a row it has no description
 # for (`_catalog_flush_desc[${_name}]:--`). An empty cell counts as one
@@ -155,16 +189,26 @@ readonly _CATALOG_DESC_PLACEHOLDER='-'
 # this is the number that may only ever go down.
 readonly _CATALOG_DESC_COUNT_RE='^#[[:space:]]*entries:[[:space:]]*([0-9]+)[[:space:]]*$'
 
-# _catalog_desc_load_baseline <abs-path> <set-outvar> -- read the baseline
-# into an associative array keyed `<spec>\t<name>`, validating the file's
-# own shape on the way through: the declared count, sortedness, uniqueness
-# and the TAB separator. Prints one line per finding and returns the number
-# of findings.
-_catalog_desc_load_baseline() {
-  local _abs="${1}"
-  local -n _cd_set="${2}"
-  local _rel="${_CATALOG_DESC_BASELINE_FILE}"
+# _catalog_desc_load_list <abs-path> <rel-path> <mode> <map-outvar> -- read
+# one of the two sidecar lists into an associative array, validating the
+# file's own shape on the way through: the declared count, sortedness,
+# uniqueness and the TAB separator. Prints one line per finding and returns
+# the number of findings.
+#
+# <mode> is 'rows' for the baseline, whose whole `<spec> TAB <name>` line is
+# the key and which carries no value, or 'reasons' for the exemptions, whose
+# key is the spec path and whose value -- the reason the section is outside
+# the rule -- must actually say something. One loader rather than two: the
+# two files answer different questions but they are the same artifact, a
+# sorted list that declares its own size so a change to it cannot be made
+# quietly, and a second copy of that reader would drift from this one.
+_catalog_desc_load_list() {
+  local _abs="${1}" _rel="${2}" _mode="${3}"
+  local -n _cd_map="${4}"
+  local _shape='<spec path> TAB <test name>'
+  [[ "${_mode}" == 'reasons' ]] && _shape='<spec path> TAB <reason>'
   local _line _lineno=0 _declared='' _count=0 _prev='' _findings=0
+  local _key _value _keep
   # The file's order is defined as LC_ALL=C, and `[[ < ]]` compares by the
   # CURRENT locale's collation -- which differs between the musl test-tools
   # image and the glibc lint-static runner, so the same file would sort two
@@ -172,7 +216,7 @@ _catalog_desc_load_baseline() {
   # restored on return, which makes the comparison byte-wise without
   # spawning a `sort`.
   local LC_ALL=C
-  _cd_set=()
+  _cd_map=()
 
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
@@ -184,13 +228,33 @@ _catalog_desc_load_baseline() {
     [[ -z "${_line}" ]] && continue
 
     if [[ "${_line}" != *$'\t'* ]]; then
-      printf '%s:%d: malformed entry (expected <spec path> TAB <test name>) -- %s\n' \
-        "${_rel}" "${_lineno}" "${_line}"
+      printf '%s:%d: malformed entry (expected %s) -- %s\n' \
+        "${_rel}" "${_lineno}" "${_shape}" "${_line}"
       _findings=$(( _findings + 1 ))
       continue
     fi
-    if [[ -n "${_cd_set[${_line}]:-}" ]]; then
-      printf '%s:%d: duplicate entry -- %s\n' "${_rel}" "${_lineno}" "${_line}"
+    _key="${_line}"
+    _value=1
+    # A rejected entry still COUNTS: the file holds the line, so dropping it
+    # from the tally would report the reason and the size as two separate
+    # findings for one edit.
+    _keep=1
+    if [[ "${_mode}" == 'reasons' ]]; then
+      _key="${_line%%$'\t'*}"
+      _value="${_line#*$'\t'}"
+      # A blank or placeholder reason is the silence this file exists to
+      # break, one indirection further away, so it is refused exactly as a
+      # row's own placeholder is.
+      if [[ ! "${_value}" =~ [^[:space:]] ]] \
+        || [[ "${_value}" == "${_CATALOG_DESC_PLACEHOLDER}" ]]; then
+        printf '%s:%d: no reason given for the exemption -- say what makes a row each the wrong shape for this section: %s\n' \
+          "${_rel}" "${_lineno}" "${_key}"
+        _findings=$(( _findings + 1 ))
+        _keep=0
+      fi
+    fi
+    if [[ -n "${_cd_map[${_key}]:-}" ]]; then
+      printf '%s:%d: duplicate entry -- %s\n' "${_rel}" "${_lineno}" "${_key}"
       _findings=$(( _findings + 1 ))
       continue
     fi
@@ -202,16 +266,16 @@ _catalog_desc_load_baseline() {
       _findings=$(( _findings + 1 ))
     fi
     _prev="${_line}"
-    _cd_set["${_line}"]=1
+    (( _keep )) && _cd_map["${_key}"]="${_value}"
     _count=$(( _count + 1 ))
   done < "${_abs}"
 
   if [[ -z "${_declared}" ]]; then
-    printf '%s: no "# entries: <n>" directive -- the shrink-only lock is that number, and dropping it is the one edit it exists to make loud\n' \
+    printf '%s: no "# entries: <n>" directive -- that number is what makes a change to this file impossible to commit silently, and dropping it is the one edit it exists to make loud\n' \
       "${_rel}"
     _findings=$(( _findings + 1 ))
   elif [[ "${_declared}" -ne "${_count}" ]]; then
-    printf '%s: declares "# entries: %s" but holds %d -- the baseline may only SHRINK, so if this is a removal lower the number, and if it is an addition it needs saying out loud\n' \
+    printf '%s: declares "# entries: %s" but holds %d -- if this is a removal lower the number, and if it is an addition it needs saying out loud\n' \
       "${_rel}" "${_declared}" "${_count}"
     _findings=$(( _findings + 1 ))
   fi
@@ -223,6 +287,7 @@ _run_catalog_description() {
   echo "--- Running catalog description lint ---"
   local _doc_dir="${REPO_ROOT}/${_CATALOG_DESC_DOC_DIR}"
   local _baseline="${REPO_ROOT}/${_CATALOG_DESC_BASELINE_FILE}"
+  local _exempt="${REPO_ROOT}/${_CATALOG_DESC_EXEMPT_FILE}"
 
   if [[ ! -d "${_doc_dir}" ]]; then
     _die ci_catalog_description \
@@ -235,11 +300,24 @@ _run_catalog_description() {
     return 1
   fi
 
+  if [[ ! -f "${_exempt}" ]]; then
+    _die ci_catalog_description \
+      "exemptions file '${_CATALOG_DESC_EXEMPT_FILE}' not found under ${REPO_ROOT} -- without it every section that answers with a summary instead of a row each fails at once. Restore the file rather than regenerating it: it is a record of decisions somebody made, not a cache."
+    return 1
+  fi
+
   local _violations=0
 
   local -A _baselined=()
-  _catalog_desc_load_baseline "${_baseline}" _baselined \
-    || _violations=$(( _violations + $? ))
+  _catalog_desc_load_list "${_baseline}" "${_CATALOG_DESC_BASELINE_FILE}" \
+    rows _baselined || _violations=$(( _violations + $? ))
+
+  # The sections that answer with a summary instead of a row each, keyed by
+  # spec path, valued by the reason. Read the same way and held to the same
+  # shape as the baseline.
+  local -A _exempted=()
+  _catalog_desc_load_list "${_exempt}" "${_CATALOG_DESC_EXEMPT_FILE}" \
+    reasons _exempted || _violations=$(( _violations + $? ))
 
   # Which baseline entries a live placeholder row still needs. Anything
   # left over at the end is stale -- described, renamed, moved or deleted --
@@ -248,6 +326,14 @@ _run_catalog_description() {
 
   local _doc _rel _spec _line _lineno _in_table _rows=0 _catalogs=0 _excused=0
   local _name _desc _key
+  # Every generated section, whether or not it turned out to be a
+  # catalogue: `<doc> TAB <heading line> TAB <spec> TAB <declared tests>`,
+  # with _governed marking the ones that opened a per-test table. Deciding
+  # after the scan rather than at each closing heading keeps one copy of
+  # the decision instead of one at every place a section can end.
+  local -a _sections=()
+  local -A _governed=()
+  local _cur=-1
   while IFS= read -r -d '' _doc; do
     _rel="${_doc#"${REPO_ROOT}"/}"
     _catalogs=$(( _catalogs + 1 ))
@@ -287,8 +373,13 @@ _run_catalog_description() {
       # TEST.md's index tables carry no spec and are never scanned.
       if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
         _spec=''
-        if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]]; then
+        _cur=-1
+        if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\(([0-9]+)\)[[:space:]]*$ ]]; then
           _spec="${BASH_REMATCH[1]}"
+          _sections+=(
+            "${_rel}"$'\t'"${_lineno}"$'\t'"${_spec}"$'\t'"${BASH_REMATCH[2]}"
+          )
+          _cur=$(( ${#_sections[@]} - 1 ))
         fi
         continue
       fi
@@ -296,9 +387,47 @@ _run_catalog_description() {
       if [[ -n "${_spec}" ]] \
         && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]]; then
         _in_table=1
+        (( _cur >= 0 )) && _governed["${_cur}"]=1
       fi
     done < "${_doc}"
   done < <(find "${_doc_dir}" -maxdepth 1 -type f -name '*.md' -print0 | LC_ALL=C sort -z)
+
+  # Every section is a catalogue or a declared exemption. There is no
+  # third answer: a section outside the rule by table shape alone is what
+  # let 45% of the suite sit outside a required field with nothing saying
+  # so.
+  local -A _exempt_used=()
+  local _sec_rel _sec_line _sec_spec _sec_tests _i
+  local _exempt_sections=0 _exempt_tests=0
+  for (( _i = 0; _i < ${#_sections[@]}; _i++ )); do
+    [[ -n "${_governed[${_i}]:-}" ]] && continue
+    IFS=$'\t' read -r _sec_rel _sec_line _sec_spec _sec_tests \
+      <<< "${_sections[_i]}"
+    if [[ -n "${_exempted[${_sec_spec}]:-}" ]]; then
+      _exempt_used["${_sec_spec}"]=1
+      _exempt_sections=$(( _exempt_sections + 1 ))
+      _exempt_tests=$(( _exempt_tests + _sec_tests ))
+      continue
+    fi
+    printf '%s:%d: %s: no per-test catalogue and no declared exemption -- the description rule does not reach these %s test(s). Give the section a "| Test | Description |" table ("just test sync-docs" fills the rows) or add it to %s with the reason a row each is the wrong shape here.\n' \
+      "${_sec_rel}" "${_sec_line}" "${_sec_spec}" "${_sec_tests}" \
+      "${_CATALOG_DESC_EXEMPT_FILE}"
+    _violations=$(( _violations + 1 ))
+  done
+
+  local -a _stale_exempt=()
+  for _key in "${!_exempted[@]}"; do
+    [[ -n "${_exempt_used[${_key}]:-}" ]] && continue
+    _stale_exempt+=("${_key}")
+  done
+  if [[ "${#_stale_exempt[@]}" -gt 0 ]]; then
+    local _gone
+    while IFS= read -r _gone; do
+      printf '%s: stale entry, no longer a section outside the per-test rule -- %s\n' \
+        "${_CATALOG_DESC_EXEMPT_FILE}" "${_gone}"
+      _violations=$(( _violations + 1 ))
+    done < <(printf '%s\n' "${_stale_exempt[@]}" | LC_ALL=C sort)
+  fi
 
   # The stale half of the ratchet.
   local -a _stale=()
@@ -326,9 +455,9 @@ _run_catalog_description() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_catalog_description \
-      "${_violations} undescribed catalogue row / stale or malformed baseline entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match."
+      "${_violations} undescribed catalogue row / ungoverned section / stale or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why."
     return 1
   fi
 
-  echo "catalog description lint: clean (${_rows} rows checked across ${_catalogs} catalogue(s), ${_excused} still on the baseline)"
+  echo "catalog description lint: clean (${_rows} rows checked across ${_catalogs} catalogue(s), ${_excused} still on the baseline; ${_exempt_sections} section(s) declared outside the per-test rule, covering ${_exempt_tests} test(s))"
 }

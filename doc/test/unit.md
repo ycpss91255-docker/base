@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2956 tests**.
+Unit specs under `test/bats/unit/`: **2965 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -39,10 +39,17 @@ What that means when you edit:
   baseline, so a row that was parked there comes back needing a sentence:
   touch it, describe it.
 - **Rows follow spec file order**, so the table reads the way the spec reads.
-- A section may summarise instead, with a `| Category | Tests |` table or plain
-  prose, for specs where a per-test row each is noise. That is an explicit
-  editorial choice for that section, not a licence for a per-test table to be
-  partial.
+- **A section may summarise instead**, with a `| Category | Tests |` table,
+  for a spec whose cases are near-identical assertions and where a row each is
+  noise. That is an explicit editorial choice, and it is now written down as
+  one: the section is listed in
+  `script/test/catalog-description-exemptions.txt` with the reason a row each
+  is the wrong shape there. The lint refuses an exemption that gives no
+  reason, refuses to keep one once the section has real rows again, and prints
+  on every run how many sections -- and how many tests -- sit outside the
+  rule. It is not a licence for a per-test table to be partial, and it is not
+  a place a section can arrive by accident: a section with no per-test table
+  and no declared exemption fails.
 - A generated section lands at the end of the file; move it into its thematic
   group freely — every pass keys on the heading, not the position.
 
@@ -4221,7 +4228,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (27)
+### test/bats/unit/catalog_description_lint_spec.bats (36)
 
 | Test | Description |
 |------|-------------|
@@ -4242,6 +4249,15 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
 | `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 713 excuses under a count of 714 |
 | `_run_catalog_description: a summary table is not a per-test catalog (#922)` | A section may summarise with `| Category | Tests |` instead; reading those cells as tests invents findings for rows nobody claimed were tests |
+| `_run_catalog_description: FAILS on a section with no per-test table that nobody declared (#922)` | The hole: 45% of the suite sat outside a REQUIRED field by table shape, silently, and nothing bounded it |
+| `_run_catalog_description: a section with NO table at all must be declared too (#922)` | The rule is about the section, not about which table shape it carries -- answering with no table is not a way around it |
+| `_run_catalog_description: converting a per-test table to a summary is not a silent opt-out (#922)` | The escape hatch: 32 described rows could leave the rule by being replaced with a three-line summary, both gates green |
+| `_run_catalog_description: FAILS a declared exemption that gives no reason (#922)` | An exemption with no reason is the same silence one indirection away, so it is refused as a row's `-` is |
+| `_run_catalog_description: FAILS a stale exemption whose section now has a per-test table (#922)` | The ratchet on the exempt set: real rows force the line out, so an exemption cannot outlive its reason |
+| `_run_catalog_description: FAILS a stale exemption whose section is GONE (#922)` | The other stale direction -- a deleted or renamed section leaves an excuse nobody can check |
+| `_run_catalog_description: FAILS when the exemptions file miscounts its own entries (#922)` | Shrinking the rule's reach costs the same declared number growing the debt does |
+| `_run_catalog_description: DIES when the exemptions file is missing (#922)` | Losing it would fail every summarised section at once; that should say so, not arrive as a wall of findings |
+| `_run_catalog_description: the clean line says how much of the suite sits OUTSIDE the rule (#922)` | A reach nobody can see is a reach nobody defends -- the green line used to report only the rows it did check |
 | `_run_catalog_description: a name containing a PIPE is matched against the baseline unescaped (#922)` | The escaping contract between the generator and the lint: two readings of `\|` and every baselined row with a pipe silently loses its excuse |
 | `_run_catalog_description: a name containing a BACKTICK is matched against the baseline (#922)` | The other half of that contract: the double-backtick fence is the generator's, not part of the name |
 | `_run_catalog_description: a PIPE inside a description does not truncate it (#922)` | Splitting from the right would empty a short description and invent a finding the row does not have |
