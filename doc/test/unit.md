@@ -290,6 +290,123 @@ emitted blocks for
 #450 propagation + duplicate-target guards, and S7 `runtime.env`
 retirement (#507).
 
+| Test | Description |
+|------|-------------|
+| `template setup.conf devices opt-in (#466): device_1 is a commented example, not a default` | - |
+| `[devices] opt-in (#466): empty section + slim template emits no devices block` | - |
+| `template setup.conf [deploy] enables ALL GPU capabilities by default` | - |
+| `setup.sh apply emits top-level name: in compose.yaml (#472)` | - |
+| `[lifecycle] restart = always lands on the deployable stage, never on devel (#478, #840)` | - |
+| `[lifecycle] restart = always emits nothing when no stage is deployable (#840)` | - |
+| `[lifecycle] restart = no emits no restart: field (#478)` | - |
+| `[lifecycle] restart = on-failure:3 emits quoted value (#478)` | - |
+| `template setup.conf ships [lifecycle] restart = unless-stopped (#478, #840)` | - |
+| `setup.sh set lifecycle.restart rejects an invalid policy (#478)` | - |
+| `[lifecycle] init defaults ON: emits init: true under devel (#792)` | - |
+| `[lifecycle] init = false omits init: field (#792)` | - |
+| `template setup.conf ships [lifecycle] init = true (#792)` | - |
+| `setup.sh set lifecycle.init rejects a non-boolean (#792)` | - |
+| `setup.sh set lifecycle.restart accepts the 5 canonical values (#478)` | - |
+| `[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)` | - |
+| `[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)` | - |
+| `[deploy] dri_groups = off emits no group_add even with GUI (#496)` | - |
+| `[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)` | - |
+| `template setup.conf ships [deploy] dri_groups = auto (#496)` | - |
+| `[deploy] gpu_runtime primary key emits runtime: nvidia (#481)` | - |
+| `[deploy] legacy runtime key still works + warns (#481 W3 alias)` | - |
+| `[deploy] gpu_runtime wins when both keys present (#481)` | - |
+| `template setup.conf ships [deploy] gpu_runtime = auto (#481)` | - |
+| `per-stage override accepts deploy.gpu_runtime (#481)` | - |
+| `per-stage override still accepts legacy deploy.runtime (#481 alias)` | - |
+| `[security] cap_add opt-in (#466): empty section + slim template emits no cap_add` | - |
+| `[security] security_opt opt-in (#466): empty section + slim template emits no security_opt` | - |
+| `[security] opt-in via wrapper: setup.sh add security.cap_add then apply emits cap_add (#466)` | - |
+| `[security] privileged defaults to false when key absent (#466 opt-in)` | - |
+| `[security] opt-in still works via explicit declaration (#466 regression)` | - |
+| `[additional_contexts] omitted by default (back-compat: no block in compose.yaml)` | - |
+| `[additional_contexts] context_1 = NAME=PATH emits block under devel/test build` | - |
+| `[additional_contexts] runtime service inherits the block when Dockerfile declares AS runtime` | - |
+| `[additional_contexts] entries sort by numeric suffix (context_2 / context_10)` | - |
+| `[additional_contexts] empty value (cleared slot) is skipped` | - |
+| `set logging.driver round-trips via show (#328)` | - |
+| `set logging.compress accepts true/false; rejects others (#328)` | - |
+| `set logging.max_file rejects non-positive integers (#328)` | - |
+| `set logging.max_size accepts num+unit; rejects malformed (#328)` | - |
+| `set logging.driver rejects whitespace/empty-shape names (#328)` | - |
+| `set logging.<svc>.<key> writes to per-service section (#328)` | - |
+| `remove logging.<svc>.<key> deletes the per-service key (#328)` | - |
+| `show logging prints the whole resolved [logging] section (#328)` | - |
+| `set logging.local_path accepts relative path (#328)` | - |
+| `set logging.local_path accepts absolute path (#328)` | - |
+| `set logging.local_path rejects whitespace-only value (#328)` | - |
+| `set logging.<svc>.local_path writes to per-service section (#328)` | - |
+| `[security] cap_add_* explicit override: user-provided list is honored (no template fallback)` | - |
+| `main rejects bare flag without subcommand (#49 Phase B-4 BREAKING)` | - |
+| `apply subcommand returns error when --base-path value is missing` | - |
+| `apply subcommand returns error when --lang value is missing` | - |
+| `apply --lang zh-TW sets Chinese messages for full run` | - |
+| `apply prints WARN when per-repo setup.conf is missing (#186)` | - |
+| `apply prints WARN when per-repo setup.conf has no section headers (#186)` | - |
+| `apply stays silent when per-repo setup.conf has at least one section` | - |
+| `apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)` | - |
+| `apply resolves default _base_path via BASH_SOURCE when --base-path omitted` | - |
+| `apply writes the derived cache to .env.generated (not .env)` | - |
+| `apply scaffolds a .env workload overlay when absent` | - |
+| `apply does NOT overwrite an existing hand-authored .env overlay` | - |
+| `apply migrates a legacy .env cache to .env.generated + backs it up` | - |
+| `apply emits env_file: - .env on the devel service (#502 overlay)` | - |
+| `apply dev-binds config/app/ into the devel service when present (#504)` | - |
+| `apply omits the config/app bind when the directory is absent (#504)` | - |
+| `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
+| `_setup_msg returns English messages by default` | - |
+| `_setup_msg returns Traditional Chinese messages when _LANG=zh-TW` | - |
+| `_setup_msg returns Simplified Chinese messages when _LANG=zh-CN` | - |
+| `_setup_msg returns Japanese messages when _LANG=ja` | - |
+| `_setup_msg env_comment and unknown_arg are defined in zh` | - |
+| `_setup_msg env_comment and unknown_arg are defined in zh-CN` | - |
+| `_setup_msg env_comment and unknown_arg are defined in ja` | - |
+| `_msg falls back to English when _LANG is unknown` | - |
+| `[build] template defaults ship TW mirrors via arg_N` | - |
+| `[build] arg_N override replaces TW default when set` | - |
+| `[build] back-compat: old apt_mirror_* named keys still read` | - |
+| `[build] user-added arg_N propagates to .env` | - |
+| `[build] target_arch = arm64 writes TARGET_ARCH to .env` | - |
+| `[build] target_arch empty omits TARGET_ARCH from .env` | - |
+| `[build] network = host writes BUILD_NETWORK to .env` | - |
+| `[build] network empty omits BUILD_NETWORK from .env` | - |
+| `workspace first-time: writes ${WS_PATH} variable form (portable)` | - |
+| `workspace second-run: ${WS_PATH} form re-detects per machine` | - |
+| `workspace second-run: respects user-pinned absolute path via setup.conf (#174)` | - |
+| `workspace second-run: stale setup.conf path is harmlessly overwritten (#174)` | - |
+| `fresh bootstrap: empty dir + main apply emits workspace mount in compose.yaml (#201 regression)` | - |
+| `workspace opt-out: cleared mount_1 means no workspace mount in compose` | - |
+| `setup.sh set: prints 3-line confirmation by default` | - |
+| `setup.sh set --quiet: produces empty stdout` | - |
+| `setup.sh set -q: short form also suppresses output` | - |
+| `setup.sh set --quiet: still writes the value (mutation not skipped)` | - |
+| `setup.sh add: prints 3-line confirmation by default` | - |
+| `setup.sh add --quiet: produces empty stdout` | - |
+| `setup.sh remove: prints 3-line confirmation by default` | - |
+| `setup.sh remove --quiet: produces empty stdout` | - |
+| `setup.sh reset --yes: prints next: hint and file: by default` | - |
+| `setup.sh reset --yes --quiet: produces empty stdout` | - |
+| `setup.sh apply --quiet: suppresses the env_done + USER=... summary` | - |
+| `apply --gui off overrides [gui] mode via print-resolved (#338)` | - |
+| `apply --gui=force enables GUI even when setup.conf says off (#338)` | - |
+| `apply --gui rejects values outside auto\|force\|off (#338)` | - |
+| `apply --print-resolved prints KEY=VALUE state without writing .env (#338)` | - |
+| `apply --print-resolved respects --gui override in the dump (#338)` | - |
+| `apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)` | - |
+| `apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)` | - |
+| `apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)` | - |
+| `apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)` | - |
+| `apply warns when device propagation used without privileged (#450 P2)` | - |
+| `apply suppresses propagation warning when privileged is true (#450 P2)` | - |
+| `apply warns when device and volume have same target path (#450 P4)` | - |
+| `apply does NOT warn duplicate when device and volume targets differ (#450 P4)` | - |
+| `apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)` | - |
+| `_write_runtime_env is removed (#507)` | - |
+
 #### test/bats/unit/resolve_spec.bats (25)
 
 Mirrors `lib/resolve.sh`. The host-detection resolvers in isolation:
@@ -299,11 +416,46 @@ and `_resolve_build_network` over `_detect_jetson`, the documented
 contract (#760) for `_detect_jetson` / `_detect_dri_groups`, and
 `_compute_conf_hash`.
 
+| Test | Description |
+|------|-------------|
+| `SETUP_DETECT_DRI_GROUPS operator override forces the GID list verbatim (#496)` | - |
+| `SETUP_DETECT_DRI_GROUPS override echoes repeated GIDs verbatim (no stat dedup) (#496)` | - |
+| `_resolve_gpu auto + detected=true => enabled` | - |
+| `_resolve_gpu auto + detected=false => disabled` | - |
+| `_resolve_gpu force => enabled regardless of detection` | - |
+| `_resolve_gpu off => disabled regardless of detection` | - |
+| `_resolve_gui auto + detected=true => enabled` | - |
+| `_resolve_gui force => enabled regardless` | - |
+| `_resolve_gui off => disabled regardless` | - |
+| `SETUP_DETECT_JETSON=true operator override forces Jetson detection` | - |
+| `SETUP_DETECT_JETSON=false operator override forces non-Jetson detection` | - |
+| `_resolve_runtime auto on Jetson => nvidia` | - |
+| `_resolve_runtime auto off Jetson => empty` | - |
+| `_resolve_runtime nvidia => always nvidia` | - |
+| `_resolve_runtime off => empty` | - |
+| `_resolve_runtime empty => empty` | - |
+| `_resolve_runtime unknown mode falls through to empty (safe default)` | - |
+| `_resolve_build_network auto on Jetson => host` | - |
+| `_resolve_build_network auto off Jetson => empty` | - |
+| `_resolve_build_network host => always host (explicit override wins)` | - |
+| `_resolve_build_network bridge / none / default pass through` | - |
+| `_resolve_build_network off / empty => empty (explicitly suppressed)` | - |
+| `_resolve_build_network unknown mode falls through to empty` | - |
+| `_compute_conf_hash returns a sha256-shaped hex string` | - |
+| `_compute_conf_hash differs when per-repo setup.conf changes` | - |
+
 #### test/bats/unit/drift_spec.bats (4)
 
 Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero
 paths when the conf hash or GPU detection changes against a cached
 `.env`.
+
+| Test | Description |
+|------|-------------|
+| `_check_setup_drift no-op when .env missing` | - |
+| `_check_setup_drift silent when nothing changed` | - |
+| `_check_setup_drift returns non-zero when conf hash changes` | - |
+| `_check_setup_drift returns non-zero when GPU detection changes` | - |
 
 #### test/bats/unit/setup_detect_spec.bats (50)
 
@@ -314,6 +466,59 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 (`_setup_ssh_x11_cookie`, #321/#688), the `detect_image_name` rule engine
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
+
+| Test | Description |
+|------|-------------|
+| `detect_user_info uses USER env when set` | - |
+| `detect_user_info falls back to id -un when USER unset` | - |
+| `detect_user_info sets group uid gid correctly` | - |
+| `detect_hardware returns uname -m output` | - |
+| `detect_docker_hub_user uses docker info username when logged in` | - |
+| `detect_docker_hub_user falls back to USER when docker returns empty` | - |
+| `detect_docker_hub_user falls back to id -un when USER also unset` | - |
+| `detect_gpu returns true when nvidia-container-toolkit is installed` | - |
+| `detect_gpu returns false when nvidia-container-toolkit is not installed` | - |
+| `detect_gpu: a dpkg-query still writing cannot report an installed toolkit as missing (#905)` | - |
+| `detect_gpu_count returns count of GPUs from nvidia-smi -L output` | - |
+| `detect_gpu_count returns 0 when nvidia-smi is missing` | - |
+| `detect_gpu_count returns 0 when nvidia-smi fails (driver broken)` | - |
+| `detect_gpu_count nameref survives caller-local named '_line' (regression)` | - |
+| `detect_gui returns true when DISPLAY is set` | - |
+| `detect_gui returns true when WAYLAND_DISPLAY is set` | - |
+| `detect_gui returns false when both DISPLAY and WAYLAND_DISPLAY unset` | - |
+| `_is_ssh_x11 true when SSH_CONNECTION set + DISPLAY=localhost:N (#321)` | - |
+| `_is_ssh_x11 true when DISPLAY=localhost:N without fractional part (#321)` | - |
+| `_is_ssh_x11 false when SSH_CONNECTION unset (#321)` | - |
+| `_is_ssh_x11 false when DISPLAY is local socket (:0) (#321)` | - |
+| `_is_ssh_x11 false when DISPLAY is unset (#321)` | - |
+| `_is_ssh_x11 false when DISPLAY points to a remote host (#321)` | - |
+| `detect_image_name uses template default rules (prefix:docker_ → strip)` | - |
+| `detect_image_name uses template default rules (suffix:_ws → strip)` | - |
+| `detect_image_name template default falls through to @basename for generic paths` | - |
+| `detect_image_name honors per-repo setup.conf [image] rules` | - |
+| `detect_image_name rules apply in order (first match wins)` | - |
+| `detect_image_name @default:<value> used when no rule matches` | - |
+| `detect_image_name lowercases the result` | - |
+| `detect_image_name returns unknown when no rule matches and no @default` | - |
+| `detect_ws_path strategy 1: docker_* finds sibling *_ws` | - |
+| `detect_ws_path strategy 1: docker_* without sibling falls through` | - |
+| `detect_ws_path strategy 2: finds _ws component in path` | - |
+| `detect_ws_path strategy 3: falls back to base_path itself` | - |
+| `detect_ws_path fails with ERROR when base_path does not exist` | - |
+| `detect_image_name uses @basename rule alone (exercises _rule_basename)` | - |
+| `detect_image_name replaces '.' with '-' (regression: tmp.abcdef → tmp-abcdef)` | - |
+| `detect_image_name collapses runs of '-' and strips leading/trailing separators` | - |
+| `detect_image_name string:<value> short-circuits path parsing` | - |
+| `detect_image_name string value is still lowercased + sanitized` | - |
+| `_reconcile_workspace_path: portable form detects WS_PATH locally, mount_1 untouched (#569)` | - |
+| `_reconcile_workspace_path: absolute existing host path is honored as WS_PATH (#569)` | - |
+| `_reconcile_workspace_path: stale absolute path warns + rewrites mount_1 to portable (#569)` | - |
+| `_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)` | - |
+| `_reconcile_workspace_path: first-time bootstrap copies template + writes portable mount_1 (#569)` | - |
+| `_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)` | - |
+| `_setup_ssh_x11_cookie returns 1 with warning when nmerge writes 0-byte cookie (#321 hotfix)` | - |
+| `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
+| `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
 #### test/bats/unit/setup_conf_spec.bats (30)
 
@@ -326,11 +531,51 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
+| Test | Description |
+|------|-------------|
+| `_load_setup_conf returns every entry of the per-repo section` | - |
+| `_load_setup_conf ignores an ambient SETUP_CONF pointing at another file` | - |
+| `_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent` | - |
+| `_setup_conf_handle ignores an ambient SETUP_CONF` | - |
+| `_compute_conf_hash ignores an ambient SETUP_CONF` | - |
+| `_load_setup_conf uses per-repo setup.conf when section present` | - |
+| `_load_setup_conf reads the per-repo override from repo-root .setup.conf` | - |
+| `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
+| `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
+| `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
+| `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
+| `_load_setup_conf falls back to template when section absent per-repo` | - |
+| `_load_setup_conf replace strategy: per-repo section fully replaces template section` | - |
+| `_load_setup_conf: .setup.conf.local overrides the per-repo section` | - |
+| `_load_setup_conf: .setup.conf.local overrides the template for a section the repo omits` | - |
+| `_load_setup_conf: .setup.conf.local replaces a section wholesale, never per-key` | - |
+| `_load_setup_conf: sections .setup.conf.local omits keep the layer below` | - |
+| `_setup_conf_handle: .setup.conf.local wins over the per-repo layer` | - |
+| `_compute_conf_hash: editing .setup.conf.local is drift` | - |
+| `_setup_effective_full: show/list read the local layer too` | - |
+| `_setup_conf_local_sections: names the sections the local layer shadows` | - |
+| `_setup_conf_local_sections: empty when no local layer is present` | - |
+| `_get_conf_value returns value for present key` | - |
+| `_get_conf_value returns default for absent key` | - |
+| `_get_conf_list_sorted returns values sorted by numeric suffix` | - |
+| `_get_conf_list_sorted skips non-matching keys` | - |
+| `_rule_basename returns last non-empty path component` | - |
+| `_rule_basename skips trailing slashes` | - |
+| `_rule_basename handles single-component path` | - |
+| `_get_conf_list_sorted skips entries with empty value` | - |
+
 #### test/bats/unit/env_emit_spec.bats (4)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
+
+| Test | Description |
+|------|-------------|
+| `write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)` | - |
+| `write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)` | - |
+| `write_env creates .env with all required variables and SETUP_* metadata` | - |
+| `_scaffold_env_overlay is idempotent (never overwrites)` | - |
 
 #### test/bats/unit/setup_cmd_spec.bats (120)
 
@@ -347,6 +592,129 @@ setup.conf parameter end-to-end coverage (#202, merged from the former
 mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
+
+| Test | Description |
+|------|-------------|
+| `main no-arg prints help and exits 0 (#49 Phase B-4 BREAKING)` | - |
+| `main legacy flag-only invocation now errors (#49 Phase B-4 BREAKING)` | - |
+| `main apply subcommand regenerates .env + compose.yaml` | - |
+| `main rejects unknown subcommand` | - |
+| `main check-drift returns 0 when .env missing (no-op)` | - |
+| `main check-drift returns 0 when nothing changed` | - |
+| `main check-drift returns non-zero when conf hash drifts` | - |
+| `check-drift prints WARN when per-repo setup.conf is missing (#186)` | - |
+| `check-drift prints WARN when per-repo setup.conf has no section headers (#186)` | - |
+| `check-drift stays silent when per-repo setup.conf has at least one section` | - |
+| `check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)` | - |
+| `main check-drift rejects unknown flag` | - |
+| `setup.sh check-drift via subprocess emits stderr + non-zero exit on drift` | - |
+| `set writes a value into an existing section, round-trip via show` | - |
+| `set creates a new key when section exists but key is absent` | - |
+| `set creates section + key when section is absent` | - |
+| `set project.name accepts a compose-legal name and show round-trips it (#893)` | - |
+| `set project.name rejects a name docker compose would reject (#893)` | - |
+| `apply records the resolved project name in .env.generated (#893)` | - |
+| `the shipped template ships [project] name empty, so an upgrade changes nothing (#893)` | - |
+| `set --local writes .setup.conf.local and leaves .setup.conf alone (#893)` | - |
+| `set without --local still writes .setup.conf (#893)` | - |
+| `set --local reports the gitignored file it created (#893)` | - |
+| `set warns, names the section and points at --local when .local shadows it (#893)` | - |
+| `set does not warn about a section the local layer does not define (#893)` | - |
+| `set --local does not warn about the file it is writing (#893)` | - |
+| `add --local appends to the local layer's section (#893)` | - |
+| `remove --local removes from the local layer (#893)` | - |
+| `add warns when the local layer shadows the section it appends to (#893)` | - |
+| `set rejects an unknown section with non-zero exit + Unknown section stderr` | - |
+| `set rejects an invalid gpu_count value` | - |
+| `set rejects an invalid mount string` | - |
+| `set rejects an invalid cgroup_rule` | - |
+| `set rejects an invalid env_kv` | - |
+| `set rejects an invalid port mapping` | - |
+| `set rejects an invalid target_arch (#560 schema unification)` | - |
+| `set rejects an invalid build network (#560 schema unification)` | - |
+| `set rejects an invalid gpu_runtime (#560 schema unification)` | - |
+| `set rejects an invalid network_name (#560 schema unification)` | - |
+| `set rejects an invalid device mount (#560 schema unification)` | - |
+| `add rejects an invalid capability (#560 schema unification)` | - |
+| `set rejects a malformed dotted key (no dot)` | - |
+| `set rejects a newline-bearing value rather than corrupting setup.conf (#688)` | - |
+| `set with no arguments fails clean (no shell error)` | - |
+| `set does NOT regenerate .env (mtime unchanged after set)` | - |
+| `show prints the value of a single key` | - |
+| `show prints all entries of a whole section in on-disk order` | - |
+| `show returns non-zero on a missing key` | - |
+| `show falls back to template baseline when section absent in .local (#174)` | - |
+| `show rejects an unknown section name` | - |
+| `show with no arguments fails clean` | - |
+| `list with no arg prints every section header + key` | - |
+| `list <section> mirrors show <section>` | - |
+| `list <section> rejects an unknown section` | - |
+| `set / show / list run end-to-end via subprocess` | - |
+| `main add appends mount to next available slot` | - |
+| `main add to empty section creates _1` | - |
+| `main add bootstraps setup.conf empty when missing (#174)` | - |
+| `main add picks max+1 even with gap from prior remove` | - |
+| `main add rejects unknown section` | - |
+| `main add rejects invalid mount value` | - |
+| `main add rejects missing list / value` | - |
+| `main add does not regen .env` | - |
+| `main remove drops keyed entry` | - |
+| `main remove by value finds matching key in list` | - |
+| `main remove fails when key missing` | - |
+| `main remove by value fails when no value matches` | - |
+| `main remove rejects unknown section` | - |
+| `main remove preserves comments + remaining keys` | - |
+| `main add then remove round-trips` | - |
+| `main add validates env_kv format` | - |
+| `main add free-form image rule accepts arbitrary string` | - |
+| `main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)` | - |
+| `main reset --yes backs up prior setup.conf to .local.bak (#174)` | - |
+| `main reset --yes backs up prior .env.generated to .env.generated.bak` | - |
+| `main reset --yes does NOT regenerate .env` | - |
+| `main reset without --yes refuses non-tty (no confirmation possible)` | - |
+| `main reset rejects unknown flag` | - |
+| `[deploy] gpu_mode = off omits deploy.resources block from compose.yaml` | - |
+| `[deploy] gpu_mode = force emits deploy.resources GPU block` | - |
+| `[deploy] gpu_count = 2 emits count: 2 in compose deploy block` | - |
+| `[deploy] gpu_capabilities multi-value emits as YAML array` | - |
+| `[deploy] runtime = nvidia emits runtime: nvidia at service level` | - |
+| `[deploy] runtime = off omits runtime line entirely` | - |
+| `[gui] mode = off omits X11 / DISPLAY env from compose` | - |
+| `[gui] mode = force emits X11 environment + /tmp/.X11-unix mount` | - |
+| `[network] mode = host writes NETWORK_MODE=host to .env` | - |
+| `[network] ipc = private writes IPC_MODE=private to .env` | - |
+| `[network] pid = host writes PID_MODE=host to .env` | - |
+| `[network] pid default (private) writes PID_MODE=private to .env` | - |
+| `[network] pid default (private) omits pid: line from compose.yaml` | - |
+| `[network] pid = host emits pid: host in compose.yaml` | - |
+| `[network] network_name = my_bridge under mode=bridge emits external network ref` | - |
+| `[network] port_1 = 8080:80 emits ports: block under bridge mode` | - |
+| `[network] port_* under mode=host is silently dropped` | - |
+| `[resources] shm_size = 2gb under ipc=private emits shm_size: 2gb` | - |
+| `[resources] shm_size empty omits shm_size line` | - |
+| `[environment] env_1 = ROS_DOMAIN_ID=7 emits environment: block in compose` | - |
+| `[environment] empty section omits environment: block` | - |
+| `[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry` | - |
+| `[tmpfs] tmpfs_1 with size= suffix preserved verbatim` | - |
+| `[tmpfs] empty section omits tmpfs: block` | - |
+| `[devices] device_1 = /dev/video0:/dev/video0 emits devices: block` | - |
+| `[devices] cgroup_rule_1 emits device_cgroup_rules: block` | - |
+| `[volumes] mount_2 = /data:/data emits as additional volume entry` | - |
+| `[volumes] mount_N supports :ro suffix` | - |
+| `[security] privileged = false writes PRIVILEGED=false to .env` | - |
+| `[environment] apply does NOT execute a command-substitution env value (#687)` | - |
+| `[environment] apply emits an injection-style env value on a single line (#687)` | - |
+| `[lifecycle] apply does not emit a restart: line for a malformed policy (#687)` | - |
+| `[environment] apply quotes an env value containing a colon-space so YAML keeps it a scalar (#698)` | - |
+| `[environment] apply quotes an env value with a leading flow indicator (#698)` | - |
+| `[environment] apply quotes an env value with an inline ' #' comment marker (#698)` | - |
+| `[environment] apply escapes embedded double-quote / backslash in env value (#698)` | - |
+| `[network] apply does not emit a literal network_mode: line for a bogus hand-edited mode (#698)` | - |
+| `[network] apply does not emit a literal ipc:/pid: line for a bogus hand-edited mode (#698)` | - |
+| `_setup_known_section recognises additional_contexts` | - |
+| `_setup_known_section recognises logging + [logging.<svc>] sub-section (#328)` | - |
+| `_setup_known_section recognises every SCHEMA_SECTIONS member (#561)` | - |
+| `_setup_known_section derives from SCHEMA_SECTIONS, not a copy (#561)` | - |
 
 #### test/bats/unit/stage_spec.bats (103)
 
@@ -371,6 +739,112 @@ reader against its own regex — the shape that let three regexes drift
 apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
+
+| Test | Description |
+|------|-------------|
+| `_validate_stage_name accepts well-formed names` | - |
+| `_validate_stage_name rejects invalid format with exit 1 (WARN+skip)` | - |
+| `_validate_stage_name rejects baseline collision with exit 2 (HARD ERROR)` | - |
+| `_validate_stage_name accepts devel-test as an emittable stage (#493 A1'-b)` | - |
+| `_validate_stage_name rejects reserved tag-namespace names with exit 3 (HARD ERROR)` | - |
+| `_parse_dockerfile_stages: returns nothing for Dockerfile with only legacy baseline stages (backward compat)` | - |
+| `_parse_dockerfile_stages: returns nothing for Dockerfile with only new baseline stages (#243)` | - |
+| `_parse_dockerfile_stages: returns devel-test (promoted out of baseline, #493)` | - |
+| `_parse_dockerfile_stages: extracts non-baseline stages` | - |
+| `_parse_dockerfile_stages: preserves Dockerfile order` | - |
+| `_parse_dockerfile_stages: dedups duplicate stage names` | - |
+| `_parse_dockerfile_stages: handles missing Dockerfile gracefully (empty output)` | - |
+| `_parse_dockerfile_stages: ignores lowercase 'as' and inline comments` | - |
+| `_compute_dockerfile_hash: stable for unchanged stage list` | - |
+| `_compute_dockerfile_hash: changes when stage is added` | - |
+| `_compute_dockerfile_hash: changes when stage is removed` | - |
+| `_compute_dockerfile_hash: stable when non-FROM-AS lines change` | - |
+| `_compute_dockerfile_hash: empty when Dockerfile missing` | - |
+| `auto-emit: regression for #108 — Dockerfile AS runtime still emits runtime service` | - |
+| `auto-emit: multi-stage emits one service per non-baseline stage` | - |
+| `auto-emit: each emitted stage carries target / image / container_name / profiles` | - |
+| `auto-emit: no extra stages → only devel + test in compose.yaml` | - |
+| `auto-emit: baseline collision (AS test redefined) → hard error exit non-zero` | - |
+| `auto-emit: reserved tag namespace (AS latest) → hard error exit non-zero` | - |
+| `auto-emit: reserved tag namespace (AS v0) → hard error exit non-zero` | - |
+| `auto-emit: invalid format (AS Headless capital) → WARN + skip, apply still succeeds` | - |
+| `auto-emit: SETUP_DOCKERFILE_HASH written to .env` | - |
+| `auto-emit: drift fires when Dockerfile stage list changes` | - |
+| `auto-emit: drift fires when Dockerfile stage is REMOVED` | - |
+| `_parse_stage_sections: empty file → empty output` | - |
+| `_parse_stage_sections: missing file → empty output (no error)` | - |
+| `_parse_stage_sections: extracts [stage:NAME] sections in file order` | - |
+| `_parse_stage_sections: ignores plain sections that are not [stage:...]` | - |
+| `_load_stage_overrides: returns the keys+values under [stage:NAME]` | - |
+| `_load_stage_overrides: .setup.conf.local replaces a [stage:NAME] section (#893)` | - |
+| `_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)` | - |
+| `_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)` | - |
+| `_load_stage_overrides: missing setup.conf → empty arrays` | - |
+| `_load_stage_overrides: stage absent from setup.conf → empty arrays` | - |
+| `_validate_stage_override_key: accepts allowlisted scalars` | - |
+| `_validate_stage_override_key: accepts list-item keys with numeric suffix` | - |
+| `_validate_stage_override_key: accepts inherit meta-keys` | - |
+| `_validate_stage_override_key: rejects keys outside allowlist` | - |
+| `_resolve_stage_scalar: returns stage value when override present` | - |
+| `_resolve_stage_scalar: returns fallback when key absent` | - |
+| `_resolve_stage_scalar: returns empty fallback when neither set` | - |
+| `_resolve_stage_list: append-default with stage entries (inherit unset)` | - |
+| `_resolve_stage_list: replace mode (inherit=false) drops top-level` | - |
+| `_resolve_stage_list: empty stage with inherit=true → top-level only` | - |
+| `_resolve_stage_list: empty stage with inherit=false → empty result` | - |
+| `_resolve_stage_list: preserves stage entries in setup.conf order` | - |
+| `_resolve_stage_list: ignores keys with non-numeric suffix` | - |
+| `stage-override: regression — stage with NO overrides keeps extends:devel minimal block` | - |
+| `stage-override: gui.mode=off in [stage:headless] strips X11 env+volumes from headless` | - |
+| `stage-override: network.mode=bridge + port_1 in [stage:headless] emits per-stage ports` | - |
+| `stage-override: volumes.mount_inherit=false drops top-level mounts for that stage` | - |
+| `stage-override: standalone emit re-emits cap_add + privileged inherited from devel` | - |
+| `stage-override: orphan [stage:foo] (no foo in Dockerfile) prints WARN, does not abort` | - |
+| `stage-override: disallowed override key (image.rule_1) prints WARN and skips that key` | - |
+| `stage-override: [stage:sys] in setup.conf is hard-error (baseline collision)` | - |
+| `stage-override(#493): [stage:devel-test] deploy.gpu_mode=force emits GPU deploy block on the test service` | - |
+| `_resolve_docker_flags: no overrides => inherits all parent values (#505)` | - |
+| `_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)` | - |
+| `_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)` | - |
+| `_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)` | - |
+| `_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)` | - |
+| `_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)` | - |
+| `_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)` | - |
+| `_resolve_docker_flags: gpu_runtime beats the legacy deploy.runtime at per-stage scope (#505/#481, #876)` | - |
+| `_resolve_docker_flags: network scalars + privileged override (#505)` | - |
+| `_resolve_docker_flags: list fields append to top by default (#505)` | - |
+| `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | - |
+| `_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)` | - |
+| `_generate_runtime_dockerfile injects ENV after FROM ... AS runtime` | - |
+| `_generate_runtime_dockerfile expands cross-refs in baked ENV` | - |
+| `_generate_runtime_dockerfile escapes a double-quote in a baked ENV value (#688)` | - |
+| `_generate_runtime_dockerfile neutralises $(...) / backtick in a baked ENV value (#688)` | - |
+| `_generate_runtime_dockerfile returns 2 when no runtime stage` | - |
+| `_generate_runtime_dockerfile returns 1 and stays quiet when [environment] empty` | - |
+| `_generate_runtime_dockerfile bakes ENV into the caller's stage, not a literal runtime (#840)` | - |
+| `_generate_runtime_dockerfile bakes into the named stage only, leaving siblings untouched (#840)` | - |
+| `_generate_runtime_dockerfile names the absent stage instead of skipping it silently (#840/#875)` | - |
+| `all FROM-line call sites agree a plain stage line declares the stage (#875)` | - |
+| `all FROM-line call sites agree a --platform flagged line declares the stage (#875)` | - |
+| `all FROM-line call sites agree on a multi-flag FROM line (#875)` | - |
+| `all FROM-line call sites agree a lowercase 'as' line declares nothing (#875)` | - |
+| `all FROM-line call sites agree a commented-out FROM declares nothing (#875)` | - |
+| `all FROM-line call sites agree a stray bare token declares nothing (#875)` | - |
+| `all FROM-line call sites agree an inline '#' declares nothing (#875)` | - |
+| `_dockerfile_stage_from_line reports the declared stage name (#875)` | - |
+| `_dockerfile_stage_from_line rejects a flag in the image-reference slot (#875)` | - |
+| `_dockerfile_stage_from_line rejects a non-FROM line (#875)` | - |
+| `_is_deployable_stage accepts a field-oriented stage (#840)` | - |
+| `_is_deployable_stage rejects devel -- a devel container is an interactive shell (#840)` | - |
+| `_is_deployable_stage rejects every *-test stage -- they exit by design (#840)` | - |
+| `_is_deployable_stage rejects an empty stage name (#840)` | - |
+| `_is_deployable_stage rejects the build-intermediate baseline stages (#841)` | - |
+| `_resolve_docker_flags: gpu_runtime wins over the legacy alias, as the global resolver does (#876)` | - |
+| `_resolve_docker_flags: legacy alias still applies when gpu_runtime is absent (#876)` | - |
+| `_resolve_docker_flags: an empty gpu_runtime does not shadow the legacy alias (#876)` | - |
+| `_resolve_docker_flags: the legacy alias emits the deprecation warning (#876)` | - |
+| `_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)` | - |
+| `_resolve_docker_flags: no legacy alias, no deprecation warning (#876)` | - |
 
 ### test/bats/unit/tui_spec.bats (135)
 
@@ -512,6 +986,17 @@ tolerated, an unsupported platform fails with a naming plain-language error,
 and an empty / all-empty list fails the no-jobs guard instead of fanning out
 to zero build jobs.
 
+| Test | Description |
+|------|-------------|
+| `compute_matrix: linux/amd64 -> single include entry on ubuntu-latest / x86_64` | - |
+| `compute_matrix: linux/arm64 -> single include entry on ubuntu-24.04-arm / aarch64` | - |
+| `compute_matrix: both platforms -> two ordered include entries` | - |
+| `compute_matrix: tolerates whitespace around comma-separated platforms` | - |
+| `compute_matrix: skips empty segments (trailing comma) without emitting an empty entry` | - |
+| `compute_matrix: unsupported platform fails with a naming, plain-language error` | - |
+| `compute_matrix: empty platform list fails (no matrix -> no jobs guard)` | - |
+| `compute_matrix: all-empty segments fail (whitespace-only -> no jobs guard)` | - |
+
 ### test/bats/unit/build_worker_cache_scope_spec.bats (4)
 
 Unit tests for `script/ci/build_worker/cache_scope.sh`, the buildx
@@ -521,6 +1006,13 @@ cache-scope base-key resolver extracted out of build-worker.yaml's inline
 bug history): the optional `cache_variant` segment single-call callers omit,
 the per-arch hardware suffix, and the distro-in-image_name case that needs no
 variant.
+
+| Test | Description |
+|------|-------------|
+| `cache_scope: single-call caller (no cache_variant) -> image-hardware key` | - |
+| `cache_scope: aarch64 hardware threads through unchanged` | - |
+| `cache_scope: cache_variant is inserted between image and hardware (#272)` | - |
+| `cache_scope: distro-in-image_name repos need no variant (per-scope already unique)` | - |
 
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
@@ -544,6 +1036,27 @@ requirement without leaking the guard into the hint, and `--list`
 annotates it as `(when <condvar>=<value>)`. A malformed guard field
 lacking `=` fails loud as a config error (exit 2), never failing open.
 
+| Test | Description |
+|------|-------------|
+| `preflight: passes when a required input is present` | - |
+| `preflight: fails when a required input is empty, naming the input` | - |
+| `preflight: passes when a permission probe reports granted` | - |
+| `preflight: fails when a permission probe reports missing` | - |
+| `preflight: an unset permission probe env fails (never silently green)` | - |
+| `preflight: reports every unmet requirement in one pass` | - |
+| `preflight --list: prints the requirement list and exits 0 (self-describing)` | - |
+| `preflight: comment and blank lines in the manifest are ignored` | - |
+| `preflight: missing manifest file is a usage error (exit 2)` | - |
+| `preflight: an unknown manifest kind fails loudly, naming the offending kind (never silently green)` | - |
+| `preflight: an unknown manifest kind is a config error (exit 2)` | - |
+| `preflight: an empty manifest is a usage error (exit 2), never silently green` | - |
+| `preflight: an all-comment manifest is a usage error (exit 2)` | - |
+| `preflight: a conditional requirement is skipped when its guard env does not match (#801)` | - |
+| `preflight: a conditional requirement is enforced when its guard env matches (#801)` | - |
+| `preflight: a matched conditional requirement passes when it is satisfied (#801)` | - |
+| `preflight --list: annotates a conditional requirement with its guard (#801)` | - |
+| `preflight: a malformed conditional guard (no '=') fails loudly as a config error (exit 2), never silently skipped (#801)` | - |
+
 ### test/bats/unit/worker_preflight_yaml_spec.bats (12)
 
 Structural assertions that `build-worker.yaml` and `release-worker.yaml`
@@ -557,6 +1070,21 @@ names (plus a GHCR-login probe feeding the packages-permission check on
 the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
+
+| Test | Description |
+|------|-------------|
+| `build-worker.yaml: declares a preflight job (#800)` | - |
+| `build-worker.yaml: build job gates on preflight (#800)` | - |
+| `build-worker.yaml: preflight fetches the validator at the worker's own ref (job_workflow_sha, no drift) (#800)` | - |
+| `build-worker.yaml: preflight runs preflight.sh with the build manifest (#800)` | - |
+| `build-worker.yaml: preflight exports image_name into the manifest env var (#800)` | - |
+| `build-worker.yaml: preflight probes GHCR login for the packages permission (#800)` | - |
+| `build-worker.yaml: preflight exports cache_backend into the manifest guard env (#801)` | - |
+| `build-worker.yaml: preflight verifies a REAL packages:write, not just login, for the registry backend (#801)` | - |
+| `release-worker.yaml: declares a preflight job (#800)` | - |
+| `release-worker.yaml: release job gates on preflight (#800)` | - |
+| `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
+| `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
 ### test/bats/unit/self_test_yaml_spec.bats (104)
 
@@ -1083,6 +1611,67 @@ abort** (a failing `script/hooks/pre/build.sh` makes the wrapper exit
 the hook's rc via `_run_pre_hook build "$@" || exit $?` AND `docker
 compose build` never runs).
 
+| Test | Description |
+|------|-------------|
+| `build.sh --help exits 0 and shows usage` | - |
+| `build.sh --setup forces setup.sh to run` | - |
+| `build.sh -s short flag is equivalent to --setup` | - |
+| `build.sh bootstraps setup.sh when .env is missing` | - |
+| `build.sh auto-regens .env / compose.yaml when drift detected` | - |
+| `build.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)` | - |
+| `build.sh bootstraps setup.sh when setup.conf is missing (even if .env exists)` | - |
+| `build.sh bootstraps setup.sh when compose.yaml is missing (fresh clone)` | - |
+| `build.sh bootstrap calls setup.sh directly, not setup_tui.sh` | - |
+| `build.sh fails with clear error if setup.sh produced no .env` | - |
+| `build.sh --no-cache is forwarded to docker build and compose` | - |
+| `build.sh --clean-tools schedules docker rmi via trap` | - |
+| `build.sh accepts positional TARGET argument` | - |
+| `build.sh -t TARGET (short form) selects the build target (#280)` | - |
+| `build.sh --target TARGET (long form) selects the build target (#280)` | - |
+| `build.sh -t + positional: last positional wins (#280)` | - |
+| `build.sh positional + -t: last -t wins (#280)` | - |
+| `build.sh -t with no value errors clearly (#280)` | - |
+| `build.sh --help mentions -t / --target (#280)` | - |
+| `build.sh passes --build-arg TARGETARCH=<value> when TARGET_ARCH set in .env` | - |
+| `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |
+| `build.sh passes --network <value> to docker build when BUILD_NETWORK set in .env` | - |
+| `build.sh omits --network when BUILD_NETWORK absent from .env` | - |
+| `build.sh --lang zh-TW prints Chinese usage text` | - |
+| `build.sh --lang requires a value` | - |
+| `build.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `build.sh --lang ja prints Japanese usage text` | - |
+| `build.sh --help documents QUIET in every locale (#895)` | - |
+| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
+| `build.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
+| `build.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `build.sh calls real docker build when --dry-run is not set` | - |
+| `build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)` | - |
+| `build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)` | - |
+| `build.sh takes a self-managed repo's tooling tag from that repo's own resolver (#896)` | - |
+| `build.sh exports the tooling tag so a self-managed compose.yaml interpolates it (#896)` | - |
+| `build.sh keeps deriving the version-scoped tag for a repo that has a .base subtree (#896)` | - |
+| `build.sh --lang zh-TW prints Chinese bootstrap log` | - |
+| `build.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
+| `build.sh --lang ja prints Japanese bootstrap log` | - |
+| `build.sh default bootstrap log is English` | - |
+| `build.sh --lang zh-TW prints Chinese drift-regen log` | - |
+| `build.sh --lang zh-TW prints Chinese err_no_env on failed bootstrap` | - |
+| `build.sh --lang ja prints Japanese err_no_env on failed bootstrap` | - |
+| `build.sh --reset-conf --yes --dry-run prints init.sh --gen-conf --force cmd` | - |
+| `build.sh --reset-conf is mentioned in usage help` | - |
+| `build.sh --reset-conf with no existing setup.conf / .env skips prompt` | - |
+| `build.sh --reset-conf without -y on closed stdin aborts cleanly, no set-e crash (#702, #700)` | - |
+| `build.sh -C <dir> redirects FILE_PATH to <dir>` | - |
+| `build.sh --chdir <dir> long form is equivalent to -C` | - |
+| `build.sh -C without a value exits 2` | - |
+| `build.sh -C with a non-existent directory exits 2` | - |
+| `build.sh -C is mentioned in usage help` | - |
+| `build.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)` | - |
+| `build.sh -v --dry-run is accepted and exits 0 (#311)` | - |
+| `build.sh --verbose long form is accepted (#311)` | - |
+| `build.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
+| `build.sh aborts on a failing pre-build hook and skips docker build (#690)` | - |
+
 ### test/bats/unit/build_sh_prune_spec.bats (7)
 
 Unit tests for `build.sh`'s #387 post-build prune-predecessor logic.
@@ -1106,6 +1695,16 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 `--dry-run` (planned-action line `[dry-run] docker rmi <old-id-of ...
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
+
+| Test | Description |
+|------|-------------|
+| `build.sh first build (no prior image) skips prune` | - |
+| `build.sh cache-hit rebuild (same id) skips prune` | - |
+| `build.sh successful rebuild with displaced id rmi's old id` | - |
+| `build.sh skips prune when old id still tagged by another reference` | - |
+| `build.sh --no-prune skips prune even when id displaced` | - |
+| `build.sh --dry-run prints planned prune step + does not rmi` | - |
+| `build.sh --help mentions --no-prune (#387)` | - |
 
 ### test/bats/unit/run_sh_spec.bats (67)
 
@@ -1157,6 +1756,76 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
+| Test | Description |
+|------|-------------|
+| `run.sh --help exits 0 and shows usage` | - |
+| `run.sh --setup forces setup.sh to run` | - |
+| `run.sh -s short flag triggers setup.sh` | - |
+| `run.sh bootstraps setup.sh when .env is missing` | - |
+| `run.sh auto-regens .env / compose.yaml when drift detected` | - |
+| `run.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)` | - |
+| `run.sh bootstraps setup.sh when setup.conf is missing (even if .env exists)` | - |
+| `run.sh bootstraps setup.sh when compose.yaml is missing (fresh clone)` | - |
+| `run.sh bootstrap calls setup.sh directly, not setup_tui.sh` | - |
+| `run.sh fails with clear error if setup.sh produced no .env` | - |
+| `run.sh --detach routes to 'compose up -d'` | - |
+| `run.sh -d runs the repo-local post/run hook (#537)` | - |
+| `run.sh devel target routes to 'compose up -d' + 'compose exec'` | - |
+| `run.sh non-devel target without CMD uses 'compose up' foreground (#458)` | - |
+| `run.sh non-devel target WITH CMD uses 'compose run --rm' (#679)` | - |
+| `run.sh positional args after options become CMD passthrough (devel)` | - |
+| `run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#679 compose run --rm)` | - |
+| `run.sh -- separates CMD from run.sh flags (#448)` | - |
+| `run.sh positional CMD stops flag parsing — --target in CMD is not consumed (#448)` | - |
+| `run.sh --help mentions -- CMD separator (#448)` | - |
+| `run.sh default foreground (devel) installs auto-down trap` | - |
+| `run.sh foreground non-devel target also installs auto-down trap` | - |
+| `run.sh --no-rm disables auto-down trap` | - |
+| `run.sh -d does not install auto-down trap` | - |
+| `run.sh -d combined with CMD is rejected with exit 2` | - |
+| `run.sh refuses to start when container already running (devel + no -d)` | - |
+| `run.sh: a docker ps still writing cannot make the guard miss a running container (#905)` | - |
+| `run.sh --lang zh-TW prints Chinese usage text` | - |
+| `run.sh --lang requires a value` | - |
+| `run.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `run.sh --lang ja prints Japanese usage text` | - |
+| `run.sh --help documents QUIET in every locale (#895)` | - |
+| `run.sh uses xhost +SI:localuser under Wayland session` | - |
+| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
+| `run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
+| `run.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `run.sh --lang zh-TW prints Chinese bootstrap log` | - |
+| `run.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
+| `run.sh --lang ja prints Japanese bootstrap log` | - |
+| `run.sh default bootstrap log is English` | - |
+| `run.sh --lang zh-TW prints Chinese already-running error` | - |
+| `run.sh --lang ja prints Japanese already-running error` | - |
+| `run.sh: image present → no build.sh invoked, no INFO printed` | - |
+| `run.sh: image absent → auto-delegates to build.sh (#429)` | - |
+| `run.sh: image absent + non-devel target → build.sh receives target (#429)` | - |
+| `run.sh: image absent + build.sh fails → run.sh aborts (#429)` | - |
+| `run.sh: image-inspect uses per-target tag (-t headless inspects :headless)` | - |
+| `run.sh --build: invokes ./build.sh test before compose up` | - |
+| `run.sh --build: always builds even if image cached (explicit opt-in)` | - |
+| `run.sh --build: runs after check-drift (build sees regenerated state)` | - |
+| `run.sh -C <dir> redirects FILE_PATH to <dir>` | - |
+| `run.sh --chdir <dir> long form is equivalent to -C` | - |
+| `run.sh -C without a value exits 2` | - |
+| `run.sh -C with a non-existent directory exits 2` | - |
+| `run.sh -C is mentioned in usage help` | - |
+| `run.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)` | - |
+| `run.sh -v --dry-run is accepted and exits 0 (#311)` | - |
+| `run.sh --verbose long form is accepted (#311)` | - |
+| `run.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
+| `run.sh: interactive devel shell exiting 130 normalizes to 0 (#580)` | - |
+| `run.sh: interactive devel shell exiting 0 stays 0 (#580)` | - |
+| `run.sh: interactive devel shell exiting 127 still propagates (genuine breakage) (#580)` | - |
+| `run.sh: command mode (devel WITH CMD) exiting 130 propagates, not normalized (#580)` | - |
+| `run.sh: non-devel foreground up exiting 130 normalizes to 0 (#580)` | - |
+| `run.sh: command mode (non-devel WITH CMD) exiting 130 propagates (#580)` | - |
+| `run.sh aborts on a failing pre-run hook and skips compose up (#690)` | - |
+| `run.sh foreground post-run hook failure overrides exit while teardown still runs (#690)` | - |
+
 ### test/bats/unit/exec_sh_spec.bats (58)
 
 Unit tests for `exec.sh` argument parsing, the container-running
@@ -1195,6 +1864,67 @@ forwarded unchanged via `return "${_exec_rc}"` — 42 / 0 / 7 cases; a
 failing post-exec hook overrides the forwarded rc via `|| exit $?`; a
 failing pre-exec hook aborts before `compose exec` runs).
 
+| Test | Description |
+|------|-------------|
+| `exec.sh --help exits 0 and shows usage` | - |
+| `exec.sh --lang zh-TW prints Chinese usage text` | - |
+| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `exec.sh --lang ja prints Japanese usage text` | - |
+| `exec.sh --lang requires a value` | - |
+| `exec.sh --target requires a value` | - |
+| `exec.sh fails when container not running (default English)` | - |
+| `exec.sh --lang zh-TW prints Chinese not-running error` | - |
+| `exec.sh --lang zh-CN prints Simplified Chinese not-running error` | - |
+| `exec.sh --lang ja prints Japanese not-running error` | - |
+| `exec.sh prints start hint when container not running` | - |
+| `exec.sh --lang zh-TW start hint translates` | - |
+| `exec.sh --dry-run bypasses container-running check` | - |
+| `exec.sh runs docker compose exec when container is running` | - |
+| `exec.sh -t <non-devel>: precheck name suffixes the target stage (#335)` | - |
+| `exec.sh -t devel: precheck name has no stage suffix (parity, #335)` | - |
+| `exec.sh -t headless: precheck name carries the stage suffix (#335)` | - |
+| `exec.sh -t <non-devel>: precheck passes when matching container is running (#335)` | - |
+| `exec.sh: a docker ps still writing cannot make the precheck miss a running container (#905)` | - |
+| `exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)` | - |
+| `exec.sh -- separator: lets a dash-leading CMD pass through (#289)` | - |
+| `exec.sh -- separator: works after -t TARGET (run.sh parity, #289)` | - |
+| `exec.sh: no -- still works for positional CMD (backward compat, #289)` | - |
+| `exec.sh --help mentions the -- separator (#289)` | - |
+| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
+| `exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
+| `exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `exec.sh -C <dir> redirects FILE_PATH to <dir>` | - |
+| `exec.sh --chdir <dir> long form is equivalent to -C` | - |
+| `exec.sh -C without a value exits 2` | - |
+| `exec.sh -C with a non-existent directory exits 2` | - |
+| `exec.sh -C is mentioned in usage help` | - |
+| `exec.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)` | - |
+| `exec.sh -v --dry-run is accepted and exits 0 (#311)` | - |
+| `exec.sh --verbose long form is accepted (#311)` | - |
+| `exec.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
+| `exec.sh --dry-run with no CMD: no -T (default interactive bash entry, #382)` | - |
+| `exec.sh --dry-run with interactive binary (htop): no -T (auto-detect doesn't fire, #382)` | - |
+| `exec.sh --dry-run bash -c '...': auto-detect adds -T (#382 Option 2)` | - |
+| `exec.sh --dry-run sh -c '...': auto-detect adds -T (#382 Option 2)` | - |
+| `exec.sh --dry-run dash -c '...': auto-detect adds -T (#382 Option 2)` | - |
+| `exec.sh --dry-run zsh -c '...': auto-detect adds -T (#382 Option 2)` | - |
+| `exec.sh --dry-run bash hello.sh: no -T (no -c → not a one-shot, #382)` | - |
+| `exec.sh --dry-run -T whoami: explicit -T forces no-TTY (#382 Option 1)` | - |
+| `exec.sh --dry-run --no-tty long form forces no-TTY (#382)` | - |
+| `exec.sh --dry-run -T env BAR=1 bash -c '...': covers auto-detect's heuristic gap (#382)` | - |
+| `exec.sh --dry-run -i bash -c '...': explicit -i overrides heuristic (#382 Option 1)` | - |
+| `exec.sh --dry-run --tty long form overrides heuristic (#382)` | - |
+| `exec.sh --dry-run -T -i: last-wins gives TTY (#382)` | - |
+| `exec.sh --dry-run -i -T: last-wins gives no-TTY (#382)` | - |
+| `exec.sh --dry-run -T after -t TARGET still attaches to the right service (#382)` | - |
+| `exec.sh --dry-run -- separator: -T propagates, CMD flows through (#382 + #289)` | - |
+| `exec.sh --help mentions -T / --no-tty and -i / --tty flags (#382)` | - |
+| `exec.sh forwards a non-zero container command exit code (#690)` | - |
+| `exec.sh forwards exit code 0 on success (#690)` | - |
+| `exec.sh forwards a distinct non-zero exit code unchanged (#690)` | - |
+| `exec.sh post-exec hook failure overrides the forwarded rc (#690)` | - |
+| `exec.sh aborts on a failing pre-exec hook and skips compose exec (#690)` | - |
+
 ### test/bats/unit/stop_sh_spec.bats (28)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown,
@@ -1217,6 +1947,37 @@ windows; the plain `stop.sh --dry-run` path emits no `docker prune`
 commands), and **#690 pre-stop hook abort** (a failing
 `script/hooks/pre/stop.sh` aborts with the hook's rc before
 `compose down` runs).
+
+| Test | Description |
+|------|-------------|
+| `stop.sh --help exits 0 and shows usage` | - |
+| `stop.sh --lang zh-TW prints Chinese usage text` | - |
+| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `stop.sh --lang ja prints Japanese usage text` | - |
+| `stop.sh --lang requires a value` | - |
+| `stop.sh stops the single project via docker compose down` | - |
+| `stop.sh passes --remove-orphans to compose down (#341)` | - |
+| `stop.sh -v lists project containers before down (#345)` | - |
+| `stop.sh -v with no matching containers prints empty-project hint (#345)` | - |
+| `stop.sh without -v does NOT emit the verbose container listing (#345 default)` | - |
+| `stop.sh: an ambient VERBOSE does not reach the flag's behaviour (#895)` | - |
+| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
+| `stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
+| `stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `stop.sh -C <dir> redirects FILE_PATH to <dir>` | - |
+| `stop.sh --chdir <dir> long form is equivalent to -C` | - |
+| `stop.sh -C without a value exits 2` | - |
+| `stop.sh -C with a non-existent directory exits 2` | - |
+| `stop.sh -C is mentioned in usage help` | - |
+| `stop.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)` | - |
+| `stop.sh -v --dry-run is accepted and exits 0 (#311)` | - |
+| `stop.sh --verbose long form is accepted (#311)` | - |
+| `stop.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
+| `stop.sh --prune is mentioned in usage help (#319)` | - |
+| `stop.sh --prune --dry-run prints down + network prune + image prune (#319)` | - |
+| `stop.sh without --prune does NOT emit prune commands (#319)` | - |
+| `stop.sh --prune --dry-run runs prune after compose down (#319)` | - |
+| `stop.sh aborts on a failing pre-stop hook and skips compose down (#690)` | - |
 
 ### test/bats/unit/prune_sh_spec.bats (41)
 
@@ -1275,6 +2036,50 @@ Covers: `--help` succeeds for each wrapper when `.base/script/docker/_lib.sh`
 exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
+
+| Test | Description |
+|------|-------------|
+| `prune.sh --help exits 0 and shows usage` | - |
+| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | - |
+| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `prune.sh --lang ja prints Japanese usage text` | - |
+| `prune.sh with no target exits 2 with hint` | - |
+| `prune.sh --until without a value exits non-zero` | - |
+| `prune.sh --lang without a value exits non-zero` | - |
+| `prune.sh unknown flag exits 2 with error` | - |
+| `prune.sh --networks --dry-run prints network prune with default 10m filter` | - |
+| `prune.sh --images --dry-run prints image prune with default 24h filter` | - |
+| `prune.sh --builder --dry-run prints builder prune with default 24h filter` | - |
+| `prune.sh --volumes -y --dry-run prints volume prune (no filter)` | - |
+| `prune.sh --all --dry-run prints network + image + builder (NOT volumes)` | - |
+| `prune.sh --networks --until 1h --dry-run overrides default 10m grace` | - |
+| `prune.sh --all --until 1h --dry-run overrides all default graces` | - |
+| `prune.sh --volumes without -y prompts and aborts on 'n'` | - |
+| `prune.sh --volumes without -y on closed stdin aborts cleanly, no set-e crash (#702, #700)` | - |
+| `prune.sh --volumes -y skips the prompt (dry-run for safety)` | - |
+| `prune.sh no target with --lang zh-TW prints Chinese hint` | - |
+| `prune.sh --volumes prompt with --lang zh-TW shows Chinese prompt` | - |
+| `prune.sh -C <dir> --networks --dry-run is accepted (chdir parity)` | - |
+| `prune.sh -C without a value exits 2` | - |
+| `prune.sh -C with a non-existent directory exits 2` | - |
+| `prune.sh -h mentions all flag families` | - |
+| `prune.sh --worktree-orphans on empty image list → no rmi` | - |
+| `prune.sh --worktree-orphans: owner match + missing worktree → rmi` | - |
+| `prune.sh --worktree-orphans: owner match + worktree exists → keep` | - |
+| `prune.sh --worktree-orphans: main-checkout pattern (no hyphen) → keep` | - |
+| `prune.sh --worktree-orphans: bare-name image (no owner prefix) → SAFETY skip` | - |
+| `prune.sh --worktree-orphans: other-owner image → SAFETY skip` | - |
+| `prune.sh --worktree-orphans --repo <name> filter` | - |
+| `prune.sh --worktree-orphans --dry-run prints plan, no real rmi` | - |
+| `prune.sh --worktree-orphans -y skips confirmation` | - |
+| `prune.sh --worktree-orphans without --workspace + empty .env → exit 2` | - |
+| `prune.sh --worktree-orphans --workspace <flag> wins over .env WS_PATH` | - |
+| `prune.sh --worktree-orphans --owner <flag> wins over .env DOCKER_HUB_USER` | - |
+| `prune.sh --worktree-orphans without -y confirms 'y' and removes the image (#699)` | - |
+| `prune.sh --worktree-orphans without -y aborts on 'n' and removes nothing (#699)` | - |
+| `prune.sh --worktree-orphans without -y on closed stdin aborts cleanly, no set-e crash (#699)` | - |
+| `prune.sh --help mentions --worktree-orphans (#388)` | - |
+| `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
 ### test/bats/unit/justfile_user_spec.bats (33)
 
@@ -1806,6 +2611,27 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
+| Test | Description |
+|------|-------------|
+| `watchdog is a no-op when WATCHDOG_CHECK is unset (default off) (#797)` | - |
+| `_watchdog_enabled is false when check empty, true when set (#797)` | - |
+| `_watchdog_load_config applies defaults when knobs unset (#797)` | - |
+| `_watchdog_load_config clamps a non-positive interval back to default (#797)` | - |
+| `_watchdog_load_config accepts start_period 0 but clamps non-numeric (#797)` | - |
+| `_watchdog_load_config honors restart-service, defaults bogus ON_FAIL to restart-container (#797)` | - |
+| `_watchdog_run_check returns the check command's status (#797)` | - |
+| `_watchdog_run_check times out a hung check as unhealthy (#797)` | - |
+| `_watchdog_evaluate resets the counter on a healthy check (#797)` | - |
+| `_watchdog_evaluate returns 1 (under threshold) then 2 (threshold reached) (#797)` | - |
+| `_watchdog_should_give_up fires only at the MAX_RESTARTS ceiling (#797)` | - |
+| `_watchdog_grace reuses WATCHDOG_TIMEOUT with a positive floor (#797)` | - |
+| `_watchdog_pgid_of returns a numeric pgid for a live pid, falls back for a bogus one (#797)` | - |
+| `_watchdog_child_alive is false for a dead pid, true for a live one (#797)` | - |
+| `_watchdog_give_up runs WATCHDOG_NOTIFY when set + logs loudly (#797)` | - |
+| `_watchdog_notify is a no-op when WATCHDOG_NOTIFY is unset (#797)` | - |
+| `watchdog log setup writes a per-start file + stable symlink under watchdog/ (#797, #805)` | - |
+| `watchdog log is stderr-only (no file) when no log dir is configured (#797)` | - |
+
 ### test/bats/unit/watchdog_supervision_spec.bats (7)
 
 Process-level supervision tests for the watchdog (#797): the
@@ -1820,6 +2646,16 @@ signals, so the file is **kcov-fragile** (each test carries the
 `[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
 `bats-fragile`, ADR-00000008 / #613 / #677).
 
+| Test | Description |
+|------|-------------|
+| `restart-container monitor DEFERS checks during the start period (#797)` | - |
+| `restart-container monitor EXITS the container after consecutive failures (#797)` | - |
+| `restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)` | - |
+| `_watchdog_stop_service SIGKILLs a SIGTERM-ignoring service within the bounded grace (no hang) (#797)` | - |
+| `_watchdog_stop_service kills the whole service subtree (no orphaned grandchild) (#797)` | - |
+| `restart-service give-up against a wedged (SIGTERM-ignoring) service still exits the container (#797)` | - |
+| `restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)` | - |
+
 ### test/bats/unit/compose_watchdog_spec.bats (6)
 
 Tests for `[lifecycle]` watchdog (#797) support in
@@ -1829,6 +2665,15 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 `compose.yaml` byte-identical (the #505 golden is unaffected); the env
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
+
+| Test | Description |
+|------|-------------|
+| `watchdog env omitted from compose when disabled (default off, #505 golden) (#797)` | - |
+| `watchdog env emitted on devel when watchdog_check is set (#797)` | - |
+| `watchdog env value is YAML double-quoted (command with structural chars) (#797)` | - |
+| `watchdog env rides on devel; extends:devel stages inherit it (single emit) (#797)` | - |
+| `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
+| `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
 ### test/bats/unit/template_spec.bats (155)
 
@@ -2745,6 +3590,11 @@ hand-authored compose.yaml. Covers lib resolution via the base-self path and
 `--target test-tools` dispatching `docker compose build` while skipping the
 setup-sync lifecycle.
 
+| Test | Description |
+|------|-------------|
+| `build.sh --help resolves its libs in the base-self topology (no .base/)` | - |
+| `build.sh --target test-tools (base self) dispatches compose build, skips setup.sh` | - |
+
 ### test/bats/unit/base_docker_namespace_spec.bats (11)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
@@ -2760,6 +3610,20 @@ project instead of inheriting the checkout directory's basename. Tightened by
 #896: EVERY `image:` line must name that variable and NONE may carry a `:-`
 default, since two different defaults are what let the build write one tag
 while the run read another.
+
+| Test | Description |
+|------|-------------|
+| `base root justfile mods the docker namespace (#713)` | - |
+| `base ships script/docker/justfile.docker as a symlink into dist/ (no .base/)` | - |
+| `base ships flat wrapper symlinks resolving into dist/script/docker/wrapper` | - |
+| `base compose.yaml declares a test-tools service building Dockerfile.test-tools` | - |
+| `just test system builds test-tools via the docker namespace, not a raw docker build (#713, ADR-00000011 sec.5)` | - |
+| `base compose.yaml names every image with TEST_TOOLS_IMAGE and gives it no default (#891, #896)` | - |
+| `just test system derives the local test-tools tag instead of hardcoding it (#891)` | - |
+| `base compose.yaml carries no fallback identity for the mounted checkout (#895)` | - |
+| `base root justfile exports the host identity every compose read needs (#895)` | - |
+| `just test system supplies the host identity its bare compose run needs (#895)` | - |
+| `just test system names the compose project instead of inheriting the basename (#891)` | - |
 
 
 ### test/bats/unit/base_version_monitor_spec.bats (13)
@@ -3266,6 +4130,26 @@ ways this goes catastrophically wrong are all edits to the file:
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 ### test/bats/unit/build_sh_verify_spec.bats (17)
+
+| Test | Description |
+|------|-------------|
+| `build.sh test: a fully CACHED verification stage is not reported as a pass` | - |
+| `build.sh test: an executed verification stage reports every check as executed` | - |
+| `build.sh test: a partially cached stage names which checks were CACHED` | - |
+| `build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check` | - |
+| `build.sh e2e-test: a Playwright gate's own steps are what is reported` | - |
+| `build.sh cli-test: a heredoc RUN step is reported like any other` | - |
+| `build.sh custom-test: a verification stage with no RUN step warns, it does not fail` | - |
+| `build.sh test: an install step in a side stage is not a check that ran` | - |
+| `build.sh test: a -test stage that only INSTALLS a tool is not reported as running it` | - |
+| `build.sh test: a tool named only as an argument is not a step of the check` | - |
+| `build.sh test: build output with no BuildKit progress lines fails the build` | - |
+| `build.sh test: a step with no CACHED/DONE state fails the build` | - |
+| `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | - |
+| `build.sh devel: a non-verification target gets no verification report` | - |
+| `build.sh --target test-tools: the tooling image build is not a verification target` | - |
+| `build.sh smoke: base's own smoke harness IS a verification target` | - |
+| `build.sh --dry-run test: no build ran, so nothing is reported about one` | - |
 ### test/bats/unit/build_sh_verify_spec.bats (17)
 
 | Test | Description |

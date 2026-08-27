@@ -13,11 +13,11 @@
 #
 # Three design decisions this spec pins:
 #
-#   - The guard is RATCHETED, not a wall. 747 rows carried the placeholder
-#     on the day the rule landed; failing all of them would hold everyone
-#     hostage to a backfill nobody asked for, and a rushed backfill
-#     produces filler that passes the lint and is worse than `-`. So a
-#     baseline file records those rows and the lint fails only on a
+#   - The guard is RATCHETED, not a wall. 1534 rows carried the
+#     placeholder when the rule landed; failing all of them would hold
+#     everyone hostage to a backfill nobody asked for, and a rushed
+#     backfill produces filler that passes the lint and is worse than `-`.
+#     So a baseline file records those rows and the lint fails only on a
 #     placeholder that is NOT on it.
 #
 #   - The baseline is keyed by SPEC PATH plus TEST NAME, so renaming or
@@ -381,9 +381,9 @@ _write_baseline() {
 }
 
 @test "_run_catalog_description: DIES when the baseline file is missing (#922)" {
-  # A missing baseline would fail 747 rows at once rather than pass
-  # vacuously, but it is still the file's shape changing under the lint,
-  # and it should say so instead of burying it in 747 findings.
+  # A missing baseline would fail every predating row at once rather than
+  # pass vacuously, but it is still the file's shape changing under the
+  # lint, and it should say so instead of burying it in 1534 findings.
   _write_catalog 'test/bats/unit/alpha_spec.bats' \
     "$(_row 'alpha does a thing' 'Why alpha matters')"
   rm -f "${BASELINE}"

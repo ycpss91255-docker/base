@@ -205,6 +205,17 @@ that granted it passes, and the default `gha` caller passes even without
 the permission (backward compatible); `--list` self-describes the build
 contract, annotating packages as registry-conditional.
 
+| Test | Description |
+|------|-------------|
+| `build manifest: a complete caller passes preflight` | - |
+| `build manifest: a caller that forgot image_name fails early, naming the fix` | - |
+| `build manifest: a registry-cache caller missing packages permission fails with the permissions fix (#801)` | - |
+| `build manifest: the default gha caller without packages permission still passes (#801 backward compat)` | - |
+| `build manifest: a registry-cache caller with packages granted passes (#801)` | - |
+| `build manifest --list: self-describes both requirements, packages as registry-conditional (#801)` | - |
+| `release manifest: a complete caller passes preflight` | - |
+| `release manifest: a caller that forgot archive_name_prefix fails early, naming the fix` | - |
+
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 

@@ -127,7 +127,7 @@ one above it?" and "what would silently start passing if I deleted it?".
 
 `just test sync-docs` writes `-` into a new row; filling it in is the
 second half of adding a test, and the `catalog-description` lint fails the
-build until it is done. 714 rows carried `-` before the rule landed and are
+build until it is done. 1534 rows carried `-` before the rule landed and are
 parked in `script/test/catalog-description-baseline.txt`, which may only
 **shrink** -- so nobody inherits a backfill, but renaming or moving a test
 drops it out of that file and forces a description. Touch it, describe it;
