@@ -56,6 +56,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **a job cannot reach the org's self-hosted runner from a fork PR, and the rule is linted rather than remembered (closes #766)** -- the issue filed this as insurance, but the premise was false: the org has one online self-hosted runner, in a group with `visibility: all` and `allows_public_repositories: true`, and this repo is public. Eligibility is now computed from each job's `runs-on` by a lint that scans the workflow directory and fails CLOSED on anything it cannot statically prove is a reserved GitHub-hosted label. Three of 33 jobs are eligible today; all carry the guard. A job added tomorrow is covered without editing the lint.
 
+- **`arch-literal`: a shipped Dockerfile may not write an architecture into a
+  string (closes #939)** -- buildx builds one Dockerfile per `--platform`, so a
+  literal ships the wrong binary inside every other platform's image variant and
+  says nothing until someone runs it. Architecture now comes from
+  `ARG TARGETARCH`, documented in the template Dockerfile where a consumer
+  writing one meets it. The lint cannot refuse every architecture token: the
+  correct answer -- a `case` mapping TARGETARCH onto the upstream asset
+  spellings -- contains both by construction, so a marked mapping block or a
+  per-line allow opts out, and either must state a reason.
+
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 ### Fixed
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.

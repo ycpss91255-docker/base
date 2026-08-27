@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2927 tests**.
+Unit specs under `test/bats/unit/`: **2947 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3326,3 +3326,28 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+
+### test/bats/unit/arch_literal_lint_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_run_arch_literal: FAILS on a bare Docker architecture literal, naming file and line (#939)` | - |
+| `_run_arch_literal: FAILS on the uname spelling of the same assumption (#939)` | - |
+| `_run_arch_literal: FAILS on a mixed-case release-asset spelling (#939)` | - |
+| `_run_arch_literal: FAILS on a platform pair literal (#939)` | - |
+| `_run_arch_literal: FAILS on a literal inside a comment too (#939)` | - |
+| `_run_arch_literal: names the offending literal and points at TARGETARCH (#939)` | - |
+| `_run_arch_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#939)` | - |
+| `_run_arch_literal: FAILS on an unterminated allow-begin region (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-end with no matching allow-begin (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-begin carrying no stated reason (#939)` | - |
+| `_run_arch_literal: FAILS on a per-line allow carrying no stated reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that expresses architecture via TARGETARCH (#939)` | - |
+| `_run_arch_literal: PASSES a two-spelling mapping table inside an allow region (#939)` | - |
+| `_run_arch_literal: PASSES a single line carrying a per-line allow with a reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that names no architecture at all (#939)` | - |
+| `_run_arch_literal: ignores non-Dockerfile files under the scan roots (#939)` | - |
+| `_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
+| `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
