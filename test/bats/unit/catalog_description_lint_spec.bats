@@ -321,6 +321,62 @@ _write_summary_section() {
   assert_output --partial 'malformed'
 }
 
+@test "_run_catalog_description: a baseline entry may NOT excuse a row that is also described (#922)" {
+  # The ratchet from the other side. The baseline records what was already
+  # missing; the moment one of its keys also names a DESCRIBED row, that
+  # description stops being enforced -- somebody can replace it with `-`
+  # and the lint stays green, which is the opposite of forward-only. Two
+  # rows under one name is the only way a key can be both, and it is not
+  # hypothetical: a duplicated section put 17 described rows of the real
+  # catalogue into exactly this state, and nothing said so.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' '-')" \
+    "$(_row 'alpha does a thing' 'The load-bearing case')"
+  _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'described'
+  assert_output --partial 'alpha does a thing'
+}
+
+@test "_run_catalog_description: FAILS when one spec carries TWO generated sections (#922)" {
+  # How the row above came to exist. A section moved into its thematic
+  # group left its heading behind; `just test sync-docs` filled the empty
+  # copy with a row per test, all of them placeholders, and parking those
+  # on the baseline unenforced the descriptions in the other copy. The
+  # SECTION is the unit of the rule, so a spec gets exactly one -- two
+  # answers for one spec is a defect in the document, not a layout choice.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  {
+    printf '\n### test/bats/unit/alpha_spec.bats (1)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `alpha does a thing` | - |\n'
+  } >> "${CATALOG}"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'duplicate section'
+  assert_output --partial 'test/bats/unit/alpha_spec.bats'
+}
+
+@test "_run_catalog_description: the SECOND copy of a section is not scanned as rows (#922)" {
+  # One finding per defect. The duplicate's rows are not also reported as
+  # undescribed, and they are not counted: a copied table would otherwise
+  # inflate the reach figures by exactly its own length (the real one
+  # inflated both the rows-checked and the still-on-the-baseline counts by
+  # 17) and bury the one line that says what is actually wrong.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  {
+    printf '\n### test/bats/unit/alpha_spec.bats (1)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `beta only exists in the copy` | - |\n'
+  } >> "${CATALOG}"
+  run _run_catalog_description
+  assert_failure
+  refute_output --partial 'beta only exists in the copy'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # What is and is not a catalog row
 # ════════════════════════════════════════════════════════════════════
@@ -568,6 +624,18 @@ _write_summary_section() {
   REPO_ROOT=/source
   run _run_catalog_description
   assert_success
+}
+
+@test "_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)" {
+  # Read straight off the documents rather than through the driver, so a
+  # regression in the driver's own duplicate check cannot take this pin
+  # down with it. doc/test/unit.md carried a second, empty copy of one
+  # heading for a day; the generator filled it and the baseline swallowed
+  # the result.
+  local _dupes
+  _dupes="$(grep -hE '^#{3,6} [^ ]+\.bats \([0-9]+\)$' /source/doc/test/*.md \
+    | sed -E 's/ \([0-9]+\)$//' | LC_ALL=C sort | uniq -d)"
+  [[ -z "${_dupes}" ]] || fail "two sections for one spec: ${_dupes}"
 }
 
 @test "_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)" {
