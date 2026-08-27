@@ -175,13 +175,44 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: runtime-test build step is gated on inputs.build_runtime" {
-  # Same gate as the runtime stage build, so agent/* repos
-  # (build_runtime: false) skip both cleanly. Asserts the gate appears
-  # at least twice in the file (once for runtime-test, once for runtime).
-  run grep -c '^        if: ${{ inputs.build_runtime }}$' "${WF}"
+@test "build-worker.yaml: runtime-test build step is gated on the resolved runtime answer" {
+  # Same gate as the runtime stage build, so a repo whose Dockerfile
+  # declares no runtime split skips both cleanly. The gate used to read
+  # `inputs.build_runtime` directly, the disagreement the resolver removed;
+  # it now reads the resolver step, asserted twice below (runtime-test and
+  # runtime).
+  run grep -c "^        if: \${{ steps.runtime.outputs.build_runtime == 'true' }}\$" "${WF}"
   assert_success
-  [[ "${output}" -ge 2 ]] || { echo "expected >=2 build_runtime gates, got ${output}"; return 1; }
+  [[ "${output}" -ge 2 ]] || { echo "expected >=2 runtime gates, got ${output}"; return 1; }
+}
+
+@test "build-worker.yaml: resolves the runtime gate from the caller's Dockerfile (#925)" {
+  # The Dockerfile is the single source of truth for whether a runtime
+  # stage exists. The worker asks the resolver, version-matched via the
+  # .worker-base checkout, instead of trusting a second declaration in the
+  # caller's main.yaml that nothing kept in agreement.
+  run grep -c 'bash .worker-base/script/ci/build_worker/runtime_stages.sh' "${WF}"
+  assert_success
+  assert_output "1"
+}
+
+@test "build-worker.yaml: the resolver step exports build_runtime to GITHUB_OUTPUT (#925)" {
+  run grep -E 'echo "build_runtime=\$\{effective\}" >> "\$\{GITHUB_OUTPUT\}"' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: runtime + runtime-test build steps gate on the resolved value, not the raw input (#925)" {
+  # Two gates, both reading the resolver's output. A raw
+  # `if: ${{ inputs.build_runtime }}` is what shipped a runtime-test build
+  # against a Dockerfile that declares no such stage.
+  run grep -c "^        if: \${{ steps.runtime.outputs.build_runtime == 'true' }}\$" "${WF}"
+  assert_success
+  assert_output "2"
+}
+
+@test "build-worker.yaml: no build step gates on inputs.build_runtime directly (#925)" {
+  run grep -n '^        if: ${{ inputs.build_runtime }}$' "${WF}"
+  [ "${status}" -ne 0 ] || { echo "raw input gate still present: ${output}"; return 1; }
 }
 
 @test "build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)" {

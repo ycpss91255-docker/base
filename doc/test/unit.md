@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2947 tests**.
+Unit specs under `test/bats/unit/`: **2964 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -452,7 +452,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (52)
+### test/bats/unit/build_worker_yaml_spec.bats (56)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -484,11 +484,12 @@ on doc-only PRs).
 | Default values together preserve repo-root-Dockerfile callers | 1 |
 | User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps + no short-form regression) | 5 |
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
-| #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
+| #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on the resolved runtime answer (>=2 occurrences shared with runtime gate) | 4 |
 | #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` gha scopes in the default ternary branch, no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max` on both branches, default preserves zero-diff for single-call callers | 6 |
 | #801 registry cache backend: `cache_backend` input declared `type: string` default `"gha"` (default preserves the gha backend for existing callers), all 4 build steps emit a `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8 lines), the `extra_stages` buildx loop honors `cache_backend` too (shell-side selection, no hardwired gha ref), GHCR `docker/login-action` step gated on `cache_backend == 'registry'` | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
+| #925 runtime gate read from the Dockerfile: a `Resolve runtime stages` step delegates to `runtime_stages.sh`, exports `build_runtime` to `GITHUB_OUTPUT`, both runtime build steps gate on `steps.runtime.outputs.build_runtime`, and no build step gates on `inputs.build_runtime` directly | 4 |
 | #802 push worker logic down: `compute-matrix` delegates to `compute_matrix.sh` (no inline platform fan-out) and version-matches it via `job_workflow_sha` into `.worker-base`, `Compute cache scope` delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT / HARDWARE, no inline derivation), build job checks out base worker source into `.worker-base` | 4 |
 
 ### test/bats/unit/build_worker_compute_matrix_spec.bats (8)
@@ -3351,3 +3352,31 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
 | `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
+### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
+
+`script/ci/build_worker/runtime_stages.sh`, the resolver that decides
+whether build-worker.yaml runs its `runtime-test` / `runtime` targets
+(#925). Whether those stages exist is a fact only the Dockerfile holds;
+it used to be stated a second time as the caller's `build_runtime`
+input, with nothing checking the two agreed -- the shipped Dockerfile
+ships its runtime blocks commented out while the input defaulted to
+true, so every repo created from the template asked buildx for a target
+that did not exist. Both shapes of the shipped file are covered here:
+runtime blocks commented out (the default new-repo shape, previously
+untested) and uncommented.
+
+| Test | Description |
+|------|-------------|
+| `runtime_stages: a Dockerfile with no runtime stages resolves to false` | The four-stage default shape skips the runtime build steps |
+| `runtime_stages: a Dockerfile declaring runtime + runtime-test resolves to true` | A declared pair enables the runtime build with no second edit |
+| `runtime_stages: commented-out runtime stages do not count as declared` | A `#`-prefixed `FROM ... AS runtime` is documentation, not a stage |
+| `runtime_stages: stage detection is case-insensitive (Dockerfile keywords are)` | `from ... as runtime-test` is the same declaration to buildx |
+| `runtime_stages: the shipped dist Dockerfile (runtime blocks commented out) resolves to false` | The real default artifact, the shape that shipped red |
+| `runtime_stages: the shipped dist Dockerfile with its runtime blocks uncommented resolves to true` | Uncommenting is sufficient to get a runtime build |
+| `runtime_stages: build_runtime=false opts out even when both stages exist` | The surviving flag is an opt-out and is honoured |
+| `runtime_stages: build_runtime=true with no runtime stage resolves to false, not a buildx failure` | The Dockerfile wins the disagreement that used to fail the build |
+| `runtime_stages: an unparseable build_runtime value fails loudly` | Anything other than true / false is a config error, not a default |
+| `runtime_stages: runtime without runtime-test fails naming both stages and the Dockerfile` | Half a pair silently loses the install-check, so it fails here |
+| `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
+| `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
+| `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
