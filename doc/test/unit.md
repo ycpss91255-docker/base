@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2952 tests**.
+Unit specs under `test/bats/unit/`: **2953 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2010,7 +2010,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (109)
+### test/bats/unit/ci_spec.bats (110)
 
 | Test | Description |
 |------|-------------|
@@ -2087,6 +2087,7 @@ builds the env block only for the knobs the conf sets.
 | `main --catalog-description-only: runs the catalogue description lint on the host, no compose (#922)` | The CI join: the lint-static matrix calls this primitive, so a missing arm ships the lint local-only |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
+| `main: every _LINT_TOOLS entry is documented as a 'just test lint --<tool>' narrowing (#922)` | The justfile comment is the only place a human learns the narrowings exist, and prose cannot be derived: five tools had already drifted out of it |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |

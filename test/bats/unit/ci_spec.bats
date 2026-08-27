@@ -1488,6 +1488,27 @@ SH
   assert_line "changelog-entry"
 }
 
+@test "main: every _LINT_TOOLS entry is documented as a 'just test lint --<tool>' narrowing (#922)" {
+  # script/test/justfile.test is the one place a human reading the recipes
+  # learns which per-lint narrowings exist, and nothing kept it in step
+  # with the table: five tools had been added to _LINT_TOOLS without ever
+  # reaching that comment, so the newest lint was unreachable the way its
+  # siblings are documented. The list is prose, so only a test can hold it.
+  local _tool _missing=()
+  run bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_LINT_TOOLS[@]}"
+  '
+  assert_success
+  while IFS= read -r _tool; do
+    [[ -n "${_tool}" ]] || continue
+    grep -qE -- "(^|[^[:alnum:]-])--${_tool}([^[:alnum:]-]|$)" \
+      /source/script/test/justfile.test || _missing+=("${_tool}")
+  done <<< "${output}"
+  [[ "${#_missing[@]}" -eq 0 ]] \
+    || fail "not documented in script/test/justfile.test: ${_missing[*]}"
+}
+
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
