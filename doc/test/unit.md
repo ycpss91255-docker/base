@@ -4222,7 +4222,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: reports EVERY undescribed row, not just the first (#922)` | One run, one fix list -- stopping at the first costs a CI round per row |
 | `_run_catalog_description: an EMPTY description cell counts as a placeholder (#922)` | A hand-edited blank is the same missing sentence wearing less ink, and only `-` is generated |
 | `_run_catalog_description: PASSES a described row (#922)` | Non-vacuity from the other end: a lint that fails everything proves nothing |
-| `_run_catalog_description: PASSES a placeholder row that IS on the baseline (#922)` | The ratchet: 714 rows predate the rule and failing them would hold everyone hostage to a backfill |
+| `_run_catalog_description: PASSES a placeholder row that IS on the baseline (#922)` | The ratchet: 1517 rows predate the rule and failing them would hold everyone hostage to a backfill |
 | `_run_catalog_description: renaming a baselined test forces a description (#922)` | Load-bearing: the property the whole design turns on, and the reason the baseline is a name list rather than a count |
 | `_run_catalog_description: MOVING a baselined test to another spec forces a description (#922)` | Why the key carries the spec path -- three names in this tree already live in two specs, so a name-only key excuses a row nobody looked at |
 | `_run_catalog_description: FAILS on a baseline entry whose row is now DESCRIBED (#922)` | What actually drives the ratchet down; without it a described row keeps its excuse and the count stops meaning anything |
@@ -4230,9 +4230,9 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: FAILS when the declared entry count is too LOW (#922)` | Growth is the move the ratchet exists to stop: an added line stays red until somebody also raises the number that states the remaining debt |
 | `_run_catalog_description: FAILS when the declared entry count is too HIGH (#922)` | A count left behind by a deletion is headroom to grow back into, quietly |
 | `_run_catalog_description: DIES when the baseline declares no count at all (#922)` | Deleting the directive would turn the shrink-only lock off, which is the one edit it exists to make loud |
-| `_run_catalog_description: FAILS on an unsorted baseline (#922)` | A 700-line file is reviewable only while its diff is one line per change; unsorted, an insertion hides anywhere |
+| `_run_catalog_description: FAILS on an unsorted baseline (#922)` | A 1500-line file is reviewable only while its diff is one line per change; unsorted, an insertion hides anywhere |
 | `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
-| `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 713 excuses under a count of 714 |
+| `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 1516 excuses under a count of 1517 |
 | `_run_catalog_description: a baseline entry may NOT excuse a row that is also described (#922)` | The ratchet from the other side: an entry over a described row silently unenforces that description |
 | `_run_catalog_description: FAILS when one spec carries TWO generated sections (#922)` | How a described row acquires a placeholder twin -- 17 real rows left the rule this way |
 | `_run_catalog_description: the SECOND copy of a section is not scanned as rows (#922)` | One finding per defect: a copied table must not also inflate the reach figures by its own length |
@@ -4250,9 +4250,9 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: a name containing a BACKTICK is matched against the baseline (#922)` | The other half of that contract: the double-backtick fence is the generator's, not part of the name |
 | `_run_catalog_description: a PIPE inside a description does not truncate it (#922)` | Splitting from the right would empty a short description and invent a finding the row does not have |
 | `_run_catalog_description: a table under no spec section is not scanned (#922)` | TEST.md's own index tables belong to no spec, and this file's convention section shows an example row |
-| `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the rows, so a scan that quietly stopped there would still look busy |
+| `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the suite's tests, so a scan that quietly stopped there would still look busy |
 | `_run_catalog_description: DIES when the catalog directory is missing (#922)` | Non-vacuity: a lint that scanned nothing must not report clean |
-| `_run_catalog_description: DIES when the baseline file is missing (#922)` | It is a record of what was already there, not a cache -- losing it must say so rather than bury it under 714 findings |
+| `_run_catalog_description: DIES when the baseline file is missing (#922)` | It is a record of what was already there, not a cache -- losing it must say so rather than bury it under 1517 findings |
 | `_run_catalog_description: the clean line says how many rows it checked and excused (#922)` | A green line standing for zero inspected rows is this repo's recurring vacuous pass, and a parked row is not a passing one |
 | `_run_catalog_description: the real doc/test catalogs are clean (#922)` | Dogfood: the rule is applied to the catalogues this change's own rows land in |
 | `_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)` | Read off the documents, not through the driver, so a regression in its duplicate check cannot hide |
