@@ -1494,7 +1494,21 @@ SH
   # with the table: five tools had been added to _LINT_TOOLS without ever
   # reaching that comment, so the newest lint was unreachable the way its
   # siblings are documented. The list is prose, so only a test can hold it.
-  local _tool _missing=()
+  #
+  # The search is the GRID, not the file. Searching the whole file passes a
+  # tool whose flag happens to appear in some recipe body -- `--doc-counts`
+  # and `--readme-sync` are both spelled out in the sync-*-check recipes --
+  # so two of the fifteen would have stayed green after being struck off
+  # the documented list.
+  local _tool _grid _missing=()
+  _grid="$(awk '
+    /where <tool> is one of/ { _in = 1; next }
+    _in && /^# +--/          { print; next }
+    _in                      { exit }
+  ' /source/script/test/justfile.test)"
+  # The extraction is load-bearing: an empty grid would pass every tool
+  # trivially, which is the vacuous half of the same defect.
+  [[ -n "${_grid}" ]] || fail "no narrowing grid found in script/test/justfile.test"
   run bash -c '
     source /source/script/test/test.sh
     printf "%s\n" "${_LINT_TOOLS[@]}"
@@ -1503,10 +1517,10 @@ SH
   while IFS= read -r _tool; do
     [[ -n "${_tool}" ]] || continue
     grep -qE -- "(^|[^[:alnum:]-])--${_tool}([^[:alnum:]-]|$)" \
-      /source/script/test/justfile.test || _missing+=("${_tool}")
+      <<< "${_grid}" || _missing+=("${_tool}")
   done <<< "${output}"
   [[ "${#_missing[@]}" -eq 0 ]] \
-    || fail "not documented in script/test/justfile.test: ${_missing[*]}"
+    || fail "not documented in the script/test/justfile.test narrowing grid: ${_missing[*]}"
 }
 
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
