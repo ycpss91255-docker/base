@@ -357,33 +357,141 @@ teardown() {
   assert_output --partial "OK"
 }
 
-@test "_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)" {
+# _weights_fixture_prelude
+#   Echo the shell program that writes a synthesised SHARD_WEIGHTS_FILE over
+#   the REAL spec pool, so a deliberately skewed runtime distribution can be
+#   driven through the partitioner on a bare checkout -- where no weights
+#   file exists and every weight would otherwise collapse onto the `@test`
+#   fallback. FIXTURE_HEAVY specs carry FIXTURE_WEIGHT seconds and every
+#   other spec carries 1; FIXTURE_ORDER picks the heavy set by `@test` count
+#   (`n` = the fewest, `nr` = the most).
+_weights_fixture_prelude() {
+  cat <<'FIXTURE'
+_wf="${BATS_TEST_TMPDIR}/shard-weights"
+shopt -s globstar
+_lines=""
+for _f in /source/test/bats/unit/**/*_spec.bats \
+          /source/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) $(basename -- "${_f}")"$'\n'
+done
+# _spec_weight keys on the BASENAME, so a basename carried by two specs
+# cannot be given a runtime of its own -- draw the heavy set from the
+# basenames that occur exactly once.
+_heavy="$(printf '%s' "${_lines}" \
+  | awk '{ n[$2]++; c[$2] = $1 } END { for (b in n) if (n[b] == 1) print c[b], b }' \
+  | sort -k1,1"${FIXTURE_ORDER}" -k2,2 \
+  | awk -v k="${FIXTURE_HEAVY}" 'NR <= k { print $2 }')"
+# Heavy lines first: _spec_weight takes the FIRST match for a basename.
+{
+  printf '%s\n' "${_heavy}" | sed "s/^/${FIXTURE_WEIGHT} /"
+  printf '%s' "${_lines}" | awk '{ print 1, $2 }'
+} > "${_wf}"
+export SHARD_WEIGHTS_FILE="${_wf}"
+FIXTURE
+}
+
+# _shard_balance_probe
+#   Echo the shell program that measures how evenly _shard_unit_files
+#   spreads the spec pool over PROBE_SHARDS shards, and exits non-zero when
+#   the heaviest shard breaks the bound. Every shard is reported on BOTH
+#   axes -- the partition weight (summed through _spec_weight, the same
+#   function the partitioner sorts by, so it follows whichever weight source
+#   is in force) and the `@test` count -- so a divergence between the two is
+#   visible in the log. Any SHARD_WEIGHTS_FILE the caller set is picked up by
+#   _spec_weight, which drives the partition and the measurement together.
+_shard_balance_probe() {
+  cat <<'PROBE'
+source /source/script/test/test.sh
+shopt -s globstar
+declare -A _weight=() _count=()
+_wtotal=0
+_ctotal=0
+_heaviest=0
+for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
+          "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _c="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
+  _weight["${_f}"]="${_w:-0}"
+  _count["${_f}"]="${_c:-0}"
+  _wtotal=$(( _wtotal + ${_w:-0} ))
+  _ctotal=$(( _ctotal + ${_c:-0} ))
+  if (( ${_w:-0} > _heaviest )); then _heaviest="${_w:-0}"; fi
+done
+_n="${PROBE_SHARDS:?BUG: _shard_balance_probe expects PROBE_SHARDS}"
+# Ceil, not truncation: a truncated average understates the bound.
+_wavg=$(( (_wtotal + _n - 1) / _n ))
+_cavg=$(( (_ctotal + _n - 1) / _n ))
+_wmax=0
+_cmax=0
+for (( _s = 1; _s <= _n; _s++ )); do
+  _wload=0
+  _cload=0
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _wload=$(( _wload + ${_weight["${_f}"]:-0} ))
+    _cload=$(( _cload + ${_count["${_f}"]:-0} ))
+  done < <(_shard_unit_files "${_s}/${_n}")
+  printf 'shard %d/%d weight=%d tests=%d\n' "${_s}" "${_n}" "${_wload}" "${_cload}"
+  if (( _wload > _wmax )); then _wmax="${_wload}"; fi
+  if (( _cload > _cmax )); then _cmax="${_cload}"; fi
+done
+_lb="${_wavg}"
+_wverdict=BALANCED
+if (( _wmax * 2 > _lb * 3 )); then _wverdict=IMBALANCED; fi
+_cverdict=EVEN
+if (( _cmax * 2 > _cavg * 3 )); then _cverdict=LOPSIDED; fi
+printf 'weight avg=%d heaviest=%d lb=%d max=%d verdict=%s\n' \
+  "${_wavg}" "${_heaviest}" "${_lb}" "${_wmax}" "${_wverdict}"
+printf 'count avg=%d max=%d verdict=%s\n' "${_cavg}" "${_cmax}" "${_cverdict}"
+[[ "${_cverdict}" == EVEN ]] || exit 1
+PROBE
+}
+
+@test "_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)" {
   # The round-robin floor dumped the heaviest specs into one shard (~2x the
-  # others). The greedy bin-packing must keep every shard's @test load
-  # within a sane factor of the average (total/4); assert the heaviest
-  # shard is at most ~1.5x the average so a single big spec can't pin it.
-  run bash -c '
-    source /source/script/test/test.sh
-    total=$(grep -rhcE "^@test" "${REPO_ROOT}"/test/bats/unit/ | paste -sd+ | bc)
-    avg=$(( total / 4 ))
-    max=0
-    for s in 1 2 3 4; do
-      load=0
-      while IFS= read -r f; do
-        [[ -n "${f}" ]] || continue
-        c=$(grep -cE "^@test" "${f}")
-        load=$(( load + c ))
-      done < <(_shard_unit_files "${s}/4")
-      echo "shard ${s}/4 load=${load}"
-      (( load > max )) && max=${load}
-    done
-    echo "avg=${avg} max=${max}"
-    # heaviest shard must be < 1.5 * avg (round-robin floor was ~2x)
-    (( max * 2 < avg * 3 )) || { echo "IMBALANCED"; exit 1; }
-    echo BALANCED
-  '
+  # others). Greedy LPT must hold every shard within 1.5x of the bound NO
+  # partition can beat -- max(heaviest spec, total/N) -- measured on whatever
+  # weight source is in force: recorded seconds where CI restored a weights
+  # file, the `@test` fallback on a bare checkout. Either way it is the axis
+  # the partitioner itself sorted by.
+  run bash -c "PROBE_SHARDS=4
+$(_shard_balance_probe)"
   assert_success
-  assert_output --partial "BALANCED"
+  assert_output --partial "verdict=BALANCED"
+}
+
+@test "_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)" {
+  # The shape that tripped the guard in CI: a spec with FEW tests but a
+  # dominating runtime. Greedy LPT isolates it on its own shard, which is
+  # exactly right by seconds and looks catastrophic by `@test` count -- the
+  # other shard carries every remaining spec. The weight axis must call this
+  # BALANCED while the count axis calls it LOPSIDED; asserting both pins the
+  # guard to the axis the partitioner optimises. Two shards make the count
+  # skew maximal.
+  run bash -c "FIXTURE_HEAVY=1 FIXTURE_ORDER=n FIXTURE_WEIGHT=100000 PROBE_SHARDS=2
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_success
+  assert_output --partial "verdict=BALANCED"
+  assert_output --partial "verdict=LOPSIDED"
+}
+
+@test "_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)" {
+  # The inverse, and the proof the guard is not vacuous: N+1 specs of equal
+  # dominating runtime over N shards forces one shard to carry two of them,
+  # so the best achievable makespan is 2w against a bound of (N+1)w/N --
+  # 1.6x at N=4, past the 1.5x ceiling for ANY partition, greedy or optimal.
+  # The heavy set is drawn from the specs with the MOST tests, which leaves
+  # the residual `@test` distribution even: a count-axis guard would pass
+  # this partition, so the fixture discriminates the two axes rather than
+  # tripping whichever one is in force.
+  run bash -c "FIXTURE_HEAVY=5 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=4
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_failure
+  assert_output --partial "verdict=IMBALANCED"
 }
 
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
