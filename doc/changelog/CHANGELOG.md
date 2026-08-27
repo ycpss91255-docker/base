@@ -84,16 +84,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
 ### Changed
-- **the emitted `compose.yaml` no longer names containers, and the project
-  name falls back to the OS user (closes #920)** -- a baked `container_name`
-  is namespaced by the daemon, not by the project, so a second stack of one
-  repo died with `name ... is already in use` however it was named, and
-  compose refused `--scale`. Compose now derives `<project>-<service>-<n>`,
-  so per-host isolation rests on the project name alone, whose fallback
-  moves from the literal `local` -- one string for every OS user -- to
-  `${USER_NAME}`; `[project] name` still wins. `just run` / `exec` / `stop`
-  behave identically; a hand-typed `docker exec <name>` has no fixed name
-  any more -- ask `just exec`.
+- **the emitted `compose.yaml` no longer names containers, and the project name
+  falls back to the OS user (closes #920)** -- a baked `container_name` is
+  namespaced by the daemon, not the project, so a second stack of one repo died
+  with `name ... is already in use` and compose refused `--scale`. Compose now
+  derives `<project>-<service>-<n>`, so per-host isolation rests on the project
+  name, whose fallback moves from the literal `local` (one string for every OS
+  user) to `${USER_NAME}`; `[project] name` still wins. Upgrading with a stack
+  UP orphans nothing: the rename defers (as `PROJECT_NAME_PENDING`, reported
+  every run) until `just stop`. `docker exec <fixed-name>` is gone -- ask `just
+  exec`.
 
 ## [v0.42.0] - 2026-08-25
 

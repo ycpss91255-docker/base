@@ -170,6 +170,18 @@ stack has: no `container_name:` is emitted, so compose derives
 image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.
 
+**Pending project name**:
+`PROJECT_NAME_PENDING` in `.env.generated`: a name the DEFAULT now derives
+for this checkout but which cannot take effect yet, because containers may
+still exist under the recorded one and compose cannot relabel a running
+container. Only a changed derivation is carried this way; a configured
+`[project] name` takes effect at once. The wrapper records it, keeps `PROJECT_NAME` on the name the
+containers are under, says so on every `build` / `run`, and adopts it on
+the first one that finds the old project empty (`lib/wrapper.sh`
+`_wrapper_settle_project_name`, ADR-00000022 §3). Transient by design: the
+next `setup apply` re-derives it.
+_Avoid_: staged name, project rename flag.
+
 **setup.conf schema**:
 The set of valid sections/keys and their validation rules, single-sourced
 in `lib/schema.sh` (#559).

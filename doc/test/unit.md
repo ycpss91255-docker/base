@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2936 tests**.
+Unit specs under `test/bats/unit/`: **2954 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -40,7 +40,7 @@ What that means when you edit:
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (59)
+### test/bats/unit/lib_spec.bats (64)
 
 | Test | Description |
 |------|-------------|
@@ -65,6 +65,11 @@ What that means when you edit:
 | `_resolve_project_name: empty configured name derives the historical default (#893)` | - |
 | `_resolve_project_name: a configured name still wins over the OS user (#920)` | `[project] name` keeps priority |
 | `_resolve_project_name: an unset hub user falls back to the OS user (#920)` | OS user, not the literal `local` |
+| `_env_file_value reads the last assignment, and empty when absent (#920)` | Reads the file, not the environment |
+| `_carry_project_name: a checkout with no recorded name takes the resolved one (#920)` | Fresh checkout, nothing pending |
+| `_carry_project_name: an unchanged resolution records nothing pending (#920)` | The ordinary apply |
+| `_carry_project_name: a changed DERIVATION keeps the recorded name (#920)` | A rename nobody asked for waits |
+| `_carry_project_name: a CONFIGURED name is taken at once (#920, #893)` | The setting is not deferred |
 | `_resolve_project_name: two OS users derive distinct project names (#920)` | multi-user isolation with no config |
 | `_resolve_project_name: the hub user still wins over the OS user (#920)` | precedence unchanged |
 | `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
@@ -323,13 +328,13 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (4)
+#### test/bats/unit/env_emit_spec.bats (5)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (124)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -921,7 +926,7 @@ the 1D inputs are gone).
 | `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
 | `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
 
-### test/bats/unit/wrapper_lib_spec.bats (18)
+### test/bats/unit/wrapper_lib_spec.bats (25)
 
 Unit tests for the wrapper-runtime module `lib/wrapper.sh` (#565), which
 hoists the cross-cutting surfaces the 5 docker wrappers (build / run /
@@ -938,6 +943,8 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_msg` dispatcher: routes `<category> <key>` to `_msg_<category>`, reads global `_LANG`, errors on missing category / key | 4 |
 | `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
 | `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
+| Project-name settle (#920): a deferred rename (`PROJECT_NAME_PENDING`, recorded by `setup apply`) is adopted by the first build / run that finds the old project empty -- a two-key edit, every other line of `.env.generated` untouched -- stays deferred while that project still has containers, stays deferred with the daemon's own message when it cannot be asked, and costs no docker call at all when nothing is pending | 4 |
+| `_wrapper_service_running` (#920): the probe answers per PROJECT, not per host (same stub, opposite answers for two `-p` values); a FAILING probe is reported with the daemon's own message instead of reading as not-running; a clean probe stays quiet | 3 |
 
 ### test/bats/unit/wrapper_lib_lookup_spec.bats (5)
 
@@ -1104,11 +1111,13 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (69)
+### test/bats/unit/run_sh_spec.bats (70)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the
 `docker compose ... ps` probe reads from a controllable stub file (one
-running service name per line) so tests can simulate
+running service per line, either bare `<service>` or `<project>/<service>`
+for the tests that are about project scoping -- the qualified form is
+visible only to a probe carrying that same `-p`) so tests can simulate
 "container already running" scenarios.
 
 Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on

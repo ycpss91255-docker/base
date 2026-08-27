@@ -258,6 +258,74 @@ EOF
   assert_output "tester-myrepo"
 }
 
+# ── _env_file_value / _carry_project_name (project-name continuity) ────────
+
+@test "_env_file_value reads the last assignment, and empty when absent (#920)" {
+  # Deliberately not `source`: the question is what the FILE records, so an
+  # absent key must answer empty rather than answering with whatever the
+  # environment happens to export.
+  local _f="${BATS_TEST_TMPDIR}/env"
+  printf 'A=1\nPROJECT_NAME=first\nB=2\nPROJECT_NAME=second\n' > "${_f}"
+  run bash -c "
+    export PROJECT_NAME=from-the-environment
+    source ${LIB}
+    _env_file_value '${_f}' PROJECT_NAME _p
+    _env_file_value '${_f}' NOT_THERE _n
+    _env_file_value '${_f}.missing' PROJECT_NAME _m
+    echo \"[\${_p}][\${_n}][\${_m}]\"
+  "
+  assert_success
+  assert_output "[second][][]"
+}
+
+@test "_carry_project_name: a checkout with no recorded name takes the resolved one (#920)" {
+  run bash -c "
+    source ${LIB}
+    _carry_project_name '' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[tester-myrepo][]"
+}
+
+@test "_carry_project_name: an unchanged resolution records nothing pending (#920)" {
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'tester-myrepo' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[tester-myrepo][]"
+}
+
+@test "_carry_project_name: a changed DERIVATION keeps the recorded name (#920)" {
+  # The rename nobody asked for: an upgrade changes what the default
+  # derives, and the project name is the key compose finds the RUNNING
+  # containers by. Compose cannot relabel a running container, so the new
+  # name waits rather than orphaning the stack.
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'local-myrepo' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[local-myrepo][tester-myrepo]"
+}
+
+@test "_carry_project_name: a CONFIGURED name is taken at once (#920, #893)" {
+  # The exception, and the reason for it: `[project] name` exists so a
+  # second worktree does not share the first's derived name. Deferring it
+  # while that shared name has containers -- the other checkout's -- would
+  # defeat the setting exactly when it is needed.
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'local-myrepo' 'myrepo-wt2' 'myrepo-wt2' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[myrepo-wt2][]"
+}
+
 @test "_resolve_project_name: two OS users derive distinct project names (#920)" {
   run bash -c "
     source ${LIB}

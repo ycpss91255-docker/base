@@ -122,6 +122,45 @@ container name gone, deriving `local-<image>` would have put two users in
 ONE project, promoting the collision from a container to a whole stack. A
 configured `[project] name` still wins.
 
+That second half renames the project of every already-deployed consumer
+with `DOCKER_HUB_USER` unset (`local-<image>` -> `<osuser>-<image>`), and
+nobody asks for it: `upgrade` leaves `.setup.conf` drifted, the next
+`build` / `run` re-applies setup, and `PROJECT_NAME` is rewritten. The
+project name is the key compose looks its own containers up by, so doing
+that while a stack is up would hide the stack from every wrapper at once
+-- `stop` would tear down the new, empty project and `run` would start a
+second copy over the first's bind mounts, host network and devices, with
+the original reachable only by raw `docker`. Compose cannot relabel a
+running container, so a rename can only take effect on an EMPTY project.
+
+**Decision: defer, do not skip.** While containers exist under the
+recorded name, the wrapper keeps `.env.generated` on it and records the
+resolved one as `PROJECT_NAME_PENDING`; the first `build` / `run` that
+finds the old project empty adopts it. Both steps are reported, so the
+name a checkout runs under never changes silently. `stop` is therefore the
+whole migration -- it needs no new flag and addresses the stack the user
+actually has, because `stop` / `exec` never regenerate and so read the
+recorded name. The costs, accepted: a consumer who never stops keeps the
+old (colliding) name indefinitely -- one working stack rather than two --
+and while a stack is up the recorded `PROJECT_NAME` is deliberately not
+the one `setup apply` just resolved. `PROJECT_NAME_PENDING` is what keeps
+that divergence visible and self-clearing; it is re-derived by the next
+apply, so nothing depends on it surviving. An unreachable daemon defers
+too: deferring costs a cycle, renaming on a guess costs the stack.
+
+A CONFIGURED `[project] name` is the exception and takes effect at once.
+Deferring it would defeat the setting it is: its whole use is a second
+worktree that must not share the first's derived name, and the containers
+under that shared name are the OTHER checkout's -- occupancy there is the
+reason to rename, not a reason to wait. A rename someone typed is also an
+act they can sequence around, unlike a changed default. `setup apply` says
+so when it displaces a recorded name, so that path is not silent either.
+
+The reconciliation lives in the wrapper, not in `setup.sh`, because
+whether a project is occupied is a question only the daemon can answer and
+`setup.sh` resolves configuration on hosts where docker need not be
+reachable at all.
+
 The concrete change this decision required was `ports`: they were baked
 literals and are now `${PORT_<n>:-<default>}`, `n` 1-based per the
 convention above (a human who configured `[network] port_1` overrides
@@ -195,3 +234,7 @@ spirit as the #800 worker preflight.
   resolved behaviour (the `:-` default reproduces the prior literal).
 - The `#505` golden master and `gen_spec` port assertions were updated to
   the interpolation form; no runtime behaviour changed.
+- A consumer upgrading with its stack UP keeps that stack and its old
+  project name until the next `stop`, and is told so on every `build` /
+  `run`; nothing is orphaned and nothing is duplicated (2026-08-26
+  amendment).

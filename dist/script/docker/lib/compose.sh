@@ -73,6 +73,55 @@ _resolve_project_name() {
   _rpn_out="${_hub:-${_user:-local}}-${_image:-$(basename -- "${_path:-${PWD}}")}"
 }
 
+# _carry_project_name <recorded> <resolved> <configured>
+#                      <name_outvar> <pending_outvar>
+#
+# Decide which project name `setup apply` RECORDS, given the one this
+# checkout already had. Continuity wins over a changed DERIVATION: a
+# checkout that already runs under a derived name keeps it, and the newly
+# derived one is carried BESIDE it as pending rather than written over it.
+#
+# The project name is the key compose looks its own containers up by, so
+# rewriting it while a stack is up hides that stack from every wrapper at
+# once -- `stop` tears down an empty project, `run` starts a second copy
+# over the live one, and the original is reachable only by raw `docker`.
+# Compose cannot relabel a running container, so a rename can only take
+# effect on an EMPTY project, and setup.sh is in no position to know
+# whether this one is: it resolves configuration on hosts where docker
+# need not be reachable. So it does not decide. It records both, and the
+# wrapper -- which can ask the daemon -- adopts the pending name on the
+# first build / run that finds the old project empty
+# (`_wrapper_settle_project_name`, lib/wrapper.sh).
+#
+# A CONFIGURED `[project] name` is the exception, and takes effect at
+# once. Deferring it would defeat the setting it is: its whole use is a
+# second worktree that must NOT share the first's derived name, and the
+# containers under that shared name are the other checkout's -- occupancy
+# there is the reason to rename, not a reason to wait. A rename someone
+# typed is also an act they can sequence around; the changed default that
+# motivates the carry is one nobody asked for. setup.sh says so when it
+# happens, so it is not silent either.
+#
+# A fresh checkout (no recorded name) and a resolution that did not change
+# both yield "record the resolved one, nothing pending", which is every
+# ordinary apply.
+_carry_project_name() {
+  local _recorded="${1-}"
+  local _resolved="${2-}"
+  local _configured="${3-}"
+  local -n _cpn_name="${4:?"${FUNCNAME[0]}: missing name outvar"}"
+  local -n _cpn_pending="${5:?"${FUNCNAME[0]}: missing pending outvar"}"
+
+  if [[ -z "${_configured}" && -n "${_recorded}" \
+        && "${_recorded}" != "${_resolved}" ]]; then
+    _cpn_name="${_recorded}"
+    _cpn_pending="${_resolved}"
+    return 0
+  fi
+  _cpn_name="${_resolved}"
+  _cpn_pending=""
+}
+
 # _compute_project_name puts PROJECT_NAME in scope for the current
 # invocation.
 #
