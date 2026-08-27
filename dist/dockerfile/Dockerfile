@@ -371,12 +371,15 @@ RUN bats /smoke_test/
 #    the runtime image with `--help` as CMD and asserts a sensible
 #    exit, not 127.
 #
-# To enable: uncomment the three blocks below, change `devel` above
+# To enable: uncomment the three blocks below and change `devel` above
 # from `FROM devel-base AS devel` to `FROM builder AS devel` so devel
 # inherits builder's build artifacts (without re-installing build
-# deps), and set `build_runtime: true` in main.yaml's
-# call-docker-build job (default is true; only agent/* repos that
-# ship no runtime override it to false).
+# deps). That is the whole action -- main.yaml needs no edit. The CI
+# worker reads THIS file to decide whether to build the runtime pair,
+# so the stages you declare here are the ones it builds, and there is
+# no second declaration that can disagree with them. Uncomment both
+# runtime and runtime-test or neither: half a pair fails the build
+# with a message naming the missing stage.
 
 ############################## builder (optional) ##############################
 # FROM devel-base AS builder
@@ -553,11 +556,12 @@ RUN bats /smoke_test/
 # expansion. bash is present in every Ubuntu/Debian-based runtime image
 # the template targets, so the bash dependency is safe.
 #
-# Only enable when the runtime stage above is also enabled. The
-# `if: build_runtime` gate in build-worker.yaml mirrors this -- if
-# your repo doesn't ship a runtime stage, leave both runtime and
-# runtime-test commented out and set `build_runtime: false` in
-# main.yaml.
+# Only enable when the runtime stage above is also enabled.
+# build-worker.yaml resolves its runtime gate FROM this file, so the
+# two cannot disagree: leave both runtime and runtime-test commented
+# out and the worker skips both build steps on its own, with no
+# main.yaml edit. Declaring exactly one of the pair is drift and fails
+# the resolve step naming the missing stage.
 #
 # FROM runtime AS runtime-test
 #

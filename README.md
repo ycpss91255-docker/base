@@ -1483,7 +1483,7 @@ jobs:
 |-------|------|----------|---------|-------------|
 | `image_name` | string | yes | - | Container image name |
 | `build_args` | string | no | `""` | Multi-line KEY=VALUE build args |
-| `build_runtime` | boolean | no | `true` | Whether to build runtime stage |
+| `build_runtime` | boolean | no | `true` | Opt OUT of the runtime build (`false`). Whether the stages exist is read from your Dockerfile: the worker builds `runtime` / `runtime-test` when it declares them and skips them when it does not, so a repo with no runtime stage needs no change here |
 | `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; each runs as a parallel native-runner shard (`linux/amd64` → ubuntu-latest, `linux/arm64` → ubuntu-24.04-arm) |
 | `test_tools_version` | string | no | `"latest"` | Tag for `ghcr.io/ycpss91255-docker/test-tools:<tag>` build-arg; pin to the template release you upgraded from for reproducibility |
 
