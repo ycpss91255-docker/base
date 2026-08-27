@@ -35,6 +35,13 @@
 #     commit, and growing either one is a deliberate, reviewable edit of a
 #     number that states how much debt is left.
 #
+#   - The rule REACHES every generated section. A section that answers
+#     with a summary instead of a row each is outside the rule, and that
+#     is allowed -- but only as a DECLARED, reasoned exemption the lint
+#     reports, never as a table shape the parser silently failed to
+#     recognise. The reach a lint claims and the reach it has are two
+#     different numbers unless something forces them together.
+#
 # Detection runs against a controlled temp REPO_ROOT so the spec is
 # independent of the live tree's contents; the final cases drive the REAL
 # tree. Shape mirrors changelog_entry_lint_spec.bats /
@@ -101,6 +108,30 @@ _write_baseline() {
       printf '%s\t%s\n' "${_e%%|*}" "${_e#*|}"
     done
   } > "${BASELINE}"
+}
+
+# _write_exempt <entry>... -- a scratch exemptions file whose declared
+# count matches the entries given. Entries are passed as `<spec>|<reason>`
+# and joined with the TAB the file actually uses.
+_write_exempt() {
+  {
+    printf '# scratch exemptions\n'
+    printf '# entries: %d\n' "$#"
+    local _e
+    for _e in "$@"; do
+      printf '%s\t%s\n' "${_e%%|*}" "${_e#*|}"
+    done
+  } > "${SCRATCH}/${_CATALOG_DESC_EXEMPT_FILE}"
+}
+
+# _write_summary_section <spec> <tests> -- append a section that answers
+# with a `| Category | Tests |` summary instead of a row each.
+_write_summary_section() {
+  {
+    printf '\n### %s (%d)\n\n' "${1}" "${2}"
+    printf '| Category | Tests |\n|----------|-------|\n'
+    printf '| parsing | %d |\n' "${2}"
+  } >> "${CATALOG}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -296,17 +327,139 @@ _write_baseline() {
 @test "_run_catalog_description: a summary table is not a per-test catalog (#922)" {
   # A section may summarise with a `| Category | Tests |` table instead of
   # a row each. Reading those cells as test names would invent findings
-  # for rows that were never claimed to be tests.
-  {
-    printf '# Unit Tests\n\n'
-    printf '### test/bats/unit/alpha_spec.bats (40)\n\n'
-    printf '| Category | Tests |\n|------|-------------|\n'
-    printf '| parsing | 20 |\n'
-    printf '| rendering | 20 |\n'
-  } > "${CATALOG}"
+  # for rows that were never claimed to be tests -- so a DECLARED summary
+  # contributes no rows, and the row count proves it.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  _write_exempt 'test/bats/unit/beta_spec.bats|grouped by concern; 40 rows would be noise'
+  run _run_catalog_description
+  assert_success
+  assert_output --partial '1 rows checked'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Reach: every generated section is governed or declared exempt
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_catalog_description: FAILS on a section with no per-test table that nobody declared (#922)" {
+  # The hole the rule had: a section the parser did not recognise as a
+  # catalogue was outside the rule by TABLE SHAPE, silently and with no
+  # reason recorded, so 45% of the suite could sit outside a REQUIRED
+  # field and the green line said nothing. Being outside the rule is now
+  # something somebody has to write down.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'no catalog rows'
+  assert_output --partial 'test/bats/unit/beta_spec.bats'
+  assert_output --partial "${_CATALOG_DESC_EXEMPT_FILE}"
+}
+
+@test "_run_catalog_description: a section with NO table at all must be declared too (#922)" {
+  # Prose-only was the other 25 sections and 820 tests. The rule is about
+  # the section, not about which table shape it happens to carry, so
+  # answering with no table at all is not a way around it.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  printf '\n### test/bats/unit/beta_spec.bats (12)\n\nCovers the beta paths.\n' \
+    >> "${CATALOG}"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'test/bats/unit/beta_spec.bats'
+}
+
+@test "_run_catalog_description: converting a per-test table to a summary is not a silent opt-out (#922)" {
+  # The exemption is reachable as an escape hatch on a section that is
+  # already covered: replace 32 described rows with a three-line summary
+  # and they leave the rule. That edit now fails until somebody declares
+  # the section and says why, which is a line a reviewer sees.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 32
+  run _run_catalog_description
+  assert_failure
+  local _first="${output}"
+  _write_exempt 'test/bats/unit/beta_spec.bats|deliberately summarised, see the section prose'
+  run _run_catalog_description
+  assert_success
+  [[ "${_first}" != "${output}" ]]
+}
+
+@test "_run_catalog_description: FAILS a declared exemption that gives no reason (#922)" {
+  # An exemption without a reason is the same silence in a file, one
+  # indirection further away. The placeholder the rule refuses in a row is
+  # refused here for the same reason.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  _write_exempt 'test/bats/unit/beta_spec.bats|-'
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'reason'
+}
+
+@test "_run_catalog_description: FAILS a stale exemption whose section now has a per-test table (#922)" {
+  # The same ratchet the baseline gets: giving a summarised section real
+  # rows forces its exemption line out in the same commit, so the file
+  # cannot quietly keep excuses for sections that no longer need them.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_exempt 'test/bats/unit/alpha_spec.bats|summarised'
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'stale'
+}
+
+@test "_run_catalog_description: FAILS a stale exemption whose section is GONE (#922)" {
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_exempt 'test/bats/unit/gone_spec.bats|summarised'
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'stale'
+}
+
+@test "_run_catalog_description: FAILS when the exemptions file miscounts its own entries (#922)" {
+  # Growing the exempt set is the move that shrinks the rule's reach, so
+  # it costs the same declared number the baseline costs.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  {
+    printf '# entries: 0\n'
+    printf 'test/bats/unit/beta_spec.bats\tsummarised\n'
+  } > "${SCRATCH}/${_CATALOG_DESC_EXEMPT_FILE}"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'entries'
+}
+
+@test "_run_catalog_description: DIES when the exemptions file is missing (#922)" {
+  # Same standard as the baseline: the file missing changes what the lint
+  # MEANS -- every section outside the rule would fail at once -- and that
+  # should say so rather than arrive as a wall of findings.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  rm -f "${SCRATCH}/${_CATALOG_DESC_EXEMPT_FILE}"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial "${_CATALOG_DESC_EXEMPT_FILE}"
+}
+
+@test "_run_catalog_description: the clean line says how much of the suite sits OUTSIDE the rule (#922)" {
+  # The half the old report never had. A green line over 1736 rows said
+  # nothing about the 1426 tests the rule did not reach, and a reach
+  # nobody can see is a reach nobody defends.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  _write_exempt 'test/bats/unit/beta_spec.bats|grouped by concern'
+  run _run_catalog_description
+  assert_success
+  assert_output --partial '1 section(s)'
+  assert_output --partial '40 test(s)'
 }
 
 @test "_run_catalog_description: a name containing a PIPE is matched against the baseline unescaped (#922)" {
