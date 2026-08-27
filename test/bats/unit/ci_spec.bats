@@ -513,13 +513,18 @@ $(_shard_balance_probe)"
 }
 
 @test "_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)" {
-  # The shape that tripped the guard in CI: a spec with FEW tests but a
-  # dominating runtime. Greedy LPT isolates it on its own shard, which is
-  # exactly right by seconds and looks catastrophic by `@test` count -- the
-  # other shard carries every remaining spec. The weight axis must call this
-  # BALANCED while the count axis calls it LOPSIDED; asserting both pins the
-  # guard to the axis the partitioner optimises. Two shards make the count
-  # skew maximal.
+  # The wrong-axis mismatch, isolated. This shape has never turned a CI run
+  # red -- the run that prompted this work failed on a short denominator,
+  # not on the axis (see the pool case below) -- but the mismatch is real
+  # and latent, so it gets a fixture that exhibits it on demand rather than
+  # waiting for a distribution that does.
+  #
+  # A spec with FEW tests but a dominating runtime: greedy LPT isolates it
+  # on its own shard, which is exactly right by seconds and looks
+  # catastrophic by `@test` count, since the other shard then carries every
+  # remaining spec. The weight axis must call this BALANCED while the count
+  # axis calls it LOPSIDED; asserting both pins the guard to the axis the
+  # partitioner optimises. Two shards make the count skew maximal.
   run bash -c "FIXTURE_HEAVY=1 FIXTURE_ORDER=n FIXTURE_WEIGHT=100000 PROBE_SHARDS=2
 $(_weights_fixture_prelude)
 $(_shard_balance_probe)"
@@ -544,24 +549,39 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=IMBALANCED"
 }
 
-@test "_shard_unit_files: the coverage loads that tripped the count axis clear the weight bound (#940)" {
-  # The regression this fix exists for. base#936's `coverage (6/8)` reported
-  # shard loads of 576 / 699 / 688 / 1134 against "avg=737" -- an average of
-  # @test COUNTS, while every load was seconds. On the axis the partitioner
-  # weighs, those loads total 3097 over 4 shards, a bound of 775. The
-  # heaviest spec is unknown from the log but bounded from below: greedy LPT
-  # only ever adds to the LIGHTEST shard, so the spec that took shard 4 to
-  # 1134 was placed when that shard held at most 576 -- it is worth at least
-  # 558, which the 775 average already covers. 1134 is inside 1.5x of 775,
-  # so the correct verdict on that partition is BALANCED: it was the metric
-  # that was wrong, not the partition. Fed to the same rule the live probe
-  # runs, never a second copy of it.
+@test "_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)" {
+  # The regression this fix exists for, and the defect was the DENOMINATOR,
+  # not the axis. base#936's `coverage (6/8)` reported shard loads of
+  # 576 / 699 / 688 / 1134 against "avg=737", and all five of those numbers
+  # are `@test` COUNTS: the old assertion measured every load with
+  # `grep -cE "^@test"`, and the arithmetic pins the rest. The loads sum to
+  # 3097, which is that tree's unit pool (2949) PLUS its integration pool
+  # (148); avg=737 is 2949/4 truncated. So the loads were summed over the
+  # pool _shard_unit_files partitions while the total was summed over
+  # `test/bats/unit/` alone -- the denominator was short by every
+  # integration spec, which inflated max/avg and condemned a partition that
+  # was fine.
+  #
+  # Scope the total to the same pool and the IDENTICAL numbers pass, on the
+  # count axis they were always on: lb = ceil(3097/4) = 775, and 1134 is
+  # 1.46x of it. The heaviest spec on that tree was template_spec.bats at
+  # 155, far under the average, so it does not move the bound. Both totals
+  # go through the same rule the live probe runs, never a second copy.
+  #
+  # The wrong-axis mismatch the fixture cases above cover is real, latent,
+  # and worth having fixed -- but it is NOT what turned this run red, and
+  # nothing asserted here rests on it.
   run bash -c "$(_balance_rule)"'
-    _lb=$(_balance_lb 3097 4 558)
-    printf "lb=%s verdict=%s\n" "${_lb}" "$(_balance_verdict "${_lb}" 1134)"
+    _short=$(_balance_lb 2949 4 155)
+    _pool=$(_balance_lb 3097 4 155)
+    printf "short lb=%s verdict=%s\n" \
+      "${_short}" "$(_balance_verdict "${_short}" 1134)"
+    printf "pool lb=%s verdict=%s\n" \
+      "${_pool}" "$(_balance_verdict "${_pool}" 1134)"
   '
   assert_success
-  assert_output "lb=775 verdict=BALANCED"
+  assert_line "short lb=738 verdict=IMBALANCED"
+  assert_line "pool lb=775 verdict=BALANCED"
 }
 
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {

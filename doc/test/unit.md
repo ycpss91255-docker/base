@@ -2024,7 +2024,7 @@ builds the env block only for the knobs the conf sets.
 | `_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)` | #677 greedy bin-packing balances shards, measured through `_spec_weight` |
 | `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
 | `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over N shards must FAIL the guard |
-| `_shard_unit_files: the coverage loads that tripped the count axis clear the weight bound (#940)` | #940 regression: the recorded 576/699/688/1134 loads are BALANCED by weight |
+| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 regression: the unit-only total, not the axis, condemned the partition |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
