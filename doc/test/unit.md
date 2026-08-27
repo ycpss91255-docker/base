@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2929 tests**.
+Unit specs under `test/bats/unit/`: **2930 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2002,7 +2002,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (110)
+### test/bats/unit/ci_spec.bats (111)
 
 | Test | Description |
 |------|-------------|
@@ -2024,6 +2024,7 @@ builds the env block only for the knobs the conf sets.
 | `_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)` | #677 greedy bin-packing balances shards, measured through `_spec_weight` |
 | `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
 | `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over N shards must FAIL the guard |
+| `_shard_unit_files: the coverage loads that tripped the count axis clear the weight bound (#940)` | #940 regression: the recorded 576/699/688/1134 loads are BALANCED by weight |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |

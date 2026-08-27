@@ -317,11 +317,13 @@ teardown() {
 # --coverage-shard: sharded kcov matrix (ADR-00000008, weight-balanced)
 #
 # Coverage is the primary unit gate. _shard_unit_files is the partition
-# primitive: greedy weight-balanced bin-packing by per-spec @test count
-# (heaviest-first into the lightest shard) so the slowest shard's load
-# approaches total/N. _run_coverage <n>/<total> kcov's that slice (+
-# integration on the last shard). main --coverage-shard plumbs
-# COVERAGE_SHARD into the coverage service.
+# primitive: greedy weight-balanced bin-packing by per-spec _spec_weight
+# (recorded runtime in seconds, or the @test-count fallback -- heaviest
+# first into the lightest shard) so the slowest shard's load approaches
+# max(heaviest spec, total/N), the floor no partition beats.
+# _run_coverage <n>/<total> kcov's that slice (+ integration on the last
+# shard). main --coverage-shard plumbs COVERAGE_SHARD into the coverage
+# service.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_shard_unit_files: a single shard returns real unit spec paths (#615)" {
@@ -355,6 +357,48 @@ teardown() {
   '
   assert_success
   assert_output --partial "OK"
+}
+
+# _balance_rule
+#   Echo the shell program that DEFINES the balance rule -- the bound a
+#   partition is judged against, and the verdict on a given makespan --
+#   and measures nothing. The live probe and the regression over the
+#   coverage loads recorded on base#936 both run this one copy, so neither
+#   restates the rule the other applies.
+_balance_rule() {
+  cat <<'RULE'
+# _balance_lb <total_weight> <shards> <heaviest_weight>
+#   The floor no partition finishes below, greedy or optimal: a spec cannot
+#   be split across shards, so the makespan is at least the heaviest single
+#   spec, and at least the perfectly even split. Judging against a flat
+#   multiple of the AVERAGE alone would indict the partitioner the moment
+#   one spec runs longer than that -- a property of the input, not of the
+#   algorithm.
+_balance_lb() {
+  local _total="${1}" _n="${2}" _heaviest="${3}"
+  # Ceil, not truncation: a truncated average understates the bound.
+  local _avg=$(( (_total + _n - 1) / _n ))
+  if (( _heaviest > _avg )); then
+    printf '%s\n' "${_heaviest}"
+  else
+    printf '%s\n' "${_avg}"
+  fi
+}
+
+# _balance_verdict <lower_bound> <max_shard_load>
+#   BALANCED while the heaviest shard stays within 1.5x the bound. Greedy
+#   LPT's own guarantee is tighter than that against the OPTIMAL makespan;
+#   the slack is what the bound gives away by being computable without
+#   solving the partition.
+_balance_verdict() {
+  local _lb="${1}" _max="${2}"
+  if (( _max * 2 > _lb * 3 )); then
+    printf 'IMBALANCED\n'
+  else
+    printf 'BALANCED\n'
+  fi
+}
+RULE
 }
 
 # _weights_fixture_prelude
@@ -401,6 +445,7 @@ FIXTURE
 #   visible in the log. Any SHARD_WEIGHTS_FILE the caller set is picked up by
 #   _spec_weight, which drives the partition and the measurement together.
 _shard_balance_probe() {
+  _balance_rule
   cat <<'PROBE'
 source /source/script/test/test.sh
 shopt -s globstar
@@ -420,7 +465,6 @@ for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
   if (( ${_w:-0} > _heaviest )); then _heaviest="${_w:-0}"; fi
 done
 _n="${PROBE_SHARDS:?BUG: _shard_balance_probe expects PROBE_SHARDS}"
-# Ceil, not truncation: a truncated average understates the bound.
 _wavg=$(( (_wtotal + _n - 1) / _n ))
 _cavg=$(( (_ctotal + _n - 1) / _n ))
 _wmax=0
@@ -437,15 +481,20 @@ for (( _s = 1; _s <= _n; _s++ )); do
   if (( _wload > _wmax )); then _wmax="${_wload}"; fi
   if (( _cload > _cmax )); then _cmax="${_cload}"; fi
 done
-_lb="${_wavg}"
-_wverdict=BALANCED
-if (( _wmax * 2 > _lb * 3 )); then _wverdict=IMBALANCED; fi
+_lb="$(_balance_lb "${_wtotal}" "${_n}" "${_heaviest}")"
+_wverdict="$(_balance_verdict "${_lb}" "${_wmax}")"
+# The count axis is diagnostic, so it is judged against its average alone
+# and reported in its own vocabulary -- EVEN / LOPSIDED never reads as the
+# gating verdict.
 _cverdict=EVEN
-if (( _cmax * 2 > _cavg * 3 )); then _cverdict=LOPSIDED; fi
+if [[ "$(_balance_verdict "${_cavg}" "${_cmax}")" != BALANCED ]]; then
+  _cverdict=LOPSIDED
+fi
 printf 'weight avg=%d heaviest=%d lb=%d max=%d verdict=%s\n' \
   "${_wavg}" "${_heaviest}" "${_lb}" "${_wmax}" "${_wverdict}"
 printf 'count avg=%d max=%d verdict=%s\n' "${_cavg}" "${_cmax}" "${_cverdict}"
-[[ "${_cverdict}" == EVEN ]] || exit 1
+# The weight axis gates; the count axis is reported for contrast only.
+[[ "${_wverdict}" == BALANCED ]] || exit 1
 PROBE
 }
 
@@ -492,6 +541,26 @@ $(_weights_fixture_prelude)
 $(_shard_balance_probe)"
   assert_failure
   assert_output --partial "verdict=IMBALANCED"
+}
+
+@test "_shard_unit_files: the coverage loads that tripped the count axis clear the weight bound (#940)" {
+  # The regression this fix exists for. base#936's `coverage (6/8)` reported
+  # shard loads of 576 / 699 / 688 / 1134 against "avg=737" -- an average of
+  # @test COUNTS, while every load was seconds. On the axis the partitioner
+  # weighs, those loads total 3097 over 4 shards, a bound of 775. The
+  # heaviest spec is unknown from the log but bounded from below: greedy LPT
+  # only ever adds to the LIGHTEST shard, so the spec that took shard 4 to
+  # 1134 was placed when that shard held at most 576 -- it is worth at least
+  # 558, which the 775 average already covers. 1134 is inside 1.5x of 775,
+  # so the correct verdict on that partition is BALANCED: it was the metric
+  # that was wrong, not the partition. Fed to the same rule the live probe
+  # runs, never a second copy of it.
+  run bash -c "$(_balance_rule)"'
+    _lb=$(_balance_lb 3097 4 558)
+    printf "lb=%s verdict=%s\n" "${_lb}" "$(_balance_verdict "${_lb}" 1134)"
+  '
+  assert_success
+  assert_output "lb=775 verdict=BALANCED"
 }
 
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
