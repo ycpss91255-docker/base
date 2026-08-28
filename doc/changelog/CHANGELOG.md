@@ -58,8 +58,19 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **a job cannot reach the org's self-hosted runner from a fork PR, and the rule is linted rather than remembered (closes #766)** -- the issue filed this as insurance, but the premise was false: the org has one online self-hosted runner, in a group with `visibility: all` and `allows_public_repositories: true`, and this repo is public. Eligibility is now computed from each job's `runs-on` by a lint that scans the workflow directory and fails CLOSED on anything it cannot statically prove is a reserved GitHub-hosted label. Three of 33 jobs are eligible today; all carry the guard. A job added tomorrow is covered without editing the lint.
 
+- **`arch-literal`: a shipped Dockerfile may not write an architecture into a
+  string (closes #939)** -- buildx builds one Dockerfile per `--platform`, so a
+  literal ships the wrong binary inside every other platform's image variant and
+  says nothing until someone runs it. Architecture now comes from
+  `ARG TARGETARCH`, documented in the template Dockerfile where a consumer
+  writing one meets it. The lint cannot refuse every architecture token: the
+  correct answer -- a `case` mapping TARGETARCH onto the upstream asset
+  spellings -- contains both by construction, so a marked mapping block or a
+  per-line allow opts out, and either must state a reason.
+
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 ### Fixed
+- **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 - **`changelog-entry`: the lint could report clean while measuring nothing (refs #917)** -- four ways it did. An entry quoting the marker syntax, e.g. `<!-- changelog-entry-lint: allow-begin -- why -->`, was read as an unclosed region and skipped every entry after it; a `## [` inside a fenced example moved the scanned section; a `*`, `+` or indented bullet reported "holds no entries"; and the length was characters or bytes depending on the caller's locale. Affects anyone adding an entry: unrecognised bullets now fail by name, and the clean line reports how many entries it checked and how many an allow region suppressed.
@@ -84,6 +95,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Added
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
+
+### Removed
+- **base's own release no longer attaches a hand-built source archive (closes
+  #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`
+  pair from a hardcoded nine-operand `cp -r`, beside the source archives
+  GitHub generates for free. It was a strictly worse subset: `.version`, the
+  repo-root `init.sh`, `CONTEXT.md` and every dotfile were missing, because
+  `cp` says nothing about a tracked path nobody listed -- and one absent
+  operand under `bash -e` fails the whole release at tag push. A base release
+  now carries GitHub's automatic `tarball_url` / `zipball_url` only;
+  `release-worker.yaml`, the downstream consumer's archive, is unchanged.
 
 ## [v0.42.0] - 2026-08-25
 

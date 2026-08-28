@@ -1055,14 +1055,14 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 85420e5388bd -->
+<!-- sync: build-workeryaml-inputs 56e79469bb9e 20e4d316406d -->
 ### build-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
 |------|------|------|--------|------|
 | `image_name` | string | 是 | - | 容器映像名稱 |
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 建置參數 |
-| `build_runtime` | boolean | 否 | `true` | 是否建置 runtime stage |
+| `build_runtime` | boolean | 否 | `true` | 退出 runtime 建置(`false`)。stage 是否存在改由 Dockerfile 決定:有宣告 `runtime` / `runtime-test` 才建置,沒有就跳過,所以沒有 runtime stage 的 repo 不必改這一項 |
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
@@ -1212,3 +1212,4 @@ just --list  # 顯示 CI 指令
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

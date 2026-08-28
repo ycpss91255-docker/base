@@ -1132,14 +1132,14 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 7964ab737b93 -->
+<!-- sync: build-workeryaml-inputs 56e79469bb9e 6d5a8c1ecbb7 -->
 ### build-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
 |------------|------|------|------------|------|
 | `image_name` | string | はい | - | コンテナイメージ名 |
 | `build_args` | string | いいえ | `""` | 複数行 KEY=VALUE ビルド引数 |
-| `build_runtime` | boolean | いいえ | `true` | runtime stage をビルドするか |
+| `build_runtime` | boolean | いいえ | `true` | runtime ビルドのオプトアウト(`false`)。stage の有無は Dockerfile から読み取る: `runtime` / `runtime-test` を宣言していればビルドし、なければスキップするので、runtime stage を持たない repo はここを変更する必要がない |
 | `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
@@ -1289,3 +1289,4 @@ just --list  # CI ターゲット表示
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
