@@ -1786,6 +1786,9 @@ SH
   '
   assert_success
   assert_output --partial "action ref agreement lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --catalog-description-only: runs the catalogue description lint on the host, no compose (#922)" {
   # Same CI-reachability shape as the sibling primitives: the lint-static
   # matrix entry calls this on a plain ubuntu-latest runner, so the driver
