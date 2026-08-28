@@ -626,11 +626,33 @@ _marker() {
 @test "_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)" {
   # Run the generator against a copy so the live tree is never mutated by a
   # test; an already-stamped tree must come back byte-identical.
-  cp /source/README.md "${SCRATCH}/README.md"
-  cp /source/doc/readme/README.zh-TW.md "${SCRATCH}/doc/readme/README.zh-TW.md"
-  cp /source/doc/readme/README.zh-CN.md "${SCRATCH}/doc/readme/README.zh-CN.md"
-  cp /source/doc/readme/README.ja.md "${SCRATCH}/doc/readme/README.ja.md"
+  #
+  # BOTH sides of the comparison come from ONE read of the live tree, and
+  # the `diff` names neither of them (#965). The assertion is about the
+  # GENERATOR -- give the same bytes twice, get the same bytes back -- but
+  # it used to be settled by diffing the generated copy against
+  # /source/doc/readme itself. This suite runs 32-way parallel, often
+  # alongside another checkout's gate, and the live tree is nobody's to
+  # own here: anything that wrote under doc/readme/ in the window between
+  # the copy and the diff changed the verdict on a generator that had done
+  # nothing wrong. A baseline the spec took itself cannot be edited by a
+  # concurrent writer, so the answer now depends only on the subject.
+  local _baseline="${BATS_TEST_TMPDIR}/baseline"
+  mkdir -p "${_baseline}/doc/readme"
+  cp /source/README.md "${_baseline}/README.md"
+  local _lang
+  for _lang in zh-TW zh-CN ja; do
+    cp "/source/doc/readme/README.${_lang}.md" \
+       "${_baseline}/doc/readme/README.${_lang}.md"
+  done
+
+  cp "${_baseline}/README.md" "${SCRATCH}/README.md"
+  for _lang in zh-TW zh-CN ja; do
+    cp "${_baseline}/doc/readme/README.${_lang}.md" \
+       "${SCRATCH}/doc/readme/README.${_lang}.md"
+  done
+
   _sync_readme_hashes "${SCRATCH}" >/dev/null
-  run diff -r /source/doc/readme "${SCRATCH}/doc/readme"
+  run diff -r "${_baseline}/doc/readme" "${SCRATCH}/doc/readme"
   [ "${status}" -eq 0 ]
 }
