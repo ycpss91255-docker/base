@@ -3339,6 +3339,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/init_installed_paths_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-installed-paths prints a non-empty manifest and exits 0` | - |
+| `init.sh --list-installed-paths lists the base version monitor workflow` | - |
+| `init.sh --list-installed-paths lists the wrapper symlinks and hook stubs` | - |
+| `init.sh --list-installed-paths emits repo-relative paths only` | - |
+| `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
+| `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 ### test/bats/unit/arch_literal_lint_spec.bats (20)
 
 | Test | Description |
