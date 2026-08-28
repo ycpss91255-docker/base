@@ -90,7 +90,7 @@
 #      is "this much description debt is left". Raising that number is one
 #      reviewable line in the diff, and it is the entire ask: the number
 #      may only ever go DOWN.
-#   3. The entries must be sorted (LC_ALL=C) and unique. A 700-line file is
+#   3. The entries must be sorted (LC_ALL=C) and unique. A 1500-line file is
 #      only reviewable while its diff is one line per change; unsorted, an
 #      insertion hides anywhere, and a duplicate overstates the debt so
 #      that deleting one copy looks like progress.
