@@ -76,6 +76,12 @@ setup() {
   # an empty-but-well-formed pair and let the cases that care rewrite them.
   _write_baseline
   _write_exempt
+  # TEST.md is the index: it is what says which catalogues doc/test/ is
+  # supposed to have, so the scan cannot be bounded by whichever files
+  # happen to exist. The fixture keeps it in step with the sections the
+  # helpers write; a case that writes a document by hand says so itself.
+  declare -gA INDEX=()
+  _index_render
 }
 
 teardown() {
@@ -94,6 +100,7 @@ _write_catalog() {
     printf '| Test | Description |\n|------|-------------|\n'
     [[ $# -gt 0 ]] && printf '%s\n' "$@"
   } > "${CATALOG}"
+  _index_set 'unit.md' "$#"
 }
 
 # _row <name> <desc> -- one rendered catalog row, the way
@@ -139,6 +146,35 @@ _write_summary_section() {
     printf '| Category | Tests |\n|----------|-------|\n'
     printf '| parsing | %d |\n' "${2}"
   } >> "${CATALOG}"
+  _index_add 'unit.md' "${2}"
+}
+
+# _index_render -- write the scratch TEST.md index from INDEX, one row per
+# document, the way sync-doc-counts.sh renders the real one.
+_index_render() {
+  local _doc
+  {
+    printf '# TEST.md\n\n## Test Docs by Level / Type\n\n'
+    printf '| Doc | Scope | Count |\n|-----|-------|-------|\n'
+    if [[ "${#INDEX[@]}" -gt 0 ]]; then
+      while IFS= read -r _doc; do
+        printf '| [%s](%s) | scratch | %s |\n' \
+          "${_doc}" "${_doc}" "${INDEX[${_doc}]}"
+      done < <(printf '%s\n' "${!INDEX[@]}" | LC_ALL=C sort)
+    fi
+  } > "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/TEST.md"
+}
+
+# _index_set <doc> <tests> / _index_add <doc> <tests> -- keep the index in
+# step with the sections a case writes.
+_index_set() {
+  INDEX["${1}"]="${2}"
+  _index_render
+}
+
+_index_add() {
+  INDEX["${1}"]=$(( ${INDEX["${1}"]:-0} + ${2} ))
+  _index_render
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -512,6 +548,7 @@ _write_summary_section() {
     "$(_row 'alpha does a thing' 'Why alpha matters')"
   printf '\n### test/bats/unit/beta_spec.bats (12)\n\nCovers the beta paths.\n' \
     >> "${CATALOG}"
+  _index_add 'unit.md' 12
   run _run_catalog_description
   assert_failure
   assert_output --partial 'test/bats/unit/beta_spec.bats'
@@ -696,6 +733,7 @@ _write_summary_section() {
     printf '| Test | Description |\n|------|-------------|\n'
     printf '| `alpha does a thing` | - |\n'
   } > "${CATALOG}"
+  _index_set 'unit.md' 1
   run _run_catalog_description
   assert_failure
   assert_output --partial 'test/bats/unit/alpha_spec.bats: no description'
@@ -711,6 +749,7 @@ _write_summary_section() {
     printf '| Test | Description |\n|------|-------------|\n'
     printf '| `not a catalog row` | - |\n'
   } > "${CATALOG}"
+  _index_set 'unit.md' 0
   run _run_catalog_description
   assert_failure
   assert_output --partial 'no catalog rows'
@@ -725,9 +764,95 @@ _write_summary_section() {
     printf '| Test | Description |\n|------|-------------|\n'
     printf '| `gamma does a thing` | - |\n'
   } > "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/integration.md"
+  _index_set 'integration.md' 1
   run _run_catalog_description
   assert_failure
   assert_output --partial 'gamma does a thing'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Reach: the set of catalogues is declared, not discovered
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_catalog_description: a catalogue the index declares but that is GONE is a finding (#922)" {
+  # The scan is a `find` over doc/test/, so a catalogue that is not there
+  # is a catalogue that is not checked: deleting doc/test/system.md took
+  # 12 tests out of the rule with both this lint and the doc-counts drift
+  # gate green, and the clean line said nothing because it reported no
+  # denominator. TEST.md is that denominator -- it is regenerated from the
+  # spec tree and drift-gated, so it still names the document after the
+  # document is gone.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _index_set 'system.md' 12
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'system.md'
+}
+
+@test "_run_catalog_description: a catalogue the index does NOT name is a finding (#922)" {
+  # The other direction, which is how the first one would be worked
+  # around: delete the document and its index row together. The index and
+  # the directory have to agree both ways or neither statement means
+  # anything.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  {
+    printf '# Integration Tests\n\n'
+    printf '### test/bats/integration/gamma_spec.bats (1)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `gamma does a thing` | Why gamma matters |\n'
+  } > "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/integration.md"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'integration.md'
+}
+
+@test "_run_catalog_description: a catalogue must declare the tests the index credits it with (#922)" {
+  # Deleting a whole SECTION is the narrow version of deleting the file,
+  # and the same number catches it: the sections a document carries have
+  # to add up to what the index says the document holds.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _index_set 'unit.md' 13
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'unit.md'
+  assert_output --partial '13'
+}
+
+@test "_run_catalog_description: the clean line states the reach the index declares (#922)" {
+  # A reach figure the lint computes from what it happened to find is
+  # circular. This one is measured against a number nothing in this driver
+  # produces.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  _write_exempt 'test/bats/unit/beta_spec.bats|grouped by concern; 40 rows would be noise'
+  run _run_catalog_description
+  assert_success
+  assert_output --partial '41 test(s)'
+}
+
+@test "_run_catalog_description: DIES when the index declares no catalogue at all (#922)" {
+  # An empty index is a denominator of zero, and every one of the checks
+  # above passes vacuously against it.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  INDEX=()
+  _index_render
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'TEST.md'
+}
+
+@test "_run_catalog_description: DIES when the index file is missing (#922)" {
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  rm -f "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/TEST.md"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'TEST.md'
 }
 
 # ════════════════════════════════════════════════════════════════════
