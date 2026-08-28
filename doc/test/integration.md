@@ -225,7 +225,7 @@ resolved-compose -> bundle-files wiring as a flow.
 | `deploy flow: the resolved compose is self-contained and pins the versioned image (field-deploy)` | self-contained compose |
 | `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind (field-deploy)` | tunable delivery |
 | `deploy flow: the thin launcher drives docker load + compose up/down (field-deploy)` | launcher shape |
-| `deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)` | - |
+| `deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)` | - |
 | `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
 | `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
 
@@ -290,10 +290,11 @@ vacuity is why the same defect shipped twice.
 | `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (2)
+### test/bats/integration/prev_release_upgrade_spec.bats (3)
 
 | Test | Description |
 |------|-------------|
+| `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
 
@@ -306,3 +307,9 @@ vacuity is why the same defect shipped twice.
 | `just base init: the failed resync says it restored the files (#937)` | - |
 | `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
 | `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |
+
+### test/bats/integration/init_installed_paths_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `the printed manifest equals what the resync installs (refs #927)` | - |

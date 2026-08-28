@@ -271,11 +271,16 @@ _seed_entry() {
 }
 
 @test "just base update (downstream entry): exit 0 when update available (#175, #546, #652)" {
-  # Regressionthe upgrade-check recipe wraps upgrade.sh so the
+  # Regression: the upgrade-check recipe wraps upgrade.sh so the
   # runner does not mistake exit 1 (update available) for a build failure.
-  # Skips when `just` is not yet in the test-tools image (pre-release GHCR
-  # pull) -- the guard keeps the suite green until test-tools ships just.
-  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # `apk add ... just` line is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 
@@ -287,7 +292,14 @@ _seed_entry() {
 }
 
 @test "just base update (downstream entry): exit 0 when up-to-date (#546)" {
-  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # `apk add ... just` line is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 

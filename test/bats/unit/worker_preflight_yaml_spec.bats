@@ -19,49 +19,51 @@ RELEASE_WF="/source/.github/workflows/release-worker.yaml"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  [[ -f "${BUILD_WF}" ]] || skip "build-worker.yaml not at expected path"
-  [[ -f "${RELEASE_WF}" ]] || skip "release-worker.yaml not at expected path"
+  assert_spec_subject "${BUILD_WF}" \
+      "the reusable build worker this spec pins"
+  assert_spec_subject "${RELEASE_WF}" \
+      "the reusable release worker this spec pins"
 }
 
 # ── build-worker.yaml ─────────────────────────────────────────────────
 
 @test "build-worker.yaml: declares a preflight job (#800)" {
-  run grep -E '^  preflight:$' "${BUILD_WF}"
+  run code_grep -E '^  preflight:$' "${BUILD_WF}"
   assert_success
 }
 
 @test "build-worker.yaml: build job gates on preflight (#800)" {
   # The heavy build must not start unless preflight passed. Assert the
   # build job's needs: list includes preflight.
-  run grep -E '^    needs: \[.*preflight.*\]$' "${BUILD_WF}"
+  run code_grep -E '^    needs: \[.*preflight.*\]$' "${BUILD_WF}"
   assert_success
 }
 
 @test "build-worker.yaml: preflight fetches the validator at the worker's own ref (job_workflow_sha, no drift) (#800)" {
-  run grep -F 'ref: ${{ github.job_workflow_sha }}' "${BUILD_WF}"
+  run code_grep -F 'ref: ${{ github.job_workflow_sha }}' "${BUILD_WF}"
   assert_success
-  run grep -F 'repository: ycpss91255-docker/base' "${BUILD_WF}"
+  run code_grep -F 'repository: ycpss91255-docker/base' "${BUILD_WF}"
   assert_success
 }
 
 @test "build-worker.yaml: preflight runs preflight.sh with the build manifest (#800)" {
-  run grep -F 'script/ci/preflight.sh' "${BUILD_WF}"
+  run code_grep -F 'script/ci/preflight.sh' "${BUILD_WF}"
   assert_success
-  run grep -F 'script/ci/preflight/build.manifest' "${BUILD_WF}"
+  run code_grep -F 'script/ci/preflight/build.manifest' "${BUILD_WF}"
   assert_success
 }
 
 @test "build-worker.yaml: preflight exports image_name into the manifest env var (#800)" {
-  run grep -F 'PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}' "${BUILD_WF}"
+  run code_grep -F 'PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}' "${BUILD_WF}"
   assert_success
 }
 
 @test "build-worker.yaml: preflight probes GHCR login for the packages permission (#800)" {
   # A login probe feeds PREFLIGHT_PERM_PACKAGES; paves the way for the
   # registry-cache backend's packages: write.
-  run grep -F 'PREFLIGHT_PERM_PACKAGES:' "${BUILD_WF}"
+  run code_grep -F 'PREFLIGHT_PERM_PACKAGES:' "${BUILD_WF}"
   assert_success
-  run grep -F 'docker login ghcr.io' "${BUILD_WF}"
+  run code_grep -F 'docker login ghcr.io' "${BUILD_WF}"
   assert_success
 }
 
@@ -69,7 +71,7 @@ setup() {
   # The build manifest's packages: write requirement is conditional on
   # cache_backend == registry; the preflight must feed the real input into
   # the guard env var the manifest names.
-  run grep -F 'PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
+  run code_grep -F 'PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
   assert_success
 }
 
@@ -78,30 +80,30 @@ setup() {
   # proof of packages: write. The probe opens a GHCR blob upload against
   # the repo's buildcache namespace (202 == write granted) and only runs
   # the write check when cache_backend == registry.
-  run grep -F '/buildcache/blobs/uploads/' "${BUILD_WF}"
+  run code_grep -F '/buildcache/blobs/uploads/' "${BUILD_WF}"
   assert_success
-  run grep -F 'CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
+  run code_grep -F 'CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
   assert_success
 }
 
 # ── release-worker.yaml ───────────────────────────────────────────────
 
 @test "release-worker.yaml: declares a preflight job (#800)" {
-  run grep -E '^  preflight:$' "${RELEASE_WF}"
+  run code_grep -E '^  preflight:$' "${RELEASE_WF}"
   assert_success
 }
 
 @test "release-worker.yaml: release job gates on preflight (#800)" {
-  run grep -E '^    needs: \[.*preflight.*\]$' "${RELEASE_WF}"
+  run code_grep -E '^    needs: \[.*preflight.*\]$' "${RELEASE_WF}"
   assert_success
 }
 
 @test "release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)" {
-  run grep -F 'script/ci/preflight/release.manifest' "${RELEASE_WF}"
+  run code_grep -F 'script/ci/preflight/release.manifest' "${RELEASE_WF}"
   assert_success
 }
 
 @test "release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)" {
-  run grep -F 'PREFLIGHT_INPUT_ARCHIVE_NAME_PREFIX: ${{ inputs.archive_name_prefix }}' "${RELEASE_WF}"
+  run code_grep -F 'PREFLIGHT_INPUT_ARCHIVE_NAME_PREFIX: ${{ inputs.archive_name_prefix }}' "${RELEASE_WF}"
   assert_success
 }

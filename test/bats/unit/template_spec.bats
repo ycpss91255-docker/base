@@ -342,10 +342,23 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh refuses when the default container is already running" {
-  # The script should grep docker ps for an existing container with the
-  # default name and exit non-zero with a helpful message.
-  run grep -E 'already running|already exists' /source/dist/script/docker/wrapper/run.sh
+  # The refusal is the GUARD, not the wording. The old assertion greped
+  # the whole file for `already running|already exists`, which the i18n
+  # message table satisfies on its own -- deleting the entire
+  # `if [[ "${DETACH}" != true ... ]]` / _wrapper_container_running /
+  # `exit 1` block left this spec green.
+  #
+  # So: pin the enclosing condition, pin the running-container probe, and
+  # read the refusal out of the probe's OWN block -- a bare `exit 1`
+  # appears all over the file and proves nothing on its own.
+  run code_grep -F 'if [[ "${DETACH}" != true' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
+  run code_grep -A7 -F 'if _wrapper_container_running "${CONTAINER_NAME}"; then' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  assert_output --partial '_log_err run run_already_running'
+  assert_output --partial 'exit 1'
 }
 
 @test "base is single-instance: no --instance flag remains (#600)" {
@@ -502,6 +515,37 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)" {
+  # The runtime counterpart of this assertion
+  # (test/bats/integration/compose_host_identity_spec.bats, which drives
+  # `docker compose config` to observe how HOST_UID / HOST_GID resolve)
+  # can only SKIP when the plugin is absent, so losing the package from
+  # the image has to be caught statically here -- exactly as the
+  # shellcheck / hadolint COPYs are below. Without this, deleting
+  # docker-cli-compose from the apk line leaves that spec reporting a
+  # green run of three skipped tests.
+  #
+  # Scoped to the FINAL stage's apk line (the one that also installs
+  # bash), for the same reason the make guard below is: an earlier
+  # builder stage is discarded and installing it there would not put it
+  # in the image the suite runs in.
+  run grep -E 'apk add .*\bbash\b.*\bdocker-cli-compose\b' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools COPYs shellcheck + hadolint into the final image" {
+  # The runtime counterpart of this assertion (deploy_spec's generated
+  # launcher being ShellCheck-clean) can only skip when the binary is
+  # absent, so losing it from the image has to be caught statically here.
+  run grep -E '^COPY --from=lint-tools /usr/local/bin/shellcheck ' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+  run grep -E '^COPY --from=lint-tools /usr/local/bin/hadolint ' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools source-builds kcov in a builder stage (#686)" {
   # kcov is not packaged in any alpine repo, so it is compiled from source
   # in a discardable builder stage and COPY'd into the final image. This
@@ -593,33 +637,75 @@ EOF
   assert_success
 }
 
-@test "build.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/build.sh
+@test "build.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # The wrapper does not source _lib.sh itself. It searches the
+  # candidate paths for lib/bootstrap.sh and sources THAT; bootstrap.sh
+  # is what sources _lib.sh (pinned by its own spec below). Both
+  # assertions name an expansion no comment and no error string in this
+  # file carries -- greping the whole file for `source.*_lib.sh` matched
+  # only the header comment and the not-found message, so the specs
+  # stayed green with the dispatch deleted.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/build.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
-@test "run.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/run.sh
+@test "run.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "exec.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/exec.sh
+@test "exec.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/exec.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
-@test "stop.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/stop.sh
+@test "stop.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/stop.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/stop.sh
+  assert_success
+}
+
+@test "lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)" {
+  # The wrapper-side half of this claim lives in the four specs above,
+  # which pin the bootstrap dispatch. This is the other half, asserted
+  # against the file where it is true, and anchored to a leading
+  # `source` / `.` so the prose that names _lib.sh cannot satisfy it.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/lib/bootstrap.sh
   assert_success
 }
 
 @test "_lib.sh sources i18n.sh (delegates language detection)" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/lib/_lib.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/lib/_lib.sh
   assert_success
 }
 
 @test "setup.sh sources i18n.sh" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/wrapper/setup.sh
+  # Anchored for the same reason as the bootstrap specs above: the
+  # unanchored whole-file grep was also satisfied by the header comment
+  # ("so sibling sources (i18n.sh / _tui_conf.sh) are located in the"),
+  # so deleting the real source line left the spec green.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/wrapper/setup.sh
   assert_success
 }
 
@@ -702,7 +788,8 @@ _stage_lint_layout() {
   # location so downstream entrypoints can source it unconditionally
   # without $USER deref or path arithmetic.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
   assert_success
   # COPY must sit in devel stage (between `FROM ... AS devel` and the
@@ -725,7 +812,8 @@ _stage_lint_layout() {
   # documents it so downstream maintainers see the requirement at
   # the moment they uncomment the runtime block.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The example line must be commented (leading '# ') so it doesn't
   # accidentally activate in repos that haven't enabled the runtime
   # stage. Either inside the runtime-base/runtime block or the
@@ -761,7 +849,8 @@ _stage_lint_layout() {
   # alongside logging.sh (same devel-stage window) or the container tee
   # degrades to no rotation/prune.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
   assert_success
   local _devel_line _test_line _copy_line
@@ -779,7 +868,8 @@ _stage_lint_layout() {
   # in-image dir (devel stage, before devel-test) so the source line
   # resolves at build + run time.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
   assert_success
   local _devel_line _test_line _copy_line
@@ -793,7 +883,8 @@ _stage_lint_layout() {
 
 @test "Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
   assert_success
 }
@@ -844,7 +935,8 @@ _stage_lint_layout() {
   # a repo enabling host-side log tee there must COPY BOTH logging.sh and
   # its logrotate.sh sibling; the commented scaffold documents both.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
   assert_success
 }
@@ -1117,7 +1209,8 @@ EOF
   # via the TEST_TOOLS_IMAGE build-arg. If it reappears, CI will hit
   # the cross-step buildx image-store isolation again (v0.9.12 regression).
   local _yaml="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the reusable build worker this spec pins"
   run grep -c 'Build test-tools image' "${_yaml}"
   assert_output "0"
 }
@@ -1128,7 +1221,8 @@ EOF
   # template's pinned @tag, so downstream tag pushes tried to pull
   # `ghcr.io/.../test-tools:<downstream-tag>` and failed 404.
   local _yaml="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the reusable build worker this spec pins"
   run grep -F 'test_tools_version:' "${_yaml}"
   assert_success
   # Default must be `latest` so unpinned callers still work.
@@ -1144,14 +1238,16 @@ EOF
   # Regression guard: the legacy auto-parse step must not come back.
   # Comments referencing it are fine (they explain the deprecation).
   local _yaml="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the reusable build worker this spec pins"
   run grep -Fc 'Resolve template version for test-tools image' "${_yaml}"
   assert_output "0"
 }
 
 @test "build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs" {
   local _yaml="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the reusable build worker this spec pins"
   # the step was named "Build test stage"; renamed to
   # "Build devel-test stage" for symmetry with the new runtime-test
   # stage. The TEST_TOOLS_IMAGE plumbing didn't move.
@@ -1171,7 +1267,8 @@ EOF
 
 @test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # No bare, version-agnostic default: build.sh (local) and CI both pass
   # a version-scoped TEST_TOOLS_IMAGE explicitly, so an unset value fails
   # the build loudly instead of silently reusing a stale test-tools:local.
@@ -1183,14 +1280,16 @@ EOF
 
 @test "Dockerfile.example FROM \${TEST_TOOLS_IMAGE} AS test-tools-stage" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -F 'FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage' "${_df}"
   assert_success
 }
 
 @test "Dockerfile.example test stage copies from test-tools-stage, not test-tools:local" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # All ACTIVE COPY --from referring to the test-tools image must use
   # the named stage alias. Count only uncommented lines -- added a
   # commented-out runtime-test Bats COPY example (style (b)) which would
@@ -1208,7 +1307,8 @@ EOF
 
 @test "Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The generalized rule: runtime-test gains an opt-in Bats smoke
   # via the SAME COPY --from=test-tools-stage devel-test uses, staying
   # FROM runtime. The example must be commented (leading '# ') so it
@@ -1225,7 +1325,8 @@ EOF
 
 @test "Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The header must state the generalized rule and the anti-pattern.
   run grep -F 'Do NOT' "${_df}"
   assert_success
@@ -1243,7 +1344,8 @@ EOF
 
 @test "Dockerfile.example states the /opt-not-\$HOME baking convention (#799)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The convention has to be stated where a downstream author meets it --
   # the file they edit to bake a workspace -- not only in base's own docs.
   run grep -F 'bake self-built artifacts at an ABSOLUTE /opt/' "${_df}"
@@ -1269,7 +1371,8 @@ EOF
   # TEST_TOOLS_IMAGE just like devel-test (else FROM ${TEST_TOOLS_IMAGE}
   # falls back to test-tools:local and CI fails with pull-access-denied).
   local _wf="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${_wf}" ]] || skip "build-worker.yaml not present in /source"
+  assert_spec_subject "${_wf}" \
+      "the reusable build worker this spec pins"
   # Two forwards expected: devel-test and runtime-test build steps.
   run grep -cE '^            TEST_TOOLS_IMAGE=ghcr\.io/ycpss91255-docker/test-tools:\$\{\{ inputs\.test_tools_version \}\}$' "${_wf}"
   assert_output "2"
@@ -1314,7 +1417,8 @@ EOF
 
 @test "Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The runtime-test block is commented out (opt-in for repos with a
   # runtime stage). The RUN line in the comment must use bash -c so
   # downstream RUNTIME_SMOKE_CMD overrides can use bash semantics
@@ -1325,7 +1429,8 @@ EOF
 
 @test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Regression guard: bare form word-splits operators / nested quotes.
   run grep -E '^# RUN \$\{RUNTIME_SMOKE_CMD\}$' "${_df}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
@@ -1333,7 +1438,8 @@ EOF
 
 @test "Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Regression guard: sh -c (dash) cannot parse bash-syntax files in
   # `source` / `.` overrides. Blocks all ROS-style smoke commands.
   # See ycpss91255-docker/docker_harness#57 + for context.
@@ -1343,7 +1449,8 @@ EOF
 
 @test "Dockerfile.example runtime-test does NOT set USER root (DL3002 regression guard)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Hadolint DL3002 fires on `USER root` if it ends up the last USER
   # in the Dockerfile. runtime-test inherits non-root from runtime;
   # leave it that way. Downstream override via sudo if privileged
@@ -1373,7 +1480,8 @@ EOF
 
 @test "Dockerfile.example top stage-list documents builder stage (#239)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The top-of-file "Stages:" comment is the first thing a user
   # reading the template sees. builder must appear there or the
   # downstream pattern is invisible.
@@ -1383,7 +1491,8 @@ EOF
 
 @test "Dockerfile.example documents 3 builder/runtime split lessons (#239)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Three explicit lesson markers (text must persist verbatim in
   # the commented-out reference block so the lift from ros1_bridge#60
   # stays load-bearing).
@@ -1397,7 +1506,8 @@ EOF
 
 @test "Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The concrete commented-out skeleton downstream can uncomment.
   # All three lines must be commented (#-prefixed) so the example
   # doesn't try to build by default; downstream uncomments when
@@ -1427,7 +1537,8 @@ EOF
 
 @test "Dockerfile.example runtime documents 3-process-kinds env rationale (#657)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The rationale must explain why entrypoint (PID 1) and bashrc
   # (interactive) are complementary, both needed -- so a future edit
   # doesn't collapse the runtime gap into a wrong "fix the entrypoint".
@@ -1437,7 +1548,8 @@ EOF
 
 @test "Dockerfile.example runtime shows commented /etc/bash.bashrc source example (#657)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The example must be commented (leading '# ') so the minimal runtime
   # stays minimal by default -- it is an opt-in snippet, not a mandatory
   # layer. The ROS source line is the consumer's (base is ROS-agnostic).
@@ -1447,7 +1559,8 @@ EOF
 
 @test "Dockerfile.example runtime does NOT bake ROS env into ENV (#657 fragility guard)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Guard the rejected alternative: no ENV LD_LIBRARY_PATH / PYTHONPATH
   # baked for ROS (arch- and python-version-dependent -- fragile).
   run grep -E '^ENV (LD_LIBRARY_PATH|PYTHONPATH)=' "${_df}"
@@ -1472,7 +1585,8 @@ EOF
 
 @test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   run grep -E 'SETUP_DIR|python3-pip|pip/setup|pip install' "${_df}"
   assert_failure
 }
@@ -1491,7 +1605,8 @@ EOF
 
 @test "Dockerfile.example declares ENV TZ (matches downstream fleet, #210)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Forwards the build-time ARG TZ value into a runtime env. ENV without
   # an explicit value would inherit the ARG, which is what we want — the
   # exact spelling the test locks is `ENV TZ="${TZ}"` to mirror how the
@@ -1502,7 +1617,8 @@ EOF
 
 @test "Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Same value the 17 downstream Dockerfiles use; gettext fallback uses
   # $LANGUAGE in addition to $LANG so unset means the fallback chain
   # collapses to en_US only.
@@ -1516,14 +1632,16 @@ EOF
 
 @test "release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools" {
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the test-tools release workflow this spec pins"
   run grep -F 'ghcr.io/ycpss91255-docker/test-tools' "${_yaml}"
   assert_success
 }
 
 @test "release-test-tools.yaml declares packages:write permission" {
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the test-tools release workflow this spec pins"
   run grep -F 'packages: write' "${_yaml}"
   assert_success
 }
@@ -1535,7 +1653,8 @@ EOF
   # `platforms: linux/amd64,linux/arm64` string. Detailed structure is
   # covered by release_test_tools_yaml_spec.bats.
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the test-tools release workflow this spec pins"
   run grep -F 'ubuntu-latest' "${_yaml}"
   assert_success
   run grep -F 'ubuntu-24.04-arm' "${_yaml}"
@@ -1547,7 +1666,8 @@ EOF
   # path must be `dockerfile/...` (not `.base/dockerfile/...` which is the
   # downstream subtree path used by build-worker.yaml).
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
-  [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
+  assert_spec_subject "${_yaml}" \
+      "the test-tools release workflow this spec pins"
   run grep -E '^\s*file: dockerfile/Dockerfile\.test-tools$' "${_yaml}"
   assert_success
   # And must NOT have the subtree-prefixed path:
@@ -1569,7 +1689,8 @@ EOF
   # artifact could creep back in; the same guard applies to the per-host
   # .setup.conf.
   local _manifest="/source/script/ci/release/archive.manifest"
-  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  assert_spec_subject "${_manifest}" \
+      "the release-archive payload manifest this spec pins"
   run grep -E '^(required|optional)\|[^|]*\|[^|]*(compose\.yaml|\.setup\.conf)' \
     "${_manifest}"
   assert_failure
@@ -1603,7 +1724,8 @@ _manifest_declares() {
   # `script/` (symlinks into .base/), not as root-level operands, so this
   # asserts `script/` rather than the removed root `build.sh`.
   local _manifest="/source/script/ci/release/archive.manifest"
-  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  assert_spec_subject "${_manifest}" \
+      "the release-archive payload manifest this spec pins"
   local _path
   for _path in 'Dockerfile' 'script/' '.base/'; do
     run _manifest_declares "${_manifest}" "${_path}"
@@ -1620,7 +1742,8 @@ _manifest_declares() {
   # keep answering "declared" for an entry that has been deleted -- satisfied
   # by another entry's description rather than by the payload it names.
   local _manifest="/source/script/ci/release/archive.manifest"
-  [[ -f "${_manifest}" ]] || skip "archive.manifest not present in /source"
+  assert_spec_subject "${_manifest}" \
+      "the release-archive payload manifest this spec pins"
   local _tmp
   _tmp="$(mktemp -d)"
   grep -v '^required|base-subtree|' "${_manifest}" > "${_tmp}/pruned.manifest"
@@ -1716,11 +1839,19 @@ _manifest_declares() {
 
 @test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
   # Regression guard for Q13: dry-run contract requires no side effects.
-  run grep -E 'DRY_RUN.*true' /source/dist/script/docker/lib/hook.sh
+  #
+  # Over the code lines, and against the guard itself rather than the two
+  # words near each other. hook.sh's header lists `DRY_RUN=true -> both pre
+  # and post silently skipped` as part of its contract, so deleting the
+  # actual early return left the whole-file regex matching that sentence
+  # and this guard green. Both helpers route through __hook_run, so the one
+  # early return is the whole property.
+  run code_grep -F '[[ "${DRY_RUN:-false}" == "true" ]]' \
+    /source/dist/script/docker/lib/hook.sh
   assert_success
 }
 
 @test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
-  run grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
+  run code_grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
   assert_success
 }

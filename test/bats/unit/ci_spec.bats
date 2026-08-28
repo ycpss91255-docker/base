@@ -317,10 +317,13 @@ teardown() {
 # --coverage-shard: sharded kcov matrix (ADR-00000008, weight-balanced)
 #
 # Coverage is the primary unit gate. _shard_unit_files is the partition
-# primitive: greedy weight-balanced bin-packing by per-spec @test count
-# (heaviest-first into the lightest shard) so the slowest shard's load
-# approaches total/N. _run_coverage <n>/<total> kcov's that slice (+
-# integration on the last shard). main --coverage-shard plumbs
+# primitive: greedy weight-balanced bin-packing by per-spec _spec_weight
+# (recorded runtime in seconds, or the @test-count fallback -- heaviest
+# first into the lightest shard) so the slowest shard's load approaches
+# max(heaviest spec, total/N), the floor no partition beats. Unit and
+# integration specs are ONE pool -- integration is NOT appended whole to the
+# last shard, a rule since superseded -- so _run_coverage <n>/<total> kcov's
+# exactly the slice it is handed. main --coverage-shard plumbs
 # COVERAGE_SHARD into the coverage service.
 # ════════════════════════════════════════════════════════════════════
 
@@ -357,33 +360,370 @@ teardown() {
   assert_output --partial "OK"
 }
 
-@test "_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)" {
+# _balance_rule
+#   Echo the shell program that DEFINES the balance rule -- the bound a
+#   partition is judged against, and the verdict on a given makespan --
+#   and measures nothing. Every case below runs this one copy -- the live
+#   probe, the fixture-driven partitions, and the replay of the coverage
+#   loads recorded on base#936 -- so none of them restates the rule the
+#   others apply.
+_balance_rule() {
+  cat <<'RULE'
+# _balance_lb <total_weight> <shards> <heaviest_weight>
+#   The floor no partition finishes below, greedy or optimal: a spec cannot
+#   be split across shards, so the makespan is at least the heaviest single
+#   spec, and at least the perfectly even split. Judging against a flat
+#   multiple of the AVERAGE alone would indict the partitioner the moment
+#   one spec runs longer than that -- a property of the input, not of the
+#   algorithm.
+_balance_lb() {
+  local _total="${1}" _n="${2}" _heaviest="${3}"
+  # Ceil, not truncation: a truncated average understates the bound.
+  local _avg=$(( (_total + _n - 1) / _n ))
+  if (( _heaviest > _avg )); then
+    printf '%s\n' "${_heaviest}"
+  else
+    printf '%s\n' "${_avg}"
+  fi
+}
+
+# _balance_verdict <lower_bound> <max_shard_load>
+#   BALANCED while the heaviest shard stays within 1.5x the bound. 1.5x is
+#   a QUALITY POLICY, deliberately TIGHTER than anything greedy LPT can be
+#   proven to deliver against this bound: the tight worst case is 2N/(N+1)
+#   -- 1.6x at four shards, 1.78x at eight -- attained by N+1 equally
+#   dominating specs, which no partition can beat either. Widening the
+#   ceiling to that guarantee would make the rule unfalsifiable by
+#   construction. It is held FLAT across N on purpose: it judges the
+#   partitions this repo actually presents, not the algorithm's proof, and
+#   a ceiling that grows with N would license the eight-way matrix to be
+#   the sloppiest one.
+_balance_verdict() {
+  local _lb="${1}" _max="${2}"
+  if (( _max * 2 > _lb * 3 )); then
+    printf 'IMBALANCED\n'
+  else
+    printf 'BALANCED\n'
+  fi
+}
+RULE
+}
+
+# _weights_fixture_prelude
+#   Echo the shell program that writes a synthesised SHARD_WEIGHTS_FILE over
+#   the REAL spec pool, so a deliberately skewed runtime distribution can be
+#   driven through the partitioner on a bare checkout -- where no weights
+#   file exists and every weight would otherwise collapse onto the `@test`
+#   fallback. FIXTURE_HEAVY specs carry FIXTURE_WEIGHT seconds and every
+#   other spec carries 1; FIXTURE_ORDER picks the heavy set by `@test` count
+#   (`n` = the fewest, `nr` = the most).
+_weights_fixture_prelude() {
+  cat <<'FIXTURE'
+_wf="${BATS_TEST_TMPDIR}/shard-weights"
+shopt -s globstar
+_lines=""
+for _f in /source/test/bats/unit/**/*_spec.bats \
+          /source/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) $(basename -- "${_f}")"$'\n'
+done
+# _spec_weight keys on the BASENAME, so a basename carried by two specs
+# cannot be given a runtime of its own -- draw the heavy set from the
+# basenames that occur exactly once.
+_heavy="$(printf '%s' "${_lines}" \
+  | awk '{ n[$2]++; c[$2] = $1 } END { for (b in n) if (n[b] == 1) print c[b], b }' \
+  | sort -k1,1"${FIXTURE_ORDER}" -k2,2 \
+  | awk -v k="${FIXTURE_HEAVY}" 'NR <= k { print $2 }')"
+# Heavy lines first: _spec_weight takes the FIRST match for a basename.
+{
+  printf '%s\n' "${_heavy}" | sed "s/^/${FIXTURE_WEIGHT} /"
+  printf '%s' "${_lines}" | awk '{ print 1, $2 }'
+} > "${_wf}"
+export SHARD_WEIGHTS_FILE="${_wf}"
+FIXTURE
+}
+
+# _shard_balance_probe
+#   Echo the shell program that measures how evenly _shard_unit_files
+#   spreads the spec pool over PROBE_SHARDS shards, and exits non-zero when
+#   the heaviest shard breaks the bound. Every shard is reported on BOTH
+#   axes -- the partition weight (summed through _spec_weight, the same
+#   function the partitioner sorts by, so it follows whichever weight source
+#   is in force) and the `@test` count -- so a divergence between the two is
+#   visible in the log. Any SHARD_WEIGHTS_FILE the caller set is picked up by
+#   _spec_weight, which drives the partition and the measurement together.
+_shard_balance_probe() {
+  _balance_rule
+  cat <<'PROBE'
+source /source/script/test/test.sh
+shopt -s globstar
+declare -A _weight=() _count=()
+_wtotal=0
+_ctotal=0
+_heaviest=0
+for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
+          "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _c="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
+  _weight["${_f}"]="${_w:-0}"
+  _count["${_f}"]="${_c:-0}"
+  _wtotal=$(( _wtotal + ${_w:-0} ))
+  _ctotal=$(( _ctotal + ${_c:-0} ))
+  if (( ${_w:-0} > _heaviest )); then _heaviest="${_w:-0}"; fi
+done
+_n="${PROBE_SHARDS:?BUG: _shard_balance_probe expects PROBE_SHARDS}"
+_wavg=$(( (_wtotal + _n - 1) / _n ))
+_cavg=$(( (_ctotal + _n - 1) / _n ))
+_wmax=0
+_cmax=0
+for (( _s = 1; _s <= _n; _s++ )); do
+  _wload=0
+  _cload=0
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _wload=$(( _wload + ${_weight["${_f}"]:-0} ))
+    _cload=$(( _cload + ${_count["${_f}"]:-0} ))
+  done < <(_shard_unit_files "${_s}/${_n}")
+  printf 'shard %d/%d weight=%d tests=%d\n' "${_s}" "${_n}" "${_wload}" "${_cload}"
+  if (( _wload > _wmax )); then _wmax="${_wload}"; fi
+  if (( _cload > _cmax )); then _cmax="${_cload}"; fi
+done
+_lb="$(_balance_lb "${_wtotal}" "${_n}" "${_heaviest}")"
+_wverdict="$(_balance_verdict "${_lb}" "${_wmax}")"
+# The count axis is diagnostic, so it is judged against its average alone
+# and reported in its own vocabulary -- EVEN / LOPSIDED never reads as the
+# gating verdict.
+_cverdict=EVEN
+if [[ "$(_balance_verdict "${_cavg}" "${_cmax}")" != BALANCED ]]; then
+  _cverdict=LOPSIDED
+fi
+printf 'weight avg=%d heaviest=%d lb=%d max=%d verdict=%s\n' \
+  "${_wavg}" "${_heaviest}" "${_lb}" "${_wmax}" "${_wverdict}"
+printf 'count avg=%d max=%d verdict=%s\n' "${_cavg}" "${_cmax}" "${_cverdict}"
+# The weight axis gates; the count axis is reported for contrast only.
+[[ "${_wverdict}" == BALANCED ]] || exit 1
+PROBE
+}
+
+# _pool_denominator_audit
+#   Echo the shell program that asks the live probe WHICH POOL its total
+#   was summed over -- the defect behind the coverage-shard failure this
+#   guard was written for was a total taken over `test/bats/unit/` alone
+#   while the loads were summed over the pool `_shard_unit_files` actually
+#   partitions, which inflated max/avg and condemned a healthy partition.
+#   The caller must have defined `_probe` as a SUBSHELL wrapper around
+#   _shard_balance_probe: the audit reads the `weight avg=` the probe
+#   printed and matches it against the two candidate denominators computed
+#   here independently, through the same _spec_weight the probe uses, so
+#   it follows whichever weight source is in force. Wrapping in a subshell
+#   keeps the probe's own BALANCED/IMBALANCED gate from ending this
+#   program -- the denominator is a separate question from the verdict.
+_pool_denominator_audit() {
+  cat <<'AUDIT'
+_n="${PROBE_SHARDS:?BUG: _pool_denominator_audit expects PROBE_SHARDS}"
+# The probe runs FIRST, and this program sources test.sh only afterwards:
+# test.sh marks SCRIPT_DIR readonly, so a shell that has already sourced it
+# kills the second source -- including the one inside the probe subshell,
+# which would leave the probe silent and this audit reporting `neither`.
+_out="$(_probe)" || true
+printf '%s\n' "${_out}"
+source /source/script/test/test.sh
+shopt -s globstar
+_avg="$(printf '%s\n' "${_out}" | sed -n 's/^weight avg=\([0-9][0-9]*\) .*/\1/p')"
+_unit=0
+for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _unit=$(( _unit + ${_w:-0} ))
+done
+_pool="${_unit}"
+for _f in "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
+  [[ -e "${_f}" ]] || continue
+  _w="$(_spec_weight "${_f}")"
+  _pool=$(( _pool + ${_w:-0} ))
+done
+# Compared as AVERAGES because that is what the probe prints; ceil'd the
+# same way, so the comparison is exact rather than a tolerance.
+_pavg=$(( (_pool + _n - 1) / _n ))
+_uavg=$(( (_unit + _n - 1) / _n ))
+if (( _pavg == _uavg )); then
+  # No integration weight to be short BY -- the audit cannot tell the two
+  # denominators apart, so it must not report a pass.
+  _dv=indistinguishable
+elif [[ "${_avg}" == "${_pavg}" ]]; then
+  _dv=pool
+elif [[ "${_avg}" == "${_uavg}" ]]; then
+  _dv=unit-only
+else
+  _dv=neither
+fi
+printf 'denominator=%s probe-avg=%s pool-avg=%d unit-only-avg=%d\n' \
+  "${_dv}" "${_avg:-none}" "${_pavg}" "${_uavg}"
+AUDIT
+}
+
+@test "_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)" {
   # The round-robin floor dumped the heaviest specs into one shard (~2x the
-  # others). The greedy bin-packing must keep every shard's @test load
-  # within a sane factor of the average (total/4); assert the heaviest
-  # shard is at most ~1.5x the average so a single big spec can't pin it.
-  run bash -c '
-    source /source/script/test/test.sh
-    total=$(grep -rhcE "^@test" "${REPO_ROOT}"/test/bats/unit/ | paste -sd+ | bc)
-    avg=$(( total / 4 ))
-    max=0
-    for s in 1 2 3 4; do
-      load=0
-      while IFS= read -r f; do
-        [[ -n "${f}" ]] || continue
-        c=$(grep -cE "^@test" "${f}")
-        load=$(( load + c ))
-      done < <(_shard_unit_files "${s}/4")
-      echo "shard ${s}/4 load=${load}"
-      (( load > max )) && max=${load}
-    done
-    echo "avg=${avg} max=${max}"
-    # heaviest shard must be < 1.5 * avg (round-robin floor was ~2x)
-    (( max * 2 < avg * 3 )) || { echo "IMBALANCED"; exit 1; }
-    echo BALANCED
+  # others). Greedy LPT must hold every shard within 1.5x of the bound NO
+  # partition can beat -- max(heaviest spec, total/N) -- measured on whatever
+  # weight source is in force: recorded seconds where CI restored a weights
+  # file, the `@test` fallback on a bare checkout. Either way it is the axis
+  # the partitioner itself sorted by.
+  #
+  # EIGHT shards, not four. The coverage matrix takes its total from the
+  # `CI_SHARDS` repo variable (default 8, clamped to [1,12]), so four was a
+  # partition CI never executes. That variable is a GitHub setting this
+  # container cannot read, so the case pins the DEFAULT rather than
+  # pretending to track it; the totals either side of the default are
+  # covered by the fixture cases below, which can discriminate between them.
+  #
+  # What it measures depends on WHERE it runs, and the two are different
+  # gates:
+  #
+  #   - Bare checkout / local `just test` (and a CI weights-cache MISS):
+  #     no `test/bats/.shard-weights` exists, so every spec collapses onto
+  #     its `@test` count. The heaviest spec is a fraction of total/8, the
+  #     partition lands at ratio ~1.00, and no spec set this repo can
+  #     present locally turns it red. Here it proves only that the probe
+  #     runs against the real pool and that the pool is not pathological.
+  #   - The coverage matrix: the workflow restores the cached weights file
+  #     into the repo the container mounts BEFORE the shard runs, so
+  #     `_spec_weight` returns recorded kcov seconds and this case gates
+  #     the REAL timing distribution. It can go red there, and that is the
+  #     point -- a red verdict means the timings skewed past the bound (or
+  #     the partitioner regressed), not that the harness is broken. Read
+  #     the per-shard `weight=` lines in the log to see which.
+  #
+  # So the fixture-driven cases below are not the only ones that CAN fail;
+  # they are the ones that fail DETERMINISTICALLY, by synthesising the
+  # distribution instead of reading whichever one is in force.
+  run bash -c "PROBE_SHARDS=8
+$(_shard_balance_probe)"
+  assert_success
+  assert_output --partial "verdict=BALANCED"
+}
+
+@test "_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)" {
+  # The wrong-axis mismatch, isolated. This shape has never turned a CI run
+  # red -- the run that prompted this work failed on a short denominator,
+  # not on the axis (see the pool case below) -- but the mismatch is real
+  # and latent, so it gets a fixture that exhibits it on demand rather than
+  # waiting for a distribution that does.
+  #
+  # A spec with FEW tests but a dominating runtime: greedy LPT isolates it
+  # on its own shard, which is exactly right by seconds and looks
+  # catastrophic by `@test` count, since the other shard then carries every
+  # remaining spec. The weight axis must call this BALANCED while the count
+  # axis calls it LOPSIDED; asserting both pins the guard to the axis the
+  # partitioner optimises. Two shards make the count skew maximal.
+  run bash -c "FIXTURE_HEAVY=1 FIXTURE_ORDER=n FIXTURE_WEIGHT=100000 PROBE_SHARDS=2
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_success
+  assert_output --partial "verdict=BALANCED"
+  assert_output --partial "verdict=LOPSIDED"
+}
+
+@test "_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)" {
+  # The inverse, and the proof the guard is not vacuous, driven at the eight
+  # shards CI runs: N+1 specs of equal dominating runtime over N shards
+  # forces one shard to carry two of them, so the best achievable makespan
+  # is 2w against a bound of (N+1)w/N -- 1.78x at N=8, past the 1.5x ceiling
+  # for ANY partition, greedy or optimal. The heavy set is drawn from the
+  # specs with the MOST tests, which leaves the residual `@test`
+  # distribution even: a count-axis guard would pass this partition, so the
+  # fixture discriminates the two axes rather than tripping whichever one is
+  # in force.
+  run bash -c "FIXTURE_HEAVY=9 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=8
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_failure
+  assert_output --partial "verdict=IMBALANCED"
+}
+
+@test "_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)" {
+  # Why the probe's shard total is load-bearing, shown on the SAME
+  # distribution the case above condemns. Nine equally dominating specs over
+  # four shards pack 3+2+2+2: a makespan of 3w against a bound of 9w/4, ratio
+  # 1.33, comfortably inside the ceiling. Over eight they pack 2 and seven
+  # 1s: 2w against 9w/8, ratio 1.78. So a distribution that genuinely breaks
+  # the matrix CI executes reads as healthy at a total CI never selects --
+  # which is what the guard asserted before, and the reason the live probe
+  # above moved to eight.
+  run bash -c "FIXTURE_HEAVY=9 FIXTURE_ORDER=nr FIXTURE_WEIGHT=10000 PROBE_SHARDS=4
+$(_weights_fixture_prelude)
+$(_shard_balance_probe)"
+  assert_success
+  assert_output --partial "verdict=BALANCED"
+}
+
+@test "_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)" {
+  # The regression guard proper, aimed at the LIVE probe rather than at a
+  # replay of constants: the coverage-shard failure this work came from was
+  # a total summed over `test/bats/unit/` while the per-shard loads were
+  # summed over the pool the partitioner walks, so the average was short by
+  # every integration spec and a healthy partition read as IMBALANCED.
+  #
+  # Reintroduce that short total in the probe -- restrict its total loop to
+  # unit specs -- and this case goes red on `denominator=unit-only`, at the
+  # eight shards CI runs. It asserts the identity of the denominator, not
+  # its value, so it stands under either weight source: `@test` counts on a
+  # bare checkout, recorded seconds under the coverage matrix.
+  #
+  # The probe's verdict is deliberately NOT asserted here. The balance
+  # gate is the live-probe case above; wrapping the probe in a subshell
+  # keeps a skewed timing distribution from also turning this case red and
+  # sending the reader after the wrong cause.
+  run bash -c "PROBE_SHARDS=8
+_probe() (
+$(_shard_balance_probe)
+)
+$(_pool_denominator_audit)"
+  assert_success
+  assert_line --partial "denominator=pool"
+}
+
+@test "_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)" {
+  # The arithmetic of the rule, replayed on the numbers the failing run
+  # recorded. This case pins `_balance_lb`'s ceil and `_balance_verdict`'s
+  # 1.5x against real loads; the case ABOVE pins the probe's denominator.
+  # Neither substitutes for the other -- constants cannot detect a probe
+  # that walks the wrong pool, and the denominator audit says nothing
+  # about where the ceiling sits.
+  #
+  # The defect was the DENOMINATOR, not the axis. base#936's
+  # `coverage (6/8)` reported shard loads of
+  # 576 / 699 / 688 / 1134 against "avg=737", and all five of those numbers
+  # are `@test` COUNTS: the old assertion measured every load with
+  # `grep -cE "^@test"`, and the arithmetic pins the rest. The loads sum to
+  # 3097, which is that tree's unit pool (2949) PLUS its integration pool
+  # (148); avg=737 is 2949/4 truncated. So the loads were summed over the
+  # pool _shard_unit_files partitions while the total was summed over
+  # `test/bats/unit/` alone -- the denominator was short by every
+  # integration spec, which inflated max/avg and condemned a partition that
+  # was fine.
+  #
+  # Scope the total to the same pool and the IDENTICAL numbers pass, on the
+  # count axis they were always on: lb = ceil(3097/4) = 775, and 1134 is
+  # 1.46x of it. The heaviest spec on that tree was template_spec.bats at
+  # 155, far under the average, so it does not move the bound. Both totals
+  # go through the same rule the live probe runs, never a second copy.
+  #
+  # The wrong-axis mismatch the fixture cases above cover is real, latent,
+  # and worth having fixed -- but it is NOT what turned this run red, and
+  # nothing asserted here rests on it.
+  run bash -c "$(_balance_rule)"'
+    _short=$(_balance_lb 2949 4 155)
+    _pool=$(_balance_lb 3097 4 155)
+    printf "short lb=%s verdict=%s\n" \
+      "${_short}" "$(_balance_verdict "${_short}" 1134)"
+    printf "pool lb=%s verdict=%s\n" \
+      "${_pool}" "$(_balance_verdict "${_pool}" 1134)"
   '
   assert_success
-  assert_output --partial "BALANCED"
+  assert_line "short lb=738 verdict=IMBALANCED"
+  assert_line "pool lb=775 verdict=BALANCED"
 }
 
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
@@ -1432,6 +1772,23 @@ SH
   refute_output --partial "docker should not be called"
 }
 
+@test "main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)" {
+  # Same CI-reachability shape as the sibling primitives: the lint-static
+  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
+  # must be pure bash over the checkout and never touch docker.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --action-ref-agreement-only
+  '
+  assert_success
+  assert_output --partial "action ref agreement lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)" {
   # The clearest case for an ungated CI job: a README.md edit that leaves a
   # translation behind is a doc-only change end to end.
@@ -1469,6 +1826,7 @@ SH
   assert_line "doc-counts"
   assert_line "home-literal"
   assert_line "changelog-entry"
+  assert_line "action-ref-agreement"
 }
 
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {

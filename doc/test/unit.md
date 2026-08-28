@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2956 tests**.
+Unit specs under `test/bats/unit/`: **3052 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -265,7 +265,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (114)
+#### test/bats/unit/setup_spec.bats (117)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -318,13 +318,13 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (4)
+#### test/bats/unit/env_emit_spec.bats (26)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (123)
+#### test/bats/unit/setup_cmd_spec.bats (120)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -551,7 +551,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (104)
+### test/bats/unit/self_test_yaml_spec.bats (106)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -731,11 +731,17 @@ thirteen cumulative invariants:
     from `dockerfile/Dockerfile.test-tools`. This makes the Obtain path
     self-correcting against a stale / old / racing `:main` regardless of
     cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3
-    (pull failed -> build) intact. Applied to all five `build_local`-pattern
+    (pull failed -> build) intact. Applied to the five `build_local`-pattern
     obtain steps (`hadolint`, `bats-fragile`, `bats-integration`,
     `coverage`, `system`) since they pull the same tag and race
-    identically; `bats-fragile` + `coverage` (the kcov-racing shards) are
-    asserted per-job, plus a count assertion that all five carry the guard.
+    identically, and asserted per job. The sixth `:main`-pulling step,
+    `acceptance`, carries no probe and needs none: `REQUIRED_TOOLS` is about
+    the tools a job EXECUTES, and acceptance runs none of them -- it
+    consumes the image only as the `FROM` base of the scaffolded consumer's
+    test stage. The guard used to be a `grep -c 'REQUIRED_TOOLS=' == 5` over
+    the whole workflow under the name "every `:main`-pulling Obtain step",
+    which named an invariant that did not hold (there are six such steps)
+    and was satisfied by any five occurrences wherever they sat.
 
 13. **#677 CI double-run restructure (coverage = primary unit gate,
     weight-balanced shards, single `bats-fragile` job)** — after #686
@@ -966,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (60)
+### test/bats/unit/dockerfile_migrate_spec.bats (53)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -994,13 +1000,6 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
 | `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
-| `migration 2 (pip-helper): keeps a pip line whose requirements file carries real requirements (#956)` | The precondition is read from the sibling config/pip/requirements.txt, not assumed |
-| `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | The shipped placeholder is provably inert, so the delete still happens |
-| `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | A line delete there would dangle the previous line's backslash |
-| `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | A line delete there would orphan the tail as a bare non-instruction line |
-| `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
-| `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
-| `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
 | `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |
@@ -1157,7 +1156,7 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (60)
+### test/bats/unit/exec_sh_spec.bats (58)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -1431,7 +1430,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (29)
+### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1446,7 +1445,8 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: all empty emits nothing` | caps off |
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
-| `_emit_env_file_block: emits the .env workload overlay block` | #502 env_file |
+| `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
+| `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
 | `_emit_build_network_line: empty omits; set emits network line` | build.network |
 | `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
@@ -1471,7 +1471,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (87)
+### test/bats/unit/compose_emit/gen_spec.bats (81)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1510,12 +1510,6 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
-| `generate_compose_yaml emits environment block from env_ list` | - |
-| `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
-| `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
-| `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
-| `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
-| `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
@@ -1591,7 +1585,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (52)
+### test/bats/unit/deploy_spec.bats (53)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1631,9 +1625,10 @@ refused before any build or bundle step.
 | `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)` | follow-stage GUI |
 | `_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)` | per-stage override |
 | `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)` | ipc/shm literals |
-| `_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)` | - |
+| `_generate_resolved_compose: the watchdog env leaves environment: for the bundle .env (#868)` | - |
+| `_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)` | - |
 | `_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)` | - |
-| `_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)` | - |
+| `_generate_resolved_compose: gui X11 still owns the environment: block (#840)` | - |
 | `_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)` | - |
 | `_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)` | - |
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
@@ -1830,7 +1825,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (155)
+### test/bats/unit/template_spec.bats (158)
 
 | Test | Description |
 |------|-------------|
@@ -1897,6 +1892,8 @@ builds the env block only for the knobs the conf sets.
 | `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
+| `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
+| `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
 | `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
 | `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
@@ -1907,10 +1904,11 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.test-tools branches case for amd64 and arm64` | - |
 | `Dockerfile.test-tools fails loud on unsupported TARGETARCH` | - |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
-| `build.sh sources _lib.sh` | build.sh uses shared lib |
-| `run.sh sources _lib.sh` | run.sh uses shared lib |
-| `exec.sh sources _lib.sh` | exec.sh uses shared lib |
-| `stop.sh sources _lib.sh` | stop.sh uses shared lib |
+| `build.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `run.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `exec.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `stop.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)` | the _lib.sh claim asserted where it is true |
 | `_lib.sh sources i18n.sh (delegates language detection)` | _lib delegates i18n |
 | `setup.sh sources i18n.sh` | setup.sh uses shared i18n |
 | `build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)` | - |
@@ -2010,7 +2008,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (108)
+### test/bats/unit/ci_spec.bats (114)
 
 | Test | Description |
 |------|-------------|
@@ -2029,7 +2027,12 @@ builds the env block only for the knobs the conf sets.
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 | `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
 | `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)` | #615 partition invariant (each slice runs once) |
-| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
+| `_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)` | #677 live-tree probe through `_spec_weight`, at the eight shards CI runs |
+| `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
+| `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over eight shards must FAIL the guard |
+| `_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)` | #940 the probe's shard total is load-bearing: N=4 passes what N=8 catches |
+| `_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)` | #936 regression guard: a probe totalling `test/bats/unit/` alone is caught on the live tree |
+| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 arithmetic: the recorded loads clear the ceil'd bound once the total is pooled |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
@@ -2084,6 +2087,7 @@ builds the env block only for the knobs the conf sets.
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
 | `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | - |
+| `main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)` | The CI join is host-direct, like its siblings |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -2627,7 +2631,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)` | - |
+| `_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)` | - |
 | `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
 | `no entry is both canonical and retired (#893)` | - |
 | `_retired_gitignore_entries: retires nothing today (#893)` | - |
@@ -3018,21 +3022,22 @@ vice versa). Pure git + filesystem, no docker.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/env_generated_claim_spec.bats (11)
+### test/bats/unit/env_generated_claim_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
-| `just docker help: en setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-TW setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-CN setup summary names .env.generated (#879)` | - |
-| `just docker help: ja setup summary names .env.generated (#879)` | - |
-| `justfile.docker: the setup doc comment names .env.generated (#879)` | - |
-| `setup.sh --help: usage names .env.generated (#879)` | - |
-| `setup.sh set: the next hint names .env.generated (#879)` | - |
-| `setup.sh add: the next hint names .env.generated (#879)` | - |
-| `setup.sh remove: the next hint names .env.generated (#879)` | - |
-| `setup.sh env done message names .env.generated in all four locales (#879)` | - |
-| `no shipped surface claims setup regenerates a bare .env (#879)` | - |
+| `just docker help: en setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-TW setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-CN setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: ja setup summary names .env + .env.generated (#868)` | - |
+| `justfile.docker: the setup doc comment names .env + .env.generated (#868)` | - |
+| `setup.sh --help: usage names .env + .env.generated (#868)` | - |
+| `setup.sh set: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh add: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh remove: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh env done message names .env.generated in all four locales (#868)` | - |
+| `no shipped surface calls a bare .env hand-authored or a workload overlay (#868)` | - |
+| `the shipped surfaces name .env.local as the override channel (#868)` | - |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
@@ -3335,6 +3340,40 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/init_installed_paths_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-installed-paths prints a non-empty manifest and exits 0` | - |
+| `init.sh --list-installed-paths lists the base version monitor workflow` | - |
+| `init.sh --list-installed-paths lists the wrapper symlinks and hook stubs` | - |
+| `init.sh --list-installed-paths emits repo-relative paths only` | - |
+| `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
+| `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
+### test/bats/unit/arch_literal_lint_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_run_arch_literal: FAILS on a bare Docker architecture literal, naming file and line (#939)` | - |
+| `_run_arch_literal: FAILS on the uname spelling of the same assumption (#939)` | - |
+| `_run_arch_literal: FAILS on a mixed-case release-asset spelling (#939)` | - |
+| `_run_arch_literal: FAILS on a platform pair literal (#939)` | - |
+| `_run_arch_literal: FAILS on a literal inside a comment too (#939)` | - |
+| `_run_arch_literal: names the offending literal and points at TARGETARCH (#939)` | - |
+| `_run_arch_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#939)` | - |
+| `_run_arch_literal: FAILS on an unterminated allow-begin region (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-end with no matching allow-begin (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-begin carrying no stated reason (#939)` | - |
+| `_run_arch_literal: FAILS on a per-line allow carrying no stated reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that expresses architecture via TARGETARCH (#939)` | - |
+| `_run_arch_literal: PASSES a two-spelling mapping table inside an allow region (#939)` | - |
+| `_run_arch_literal: PASSES a single line carrying a per-line allow with a reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that names no architecture at all (#939)` | - |
+| `_run_arch_literal: ignores non-Dockerfile files under the scan roots (#939)` | - |
+| `_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
+| `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 ### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides
@@ -3363,3 +3402,95 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
+
+| Test | Description |
+|------|-------------|
+| `workflows: every action is used at exactly one ref (#949)` | The real tree, read independently of the lint |
+| `_run_action_ref_agreement: FAILS when two workflows disagree on an action's ref (#949)` | The v6/v7 split, as a fixture |
+| `_run_action_ref_agreement: names the action, both refs and every call site (#949)` | A finding you can act on without grepping |
+| `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
+| `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
+| `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
+| `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
+| `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
+| `_run_action_ref_agreement: an allow marker with NO reason is itself a failure (#949)` | A bare mute rebuilds the hazard inside the repo |
+| `_run_action_ref_agreement: an allow marker two comment lines above still applies (#949)` | The whole comment block carries the exception |
+| `_run_action_ref_agreement: an allow marker does NOT leak to the next call site (#949)` | One recorded divergence licenses no others |
+| `_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)` | Nothing scanned is an error, not a pass |
+| `_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)` | Same, one level in |
+| `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
+| `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
+| `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
+| `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
+| `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
+### test/bats/unit/code_lines_spec.bats (22)
+
+The comment-stripped file views in `test/bats/unit/test_helper.bash`
+(`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
+template structural specs assert against instead of the raw file.
+
+They exist because a spec that greps a WHOLE file lets a string appearing
+only in a COMMENT satisfy an assertion about CODE, and this repo's comments
+name in prose exactly what its specs pin. Measured, not theorised: deleting
+both real `_transcript_begin` / `_transcript_detach` calls from
+`setup_tui.sh`, the active `logging.sh` COPY from the template Dockerfile,
+and `hook.sh`'s `DRY_RUN` early return each left the guard named for it
+green, matching a comment instead.
+
+The conversion has a mirror-image failure mode, and it is the more dangerous
+one: a stripper that also eats a line which is genuinely code turns a
+working guard into one that cannot match its subject -- and the natural
+"fix" for the resulting red is to weaken the assertion. Both directions are
+therefore pinned here, against one fixture carrying every shape that can be
+got wrong.
+
+| Test | Description |
+|------|-------------|
+| `code_lines: drops an unindented comment-only line` | The base case: a file-header paragraph naming the action the workflow must never use |
+| `code_lines: drops an INDENTED comment-only line` | The form that matters most -- a workflow's explanatory prose sits at the indentation of the block it explains |
+| `code_lines: drops a shell comment inside a run: block scalar` | A `#` line inside a `run:` block scalar is a shell comment: prose, in the exact place a workflow explains the command it is about to run |
+| `code_lines: drops blank lines` | Blank lines are neither code nor documentation and would pad any count assertion |
+| `code_lines: drops a Dockerfile comment, including a commented-out directive` | The live hazard in this repo's template Dockerfile: the same COPY appears twice, once active and once as a worked example |
+| `code_lines: keeps a trailing comment on a code line, verbatim` | Over-strict direction. The `# v1.2.2` after a pinned action SHA is code's, not prose's -- a spec asserts the pin and its version comment together |
+| `code_lines: keeps a # inside a double-quoted string` | Over-strict direction. A naive `s/#.*//` would silently shorten the line into something no assertion matches |
+| `code_lines: keeps a # inside a single-quoted string` | Same, for the other quoting style |
+| `code_lines: keeps a block-scalar line whose STRING starts with #` | `echo "# heading"` is code whose payload opens with a hash; the line's first non-blank character is `e`, so it stays |
+| `code_lines: keeps a # that is part of a value, not a comment` | A colour literal, a fragment, an anchor -- a `#` mid-value never begins a comment |
+| `code_grep: a string present only in a comment does not match` | The defect itself, at the call site every converted spec uses |
+| `code_grep: a string present in code does match` | Non-vacuity: the filter must still find what is really there |
+| `code_grep: passes its flags through and takes the file last` | The signature mirrors grep's own, so a conversion is a one-word edit; `-c` counts over code lines only |
+| `only_comments: keeps the comment-only lines and nothing else` | The mirror view, for the rare assertion genuinely about what a file SAYS |
+| `only_comments: is the exact complement of strip_comments` | No line may be dropped by both filters or counted by both -- the invariant that makes "code" and "documentation" an exhaustive split |
+| `only_comments: keeps a trailing-comment line out of the comment view` | A trailing-comment line belongs to the code view alone; counting it as documentation would let a pin's version comment satisfy a prose assertion |
+| `yaml_job_lines: returns the job's code and drops its comment paragraph` | The workflow specs' main entry point, replacing the awk block extractor each file used to carry |
+| `yaml_job_lines: stops at the next job` | Block scoping: an assertion about one job must not be satisfied by the next |
+| `yaml_job_text: keeps the job's comment paragraph verbatim` | The escape hatch. Keeping it a separate call makes "asserted against a comment" a visible choice |
+| `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
+| `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
+| `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
+### test/bats/unit/spec_subject_guard_spec.bats (6)
+
+`assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
+opening 54 guards across this suite now share, plus the repo-wide
+invariant that no spec goes back to the fail-open form. Those guards used
+to read `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by
+design" from "renamed and nobody noticed" and answered the second with a
+green run: renaming one workflow turned 52 assertions into `ok ... # skip`
+and the suite still exited 0. Since a bats outcome cannot be observed from
+inside the test that produces it, each case writes a one-test spec into
+`BATS_TEST_TMPDIR` and asserts on the TAP the inner `bats` run emits.
+
+| Test | Description |
+|------|-------------|
+| `assert_spec_subject: a present subject lets the test run to completion` | The normal path costs the caller nothing and skips nothing |
+| `assert_spec_subject: a missing subject FAILS the test, it does not skip it` | The whole point: a skip here reports green for a spec that asserted nothing |
+| `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
+| `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
+| `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
+| `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |

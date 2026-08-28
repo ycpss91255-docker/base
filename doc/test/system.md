@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **12 tests**.
+System specs under `test/bats/system/`: **13 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -86,7 +86,7 @@ behaviour with the variable unset is unchanged.
 | `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
 | `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
 
-### test/bats/system/deploy_bundle_e2e_spec.bats (4)
+### test/bats/system/deploy_bundle_e2e_spec.bats (5)
 
 A REAL field deploy end-to-end (ADR-00000023; System level, E2E type).
 Generates the bundle for real (`docker build` + `docker save | xz`),
@@ -120,6 +120,7 @@ concurrent `deploy.sh up` calls would race for that name.
 | `field-deploy e2e: the image identity is version-stamped, not the 'unknown' fallback` | tagged fixture -> real version stamp |
 | `field-deploy e2e: the generator produced a self-contained bundle folder` | real bundle output |
 | `field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies` | run + mount-wins override |
+| `field-deploy e2e: an operator .env.local override reaches the RUNNING container` | - |
 | `field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host` | read-only default proven by a real write |
 
 ### test/bats/system/smoke_harness_spec.bats (3)
