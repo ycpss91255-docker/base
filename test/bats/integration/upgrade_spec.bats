@@ -155,7 +155,7 @@ EOF
   # wrapper_copy writes the flat path and flat_to_dist, later in the list,
   # carries it to the shipped tree; the settled result is the dist one.
   grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" Dockerfile
-  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
+  refute grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
   # The rewritten Dockerfile is staged into the upgrade's commit.
   git diff --cached --quiet
 }
@@ -484,7 +484,7 @@ _seed_entry() {
   assert [ ! -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
   [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
   [ -z "$(git status --porcelain)" ]
-  ! grep -q '^<<<<<<<' .base/dist/script/docker/wrapper/setup.sh
+  refute grep -q '^<<<<<<<' .base/dist/script/docker/wrapper/setup.sh
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 

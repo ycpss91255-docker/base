@@ -74,7 +74,7 @@ EOF
   assert_success
   grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
   grep -Fq "COPY .base/dist/script/docker/wrapper /lint/wrapper" "${DF}"
-  ! grep -q '\.base/downstream/' "${DF}"
+  refute grep -q '\.base/downstream/' "${DF}"
 }
 
 @test "migration 0 (downstream-to-dist): detect false when no .base/downstream/ reference (#714)" {
@@ -115,7 +115,7 @@ EOF
   run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}' && _migrate_wrapper_copy_apply '${DF}'"
   assert_success
   grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" "${DF}"
-  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${DF}"
+  refute grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${DF}"
 }
 
 @test "migration 1 (wrapper-copy): rewrites shape B 'COPY .base/script/docker/*.sh /lint/' (#567)" {
@@ -127,7 +127,7 @@ EOF
   run bash -c "$(_src); _migrate_wrapper_copy_detect '${DF}' && _migrate_wrapper_copy_apply '${DF}'"
   assert_success
   grep -Fq "COPY .base/script/docker/wrapper/*.sh /lint/" "${DF}"
-  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${DF}"
+  refute grep -Eq '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/' "${DF}"
 }
 
 # The settled shape is the DIST one: wrapper_copy writes the flat
@@ -183,8 +183,8 @@ RUN echo done
 EOF
   run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
   assert_success
-  ! grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
-  ! grep -q '# Setup pip packages' "${DF}"
+  refute grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
+  refute grep -q '# Setup pip packages' "${DF}"
   grep -Fq "RUN echo done" "${DF}"
 }
 
@@ -242,8 +242,8 @@ RUN echo done
 EOF
   run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
   assert_success
-  ! grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
-  ! grep -q '# Setup pip packages' "${DF}"
+  refute grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
+  refute grep -q '# Setup pip packages' "${DF}"
 }
 
 @test "migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)" {
@@ -374,7 +374,7 @@ RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 EOF
   run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
   assert_success
-  ! grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
+  refute grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
   grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
 }
 
@@ -390,8 +390,8 @@ RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 EOF
   run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
   assert_success
-  ! grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
-  ! grep -q '_tui_conf.sh' "${DF}"
+  refute grep -Eq 'COPY .*\.base/script/docker/[A-Za-z_]+\.sh' "${DF}"
+  refute grep -q '_tui_conf.sh' "${DF}"
   grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
 }
 
@@ -421,7 +421,7 @@ EOF
   run bash -c "$(_src); _migrate_logging_rename_detect '${DF}' && _migrate_logging_rename_apply '${DF}'"
   assert_success
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
-  ! grep -q '_entrypoint_logging.sh' "${DF}"
+  refute grep -q '_entrypoint_logging.sh' "${DF}"
 }
 
 @test "migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)" {
@@ -438,7 +438,7 @@ EOF
   run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
   grep -Fq ". /usr/local/lib/base/logging.sh" "${TEMP_DIR}/script/entrypoint.sh"
-  ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+  refute grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
 }
 
 @test "migration 4 (logging-rename): detect false when already on new name (#567)" {
@@ -471,7 +471,7 @@ EOF
   run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
   grep -Fq ". /usr/local/lib/base/logging.sh" "${TEMP_DIR}/script/entrypoint.sh"
-  ! grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+  refute grep -q '_entrypoint_logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
 }
 
 # ── migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
@@ -494,7 +494,7 @@ EOF
   assert_success
   grep -Fq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
   grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/" "${DF}"
-  ! grep -q '\.base/test/smoke/' "${DF}"
+  refute grep -q '\.base/test/smoke/' "${DF}"
   # The repo's OWN smoke COPY is not a base path and is left alone.
   grep -Fq "COPY test/smoke/ /smoke_test/" "${DF}"
 }
@@ -508,7 +508,7 @@ EOF
   run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
   assert_success
   grep -Fq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
-  ! grep -q 'smoke/custom-test/' "${DF}"
+  refute grep -q 'smoke/custom-test/' "${DF}"
 }
 
 @test "migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)" {
@@ -539,7 +539,7 @@ EOF
   assert_success
   grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
   grep -Fq "COPY .base/dist/script/docker/wrapper /lint/wrapper" "${DF}"
-  ! grep -q '\.base/script/' "${DF}"
+  refute grep -q '\.base/script/' "${DF}"
 }
 
 @test "migration (flat-to-dist): rewrites the flat config COPY (#915)" {
@@ -570,7 +570,7 @@ EOF
   run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
   assert_success
   grep -Fq "COPY .base/dist/script/docker/lib /lint/lib" "${DF}"
-  ! grep -q '\.base/dist/dist/' "${DF}"
+  refute grep -q '\.base/dist/dist/' "${DF}"
 }
 
 # ── dispatcher over the whole v0.41.0 shape ─────────────────────────────────
@@ -724,7 +724,7 @@ EOF
   assert_success
   grep -Eq '^FROM bats/bats:[0-9]' "${DF}"
   grep -Eq '^FROM alpine:[0-9]' "${DF}"
-  ! grep -Eq '^FROM (bats/bats|alpine):latest' "${DF}"
+  refute grep -Eq '^FROM (bats/bats|alpine):latest' "${DF}"
 }
 
 @test "migration 5 (hadolint): DL3046 adds useradd -l (#567)" {
@@ -744,7 +744,7 @@ EOF
   assert_success
   grep -Fxq 'WORKDIR /lint' "${DF}"
   grep -Fxq 'RUN hadolint Dockerfile' "${DF}"
-  ! grep -q 'cd /lint &&' "${DF}"
+  refute grep -q 'cd /lint &&' "${DF}"
 }
 
 @test "migration 5 (hadolint): DL3042 adds pip --no-cache-dir (#567)" {
