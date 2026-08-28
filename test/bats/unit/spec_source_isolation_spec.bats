@@ -23,6 +23,28 @@
 # that is worth keeping: it is the shape that would make every OTHER spec's
 # read racy, so the invariant is cheap now and expensive to recover later.
 #
+# What these scans deliberately do NOT cover, and why. They match the live
+# path where it is WRITTEN, so a spec that names it once and then writes
+# through the name -- REPO=/source, then cat > "${_wf}" -- goes unseen. The
+# obvious extension is to follow the aliases, and it was measured before it
+# was rejected: collecting every variable assigned the live tree, plus one
+# more hop, and scanning writes through those names flags three sites on
+# this tree, of which two are correct code (a `sed -n` READ of a live file,
+# and a temp-dir write whose variable happens to share its name with a live
+# path in another test). The reason is structural, not a pattern that needs
+# tightening: bash names are scoped per test, grep is scoped per file, so
+# name-based taint cannot tell one `_yaml` from another. Two false alarms
+# per true one is how an invariant gets deleted.
+#
+# The shape that WOULD cover it is a runtime one -- snapshot the checkout
+# either side of the bats phase and fail on any difference -- which needs no
+# allowlist, no patterns, and catches a write through a name, a subshell or
+# a driver alike. That belongs in the phase runner, not here, and it is a
+# gate-wide behaviour change worth deciding on its own evidence. Until then
+# this file is a tripwire for the shape that has actually bitten, and the
+# aliased write it cannot see is why the entry above says the write scan is
+# cheap now and expensive to recover later.
+#
 # Why a spec and not a lint driver: test.sh's _LINT_TOOLS table is asserted
 # by self_test_yaml_spec to have a CI job per entry, so a driver costs a
 # workflow edit for a scan that the bats gate already runs everywhere. The

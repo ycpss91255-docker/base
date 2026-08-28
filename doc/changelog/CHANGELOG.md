@@ -52,6 +52,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Fixed
+- **a spec that left an untracked workflow in the checkout after every gate
+  run (refs #965, refs #927)** -- the ADR-claims R2 case wrote its fixture
+  workflow into `.github/workflows/` of the live tree and removed only its
+  scratch dir, so each run seeded the one directory the workflow specs and
+  the self-hosted-runner lint all scan. Same defect class as the two racing
+  specs, from the other side: not a spec that reads a tree it does not own,
+  but one that writes it and makes every other spec's read racy. The fixture
+  is built under a scratch root now.
 - **two specs that raced their own suite, and a watchdog defect one was
   hiding (closes #965)** -- the SIGTERM case signalled the supervisor after a
   fixed `sleep 1`, so under 32-way parallel load the service had not
