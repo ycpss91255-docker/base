@@ -184,6 +184,63 @@ _write_summary_section() {
   assert_output --partial 'alpha does a thing'
 }
 
+@test "_run_catalog_description: a description with no WORD in it is a placeholder (#922)" {
+  # `-` is the placeholder the generator writes, but it is not the only
+  # way to write silence, and the ratchet makes the alternatives
+  # attractive: a cell one keystroke away from `-` is the cheapest way to
+  # clear a red build. `.` and `--` are not judgement calls about whether
+  # a sentence restates the test name -- they say nothing at all, which is
+  # the one thing this rule exists to refuse.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' '.')" \
+    "$(_row 'beta does another thing' '--')" \
+    "$(_row 'gamma does a third thing' '...')"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'alpha does a thing'
+  assert_output --partial 'beta does another thing'
+  assert_output --partial 'gamma does a third thing'
+  assert_output --partial '3 undescribed'
+}
+
+@test "_run_catalog_description: the written-out non-answers are placeholders too (#922)" {
+  # The same silence spelled with letters. These are short enough to be
+  # unambiguous: no honest description of why a case matters is "n/a".
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'n/a')" \
+    "$(_row 'beta does another thing' 'TBD')" \
+    "$(_row 'gamma does a third thing' 'TODO')"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial '3 undescribed'
+}
+
+@test "_run_catalog_description: a SHORT honest description still passes (#922)" {
+  # The other side of the same rule, and the reason it is drawn at "has a
+  # word in it" rather than at a length: the real catalogues carry
+  # descriptions like "GPU on" and "--dry-run", which say something a name
+  # does not, and a guard whose false positives are the good rows teaches
+  # people to write around it.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'the compose file gets the device request' 'GPU on')" \
+    "$(_row 'the wrapper forwards the flag' '--dry-run')"
+  run _run_catalog_description
+  assert_success
+  assert_output --partial '2 rows checked'
+}
+
+@test "_run_catalog_description: an exemption reason with no WORD in it is refused (#922)" {
+  # The exemptions file is held to the same reading, for the same reason:
+  # `.` in the reason column is the silence the file exists to break.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  _write_summary_section 'test/bats/unit/beta_spec.bats' 40
+  _write_exempt 'test/bats/unit/beta_spec.bats|.'
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'reason'
+}
+
 @test "_run_catalog_description: PASSES a described row (#922)" {
   _write_catalog 'test/bats/unit/alpha_spec.bats' \
     "$(_row 'alpha does a thing' 'The load-bearing case: nothing else holds without it')"
