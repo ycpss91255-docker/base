@@ -121,12 +121,14 @@ readonly _PIN_RESOLVERS=(
 # is added means the new tree IS scanned and the lint fires, rather than
 # the new tree being quietly exempt.
 #
-# Every entry is a generated tree that is gitignored, and the lint asserts
-# exactly that -- so this list cannot quietly grow to cover something the
-# repo actually ships. `.prev-release/` earns its place twice over: it is
-# `git archive` of PAST releases, and the versions in it are supposed to
-# be stale.
-readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release')
+# Every entry is a machine-local tree that is gitignored, and the lint
+# asserts exactly that -- so this list cannot quietly grow to cover
+# something the repo actually ships. `.prev-release/` earns its place
+# twice over: it is `git archive` of PAST releases, and the versions in it
+# are supposed to be stale. `.claude/` is the agent harness a checkout may
+# or may not carry; scanning it would make the lint's verdict depend on
+# whose machine it ran on, which is the one thing a gate must not do.
+readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release' '.claude')
 
 # The file shapes a version declaration can live in. `.sh` is here because
 # of the two escapes above: a script that writes a `uses:` ref into a
