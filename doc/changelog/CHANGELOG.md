@@ -79,14 +79,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
   declared no `permissions:`, so each ran with the CALLING repo's grant. All
   three now declare `contents: read`, asserted as an exact entry set so an
-  added scope fails too. No job names `packages: write`: a called job asking
-  for a scope its caller did not grant fails the run outright rather than
-  intersecting down, so `cache_backend: registry` is unreachable from here --
-  the input description and the preflight hint a failing caller reads now say
-  that, instead of asking for a grant that cannot help. The seeded `main.yaml`
-  moves `contents: write` onto `call-release`; that seed reaches NEWLY created
-  repos only, an existing repo's own `main.yaml` is never rewritten (#927,
-  #928).
+  added scope fails too. No job names `packages: write` -- a called job
+  asking for a scope its caller did not grant fails the run outright -- so
+  `cache_backend: registry` is unreachable, and the preflight hint a failing
+  caller reads says that instead of asking for a grant that cannot help. The
+  seeded `main.yaml` moves `contents: write` onto `call-release`, which
+  reaches newly created repos only.
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted. Every row of that

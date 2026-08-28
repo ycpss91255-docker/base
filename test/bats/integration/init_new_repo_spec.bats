@@ -741,12 +741,11 @@ teardown() {
 
 # ════════════════════════════════════════════════════════════════════
 # init.sh on an EXISTING repo: main.yaml is never rewritten
-# (#957 item 2, checked against #927 / #928)
 # ════════════════════════════════════════════════════════════════════
 
 @test "existing repo: init never rewrites a main.yaml it did not create (#957)" {
-  # #957 moved the seeded main.yaml's `contents: write` off the workflow
-  # scope and onto the release job. The seed is emitted ONLY by
+  # The seeded main.yaml's `contents: write` moved off the workflow scope
+  # and onto the release job. The seed is emitted ONLY by
   # _create_new_repo, so that change reaches newly created repos; an
   # existing repo's main.yaml is its own file, hand-maintained (extra
   # jobs, a pinned tag, repo-specific gates), and init must not touch it.
@@ -760,8 +759,8 @@ teardown() {
   cat > "${REPO_DIR}/.github/workflows/main.yaml" <<'YAML'
 name: Main CI/CD
 
-# A repo seeded before #957: the write grant sits at the workflow scope,
-# and the repo has since added a job of its own.
+# A repo seeded before the least-privilege change: the write grant sits
+# at the workflow scope, and the repo has since added a job of its own.
 permissions:
   contents: write
 
@@ -788,11 +787,10 @@ YAML
 @test "existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)" {
   # The delivery boundary itself, stated as a contrast: init DOES converge
   # an existing repo on base-version-monitor.yaml (never-overwrite sync),
-  # and does NOT deliver main.yaml at all. So the #957 seed change is
-  # scoped to newly created repos -- and, per #928, `_create_new_repo` is
-  # currently unreachable through bootstrap.sh (the template ships a
-  # Dockerfile, so init takes this existing-repo branch), which is why
-  # that issue, not this one, owns getting the seed to run.
+  # and does NOT deliver main.yaml at all. So the seed change is scoped
+  # to newly created repos -- and `_create_new_repo` is itself unreachable
+  # through bootstrap.sh today (the template ships a Dockerfile, so init
+  # takes this existing-repo branch), which is separate delivery work.
   #
   # If a future change starts resyncing main.yaml, this test names it, and
   # the scoped claim in the changelog has to be revisited with it.

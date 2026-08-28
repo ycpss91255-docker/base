@@ -403,17 +403,17 @@ KEEP
   # .github/workflows/main.yaml
   #
   # Emitted HERE and nowhere else, so the job-scoped grant below reaches
-  # newly created repos only. Checked against #927 / #928 before claiming
-  # any wider reach (#957): an existing repo's main.yaml is its own
-  # hand-maintained file (extra jobs, a pinned tag), so init deliberately
-  # never rewrites it -- and the never-overwrite shape used for
-  # base-version-monitor.yaml would be a no-op on a repo that already has
-  # the file, which every already-seeded downstream does. Per #928 this
-  # function is currently unreachable through bootstrap.sh at all, because
-  # the template ships a Dockerfile and init therefore takes the
-  # existing-repo branch. Re-granting an already-seeded downstream is
-  # those issues' work, not this seed's; both halves of the boundary are
-  # pinned in test/bats/integration/init_new_repo_spec.bats.
+  # newly created repos only, and that was checked rather than assumed.
+  # An existing repo's main.yaml is its own hand-maintained file (extra
+  # jobs, a pinned tag), so init deliberately never rewrites it -- and the
+  # never-overwrite shape used for base-version-monitor.yaml would be a
+  # no-op on a repo that already has the file, which every already-seeded
+  # downstream does. This function is also unreachable through
+  # bootstrap.sh today: the template ships a Dockerfile, so init takes the
+  # existing-repo branch instead. Re-granting an already-seeded downstream
+  # is delivery work tracked on its own, not this seed's; both halves of
+  # the boundary are pinned in
+  # test/bats/integration/init_new_repo_spec.bats.
   mkdir -p .github/workflows
   cat > .github/workflows/main.yaml <<YAML
 name: Main CI/CD

@@ -3,8 +3,8 @@
 # readme_file_table_spec.bats -- the "What's included" table in README.md
 # is a file INDEX, so every row names a real path. Nothing checked that.
 #
-# #957 item 3 was one such row: it still called the per-repo runtime config
-# `setup.conf` after the file had been renamed to `.setup.conf` and moved
+# One such row went stale unnoticed: it still called the per-repo runtime
+# config `setup.conf` after the rename to `.setup.conf` and the move
 # under `dist/`. The stale-path lint that would normally have caught it
 # (script/test/drivers/stale_setup_conf.sh) scans `dist/**/*.sh` only, so
 # prose in README.md was outside every gate -- the row could be edited back

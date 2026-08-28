@@ -47,8 +47,8 @@ setup() {
 @test "build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)" {
   # cache_backend: registry selected, image_name supplied, but the GHCR
   # write probe reported missing. This message is the ONLY text a failing
-  # caller actually reads, and until #957 it told them to add `packages:
-  # write` to call-docker-build (the #801 wording). That grant cannot
+  # caller actually reads, and it used to tell them to add a `packages:
+  # write` grant to call-docker-build. That grant cannot
   # reach the worker's `build` job, which declares its own read-only
   # `permissions:` block -- a called job gets the block it declares, and a
   # caller's grant does not widen it -- so following the old hint produced
