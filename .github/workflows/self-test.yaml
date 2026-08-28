@@ -241,6 +241,14 @@ jobs:
     #                     dockerfile/ (ADR-00000024) -- joined the matrix on
     #                     the day it was written, the point of the guard
     #                     below
+    #   arch-literal      no bare architecture literal in a shipped
+    #                     Dockerfile under dist/ or dockerfile/ -- buildx
+    #                     builds one file per --platform, so a literal
+    #                     ships the wrong artifact inside every other
+    #                     platform's image variant and only fails at run
+    #                     time. Express it via ARG TARGETARCH; the mapping
+    #                     onto an upstream asset spelling opts out with a
+    #                     stated reason
     #   bash-source-guard no undefaulted BASH_SOURCE self-location read
     #                     under dist/ or script/ -- likewise joined here on
     #                     the day it was written
@@ -302,6 +310,7 @@ jobs:
           - stale-setup-conf
           - readme-sync
           - home-literal
+          - arch-literal
           - bash-source-guard
           - early-close-reader
           - derived-figures
