@@ -195,7 +195,13 @@ EOF
 #!/usr/bin/env bash
 # A grandchild that ignores SIGTERM and records its own pid, then the
 # service itself sleeps. Both share the setsid process group.
-( trap '' TERM; echo $$ > "$1"; sleep 60 ) &
+#
+# BASHPID, not $$ (#965): `$$` keeps the INVOKING shell's pid inside a
+# subshell, so this line used to record the SERVICE's pid and the case
+# below re-checked the process it had already stopped -- it never observed
+# a grandchild at all, and stayed green with the process-group kill
+# disabled. BASHPID is the subshell's own pid.
+( trap '' TERM; echo "${BASHPID}" > "$1"; sleep 60 ) &
 sleep 60
 EOF
   # Event-driven for the same reason as the case above (#965): losing the
