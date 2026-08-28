@@ -444,6 +444,192 @@ _one_good_pin() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# An image reference is a declaration WHEREVER it is written
+# ════════════════════════════════════════════════════════════════════
+#
+# The detector used to recognise a namespace-less image only when a
+# `docker run|pull|create|build` sat on the SAME LINE. That is a roster
+# of contexts wearing a regex's clothes, and it had the roster failure
+# mode: a context nobody listed passes SILENTLY. These cases are the
+# contexts that were missing, and the last one is the point -- an
+# unrecognised context has to raise the question, not answer it.
+
+@test "_run_pin_coverage: FAILS on an image: in compose.yaml" {
+  # This repo's own core artefact. A compose service names its image the
+  # way a Dockerfile names its base, and no `docker` verb appears on the
+  # line at all.
+  _one_good_pin
+  printf '%s\n' \
+    'services:' \
+    '  devel:' \
+    '    image: alpine:3.21' \
+    > "${SCRATCH}/compose.yaml"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+@test "_run_pin_coverage: FAILS on a workflow container: image" {
+  # A first-class GitHub Actions feature: the job runs INSIDE this image,
+  # and dependabot cannot bump it any more than it can bump a `run:` one.
+  _one_good_pin
+  _workflow \
+    'jobs:' \
+    '  a:' \
+    '    container: alpine:3.21' \
+    '    steps:' \
+    '      - run: true'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+@test "_run_pin_coverage: FAILS on a bare image tag sed into a generated file" {
+  # The live shape. dockerfile_migrate.sh rewrote the FROM line of every
+  # downstream Dockerfile it migrated, and the namespaced half of that one
+  # sed (`bats/bats:1.11.0`) was caught only because it carries a slash --
+  # the `alpine` half of the same line was invisible.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    "sed -i -E 's|^FROM alpine:latest|FROM alpine:3.21|' \"\${_file}\"" \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+@test "_run_pin_coverage: FAILS on an image named by a key nothing anticipated" {
+  # The whole point of dropping the context roster. Neither `image:` nor
+  # `container:` nor any `docker` verb appears here, and the file shape is
+  # one no earlier version of this lint looked at. An unrecognised context
+  # must raise the question rather than pass.
+  _one_good_pin
+  printf 'fallback_image=alpine:3.21\n' > "${SCRATCH}/dist.setup.conf"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+@test "_run_pin_coverage: FAILS on a bare image named in a justfile" {
+  # justfiles are this repo's control surface -- ADR-00000005 makes `just`
+  # the single runner, so a container this repo actually starts is far
+  # more likely to be named in one than in a shell script.
+  _one_good_pin
+  printf '%s\n' \
+    'lint:' \
+    '    docker run --rm alpine:3.21 true' \
+    > "${SCRATCH}/justfile"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# What a `<name>:<tag>` token is NOT
+# ════════════════════════════════════════════════════════════════════
+#
+# Dropping the `docker <verb>` context cannot be paid for with noise. The
+# exemptions are properties of the TOKEN (or of the flag that introduces
+# it), never of the surrounding line, so they do not decay the way the
+# context roster did.
+
+@test "_run_pin_coverage: a published port is not a version" {
+  # `-p 8080:8080` is core idiom here and would have fired even under the
+  # old rule, which required only a `docker run` somewhere on the line.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    'docker run --rm -p 8080:8080 "${IMAGE}" true' \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: a UID:GID pair is not a version" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    'docker run --rm --user 1000:1000 "${IMAGE}" bats' \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: the image this repo BUILDS is not one it depends on" {
+  # You cannot depend on a version you are creating. `-t`/`--tag` names an
+  # OUTPUT, so the token it introduces is ours by construction -- which is
+  # a shape rule, not a list of our image names.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    'docker build --build-arg USER_UID=1000 -t base:0.1 .' \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: a digest is not a version" {
+  # A digest is already immutable; there is no newer one to propose.
+  _one_good_pin
+  _workflow \
+    'jobs:' \
+    '  a:' \
+    '    steps:' \
+    '      - run: echo sha256:0123456789abcdef0123456789abcdef01234567'
+  run _run_pin_coverage
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The scan surface: an exemption list, and it is checked
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_pin_coverage: a spec's fixture text needs no marker" {
+  # A .bats spec's heredoc IS the fixture the code under test parses, so
+  # the marker grammar cannot reach it: the marker's target is the next
+  # non-comment line, and inserting that comment INTO the heredoc changes
+  # the fixture. See script/watch/lib.sh.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/test/bats/unit"
+  printf '%s\n' \
+    '@test "x" {' \
+    '  cat > "${D}/Dockerfile" <<EOD' \
+    'FROM alpine:3.20 AS sys' \
+    'EOD' \
+    '}' \
+    > "${SCRATCH}/test/bats/unit/x_spec.bats"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: prose needs no marker" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/doc"
+  printf 'Run `docker run --rm alpine:3.21 true` to check.\n' \
+    > "${SCRATCH}/doc/guide.md"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
+  # The exemption list is the one hand-kept thing left in the scan
+  # surface, so it is checked rather than trusted -- the same treatment
+  # the prune list gets. A marker written in an exempt file is a pin its
+  # author believes is watched and which nothing reads, and that belief is
+  # exactly what this whole mechanism exists to make impossible.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/test/bats/unit"
+  printf '%s\n' \
+    '# tool-pin: ghost github-release owner/ghost' \
+    'ARG GHOST_VERSION=1.0.0' \
+    > "${SCRATCH}/test/bats/unit/x_spec.bats"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'is not scanned'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 

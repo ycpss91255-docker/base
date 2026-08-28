@@ -147,6 +147,32 @@ _check() {
   refute_output --partial 'CURRENT (1)'
 }
 
+@test "watch: a tree that yields files but no pin exits 1" {
+  # The floor the lint already has and this did not. `pin_coverage.sh`
+  # dies when the table yields no PINNED entry, with the rationale that a
+  # table with no pins makes every watch run come back clean -- but this
+  # is the thing that actually comes back clean. A tree the reader walked
+  # and found nothing in printed DRIFTED (0) / UNRESOLVED (0) /
+  # FLOATING (0) / CURRENT (0) and exited 0: `count=0` in the workflow,
+  # the bump skipped, the job green.
+  rm -rf "${SCRATCH:?}/tree"
+  mkdir -p "${SCRATCH}/tree"
+  printf 'echo hi\n' > "${SCRATCH}/tree/a.sh"
+  _check --report
+  assert_equal "${status}" 1
+  assert_output --partial 'NOTHING was compared'
+}
+
+@test "watch: the no-pin floor also refuses to emit a machine answer" {
+  rm -rf "${SCRATCH:?}/tree"
+  mkdir -p "${SCRATCH}/tree"
+  printf 'echo hi\n' > "${SCRATCH}/tree/a.sh"
+  PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" \
+    WATCH_GITHUB_API="${API}" run --separate-stderr "${CHECK}" --drift-tsv
+  assert_equal "${status}" 1
+  assert_output ''
+}
+
 @test "watch: a tree with nothing scannable in it exits 1" {
   rm -rf "${SCRATCH:?}/tree"
   mkdir -p "${SCRATCH}/tree/doc"
