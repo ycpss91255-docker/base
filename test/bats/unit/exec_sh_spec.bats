@@ -618,6 +618,40 @@ HOOK
   assert_output --partial "POST_EXEC_HOOK_FIRED"
 }
 
+@test "exec.sh runs the post-exec hook when the container command fails (#956)" {
+  # The documented use for a post-exec hook is final reporting, and the run
+  # worth reporting on is the one that failed. Under `set -euo pipefail` an
+  # unguarded `_compose_project exec` aborts main the moment the container
+  # command exits non-zero, so the hook never fires on exactly that path.
+  # run.sh / lib/deploy.sh already capture with `|| _rc=$?` for this reason.
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=42
+  mkdir -p "${SANDBOX}/script/hooks/post"
+  cat > "${SANDBOX}/script/hooks/post/exec.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "POST_EXEC_HOOK_FIRED"
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/post/exec.sh"
+  run -42 bash "${SANDBOX}/exec.sh" -- false
+  assert_output --partial "POST_EXEC_HOOK_FIRED"
+}
+
+@test "exec.sh post-exec hook failure still overrides a non-zero container rc (#956)" {
+  # Capturing the container rc must not demote the hook: a failing
+  # post-hook is the wrapper's exit code whatever the container did.
+  _exec_rc_fixture
+  export DOCKER_EXEC_RC=42
+  mkdir -p "${SANDBOX}/script/hooks/post"
+  cat > "${SANDBOX}/script/hooks/post/exec.sh" <<'HOOK'
+#!/usr/bin/env bash
+echo "POST_EXEC_HOOK_FIRED"
+exit 9
+HOOK
+  chmod +x "${SANDBOX}/script/hooks/post/exec.sh"
+  run -9 bash "${SANDBOX}/exec.sh" -- false
+  assert_output --partial "POST_EXEC_HOOK_FIRED"
+}
+
 @test "exec.sh aborts on a failing pre-exec hook and skips compose exec (#690)" {
   # exec.sh: `_run_pre_hook exec "$@" || exit $?` fires AFTER the
   # not-running guard, BEFORE `_compose_project exec`. A pre-hook that

@@ -1560,3 +1560,38 @@ EOF
   SCHEMA_SECTIONS+=(brandnew)
   _setup_known_section "brandnew"
 }
+
+# ── post-setup hook on the failure path ─────────────────────────────
+#
+# The post-setup hook must fire whether the subcommand succeeded or not.
+# These run setup.sh as a SCRIPT rather than sourcing it, because that is
+# the only way `set -euo pipefail` is in force -- setup.sh sets strict mode
+# only when it is the entry point, and the defect is an unguarded
+# subcommand call aborting main before the hook line is reached.
+# hook.sh resolves a setup hook under $PWD (setup.sh exports no FILE_PATH),
+# so the sandbox is the working directory.
+
+# _seed_post_setup_hook <exit_code>
+_seed_post_setup_hook() {
+  mkdir -p "${TEMP_DIR}/script/hooks/post"
+  printf '#!/usr/bin/env bash\necho POST_SETUP_HOOK_FIRED\nexit %s\n' "$1" \
+    > "${TEMP_DIR}/script/hooks/post/setup.sh"
+  chmod +x "${TEMP_DIR}/script/hooks/post/setup.sh"
+}
+
+@test "setup.sh runs the post-setup hook when the subcommand fails (#956)" {
+  _seed_post_setup_hook 0
+  cd "${TEMP_DIR}"
+  # `show <unknown-section>` is a deterministic post-dispatch failure (rc 2).
+  run -2 bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+}
+
+@test "setup.sh post-setup hook failure overrides a failing subcommand rc (#956)" {
+  _seed_post_setup_hook 9
+  cd "${TEMP_DIR}"
+  run -9 bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+}
