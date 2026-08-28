@@ -1275,7 +1275,39 @@ EOF
 # that drifts -- and to make the drift RECORDED rather than silent. These
 # specs lock the record, since a manifest nothing asserts is a manifest
 # that quietly stops being written.
+#
+# Several of them read a WINDOW of the file rather than the whole of it.
+# The commented builder / runtime-base scaffold repeats the same apt and
+# manifest lines the live stages carry, so a whole-file `grep` for one of
+# them is satisfied by any of three occurrences: the assertion a test
+# NAMES then is not the assertion it makes, and deleting the line the
+# name is about leaves it green.
 # ════════════════════════════════════════════════════════════════════
+
+# _df_runtime_base_block -- the commented `runtime-base` stage of the
+# shipped template, bounded by its own `FROM` marker and the next stage's.
+# Printed as-is (comment markers included) so a caller greps the literal
+# commented text.
+_df_runtime_base_block() {
+  awk '
+    /^# FROM \$\{BASE_IMAGE\} AS runtime-base$/ { in_b = 1; next }
+    in_b && /^# FROM runtime-base/              { in_b = 0 }
+    in_b
+  ' "${1:?_df_runtime_base_block: missing file}"
+}
+
+# _hadolint_ignore_rationale <file> <rule> -- the run of comment lines
+# immediately preceding `- <rule>` in the ignore list. An ignore's
+# rationale is the block attached to it; text describing a compensating
+# control somewhere else in the file does not excuse THIS rule.
+_hadolint_ignore_rationale() {
+  awk -v rule="${2:?_hadolint_ignore_rationale: missing rule}" '
+    $0 ~ "^[[:space:]]*-[[:space:]]*" rule "([[:space:]]|$)" { print buf; found = 1; exit }
+    /^[[:space:]]*#/ { buf = buf $0 "\n"; next }
+    { buf = "" }
+    END { if (!found) exit 1 }
+  ' "${1:?_hadolint_ignore_rationale: missing file}"
+}
 
 @test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
@@ -1295,6 +1327,26 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.example states what the UNPINNED default does not record (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The half of the reproducibility question the shipped default does NOT
+  # answer. With `ubuntu:24.04` and no BASE_IMAGE_DIGEST the manifest
+  # records the reference as given and `base_image_pin=none` -- it cannot
+  # say WHICH image that tag resolved to, which is precisely the case the
+  # moving tag is a problem in. A note that describes only the record and
+  # not its blind spot reads as a stronger guarantee than the file gives,
+  # so the limitation is asserted, not left to the reader.
+  run grep -F 'base_image_digest' "${_df}"
+  assert_success
+  run grep -F 'does NOT record which digest' "${_df}"
+  assert_success
+  # ... and the one-argument way out of it, for a consumer who wants the
+  # digest recorded without pinning to it.
+  run grep -F 'BASE_IMAGE_DIGEST' "${_df}"
+  assert_success
+}
+
 @test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
@@ -1309,8 +1361,20 @@ EOF
   # unpinned reference names an image that may already have moved.
   run grep -F 'base_image_pin=digest' "${_df}"
   assert_success
-  # OCI annotation too, so `docker inspect` answers without unpacking.
+  # The digest itself, on both routes it can be known: taken from the
+  # reference when that reference carries one, and from the build arg
+  # otherwise. A record that reports the digest only when the reference
+  # already spelled it out records it exactly when it was never in doubt.
+  run grep -cE '^ARG BASE_IMAGE_DIGEST=' "${_df}"
+  assert_output "1"
+  run grep -F 'base_image_digest=sha256:${BASE_IMAGE##*@sha256:}' "${_df}"
+  assert_success
+  run grep -F 'base_image_digest=${BASE_IMAGE_DIGEST}' "${_df}"
+  assert_success
+  # OCI annotations too, so `docker inspect` answers without unpacking.
   run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' "${_df}"
+  assert_success
+  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' "${_df}"
   assert_success
 }
 
@@ -1323,9 +1387,10 @@ EOF
   run grep -cE '^ +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
   assert_output "2"
   # Every commented-out apt block a consumer is invited to uncomment
-  # (devel's application packages, builder's build deps) carries the
-  # refresh too, so following the template does not silently produce an
-  # image whose manifest omits the packages the consumer added.
+  # (devel's application packages, builder's build deps, runtime-base's
+  # runtime deps) carries the refresh too, so following the template does
+  # not silently produce an image whose manifest omits the packages the
+  # consumer added.
   run grep -cE '^# +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
   assert_output "3"
 }
@@ -1336,11 +1401,25 @@ EOF
   # runtime-base is a FRESH ${BASE_IMAGE}, so it inherits nothing the sys
   # stage wrote. Uncommenting the optional builder/runtime split must not
   # produce the one image in the graph that cannot say what built it.
-  run grep -F '# ARG BASE_IMAGE' "${_df}"
+  #
+  # Read the stage's own window: every line asserted here also appears in
+  # devel's or builder's commented apt block, so a whole-file grep would
+  # stay green with runtime-base's copy deleted.
+  local _block
+  _block="$(_df_runtime_base_block "${_df}")"
+  [[ -n "${_block}" ]] || fail "runtime-base stage window not found in ${_df}"
+
+  run grep -xF '# ARG BASE_IMAGE' <<< "${_block}"
   assert_success
-  run grep -F '#     dpkg-query -W > /usr/local/share/base/packages.txt' "${_df}"
+  run grep -xF '# ARG BASE_IMAGE_DIGEST' <<< "${_block}"
   assert_success
-  run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' "${_df}"
+  run grep -F '#     dpkg-query -W > /usr/local/share/base/packages.txt' <<< "${_block}"
+  assert_success
+  run grep -F '#       echo "base_image_ref=${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  run grep -F '#       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' <<< "${_block}"
   assert_success
 }
 
@@ -1350,10 +1429,39 @@ EOF
   # DL3008 is the one rule that exists for the unpinned apt lines this
   # template ships. Ignoring it with no compensating control is what
   # makes the template lint clean while being non-reproducible, so the
-  # ignore has to name what compensates for it.
-  run grep -F 'DL3008' "${_cfg}"
+  # ignore has to name what compensates for it -- in ITS OWN rationale
+  # block, not somewhere else in the file under an unrelated rule.
+  local _why
+  _why="$(_hadolint_ignore_rationale "${_cfg}" DL3008)" \
+    || fail "no '- DL3008' entry found in ${_cfg}"
+  [[ -n "${_why}" ]] || fail "DL3008 is ignored with no rationale block above it"
+
+  run grep -F '/usr/local/share/base/packages.txt' <<< "${_why}"
   assert_success
-  run grep -F '/usr/local/share/base/packages.txt' "${_cfg}"
+  # This config is symlinked into every downstream repo by init.sh, where
+  # it lints that repo's OWN hand-edited Dockerfile -- which carries the
+  # manifest only once the repo has adopted this template revision. A
+  # rationale that says "every image built from this template records its
+  # packages" is read there as a claim about the reader's image, so it
+  # has to name the condition and how to meet it.
+  run grep -F 'Dockerfile predates' <<< "${_why}"
+  assert_success
+  run grep -F 'just upgrade' <<< "${_why}"
+  assert_success
+}
+
+@test "the shared smoke tree asserts the manifest at RUNTIME, not only in the template text (#951)" {
+  local _spec="/source/dist/test/bats/smoke/shared/reproducibility.bats"
+  # Every other spec in this block reads the template as TEXT, and text
+  # cannot catch a manifest that IS written and records nothing -- the
+  # exact failure an out-of-scope ${BASE_IMAGE} produces. That assertion
+  # has to run inside a built image, which is what the shared smoke tree
+  # is: COPYed into every `-test` stage and executed by `RUN bats`, in
+  # base's own harness and in all 17 consumer repos.
+  assert [ -f "${_spec}" ]
+  # The load-bearing half is the non-empty VALUE. A spec that only checks
+  # the file exists passes on the empty record.
+  run grep -F 'base_image_ref=[^[:space:]]+' "${_spec}"
   assert_success
 }
 

@@ -1,0 +1,76 @@
+#!/usr/bin/env bats
+#
+# Shared build-time smoke: the reproducibility manifest.
+#
+# The template's `sys` stage (and, when the optional runtime split is
+# enabled, `runtime-base`) writes /usr/local/share/base/base-image.env and
+# /usr/local/share/base/packages.txt so a built image can say what it was
+# built from. Everything else that guards those two lives in base's own
+# unit specs, which read the template as TEXT -- and text is exactly what
+# cannot catch the failure this file exists for: the manifest being
+# written from a stage where `${BASE_IMAGE}` expanded to the empty string
+# (the pre-FROM ARG is FROM-scope only), so the file lands with an empty
+# record and every static grep stays green.
+#
+# Runs in EVERY `-test` stage, so it only asserts what every real stage
+# under test carries: devel-test inherits sys, and runtime-test inherits
+# runtime-base's re-emit.
+#
+# Why the guard below skips rather than fails: this file is COPYed into a
+# consumer's `-test` stage from `.base/dist/`, which `just upgrade`
+# refreshes -- while the Dockerfile that would write the manifest is the
+# consumer's own, hand-edited, and NOT rewritten by the upgrade. A repo
+# that has not yet adopted the template revision therefore gets this spec
+# before it gets the manifest, and failing it would turn an upgrade into a
+# broken build over a record the repo never claimed to keep. The skip is
+# narrow: it fires only when NEITHER file is present. A repo that writes
+# one and not the other, or writes an empty record, has adopted the
+# manifest and broken it, and that fails.
+
+setup() {
+  load "${BATS_TEST_DIRNAME}/test_helper"
+}
+
+REPRO_ENV="/usr/local/share/base/base-image.env"
+REPRO_PKGS="/usr/local/share/base/packages.txt"
+
+# Skip the calling test when this image predates the manifest revision.
+_skip_unless_manifest_adopted() {
+  if [[ ! -e "${REPRO_ENV}" && ! -e "${REPRO_PKGS}" ]]; then
+    skip "image predates the manifest template revision (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)"
+  fi
+}
+
+@test "the reproducibility manifest is complete" {
+  _skip_unless_manifest_adopted
+  assert_file_exists "${REPRO_ENV}"
+  assert_file_exists "${REPRO_PKGS}"
+}
+
+@test "the manifest names the base image this stage was built from" {
+  _skip_unless_manifest_adopted
+  # Non-empty VALUE, not merely a present key: `base_image_ref=` with
+  # nothing after it is what an unscoped ${BASE_IMAGE} produces, and it is
+  # indistinguishable from a complete manifest to anything that only
+  # checks the file exists.
+  run grep -E '^base_image_ref=[^[:space:]]+$' "${REPRO_ENV}"
+  assert_success
+  # Whether that reference was pinned is the other half of the record: an
+  # unpinned reference names an image that may already have moved.
+  run grep -E '^base_image_pin=(digest|none)$' "${REPRO_ENV}"
+  assert_success
+}
+
+@test "the manifest records package versions, not just package names" {
+  _skip_unless_manifest_adopted
+  # `dpkg-query -W` prints "<name><TAB><version>". A file of bare names --
+  # the shape a mis-typed format string produces -- answers "what is
+  # installed" but not "which build am I looking at", which is the whole
+  # point of recording it. Counted with awk rather than grep -P: busybox
+  # grep has no -P, and a `-test` stage is whatever the consumer's base
+  # image ships.
+  run awk -F'\t' 'NF == 2 && $1 != "" && $2 != "" { n++ } END { print n + 0 }' \
+    "${REPRO_PKGS}"
+  assert_success
+  refute_output "0"
+}
