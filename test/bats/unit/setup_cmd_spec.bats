@@ -640,8 +640,9 @@ EOF
   assert_output --partial "[logging.web]"
   refute_output --partial "web.driver"
   # The sub-section value appears exactly once in the whole dump.
-  run bash -c "main list --base-path '${TEMP_DIR}' | grep -c '^driver = local$'"
-  assert_output "1"
+  local _hits
+  _hits="$(printf '%s\n' "${output}" | grep -c '^driver = local$' || true)"
+  [[ "${_hits}" == "1" ]]
 }
 
 @test "list <section> mirrors show <section>" {
