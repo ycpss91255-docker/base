@@ -191,6 +191,25 @@ _append() {
   [[ "${output}" == *"doc/readme/README.zh-TW.md:"* ]]
 }
 
+@test "_run_derived_figures: 256 findings in ONE file are not read as zero (#922)" {
+  # The scanner hands its violation count back as an exit status, which is
+  # 8 bits wide, and the caller reads it with `|| _hits=$?`. At 256
+  # findings in a single file the status wraps to 0, the `||` never fires,
+  # and the lint prints every finding and then reports itself clean. One
+  # generated document or one sweep over a long shipped script is all it
+  # takes, and the same wrap silently miscounts every total above 256.
+  local -a _lines=()
+  local _i
+  for (( _i = 0; _i < 256; _i++ )); do
+    _lines+=( "line ${_i}: the baseline blocklist is \`{devel, devel-test}\`" )
+  done
+  _append "dist/script/docker/lib/sample.sh" "${_lines[@]}"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" != *"derived-figure lint: clean"* ]]
+  [[ "${output}" == *"256 document figure(s)"* ]]
+}
+
 @test "_run_derived_figures: ignores a \${VAR} expansion that is not a stage set (#874)" {
   _append "dist/script/docker/lib/sample.sh" \
     '_conf="${_root}/.setup.conf"' \
