@@ -594,22 +594,26 @@ EOF
 }
 
 @test "build.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/build.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "run.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/run.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/exec.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/stop.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/wrapper/stop.sh
   assert_success
 }
 
