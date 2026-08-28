@@ -662,7 +662,7 @@ _jobs_without_permissions() {
 
 # Print one job's permission ENTRIES: the `<scope>: <level>` lines inside
 # its own `permissions:` block, indentation dropped. Built on the shared
-# `yaml_job_lines` (#954), so the job's comment paragraphs are gone before
+# `yaml_job_lines` helper, so the job's comment paragraphs are gone before
 # any matching happens -- a rationale comment that QUOTES a permission
 # ("`contents: read` rather than `{}`") is otherwise indistinguishable
 # from the grant itself.
