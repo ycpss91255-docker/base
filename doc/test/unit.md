@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3016 tests**.
+Unit specs under `test/bats/unit/`: **3046 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -551,7 +551,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (105)
+### test/bats/unit/self_test_yaml_spec.bats (106)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -3357,7 +3357,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (23)
+### test/bats/unit/pin_coverage_lint_spec.bats (33)
 
 | Test | Description |
 |------|-------------|
@@ -3365,12 +3365,20 @@ untested) and uncommented.
 | `_run_pin_coverage: FAILS on an ARG naming an image with an explicit tag` | `ARG BASE_IMAGE="ubuntu:24.04"` is a version declaration too, and the one consumers build from. |
 | `_run_pin_coverage: FAILS on a FROM with a literal tag` | A tag written straight into `FROM` bypasses the ARG the other pins use. |
 | `_run_pin_coverage: FAILS on an image named inside a workflow run: step` | How a 14-month-old actionlint kept passing: dependabot parses `uses:` refs only. |
+| `_run_pin_coverage: FAILS on a release-download URL naming the version` | The form hadolint and shellcheck were pinned in for three years -- the detector could not see the shape of the defect it exists to prevent. |
+| `_run_pin_coverage: FAILS on a git clone pinned to a literal tag` | The form the three bats helper libraries were pinned in, for the same reason. |
+| `_run_pin_coverage: FAILS on an OFFICIAL image, which has no namespace` | `alpine:3.21` carries no slash, so the registry-reference shape cannot anchor on it; the `docker run` context is what keeps digests and port examples out. |
+| `_run_pin_coverage: FAILS on a uses: ref written inside a SHELL SCRIPT` | dependabot reads workflow FILES; a ref inside a generator's heredoc is nobody's job but the watch's. |
+| `_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile` | The live instance: a bats tag written into every migrated downstream Dockerfile, two minors behind this repo's own pin. |
 | `_run_pin_coverage: FAILS on a uses: ref pinned to a BRANCH` | dependabot advances a version ref to the next version; `@main` is not one, so it never can. |
 | `_run_pin_coverage: a uses: VERSION ref needs no marker (dependabot's job)` | Scope boundary: two mechanisms with opinions about one dependency is worse than one that works. |
 | `_run_pin_coverage: a SHA-pinned uses: ref needs no marker` | Same boundary -- dependabot bumps SHA pins and records the version in the trailing comment. |
 | `_run_pin_coverage: a local reusable-workflow call needs no marker` | `uses: ./...` names this repo, not a third party. |
 | `_run_pin_coverage: an ARG that is not a version needs no marker` | `USER_UID=1000`, `TZ`, a path: a detector that flagged these would be muted within a week. |
 | `_run_pin_coverage: a FROM whose tag is an ARG needs no marker` | The ARG carries the pin; the `FROM` is a reference to it, not a second declaration. |
+| `_run_pin_coverage: an INTERPOLATED release URL needs no marker` | The URL references the ARG, which carries the marker; demanding a second one would get the detector muted. |
+| `_run_pin_coverage: an INTERPOLATED clone ref needs no marker` | Same rule for `-b "${VERSION}"`: the ARG is the declaration. |
+| `_run_pin_coverage: an INTERPOLATED uses: ref in a script needs no marker` | The fix shape: hoist the ref onto a line a marker can address and reference it from the heredoc. |
 | `_run_pin_coverage: a commented-out declaration needs no marker` | A line that builds nothing pins nothing. |
 | `_run_pin_coverage: a pinned marker satisfies the detector` | The ordinary case: a version plus where its upstream lives. |
 | `_run_pin_coverage: an unpinned marker satisfies it and is counted apart` | `unpinned` declares that a dependency floats; the watch then reports it on every run. |
@@ -3380,12 +3388,14 @@ untested) and uncommented.
 | `_run_pin_coverage: FAILS when a marker does not parse` | An unparseable marker is a dependency nothing watches, not a record to skip. |
 | `_run_pin_coverage: the failure names all three marker forms` | Two of the three exist for dependencies that cannot name a version; a reader who knows only the first has no correct move. |
 | `_run_pin_coverage: DIES when the scanned trees yield no pinned entry` | A reader regression that matched nothing would report a clean tree forever. |
-| `_run_pin_coverage: DIES when a scan root is missing` | A renamed tree must not shrink the table in silence. |
+| `_run_pin_coverage: DIES when the walk yields no file at all` | A walk that matched nothing would report a clean tree forever. |
+| `_run_pin_coverage: FAILS when a pruned tree is one git does NOT ignore` | The prune list is the last hand-kept thing here, so it is checked: it exists for generated trees, not as a place to hide an awkward pin. |
+| `_run_pin_coverage: a pruned tree that git ignores is fine` | The legitimate case -- `.prev-release/`, `log/` -- passes. |
 | `_run_pin_coverage: the real repo tree declares every version it names` | Drives the live tree, not a fixture. |
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership is what gives the lint a CI job via the completeness guard. |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The primitive the lint-static matrix entry calls -- pure bash, no compose. |
 
-### test/bats/unit/tool_pins_spec.bats (28)
+### test/bats/unit/tool_pins_spec.bats (34)
 
 | Test | Description |
 |------|-------------|
@@ -3409,8 +3419,14 @@ untested) and uncommented.
 | `pins: --set is a no-op when the pin already names that version` | Re-running the bump proposes nothing new. |
 | `pins: --set reports the from/to and where it wrote` | The line a reviewer reads in the run log. |
 | `pins: --set refuses a name declared unpinned` | There is nothing to set. |
-| `pins: a missing scan root FAILS rather than contributing nothing` | Silence from a renamed tree would make every watch run come back clean. |
-| `pins: --files lists every Dockerfile and workflow under the roots` | The scan surface, derived from directories rather than a file list. |
+| `pins: --set keeps the trailing comment on the line it rewrites` | That comment is where a "held at this version because ..." rationale lives; the bump used to delete it. |
+| `pins: a trailing comment does not leak whitespace into the version` | The stray space flowed into the reported `from`, the branch name and anything CI fed from `--value`. |
+| `pins: --set leaves the file's mode alone` | `mktemp` + `mv` dropped the target to 0600, unreadable to the lint container on a developer machine. |
+| `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week. |
+| `pins: --files lists every Dockerfile, workflow and script it walks` | The scan surface, derived by file SHAPE over the whole tree rather than from a list of directories. |
+| `pins: a Dockerfile at a path nothing anticipated is still scanned` | A hand-kept list of places to look decays exactly as a hand-kept list of tools does, and this one had. |
+| `pins: a shell script that generates a file is a declaration site` | A generator that writes a version into a workflow or a Dockerfile declares it; dependabot cannot read either. |
+| `pins: a pruned tree contributes nothing` | `.prev-release/` is `git archive` of past releases -- every version in it is supposed to be stale. |
 | `pins: check.sh dispatches every resolver the registry declares` | Otherwise the lint would bless a pin the watch fails on weeks later, unattended. |
 | `pins: the real tree's markers all parse` | Drives the live tree. |
 | `pins: just is PINNED in the real tree, not left to a package manager` | Closes the four-provenance-path drift: apt, apk, installer and CI were 37 minors apart. |
@@ -3418,7 +3434,7 @@ untested) and uncommented.
 | `pins: the CI just install reads the pin instead of repeating it` | A fourth copy of the number would let a bump PR leave CI on a different just than the image ships. |
 | `pins: setup-just is no longer invoked without a just-version` | Unversioned, it installed whatever released most recently and turned the suite red on an unrelated diff. |
 
-### test/bats/unit/tool_version_watch_yaml_spec.bats (20)
+### test/bats/unit/tool_version_watch_yaml_spec.bats (23)
 
 | Test | Description |
 |------|-------------|
@@ -3429,6 +3445,9 @@ untested) and uncommented.
 | `tool-version-watch: the workflow's default permission is read-only` | Write is granted to exactly one job, explicitly. |
 | `tool-version-watch: the scan job inherits read-only permissions` | A scan job that could write is a scan job that could land something. |
 | `tool-version-watch: the bump job takes exactly contents+pull-requests write` | Enough to push a branch and propose a change; nothing that can influence a merge. |
+| `tool-version-watch: the proposal is opened with a credential that is NOT GITHUB_TOKEN` | GitHub starts no workflow run for an event GITHUB_TOKEN raised, so the proposal would arrive with zero checks -- silence reading as green. |
+| `tool-version-watch: it verifies that credential BEFORE it pushes anything` | Discovering it after the push leaves a branch with no proposal pointing at it, which then wedges that pin. |
+| `tool-version-watch: an abandoned branch is replaced, not left to wedge the pin` | Every later run rebuilds the commit, gets a different SHA and is rejected as a non-fast-forward until a human intervenes. |
 | `tool-version-watch: the bump job is a matrix over the drifted pins` | One shared branch would conflate N questions into one red/green nobody can act on. |
 | `tool-version-watch: one failing bump does not cancel the others` | A version that breaks the build must not hide the ones that do not. |
 | `tool-version-watch: the branch name carries the tool AND the version` | Otherwise the next bump of the same tool collides with the open proposal for the last one. |
@@ -3442,3 +3461,18 @@ untested) and uncommented.
 | `tool-version-watch: the workflow names no individual tool` | A roster here would be one more thing to fall behind the Dockerfile. |
 | `tool-version-watch: the bump is performed by the same script a human runs` | `just watch bump` and the scheduled run produce an identical diff. |
 | `tool-version-watch: it runs on a reserved GitHub-hosted runner` | Both jobs execute repository code; the self-hosted guard proves the rule generally, this pins the intent here. |
+
+### test/bats/unit/tool_watch_check_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `watch: a pin behind its upstream exits 10 and names both versions` | Exit 10 is "the watch worked and found work", kept distinct from every failure code. |
+| `watch: a pin level with its upstream exits 0` | The clean week -- the only run that may be silent. |
+| `watch: an upstream that does not answer FAILS the run` | Never reported as up to date: an empty matrix from an unreachable API looks exactly like nothing to do. |
+| `watch: a version on the pin's skip list is refused, not proposed` | `skip=` is the refusal written down in the file that declares the pin, unlike a closed dependabot PR. |
+| `watch: a pin table that does not parse exits 1, not 0` | The regression: a process substitution discarded the reader's status, so an unreadable tree printed all zeros and exited 0. |
+| `watch: a marker that stops the reader mid-file does not shrink the table silently` | The partial form -- pins after the bad marker vanished while the exit code reflected only the ones before it. |
+| `watch: a tree with nothing scannable in it exits 1` | Nothing compared must never be reported as everything current. |
+| `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its bump matrix from this stdout; an empty list with status 0 is the silent clean week. |
+| `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | One invocation serves both the machine and the human: two walks of the upstream APIs can disagree. |
+| `watch: an unknown option is a usage error, distinct from both` | Exit 2 cannot be mistaken for "drifted" or for "could not resolve". |
