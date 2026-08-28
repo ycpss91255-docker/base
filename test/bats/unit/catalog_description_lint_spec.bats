@@ -327,6 +327,33 @@ _write_summary_section() {
   assert_output --partial 'malformed'
 }
 
+@test "_run_catalog_description: 256 findings in a sidecar file are not read as zero (#922)" {
+  # The load-list findings used to come back as the function's EXIT
+  # STATUS, and an exit status is 8 bits. The 256th finding wrapped to 0,
+  # the caller's `|| _violations=$(( _violations + $? ))` never fired, and
+  # the lint printed 256 findings and then called itself clean -- the
+  # exact defect class this whole driver is written against, a guard whose
+  # own report contradicts its verdict. The baseline holds four figures of
+  # entries, so a re-sort under another locale or a bulk regeneration
+  # reaches 256 without anything exotic happening.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  {
+    printf '# scratch baseline\n'
+    # Malformed lines are not entries, so the declared count stays 0 and
+    # the 256 findings are exactly the 256 malformed lines.
+    printf '# entries: 0\n'
+    local _i
+    for (( _i = 0; _i < 256; _i++ )); do
+      printf 'no-tab-separator-%03d\n' "${_i}"
+    done
+  } > "${BASELINE}"
+  run _run_catalog_description
+  assert_failure
+  refute_output --partial 'catalog description lint: clean'
+  assert_output --partial '256 undescribed'
+}
+
 @test "_run_catalog_description: a baseline entry may NOT excuse a row that is also described (#922)" {
   # The ratchet from the other side. The baseline records what was already
   # missing; the moment one of its keys also names a DESCRIBED row, that
