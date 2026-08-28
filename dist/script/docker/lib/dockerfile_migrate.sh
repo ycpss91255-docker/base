@@ -135,19 +135,103 @@ _migrate_wrapper_copy_apply() {
 # v0.41.0 retired the .base/dockerfile/setup pip flow. The downstream RUN
 #   RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir \
 #       -r "${CONFIG_DIR}"/pip/requirements.txt
-# (optionally preceded by a "# Setup pip packages" comment) only ever
-# installed base's empty placeholder, so it is a no-op once the helper is
-# gone — and a hard failure if CONFIG_DIR/pip/requirements.txt is absent.
-# Drop both lines; a repo with a real requirements file re-adds an explicit
-# pip step pointing at its own path.
+# (optionally preceded by a "# Setup pip packages" comment) installs base's
+# empty placeholder in most repos, so it is a no-op once the helper is gone
+# — and a hard failure if CONFIG_DIR/pip/requirements.txt is absent, since
+# the shipped dist/config/ no longer carries one. Drop both lines.
+#
+# WHAT THE LINE ALONE CANNOT SAY, and why this migration reads more than
+# the Dockerfile. dist/dockerfile/Dockerfile layers the config directory
+# twice: `.base/dist/config` (base's own, no pip/ any more) and then the
+# repo's `${CONFIG_SRC}` -- ARG CONFIG_SRC="config", i.e. <repo>/config --
+# onto the same ${CONFIG_DIR}. So the in-image
+# ${CONFIG_DIR}/pip/requirements.txt IS the repo's own file, and the RUN
+# line is byte-identical whether that file is the placeholder or a real
+# dependency list. Deleting it in the second case removes a WORKING install:
+# the build still succeeds and the packages are silently gone. This
+# migration reaches every consumer repo mechanically through
+# `just upgrade`, so a delete it cannot justify is a delete it must not do.
+#
+# The precondition is checkable, so it is checked: the requirements file
+# sits next to the Dockerfile the migration was handed. The line is dropped
+# only where the install is PROVABLY inert -- the file is absent (the
+# build-breaking case the migration exists for) or carries nothing but
+# blanks and comments. Anything with a real requirement in it is kept and
+# reported, per the apply policy at the top of this file: a shape the
+# migration does not recognise is warned about, never force-rewritten.
+#
+# The delete is also line-based, so it is only safe on a pip line that is a
+# complete physical instruction. Inside a backslash-continued RUN, removing
+# one physical line either dangles the previous line's continuation (which
+# swallows the next instruction) or orphans the tail as a bare
+# non-instruction line (a Dockerfile parse error). Those shapes are kept and
+# reported too; restructuring someone's compound RUN is not a mechanical
+# edit.
+
+# The one spelling of the retired helper line, shared by the detector, the
+# continuation check and the delete. `\%...%` addresses the sed so the
+# pattern's own slashes need no escaping.
+readonly _DFM_PIP_HELPER_RE='pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt'
+
+# A physical line that continues onto the next one. Held in a variable
+# because an inline `=~` right-hand side loses one level of backslash to
+# quote removal, which would silently turn this into "a literal [".
+readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
+
+# _dfm_pip_requirements_populated <dockerfile>
+#   Exit 0 when the repo ships a requirements file with at least one real
+#   requirement: any line that is neither blank nor a `#` comment. An
+#   absent file is NOT populated -- that is the case whose build the
+#   migration is repairing.
+_dfm_pip_requirements_populated() {
+  local _file="$1"
+  local _req
+  _req="$(dirname -- "${_file}")/config/pip/requirements.txt"
+  [[ -f "${_req}" ]] || return 1
+  grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}"
+}
+
+# _dfm_pip_line_is_standalone <dockerfile>
+#   Exit 0 when every matched helper line is a complete physical
+#   instruction -- it neither continues the previous line nor continues
+#   onto the next. Only that shape survives a line-based delete intact.
+_dfm_pip_line_is_standalone() {
+  local _file="$1"
+  local _line _prev_cont=false _cont
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" =~ ${_DFM_LINE_CONTINUES_RE} ]]; then
+      _cont=true
+    else
+      _cont=false
+    fi
+    if [[ "${_line}" =~ ${_DFM_PIP_HELPER_RE} ]] \
+        && { [[ "${_prev_cont}" == true ]] || [[ "${_cont}" == true ]]; }; then
+      return 1
+    fi
+    _prev_cont="${_cont}"
+  done < "${_file}"
+  return 0
+}
+
 _migrate_pip_helper_detect() {
   local _file="$1"
-  grep -qE 'pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt' "${_file}"
+  grep -qE "${_DFM_PIP_HELPER_RE}" "${_file}"
 }
 
 _migrate_pip_helper_apply() {
   local _file="$1"
-  sed -i -E '/pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*\/pip\/requirements\.txt/d' "${_file}"
+
+  if _dfm_pip_requirements_populated "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
+    return 0
+  fi
+
+  if ! _dfm_pip_line_is_standalone "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — it is part of a backslash-continued RUN a line delete would break; drop it by hand (#567 m2)"
+    return 0
+  fi
+
+  sed -i -E "\\%${_DFM_PIP_HELPER_RE}%d" "${_file}"
   sed -i '/^# Setup pip packages$/d' "${_file}"
   _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
 }
