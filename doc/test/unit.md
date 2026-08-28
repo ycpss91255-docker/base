@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2953 tests**.
+Unit specs under `test/bats/unit/`: **2956 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -966,7 +966,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (57)
+### test/bats/unit/dockerfile_migrate_spec.bats (60)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -998,6 +998,9 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | The shipped placeholder is provably inert, so the delete still happens |
 | `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | A line delete there would dangle the previous line's backslash |
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | A line delete there would orphan the tail as a bare non-instruction line |
+| `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
 | `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |

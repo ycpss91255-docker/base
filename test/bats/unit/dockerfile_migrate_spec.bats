@@ -249,6 +249,10 @@ EOF
 @test "migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)" {
   # Deleting this physical line leaves `RUN apt-get update && \` dangling,
   # which swallows the next instruction into the same shell command.
+  # The placeholder requirements file is seeded so the CONTINUATION is the
+  # only thing keeping the line -- otherwise the spec would pass on the
+  # unresolvable-config-source branch instead.
+  _seed_requirements "# install python dep"
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
 RUN apt-get update && \
@@ -264,11 +268,84 @@ EOF
 
 @test "migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)" {
   # Deleting this physical line orphans `    apt-get clean` as a bare
-  # non-instruction line, which is a Dockerfile parse error.
+  # non-instruction line, which is a Dockerfile parse error. Placeholder
+  # requirements seeded for the same reason as the spec above.
+  _seed_requirements "# install python dep"
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
 RUN pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt && \
     apt-get clean
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+# The requirements file the migration reads is <repo>/config/pip/... only
+# while CONFIG_SRC still holds its default. It is a build ARG
+# (dist/dockerfile/Dockerfile `ARG CONFIG_SRC="config"`, consumed by the
+# layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"`), and a
+# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf reaches the build as
+# a compose build arg, so a repo can legitimately overlay ${CONFIG_DIR} from
+# some other directory. Reading `config/` regardless would report "not
+# populated" for a repo whose real dependency list lives elsewhere and delete
+# a working install -- the same silent package loss, just narrowed. Where the
+# source cannot be located, the install cannot be proven inert, so the line
+# is kept.
+
+@test "migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)" {
+  mkdir -p "${TEMP_DIR}/myconfig/pip"
+  printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG CONFIG_SRC="myconfig"
+COPY "${CONFIG_SRC}" "${CONFIG_DIR}"
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)" {
+  # The Dockerfile still says `config`; the build arg overrides it, and the
+  # placeholder under config/ would otherwise read as "prove it is inert".
+  _seed_requirements "# install python dep"
+  mkdir -p "${TEMP_DIR}/myconfig/pip"
+  printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_1 = TZ=Asia/Taipei
+arg_2 = CONFIG_SRC=myconfig
+EOF
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG CONFIG_SRC="config"
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)" {
+  # No config/ at all: whatever ${CONFIG_DIR} is overlaid from, it is not
+  # something this migration can read, so it cannot call the install inert.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
 RUN echo done
 EOF
   cp "${DF}" "${DF}.orig"
