@@ -825,14 +825,22 @@ YAML
 YAML
     fi
     if [[ -n "${_eff_environment}" ]]; then
+      # Expand `${KEY}` cross-references against earlier siblings first,
+      # exactly as the devel env block does. Skipping it here made the
+      # SAME setup.conf produce two different container envs: devel saw
+      # the expanded value and the stage service saw a literal `${KEY}`
+      # that compose's own substitution layer cannot resolve, because it
+      # never sees sibling env entries.
+      local -a _stage_env_expanded=()
+      _expand_env_cross_refs "${_eff_environment}" _stage_env_expanded
       local _ev _ev_dq
-      while IFS= read -r _ev; do
+      for _ev in "${_stage_env_expanded[@]}"; do
         [[ -z "${_ev}" ]] && continue
         # Quote each entry as a YAML double-quoted scalar (see the devel
         # env block) so structural chars in the value can't be re-parsed.
         _yaml_dq "${_ev}" _ev_dq
         echo "      - ${_ev_dq}"
-      done <<< "${_eff_environment}"
+      done
     fi
     if [[ -n "${_stage_log_file}" ]]; then
       echo "      - LOG_FILE_PATH=${_stage_log_file}"
