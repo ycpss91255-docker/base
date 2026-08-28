@@ -294,6 +294,43 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert_success
 }
 
+@test "_atexit_set_exit_code: a callback's rc wins WITHOUT skipping finalize (#956)" {
+  # A callback whose rc must beat the command's own (a failing post-hook)
+  # cannot get there by calling `exit` from inside the trap: that
+  # terminates the shell in the middle of the atexit loop, before
+  # _transcript_exit_handler ever reaches _transcript_finalize. The run
+  # then leaves an unstripped .raw behind, with no transcript_complete
+  # line and latest.log still naming the PREVIOUS run -- on precisely the
+  # failing run the transcript exists to record (ADR-00000007). A callback
+  # records the code instead; the handler finalizes, then exits with it.
+  run -9 bash -c "
+    export _WRAPPER_VERB=setup FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    _failing_hook() { printf 'hook ran\n'; _atexit_set_exit_code 9; }
+    _atexit _failing_hook
+    printf 'work then fail\n'
+    exit 2
+  "
+  # (a) the callback's code is the process's code, not the command's 2.
+  assert_equal "${status}" 9
+  # (b) the transcript is complete: stripped file, no raw capture left.
+  local _f
+  _f="$(ls "${TMP_DIR}/log/setup/"*.log 2>/dev/null | head -n1)"
+  assert [ -n "${_f}" ]
+  assert_equal "$(find "${TMP_DIR}/log/setup" -name '*.raw' | wc -l)" 0
+  # (c) the closing line carries the code the caller actually saw...
+  run grep -F "transcript_complete exit_code=9" "${_f}"
+  assert_success
+  # ...and the callback's own output is captured, not lost with the tee.
+  run grep -F "hook ran" "${_f}"
+  assert_success
+  # (d) latest.log points at THIS run, not the one before it.
+  assert [ -L "${TMP_DIR}/log/setup/latest.log" ]
+  run cat "${TMP_DIR}/log/setup/latest.log"
+  assert_output --partial "work then fail"
+}
+
 @test "transcript: latest.log symlink points at the run's file (#606)" {
   _run_transcript_harness build
   assert [ -L "${TMP_DIR}/log/build/latest.log" ]

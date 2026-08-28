@@ -1617,3 +1617,24 @@ _seed_post_setup_hook() {
   assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
   assert [ ! -f "${TEMP_DIR}/.env" ]
 }
+
+@test "setup.sh finalizes the transcript when the post-setup hook fails (#956)" {
+  # ADR-00000007: a non-interactive verb leaves log/<verb>/<ts>-<id>.log --
+  # ANSI stripped, closed with a transcript_complete line, latest.log
+  # repointed. The failing run is the one worth reading, and moving the
+  # post-hook onto the EXIT trap put a hook `exit` INSIDE that trap: it
+  # terminates the shell mid-atexit-loop, before the handler finalizes, so
+  # the run leaves only the unstripped .raw and latest.log still names the
+  # previous run. The hook's rc must win without costing the transcript.
+  _seed_post_setup_hook 9
+  cd "${TEMP_DIR}"
+  run -9 env WRAPPER_TRANSCRIPT=true \
+    bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+  assert_equal "$(find "${TEMP_DIR}/log/setup" -name '*.raw' | wc -l)" 0
+  assert [ -L "${TEMP_DIR}/log/setup/latest.log" ]
+  run cat "${TEMP_DIR}/log/setup/latest.log"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+  assert_output --partial "transcript_complete exit_code=9"
+}
