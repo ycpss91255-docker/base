@@ -551,7 +551,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (104)
+### test/bats/unit/self_test_yaml_spec.bats (106)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -2010,7 +2010,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (108)
+### test/bats/unit/ci_spec.bats (113)
 
 | Test | Description |
 |------|-------------|
@@ -2029,7 +2029,12 @@ builds the env block only for the knobs the conf sets.
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 | `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
 | `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)` | #615 partition invariant (each slice runs once) |
-| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
+| `_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)` | #677 live-tree probe through `_spec_weight`, at the eight shards CI runs |
+| `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
+| `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over eight shards must FAIL the guard |
+| `_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)` | #940 the probe's shard total is load-bearing: N=4 passes what N=8 catches |
+| `_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)` | #936 regression guard: a probe totalling `test/bats/unit/` alone is caught on the live tree |
+| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 arithmetic: the recorded loads clear the ceil'd bound once the total is pooled |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
@@ -3335,6 +3340,30 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/arch_literal_lint_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_run_arch_literal: FAILS on a bare Docker architecture literal, naming file and line (#939)` | - |
+| `_run_arch_literal: FAILS on the uname spelling of the same assumption (#939)` | - |
+| `_run_arch_literal: FAILS on a mixed-case release-asset spelling (#939)` | - |
+| `_run_arch_literal: FAILS on a platform pair literal (#939)` | - |
+| `_run_arch_literal: FAILS on a literal inside a comment too (#939)` | - |
+| `_run_arch_literal: names the offending literal and points at TARGETARCH (#939)` | - |
+| `_run_arch_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#939)` | - |
+| `_run_arch_literal: FAILS on an unterminated allow-begin region (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-end with no matching allow-begin (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-begin carrying no stated reason (#939)` | - |
+| `_run_arch_literal: FAILS on a per-line allow carrying no stated reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that expresses architecture via TARGETARCH (#939)` | - |
+| `_run_arch_literal: PASSES a two-spelling mapping table inside an allow region (#939)` | - |
+| `_run_arch_literal: PASSES a single line carrying a per-line allow with a reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that names no architecture at all (#939)` | - |
+| `_run_arch_literal: ignores non-Dockerfile files under the scan roots (#939)` | - |
+| `_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
+| `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 ### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides

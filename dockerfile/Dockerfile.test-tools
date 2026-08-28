@@ -24,6 +24,11 @@ RUN apk add --no-cache git && \
         https://github.com/jasonkarns/bats-mock   /bats/bats-mock
 
 FROM alpine:${ALPINE_VERSION} AS lint-tools
+# arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
+# the one place both spellings legitimately meet: TARGETARCH speaks amd64 /
+# arm64, shellcheck publishes linux.x86_64 / linux.aarch64 and hadolint
+# publishes Linux-x86_64 / Linux-arm64. Everything outside this block builds
+# its architecture from ${TARGETARCH}.
 # TARGETARCH is auto-populated by BuildKit (docker 23+) with "amd64" /
 # "arm64" / etc. Do NOT set a default — a default value shadows
 # BuildKit's auto-inject (moby/buildkit#3403), which caused every
@@ -46,6 +51,7 @@ RUN apk add --no-cache curl xz && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
         "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
+# arch-literal-lint: allow-end
 
 # kcov is not packaged in any Alpine repository (main / community /
 # edge-testing all lack it -- verified), so it cannot be `apk add`ed like
