@@ -109,7 +109,9 @@
 # Scope: doc/test/*.md, and within them only the tables that a generated
 # `### <path> (N)` section opens with a `| Test | Description |` header.
 # TEST.md's own index tables belong to no spec, and reading those as test
-# rows would invent findings for rows nobody claimed were tests.
+# rows would invent findings for rows nobody claimed were tests. Inside a
+# fenced code block nothing is structure, so the convention may be
+# illustrated in the documents that describe it.
 #
 # The row SPLITTER is SHARED with the generator, not copied:
 # sync-doc-counts.sh's _catalog_cell_split_into is sourced and called
@@ -383,6 +385,18 @@ _run_catalog_description() {
 
   local _doc _rel _spec _line _lineno _in_table _rows=0 _catalogs=0 _excused=0
   local _name _desc _key
+  # Inside a fenced code block nothing is structure: a `###` line is an
+  # example of a heading and a `|` line is an example of a row. The
+  # convention this lint enforces is documented in doc/test/TEST.md, and a
+  # rule that cannot be illustrated where it is written down is a rule
+  # people paraphrase. Tracked as an open-fence marker rather than resolved
+  # up front the way drivers/changelog_entry.sh does it, because this scan
+  # is a stream over many documents rather than one file read into an
+  # array; the reading is the same (CommonMark: three or more backticks or
+  # tildes, closed by at least as many of the same character and no info
+  # string).
+  local _fence_open=''
+  local _trimmed
   # Where each described row was read, keyed the way the baseline is. A
   # baseline entry over one of these is refused below: the entry would
   # excuse a row that does not need excusing, and the description it sits
@@ -406,8 +420,28 @@ _run_catalog_description() {
     _spec=''
     _in_table=0
     _lineno=0
+    _fence_open=''
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
+
+      _trimmed="${_line#"${_line%%[![:space:]]*}"}"
+      _trimmed="${_trimmed%"${_trimmed##*[![:space:]]}"}"
+      if [[ -n "${_fence_open}" ]]; then
+        if [[ "${_trimmed}" =~ ^(\`\`\`+|~~~+)$ ]] \
+          && [[ "${BASH_REMATCH[1]:0:1}" == "${_fence_open:0:1}" ]] \
+          && [[ "${#BASH_REMATCH[1]}" -ge "${#_fence_open}" ]]; then
+          _fence_open=''
+        fi
+        continue
+      fi
+      if [[ "${_trimmed}" =~ ^(\`\`\`+|~~~+) ]]; then
+        _fence_open="${BASH_REMATCH[1]}"
+        # A fence is not a row, so it ends the table it interrupts -- but
+        # it does NOT end the section, which is what keeps an illustrated
+        # section governed rather than quietly outside the rule.
+        _in_table=0
+        continue
+      fi
 
       if (( _in_table )); then
         if [[ "${_line}" == '|'* ]]; then
