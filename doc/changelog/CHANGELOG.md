@@ -74,6 +74,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   per-line allow opts out, and either must state a reason.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
+
+- **`action-ref-agreement`: one action called at two refs across the workflows
+  now fails the lint (closes #949)** -- `docker/build-push-action` ran at `@v6`
+  in five `self-test.yaml` steps and `@v7` in six elsewhere, green for months,
+  because actionlint reads each `uses:` in isolation and dependabot will not
+  re-propose a version pair whose PR was closed -- so nothing would have
+  offered it again, and `dependabot.yml` shows no trace. All eleven are on
+  `@v7` (the majors share an input set). The lint groups by the action's
+  REPOSITORY, so `actions/cache/save` and `.../restore` move together. A call
+  site may hold back behind an `action-ref-agreement: allow -- <why>` comment;
+  a bare marker fails.
+
 ### Fixed
 - **the reusable build worker's jobs no longer inherit the caller's whole
   token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
@@ -89,6 +101,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted. Every row of that
   table is now pinned to a path that exists.
+- **workflow and template structural specs now assert against a file's CODE,
+  not its comments (refs #954)** -- this repo's comments name in prose exactly
+  what its specs pin, so a whole-file grep was satisfied by the explanation
+  instead of the thing. Deleting `setup_tui.sh`'s transcript calls, the
+  template Dockerfile's `logging.sh` COPY, `hook.sh`'s DRY_RUN guard,
+  ci-rollup's skipped-tolerance, the wrappers' `lib/bootstrap.sh` dispatch or
+  `run.sh`'s already-running refusal each left the spec named for it green.
+  The specs read one shared comment-stripped view now, and claims that were
+  false assert something true: `_lib.sh` is pinned on `bootstrap.sh`, which
+  sources it. No test was deleted.
 - **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
@@ -114,9 +136,21 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **260 tests no longer pass when the artifact they assert on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
 - **the shard-balance guard failed CI on a partition that was fine, and could never fail locally (closes #940)** -- its total was summed over `test/bats/unit/` while `_shard_unit_files` partitions unit **+** integration, so the average was short by every integration spec, condemning a healthy partition. A latent second defect: it counted `@test` lines while the partitioner weighs recorded seconds, which collapse to one number locally. The probe now measures through `_spec_weight` against the bound no partition can beat, over the eight shards CI runs rather than four; synthesised weights drive skewed distributions locally, and a case asserts the probe's total still spans the whole pool.
 ### Added
+- **an ADR's claims about this repo are now checked against this repo (refs #927)** -- `test/bats/unit/adr_doc_claims_spec.bats` reads every record under `doc/adr/` block by block and refuses three ways of being wrong about the tree: a trigger claim that leaves a `workflow_call`-only workflow looking tag-triggered, an assembler or payload manifest attributed to a workflow that never references it, and a "verbatim" quotation of a file this repo does not carry. All three are derived from the tree, so a migration lifts the constraint instead of breaking the test. ADR-00000027 shipped all three and is the reason.
+- **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
+### Documentation
+- **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
+  the maintainer's, and only X/Y fans out** -- policy behind `semver-bump` /
+  `/release`, not a new mechanism. A `vX.Y.Z` (Z>0) needs no ACK, restoring the
+  skill's own table, and one bug is one release so a downstream can name the
+  tag carrying its fix. The binding half is classification: a fix that changes
+  behaviour is a Y whatever it is labelled. #927's fanout triggers on X/Y
+  **only**, because `just base upgrade <tag>` is one subtree pull to that tag,
+  so a Y delivers every Z in between and only the notification is batched.
+  Affects anyone cutting a base release.
 ### Removed
 - **base's own release no longer attaches a hand-built source archive (closes
   #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`
