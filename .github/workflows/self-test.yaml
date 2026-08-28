@@ -1645,22 +1645,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Create release archive
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          ARCHIVE_NAME="template-${VERSION}"
-
-          mkdir -p "${ARCHIVE_NAME}"
-          # init.sh / upgrade.sh now live under dist/script/base/
-          # (#654), already covered by the dist/ entry below.
-          cp -r justfile compose.yaml \
-                dist/ dockerfile/ test/ script/ doc/ \
-                README.md LICENSE \
-                "${ARCHIVE_NAME}/"
-
-          tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
-          zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
-
       - name: Extract release notes for current tag
         run: |
           VERSION="${GITHUB_REF_NAME}"
@@ -1682,6 +1666,13 @@ jobs:
           body_path: /tmp/release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            template-*.tar.gz
-            template-*.zip
+          # No `files:`. GitHub attaches its own source archives
+          # (tarball_url / zipball_url) to every release, and they hold the
+          # FULL tracked tree. This job used to build a second pair beside
+          # them from a hardcoded `cp -r` operand list -- a strictly worse
+          # subset that silently omitted whatever nobody remembered to add
+          # to the list, and that failed the entire release at tag push the
+          # moment one operand went missing. Do not re-add one: the
+          # downstream archive assembled by release-worker.yaml is a
+          # different artifact (a curated payload, declared in
+          # script/ci/release/archive.manifest), not this one.
