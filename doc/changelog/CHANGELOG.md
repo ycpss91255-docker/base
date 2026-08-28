@@ -57,6 +57,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a job cannot reach the org's self-hosted runner from a fork PR, and the rule is linted rather than remembered (closes #766)** -- the issue filed this as insurance, but the premise was false: the org has one online self-hosted runner, in a group with `visibility: all` and `allows_public_repositories: true`, and this repo is public. Eligibility is now computed from each job's `runs-on` by a lint that scans the workflow directory and fails CLOSED on anything it cannot statically prove is a reserved GitHub-hosted label. Three of 33 jobs are eligible today; all carry the guard. A job added tomorrow is covered without editing the lint.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
+
+- **`action-ref-agreement`: one action called at two refs across the workflows
+  now fails the lint (closes #949)** -- `docker/build-push-action` ran at `@v6`
+  in five `self-test.yaml` steps and `@v7` in six elsewhere, green for months,
+  because actionlint reads each `uses:` in isolation and dependabot will not
+  re-propose a version pair whose PR was closed -- so nothing would have
+  offered it again, and `dependabot.yml` shows no trace. All eleven are on
+  `@v7` (the majors share an input set). The lint groups by the action's
+  REPOSITORY, so `actions/cache/save` and `.../restore` move together. A call
+  site may hold back behind an `action-ref-agreement: allow -- <why>` comment;
+  a bare marker fails.
+
 ### Fixed
 - **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
