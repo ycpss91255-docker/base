@@ -342,10 +342,23 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh refuses when the default container is already running" {
-  # The script should grep docker ps for an existing container with the
-  # default name and exit non-zero with a helpful message.
-  run grep -E 'already running|already exists' /source/dist/script/docker/wrapper/run.sh
+  # The refusal is the GUARD, not the wording. The old assertion greped
+  # the whole file for `already running|already exists`, which the i18n
+  # message table satisfies on its own -- deleting the entire
+  # `if [[ "${DETACH}" != true ... ]]` / _wrapper_container_running /
+  # `exit 1` block left this spec green.
+  #
+  # So: pin the enclosing condition, pin the running-container probe, and
+  # read the refusal out of the probe's OWN block -- a bare `exit 1`
+  # appears all over the file and proves nothing on its own.
+  run code_grep -F 'if [[ "${DETACH}" != true' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
+  run code_grep -A7 -F 'if _wrapper_container_running "${CONTAINER_NAME}"; then' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  assert_output --partial '_log_err run run_already_running'
+  assert_output --partial 'exit 1'
 }
 
 @test "base is single-instance: no --instance flag remains (#600)" {
@@ -624,33 +637,75 @@ EOF
   assert_success
 }
 
-@test "build.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/build.sh
+@test "build.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # The wrapper does not source _lib.sh itself. It searches the
+  # candidate paths for lib/bootstrap.sh and sources THAT; bootstrap.sh
+  # is what sources _lib.sh (pinned by its own spec below). Both
+  # assertions name an expansion no comment and no error string in this
+  # file carries -- greping the whole file for `source.*_lib.sh` matched
+  # only the header comment and the not-found message, so the specs
+  # stayed green with the dispatch deleted.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/build.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
-@test "run.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/run.sh
+@test "run.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "exec.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/exec.sh
+@test "exec.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/exec.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
-@test "stop.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/dist/script/docker/wrapper/stop.sh
+@test "stop.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/stop.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
+    /source/dist/script/docker/wrapper/stop.sh
+  assert_success
+}
+
+@test "lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)" {
+  # The wrapper-side half of this claim lives in the four specs above,
+  # which pin the bootstrap dispatch. This is the other half, asserted
+  # against the file where it is true, and anchored to a leading
+  # `source` / `.` so the prose that names _lib.sh cannot satisfy it.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/lib/bootstrap.sh
   assert_success
 }
 
 @test "_lib.sh sources i18n.sh (delegates language detection)" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/lib/_lib.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/lib/_lib.sh
   assert_success
 }
 
 @test "setup.sh sources i18n.sh" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/wrapper/setup.sh
+  # Anchored for the same reason as the bootstrap specs above: the
+  # unanchored whole-file grep was also satisfied by the header comment
+  # ("so sibling sources (i18n.sh / _tui_conf.sh) are located in the"),
+  # so deleting the real source line left the spec green.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/wrapper/setup.sh
   assert_success
 }
 
@@ -1784,11 +1839,19 @@ _manifest_declares() {
 
 @test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
   # Regression guard for Q13: dry-run contract requires no side effects.
-  run grep -E 'DRY_RUN.*true' /source/dist/script/docker/lib/hook.sh
+  #
+  # Over the code lines, and against the guard itself rather than the two
+  # words near each other. hook.sh's header lists `DRY_RUN=true -> both pre
+  # and post silently skipped` as part of its contract, so deleting the
+  # actual early return left the whole-file regex matching that sentence
+  # and this guard green. Both helpers route through __hook_run, so the one
+  # early return is the whole property.
+  run code_grep -F '[[ "${DRY_RUN:-false}" == "true" ]]' \
+    /source/dist/script/docker/lib/hook.sh
   assert_success
 }
 
 @test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
-  run grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
+  run code_grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
   assert_success
 }
