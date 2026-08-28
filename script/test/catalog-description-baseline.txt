@@ -7,7 +7,17 @@
 # rushed backfill would produce filler that restates the test name -- which
 # passes the lint and is worse than the placeholder.
 #
-# It grew ONCE after it was first written, deliberately and in one commit:
+# It has grown TWICE, both times deliberately and both times in one commit.
+#
+# The second was the merge that landed this rule on a main that had moved:
+# 1517 on 2026-08-27, 1602 on 2026-08-28, when 114 rows that arrived on main
+# while the rule was in review were parked and 29 renamed rows fell out.
+# Those 86 predate the rule in the only sense that counts -- the lint does
+# not exist on the branch they were written on, so their authors were never
+# asked for a sentence. A branch that lands after main moves inherits this
+# once; a commit made with the rule in place does not.
+#
+# The first:
 # 714 rows on 2026-08-26, 1517 on 2026-08-27, when the 25 catalogue sections
 # that carried no per-test table AT ALL were given one. Those 820 rows --
 # among them the specs this tree edits most, setup_cmd / stage / setup /
@@ -33,7 +43,7 @@
 # Raising the count is how the ratchet is loosened, and it is one visible
 # line in a diff that a reviewer has to accept.
 #
-# entries: 1517
+# entries: 1602
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang ja prints ja usage (#222)
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-CN prints zh-CN usage (#222)
 dist/test/bats/smoke/devel-test/script_help.bats	build.sh --help --lang zh-TW prints zh-TW usage (#222)
@@ -55,7 +65,7 @@ test/bats/integration/compose_host_identity_spec.bats	compose.yaml: an unset HOS
 test/bats/integration/compose_host_identity_spec.bats	compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)
 test/bats/integration/compose_host_identity_spec.bats	compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)
 test/bats/integration/deploy_bundle_flow_spec.bats	deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)
-test/bats/integration/deploy_bundle_flow_spec.bats	deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)
+test/bats/integration/deploy_bundle_flow_spec.bats	deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)
 test/bats/integration/doc_counts_merge_spec.bats	resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)
 test/bats/integration/doc_counts_merge_spec.bats	resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)
 test/bats/integration/fresh_clone_portability_spec.bats	fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)
@@ -65,6 +75,7 @@ test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .dockerignore c
 test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)
 test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)
 test/bats/integration/gitignore_sync_spec.bats	init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)
+test/bats/integration/init_installed_paths_spec.bats	the printed manifest equals what the resync installs (refs #927)
 test/bats/integration/init_new_repo_spec.bats	Dockerfile.example references CONFIG_SRC="config" (not .base/dist/config)
 test/bats/integration/init_new_repo_spec.bats	new repo: .dockerignore contains compose.yaml (derived artifact) (#604)
 test/bats/integration/init_new_repo_spec.bats	new repo: .dockerignore exists (#604)
@@ -84,6 +95,7 @@ test/bats/integration/init_rollback_spec.bats	just base init: a mid-migration fa
 test/bats/integration/init_rollback_spec.bats	just base init: the failed resync says it restored the files (#937)
 test/bats/integration/init_rollback_spec.bats	just base init: the recipe passes straight through to init.sh (#937)
 test/bats/integration/init_rollback_spec.bats	the current upgrade.sh: inner and outer rollback compose, not fight (#937)
+test/bats/integration/prev_release_upgrade_spec.bats	a released upgrade.sh still migrates a hand-written .env to .env.local (#868)
 test/bats/integration/prev_release_upgrade_spec.bats	the newest released upgrade.sh drives the current tree to a working consumer
 test/bats/integration/prev_release_upgrade_spec.bats	the previous released upgrade.sh drives the current tree to a working consumer (N-1)
 test/bats/integration/upgrade_spec.bats	upgrade.sh leaves a deliberately configured restart policy alone
@@ -95,6 +107,44 @@ test/bats/integration/wrapper_compose_dispatch_spec.bats	[project] name in .setu
 test/bats/integration/wrapper_compose_dispatch_spec.bats	an unchanged repo keeps the project name it resolved before [project] existed
 test/bats/integration/wrapper_compose_dispatch_spec.bats	the -p project name and compose.yaml's name: are one value, not two computations
 test/bats/integration/wrapper_compose_dispatch_spec.bats	two checkouts of one repo dispatch different projects after a local override
+test/bats/system/deploy_bundle_e2e_spec.bats	field-deploy e2e: an operator .env.local override reaches the RUNNING container
+test/bats/unit/adr_doc_claims_spec.bats	R1: FAILS a tag claim that names a workflow with no tag trigger (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R1: IGNORES a name this repo has no workflow for (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R1: IGNORES a workflow named with no trigger claim in the block (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R1: PASSES the same claim once the block states the real trigger (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R1: a workflow named inside a fenced example is inert (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R2: FAILS attributing the payload manifest to a workflow that never reads it (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R2: PASSES the attribution against the workflow that does read it (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R2: a separate bullet is a separate claim (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R2: a workflow that only MENTIONS the manifest in a comment does not count (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R3: FAILS a verbatim claim about a file outside this repo (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R3: IGNORES verbatim used about behaviour rather than a quotation (#927)
+test/bats/unit/adr_doc_claims_spec.bats	R3: PASSES a verbatim claim about a file this repo carries (#927)
+test/bats/unit/adr_doc_claims_spec.bats	doc/adr: every record's workflow and quotation claims hold against the tree (#927)
+test/bats/unit/adr_doc_claims_spec.bats	doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)
+test/bats/unit/adr_doc_claims_spec.bats	release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)
+test/bats/unit/adr_doc_claims_spec.bats	self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a bare Docker architecture literal, naming file and line (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a literal inside a comment too (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a mixed-case release-asset spelling (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a per-line allow carrying no stated reason (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on a platform pair literal (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on an allow-begin carrying no stated reason (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on an allow-end with no matching allow-begin (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on an unterminated allow-begin region (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS on the uname spelling of the same assumption (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: FAILS when a scan root is missing (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: PASSES a Dockerfile that expresses architecture via TARGETARCH (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: PASSES a Dockerfile that names no architecture at all (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: PASSES a single line carrying a per-line allow with a reason (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: PASSES a two-spelling mapping table inside an allow region (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: ignores non-Dockerfile files under the scan roots (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: names the offending literal and points at TARGETARCH (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)
+test/bats/unit/arch_literal_lint_spec.bats	_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)
 test/bats/unit/base_docker_namespace_spec.bats	base compose.yaml carries no fallback identity for the mounted checkout (#895)
 test/bats/unit/base_docker_namespace_spec.bats	base compose.yaml declares a test-tools service building Dockerfile.test-tools
 test/bats/unit/base_docker_namespace_spec.bats	base compose.yaml names every image with TEST_TOOLS_IMAGE and gives it no default (#891, #896)
@@ -226,6 +276,17 @@ test/bats/unit/cd_guard_spec.bats	cd-guard: refuses an untagged HEAD on a clean 
 test/bats/unit/cd_guard_spec.bats	cd-guard: refuses outside a git repository (exit 1 + 'not inside a git repository')
 test/bats/unit/cd_guard_spec.bats	cd-guard: ships executable, so the documented ./.base/... invocation works
 test/bats/unit/cd_guard_spec.bats	cd-guard: the accept path reports the tag on stdout, refusals on stderr
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: a table separator row is not an orphaned word (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: an orphan in a RELEASED section is never checked (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: an orphan is one that could have joined the line below (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: an unbreakable token alone on its line is not an orphan (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: names the orphan's real line number in the file (#927)
+test/bats/unit/changelog_entry_lint_spec.bats	_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)
 test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a nonexistent scan root, naming it (#848)
 test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a scan root with no doc/test (no vacuous pass) (#848)
 test/bats/unit/check_test_md_drift_spec.bats	_check_test_md_drift: FAILS on a spec-free scan root (no vacuous pass) (#848)
@@ -289,6 +350,8 @@ test/bats/unit/ci_spec.bats	main --readme-sync-only: runs the localized README s
 test/bats/unit/ci_spec.bats	main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)
 test/bats/unit/ci_spec.bats	main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)
 test/bats/unit/completions_spec.bats	install zsh: a zsh still printing fpath cannot re-hint a dir already on it (#905)
+test/bats/unit/compose_emit/blocks_spec.bats	_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)
+test/bats/unit/compose_emit/blocks_spec.bats	_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)
 test/bats/unit/compose_emit/blocks_spec.bats	_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)
 test/bats/unit/compose_emit/blocks_spec.bats	_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml GUI disabled => no XDG_RUNTIME_DIR env or mount
@@ -306,7 +369,6 @@ test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits cap_add fr
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits cap_drop from security list
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits device_cgroup_rules: when cgroup rules provided
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits devices: block from device list
-test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits environment block from env_ list
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits exactly one top-level name: (#472)
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits no duplicate key within a service (GUI off)
 test/bats/unit/compose_emit/gen_spec.bats	generate_compose_yaml emits no duplicate key within a service (GUI on)
@@ -355,10 +417,10 @@ test/bats/unit/compose_logging_spec.bats	local_path emits CONTAINER_LOG_KEEP/DAY
 test/bats/unit/compose_logging_spec.bats	local_path retention env honors container_log_keep/days overrides (#805)
 test/bats/unit/compose_watchdog_spec.bats	_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)
 test/bats/unit/compose_watchdog_spec.bats	_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)
-test/bats/unit/compose_watchdog_spec.bats	watchdog env emitted on devel when watchdog_check is set (#797)
+test/bats/unit/compose_watchdog_spec.bats	a stage that APPENDS to the inherited env list keeps the shared .env (#868)
+test/bats/unit/compose_watchdog_spec.bats	a stage that replaced the inherited env list re-states WATCHDOG_* inline (#868)
 test/bats/unit/compose_watchdog_spec.bats	watchdog env omitted from compose when disabled (default off, #505 golden) (#797)
-test/bats/unit/compose_watchdog_spec.bats	watchdog env rides on devel; extends:devel stages inherit it (single emit) (#797)
-test/bats/unit/compose_watchdog_spec.bats	watchdog env value is YAML double-quoted (command with structural chars) (#797)
+test/bats/unit/compose_watchdog_spec.bats	watchdog env stays OUT of the compose environment: block so .env.local wins (#868)
 test/bats/unit/conf_accessor_spec.bats	_conf_get returns a value by section and key
 test/bats/unit/conf_accessor_spec.bats	_conf_get_into writes the value into the named outvar, no subshell (#742)
 test/bats/unit/conf_accessor_spec.bats	_conf_list lists a section's keys in file order
@@ -383,12 +445,13 @@ test/bats/unit/coverage_gate_spec.bats	coverage_gate --merge-timings: merges per
 test/bats/unit/coverage_gate_spec.bats	coverage_gate --merge-timings: no input files yields an empty weights file (#733)
 test/bats/unit/coverage_gate_spec.bats	coverage_gate: SHARED source across shards is unioned, not double-counted (#730)
 test/bats/unit/coverage_gate_spec.bats	coverage_gate: merges DISJOINT shards by union (= sum), not averaging
+test/bats/unit/deploy_spec.bats	_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)
 test/bats/unit/deploy_spec.bats	_generate_deploy_bundle: hands the untracked sections to the bundle README (#893)
 test/bats/unit/deploy_spec.bats	_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)
-test/bats/unit/deploy_spec.bats	_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)
-test/bats/unit/deploy_spec.bats	_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: gui X11 still owns the environment: block (#840)
 test/bats/unit/deploy_spec.bats	_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)
 test/bats/unit/deploy_spec.bats	_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)
+test/bats/unit/deploy_spec.bats	_generate_resolved_compose: the watchdog env leaves environment: for the bundle .env (#868)
 test/bats/unit/deploy_spec.bats	_render_deploy_readme: records the untracked sections a bundle was built from (#893)
 test/bats/unit/deploy_spec.bats	_render_deploy_readme: says nothing about local overrides when there were none (#893)
 test/bats/unit/deploy_spec.bats	_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)
@@ -528,21 +591,44 @@ test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging retention honors 
 test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging same wall-clock second: second start bumps suffix, never truncates the first (#805)
 test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging second start adds a new per-start file + repoints symlink, keeps the old (#805)
 test/bats/unit/entrypoint_logging_spec.bats	entrypoint_logging writes a per-start file + points the stable symlink at it (#805)
-test/bats/unit/env_emit_spec.bats	_scaffold_env_overlay is idempotent (never overwrites)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local is a no-op when there is no .env (#868)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local is inert on a second run (#868)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local leaves a comment-only scaffold alone (#868)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local leaves a generated .env alone (#868)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local renames a hand-written .env to .env.local (#868)
+test/bats/unit/env_emit_spec.bats	_migrate_env_to_local stages the removal when .env was git-tracked (#868)
+test/bats/unit/env_emit_spec.bats	_scaffold_env_local creates a comment-only override file naming .env (#868)
+test/bats/unit/env_emit_spec.bats	_scaffold_env_local is idempotent (never overwrites) (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env emits the WATCHDOG_* block into .env, not compose (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env emits the [environment] defaults it is given (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env escapes the delimiter inside a value (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env expands a cross-reference to an earlier sibling (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env expands cross-references against the interpolation cache (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env expands multiple references in one value (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env keeps $ literal, unexpanded (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env leaves a forward reference literal (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env leaves an unknown reference literal (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env marks the file as ours and names .env.local (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env passes a double quote and a backslash through (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env quotes a value carrying a colon-space (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env quotes a value carrying an inline ' #' (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env resolves a transitive reference chain (#868)
+test/bats/unit/env_emit_spec.bats	write_container_env rewrites the file on every call (it is ours) (#868)
 test/bats/unit/env_emit_spec.bats	write_env creates .env with all required variables and SETUP_* metadata
 test/bats/unit/env_emit_spec.bats	write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)
 test/bats/unit/env_emit_spec.bats	write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)
-test/bats/unit/env_generated_claim_spec.bats	just docker help: en setup summary names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	just docker help: ja setup summary names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-CN setup summary names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-TW setup summary names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	justfile.docker: the setup doc comment names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	no shipped surface claims setup regenerates a bare .env (#879)
-test/bats/unit/env_generated_claim_spec.bats	setup.sh --help: usage names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	setup.sh add: the next hint names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	setup.sh env done message names .env.generated in all four locales (#879)
-test/bats/unit/env_generated_claim_spec.bats	setup.sh remove: the next hint names .env.generated (#879)
-test/bats/unit/env_generated_claim_spec.bats	setup.sh set: the next hint names .env.generated (#879)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: en setup summary names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: ja setup summary names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-CN setup summary names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	just docker help: zh-TW setup summary names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	justfile.docker: the setup doc comment names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	no shipped surface calls a bare .env hand-authored or a workload overlay (#868)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh --help: usage names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh add: the next hint names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh env done message names .env.generated in all four locales (#868)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh remove: the next hint names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	setup.sh set: the next hint names .env + .env.generated (#868)
+test/bats/unit/env_generated_claim_spec.bats	the shipped surfaces name .env.local as the override channel (#868)
 test/bats/unit/exec_sh_spec.bats	exec.sh -- separator: lets a dash-leading CMD pass through (#289)
 test/bats/unit/exec_sh_spec.bats	exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)
 test/bats/unit/exec_sh_spec.bats	exec.sh -- separator: works after -t TARGET (run.sh parity, #289)
@@ -602,7 +688,7 @@ test/bats/unit/exec_sh_spec.bats	exec.sh runs docker compose exec when container
 test/bats/unit/exec_sh_spec.bats	exec.sh: a docker ps still writing cannot make the precheck miss a running container (#905)
 test/bats/unit/exec_sh_spec.bats	exec.sh: no -- still works for positional CMD (backward compat, #289)
 test/bats/unit/gitignore_spec.bats	_canonical_gitignore_entries: advertises .setup.conf.local again (#893)
-test/bats/unit/gitignore_spec.bats	_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)
+test/bats/unit/gitignore_spec.bats	_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)
 test/bats/unit/gitignore_spec.bats	_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)
 test/bats/unit/gitignore_spec.bats	_retired_gitignore_entries: retires nothing today (#893)
 test/bats/unit/gitignore_spec.bats	_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)
@@ -670,6 +756,12 @@ test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: does NOT flag a long
 test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: names both readings and the opt-out in the failure message (#902)
 test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: reports EVERY translation that carries an orphan, not just the first (#902)
 test/bats/unit/i18n_orphan_lint_spec.bats	_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths emits repo-relative paths only
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths lists the base version monitor workflow
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths lists the wrapper symlinks and hook stubs
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths mutates nothing and never leaves its cwd
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths output is sorted and free of duplicates
+test/bats/unit/init_installed_paths_spec.bats	init.sh --list-installed-paths prints a non-empty manifest and exits 0
 test/bats/unit/init_spec.bats	TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/
 test/bats/unit/init_spec.bats	TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable
 test/bats/unit/init_spec.bats	_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)
@@ -972,14 +1064,14 @@ test/bats/unit/setup_cmd_spec.bats	[deploy] runtime = nvidia emits runtime: nvid
 test/bats/unit/setup_cmd_spec.bats	[deploy] runtime = off omits runtime line entirely
 test/bats/unit/setup_cmd_spec.bats	[devices] cgroup_rule_1 emits device_cgroup_rules: block
 test/bats/unit/setup_cmd_spec.bats	[devices] device_1 = /dev/video0:/dev/video0 emits devices: block
+test/bats/unit/setup_cmd_spec.bats	[environment] apply carries an embedded double-quote / backslash into .env (#698)
+test/bats/unit/setup_cmd_spec.bats	[environment] apply carries an env value containing a colon-space into .env (#698)
+test/bats/unit/setup_cmd_spec.bats	[environment] apply carries an env value with a leading flow indicator into .env (#698)
+test/bats/unit/setup_cmd_spec.bats	[environment] apply carries an env value with an inline ' #' marker into .env (#698)
 test/bats/unit/setup_cmd_spec.bats	[environment] apply does NOT execute a command-substitution env value (#687)
 test/bats/unit/setup_cmd_spec.bats	[environment] apply emits an injection-style env value on a single line (#687)
-test/bats/unit/setup_cmd_spec.bats	[environment] apply escapes embedded double-quote / backslash in env value (#698)
-test/bats/unit/setup_cmd_spec.bats	[environment] apply quotes an env value containing a colon-space so YAML keeps it a scalar (#698)
-test/bats/unit/setup_cmd_spec.bats	[environment] apply quotes an env value with a leading flow indicator (#698)
-test/bats/unit/setup_cmd_spec.bats	[environment] apply quotes an env value with an inline ' #' comment marker (#698)
 test/bats/unit/setup_cmd_spec.bats	[environment] empty section omits environment: block
-test/bats/unit/setup_cmd_spec.bats	[environment] env_1 = ROS_DOMAIN_ID=7 emits environment: block in compose
+test/bats/unit/setup_cmd_spec.bats	[environment] env_1 = ROS_DOMAIN_ID=7 lands in the generated .env (#868)
 test/bats/unit/setup_cmd_spec.bats	[gui] mode = force emits X11 environment + /tmp/.X11-unix mount
 test/bats/unit/setup_cmd_spec.bats	[gui] mode = off omits X11 / DISPLAY env from compose
 test/bats/unit/setup_cmd_spec.bats	[lifecycle] apply does not emit a restart: line for a malformed policy (#687)
@@ -1217,16 +1309,19 @@ test/bats/unit/setup_spec.bats	apply --print-resolved prints KEY=VALUE state wit
 test/bats/unit/setup_spec.bats	apply --print-resolved respects --gui override in the dump (#338)
 test/bats/unit/setup_spec.bats	apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)
 test/bats/unit/setup_spec.bats	apply dev-binds config/app/ into the devel service when present (#504)
-test/bats/unit/setup_spec.bats	apply does NOT overwrite an existing hand-authored .env overlay
+test/bats/unit/setup_spec.bats	apply does NOT overwrite an existing .env.local (#868)
 test/bats/unit/setup_spec.bats	apply does NOT warn duplicate when device and volume targets differ (#450 P4)
-test/bats/unit/setup_spec.bats	apply emits env_file: - .env on the devel service (#502 overlay)
+test/bats/unit/setup_spec.bats	apply emits env_file: .env then .env.local on the devel service (#868)
+test/bats/unit/setup_spec.bats	apply generates .env and scaffolds .env.local (#868)
 test/bats/unit/setup_spec.bats	apply migrates a legacy .env cache to .env.generated + backs it up
-test/bats/unit/setup_spec.bats	apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)
+test/bats/unit/setup_spec.bats	apply no longer emits runtime.env; [environment] still reaches the container (#868)
 test/bats/unit/setup_spec.bats	apply omits the config/app bind when the directory is absent (#504)
 test/bats/unit/setup_spec.bats	apply prints WARN when per-repo setup.conf has no section headers (#186)
 test/bats/unit/setup_spec.bats	apply prints WARN when per-repo setup.conf is missing (#186)
 test/bats/unit/setup_spec.bats	apply resolves default _base_path via BASH_SOURCE when --base-path omitted
-test/bats/unit/setup_spec.bats	apply scaffolds a .env workload overlay when absent
+test/bats/unit/setup_spec.bats	apply rewrites .env but never rewrites .env.local (#868)
+test/bats/unit/setup_spec.bats	apply routes [environment] env_N into .env, not the compose environment: block (#868)
+test/bats/unit/setup_spec.bats	apply scaffolds .env.local when absent (#868)
 test/bats/unit/setup_spec.bats	apply stays silent when per-repo setup.conf has at least one section
 test/bats/unit/setup_spec.bats	apply subcommand returns error when --base-path value is missing
 test/bats/unit/setup_spec.bats	apply subcommand returns error when --lang value is missing

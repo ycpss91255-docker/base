@@ -33,7 +33,7 @@ default:
 #   --doc-counts        --home-literal        --arch-literal
 #   --bash-source-guard --early-close-reader  --derived-figures
 #   --i18n-orphan       --self-hosted-guard   --changelog-entry
-#   --catalog-description
+#   --action-ref-agreement                    --catalog-description
 # Every narrowing flag runs in-container so the behaviour matches the bare
 # `lint`; the GHA lint jobs use the host-only `test.sh --<tool>-only`
 # primitives instead (shellcheck, doc-counts, and the lint-static matrix),

@@ -52,11 +52,11 @@
 #
 # ── The ratchet ─────────────────────────────────────────────────────────
 #
-# 1574 of 2670 rows carry the placeholder (747 of 1711 when the rule was
+# 1602 of 2720 rows carry the placeholder (747 of 1711 when the rule was
 # first written, before the 25 sections that had no per-test table at all
 # were given one -- 820 rows the catalogue had never listed and the rule
 # had therefore never reached).
-# Failing all of them turns CI red until 1574 sentences exist, which blocks
+# Failing all of them turns CI red until 1602 sentences exist, which blocks
 # everyone on a backfill nobody asked for -- and a rushed backfill produces
 # exactly the filler above. So the rows that were already there are
 # recorded in a baseline file and the lint fails only on a placeholder that

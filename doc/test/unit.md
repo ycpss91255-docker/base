@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3030 tests**.
+Unit specs under `test/bats/unit/`: **3136 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -363,10 +363,13 @@ retirement (#507).
 | `apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)` | - |
 | `apply resolves default _base_path via BASH_SOURCE when --base-path omitted` | - |
 | `apply writes the derived cache to .env.generated (not .env)` | - |
-| `apply scaffolds a .env workload overlay when absent` | - |
-| `apply does NOT overwrite an existing hand-authored .env overlay` | - |
+| `apply scaffolds .env.local when absent (#868)` | - |
+| `apply does NOT overwrite an existing .env.local (#868)` | - |
 | `apply migrates a legacy .env cache to .env.generated + backs it up` | - |
-| `apply emits env_file: - .env on the devel service (#502 overlay)` | - |
+| `apply emits env_file: .env then .env.local on the devel service (#868)` | - |
+| `apply generates .env and scaffolds .env.local (#868)` | - |
+| `apply rewrites .env but never rewrites .env.local (#868)` | - |
+| `apply routes [environment] env_N into .env, not the compose environment: block (#868)` | - |
 | `apply dev-binds config/app/ into the devel service when present (#504)` | - |
 | `apply omits the config/app bind when the directory is absent (#504)` | - |
 | `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
@@ -416,7 +419,7 @@ retirement (#507).
 | `apply suppresses propagation warning when privileged is true (#450 P2)` | - |
 | `apply warns when device and volume have same target path (#450 P4)` | - |
 | `apply does NOT warn duplicate when device and volume targets differ (#450 P4)` | - |
-| `apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)` | - |
+| `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
 
 #### test/bats/unit/resolve_spec.bats (25)
@@ -587,7 +590,29 @@ idempotency.
 | `write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)` | - |
 | `write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)` | - |
 | `write_env creates .env with all required variables and SETUP_* metadata` | - |
-| `_scaffold_env_overlay is idempotent (never overwrites)` | - |
+| `_scaffold_env_local is idempotent (never overwrites) (#868)` | - |
+| `_scaffold_env_local creates a comment-only override file naming .env (#868)` | - |
+| `write_container_env emits the [environment] defaults it is given (#868)` | - |
+| `write_container_env emits the WATCHDOG_* block into .env, not compose (#868)` | - |
+| `write_container_env marks the file as ours and names .env.local (#868)` | - |
+| `write_container_env rewrites the file on every call (it is ours) (#868)` | - |
+| `write_container_env expands cross-references against the interpolation cache (#868)` | - |
+| `write_container_env expands a cross-reference to an earlier sibling (#868)` | - |
+| `write_container_env leaves a forward reference literal (#868)` | - |
+| `write_container_env leaves an unknown reference literal (#868)` | - |
+| `write_container_env expands multiple references in one value (#868)` | - |
+| `write_container_env resolves a transitive reference chain (#868)` | - |
+| `write_container_env quotes a value carrying an inline ' #' (#868)` | - |
+| `write_container_env quotes a value carrying a colon-space (#868)` | - |
+| `write_container_env passes a double quote and a backslash through (#868)` | - |
+| `write_container_env escapes the delimiter inside a value (#868)` | - |
+| `write_container_env keeps $ literal, unexpanded (#868)` | - |
+| `_migrate_env_to_local renames a hand-written .env to .env.local (#868)` | - |
+| `_migrate_env_to_local is inert on a second run (#868)` | - |
+| `_migrate_env_to_local leaves a generated .env alone (#868)` | - |
+| `_migrate_env_to_local leaves a comment-only scaffold alone (#868)` | - |
+| `_migrate_env_to_local is a no-op when there is no .env (#868)` | - |
+| `_migrate_env_to_local stages the removal when .env was git-tracked (#868)` | - |
 
 #### test/bats/unit/setup_cmd_spec.bats (120)
 
@@ -704,7 +729,7 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `[network] port_* under mode=host is silently dropped` | - |
 | `[resources] shm_size = 2gb under ipc=private emits shm_size: 2gb` | - |
 | `[resources] shm_size empty omits shm_size line` | - |
-| `[environment] env_1 = ROS_DOMAIN_ID=7 emits environment: block in compose` | - |
+| `[environment] env_1 = ROS_DOMAIN_ID=7 lands in the generated .env (#868)` | - |
 | `[environment] empty section omits environment: block` | - |
 | `[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry` | - |
 | `[tmpfs] tmpfs_1 with size= suffix preserved verbatim` | - |
@@ -717,10 +742,10 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `[environment] apply does NOT execute a command-substitution env value (#687)` | - |
 | `[environment] apply emits an injection-style env value on a single line (#687)` | - |
 | `[lifecycle] apply does not emit a restart: line for a malformed policy (#687)` | - |
-| `[environment] apply quotes an env value containing a colon-space so YAML keeps it a scalar (#698)` | - |
-| `[environment] apply quotes an env value with a leading flow indicator (#698)` | - |
-| `[environment] apply quotes an env value with an inline ' #' comment marker (#698)` | - |
-| `[environment] apply escapes embedded double-quote / backslash in env value (#698)` | - |
+| `[environment] apply carries an env value containing a colon-space into .env (#698)` | - |
+| `[environment] apply carries an env value with a leading flow indicator into .env (#698)` | - |
+| `[environment] apply carries an env value with an inline ' #' marker into .env (#698)` | - |
+| `[environment] apply carries an embedded double-quote / backslash into .env (#698)` | - |
 | `[network] apply does not emit a literal network_mode: line for a bogus hand-edited mode (#698)` | - |
 | `[network] apply does not emit a literal ipc:/pid: line for a bogus hand-edited mode (#698)` | - |
 | `_setup_known_section recognises additional_contexts` | - |
@@ -2684,9 +2709,9 @@ builds the env block only for the knobs the conf sets.
 | Test | Description |
 |------|-------------|
 | `watchdog env omitted from compose when disabled (default off, #505 golden) (#797)` | - |
-| `watchdog env emitted on devel when watchdog_check is set (#797)` | - |
-| `watchdog env value is YAML double-quoted (command with structural chars) (#797)` | - |
-| `watchdog env rides on devel; extends:devel stages inherit it (single emit) (#797)` | - |
+| `watchdog env stays OUT of the compose environment: block so .env.local wins (#868)` | - |
+| `a stage that replaced the inherited env list re-states WATCHDOG_* inline (#868)` | - |
+| `a stage that APPENDS to the inherited env list keeps the shared .env (#868)` | - |
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
@@ -2873,7 +2898,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (113)
+### test/bats/unit/ci_spec.bats (116)
 
 | Test | Description |
 |------|-------------|
@@ -2952,6 +2977,7 @@ builds the env block only for the knobs the conf sets.
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
 | `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | The CI join: the lint-static matrix calls this primitive, so a missing arm ships the lint local-only |
+| `main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)` | The CI join is host-direct, like its siblings |
 | `main --catalog-description-only: runs the catalogue description lint on the host, no compose (#922)` | The CI join: the lint-static matrix calls this primitive, so a missing arm ships the lint local-only |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
@@ -3825,7 +3851,7 @@ vice versa). Pure git + filesystem, no docker.
 | `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
 | `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (20)
+### test/bats/unit/derived_figures_lint_spec.bats (21)
 
 | Test | Description |
 |------|-------------|
@@ -3840,6 +3866,7 @@ vice versa). Pure git + filesystem, no docker.
 | `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
 | `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
 | `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: 256 findings in ONE file are not read as zero (#922)` | The same exit-status wrap in the lint next door, found with it and fixed with it |
 | `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
 | `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
 | `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
@@ -4175,7 +4202,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (32)
+### test/bats/unit/changelog_entry_lint_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -4206,6 +4233,17 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | Fencing prose must not buy budget either |
 | `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | A '*' bullet opens no entry, so the section measures nothing and reports clean over text nobody looked at |
 | `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | The worse version: one honest entry above it turns that vacuous pass into an affirmative 'clean (1 entries)' |
+| `_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)` | - |
+| `_run_changelog_entry: names the orphan's real line number in the file (#927)` | - |
+| `_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)` | - |
+| `_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)` | - |
+| `_run_changelog_entry: an unbreakable token alone on its line is not an orphan (#927)` | - |
+| `_run_changelog_entry: an orphan is one that could have joined the line below (#927)` | - |
+| `_run_changelog_entry: a table separator row is not an orphaned word (#927)` | - |
+| `_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)` | - |
+| `_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)` | - |
+| `_run_changelog_entry: an orphan in a RELEASED section is never checked (#927)` | - |
+| `_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)` | - |
 | `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | Load-bearing: local (musl, UTF-8) and CI (glibc, LANG unset) would otherwise reach opposite verdicts on the same file, with nothing in the diff to blame |
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | The same defect from the author's side -- an entry quoting the ja / zh guides charged three times over for it |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | Non-vacuity: a lint that scanned nothing must not report clean |
@@ -4225,7 +4263,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (40)
+### test/bats/unit/catalog_description_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
@@ -4233,6 +4271,10 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: names the catalog file, the line, the spec and the test (#922)` | A finding nobody can act on is a finding that gets muted |
 | `_run_catalog_description: reports EVERY undescribed row, not just the first (#922)` | One run, one fix list -- stopping at the first costs a CI round per row |
 | `_run_catalog_description: an EMPTY description cell counts as a placeholder (#922)` | A hand-edited blank is the same missing sentence wearing less ink, and only `-` is generated |
+| `_run_catalog_description: a description with no WORD in it is a placeholder (#922)` | The placeholder has more than one spelling, and the ratchet makes the cheapest one attractive |
+| `_run_catalog_description: the written-out non-answers are placeholders too (#922)` | The same silence spelled with letters, which the has-a-word test alone would let through |
+| `_run_catalog_description: a SHORT honest description still passes (#922)` | The false-positive guard: the real catalogues carry honest six-character descriptions, and a rule that fires on the good rows teaches people to write around it |
+| `_run_catalog_description: an exemption reason with no WORD in it is refused (#922)` | One reading of "says nothing", so the exemptions file cannot be answered with a cell the rows may not use |
 | `_run_catalog_description: PASSES a described row (#922)` | Non-vacuity from the other end: a lint that fails everything proves nothing |
 | `_run_catalog_description: PASSES a placeholder row that IS on the baseline (#922)` | The ratchet: 1517 rows predate the rule and failing them would hold everyone hostage to a backfill |
 | `_run_catalog_description: renaming a baselined test forces a description (#922)` | Load-bearing: the property the whole design turns on, and the reason the baseline is a name list rather than a count |
@@ -4245,6 +4287,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: FAILS on an unsorted baseline (#922)` | A 1500-line file is reviewable only while its diff is one line per change; unsorted, an insertion hides anywhere |
 | `_run_catalog_description: FAILS on a duplicated baseline entry (#922)` | Two lines for one excused row overstate the debt, so deleting one copy later looks like progress |
 | `_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)` | A line the parser cannot key is a line that excuses nothing, and silently dropping it would mean 1516 excuses under a count of 1517 |
+| `_run_catalog_description: 256 findings in a sidecar file are not read as zero (#922)` | Load-bearing: a tally returned as an exit status wraps at 256, and the lint printed every finding and then reported itself clean |
 | `_run_catalog_description: a baseline entry may NOT excuse a row that is also described (#922)` | The ratchet from the other side: an entry over a described row silently unenforces that description |
 | `_run_catalog_description: FAILS when one spec carries TWO generated sections (#922)` | How a described row acquires a placeholder twin -- 17 real rows left the rule this way |
 | `_run_catalog_description: the SECOND copy of a section is not scanned as rows (#922)` | One finding per defect: a copied table must not also inflate the reach figures by its own length |
@@ -4261,8 +4304,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: a name containing a PIPE is matched against the baseline unescaped (#922)` | The escaping contract between the generator and the lint: two readings of `\|` and every baselined row with a pipe silently loses its excuse |
 | `_run_catalog_description: a name containing a BACKTICK is matched against the baseline (#922)` | The other half of that contract: the double-backtick fence is the generator's, not part of the name |
 | `_run_catalog_description: a PIPE inside a description does not truncate it (#922)` | Splitting from the right would empty a short description and invent a finding the row does not have |
+| `_run_catalog_description: a FENCED example is not structure (#922)` | The convention is documented in doc/test/TEST.md, so the rule has to survive being illustrated where it is written down |
+| `_run_catalog_description: a fenced heading does not close the section it sits in (#922)` | The direction that would be a hole rather than a false positive: orphaned rows belong to no spec, and rows under no section are not scanned at all |
 | `_run_catalog_description: a table under no spec section is not scanned (#922)` | TEST.md's own index tables belong to no spec, and this file's convention section shows an example row |
 | `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the suite's tests, so a scan that quietly stopped there would still look busy |
+| `_run_catalog_description: a catalogue the index declares but that is GONE is a finding (#922)` | Load-bearing: deleting a whole catalogue took 12 tests out of the rule with this lint and the drift gate both green |
+| `_run_catalog_description: a catalogue the index does NOT name is a finding (#922)` | How the check above would be worked around -- delete the document and its index row in one commit |
+| `_run_catalog_description: a catalogue must declare the tests the index credits it with (#922)` | Deleting one section is the narrow version of deleting the file, and the same number has to catch it |
+| `_run_catalog_description: the clean line states the reach the index declares (#922)` | A reach figure computed from what the lint happened to find is circular; this one is measured against a number the driver does not produce |
+| `_run_catalog_description: DIES when the index declares no catalogue at all (#922)` | An empty index is a denominator of zero, and every check against it passes vacuously |
+| `_run_catalog_description: DIES when the index file is missing (#922)` | Losing the index loses the only artifact that still names a catalogue after the catalogue is deleted |
 | `_run_catalog_description: DIES when the catalog directory is missing (#922)` | Non-vacuity: a lint that scanned nothing must not report clean |
 | `_run_catalog_description: DIES when the baseline file is missing (#922)` | It is a record of what was already there, not a cache -- losing it must say so rather than bury it under 1517 findings |
 | `_run_catalog_description: the clean line says how many rows it checked and excused (#922)` | A green line standing for zero inspected rows is this repo's recurring vacuous pass, and a parked row is not a passing one |
@@ -4333,6 +4384,52 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
+### test/bats/unit/adr_doc_claims_spec.bats (17)
+
+| Test | Description |
+|------|-------------|
+| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | - |
+| `doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)` | - |
+| `release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)` | - |
+| `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
+| `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
+| `R1: PASSES the same claim once the block states the real trigger (#927)` | - |
+| `R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)` | - |
+| `R1: IGNORES a workflow named with no trigger claim in the block (#927)` | - |
+| `R1: IGNORES a name this repo has no workflow for (#927)` | - |
+| `R1: a workflow named inside a fenced example is inert (#927)` | - |
+| `R2: FAILS attributing the payload manifest to a workflow that never reads it (#927)` | - |
+| `R2: a workflow that only MENTIONS the manifest in a comment does not count (#927)` | - |
+| `R2: PASSES the attribution against the workflow that does read it (#927)` | - |
+| `R2: a separate bullet is a separate claim (#927)` | - |
+| `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
+| `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
+| `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
+### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
+
+| Test | Description |
+|------|-------------|
+| `workflows: every action is used at exactly one ref (#949)` | The real tree, read independently of the lint |
+| `_run_action_ref_agreement: FAILS when two workflows disagree on an action's ref (#949)` | The v6/v7 split, as a fixture |
+| `_run_action_ref_agreement: names the action, both refs and every call site (#949)` | A finding you can act on without grepping |
+| `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
+| `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
+| `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
+| `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
+| `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
+| `_run_action_ref_agreement: an allow marker with NO reason is itself a failure (#949)` | A bare mute rebuilds the hazard inside the repo |
+| `_run_action_ref_agreement: an allow marker two comment lines above still applies (#949)` | The whole comment block carries the exception |
+| `_run_action_ref_agreement: an allow marker does NOT leak to the next call site (#949)` | One recorded divergence licenses no others |
+| `_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)` | Nothing scanned is an error, not a pass |
+| `_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)` | Same, one level in |
+| `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
+| `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
+| `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
+| `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
+| `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 ### test/bats/unit/code_lines_spec.bats (22)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`

@@ -23,8 +23,9 @@
 #                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
-#                             # --self-hosted-guard-only.
-#                             # --changelog-entry-only,
+#                             # --self-hosted-guard-only /
+#                             # --changelog-entry-only /
+#                             # --action-ref-agreement-only /
 #                             # --catalog-description-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
@@ -118,6 +119,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/action_ref_agreement.sh
+source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 # shellcheck source=script/test/drivers/catalog_description.sh
 source "${SCRIPT_DIR}/drivers/catalog_description.sh"
 
@@ -151,6 +154,7 @@ readonly _LINT_TOOLS=(
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  action-ref-agreement
   catalog-description
 )
 
@@ -221,6 +225,7 @@ _run_lint_tool() {
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    action-ref-agreement) _run_action_ref_agreement ;;
     catalog-description) _run_catalog_description ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
@@ -336,6 +341,14 @@ Options:
                           sub-bullets buys no budget. Released sections are
                           never checked -- rewriting a shipped entry
                           falsifies it)
+  --action-ref-agreement  With --lint: run only the action ref agreement
+                          lint (every call site of one action's REPOSITORY
+                          across .github/workflows/ must name the same ref;
+                          a partial bump is invisible to actionlint, which
+                          reads each `uses:` in isolation, and dependabot
+                          never re-raises a version pair whose PR was
+                          closed. One call site may hold back behind an
+                          `action-ref-agreement: allow -- <why>` comment)
   --catalog-description   With --lint: run only the catalogue description
                           lint (every doc/test/ catalogue row carries a
                           description; the rows that predate the rule are
@@ -368,6 +381,7 @@ Options:
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --action-ref-agreement-only pure bash
                             --catalog-description-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
@@ -459,6 +473,7 @@ Examples:
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
+  ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --catalog-description-only # Direct catalogue description lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
@@ -953,6 +968,7 @@ main() {
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --catalog-description) lint_tool="catalog-description"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
@@ -968,6 +984,7 @@ main() {
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --catalog-description-only) host_lint="catalog-description"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
@@ -1005,8 +1022,9 @@ main() {
   # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
-  # `--self-hosted-guard-only`) short-circuit
-  # `--changelog-entry-only`, `--catalog-description-only`) short-circuit
+  # `--self-hosted-guard-only`, `--changelog-entry-only`,
+  # `--action-ref-agreement-only`, `--catalog-description-only`)
+  # short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

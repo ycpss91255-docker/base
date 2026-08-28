@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3179 tests** total (3030 unit + 149 integration).
+Template self-tests: **3285 tests** total (3136 unit + 149 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (13) and smoke (34) tests are tracked here
-> too but are **not** in the 3179 figure: System specs need host docker
+> too but are **not** in the 3285 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3030 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3136 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 149 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 13 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **3179**.
+Self-test grand total (unit + integration): **3285**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -126,21 +126,45 @@ it looks like information and passes the lint. If nothing comes to mind,
 the honest questions are "why did I write this case rather than stop at the
 one above it?" and "what would silently start passing if I deleted it?".
 
+A cell with no word in it -- `.`, `--`, `...` -- and the written-out
+non-answers `n/a` / `TBD` / `TODO` are the placeholder in a different hat,
+and the lint refuses them with it. A genuinely short description is fine:
+"GPU on" says something the test name does not.
+
 `just test sync-docs` writes `-` into a new row; filling it in is the
 second half of adding a test, and the `catalog-description` lint fails the
-build until it is done. 1517 rows carried `-` before the rule landed and are
-parked in `script/test/catalog-description-baseline.txt`, which may only
-**shrink** -- so nobody inherits a backfill, but renaming or moving a test
-drops it out of that file and forces a description. Touch it, describe it;
-leave it alone, leave it alone.
+build until it is done. 1602 rows carried `-` before the rule reached them
+and are parked in `script/test/catalog-description-baseline.txt`, which may
+only **shrink** -- so nobody inherits a backfill, but renaming or moving a
+test drops it out of that file and forces a description. Touch it, describe
+it; leave it alone, leave it alone.
 
 A section whose cases are near-identical assertions may answer with a
-`| Category | Tests |` summary rather than a row each -- 13 do, covering 606
+`| Category | Tests |` summary rather than a row each -- 13 do, covering 612
 tests. That is a decision, so it is written down in
 `script/test/catalog-description-exemptions.txt` with the reason, and the
 lint reports how much of the suite those sections account for every time it
 runs. What it will not accept is a section drifting out of the rule because
 of the shape of the table it happens to carry.
+
+Which catalogues exist at all is declared by the index table above, not
+discovered by looking at the directory: a document it names must be there,
+a document in `doc/test/` must be named by it, and the tests a document's
+sections declare must add up to what the index credits it with. Deleting a
+whole catalogue used to take its tests out of the rule with every gate
+green.
+
+A generated section looks like this, and this example is inside a fence, so
+nothing in it counts as structure:
+
+```markdown
+### test/bats/unit/example_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `_example: FAILS on the shape the rule refuses` | The rule itself |
+| `_example: PASSES the shape one keystroke away from it` | The false-positive guard: the near-miss has to stay legal |
+```
 
 ## Maintaining these docs
 
