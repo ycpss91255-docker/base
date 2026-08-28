@@ -197,11 +197,19 @@ readonly _CATALOG_DESC_PLACEHOLDER='-'
 # this is the number that may only ever go down.
 readonly _CATALOG_DESC_COUNT_RE='^#[[:space:]]*entries:[[:space:]]*([0-9]+)[[:space:]]*$'
 
-# _catalog_desc_load_list <abs-path> <rel-path> <mode> <map-outvar> -- read
-# one of the two sidecar lists into an associative array, validating the
-# file's own shape on the way through: the declared count, sortedness,
-# uniqueness and the TAB separator. Prints one line per finding and returns
-# the number of findings.
+# _catalog_desc_load_list <abs-path> <rel-path> <mode> <map-outvar>
+# <count-outvar> -- read one of the two sidecar lists into an associative
+# array, validating the file's own shape on the way through: the declared
+# count, sortedness, uniqueness and the TAB separator. Prints one line per
+# finding and stores the number of findings in <count-outvar>.
+#
+# The count comes back through a nameref and NOT through the exit status,
+# which is why the caller does not read `$?`. An exit status is 8 bits: a
+# 256-finding file returned 0, the caller's `||` never fired, and the lint
+# printed 256 findings and then declared itself clean -- a guard whose own
+# report contradicted its verdict, which is the defect class this driver
+# exists to refuse. This file holds four figures of entries, so 256 is one
+# re-sort under another locale or one bulk regeneration away.
 #
 # <mode> is 'rows' for the baseline, whose whole `<spec> TAB <name>` line is
 # the key and which carries no value, or 'reasons' for the exemptions, whose
@@ -213,6 +221,7 @@ readonly _CATALOG_DESC_COUNT_RE='^#[[:space:]]*entries:[[:space:]]*([0-9]+)[[:sp
 _catalog_desc_load_list() {
   local _abs="${1}" _rel="${2}" _mode="${3}"
   local -n _cd_map="${4}"
+  local -n _cd_findings_out="${5}"
   local _shape='<spec path> TAB <test name>'
   [[ "${_mode}" == 'reasons' ]] && _shape='<spec path> TAB <reason>'
   local _line _lineno=0 _declared='' _count=0 _prev='' _findings=0
@@ -225,6 +234,7 @@ _catalog_desc_load_list() {
   # spawning a `sort`.
   local LC_ALL=C
   _cd_map=()
+  _cd_findings_out=0
 
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
@@ -288,7 +298,7 @@ _catalog_desc_load_list() {
     _findings=$(( _findings + 1 ))
   fi
 
-  return "${_findings}"
+  _cd_findings_out="${_findings}"
 }
 
 _run_catalog_description() {
@@ -316,16 +326,23 @@ _run_catalog_description() {
 
   local _violations=0
 
+  # The loaders report their finding count through a nameref: the count is
+  # a tally, not a verdict, and an exit status cannot carry one (see
+  # _catalog_desc_load_list).
+  local _load_findings=0
+
   local -A _baselined=()
   _catalog_desc_load_list "${_baseline}" "${_CATALOG_DESC_BASELINE_FILE}" \
-    rows _baselined || _violations=$(( _violations + $? ))
+    rows _baselined _load_findings
+  _violations=$(( _violations + _load_findings ))
 
   # The sections that answer with a summary instead of a row each, keyed by
   # spec path, valued by the reason. Read the same way and held to the same
   # shape as the baseline.
   local -A _exempted=()
   _catalog_desc_load_list "${_exempt}" "${_CATALOG_DESC_EXEMPT_FILE}" \
-    reasons _exempted || _violations=$(( _violations + $? ))
+    reasons _exempted _load_findings
+  _violations=$(( _violations + _load_findings ))
 
   # Which baseline entries a live placeholder row still needs. Anything
   # left over at the end is stale -- described, renamed, moved or deleted --
