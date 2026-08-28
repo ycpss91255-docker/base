@@ -348,13 +348,21 @@ setup() {
   # `if [[ "${DETACH}" != true ... ]]` / _wrapper_container_running /
   # `exit 1` block left this spec green.
   #
-  # So: pin the enclosing condition, pin the running-container probe, and
+  # So: pin the enclosing condition, pin the running-service probe, and
   # read the refusal out of the probe's OWN block -- a bare `exit 1`
   # appears all over the file and proves nothing on its own.
+  #
+  # The probe is `_wrapper_service_running "${TARGET}"` and not the
+  # `_wrapper_container_running "${CONTAINER_NAME}"` this guard used to
+  # name: there is no CONTAINER_NAME any more, because nothing
+  # emits `container_name:` for a wrapper to rebuild and look up. The
+  # question the refusal asks is now "is this SERVICE up inside THIS
+  # project", which is the only form that stays true when two stacks of
+  # one repo share a host.
   run code_grep -F 'if [[ "${DETACH}" != true' \
     /source/dist/script/docker/wrapper/run.sh
   assert_success
-  run code_grep -A7 -F 'if _wrapper_container_running "${CONTAINER_NAME}"; then' \
+  run code_grep -A12 -F 'if _wrapper_service_running "${TARGET}"; then' \
     /source/dist/script/docker/wrapper/run.sh
   assert_success
   assert_output --partial '_log_err run run_already_running'
