@@ -48,7 +48,18 @@ _make_release_tree() {
   git -C "${_root}" commit --quiet -m "initial"
   _make_cobertura "${_root}/coverage/kcov-merged/cobertura.xml" \
     "${_covered}" "${_valid}"
+  _stamp_head "${_root}"
   printf '%s\n' "${_root}"
+}
+
+# The provenance a real `just test coverage` leaves behind: the sha the
+# reports under coverage/ were produced from. Mtime alone only catches a
+# report that is too OLD; it cannot tell that the tree moved somewhere
+# else between the run and the release.
+_stamp_head() {
+  local _root="${1}"
+  mkdir -p "${_root}/coverage"
+  git -C "${_root}" rev-parse HEAD > "${_root}/coverage/.head-sha"
 }
 
 # Minimal kcov-style cobertura.xml at $1 with $2 covered of $3 valid
@@ -144,6 +155,7 @@ _make_cobertura() {
   rm -rf "${_root}/coverage"
   _make_cobertura "${_root}/coverage/shard-1/cobertura.xml" 1 4 thing.sh
   _make_cobertura "${_root}/coverage/shard-2/cobertura.xml" 3 4 thing.sh
+  _stamp_head "${_root}"
 
   run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
   [ "${status}" -eq 0 ]
@@ -202,6 +214,50 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+@test "coverage_badge: refuses when the reports were produced from a different commit" {
+  local _root _first
+  _root="$(_make_release_tree 84 100)"
+  _first="$(git -C "${_root}" rev-parse HEAD)"
+
+  # Measure the SECOND commit, then check the FIRST one back out. HEAD is
+  # now OLDER than the reports, the worktree is clean, and every mtime
+  # check passes -- yet the reports describe a tree that is not this one.
+  printf 'echo more\n' >> "${_root}/thing.sh"
+  git -C "${_root}" commit --quiet -am "second"
+  _stamp_head "${_root}"
+  git -C "${_root}" checkout --quiet "${_first}"
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "different commit"
+  [ ! -f "${_root}/badge.svg" ]
+}
+
+@test "coverage_badge: refuses when the reports carry no provenance" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  rm -f "${_root}/coverage/.head-sha"
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "provenance"
+  [ ! -f "${_root}/badge.svg" ]
+}
+
+@test "coverage_badge: the coverage run records the sha its reports describe" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  rm -f "${_root}/coverage/.head-sha"
+
+  # The producer half of the provenance pair: without a writer in the
+  # coverage path the reader above would refuse every real release.
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  [ -f "${_root}/coverage/.head-sha" ]
+  [ "$(cat "${_root}/coverage/.head-sha")" = "$(git -C "${_root}" rev-parse HEAD)" ]
+}
+
 @test "coverage_badge: refuses when instrumented sources are modified in the worktree" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -257,10 +313,37 @@ _make_cobertura() {
   [ "${status}" -eq 2 ]
 }
 
-@test "coverage_badge: --help documents the release cadence" {
+@test "coverage_badge: a missing option value is an arg error, not a refusal" {
+  # 1 means "no usable measurement -- re-run just test coverage", the
+  # sentence the caller prints to the operator. A typo'd flag is a caller
+  # bug and must not wear that costume.
+  local _flag
+  for _flag in --repo-root --version --out --report; do
+    run bash "${BADGE}" "${_flag}"
+    [ "${status}" -eq 2 ]
+    assert_output --partial "${_flag}"
+  done
+}
+
+@test "coverage_badge: --help states the once-per-release cadence" {
+  # The title used to be satisfied by the word "release" appearing
+  # anywhere in the usage block; assert the claim itself.
   run bash "${BADGE}" --help
   [ "${status}" -eq 0 ]
-  assert_output --partial "release"
+  assert_output --partial "once per release"
+}
+
+@test "coverage_badge: the un-wired release step is recorded as pending, with its issue" {
+  # The generator has no automatic caller: the release bump lives in the
+  # harness repo, not this one. A decision record that describes that
+  # wiring in the present tense is a false record of what shipped, so the
+  # ADR and the recipe doc must name the tracking issue instead.
+  run grep -F 'docker_harness#' \
+    "${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"
+  [ "${status}" -eq 0 ]
+
+  run grep -F 'docker_harness#' "${REPO}/script/release/justfile.release"
+  [ "${status}" -eq 0 ]
 }
 
 # ── The repo's own published figure ──────────────────────────────────────────
