@@ -200,11 +200,16 @@ manifests (`script/ci/preflight/build.manifest` +
 environment. A complete caller passes; a caller that forgot `image_name`
 (build) or `archive_name_prefix` (release) fails early with the
 plain-language `main.yaml` fix. The packages requirement is
-`cache_backend`-conditional (#801): a `registry`-cache caller missing
-`packages: write` fails with the permissions fix, a `registry` caller
-that granted it passes, and the default `gha` caller passes even without
-the permission (backward compatible); `--list` self-describes the build
-contract, annotating packages as registry-conditional.
+`cache_backend`-conditional (#801): a `registry`-cache caller whose
+probe came back missing fails with a hint that names the real fix --
+drop the registry backend, which base's own `build` job cannot reach
+under its read-only `permissions:` block -- and never hands the caller a
+grant snippet (#957, superseding the #801 wording; the hint and the
+requirement description are both printed on failure, so the assertion
+covers both). A `registry` caller whose probe came back granted passes,
+and the default `gha` caller passes even without the permission
+(backward compatible); `--list` self-describes the build contract,
+annotating packages as registry-conditional.
 
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
