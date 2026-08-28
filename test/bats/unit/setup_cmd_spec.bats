@@ -691,6 +691,39 @@ EOF
   assert_output --partial "Unknown section"
 }
 
+@test "main add binds a logging.<svc> spec to the sub-section, not the parent (#955)" {
+  # `add` derived <section>/<list> with its own dot-split instead of
+  # asking _conf_split_nskey, so `logging.web.<list>` split at the FIRST
+  # dot: section `logging`, list `web.<list>`. That is the same
+  # misrouting _write_setup_conf was fixed for -- the slot was appended
+  # to the parent [logging] block as a bogus dotted key `web.<list>_N`,
+  # which no reader ever resolves back to the [logging.web] service.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main add logging.web.tag alpha --base-path "${TEMP_DIR}"
+  assert_success
+
+  # The slot lands in [logging.web] under its own list name ...
+  run grep -c '^tag_1 = alpha$' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+  # ... and no dotted key is injected anywhere.
+  run grep -c '^web\.tag' "${TEMP_DIR}/.setup.conf"
+  assert_output "0"
+  # The parent section keeps exactly its own key.
+  local -a _pk=() _pv=()
+  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging" _pk _pv
+  [[ "${_pk[*]}" == "driver" ]]
+  # ... and the sub-section now carries both.
+  local -a _sk=() _sv=()
+  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging.web" _sk _sv
+  [[ "${_sk[*]}" == "driver tag_1" ]]
+}
+
 @test "main add rejects invalid mount value" {
   : > "${TEMP_DIR}/.setup.conf"
   run main add volumes.mount not-a-mount --base-path "${TEMP_DIR}"
