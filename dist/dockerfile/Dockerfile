@@ -59,6 +59,14 @@
 # Dockerfiles renamed to `devel-base` / `devel-test` over a coordinated
 # rollout). They will be removed from the blocklist in a future major.
 
+# tool-pin: unpinned base-image -- `ubuntu:24.04` is a MOVING tag (it
+# resolves to 24.04.4 today) and it is what every consumer of this template
+# builds from, so what to do about it is a consumer-facing decision, not a
+# mechanical bump: pinning it to a patch tag changes the image every
+# downstream repo produces. Declared here so the watch names it on every
+# run rather than letting two builds of the same template tag differ in
+# silence. Unlike the test-tools image there is no second bound -- the apt
+# packages below float on top of a floating base.
 ARG BASE_IMAGE="ubuntu:24.04"
 # No bare-tag default (was `test-tools:local`): build.sh (local) passes a
 # version-scoped `test-tools:<base-version>` and CI passes
@@ -81,6 +89,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
+# tool-pin: unpinned sys-apt-packages -- an apt package names no version
+# here, and the base image it resolves against is itself a moving tag, so
+# there is no bound at all. Recorded so the watch says so every run.
 RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list || true; \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -118,6 +129,8 @@ FROM sys AS devel-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# tool-pin: unpinned devel-apt-packages -- same as the sys stage above:
+# unversioned apt packages on a moving base image.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confdef" \

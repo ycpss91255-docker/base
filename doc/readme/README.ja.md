@@ -138,7 +138,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f 4c85128450a3 -->
+<!-- sync: whats-included ffa6a3b4221e 00d6806a0a97 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -191,6 +191,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree バージョンアップグレード（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自己テストのエントリ（`just test`、`just test lint`、`just test coverage`、…）。 |
 | `script/release/justfile.release` | base の `release` namespace（release / publish ツール）。 |
+| `script/watch/justfile.watch` | base の `watch` namespace — アップストリームのリリース監視（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `script/test/test.sh` | base 自己テストのディスパッチャ（ローカル + コンテナ内） |
 | `script/test/drivers/` | ツールごとに 1 つの driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
@@ -1177,7 +1178,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 807021cee6fe -->
+<!-- sync: directory-structure d8c20b3b383d 529f8259528a -->
 ## ディレクトリ構造
 
 ```
@@ -1233,8 +1234,13 @@ just --list  # CI ターゲット表示
 │   │   └── drivers/                    # lint/test ツールごとに 1 driver（bats / shellcheck / hadolint
 │   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
 │   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
-│   └── release/
-│       └── justfile.release            # just release <recipe>
+│   ├── release/
+│   │   └── justfile.release            # just release <recipe>
+│   └── watch/                          # アップストリーム監視（pin と upstream の比較）
+│       ├── justfile.watch              # just watch / pins / value / bump / uncovered
+│       ├── lib.sh                      # tool-pin マーカーの文法・リーダー・検出器
+│       ├── pins.sh                     # 宣言された pin の読み書き（ネットワーク不要）
+│       └── check.sh                    # 各 pin をアップストリームと比較
 ├── dockerfile/
 │   └── Dockerfile.test-tools           # プリビルド lint/test ツール image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身の spec（tool-first：test/<tool>/<category>/）

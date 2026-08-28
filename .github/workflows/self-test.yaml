@@ -55,6 +55,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run actionlint via Docker
+        env:
+          # The image tag lives in `env:` rather than inline in the
+          # `docker run` below so it has a LINE OF ITS OWN for the
+          # `tool-pin:` marker to attach to -- a version inside a
+          # line-continued command has nowhere to carry one. actionlint is
+          # dependabot's blind spot by construction: it parses `uses:`
+          # refs, and this is an image named inside a `run:` step.
+          # tool-pin: actionlint dockerhub rhysd/actionlint pattern=^[0-9]+\.[0-9]+\.[0-9]+$
+          ACTIONLINT_IMAGE: rhysd/actionlint:1.7.7
         run: |
           set -euo pipefail
           # `-ignore` suppresses a known false positive: `github.job_workflow_sha`
@@ -68,7 +77,7 @@ jobs:
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
-            rhysd/actionlint:1.7.7 \
+            "${ACTIONLINT_IMAGE}" \
             -color \
             -ignore 'property "job_workflow_sha" is not defined'
 
@@ -261,6 +270,13 @@ jobs:
     #                     org registers an org-level self-hosted runner that
     #                     public repos may use, so an unguarded eligible job
     #                     is fork-PR code executing on that machine
+    #   pin-coverage      every third-party version this repo names in a
+    #                     Dockerfile or a workflow -- the versions
+    #                     dependabot cannot see -- carries a `tool-pin:`
+    #                     marker saying where its upstream lives, so the
+    #                     release watch's table is derived from the
+    #                     declaration sites rather than from a roster that
+    #                     falls behind them
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
@@ -304,6 +320,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - pin-coverage
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1040,6 +1057,20 @@ jobs:
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
+      # The version comes OUT of dockerfile/Dockerfile.test-tools rather
+      # than being repeated here. Without `just-version` this action
+      # installed whatever just had released most recently, so the e2e job
+      # ran against a tool that moved daily while the image it tested ran
+      # a different one -- a suite that turns red on a day nobody touched
+      # the repo, blamed on an unrelated diff. Reading the pin makes the
+      # image, this job and the number the watch bumps ONE number.
+      - name: Resolve the pinned just version
+        id: just-pin
+        run: |
+          set -euo pipefail
+          version="$(./script/watch/pins.sh --value just)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
       - name: Install just (container-ops entry point)
         # The e2e job drives the runnability contract through the SAME
         # `just` verbs downstream users invoke (post-#573 the documented
@@ -1049,6 +1080,8 @@ jobs:
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
         uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just-pin.outputs.version }}
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}

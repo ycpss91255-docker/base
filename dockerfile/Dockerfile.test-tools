@@ -8,19 +8,38 @@
 #   Then in repo Dockerfile:
 #     COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
 
+# Every version below carries a `tool-pin:` marker naming where the
+# upstream release lives. script/watch/ derives its whole table from those
+# markers -- there is no separate list of watched tools to fall behind --
+# and the pin-coverage lint fails the build on a version declared here
+# without one. See script/watch/lib.sh for the grammar.
+# tool-pin: bats dockerhub bats/bats pattern=^[0-9]+\.[0-9]+\.[0-9]+$
 ARG BATS_VERSION=1.13.0
+# tool-pin: alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
 ARG ALPINE_VERSION=3.21
+# tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
 FROM alpine:${ALPINE_VERSION} AS bats-extensions
+# The three helper libraries were `git clone -b <tag>` literals buried in
+# the RUN. They are ARGs now for one reason: a marker's target is a line,
+# and a version inside a line-continued RUN has no line of its own to
+# carry one. Hoisting also makes a bump a single-line rewrite, which is
+# what lets the watch propose one mechanically.
+# tool-pin: bats-support github-release bats-core/bats-support
+ARG BATS_SUPPORT_VERSION=v0.3.0
+# tool-pin: bats-assert github-release bats-core/bats-assert
+ARG BATS_ASSERT_VERSION=v2.1.0
+# tool-pin: bats-mock github-release jasonkarns/bats-mock
+ARG BATS_MOCK_VERSION=v1.2.5
 RUN apk add --no-cache git && \
-    git clone --depth 1 -b v0.3.0 \
+    git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
-    git clone --depth 1 -b v2.1.0 \
+    git clone --depth 1 -b "${BATS_ASSERT_VERSION}" \
         https://github.com/bats-core/bats-assert  /bats/bats-assert && \
-    git clone --depth 1 -b v1.2.5 \
+    git clone --depth 1 -b "${BATS_MOCK_VERSION}" \
         https://github.com/jasonkarns/bats-mock   /bats/bats-mock
 
 FROM alpine:${ALPINE_VERSION} AS lint-tools
@@ -32,20 +51,44 @@ FROM alpine:${ALPINE_VERSION} AS lint-tools
 # (visible symptom: `shellcheck: Exec format error` on arm64 downstream
 # CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
 ARG TARGETARCH
+# tool-pin: shellcheck github-release koalaman/shellcheck
+ARG SHELLCHECK_VERSION=v0.10.0
+# tool-pin: hadolint github-release hadolint/hadolint
+ARG HADOLINT_VERSION=v2.12.0
+# just is installed HERE, from the pinned upstream release, rather than by
+# the final stage's `apk add just`. The apk package named no version at
+# all: the image shipped whatever alpine 3.21 happened to carry (1.37.0),
+# the CI e2e job installed whatever `just` released most recently, the
+# README's apt hint points at 1.21.0, and the four paths this project
+# presents as interchangeable were 37 minors apart with nothing comparing
+# any pair. Alpine bumping its package would not have closed that -- it
+# would only have moved the unpinned number.
+#
+# The pattern is the neighbouring one, not a new one: a pinned upstream
+# URL plus the TARGETARCH mapping the two tools above already use. just
+# publishes static musl builds, which is what makes it work on this
+# alpine stage; the archive contains the bare binary, hence the direct
+# `tar -xz` into /usr/local/bin rather than a versioned directory.
+# tool-pin: just github-release casey/just
+ARG JUST_VERSION=1.58.0
 # hadolint ignore=DL4006
 RUN apk add --no-cache curl xz && \
     case "${TARGETARCH}" in \
-      amd64)  sc_arch="x86_64";  hd_arch="x86_64" ;; \
-      arm64)  sc_arch="aarch64"; hd_arch="arm64"  ;; \
+      amd64)  sc_arch="x86_64";  hd_arch="x86_64";  jt_arch="x86_64"  ;; \
+      arm64)  sc_arch="aarch64"; hd_arch="arm64";   jt_arch="aarch64" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-        "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.${sc_arch}.tar.xz" \
+        "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.${sc_arch}.tar.xz" \
         | tar -xJ -C /tmp && \
-    mv "/tmp/shellcheck-v0.10.0/shellcheck" /usr/local/bin/shellcheck && \
+    mv "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
-        "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
-    chmod +x /usr/local/bin/hadolint
+        "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-${hd_arch}" && \
+    chmod +x /usr/local/bin/hadolint && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+        "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${jt_arch}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin just && \
+    chmod +x /usr/local/bin/just
 
 # kcov is not packaged in any Alpine repository (main / community /
 # edge-testing all lack it -- verified), so it cannot be `apk add`ed like
@@ -95,7 +138,10 @@ RUN apk add --no-cache \
 # just (#175): integration tests exercise `just upgrade-check` end-to-end
 # to verify the downstream justfile recipe wraps upgrade.sh exit 1 (update
 # available) as success. `just` is the single runner (the Makefile / make
-# are retired), so install it explicitly — alpine provides no `just`.
+# are retired), so it must be in the image. It is NOT in the apk list
+# below: it is COPYed from the lint-tools stage, which installs the
+# pinned upstream release (see JUST_VERSION there). The apk package was
+# the one tool in this image whose version nothing named at all.
 # docker-cli + docker-cli-buildx (#249): the system test suite
 # (test/bats/system/*.bats) drives `docker buildx build --target
 # runtime-test ...` against synthesized fixtures to assert the runtime
@@ -117,12 +163,20 @@ FROM alpine:${ALPINE_VERSION}
 # (test/bats/system/deploy_bundle_e2e_spec.bats) runs the generated
 # deploy.sh up (real `docker compose up -d`) and unxz's the bundled
 # image.tar.xz; the generator itself xz-compresses the saved image.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
+# tool-pin: unpinned alpine-packages -- an apk package resolves to whatever
+# the pinned alpine series ships, so it declares no version of its own;
+# ALPINE_VERSION is the bound. Recorded so the watch reports these ~20
+# dependencies on every run instead of leaving them unmentioned. The one
+# package that needed a version of its own -- just, the runner the whole
+# downstream contract is written in -- moved to a pinned upstream release
+# in the lint-tools stage.
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats
 COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
+COPY --from=lint-tools /usr/local/bin/just /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats

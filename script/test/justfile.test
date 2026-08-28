@@ -26,7 +26,7 @@ default:
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
 # lint + ADR-numbering lint + stale setup.conf path lint + localized README
 # sync lint + doc/test count drift gate + hardcoded home path lint +
-# derived-figure lint) via the test-tools container (hadolint has no host binary; the alpine ci image
+# derived-figure lint + tool-pin coverage lint) via the test-tools container (hadolint has no host binary; the alpine ci image
 # bakes it in).
 # Narrow with
 # `just test lint --shellcheck` / `just test lint --hadolint`
@@ -34,6 +34,7 @@ default:
 # / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
 # / `just test lint --doc-counts` / `just test lint --home-literal`
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
+# / `just test lint --pin-coverage`
 # (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
 # the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
 # `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and

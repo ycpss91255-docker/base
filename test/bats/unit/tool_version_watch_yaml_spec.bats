@@ -1,0 +1,204 @@
+#!/usr/bin/env bats
+#
+# Structural assertions for `.github/workflows/tool-version-watch.yaml`
+# -- the scheduled upstream-release watch.
+#
+# The workflow's whole value is a boundary: it detects a new upstream
+# release, proposes the bump, lets CI prove it, and STOPS. Everything
+# asserted here is about that boundary holding, because the failure mode
+# of the alternative is not a broken build -- it is a third-party version
+# landing on main without anyone reading the diff.
+#
+# So the spec is written mostly as prohibitions (nothing merges, nothing
+# arms auto-merge, the scan job cannot write) and as the two decisions
+# that are easy to quietly reverse: one proposal per tool rather than one
+# for all of them, and an unreachable upstream FAILING rather than looking
+# like a clean week.
+#
+# Shape mirrors self_test_yaml_spec.bats.
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  load "${BATS_TEST_DIRNAME}/test_helper"
+  WF="/source/.github/workflows/tool-version-watch.yaml"
+  [[ -f "${WF}" ]] || skip "tool-version-watch.yaml not at expected path"
+}
+
+# _job <name> -- the body of one job block.
+_job() {
+  awk -v j="  ${1}:" '$0 == j {flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# It runs on a schedule, and by hand
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: runs on a schedule" {
+  # A gate on a PR cannot catch this class: there is no PR on the day a
+  # pinned tool goes stale, and a stale linter never turns anything red.
+  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'schedule:'
+  assert_output --partial 'cron:'
+}
+
+@test "tool-version-watch: can also be dispatched by hand, with a dry run" {
+  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'workflow_dispatch:'
+  assert_output --partial 'dry-run:'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The boundary: it proposes, it never lands
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: never merges anything" {
+  # The settled rule, shared with the downstream fanout: the automation
+  # stops at verification and a human audits and merges.
+  run grep -nE 'gh pr merge|--auto|--squash --delete-branch|auto-merge-on-green' "${WF}"
+  assert_failure
+}
+
+@test "tool-version-watch: never enables auto-merge through the API either" {
+  run grep -nE 'enablePullRequestAutoMerge|automerge|autoMerge' "${WF}"
+  assert_failure
+}
+
+@test "tool-version-watch: the workflow's default permission is read-only" {
+  run awk '/^permissions:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'contents: read'
+  refute_output --partial 'write'
+}
+
+@test "tool-version-watch: the scan job inherits read-only permissions" {
+  # It resolves upstream versions and nothing else. A scan job that could
+  # write is a scan job that could land something.
+  run _job scan
+  assert_success
+  refute_output --partial 'permissions:'
+}
+
+@test "tool-version-watch: the bump job takes exactly contents+pull-requests write" {
+  # The grant itself, not the job body: the block is what GitHub reads,
+  # and the surrounding comment names the scopes it deliberately omits.
+  run awk '/^    permissions:/{flag=1; next} /^    [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'contents: write'
+  assert_output --partial 'pull-requests: write'
+  run grep -cE '^ +(checks|statuses|actions|packages|id-token|administration): write' "${WF}"
+  assert_output '0'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# One proposal per tool
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: the bump job is a matrix over the drifted pins" {
+  # One shared branch would conflate N questions into one red/green: the
+  # safe bumps could not land while one was held, and the CI log would no
+  # longer say which version broke it.
+  run _job bump
+  assert_success
+  assert_output --partial 'pin: ${{ fromJSON(needs.scan.outputs.drift) }}'
+}
+
+@test "tool-version-watch: one failing bump does not cancel the others" {
+  run _job bump
+  assert_success
+  assert_output --partial 'fail-fast: false'
+}
+
+@test "tool-version-watch: the branch name carries the tool AND the version" {
+  # A per-tool branch that did not name the version would make the second
+  # bump of the same tool collide with the first one's open proposal.
+  run grep -F 'branch="watch/${PIN_NAME}-${PIN_TO}"' "${WF}"
+  assert_success
+}
+
+@test "tool-version-watch: it skips a version pair that is already open" {
+  run _job bump
+  assert_success
+  assert_output --partial '--state open --head'
+}
+
+@test "tool-version-watch: it does NOT treat a closed proposal as a refusal" {
+  # dependabot never re-raises a closed version pair, which is how this
+  # repo opted out of a major bump at five call sites for months with
+  # nothing in any config recording it. The refusal here is `skip=`, in
+  # the file that declares the pin.
+  run _job bump
+  assert_success
+  refute_output --partial '--state closed'
+  refute_output --partial '--state all'
+  assert_output --partial 'skip='
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Silence must not read as "up to date"
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: an unresolved upstream FAILS the scan job" {
+  # Exit 1 from check.sh means a source did not answer. Treating that as
+  # an empty matrix would look exactly like a clean week -- the precise
+  # failure this whole mechanism exists to end.
+  run _job scan
+  assert_success
+  assert_output --partial 'status}" -eq 1'
+  assert_output --partial '::error::'
+  assert_output --partial 'exit 1'
+}
+
+@test "tool-version-watch: it separates 'drift found' from 'could not resolve'" {
+  run _job scan
+  assert_success
+  assert_output --partial '-ne 10'
+}
+
+@test "tool-version-watch: it walks the upstream APIs once per run" {
+  # Two walks can disagree, and each one costs a request per pin against
+  # a 60/hour anonymous limit.
+  run grep -c 'watch/check.sh' "${WF}"
+  assert_success
+  assert_output '1'
+}
+
+@test "tool-version-watch: it authenticates to the GitHub API" {
+  run _job scan
+  assert_success
+  assert_output --partial 'GITHUB_TOKEN: ${{ github.token }}'
+}
+
+@test "tool-version-watch: the report reaches the run summary, not just the log" {
+  run _job scan
+  assert_success
+  assert_output --partial 'GITHUB_STEP_SUMMARY'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# It derives the table rather than carrying one
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: the workflow names no individual tool" {
+  # A roster kept here would be one more thing to fall behind the
+  # Dockerfile -- the exact defect class the watch is built against. Every
+  # tool name reaches the workflow through the matrix.
+  run grep -nE '^ *- (hadolint|shellcheck|alpine|kcov|bats|just|actionlint)$' "${WF}"
+  assert_failure
+}
+
+@test "tool-version-watch: the bump is performed by the same script a human runs" {
+  run _job bump
+  assert_success
+  assert_output --partial './script/watch/pins.sh --set'
+}
+
+@test "tool-version-watch: it runs on a reserved GitHub-hosted runner" {
+  # Both jobs check out and execute repository code; the self-hosted guard
+  # lint proves the rule generally, this pins the intent for this file.
+  run grep -c 'runs-on: ubuntu-latest' "${WF}"
+  assert_success
+  assert_output '2'
+}

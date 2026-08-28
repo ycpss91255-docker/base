@@ -489,6 +489,11 @@ jobs:
       # action's runtime when enabled.
       - name: Free disk space
         if: ${{ inputs.free_disk_space }}
+        # tool-pin: unpinned free-disk-space -- pinned to a BRANCH, which
+        # dependabot has no way to advance: it bumps a version ref to the
+        # next version and `main` is not one. It resolves to the v1.3.1
+        # commit today, so this is a live floating dependency in a job that
+        # deletes gigabytes off the runner. Declared so the watch names it.
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
