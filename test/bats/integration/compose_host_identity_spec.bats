@@ -36,7 +36,8 @@ setup() {
   # installs the docker compose plugin (docker-cli-compose)". With that
   # assertion in place a skip here can only mean an old pinned image,
   # which is a context; without it, the same skip would also cover a
-  # regression, which is the fail-open shape #953 removed.
+  # regression, which is the fail-open shape the tracked-subject guards
+  # were rewritten to remove.
   #
   # (base_docker_namespace_spec pins compose.yaml's FILE SHAPE. That is a
   # different invariant and says nothing about the tooling image, so it is
