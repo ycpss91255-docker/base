@@ -525,7 +525,7 @@ jobs:
       # adds no login; packages: write is verified up front by the preflight.
       - name: Log in to GHCR (registry cache backend)
         if: ${{ inputs.cache_backend == 'registry' }}
-        uses: docker/login-action@v4.5.2
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

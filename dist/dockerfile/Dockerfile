@@ -254,6 +254,56 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
 # then in script/entrypoint.sh:
 #   . /opt/some_ws/install/setup.bash --
 
+# CONVENTION: architecture comes from TARGETARCH, never from a literal.
+#
+# buildx builds THIS ONE file once per `--platform`, and injects TARGETARCH
+# into any stage that declares `ARG TARGETARCH`. A stage that instead writes
+# the architecture into a string builds the SAME artifact for every platform:
+# the wrong binary lands inside every other platform's image variant and says
+# nothing until someone runs it (`Exec format error`). Separate
+# per-architecture Dockerfiles were considered and rejected -- they trade
+# "one place forgotten" for "two files 90% identical, silently drifting".
+#
+# Two rules:
+#
+# 1. Declare `ARG TARGETARCH` in the stage that needs it, with NO default
+#    value. A default SHADOWS BuildKit's auto-injection (moby/buildkit#3403),
+#    which pins every platform to that default -- the failure is invisible
+#    until the wrong-arch image is run. A stage that needs the value declares
+#    its own ARG: it is not inherited across `FROM`.
+# 2. Upstream release assets rarely spell the architecture the way Docker
+#    does, so map TARGETARCH onto the upstream spelling in one `case`, and
+#    let an unknown value FAIL loudly rather than guess.
+#
+# That mapping is the one place a bare architecture literal is legitimate, so
+# it opts out of base's `arch-literal` lint
+# (`just test lint --arch-literal`), which otherwise refuses one anywhere in a
+# shipped Dockerfile. The region markers sit OUTSIDE the instruction, so a
+# multi-line RUN needs no comments between its continuations, and the reason
+# after `--` is required -- an opt-out without one is an off switch.
+#
+# Example (uncomment and adapt):
+# arch-literal-lint: allow-begin -- a worked example of rule 2 has to show both
+# spellings or it teaches nothing: TARGETARCH says amd64 / arm64, while
+# shellcheck publishes linux.x86_64 / linux.aarch64 and hadolint publishes
+# Linux-x86_64 / Linux-arm64.
+#ARG TARGETARCH
+#RUN case "${TARGETARCH}" in \
+#      amd64) tool_arch="x86_64"  ;; \
+#      arm64) tool_arch="aarch64" ;; \
+#      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+#    esac && \
+#    curl -fsSL "https://example.com/tool/v1.0.0/tool.linux.${tool_arch}.tar.gz" \
+#      | tar -xz -C /opt/tool
+# arch-literal-lint: allow-end
+#
+# A single line that genuinely needs a literal opts out on its own instead,
+# with the reason on the line:
+#   ARG SC_ARCH="x86_64"  # arch-literal-lint: allow -- <why>
+#
+# Rule 1 is mechanical and gated; deciding WHICH platforms a repo should build
+# is not, and this lint does not pretend to.
+
 # (Optional) Repo-local Dockerfile-internal build helpers. Put any
 # shell helpers that should run during `docker build` under
 # <repo>/script/docker/<name>.sh, then COPY them into a build-time
@@ -385,6 +435,9 @@ RUN bats /smoke_test/
 # FROM devel-base AS builder
 #
 # ARG DEBIAN_FRONTEND=noninteractive
+# # ARG is not inherited across FROM: a builder that downloads a
+# # per-architecture toolchain declares its own `ARG TARGETARCH` (no default)
+# # and maps it, per the TARGETARCH convention in the devel stage above.
 #
 # # Build-time deps. KEEP source / build intermediates -- devel
 # # inherits this stage for the dev workflow, and runtime
@@ -415,6 +468,9 @@ RUN bats /smoke_test/
 # FROM ${BASE_IMAGE} AS runtime-base
 #
 # ARG DEBIAN_FRONTEND=noninteractive
+# # Fresh FROM, so nothing above is inherited -- including `ARG TARGETARCH`.
+# # A runtime stage that fetches a per-architecture artifact declares and maps
+# # it here again, per the TARGETARCH convention in the devel stage above.
 #
 # # Minimal runtime apt: sudo (entrypoint usually needs it), tini
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that

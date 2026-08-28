@@ -144,18 +144,25 @@ teardown() {
 
 @test "generate_compose_yaml emits volumes: before networks: (#482)" {
   # network on -> both top-level blocks present; volumes precedes networks.
+  #
+  # The network name is the EIGHTH POSITIONAL argument. This used to be
+  # passed as `NETWORK_MODE=bridge NETWORK_NAME=mynet` in the environment,
+  # which generate_compose_yaml never reads, so `networks:` was never
+  # emitted and the ordering assertion never ran -- an `else skip` reported
+  # that as a pass on every run since the test was written. Both blocks are
+  # now asserted present before the order is compared, so a generator that
+  # stops emitting either one fails here instead of skipping.
   local _extras=('my_state:/srv/state')
-  NETWORK_MODE=bridge NETWORK_NAME=mynet \
-    generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-      "false" "false" "0" "gpu" _extras
-  if grep -qE '^networks:$' "${COMPOSE_OUT}"; then
-    local _vol_ln _net_ln
-    _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
-    _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
-    (( _vol_ln < _net_ln ))
-  else
-    skip "networks: not emitted in this invocation shape"
-  fi
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "mynet"
+  run grep -cE '^volumes:$' "${COMPOSE_OUT}"
+  assert_output "1"
+  run grep -cE '^networks:$' "${COMPOSE_OUT}"
+  assert_output "1"
+  local _vol_ln _net_ln
+  _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  (( _vol_ln < _net_ln ))
 }
 
 @test "generate_compose_yaml emits workspace mount when present in extras" {
@@ -316,103 +323,23 @@ teardown() {
   assert_failure
 }
 
-@test "generate_compose_yaml emits environment block from env_ list" {
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "ROS_DOMAIN_ID=7" "LOG_LEVEL=debug"
-  # positional args: ... extras net_name devices env tmpfs ports shm_size net_mode ipc_mode
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -E '^    environment:$' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "ROS_DOMAIN_ID=7"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "LOG_LEVEL=debug"' "${COMPOSE_OUT}"
-  assert_success
-}
+# NOTE: the `[environment]` env_N block moved out of the compose
+# `environment:` list and into the generated `.env` (compose ranks
+# `environment:` above `env_file`, so a default left there outranks the
+# operator's `.env.local`). Its emission and its `${VAR}` cross-reference
+# expansion are covered where the code now lives, in env_emit_spec.bats
+# against write_container_env (ADR-00000015: tests mirror source).
 
-@test "environment env_N expands \${VAR} cross-reference to earlier sibling (refs #236)" {
-  # When a later env_N value references an earlier sibling KEY via
-  # `\${KEY}`, the emitted compose.yaml line should contain the earlier
-  # sibling's value, not a literal `\${KEY}` (which compose's own var
-  # substitution does NOT resolve from sibling environment entries).
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "BUILD_TARGET=production" "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "LD_LIBRARY_PATH=/foo/production/lib"' "${COMPOSE_OUT}"
-  assert_success
-  refute grep -F -- '${BUILD_TARGET}' "${COMPOSE_OUT}"
-}
-
-@test "environment env_N forward reference is left literal (refs #236)" {
-  # Order-sensitive: a value that references a LATER sibling cannot be
-  # expanded (the sibling hasn't been parsed yet). The literal `\${VAR}`
-  # survives so compose.yaml's own substitution gets a chance from
-  # `.env` / shell env, and an unintended footgun surfaces visibly.
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib" "BUILD_TARGET=production"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "BUILD_TARGET=production"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N unknown \${VAR} is left literal (refs #236)" {
-  # When `\${VAR}` references a name with no matching sibling, leave it
-  # as a literal in compose.yaml. compose's own substitution (from
-  # `.env` / shell env) gets a chance at file-load; if that also fails
-  # the user sees an explicit error, not a silent empty replacement.
-  local _extras=()
-  local _env
-  printf -v _env '%s' "PATH_PREFIX=/foo/\${UNDEFINED_VAR}/bar"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N supports multiple cross-references in one value (refs #236)" {
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s\n%s' \
-    "BUILD_TARGET=production" \
-    "ARCH=aarch64" \
-    "PLUGIN_PATH=/opt/\${BUILD_TARGET}/lib/\${ARCH}"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "PLUGIN_PATH=/opt/production/lib/aarch64"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N transitive cross-reference resolves through chain (refs #236)" {
-  # If env_2 references env_1, and env_3 references env_2, env_3 should
-  # see the FULLY expanded env_2 (not a chain that needs more expansion).
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s\n%s' \
-    "ROOT=/opt" \
-    "BASE=\${ROOT}/lib" \
-    "INCLUDE=\${BASE}/include"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "BASE=/opt/lib"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "INCLUDE=/opt/lib/include"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "generate_compose_yaml expands \${VAR} env cross-refs on a per-stage service too (refs #955)" {
-  # The standalone per-stage `environment:` block is emitted whenever a
-  # `[stage:*]` override exists. It quoted the effective env entries but
-  # never ran the cross-ref expansion the devel service runs, so the SAME
-  # setup.conf produced two different container envs: devel saw the
-  # expanded value, the stage service saw a literal `${VAR}` compose
-  # cannot resolve from a sibling env entry.
+@test "generate_compose_yaml expands \${VAR} env cross-refs in a per-stage env_N addition (refs #955)" {
+  # A `[stage:*]` that APPENDS its own env_N is the append-mode case: the
+  # shared prefix stays in `.env` (where write_container_env expands it,
+  # #868) and only this stage's own tail is restated inline. That tail
+  # skipped the expansion entirely, so the SAME setup.conf produced two
+  # different container envs -- `.env` carried the resolved value and the
+  # stage service a literal `${VAR}` compose cannot resolve, because its
+  # substitution layer never sees sibling env entries. Expansion has to
+  # run over the FULL effective list (the referenced sibling lives in the
+  # prefix) while still emitting only the tail.
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel-base
@@ -423,12 +350,10 @@ DOCK
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
 [stage:probe]
-network.ipc = private
+environment.env_1 = LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib
 CONF
   local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "BUILD_TARGET=production" \
-    "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
+  local _env="BUILD_TARGET=production"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
 
@@ -436,6 +361,9 @@ CONF
   _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
   assert [ -n "$(grep -F -- 'LD_LIBRARY_PATH=/foo/production/lib' <<< "${_probe_block}")" ]
   refute [ -n "$(grep -F -- '${BUILD_TARGET}' <<< "${_probe_block}")" ]
+  # The shared prefix is still NOT restated here: a compose
+  # `environment:` entry outranks `.env.local`.
+  refute [ -n "$(grep -F -- 'BUILD_TARGET=production' <<< "${_probe_block}")" ]
 }
 
 @test "generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)" {
@@ -1373,6 +1301,7 @@ services:
     tty: true
     env_file:
       - .env
+      - .env.local
     runtime: nvidia
     init: true
     networks:
@@ -1383,7 +1312,6 @@ services:
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
-      - "TOP_ENV=1"
     ports:
       - "${PORT_1:-9000:9000}"
     volumes:
@@ -1435,7 +1363,7 @@ services:
     profiles:
       - headless
     env_file:
-      - .env
+      - .env.local
     privileged: true
     ipc: private
     runtime: nvidia

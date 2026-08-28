@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2951 tests**.
+Unit specs under `test/bats/unit/`: **3018 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -265,7 +265,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (114)
+#### test/bats/unit/setup_spec.bats (117)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -318,13 +318,13 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (4)
+#### test/bats/unit/env_emit_spec.bats (26)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (121)
+#### test/bats/unit/setup_cmd_spec.bats (125)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -551,7 +551,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (104)
+### test/bats/unit/self_test_yaml_spec.bats (106)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1425,7 +1425,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (29)
+### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1440,7 +1440,8 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: all empty emits nothing` | caps off |
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
-| `_emit_env_file_block: emits the .env workload overlay block` | #502 env_file |
+| `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
+| `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
 | `_emit_build_network_line: empty omits; set emits network line` | build.network |
 | `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
@@ -1465,7 +1466,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (89)
+### test/bats/unit/compose_emit/gen_spec.bats (83)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1504,13 +1505,7 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
-| `generate_compose_yaml emits environment block from env_ list` | - |
-| `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
-| `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
-| `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
-| `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
-| `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
-| `generate_compose_yaml expands ${VAR} env cross-refs on a per-stage service too (refs #955)` | stage inherits [environment], same expansion as devel |
+| `generate_compose_yaml expands ${VAR} env cross-refs in a per-stage env_N addition (refs #955)` | append-mode tail expands against the shared prefix |
 | `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | stage replaces the list, its own env_N cross-refs |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
@@ -1587,7 +1582,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (52)
+### test/bats/unit/deploy_spec.bats (53)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1627,9 +1622,10 @@ refused before any build or bundle step.
 | `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)` | follow-stage GUI |
 | `_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)` | per-stage override |
 | `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)` | ipc/shm literals |
-| `_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)` | - |
+| `_generate_resolved_compose: the watchdog env leaves environment: for the bundle .env (#868)` | - |
+| `_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)` | - |
 | `_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)` | - |
-| `_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)` | - |
+| `_generate_resolved_compose: gui X11 still owns the environment: block (#840)` | - |
 | `_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)` | - |
 | `_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)` | - |
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
@@ -1826,7 +1822,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (155)
+### test/bats/unit/template_spec.bats (157)
 
 | Test | Description |
 |------|-------------|
@@ -1893,6 +1889,8 @@ builds the env block only for the knobs the conf sets.
 | `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
+| `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
+| `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
 | `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
 | `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
@@ -2006,7 +2004,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (108)
+### test/bats/unit/ci_spec.bats (113)
 
 | Test | Description |
 |------|-------------|
@@ -2025,7 +2023,12 @@ builds the env block only for the knobs the conf sets.
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 | `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
 | `_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)` | #615 partition invariant (each slice runs once) |
-| `_shard_unit_files: greedy weight-balance keeps no shard wildly above the @test average (#677)` | #677 greedy bin-packing balances shards |
+| `_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)` | #677 live-tree probe through `_spec_weight`, at the eight shards CI runs |
+| `_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)` | #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not `@test` count |
+| `_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)` | #940 non-vacuity: N+1 equal heavy specs over eight shards must FAIL the guard |
+| `_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)` | #940 the probe's shard total is load-bearing: N=4 passes what N=8 catches |
+| `_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)` | #936 regression guard: a probe totalling `test/bats/unit/` alone is caught on the live tree |
+| `_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)` | #936 arithmetic: the recorded loads clear the ceil'd bound once the total is pooled |
 | `_shard_unit_files: rejects an out-of-range shard spec (#615, #692)` | #615 shard-spec validation (asserts message) |
 | `_shard_unit_files: rejects a no-slash shard spec (#692)` | #692 missing-slash format guard |
 | `_shard_unit_files: rejects a non-numeric shard spec (#692)` | #692 non-numeric guard |
@@ -2623,7 +2626,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)` | - |
+| `_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)` | - |
 | `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
 | `no entry is both canonical and retired (#893)` | - |
 | `_retired_gitignore_entries: retires nothing today (#893)` | - |
@@ -3014,21 +3017,22 @@ vice versa). Pure git + filesystem, no docker.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/env_generated_claim_spec.bats (11)
+### test/bats/unit/env_generated_claim_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
-| `just docker help: en setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-TW setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-CN setup summary names .env.generated (#879)` | - |
-| `just docker help: ja setup summary names .env.generated (#879)` | - |
-| `justfile.docker: the setup doc comment names .env.generated (#879)` | - |
-| `setup.sh --help: usage names .env.generated (#879)` | - |
-| `setup.sh set: the next hint names .env.generated (#879)` | - |
-| `setup.sh add: the next hint names .env.generated (#879)` | - |
-| `setup.sh remove: the next hint names .env.generated (#879)` | - |
-| `setup.sh env done message names .env.generated in all four locales (#879)` | - |
-| `no shipped surface claims setup regenerates a bare .env (#879)` | - |
+| `just docker help: en setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-TW setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-CN setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: ja setup summary names .env + .env.generated (#868)` | - |
+| `justfile.docker: the setup doc comment names .env + .env.generated (#868)` | - |
+| `setup.sh --help: usage names .env + .env.generated (#868)` | - |
+| `setup.sh set: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh add: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh remove: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh env done message names .env.generated in all four locales (#868)` | - |
+| `no shipped surface calls a bare .env hand-authored or a workload overlay (#868)` | - |
+| `the shipped surfaces name .env.local as the override channel (#868)` | - |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
@@ -3331,6 +3335,40 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/init_installed_paths_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-installed-paths prints a non-empty manifest and exits 0` | - |
+| `init.sh --list-installed-paths lists the base version monitor workflow` | - |
+| `init.sh --list-installed-paths lists the wrapper symlinks and hook stubs` | - |
+| `init.sh --list-installed-paths emits repo-relative paths only` | - |
+| `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
+| `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
+### test/bats/unit/arch_literal_lint_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_run_arch_literal: FAILS on a bare Docker architecture literal, naming file and line (#939)` | - |
+| `_run_arch_literal: FAILS on the uname spelling of the same assumption (#939)` | - |
+| `_run_arch_literal: FAILS on a mixed-case release-asset spelling (#939)` | - |
+| `_run_arch_literal: FAILS on a platform pair literal (#939)` | - |
+| `_run_arch_literal: FAILS on a literal inside a comment too (#939)` | - |
+| `_run_arch_literal: names the offending literal and points at TARGETARCH (#939)` | - |
+| `_run_arch_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#939)` | - |
+| `_run_arch_literal: FAILS on an unterminated allow-begin region (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-end with no matching allow-begin (#939)` | - |
+| `_run_arch_literal: FAILS on an allow-begin carrying no stated reason (#939)` | - |
+| `_run_arch_literal: FAILS on a per-line allow carrying no stated reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that expresses architecture via TARGETARCH (#939)` | - |
+| `_run_arch_literal: PASSES a two-spelling mapping table inside an allow region (#939)` | - |
+| `_run_arch_literal: PASSES a single line carrying a per-line allow with a reason (#939)` | - |
+| `_run_arch_literal: PASSES a Dockerfile that names no architecture at all (#939)` | - |
+| `_run_arch_literal: ignores non-Dockerfile files under the scan roots (#939)` | - |
+| `_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
+| `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
+| `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 ### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides
@@ -3359,3 +3397,24 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/spec_subject_guard_spec.bats (6)
+
+`assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
+opening 54 guards across this suite now share, plus the repo-wide
+invariant that no spec goes back to the fail-open form. Those guards used
+to read `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by
+design" from "renamed and nobody noticed" and answered the second with a
+green run: renaming one workflow turned 52 assertions into `ok ... # skip`
+and the suite still exited 0. Since a bats outcome cannot be observed from
+inside the test that produces it, each case writes a one-test spec into
+`BATS_TEST_TMPDIR` and asserts on the TAP the inner `bats` run emits.
+
+| Test | Description |
+|------|-------------|
+| `assert_spec_subject: a present subject lets the test run to completion` | The normal path costs the caller nothing and skips nothing |
+| `assert_spec_subject: a missing subject FAILS the test, it does not skip it` | The whole point: a skip here reports green for a spec that asserted nothing |
+| `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
+| `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
+| `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
+| `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |

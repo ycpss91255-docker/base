@@ -305,7 +305,8 @@ teardown() {
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
   local _conf="/source/dist/.setup.conf"
-  [[ -f "${_conf}" ]] || skip ".setup.conf not present"
+  assert_spec_subject "${_conf}" \
+      "the shipped default setup.conf this spec pins"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken path must not reappear.

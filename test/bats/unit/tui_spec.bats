@@ -817,7 +817,13 @@ gpu_capabilities = gpu
 EOF
   local _before
   _before="$(wc -c < "${TEMP_DIR}/conf")"
-  [[ "${_before}" -gt 0 ]] || skip "fixture seed unexpectedly empty"
+  # Fails rather than skipping: the heredoc above is this test's own
+  # fixture, so an empty seed is a broken test, not an absent
+  # precondition -- and skipping here would retire the regression
+  # guard (the 0-byte truncation) exactly when the fixture stopped
+  # being able to detect it.
+  [[ "${_before}" -gt 0 ]] \
+    || fail "fixture seed is empty -- the heredoc above wrote nothing, so the 0-byte-truncation assertion below would pass vacuously"
 
   local -a _sections=(image) _keys=(image.rules) \
     _values=("string:my_unique_image")

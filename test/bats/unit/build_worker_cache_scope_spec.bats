@@ -26,7 +26,8 @@ setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   SCRIPT="/source/script/ci/build_worker/cache_scope.sh"
-  [[ -f "${SCRIPT}" ]] || skip "cache_scope.sh not at expected path"
+  assert_spec_subject "${SCRIPT}" \
+      "the build-worker cache-scope script under test"
 }
 
 @test "cache_scope: single-call caller (no cache_variant) -> image-hardware key" {
