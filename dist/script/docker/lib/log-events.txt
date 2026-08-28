@@ -167,6 +167,7 @@ ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
 ci_home_literal
+ci_arch_literal
 ci_bash_source_guard
 ci_early_close_reader
 ci_derived_figures
