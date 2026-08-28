@@ -18,3 +18,26 @@ set working-directory := '../..'
 # Default: list available recipes
 default:
     @just --justfile '{{source_file()}}' --list
+
+# just release coverage-badge -> regenerate doc/badge/coverage.svg, the
+# per-release coverage figure the README draws (ADR-00000008, per-release
+# figure amendment).
+#
+# The release BUMP runs this; it is not a step anyone performs by hand and
+# not something to run per merge. The figure refreshes ONCE PER RELEASE and
+# rides the `chore: release vX.Y.Z` commit alongside `.version` and the
+# CHANGELOG promotion, so the badge, the tag and the changelog entry are the
+# same commit or none of them are.
+#
+# It reads the kcov reports under coverage/, so run `just test coverage` on
+# the commit being released first. It REFUSES -- writing nothing, leaving
+# the previous badge in place -- when there is no report, when a report
+# predates the commit, or when instrumented sources are modified in the
+# worktree: a release whose coverage never ran must not publish a stale or
+# an invented number.
+#
+# `just release coverage-badge --unmeasured` renders "not measured" for the
+# current .version. That is for a version that genuinely has no measurement;
+# the bump never passes it.
+coverage-badge *args:
+    ./script/release/coverage_badge.sh {{args}}

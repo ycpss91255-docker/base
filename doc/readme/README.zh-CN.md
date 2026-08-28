@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 456381313862 -->
+<!-- sync: base ff88fde1be47 1b3d9c14e036 -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 组织下所有 Docker 容器 repo 的共用模板。
@@ -1100,7 +1100,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 a43ee8662ca8 -->
+<!-- sync: directory-structure 27053ded9378 d5a269cb2528 -->
 ## 目录结构
 
 ```
@@ -1177,6 +1177,7 @@ just --list        # 显示 CI 命令
 │       ├── release-test-tools.yaml     # base 自身的 test-tools image release
 │       └── ghcr-cleanup.yaml           # 每周清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
+│   ├── badge/                          # 生成的发布覆盖率徽章（由 release bump 重新生成）
 │   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

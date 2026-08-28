@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 90441c2b9a5c -->
+<!-- sync: base ff88fde1be47 4e9345ef74cf -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織のすべての Docker コンテナ repo 用共有テンプレート。
@@ -1177,7 +1177,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 807021cee6fe -->
+<!-- sync: directory-structure 27053ded9378 d8be11306b02 -->
 ## ディレクトリ構造
 
 ```
@@ -1254,6 +1254,7 @@ just --list  # CI ターゲット表示
 │       ├── release-test-tools.yaml     # base 自身の test-tools image release
 │       └── ghcr-cleanup.yaml           # GHCR 上の test-tools untagged orphan を毎週整理
 ├── doc/
+│   ├── badge/                          # 生成されるリリースカバレッジバッジ（release bump が再生成）
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

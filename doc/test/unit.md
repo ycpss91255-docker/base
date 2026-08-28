@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2944 tests**.
+Unit specs under `test/bats/unit/`: **2962 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3356,3 +3356,37 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/coverage_badge_spec.bats (18)
+
+Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
+coverage badge generator that replaces the README's static `Coverage-Kcov`
+shields.io badge with a self-contained SVG committed to the repo. It obtains
+the figure by re-running `coverage_gate.sh`'s own merge math over the local
+kcov reports and stamps the version the figure belongs to, so a per-release
+number cannot be read as `main`'s. The load-bearing half is the refusal: a
+release whose coverage never ran must not publish a stale or an invented
+figure, so a missing report, a report older than the commit being released,
+or a modified instrumented source each refuse and write nothing. The last
+three tests assert the repo's own published figure, not the generator.
+
+| Test | Description |
+|------|-------------|
+| `coverage_badge: renders the measured rate into a self-contained SVG` | The output is an SVG carrying the measured percentage |
+| `coverage_badge: the SVG carries the version the figure belongs to` | Defaults to `.version`, so the figure names its release |
+| `coverage_badge: --version overrides the .version default` | The bump passes the version it is promoting to |
+| `coverage_badge: the SVG references no external host` | No renderer, no fetch -- it ports to GitLab unchanged |
+| `coverage_badge: the rate is the gate's own merge math, not a re-implementation` | Two shards over the same file: the per-line union (75%), not the root-counter sum (50%) |
+| `coverage_badge: a high rate grades green` | Shields' own flat palette, as the removed Codecov badge read |
+| `coverage_badge: a low rate grades red` | The bottom of the same grading |
+| `coverage_badge: refuses when no coverage report exists` | No measurement means no figure, not the previous one |
+| `coverage_badge: refuses when the reports predate the commit being released` | A report older than HEAD measured an earlier tree |
+| `coverage_badge: refuses when instrumented sources are modified in the worktree` | The reports then describe neither the commit nor the tree |
+| `coverage_badge: a release-bump edit is not a source change` | `.version` moving is the bump's own edit and must not block the step it runs |
+| `coverage_badge: refuses to overwrite an existing badge when it cannot measure` | A refusal leaves the last good badge byte-identical |
+| `coverage_badge: --unmeasured states the absence instead of inventing a figure` | The honest rendering for a version that has no measurement |
+| `coverage_badge: rejects an unknown option` | Arg errors exit 2, distinct from a refusal's 1 |
+| `coverage_badge: --help documents the release cadence` | The help text is the header block, so an option cannot drift out of it |
+| `coverage_badge: the README shows the committed badge, not a static one` | The `Coverage-Kcov` badge is gone and the SVG is referenced |
+| `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
+| `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |

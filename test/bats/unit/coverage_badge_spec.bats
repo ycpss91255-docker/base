@@ -124,10 +124,14 @@ _make_cobertura() {
   run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
   [ "${status}" -eq 0 ]
 
+  # The SVG namespace URI is an identifier, not a fetch; what must not
+  # appear is anything a renderer would go to the network for.
   run cat "${_root}/badge.svg"
-  refute_output --partial 'http://'
   refute_output --partial 'shields.io'
-  refute_output --partial 'raw.githubusercontent.com'
+  refute_output --partial 'githubusercontent'
+  refute_output --partial '<image'
+  refute_output --partial 'xlink:href'
+  refute_output --partial '@import'
 }
 
 @test "coverage_badge: the rate is the gate's own merge math, not a re-implementation" {
@@ -173,7 +177,7 @@ _make_cobertura() {
   assert_output --partial '#e05d44'
 }
 
-# ── Refusal: never a stale or an invented number (#952) ──────────────────────
+# ── Refusal: never a stale or an invented number ─────────────────────────────
 
 @test "coverage_badge: refuses when no coverage report exists" {
   local _root

@@ -317,3 +317,132 @@ that a real regression trips it instead of being absorbed. The v1
 absolute-floor posture is unchanged -- this re-bases the number, it does
 not adopt the v2 regression-vs-main-baseline gate, which remains the
 documented follow-up.
+
+## Amendment (#952): Decision 5's visibility half -- the figure is published per release, in the release commit
+
+- **Date:** 2026-08-28
+- **Status:** Accepted (completes the visibility half of the #710
+  amendment's Decision 5, which shipped the `$GITHUB_STEP_SUMMARY` table
+  and deferred everything durable). **Relates:** #710 (Codecov removed,
+  the dynamic badge with it), #709.
+
+### Context
+
+Decision 5 kept kcov's HTML and appended a summary table to
+`$GITHUB_STEP_SUMMARY`. Both live for the length of one CI run. When the
+Codecov badge was deleted, a **static** shields.io badge took its place:
+
+```markdown
+![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+```
+
+It reads `Coverage-Kcov` whatever the number does. The figure is computed
+on every coverage run -- `coverage_gate.sh` prints `merged line rate <N>%`
+and tabulates it -- and then discarded. A README that shows a badge nobody
+can be wrong about is worse than one that shows nothing: it makes a reader
+believe someone is watching.
+
+### Decision
+
+**The gate's line rate is rendered into a self-contained SVG committed to
+the repo, stamped with the version it belongs to, and regenerated as part
+of the release commit.**
+
+1. **A committed SVG, not an endpoint badge.** `doc/badge/coverage.svg` is
+   plain markup with no external reference; the README draws it as
+   `![Coverage](doc/badge/coverage.svg)`. The shields.io *endpoint*
+   pattern (`img.shields.io/endpoint?url=raw.githubusercontent.com/...`)
+   was considered and rejected twice over: it needs the repo to be
+   **public**, because `raw.githubusercontent.com` will not serve a
+   private repo to shields.io and shields.io cannot carry a token -- so it
+   could never fan out to the mostly-private downstream repos -- and the
+   URL binds to `raw.githubusercontent.com`, which is precisely the
+   coupling class this ADR's #710 amendment removed. A committed SVG has
+   neither problem and ports to GitLab as a file.
+
+2. **The figure carries its version.** The badge reads
+   `coverage vX.Y.Z | 84.7%`, never a bare percentage. The cadence is once
+   per release (see 4), so a bare number would be read as the coverage of
+   `main` and be wrong for the whole cycle -- the same failure as the
+   static badge, differently dressed.
+
+3. **The number comes from the gate's own merge math, re-run locally.**
+   `script/release/coverage_badge.sh` SOURCES `coverage_gate.sh` and calls
+   `_coverage_gate_run` over the kcov reports in `coverage/` -- the output
+   of `just test coverage`. The per-line union and the path-alias
+   canonicalisation of the previous amendments are not re-implemented, so
+   the badge and the gate cannot disagree about what the project rate is.
+   The alternatives were **reading the figure back out of the last CI run**
+   (fast, but couples the release to one CI provider's API and to a run
+   being findable for the exact commit) and **having CI publish the figure
+   into the repo** (a commit per merge whose whole content is one digit).
+   Recomputing costs a local kcov run before a release -- minutes, on an
+   operation that happens a few times a month -- and costs no coupling at
+   all: it is the same script, reading files, on a workstation or under
+   either CI.
+
+4. **It is a step of the release bump, not a new mechanism.**
+   `.claude/scripts/release-bump.sh` in the harness already owns every
+   mechanical release edit -- `.version`, the `[Unreleased]` promotion,
+   the regenerated compare-link block. The badge is the fourth thing it
+   regenerates, so it rides the `chore: release vX.Y.Z` commit: **zero new
+   commits**, no new trigger, and nothing anyone maintains by hand. That
+   script's own header is the argument: the compare-link block stopped
+   being updated around `v0.6.8` and ~90 releases rendered a dangling
+   reference, because a hand-run step decays. A hand-maintained percentage
+   would decay identically.
+
+5. **Refusal, never a carried-over figure.** A release whose coverage
+   never ran must not publish a stale or an invented number. The generator
+   writes nothing and exits 1 when there is no report under `coverage/`,
+   when a report is **older than the commit being released** (it measured
+   an earlier tree), or when instrumented sources are **modified in the
+   worktree** (the reports describe neither the commit nor the tree). The
+   release edits themselves -- `.version`, the CHANGELOG, the badge --
+   are deliberately not in that pathspec, so the check passes on a
+   half-applied bump and fails on a code change. `--unmeasured` renders
+   `coverage vX.Y.Z | not measured` in grey: an explicit statement of
+   absence, which is what the badge carried for `v0.42.0`, the last
+   release cut before this mechanism existed.
+
+### Cadence -- and why it is written down three times
+
+**The figure refreshes once per release.** Not per merge: nobody acts on
+52.9% becoming 52.8%, and a commit per merge whose entire content is one
+digit fills `git log` with entries no one will read. "What is the coverage
+of v0.43.0" is a fact about a shipped artifact, and that is the question a
+README figure should answer.
+
+A reader who does not know the cadence misreads the figure as current, so
+it is stated where each kind of reader stands: **on the badge itself** (the
+version is in the image), **here**, and **in the release procedure** --
+`just release coverage-badge` in `script/release/justfile.release`, whose
+recipe doc says the bump runs it, plus the harness-side
+`.claude/commands/release.md` / `semver-bump` skill, which is where the
+person cutting the release is reading.
+
+### GitLab portability mapping (mechanical, as above)
+
+- **The badge**: unchanged. A committed SVG referenced by a repo-relative
+  path renders in GitLab's Markdown exactly as in GitHub's; nothing
+  external is involved.
+- **The generator**: unchanged. It reads `coverage/**/cobertura.xml`, the
+  same artifact GitLab's `coverage_report` consumes, and shells out only
+  to `git` and `awk`.
+- **The release step**: the bump is a workstation script in either world.
+  Nothing in this mechanism reads a GitHub API, an artifact store or an
+  environment variable that only one CI defines.
+
+### Consequences (amendment)
+
+- The README figure is now falsifiable: it names a version, and the number
+  next to it was produced by the gate over that version's tree.
+- A release now needs a local coverage run first, or the bump refuses.
+  That is the intended trade: the alternative to paying minutes is
+  publishing a figure nobody measured.
+- `v0.42.0`'s badge says `not measured`, honestly: it was cut before this
+  existed and no report for its tree survives. The first measured figure
+  is `v0.43.0`'s.
+- Publishing the kcov **HTML** remains Decision 5's other, still-deferred
+  half; it has its own obstacle (Pages on a private repo needs a paid
+  plan) and is out of scope here.
