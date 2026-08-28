@@ -364,7 +364,16 @@ _watchdog_stop_service() {
     sleep 1
     _waited=$(( _waited + 1 ))
   done
-  _watchdog_child_alive && _watchdog_signal KILL
+  # Escalate UNCONDITIONALLY, not only while the child is still alive: the
+  # thing being killed is the process GROUP, and the child exiting says
+  # nothing about the grandchildren it spawned. Gating the SIGKILL on
+  # `_watchdog_child_alive` meant a service that honoured SIGTERM promptly
+  # left its SIGTERM-ignoring subtree running -- the exact orphan
+  # accumulation setsid is here to prevent. The child is still a zombie at
+  # this point (reaped by the `wait` below), so its pid is not reusable and
+  # the signal cannot land on a stranger; against an already-empty group the
+  # kill is a no-op. (#965)
+  _watchdog_signal KILL
   wait "${_WATCHDOG_CHILD_PID}" 2>/dev/null || true
   _WATCHDOG_CHILD_PID=""
   _WATCHDOG_CHILD_PGID=""
