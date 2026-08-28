@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2944 tests**.
+Unit specs under `test/bats/unit/`: **2951 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -364,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (135)
+### test/bats/unit/tui_spec.bats (139)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1397,7 +1397,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (14)
+### test/bats/unit/completions_spec.bats (15)
 
 Unit tests for the opt-in shell tab-completion installer
 `dist/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1423,6 +1423,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
+| `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
 ### test/bats/unit/compose_emit/blocks_spec.bats (29)
 
@@ -1464,7 +1465,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (87)
+### test/bats/unit/compose_emit/gen_spec.bats (89)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1509,6 +1510,8 @@ shapes, absent on any `*-test` stage).
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
+| `generate_compose_yaml expands ${VAR} env cross-refs on a per-stage service too (refs #955)` | stage inherits [environment], same expansion as devel |
+| `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | stage replaces the list, its own env_N cross-refs |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
