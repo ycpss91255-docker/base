@@ -342,10 +342,23 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh refuses when the default container is already running" {
-  # The script should grep docker ps for an existing container with the
-  # default name and exit non-zero with a helpful message.
-  run grep -E 'already running|already exists' /source/dist/script/docker/wrapper/run.sh
+  # The refusal is the GUARD, not the wording. The old assertion greped
+  # the whole file for `already running|already exists`, which the i18n
+  # message table satisfies on its own -- deleting the entire
+  # `if [[ "${DETACH}" != true ... ]]` / _wrapper_container_running /
+  # `exit 1` block left this spec green.
+  #
+  # So: pin the enclosing condition, pin the running-container probe, and
+  # read the refusal out of the probe's OWN block -- a bare `exit 1`
+  # appears all over the file and proves nothing on its own.
+  run code_grep -F 'if [[ "${DETACH}" != true' \
+    /source/dist/script/docker/wrapper/run.sh
   assert_success
+  run code_grep -A7 -F 'if _wrapper_container_running "${CONTAINER_NAME}"; then' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  assert_output --partial '_log_err run run_already_running'
+  assert_output --partial 'exit 1'
 }
 
 @test "base is single-instance: no --instance flag remains (#600)" {
