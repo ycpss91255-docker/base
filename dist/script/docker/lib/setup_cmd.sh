@@ -312,6 +312,36 @@ _setup_set() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_dump_section <section> <keys_arrayvar> <values_arrayvar>
+#
+# Prints "<key> = <value>" for every entry of the flat
+# <keys>/<values> namespace-key view whose OWNING section is exactly
+# <section>, in array order. Returns 1 when it printed nothing, so the
+# caller raises its own not-found error.
+#
+# The single place `show` and `list` decide section membership. It asks
+# `_conf_split_nskey` rather than prefix-matching "<section>." because
+# the prefix cannot tell section `logging` + key `web.driver` from
+# section `logging.web` + key `driver`: both readers used to bind a
+# per-service override to the parent [logging] block as well as its
+# own, listing one value twice under two sections.
+# ════════════════════════════════════════════════════════════════════
+_setup_dump_section() {
+  local _sds_section="${1-}"
+  local -n _sds_keys="${2:?"${FUNCNAME[0]}: missing keys arrayvar"}"
+  local -n _sds_values="${3:?"${FUNCNAME[0]}: missing values arrayvar"}"
+
+  local _sds_i _sds_sect _sds_key _sds_printed=0
+  for (( _sds_i=0; _sds_i<${#_sds_keys[@]}; _sds_i++ )); do
+    _conf_split_nskey "${_sds_keys[_sds_i]}" _sds_sect _sds_key || continue
+    [[ "${_sds_sect}" == "${_sds_section}" ]] || continue
+    printf '%s = %s\n' "${_sds_key}" "${_sds_values[_sds_i]}"
+    _sds_printed=1
+  done
+  (( _sds_printed == 1 ))
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_show
 #
 # Subcommand handler for `setup.sh show <section>[.<key>]`. Reads
@@ -397,19 +427,24 @@ _setup_show() {
         return 0
       fi
     done
+    # `logging.<svc>` reads as BOTH a `<section>.<key>` spec (the split
+    # above) and a section name `_setup_known_section` accepts, so a
+    # section the tool calls legal was unreadable: the key lookup for
+    # `logging.web` fails and there was nowhere else to look. Fall back
+    # to dumping the spec as a section, but only when it names a known
+    # section that has entries -- a plain typo (`logging.drivr`) still
+    # reports the key, not the section, as missing. `set` / `remove` /
+    # `add` keep the plain split: they must name a key.
+    if _setup_known_section "${_spec}" \
+       && _setup_dump_section "${_spec}" _ss_keys _ss_values; then
+      return 0
+    fi
     _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_ns_key}" "key=${_ns_key}"
     return 1
   fi
 
-  # Whole-section dump.
-  local _printed=0
-  for (( _i=0; _i<${#_ss_keys[@]}; _i++ )); do
-    if [[ "${_ss_keys[_i]}" == "${_section}."* ]]; then
-      printf '%s = %s\n' "${_ss_keys[_i]#"${_section}".}" "${_ss_values[_i]}"
-      _printed=1
-    fi
-  done
-  if (( _printed == 0 )); then
+  # Whole-section dump -- membership lives in _setup_dump_section.
+  if ! _setup_dump_section "${_section}" _ss_keys _ss_values; then
     _log_err setup conf_section_not_found "display=$(_setup_msg errors section_not_found): ${_section}" "section=${_section}"
     return 1
   fi
@@ -481,7 +516,14 @@ _setup_list() {
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_effective_full "${_base_path}" _ll_sections _ll_keys _ll_values
 
-  local _si _ki _sect _first=1
+  # Membership goes through _setup_dump_section for the same reason as
+  # `show`'s dump, and it matters more here: the old `"${_sect}."*`
+  # prefix put `logging.web.driver` in BOTH the [logging] block (as
+  # `web.driver`) and [logging.web], emitting one value twice, so this
+  # dump -- documented above as pipeable -- round-tripped into the
+  # dotted-key-in-[logging] file _write_setup_conf refuses to write.
+  # An empty section still gets its header (dump returns 1, ignored).
+  local _sect _first=1
   for _sect in "${_ll_sections[@]}"; do
     if (( _first )); then
       _first=0
@@ -489,11 +531,7 @@ _setup_list() {
       printf '\n'
     fi
     printf '[%s]\n' "${_sect}"
-    for (( _ki=0; _ki<${#_ll_keys[@]}; _ki++ )); do
-      if [[ "${_ll_keys[_ki]}" == "${_sect}."* ]]; then
-        printf '%s = %s\n' "${_ll_keys[_ki]#"${_sect}".}" "${_ll_values[_ki]}"
-      fi
-    done
+    _setup_dump_section "${_sect}" _ll_keys _ll_values || true
   done
 }
 
