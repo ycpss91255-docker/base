@@ -372,7 +372,16 @@ _write_adr() {
   # manifest while saying so. Matching the file as prose reads that denial
   # as the reference it denies, so the rule passed the exact attribution it
   # exists to refuse.
-  local _wf="${REPO}/.github/workflows/commented.yaml"
+  # The fixture workflow is the SUBJECT here, so it has to sit under the
+  # tree the checker scans -- but that tree does not have to be the live
+  # checkout, and must not be. Written into ${REPO}/.github/workflows/ it
+  # was never removed: every gate run left an untracked workflow behind, in
+  # the one directory the workflow specs and the self-hosted-runner lint
+  # scan, which is how a spec makes every OTHER spec's read of that tree
+  # racy. A scratch root answers the same question and owns what it writes.
+  local _repo="${SCRATCH}/repo"
+  mkdir -p "${_repo}/.github/workflows"
+  local _wf="${_repo}/.github/workflows/commented.yaml"
   cat > "${_wf}" <<'YAML'
 on: push
 jobs:
@@ -389,7 +398,7 @@ YAML
     '' \
     'The `release` job in `.github/workflows/commented.yaml` assembles the' \
     'payload declared in `script/ci/release/archive.manifest`.')"
-  run _adr_claims "${_adr}" "${REPO}"
+  run _adr_claims "${_adr}" "${_repo}"
   assert_failure
   assert_output --partial 'script/ci/release/archive.manifest'
   assert_output --partial 'commented.yaml'
