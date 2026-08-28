@@ -628,7 +628,7 @@ _marker() {
   # test; an already-stamped tree must come back byte-identical.
   #
   # BOTH sides of the comparison come from ONE read of the live tree, and
-  # the `diff` names neither of them (#965). The assertion is about the
+  # the `diff` names neither of them. The assertion is about the
   # GENERATOR -- give the same bytes twice, get the same bytes back -- but
   # it used to be settled by diffing the generated copy against
   # /source/doc/readme itself. This suite runs 32-way parallel, often

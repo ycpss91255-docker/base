@@ -372,7 +372,7 @@ _watchdog_stop_service() {
   # accumulation setsid is here to prevent. The child is still a zombie at
   # this point (reaped by the `wait` below), so its pid is not reusable and
   # the signal cannot land on a stranger; against an already-empty group the
-  # kill is a no-op. (#965)
+  # kill is a no-op.
   _watchdog_signal KILL
   wait "${_WATCHDOG_CHILD_PID}" 2>/dev/null || true
   _WATCHDOG_CHILD_PID=""

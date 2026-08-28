@@ -24,7 +24,7 @@ teardown() {
   rm -rf "${TMP_DIR}"
 }
 
-# ── event-driven synchronisation, never a fixed sleep (#965) ─────────
+# ── event-driven synchronisation, never a fixed sleep ───────────────
 #
 # Every case below drives REAL processes, so the harness has to wait for
 # something a child does before it acts: the pid file is written, the TERM
@@ -79,7 +79,7 @@ _await_gone() {
   # more likely, never less. What load CAN do is make it vacuous -- a monitor
   # that crashed on its first line also never prints ACTED. So the window
   # ends by asking whether the monitor is still there, which separates "it
-  # deferred" from "it was never running to defer" (#965).
+  # deferred" from "it was never running to defer".
   run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
@@ -103,7 +103,7 @@ _await_gone() {
   # timeout 30, not 8: the loop needs two 1s intervals plus two bounded
   # checks, so a value sized to the EXPECTED wall clock turns a loaded
   # machine into a red gate. The timeout is here to catch a loop that never
-  # terminates, and 30s catches that just as well (#965).
+  # terminates, and 30s catches that just as well.
   run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
@@ -122,7 +122,7 @@ _await_gone() {
 @test "restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # timeout 30 for the reason given on the monitor case above: it bounds a
-  # non-terminating loop, it does not schedule a correct one (#965).
+  # non-terminating loop, it does not schedule a correct one.
   run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
@@ -160,7 +160,7 @@ echo $$ > "$1"
 sleep 60
 EOF
   # timeout 30: an unbounded wait (the pre-fix bug) hangs here -> status 124.
-  # The two waits inside are event-driven (#965): a `sleep 0.5` before
+  # The two waits inside are event-driven: a `sleep 0.5` before
   # reading the pid file is a guess, and when the guess lost the read
   # produced an EMPTY pid, `kill -0 ""` failed, and the case reported KILLED
   # -- a green run that had killed nothing. NO_PID is now its own outcome.
@@ -196,7 +196,7 @@ EOF
 # A grandchild that ignores SIGTERM and records its own pid, then the
 # service itself sleeps. Both share the setsid process group.
 #
-# BASHPID, not $$ (#965): `$$` keeps the INVOKING shell's pid inside a
+# BASHPID, not $$: `$$` keeps the INVOKING shell's pid inside a
 # subshell, so this line used to record the SERVICE's pid and the case
 # below re-checked the process it had already stopped -- it never observed
 # a grandchild at all, and stayed green with the process-group kill
@@ -204,7 +204,7 @@ EOF
 ( trap '' TERM; echo "${BASHPID}" > "$1"; sleep 60 ) &
 sleep 60
 EOF
-  # Event-driven for the same reason as the case above (#965): losing the
+  # Event-driven for the same reason as the case above: losing the
   # `sleep 0.7` race read an empty grandchild pid and reported SUBTREE_DEAD
   # without having observed any subtree.
   run timeout 30 bash -c "
@@ -243,7 +243,7 @@ EOF
   # is overridden to observe that give-up REACHES it (the pre-fix unbounded
   # wait would hang stop_service so give-up never exits -> the timeout
   # fires). 45, not 15: the timeout bounds that hang, it does not schedule
-  # the several bounded stop cycles a correct run performs (#965).
+  # the several bounded stop cycles a correct run performs.
   run timeout 45 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
@@ -292,8 +292,8 @@ EOF
   # interval. A deferred forward reports DEFERRED_30s by name rather than
   # by being killed, and a merely SLOW machine no longer looks like one.
   #
-  # The wait for readiness gets a 20s ceiling and its own NOT_READY outcome
-  # (#965): under 32-way parallel load one fixed second was not enough for
+  # The wait for readiness gets a 20s ceiling and its own NOT_READY
+  # outcome: under 32-way parallel load one fixed second was not enough for
   # the supervisor to spawn the service and for the service to install its
   # trap, so the signal arrived first, no marker was written, and the case
   # reported NO_SIGNAL -- the harness's own failure wearing the product's

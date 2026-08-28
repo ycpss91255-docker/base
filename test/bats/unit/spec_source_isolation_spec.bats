@@ -5,7 +5,7 @@
 # not settle an assertion by COMPARING against it.
 #
 # Why the population is drawn that way. Two specs lost a race against their
-# own suite (#965) and cost two or three full gate runs per landed branch.
+# own suite and cost two or three full gate runs per landed branch.
 # The obvious framing -- "audit every spec that touches /source" -- is not
 # actionable: 119 of the 122 spec files reference /source, because that is
 # where the script under test, the tracked workflow being asserted on, and
@@ -25,7 +25,7 @@
 # Why a spec and not a lint driver: test.sh's _LINT_TOOLS table is asserted
 # by self_test_yaml_spec to have a CI job per entry, so a driver costs a
 # workflow edit for a scan that the bats gate already runs everywhere. The
-# sibling spec_subject_guard_spec.bats set that precedent (#953).
+# sibling spec_subject_guard_spec.bats set that precedent.
 #
 # Both invariants have the failure mode they are looking for, so each pins
 # the scan as well as the result: the spec population may not fall below a
