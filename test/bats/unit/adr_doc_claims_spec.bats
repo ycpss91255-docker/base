@@ -124,10 +124,20 @@ _adr_claims_block() {
 
   # R2 -- payload. Naming an assembler or a manifest beside a workflow
   # attributes one to the other; the workflow has to reference it.
+  #
+  # The workflow side is matched against its CODE, not its prose. A comment
+  # saying a workflow does NOT use the manifest contains the manifest path,
+  # and a plain grep reads that as the reference it is denying -- which is
+  # exactly how self-test.yaml's "do not re-add one" note made this rule
+  # certify the claim it exists to refuse. Stripping from an unquoted `#`
+  # can also cut a `#` inside a quoted value; that direction is safe,
+  # because it can only make the rule fire when it should not, never stay
+  # silent when it should speak.
   for _tok in script/ci/release-archive.sh script/ci/release/archive.manifest; do
     grep -qF "${_tok}" <<< "${_text}" || continue
     for _wf in ${_named[*]-}; do
-      grep -qF "${_tok}" "${_repo}/.github/workflows/${_wf}" && continue
+      sed 's/#.*//' "${_repo}/.github/workflows/${_wf}" \
+        | grep -qF "${_tok}" && continue
       printf '%s:%d: attributes %s to %s, which does not reference it\n' \
         "${_file}" "${_lineno}" "${_tok}" "${_wf}"
       _v=$(( _v + 1 ))
@@ -354,6 +364,35 @@ _write_adr() {
   assert_failure
   assert_output --partial 'script/ci/release/archive.manifest'
   assert_output --partial 'self-test.yaml'
+}
+
+@test "R2: a workflow that only MENTIONS the manifest in a comment does not count (#927)" {
+  # The live shape this was found on: self-test.yaml carries a comment
+  # explaining that it does NOT assemble the curated payload, and names the
+  # manifest while saying so. Matching the file as prose reads that denial
+  # as the reference it denies, so the rule passed the exact attribution it
+  # exists to refuse.
+  local _wf="${REPO}/.github/workflows/commented.yaml"
+  cat > "${_wf}" <<'YAML'
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # The downstream archive is a different artifact (a curated payload,
+      # declared in script/ci/release/archive.manifest), not this one.
+      - run: echo no payload assembly here
+YAML
+  local _adr
+  _adr="$(_write_adr commented.md \
+    '## Context' \
+    '' \
+    'The `release` job in `.github/workflows/commented.yaml` assembles the' \
+    'payload declared in `script/ci/release/archive.manifest`.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'script/ci/release/archive.manifest'
+  assert_output --partial 'commented.yaml'
 }
 
 @test "R2: PASSES the attribution against the workflow that does read it (#927)" {
