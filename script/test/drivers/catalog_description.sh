@@ -193,6 +193,39 @@ readonly _CATALOG_DESC_EXEMPT_FILE='script/test/catalog-description-exemptions.t
 # too: a hand-edited blank is the same missing sentence wearing less ink.
 readonly _CATALOG_DESC_PLACEHOLDER='-'
 
+# The written-out non-answers, matched case-insensitively on the whole
+# trimmed cell. They carry a word, so the "has a word in it" test below
+# lets them through, and they mean exactly what `-` means.
+readonly _CATALOG_DESC_NON_ANSWERS_RE='^(n/a|na|nil|none|tbd|todo|unknown)$'
+
+# _catalog_desc_is_placeholder <cell> -- true when the cell says nothing.
+#
+# Empty and `-` are the generator's own two spellings. The rest is one
+# rule: a cell with no alphanumeric run three characters long has no WORD
+# in it, which makes `.`, `--`, `...` and `?` the placeholder wearing a
+# different hat -- and the ratchet gives people a reason to reach for one,
+# since a cell that clears a red build without saying anything is the
+# cheapest way out of it.
+#
+# The line is drawn at "has a word in it" rather than at a length on
+# purpose. The real catalogues carry honest six-character descriptions
+# ("GPU on", "vi mode", "--dry-run") that say something the test name does
+# not, and this driver's header already argues why a guard whose false
+# positives are the good rows is worse than no guard. Whether a sentence
+# merely RESTATES the name stays a judgement a reviewer makes; this only
+# refuses the cells that make no claim at all.
+_catalog_desc_is_placeholder() {
+  local _cell="${1}"
+  _cell="${_cell#"${_cell%%[![:space:]]*}"}"
+  _cell="${_cell%"${_cell##*[![:space:]]}"}"
+  [[ -z "${_cell}" ]] && return 0
+  [[ "${_cell}" == "${_CATALOG_DESC_PLACEHOLDER}" ]] && return 0
+  [[ "${_cell}" =~ [[:alnum:]]{3,} ]] || return 0
+  local _lower="${_cell,,}"
+  [[ "${_lower}" =~ ${_CATALOG_DESC_NON_ANSWERS_RE} ]] && return 0
+  return 1
+}
+
 # The directive the baseline declares its own size with. See the header:
 # this is the number that may only ever go down.
 readonly _CATALOG_DESC_COUNT_RE='^#[[:space:]]*entries:[[:space:]]*([0-9]+)[[:space:]]*$'
@@ -263,8 +296,7 @@ _catalog_desc_load_list() {
       # A blank or placeholder reason is the silence this file exists to
       # break, one indirection further away, so it is refused exactly as a
       # row's own placeholder is.
-      if [[ ! "${_value}" =~ [^[:space:]] ]] \
-        || [[ "${_value}" == "${_CATALOG_DESC_PLACEHOLDER}" ]]; then
+      if _catalog_desc_is_placeholder "${_value}"; then
         printf '%s:%d: no reason given for the exemption -- say what makes a row each the wrong shape for this section: %s\n' \
           "${_rel}" "${_lineno}" "${_key}"
         _findings=$(( _findings + 1 ))
@@ -385,8 +417,7 @@ _run_catalog_description() {
           [[ -z "${_name}" ]] && continue
           _rows=$(( _rows + 1 ))
           _key="${_spec}"$'\t'"${_name}"
-          if [[ -n "${_desc}" ]] \
-            && [[ "${_desc}" != "${_CATALOG_DESC_PLACEHOLDER}" ]]; then
+          if ! _catalog_desc_is_placeholder "${_desc}"; then
             _described["${_key}"]="${_rel}:${_lineno}"
             continue
           fi
@@ -526,7 +557,7 @@ _run_catalog_description() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_catalog_description \
-      "${_violations} undescribed catalogue row / ungoverned or duplicated section / stale, absorbing or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why. An entry that excuses a row somebody already described is refused too -- the baseline records what was missing, never a row that was fine -- and so is a spec carrying two sections, which is how a described row acquires a placeholder twin."
+      "${_violations} undescribed catalogue row / ungoverned or duplicated section / stale, absorbing or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. A cell with no word in it ('.', '--', '...') and the written-out non-answers ('n/a', 'TBD', 'TODO') are that same placeholder and are refused with it. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why. An entry that excuses a row somebody already described is refused too -- the baseline records what was missing, never a row that was fine -- and so is a spec carrying two sections, which is how a described row acquires a placeholder twin."
     return 1
   fi
 
