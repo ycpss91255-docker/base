@@ -8,11 +8,15 @@
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
 #   - <repo>/.env.generated (variable values + SETUP_* metadata for drift
-#                          detection; the hand-authored <repo>/.env overlay
-#                          is scaffolded once and never rewritten)
+#                          detection; compose interpolation only)
+#   - <repo>/.env          (the container-bound defaults: [environment] +
+#                          the [lifecycle] watchdog block)
 #   - <repo>/compose.yaml  (full compose with baseline + conditional blocks)
 #
-# Both output files are derived artifacts (gitignored). Source of truth is
+# <repo>/.env.local is scaffolded once and never rewritten -- it is the
+# operator's override layer, loaded after .env so its keys win.
+#
+# All generated files are derived artifacts (gitignored). Source of truth is
 # setup.conf + system detection. WS_PATH is detected once and written back
 # to <repo>/.setup.conf [volumes] mount_1; subsequent runs read mount_1.
 #
@@ -51,10 +55,10 @@ _resolve_lang _LANG
 
 _setup_msg_env() {
   case "${_LANG}:${1:?}" in
-    zh-TW:done)     echo ".env.generated 與 compose.yaml 更新完成" ;;
-    zh-CN:done)     echo ".env.generated 与 compose.yaml 更新完成" ;;
-    ja:done)        echo ".env.generated と compose.yaml 更新完了" ;;
-    *:done)         echo ".env.generated + compose.yaml updated" ;;
+    zh-TW:done)     echo ".env / .env.generated 與 compose.yaml 更新完成" ;;
+    zh-CN:done)     echo ".env / .env.generated 与 compose.yaml 更新完成" ;;
+    ja:done)        echo ".env / .env.generated と compose.yaml 更新完了" ;;
+    *:done)         echo ".env / .env.generated / compose.yaml updated" ;;
     zh-TW:comment)  echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
     zh-CN:comment)  echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
     ja:comment)     echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
@@ -219,14 +223,16 @@ usage() {
       cat >&2 <<'EOF'
 Usage: ./setup.sh [<subcommand>] [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 
-Regenerate .env.generated + compose.yaml from setup.conf + system
-detection. `.env` is the hand-authored workload overlay: apply scaffolds
-it once and never rewrites it, so hand edits there are safe.
+Regenerate .env / .env.generated / compose.yaml from setup.conf + system
+detection. The standard name is ours, a suffix marks a local variant:
+`.env` is regenerated here, and `.env.local` is yours -- scaffolded once,
+never rewritten, and loaded after `.env` so its keys win.
 Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
 Save; run directly for non-interactive / scripted / CI use.
 
 Subcommands:
-  apply         (default) Regenerate .env.generated + compose.yaml. No-arg
+  apply         (default) Regenerate .env / .env.generated / compose.yaml.
+                No-arg
                 invocation falls back to apply for backward compat.
   check-drift   Compare current system / setup.conf against
                 .env.generated's SETUP_* metadata. Exit 0 when in sync,
@@ -239,8 +245,8 @@ Subcommands:
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
                 environment.env_* / resources.shm_size). Does NOT
-                regenerate .env.generated — run `apply` afterwards if
-                needed.
+                regenerate .env / .env.generated — run `apply`
+                afterwards if needed.
                 --local writes <base-path>/.setup.conf.local instead:
                 the gitignored per-worktree layer, whose sections
                 REPLACE the committed file's on this machine only.

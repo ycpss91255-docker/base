@@ -218,9 +218,12 @@ _write_headless_conf() {
   assert_output --partial "container_name: myrepo-runtime"
   assert_output --partial "restart: unless-stopped"
   assert_output --partial "network_mode: host"
-  # No build section / env_file / setup.conf dependency travels.
+  # No build section and no host-side setup.conf / .env.generated dependency.
   refute_output --partial "build:"
-  refute_output --partial "env_file"
+  # env_file names only files that travel INSIDE the bundle.
+  assert_output --partial "env_file:"
+  assert_output --partial "- .env"
+  assert_output --partial "- .env.local"
   rm -rf "${_d}"
 }
 
@@ -338,10 +341,12 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
-@test "_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)" {
+@test "_generate_resolved_compose: the watchdog env leaves environment: for the bundle .env (#868)" {
   # restart: only recovers a container that EXITS; the watchdog is the only
   # thing that recovers a service that is alive but wedged, so the field
-  # bundle must carry the same WATCHDOG_* env the dev compose emits.
+  # bundle must carry the same WATCHDOG_* env the dev compose emits -- but
+  # via env_file, because environment: outranks env_file and would make the
+  # operator's .env.local override silently inert.
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
     "[lifecycle]" "watchdog_check = pgrep -f my_node" "watchdog_interval = 30" \
@@ -351,10 +356,23 @@ _write_headless_conf() {
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
   run cat "${_d}/compose.yaml"
   assert_success
-  assert_output --partial "environment:"
-  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
-  assert_output --partial "WATCHDOG_INTERVAL=30"
-  assert_output --partial "WATCHDOG_ON_FAIL=restart"
+  refute_output --partial "WATCHDOG_"
+  rm -rf "${_d}"
+}
+
+@test "_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)" {
+  local _d; _d="$(mktemp -d)"
+  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
+    "[environment]" "env_1 = APP_MODE=default" \
+    "[lifecycle]" "watchdog_check = pgrep -f my_node" "watchdog_interval = 30"
+  local -A _ctx=()
+  _resolve_deploy_context "${_d}" _ctx
+  _generate_bundle_env "${_d}/.env" _ctx
+  run cat "${_d}/.env"
+  assert_success
+  assert_output --partial "APP_MODE='default'"
+  assert_output --partial "WATCHDOG_CHECK='pgrep -f my_node'"
+  assert_output --partial "WATCHDOG_INTERVAL='30'"
   rm -rf "${_d}"
 }
 
@@ -371,7 +389,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
-@test "_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)" {
+@test "_generate_resolved_compose: gui X11 still owns the environment: block (#840)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = force" \
     "[lifecycle]" "watchdog_check = pgrep -f my_node"
@@ -383,7 +401,7 @@ _write_headless_conf() {
   assert_output "1"
   run cat "${_d}/compose.yaml"
   assert_output --partial "DISPLAY"
-  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
+  refute_output --partial "WATCHDOG_CHECK"
   rm -rf "${_d}"
 }
 
@@ -475,7 +493,13 @@ SH
 }
 
 @test "_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)" {
-  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  # Optional on purpose: shellcheck is a capability of the TOOLING
+  # IMAGE, not an artifact of this repo, so a pinned TEST_TOOLS_IMAGE
+  # without it can only decline to look. Losing it from the image is
+  # covered fail-closed instead: template_spec asserts the final stage
+  # COPYs the binary in.
+  command -v shellcheck >/dev/null 2>&1 \
+    || skip "this test-tools image has no shellcheck (older pinned TEST_TOOLS_IMAGE); the COPY that installs it is pinned in template_spec"
   local _d; _d="$(mktemp -d)"
   local _out="${_d}/deploy.sh"
   _generate_deploy_launcher "${_out}" runtime

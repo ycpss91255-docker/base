@@ -46,7 +46,14 @@ regenerating `compose.yaml`. `compose.yaml` stays a single committed-shape
 artifact; the per-instance delta lives entirely in overlay inputs
 `multi_run` controls. This preserves ADR-00000003's two-role split:
 `.env.generated` feeds compose `${VAR}` interpolation via `--env-file`,
-and `.env` feeds the container via `env_file:`.
+and the container's env comes through `env_file:`.
+
+**Amendment (2026-08-26, #868): the per-instance env file is `.env.local`.**
+ADR-00000003's A2 was reversed -- `.env` is now the tool's generated
+defaults and is rewritten by every apply, so an instance delta written there
+would be destroyed. `env_file:` is now the ordered pair `[.env, .env.local]`
+and a later file wins, so the channel this contract depends on is intact and
+only its name moved. The interpolation half is unchanged.
 
 ### 2. Environment-default / per-instance-overridable (the axis-A resolution)
 
@@ -74,7 +81,7 @@ channel differs by kind:
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
 | **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = **1-based** index within the service's port list -- `PORT_1` = first port, matching base's 1-based indexed-key convention `port_1` / `mount_1` / `arg_1`) |
-| workload env (`ROS_DOMAIN_ID`, tokens) | `.env` overlay via `env_file:` + baked ENV default (ADR-00000003 S3) | `- "KEY=value"` default; overlay wins in the field image |
+| workload env (`ROS_DOMAIN_ID`, tokens) | `.env.local` via `env_file:` + generated `.env` / baked ENV default (ADR-00000003 S3, renamed by #868) | default in the generated `.env`; `.env.local` loads after it and wins |
 | writable volume topology | compose-merge overlay (a mount is a topology decision, not a flat scalar) | bind/named mount string |
 | `runtime` / `hostname` / GPU | **not per-instance** -- host-bound, correctly *shared* across co-located instances (all instances on a host share the runtime, the X11-cookie hostname, and the GPU) | literal / host-resolved |
 
@@ -159,8 +166,9 @@ spirit as the #800 worker preflight.
 ## Consequences
 
 - `multi_run` can isolate an instance by supplying overlay `${PORT_<n>}` /
-  `${NETWORK_MODE}` values (interpolation) and a per-instance `.env`
-  (env_file), with no base change and no compose regenerate.
+  `${NETWORK_MODE}` values (interpolation) and a per-instance `.env.local`
+  (env_file; `.env` before #868), with no base change and no compose
+  regenerate.
 - A future emitter change that bakes a per-instance literal fails
   `overlay_guard_spec.bats` in base's own CI.
 - `ports` emission changed shape (now `${PORT_<n>:-<default>}`); downstream

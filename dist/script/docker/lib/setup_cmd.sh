@@ -312,7 +312,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   # Diagnostics, not chatter: --quiet drops the receipt, never a warning
@@ -697,7 +697,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   # Same diagnostics as `set` -- `add network.port` is the other way in,
@@ -875,7 +875,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
@@ -940,10 +940,10 @@ _setup_reset() {
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
-  # rebuilds .env.generated + compose.yaml purely from the template
+  # rebuilds .env / .env.generated / compose.yaml purely from the template
   # baseline. The workspace mount_1 is re-detected and re-written via the
-  # bootstrap path on the next apply. The hand-authored .env workload
-  # overlay is user-owned and intentionally left untouched by reset.
+  # bootstrap path on the next apply. `.env.local` is the operator's file
+  # and is intentionally left untouched by reset.
   local _conf="${_base_path}/.setup.conf"
   local _env="${_base_path}/.env.generated"
   local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
@@ -981,7 +981,7 @@ _setup_reset() {
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env.generated + compose.yaml\n"
+    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 }
 
@@ -1064,21 +1064,24 @@ _setup_apply() {
 
   _announce_template_default_fallback "${_base_path}"
 
-  # A2 file roles: .env.generated is the derived interpolation
-  # cache written by setup.sh; .env is the hand-authored workload
-  # overlay (never touched here after the first-apply scaffold).
+  # File roles under the one naming rule (the standard name is ours, a
+  # suffix marks a local variant): `.env.generated` is the derived
+  # interpolation cache, `.env` is the container-env defaults we ship, and
+  # `.env.local` is the operator's overrides -- the only one of the three
+  # this function never writes after scaffolding it.
   local _env_file="${_base_path}/.env.generated"
-  local _overlay_file="${_base_path}/.env"
+  local _container_env_file="${_base_path}/.env"
+  local _env_local_file="${_base_path}/.env.local"
 
   # Migrate a layout where .env WAS the cache: if no
   # .env.generated exists yet but .env carries the setup.sh auto-gen
   # marker, it is a stale cache, not a user overlay. Back it up and
   # promote it to .env.generated so the prior-values source below still
   # resolves; write_env regenerates it and a fresh overlay is scaffolded.
-  if [[ ! -f "${_env_file}" && -f "${_overlay_file}" ]] \
-      && grep -q '^SETUP_CONF_HASH=' "${_overlay_file}" 2>/dev/null; then
-    cp -- "${_overlay_file}" "${_overlay_file}.bak"
-    mv -- "${_overlay_file}" "${_env_file}"
+  if [[ ! -f "${_env_file}" && -f "${_container_env_file}" ]] \
+      && grep -q '^SETUP_CONF_HASH=' "${_container_env_file}" 2>/dev/null; then
+    cp -- "${_container_env_file}" "${_container_env_file}.bak"
+    mv -- "${_container_env_file}" "${_env_file}"
   fi
 
   if [[ -f "${_env_file}" ]]; then
@@ -1432,9 +1435,19 @@ _setup_apply() {
     "${_ssh_x11_xauth}" \
     "${project_name}"
 
-  # Create the hand-authored .env workload overlay on first apply.
-  # Idempotent: never overwrites an existing user-owned overlay.
-  _scaffold_env_overlay "${_overlay_file}"
+  # `.env`: the container-bound defaults, regenerated every apply. The
+  # `[environment]` list and the [lifecycle] WATCHDOG_* block land here
+  # rather than in compose's `environment:`, so `.env.local` can override
+  # them (compose ranks `environment:` above `env_file`). `.env.generated`
+  # is passed in as the interpolation source for `${VAR}` references,
+  # which an env_file value would otherwise carry through literally.
+  write_container_env "${_container_env_file}" \
+    "${_env_str}" "${watchdog_env_str}" "${_env_file}"
+
+  # `.env.local`: the operator's overrides. Created once, never rewritten.
+  # Created eagerly because the generated compose lists it in `env_file:`
+  # and compose fails the whole `up` on a missing env file.
+  _scaffold_env_local "${_env_local_file}"
 
   local runtime_resolved=""
   _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
