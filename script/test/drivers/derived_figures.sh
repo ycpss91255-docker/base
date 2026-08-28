@@ -193,14 +193,22 @@ _derived_lineno_at() {
 }
 
 # _derived_scan_baseline_sets <file> <rel> <renderings_var> <names_var>
+# <count-outvar>
 #
 # Report every brace-set literal in <file> that names a baseline stage and
 # is not one of the canonical renderings. Prints one violation per hit and
-# returns the count.
+# stores the count in <count-outvar>.
+#
+# The count travels through a nameref, not through the exit status: a
+# status is 8 bits, so 256 findings in one file came back as 0, the
+# caller's `|| _hits=$?` never fired, and the lint printed 256 findings
+# and then echoed "clean".
 _derived_scan_baseline_sets() {
   local _file="$1" _rel="$2"
   local -n _renderings_in="$3"
   local -n _names_in="$4"
+  local -n _dsb_count_out="$5"
+  _dsb_count_out=0
 
   local _flat=''
   local -a _offsets=()
@@ -280,14 +288,17 @@ _derived_scan_baseline_sets() {
     _violations=$(( _violations + 1 ))
   done
 
-  return "${_violations}"
+  _dsb_count_out="${_violations}"
 }
 
-# _derived_check_conf_sections -- pin README.md's setup.conf overview to
-# SCHEMA_SECTIONS: the announced count must be the list's length, and the
-# `[section]` lines under the heading must be the sections themselves, in
-# template order. Prints each violation; returns the count.
+# _derived_check_conf_sections <count-outvar> -- pin README.md's setup.conf
+# overview to SCHEMA_SECTIONS: the announced count must be the list's
+# length, and the `[section]` lines under the heading must be the sections
+# themselves, in template order. Prints each violation; stores the count in
+# <count-outvar>, for the reason _derived_scan_baseline_sets does.
 _derived_check_conf_sections() {
+  local -n _dcs_count_out="$1"
+  _dcs_count_out=0
   local _readme="${REPO_ROOT}/${_DERIVED_FIGURES_README}"
   local -a _lines=()
   mapfile -t _lines < "${_readme}"
@@ -308,7 +319,8 @@ _derived_check_conf_sections() {
     printf "%s: no '%s' heading -- the setup.conf section figure has nowhere to be pinned. Restore the heading (the count is %s) or move the pin in drivers/derived_figures.sh.\\n" \
       "${_DERIVED_FIGURES_README}" "${_DERIVED_FIGURES_CONF_HEADING}" \
       "${#SCHEMA_SECTIONS[@]}"
-    return 1
+    _dcs_count_out=1
+    return 0
   fi
 
   local _violations=0
@@ -332,7 +344,7 @@ _derived_check_conf_sections() {
     _violations=$(( _violations + 1 ))
   fi
 
-  return "${_violations}"
+  _dcs_count_out="${_violations}"
 }
 
 _run_derived_figures() {
@@ -404,16 +416,14 @@ _run_derived_figures() {
   done < <(find "${_code_root}" -name '*.sh' -type f -print0 2>/dev/null \
     | sort -z)
 
-  local _violations=0 _hits
+  local _violations=0 _hits=0
   for _file in "${_files[@]}"; do
-    _hits=0
     _derived_scan_baseline_sets \
-      "${_file}" "${_file#"${REPO_ROOT}"/}" _renderings _names || _hits=$?
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _renderings _names _hits
     _violations=$(( _violations + _hits ))
   done
 
-  _hits=0
-  _derived_check_conf_sections || _hits=$?
+  _derived_check_conf_sections _hits
   _violations=$(( _violations + _hits ))
 
   if [[ "${_violations}" -gt 0 ]]; then
