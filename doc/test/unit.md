@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3052 tests**.
+Unit specs under `test/bats/unit/`: **3066 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -125,7 +125,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/bats/unit/transcript_spec.bats (33)
+### test/bats/unit/transcript_spec.bats (34)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -324,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (124)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (53)
+### test/bats/unit/dockerfile_migrate_spec.bats (60)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1000,6 +1000,13 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
 | `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
+| `migration 2 (pip-helper): keeps a pip line whose requirements file carries real requirements (#956)` | - |
+| `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | - |
+| `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | - |
+| `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
 | `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |
@@ -1156,7 +1163,7 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (58)
+### test/bats/unit/exec_sh_spec.bats (60)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
