@@ -2222,6 +2222,25 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
+### test/bats/unit/readme_file_table_spec.bats (2)
+
+The "What's included" table in `README.md` is a file INDEX, so every row
+names a real path -- and nothing checked that (#957). Item 3 of that issue
+was one such row: it still called the per-repo runtime config `setup.conf`
+long after the rename to `.setup.conf`, and the stale-path lint that would
+normally catch it (`script/test/drivers/stale_setup_conf.sh`) scans
+`dist/**/*.sh` only, so the row could be edited back to the old name with
+the suite green. Rows mix two vantage points on purpose -- base-relative
+paths and CONSUMER-relative ones (`build.sh`, `.setup.conf`, `config/`,
+what a downstream repo sees once init.sh has run) -- so a row counts as
+resolved under the repo root, `dist/` or `script/`.
+
+| Test | Description |
+|------|-------------|
+| `README file table: every row names a path that exists (#957)` | Every row resolves under one of the three roots; a stale path is reported by name |
+| `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
+
+
 ### test/bats/unit/readme_sync_spec.bats (31)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
