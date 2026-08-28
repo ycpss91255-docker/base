@@ -617,6 +617,35 @@ _prepare_prev_release() {
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
 }
 
+# ── Coverage provenance ──────────────────────────────────────────────────────
+
+# _stamp_coverage_head [root] -- record, next to the reports, the sha they
+# were produced from.
+#
+# The cobertura reports carry no identity: nothing in coverage/ says which
+# tree kcov walked. The release badge generator
+# (script/release/coverage_badge.sh) has to know, because publishing one
+# tree's rate under another tree's version is exactly the invented figure
+# its refusal exists to prevent -- and comparing the report's mtime against
+# HEAD's commit time cannot tell, since that only catches reports that are
+# too OLD, never a checkout that moved elsewhere after the run.
+#
+# Written on the HOST, after the container run returns and after
+# _fix_permissions has handed coverage/ back: the coverage services run as
+# root over the mounted checkout, where git refuses the tree as dubiously
+# owned.
+#
+# Best-effort by design. A repo with no git (an unpacked tarball) still
+# gets its reports; it just cannot publish a release badge from them, which
+# is the safe direction -- the generator refuses on a missing stamp.
+_stamp_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}" _sha
+  _sha="$(git -C "${_root}" rev-parse HEAD 2>/dev/null)" || return 0
+  [[ -n "${_sha}" ]] || return 0
+  mkdir -p "${_root}/coverage" 2>/dev/null || return 0
+  printf '%s\n' "${_sha}" > "${_root}/coverage/.head-sha" 2>/dev/null || return 0
+}
+
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -1158,6 +1187,9 @@ main() {
       else
         _run_via_compose coverage 1
       fi
+      # The reports are only usable for a release badge if something
+      # records WHICH commit they measured; see _stamp_coverage_head.
+      _stamp_coverage_head
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine

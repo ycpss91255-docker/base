@@ -345,8 +345,14 @@ believe someone is watching.
 ### Decision
 
 **The gate's line rate is rendered into a self-contained SVG committed to
-the repo, stamped with the version it belongs to, and regenerated as part
-of the release commit.**
+the repo, stamped with the version it belongs to, and regenerated into the
+release commit.**
+
+*Status of the release step:* the generator and its refusals shipped with
+this amendment; the automatic caller has NOT. Wiring it into the harness
+release bump is `docker_harness#289` (see 4). Until that lands, the step
+is `just release coverage-badge`, run by hand at bump time, and this ADR
+says so rather than describing the end state as if it were built.
 
 1. **A committed SVG, not an endpoint badge.** `doc/badge/coverage.svg` is
    plain markup with no external reference; the README draws it as
@@ -381,23 +387,42 @@ of the release commit.**
    all: it is the same script, reading files, on a workstation or under
    either CI.
 
-4. **It is a step of the release bump, not a new mechanism.**
-   `.claude/scripts/release-bump.sh` in the harness already owns every
-   mechanical release edit -- `.version`, the `[Unreleased]` promotion,
-   the regenerated compare-link block. The badge is the fourth thing it
-   regenerates, so it rides the `chore: release vX.Y.Z` commit: **zero new
-   commits**, no new trigger, and nothing anyone maintains by hand. That
-   script's own header is the argument: the compare-link block stopped
-   being updated around `v0.6.8` and ~90 releases rendered a dangling
-   reference, because a hand-run step decays. A hand-maintained percentage
-   would decay identically.
+4. **It will be a step of the release bump, not a new mechanism -- and it
+   is not one yet.** `.claude/scripts/release-bump.sh` in the harness
+   already owns every mechanical release edit -- `.version`, the
+   `[Unreleased]` promotion, the regenerated compare-link block. The badge
+   **is to become** the fourth thing it regenerates, so that it rides the
+   `chore: release vX.Y.Z` commit: **zero new commits**, no new trigger,
+   and nothing anyone maintains by hand. That script's own header is the
+   argument: the compare-link block stopped being updated around `v0.6.8`
+   and ~90 releases rendered a dangling reference, because a hand-run step
+   decays. A hand-maintained percentage would decay identically.
+
+   That wiring could not ship here: `release-bump.sh` lives in
+   `docker_harness`, a different repo, so this change can only offer the
+   seam. It does -- a standalone script with the same `0` / `1` / `2` exit
+   triple `release-bump.sh` itself uses -- and the wiring is
+   `docker_harness#289`. **Until that issue lands the figure is one
+   hand-run command** (`just release coverage-badge`, before the release
+   commit is made), which is precisely the decay mode this decision argues
+   against; the honest reading of the interval is that it is a known,
+   tracked debt, not a completed mechanism. What it is NOT is silent:
+   `coverage_badge_spec` asserts the committed badge names the current
+   `.version`, so a release cut without the step turns `main` red.
 
 5. **Refusal, never a carried-over figure.** A release whose coverage
    never ran must not publish a stale or an invented number. The generator
    writes nothing and exits 1 when there is no report under `coverage/`,
-   when a report is **older than the commit being released** (it measured
-   an earlier tree), or when instrumented sources are **modified in the
-   worktree** (the reports describe neither the commit nor the tree). The
+   when the reports **do not record the sha they were produced from** or
+   that sha **is not `HEAD`**, when a report is **older than the commit
+   being released** (it measured an earlier tree), or when instrumented
+   sources are **modified in the worktree** (the reports describe neither
+   the commit nor the tree). The recorded sha is the load-bearing one:
+   `just test coverage` writes it to `coverage/.head-sha`
+   (`_stamp_coverage_head`), because comparing the report's mtime against
+   `HEAD`'s commit time only catches reports that are too OLD. Measure
+   `main`, check an older tag out, and every timestamp check passes over a
+   clean worktree while the reports describe a different tree. The
    release edits themselves -- `.version`, the CHANGELOG, the badge --
    are deliberately not in that pathspec, so the check passes on a
    half-applied bump and fails on a code change. `--unmeasured` renders
@@ -415,11 +440,18 @@ README figure should answer.
 
 A reader who does not know the cadence misreads the figure as current, so
 it is stated where each kind of reader stands: **on the badge itself** (the
-version is in the image), **here**, and **in the release procedure** --
-`just release coverage-badge` in `script/release/justfile.release`, whose
-recipe doc says the bump runs it, plus the harness-side
-`.claude/commands/release.md` / `semver-bump` skill, which is where the
-person cutting the release is reading.
+version is in the image), **here**, and **in the tooling** -- the
+`coverage-badge` recipe doc in `script/release/justfile.release` and the
+generator's own `--help`, both of which state the once-per-release cadence
+and the ordering it implies (regenerate on the bump's working tree, before
+the release commit; afterwards `HEAD` is no longer the measured commit and
+the generator refuses).
+
+The fourth place is the one that matters most and is **not written yet**:
+the harness-side `.claude/commands/release.md` / `semver-bump` skill, where
+the person cutting the release is actually reading. That lives in
+`docker_harness` and is part of `docker_harness#289` along with the wiring.
+Recording it as done here would be worse than the gap.
 
 ### GitLab portability mapping (mechanical, as above)
 
@@ -437,9 +469,16 @@ person cutting the release is reading.
 
 - The README figure is now falsifiable: it names a version, and the number
   next to it was produced by the gate over that version's tree.
-- A release now needs a local coverage run first, or the bump refuses.
-  That is the intended trade: the alternative to paying minutes is
-  publishing a figure nobody measured.
+- A release now needs a local coverage run first, on the commit being
+  released, or the generator refuses. That is the intended trade: the
+  alternative to paying minutes is publishing a figure nobody measured.
+- `just test coverage` now leaves `coverage/.head-sha` behind. It is the
+  only local evidence of which tree the reports describe; `just test
+  clean` removes it with the rest of `coverage/`.
+- Until `docker_harness#289` lands, the regeneration is a hand-run step,
+  and the guard against forgetting it is a red `main` after the tag rather
+  than a refused bump. That is the known cost of the repo boundary, and it
+  is tracked, not assumed away.
 - `v0.42.0`'s badge says `not measured`, honestly: it was cut before this
   existed and no report for its tree survives. The first measured figure
   is `v0.43.0`'s.

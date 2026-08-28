@@ -35,10 +35,23 @@
 # THE REFUSAL IS THE POINT: a release whose coverage never ran must not
 # publish a stale or an invented number. This script refuses -- writing
 # nothing, leaving any existing badge untouched -- when there is no report,
-# when the reports are older than the commit being released, or when
-# instrumented sources are modified in the worktree. `--unmeasured` renders
-# "not measured" for the current version: it states the absence rather than
-# inventing or silently keeping a figure.
+# when the reports do not carry the sha they were produced from, when that
+# sha is not HEAD, when the reports are older than the commit being
+# released, or when instrumented sources are modified in the worktree.
+# `--unmeasured` renders "not measured" for the current version: it states
+# the absence rather than inventing or silently keeping a figure.
+#
+# WHY A RECORDED SHA AND NOT A TIMESTAMP: comparing the report's mtime
+# against HEAD's commit time only catches a report that is too OLD. It says
+# nothing about a tree that moved somewhere ELSE between the run and the
+# release -- measure `main`, then check an older tag out, and the mtime
+# check passes over a clean worktree while the reports describe a different
+# tree. So `just test coverage` records the sha it measured in
+# `coverage/.head-sha` (script/test/test.sh `_stamp_coverage_head`), and
+# this script refuses unless that sha is HEAD. Reports assembled by hand
+# (CI shard artifacts unpacked locally) need the same stamp written
+# alongside them; without it there is no evidence of provenance and the
+# figure is refused.
 #
 # Usage:
 #   coverage_badge.sh [options]
@@ -52,6 +65,16 @@
 #   --unmeasured         Render "not measured" for <version> instead of a
 #                        figure. Never used by the release bump.
 #   -h, --help           Show this help.
+#
+# Cadence:
+#   The figure refreshes once per release, NEVER per merge: it answers "what
+#   is the coverage of vX.Y.Z", a fact about a shipped artifact. It is
+#   meant to ride the `chore: release vX.Y.Z` commit alongside `.version`
+#   and the CHANGELOG promotion, so run it on the bump's working tree
+#   BEFORE that commit is made -- afterwards HEAD is no longer the commit
+#   the coverage run measured and this script refuses. Wiring it into the
+#   harness release bump is tracked in docker_harness#289; until that
+#   lands it is `just release coverage-badge`, run by hand at bump time.
 #
 # Exit:
 #   0 = badge written
@@ -68,6 +91,11 @@ readonly SCRIPT_DIR
 readonly GATE="${SCRIPT_DIR}/../test/drivers/coverage_gate.sh"
 
 readonly DEFAULT_OUT_REL="doc/badge/coverage.svg"
+
+# Where `just test coverage` records the sha it measured, relative to the
+# repo root. The reports themselves carry no identity -- this file is the
+# only local evidence of WHICH tree they describe.
+readonly HEAD_STAMP_REL="coverage/.head-sha"
 
 # Paths whose content the coverage run measures or builds. A modification to
 # any of them makes an existing report a measurement of a DIFFERENT tree.
@@ -120,18 +148,41 @@ head_epoch() {
 # assert_measures_head <root> <report>... -- return 1 (with a reason on
 # stderr) unless the reports can be shown to describe HEAD's tree.
 #
-# Two facts, both local and both CI-agnostic. A report written BEFORE the
-# commit being released measured an older tree. A modified instrumented
-# source means the worktree is not the commit either -- and the release
-# commit will contain it, so the figure would describe neither.
+# Three facts, all local and all CI-agnostic. The recorded sha is the one
+# that establishes IDENTITY: the reports say which commit they measured,
+# and it must be this one. The other two are cheap corroboration -- a
+# report written BEFORE the commit being released measured an older tree,
+# and a modified instrumented source means the worktree is not the commit
+# either, so the figure would describe neither.
 assert_measures_head() {
   local _root="$1"; shift
-  local _head _mtime _report _dirty
+  local _head _mtime _report _dirty _stamp_file _stamp _sha
 
   _head="$(head_epoch "${_root}")"
   if [[ -z "${_head}" ]]; then
     err "REFUSING: ${_root} has no HEAD commit, so there is nothing to" \
         "attribute a coverage figure to."
+    return 1
+  fi
+
+  # Identity. Without this the check is a freshness heuristic: it catches
+  # reports that are too old and nothing else, so measuring one tree and
+  # releasing another passes.
+  _stamp_file="${_root}/${HEAD_STAMP_REL}"
+  if [[ ! -r "${_stamp_file}" ]]; then
+    err "REFUSING: the reports under ${_root}/coverage/ carry no" \
+        "provenance stamp (${HEAD_STAMP_REL}), so nothing says which tree" \
+        "they measured. Re-run \`just test coverage\` on the commit being" \
+        "released."
+    return 1
+  fi
+  _stamp=""
+  read -r _stamp < "${_stamp_file}" || true
+  _sha="$(git -C "${_root}" rev-parse HEAD 2>/dev/null)"
+  if [[ -z "${_stamp}" || -z "${_sha}" || "${_stamp}" != "${_sha}" ]]; then
+    err "REFUSING: the reports were produced from a different commit" \
+        "(${_stamp:-<empty>}), not the one being released (${_sha:-<none>})." \
+        "Re-run \`just test coverage\` on the commit being released."
     return 1
   fi
 
@@ -248,12 +299,28 @@ main() {
   local _root="" _version="" _out="" _unmeasured=0 _line=""
   local -a _reports=()
 
+  # `${2:?...}` would abort with status 1 here -- the code that means
+  # "refused: no usable measurement", the sentence the caller relays to the
+  # operator. A typo'd flag is a caller bug, so it exits 2 like every other
+  # arg error (the same 0/1/2 triple release-bump.sh uses).
   while (( $# > 0 )); do
     case "$1" in
-      --repo-root) _root="${2:?--repo-root expects <path>}"; shift 2 ;;
-      --version)   _version="${2:?--version expects <vX.Y.Z>}"; shift 2 ;;
-      --out)       _out="${2:?--out expects <path>}"; shift 2 ;;
-      --report)    _reports+=("${2:?--report expects <path>}"); shift 2 ;;
+      --repo-root)
+        [[ $# -ge 2 && -n "${2:-}" ]] || {
+          err "--repo-root expects <path>"; return 2; }
+        _root="$2"; shift 2 ;;
+      --version)
+        [[ $# -ge 2 && -n "${2:-}" ]] || {
+          err "--version expects <vX.Y.Z>"; return 2; }
+        _version="$2"; shift 2 ;;
+      --out)
+        [[ $# -ge 2 && -n "${2:-}" ]] || {
+          err "--out expects <path>"; return 2; }
+        _out="$2"; shift 2 ;;
+      --report)
+        [[ $# -ge 2 && -n "${2:-}" ]] || {
+          err "--report expects <path>"; return 2; }
+        _reports+=("$2"); shift 2 ;;
       --unmeasured) _unmeasured=1; shift ;;
       -h|--help)   usage; return 0 ;;
       *)           err "unknown option: $1"; usage >&2; return 2 ;;
