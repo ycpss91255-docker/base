@@ -36,23 +36,37 @@ setup() {
       "the test-tools release workflow this spec pins"
 }
 
+# _resolve_tags_step -- the code lines of the "Resolve tags" step, up to the
+# next step. Comment-stripped: the step's prose explains the three publish
+# modes by NAME, so an unstripped block lets the explanation stand in for the
+# branch that implements it.
+_resolve_tags_step() {
+  awk '/Resolve tags/{flag=1} /^      - name:/{ if (flag && !first) {first=1; next} else if (flag) {flag=0}} flag' "${WF}" \
+    | strip_comments
+}
+
+# _smoke_step -- the code lines from the "Smoke test pushed image" step on.
+_smoke_step() {
+  awk '/Smoke test pushed image/{flag=1} flag' "${WF}" | strip_comments
+}
+
 # ── Trigger surface ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: triggers on tag push v* (existing)" {
-  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'tags:'
   assert_output --partial "'v*'"
 }
 
 @test "release-test-tools.yaml: triggers on main push (#317 P2)" {
-  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'branches: [main]'
 }
 
 @test "release-test-tools.yaml: main push trigger has paths filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3)" {
-  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'paths:'
   assert_output --partial "'dockerfile/Dockerfile.test-tools'"
@@ -60,7 +74,7 @@ setup() {
 }
 
 @test "release-test-tools.yaml: triggers on workflow_dispatch (existing)" {
-  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'workflow_dispatch:'
 }
@@ -68,7 +82,7 @@ setup() {
 # ── Resolve tags step: 3 publish modes ───────────────────────────────
 
 @test "release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver> + :latest" {
-  run awk '/Resolve tags/{flag=1} /^      - name:/{ if (flag && !first) {first=1; next} else if (flag) {flag=0}} flag' "${WF}"
+  run _resolve_tags_step
   assert_success
   assert_output --partial 'refs/tags/v*'
   assert_output --partial ':${ver}'
@@ -76,14 +90,14 @@ setup() {
 }
 
 @test "release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)" {
-  run awk '/Resolve tags/{flag=1} /^      - name:/{ if (flag && !first) {first=1; next} else if (flag) {flag=0}} flag' "${WF}"
+  run _resolve_tags_step
   assert_success
   assert_output --partial 'refs/heads/main'
   assert_output --partial ':main'
 }
 
 @test "release-test-tools.yaml: Resolve tags step emits a smoke output tracking the current trigger's tag (#317 P2)" {
-  run awk '/Resolve tags/{flag=1} /^      - name:/{ if (flag && !first) {first=1; next} else if (flag) {flag=0}} flag' "${WF}"
+  run _resolve_tags_step
   assert_success
   assert_output --partial 'smoke='
 }
@@ -94,7 +108,7 @@ setup() {
   # Avoids the regression where main push publishes :main but the
   # smoke step still pulls (and verifies) the stale :latest from the
   # previous tag.
-  run awk '/Smoke test pushed image/{flag=1} flag' "${WF}"
+  run _smoke_step
   assert_success
   assert_output --partial 'steps.tags.outputs.smoke'
 }
@@ -104,21 +118,21 @@ setup() {
 @test "release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)" {
   # Each arch builds on its native runner, so the QEMU emulation layer
   # is gone.
-  run grep -F 'docker/setup-qemu-action' "${WF}"
+  run code_grep -F 'docker/setup-qemu-action' "${WF}"
   assert_failure
 }
 
 @test "release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)" {
-  run grep -E '^  compute-matrix:' "${WF}"
+  run code_grep -E '^  compute-matrix:' "${WF}"
   assert_success
-  run grep -F 'ubuntu-24.04-arm' "${WF}"
+  run code_grep -F 'ubuntu-24.04-arm' "${WF}"
   assert_success
-  run grep -F 'ubuntu-latest' "${WF}"
+  run code_grep -F 'ubuntu-latest' "${WF}"
   assert_success
 }
 
 @test "release-test-tools.yaml: build shards run on the matrix runner (#587)" {
-  run grep -F 'runs-on: ${{ matrix.runner }}' "${WF}"
+  run code_grep -F 'runs-on: ${{ matrix.runner }}' "${WF}"
   assert_success
 }
 
@@ -127,19 +141,19 @@ setup() {
   # are applied by the merge job's manifest-list create. This is what
   # keeps the published tag a true multi-arch manifest instead of a
   # last-shard-wins single-arch overwrite.
-  run grep -F 'platforms: ${{ matrix.platform }}' "${WF}"
+  run code_grep -F 'platforms: ${{ matrix.platform }}' "${WF}"
   assert_success
-  run grep -F 'push-by-digest=true' "${WF}"
+  run code_grep -F 'push-by-digest=true' "${WF}"
   assert_success
 }
 
 @test "release-test-tools.yaml: merge job creates the multi-arch manifest via imagetools (#587)" {
-  run grep -F 'docker buildx imagetools create' "${WF}"
+  run code_grep -F 'docker buildx imagetools create' "${WF}"
   assert_success
 }
 
 @test "release-test-tools.yaml: declares packages: write permission for GHCR push" {
-  run grep -E '^\s+packages:\s+write' "${WF}"
+  run code_grep -E '^\s+packages:\s+write' "${WF}"
   assert_success
 }
 
@@ -150,7 +164,7 @@ setup() {
   # over a runtime-computed matrix. This workflow has no `pull_request`
   # trigger at all today, so the condition is inert -- it is here so that
   # adding one later cannot open the hole silently.
-  run awk '/^  build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" build
   assert_success
   assert_output --partial "github.event_name != 'pull_request' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'

@@ -1,0 +1,250 @@
+#!/usr/bin/env bats
+#
+# code_lines_spec.bats -- unit tests for the comment-stripped file views in
+# test/bats/unit/test_helper.bash (strip_comments / only_comments /
+# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}).
+#
+# These helpers exist because a structural spec that greps a WHOLE file lets
+# a string appearing only in a COMMENT satisfy an assertion about CODE, and
+# the comments in this repo name, in prose, exactly what the specs assert
+# about. Guards written that way stayed green while the property they named
+# was deleted.
+#
+# The conversion has a mirror-image failure mode, and it is the more
+# dangerous one: a stripper that also removes a line which is genuinely code
+# turns a working guard into one that cannot match its subject -- the same
+# defect with the sign flipped, and it fails CLOSED only until someone
+# "fixes" the now-failing assertion by weakening it. So both directions are
+# pinned here:
+#
+#   * UNDER-strict (the original defect): a comment-only line -- YAML,
+#     Dockerfile, or a shell comment inside a `run: |` block scalar -- must
+#     be gone.
+#   * OVER-strict (the inverse): a `#` that follows anything else on the
+#     line must survive. A trailing `# v1.2.2` after an action pin, a `#`
+#     inside a quoted string, a `#` inside a block scalar's shell code --
+#     those lines ARE code, and a naive `s/#.*//` would silently shorten
+#     them into assertions that no longer match.
+#
+# The rule the helpers implement is deliberately the narrowest one that can
+# be applied without parsing the host language: a line is a comment when its
+# first non-blank character is `#`, and nothing else is touched.
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  load "${BATS_TEST_DIRNAME}/test_helper"
+  SCRATCH="$(mktemp -d)"
+  FIXTURE="${SCRATCH}/workflow.yaml"
+  cat > "${FIXTURE}" << 'YAML'
+# A leading comment paragraph naming delete-package-versions, the action
+# this workflow must never use.
+on:
+  # An indented comment inside a top-level block.
+  schedule:
+    - cron: '17 4 * * 0'
+
+env:
+  MARKER: keep-me
+
+jobs:
+  build:
+    # A comment paragraph inside the job, explaining that `docker tag`
+    # cannot add a label.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@0123456789abcdef # v1.2.2
+        with:
+          heading: "a # inside a double-quoted string"
+          fragment: 'a # inside a single-quoted string'
+      - name: Run
+        run: |
+          # A shell comment inside a block scalar.
+          echo "# not a comment: a markdown heading"
+          printf 'colour=#ff0000\n'
+          docker build -q -t "${IMG}" -
+
+  other:
+    runs-on: ubuntu-latest
+YAML
+}
+
+teardown() {
+  [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
+}
+
+# ── UNDER-strict direction: comment-only lines are gone ──────────────
+
+@test "code_lines: drops an unindented comment-only line" {
+  run code_lines "${FIXTURE}"
+  assert_success
+  refute_output --partial 'delete-package-versions'
+}
+
+@test "code_lines: drops an INDENTED comment-only line" {
+  # The form that matters most: a workflow's explanatory paragraphs sit
+  # inside the block they explain, at the block's own indentation.
+  run code_lines "${FIXTURE}"
+  assert_success
+  refute_output --partial 'An indented comment inside a top-level block'
+}
+
+@test "code_lines: drops a shell comment inside a run: block scalar" {
+  # A `#` line inside `run: |` is a shell comment: prose, in the exact
+  # place a workflow explains the command it is about to run.
+  run code_lines "${FIXTURE}"
+  assert_success
+  refute_output --partial 'A shell comment inside a block scalar'
+}
+
+@test "code_lines: drops blank lines" {
+  local _blank
+  _blank="$(code_lines "${FIXTURE}" | grep -c '^[[:space:]]*$' || true)"
+  [ "${_blank}" -eq 0 ] || fail "code_lines emitted ${_blank} blank line(s)"
+}
+
+@test "code_lines: drops a Dockerfile comment, including a commented-out directive" {
+  # The commented-out worked example is the live hazard in this repo's
+  # Dockerfile: the same COPY appears twice, once active and once as prose.
+  local _df="${SCRATCH}/Dockerfile"
+  cat > "${_df}" << 'DOCKERFILE'
+# A worked example of the runtime stage:
+# COPY --chmod=0755 lib/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 lib/logging.sh /usr/local/lib/base/logging.sh
+DOCKERFILE
+  run code_lines "${_df}"
+  assert_success
+  assert_output 'COPY --chmod=0755 lib/logging.sh /usr/local/lib/base/logging.sh'
+}
+
+# ── OVER-strict direction: real code survives intact ─────────────────
+
+@test "code_lines: keeps a trailing comment on a code line, verbatim" {
+  # The `# v1.2.2` after a pinned action SHA is the form Dependabot
+  # rewrites on bump; a stripper that removed it would break the spec that
+  # asserts the pin and its version comment together.
+  run code_lines "${FIXTURE}"
+  assert_success
+  assert_output --partial 'uses: dataaxiom/ghcr-cleanup-action@0123456789abcdef # v1.2.2'
+}
+
+@test "code_lines: keeps a # inside a double-quoted string" {
+  run code_lines "${FIXTURE}"
+  assert_success
+  assert_output --partial 'heading: "a # inside a double-quoted string"'
+}
+
+@test "code_lines: keeps a # inside a single-quoted string" {
+  run code_lines "${FIXTURE}"
+  assert_success
+  assert_output --partial "fragment: 'a # inside a single-quoted string'"
+}
+
+@test "code_lines: keeps a block-scalar line whose STRING starts with #" {
+  # `echo "# ..."` is code whose payload happens to open with a hash. The
+  # first non-blank character of the LINE is `e`, so it stays.
+  run code_lines "${FIXTURE}"
+  assert_success
+  assert_output --partial 'echo "# not a comment: a markdown heading"'
+}
+
+@test "code_lines: keeps a # that is part of a value, not a comment" {
+  run code_lines "${FIXTURE}"
+  assert_success
+  assert_output --partial "printf 'colour=#ff0000\\n'"
+}
+
+# ── code_grep ────────────────────────────────────────────────────────
+
+@test "code_grep: a string present only in a comment does not match" {
+  run code_grep -F 'delete-package-versions' "${FIXTURE}"
+  assert_failure
+}
+
+@test "code_grep: a string present in code does match" {
+  run code_grep -F 'MARKER: keep-me' "${FIXTURE}"
+  assert_success
+}
+
+@test "code_grep: passes its flags through and takes the file last" {
+  run code_grep -cE '^ +runs-on: ubuntu-latest$' "${FIXTURE}"
+  assert_success
+  assert_output '2'
+}
+
+# ── only_comments: the mirror ────────────────────────────────────────
+
+@test "only_comments: keeps the comment-only lines and nothing else" {
+  local _out
+  _out="$(only_comments < "${FIXTURE}")"
+  [[ "${_out}" == *'delete-package-versions'* ]] \
+    || fail "only_comments dropped an unindented comment"
+  [[ "${_out}" == *'An indented comment inside a top-level block'* ]] \
+    || fail "only_comments dropped an indented comment"
+  [[ "${_out}" != *'MARKER: keep-me'* ]] \
+    || fail "only_comments kept a code line"
+}
+
+@test "only_comments: is the exact complement of strip_comments" {
+  # Together the two filters must reproduce the file's non-blank lines --
+  # no line may be dropped by both, and none counted by both.
+  local _code _comments _all
+  _code="$(strip_comments < "${FIXTURE}" | wc -l)"
+  _comments="$(only_comments < "${FIXTURE}" | wc -l)"
+  _all="$(grep -cvE '^[[:space:]]*$' "${FIXTURE}")"
+  [ "$(( _code + _comments ))" -eq "${_all}" ] \
+    || fail "code ${_code} + comments ${_comments} != non-blank ${_all}"
+}
+
+@test "only_comments: keeps a trailing-comment line out of the comment view" {
+  # A line with a trailing comment belongs to the CODE view and to it
+  # alone; counting it as documentation would let a pin's version comment
+  # satisfy a prose assertion.
+  local _out
+  _out="$(only_comments < "${FIXTURE}")"
+  [[ "${_out}" != *'ghcr-cleanup-action@'* ]] \
+    || fail "only_comments claimed a trailing-comment code line"
+}
+
+# ── block extractors ─────────────────────────────────────────────────
+
+@test "yaml_job_lines: returns the job's code and drops its comment paragraph" {
+  run yaml_job_lines "${FIXTURE}" build
+  assert_success
+  assert_output --partial 'runs-on: ubuntu-latest'
+  refute_output --partial 'cannot add a label'
+}
+
+@test "yaml_job_lines: stops at the next job" {
+  run yaml_job_lines "${FIXTURE}" build
+  assert_success
+  refute_output --partial 'other:'
+}
+
+@test "yaml_job_text: keeps the job's comment paragraph verbatim" {
+  # The escape hatch for the rare assertion that is genuinely about what a
+  # workflow SAYS. Keeping it separate makes that a visible choice.
+  run yaml_job_text "${FIXTURE}" build
+  assert_success
+  assert_output --partial 'cannot add a label'
+}
+
+@test "yaml_top_lines: returns a top-level block's code without the prose between keys" {
+  run yaml_top_lines "${FIXTURE}" on
+  assert_success
+  assert_output --partial "cron: '17 4 * * 0'"
+  refute_output --partial 'An indented comment'
+}
+
+@test "yaml_top_lines: stops at the next top-level key" {
+  run yaml_top_lines "${FIXTURE}" env
+  assert_success
+  assert_output --partial 'MARKER: keep-me'
+  refute_output --partial 'runs-on'
+}
+
+@test "yaml_top_text: keeps the block's comments" {
+  run yaml_top_text "${FIXTURE}" on
+  assert_success
+  assert_output --partial 'An indented comment'
+}
