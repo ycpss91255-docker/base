@@ -650,8 +650,8 @@ _prepare_prev_release() {
 
 # ── Coverage provenance ──────────────────────────────────────────────────────
 
-# _stamp_coverage_head [root] -- record, next to the reports, the sha they
-# were produced from.
+# _stamp_coverage_head [root] [shard] -- record, next to the reports, the
+# sha they were produced from AND how much of the suite produced them.
 #
 # The cobertura reports carry no identity: nothing in coverage/ says which
 # tree kcov walked. The release badge generator
@@ -660,6 +660,20 @@ _prepare_prev_release() {
 # its refusal exists to prevent -- and comparing the report's mtime against
 # HEAD's commit time cannot tell, since that only catches reports that are
 # too OLD, never a checkout that moved elsewhere after the run.
+#
+# The sha alone is not enough, and that gap was a real one. A sha answers
+# WHICH tree; it says nothing about WHETHER the whole suite ran.
+# `just test coverage <n>/<total>` writes its slice into the SAME
+# ${REPO_ROOT}/coverage tree the full run uses, so a stamp that recorded
+# only the sha certified a partition as HEAD's measurement: every check the
+# generator makes passed, and the badge published a figure off by a factor
+# of N. So the scope is stamped alongside the sha --
+#   <sha>
+#   scope=full          (bare --coverage: the whole suite)
+#   scope=shard <n>/<t> (--coverage-shard: one partition)
+# -- and the generator publishes only `full`. The write is a truncating
+# one, so a shard run at the same commit REPLACES an earlier full-suite
+# stamp rather than inheriting its certificate.
 #
 # Written on the HOST, after the container run returns and after
 # _fix_permissions has handed coverage/ back: the coverage services run as
@@ -670,11 +684,17 @@ _prepare_prev_release() {
 # gets its reports; it just cannot publish a release badge from them, which
 # is the safe direction -- the generator refuses on a missing stamp.
 _stamp_coverage_head() {
-  local _root="${1:-${REPO_ROOT}}" _sha
+  local _root="${1:-${REPO_ROOT}}" _shard="${2:-}" _sha _scope
   _sha="$(git -C "${_root}" rev-parse HEAD 2>/dev/null)" || return 0
   [[ -n "${_sha}" ]] || return 0
   mkdir -p "${_root}/coverage" 2>/dev/null || return 0
-  printf '%s\n' "${_sha}" > "${_root}/coverage/.head-sha" 2>/dev/null || return 0
+  if [[ -n "${_shard}" ]]; then
+    _scope="shard ${_shard}"
+  else
+    _scope="full"
+  fi
+  printf '%s\nscope=%s\n' "${_sha}" "${_scope}" \
+    > "${_root}/coverage/.head-sha" 2>/dev/null || return 0
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
@@ -1223,8 +1243,12 @@ main() {
         _run_via_compose coverage 1
       fi
       # The reports are only usable for a release badge if something
-      # records WHICH commit they measured; see _stamp_coverage_head.
-      _stamp_coverage_head "${REPO_ROOT}"
+      # records WHICH commit they measured and HOW MUCH of the suite
+      # measured it; see _stamp_coverage_head. The shard spec is passed on
+      # both branches -- empty on the full run -- because a partition's
+      # reports land in the same coverage/ tree and would otherwise wear a
+      # whole-suite certificate.
+      _stamp_coverage_head "${REPO_ROOT}" "${coverage_shard}"
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine
