@@ -439,7 +439,8 @@ teardown() {
   # overwrite the overrides. Test asserts both lines exist AND the
   # order is correct.
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Both COPY lines exist with --chown / --chmod metadata.
   run grep -E '^COPY --chown=.* .base/dist/config "\$\{CONFIG_DIR\}"$' "${_df}"
   assert_success
@@ -458,7 +459,8 @@ teardown() {
 
 @test "Dockerfile.example declares ENV HOME before WORKDIR \${HOME}/work (#334)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # WORKDIR is a Docker directive that interpolates build-time ARG /
   # ENV, not shell-time $HOME. Without an explicit ENV HOME, the
   # `WORKDIR "${HOME}/work"` collapses to /work and BuildKit emits
@@ -474,7 +476,8 @@ teardown() {
 
 @test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The shell-setup RUN block must mkdir ~/.bashrc.d AND copy
   # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form
   # tolerates missing source files (.base/dist/config/shell/bashrc.d/

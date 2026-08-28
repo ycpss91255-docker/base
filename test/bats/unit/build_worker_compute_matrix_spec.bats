@@ -25,7 +25,8 @@ setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   SCRIPT="/source/script/ci/build_worker/compute_matrix.sh"
-  [[ -f "${SCRIPT}" ]] || skip "compute_matrix.sh not at expected path"
+  assert_spec_subject "${SCRIPT}" \
+      "the build-worker matrix script under test"
 }
 
 @test "compute_matrix: linux/amd64 -> single include entry on ubuntu-latest / x86_64" {

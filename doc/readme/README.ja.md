@@ -138,7 +138,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included d3f9b7157d86 a38e0b5c7029 -->
+<!-- sync: whats-included 0ce60532434f f53a0b8e894e -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -149,7 +149,7 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `prune.sh` | コンテナ / image / build キャッシュの整理 |
 | `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
-| `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` / `.env.generated` + `compose.yaml` 生成 |
 | `dist/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
@@ -410,17 +410,24 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
-<!-- sync: per-repo-runtime-configuration b02fd5d770dc 3d66f7630138 -->
+<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b fcfbac3189da -->
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
 （GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
-駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env.generated`
-と `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
-する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
-最初に scaffold するだけで以後上書きしません。
+駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` /
+`.env.generated` / `compose.yaml` を再生成します — これらの生成物をユーザ
+が手動編集する必要はありません。別のファイルは `.env.local` で、setup は
+最初に scaffold するだけで以後上書きせず、あなた自身の値はそこに置きます。
 
-<!-- sync: one-conf-15-sections 825dbace1f47 66721dcea0e2 -->
+すべての名前が 1 つの規則に従います：**標準名はツールのもの、サフィックス
+がローカル版。** `Dockerfile` / `compose.yaml` / `.setup.conf` / `.env` は
+生成または配布されるもので更新時に置き換わります。`.setup.conf.local` と
+`.env.local` はあなたのもので、決して書き換えられません。`.env.generated`
+がサフィックスを保つ理由は別で、compose の `${VAR}` 補間のためだけに存在し
+コンテナには入りません — サフィックスは所有者ではなく分類を表します。
+
+<!-- sync: one-conf-15-sections 6f932c1347bc 92dff26e5837 -->
 ### 単一 conf、15 個の section
 
 以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
@@ -450,8 +457,9 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
            （対応する *_inherit トグルも;既定は最小、必要な分だけ opt-in）
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once の既定値。deployable stage の
-           ENV として bake される;タスクごとに変わる変数は .env へ
+[environment] env_N = KEY=VALUE — set-once の既定値。生成される .env に
+           書き出され deployable stage の ENV としても bake される;
+           タスクごとに変わる変数は .env.local へ
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed マウントポイント
 [devices]  device_N = host:container、および cgroup rule（opt-in）
 [volumes]  mount_1（workspace、初回実行時に自動記入）
@@ -630,7 +638,7 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef a459f0591501 -->
+<!-- sync: when-setupsh-runs ecdbadb6a9f1 8938c8290072 -->
 ### setup.sh の実行タイミング
 
 `setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
@@ -639,13 +647,14 @@ Main
 - **`just base init` / `./.base/dist/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
-  baseline で `.env` / `compose.yaml` を再生成した状態で着地します
+  baseline で `.env` / `.env.generated` / `compose.yaml` を再生成した
+  状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
   明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.conf`
   を編集させ、TTY が無い場合は直接 `setup.sh` を呼び出します
-- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env` が無い初回実行
-  （CI の新規 clone 等）では、同じ TTY-aware フローを自動で通ります。
-  `--setup` 指定は不要
+- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env.generated` が無い
+  初回実行（CI の新規 clone 等）では、同じ TTY-aware フローを自動で
+  通ります。`--setup` 指定は不要
 
 > **Fresh-clone の lint カバレッジ（#216）**：image がローカルに
 > キャッシュされていない `./run.sh` は Compose auto-build を起動
@@ -664,15 +673,15 @@ Main
 > ```
 
 `setup.sh apply` は毎回 `compose.yaml` をゼロから書き直しますが、
-既存 `.env` の `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` は
-保持されるため、手動で調整した workspace パスや apt mirror はアップ
-グレードで上書きされません。
+既存 `.env.generated` の `WS_PATH` / `APT_MIRROR_UBUNTU` /
+`APT_MIRROR_DEBIAN` は保持されるため、手動で調整した workspace パスや
+apt mirror はアップグレードで上書きされません。
 
-<!-- sync: drift-detection 25d3585b5c5f 05855d6ce3cf -->
+<!-- sync: drift-detection 423fc5dbfe75 3f58e39fed45 -->
 ### ドリフト検出
 
-`setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
-`SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
+`setup.sh` は `.env.generated` に `SETUP_CONF_HASH` /
+`SETUP_GUI_DETECTED` / `SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
 エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
 以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
 
@@ -743,21 +752,21 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 1ea39c05036b -->
+<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 7a3701ee0842 -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
 
 | サブコマンド | 用途 |
 |---|---|
-| `apply` | setup.conf + システム検出から `.env.generated` + `compose.yaml` を再生成（手書きの `.env` overlay は対象外） |
+| `apply` | setup.conf + システム検出から `.env` + `.env.generated` + `compose.yaml` を再生成（`.env.local` は対象外） |
 | `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
 | `set <section>.<key> <value>` | 単一キーを書き込む。`--local` は commit 済みの `.setup.conf` ではなく gitignored な `.setup.conf.local` を対象にする；付けない場合、`.setup.conf.local` が既に定義している section への書き込みは section 名を挙げて警告される |
 | `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
 | `list [<section>]` | INI スタイルでダンプ |
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1`。`--local` 可 |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除。`--local` 可 |
-| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env.generated` → `.env.bak`。`.env.local` はそのまま |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。`.setup.conf.local` がある場合は `--allow-local-override` を付けない限り拒否。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env.generated` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
@@ -775,20 +784,30 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored 9135501a7168 b52923ea8035 -->
+<!-- sync: derived-artifacts-gitignored 1a208545a257 5d4f11074040 -->
 ### 生成物（gitignored）
 
-- `.env.generated` — ランタイム変数（解決済みの `PROJECT_NAME` を含む）+ `SETUP_*` drift metadata
+- `.env.generated` — compose 補間用の変数（解決済みの `PROJECT_NAME` を
+  含む）+ `SETUP_*` drift metadata;コンテナには入りません
+- `.env` — コンテナに入る既定値：`[environment]` の一覧と
+  `[lifecycle] watchdog_*` ブロックを、埋まった一覧として書き出したもの
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
-両ファイルは `just base upgrade` のたびに再生成されます（init.sh が subtree
+3 ファイルとも `just base upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
-`.env` も gitignore されますが生成物では**ありません**。手書きの workload
-overlay で、最初の apply で一度 scaffold されたあとは上書きされません。
-編集しても setup の実行で消えることはありません。
+`.env.local` も gitignore されますが生成物では**ありません**。あなたのもので、
+最初の apply で一度 scaffold されたあとは上書きされません。編集しても setup の
+実行で消えることはありません。compose は `.env` の後にこれを読み込むので、
+両方にあるキーはあなたの値が使われます。
+
+> **v0.43.0 より前からのアップグレード**：`.env` は以前は手書きファイルでした。
+> `just base upgrade` は何かが再生成する前に、手書きの `.env` を `.env.local`
+> へリネームします。そのアップグレード経路を飛ばして先に `setup` を実行した
+> 場合、値が `.env.bak` に残るのはそのファイルが旧い補間キャッシュだったとき
+> だけです。それ以外は自分のバックアップから復元してください。
 
 `.setup.conf.local` は 1 つ上のレイヤで同じ形をしています：gitignored、
 あなたのもの、ツールが書き換えることはありません。設定の*入力*であって
@@ -1289,3 +1308,4 @@ just --list  # CI ターゲット表示
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

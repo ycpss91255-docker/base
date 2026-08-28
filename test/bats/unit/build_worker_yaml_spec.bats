@@ -16,7 +16,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/build-worker.yaml"
-  [[ -f "${WF}" ]] || skip "build-worker.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the reusable build worker this spec pins"
 }
 
 # ── Inputs declared ────────────────────────────────────────────

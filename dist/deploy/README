@@ -18,9 +18,34 @@ reboot; stop it with `./deploy.sh down`.
 
     image.tar.xz   the container image (deploy.sh docker-loads it)
     compose.yaml   fully-resolved, self-contained compose (do NOT edit)
+    .env           the container's env defaults, generated (do NOT edit)
+    .env.local     YOUR env overrides -- this is the file to edit
     config/        operator-tunable config copies (see below)
     deploy.sh      this launcher
     README         this file
+
+The naming rule across this whole toolchain: the standard name belongs to
+the tool and is regenerated, a suffix marks the local variant that is
+yours. `compose.yaml` and `.env` are ours; `.env.local` is yours and
+nothing ever rewrites it.
+
+## Adjusting env values in the field (no rebuild)
+
+`.env` lists every environment value the service runs with -- the watchdog
+thresholds, the component's own defaults -- as a filled-in list, so you can
+see what is in effect without reading a Dockerfile. It is regenerated
+whenever this bundle is rebuilt, so do not edit it.
+
+To change one, copy the line into `.env.local` and edit it there:
+
+    WATCHDOG_INTERVAL='5'
+
+then re-run `./deploy.sh up`. compose loads `.env` first and `.env.local`
+second, so a key named in both resolves to yours. `.env.local` survives a
+bundle update; `.env` does not.
+
+Quote values the way `.env` does (single quotes). An unquoted value is cut
+at an inline ` #`, and a double-quoted one has `${...}` expanded.
 
 ## Adjusting config in the field (no rebuild)
 

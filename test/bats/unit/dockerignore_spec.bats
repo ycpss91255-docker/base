@@ -41,6 +41,7 @@ teardown() {
   run _canonical_dockerignore_entries
   assert_success
   assert_line ".env"
+  assert_line ".env.local"
   assert_line ".env.generated"
   assert_line ".env.bak"
   assert_line "compose.yaml"
