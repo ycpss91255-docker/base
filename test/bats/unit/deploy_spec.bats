@@ -475,7 +475,13 @@ SH
 }
 
 @test "_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)" {
-  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  # Optional on purpose: shellcheck is a capability of the TOOLING
+  # IMAGE, not an artifact of this repo, so a pinned TEST_TOOLS_IMAGE
+  # without it can only decline to look. Losing it from the image is
+  # covered fail-closed instead: template_spec asserts the final stage
+  # COPYs the binary in.
+  command -v shellcheck >/dev/null 2>&1 \
+    || skip "this test-tools image has no shellcheck (older pinned TEST_TOOLS_IMAGE); the COPY that installs it is pinned in template_spec"
   local _d; _d="$(mktemp -d)"
   local _out="${_d}/deploy.sh"
   _generate_deploy_launcher "${_out}" runtime

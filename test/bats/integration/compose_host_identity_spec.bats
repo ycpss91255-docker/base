@@ -31,7 +31,7 @@ setup() {
   # asserting on a `docker --help` dump. The file-shape half of this
   # invariant is pinned unconditionally in base_docker_namespace_spec.
   docker compose version >/dev/null 2>&1 \
-    || skip "this test-tools image has no docker compose plugin"
+    || skip "this test-tools image has no docker compose plugin (older pinned TEST_TOOLS_IMAGE); the file shape is pinned unconditionally in base_docker_namespace_spec"
 }
 
 # ════════════════════════════════════════════════════════════════════

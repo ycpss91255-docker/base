@@ -87,7 +87,13 @@ teardown() {
 
 @test "_watchdog_stop_service SIGKILLs a SIGTERM-ignoring service within the bounded grace (no hang) (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  command -v setsid >/dev/null 2>&1 || skip "setsid unavailable"
+  # Optional on purpose: setsid comes from the base distro userland
+  # (busybox on alpine), not from anything this repo installs or
+  # tracks, so its absence is a property of where the suite is running
+  # and there is no repo-side change that could cause it. Without a new
+  # session the SIGKILL escalation cannot be observed at all.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/ignore_term.sh" <<'EOF'
 #!/usr/bin/env bash
 trap '' TERM
@@ -114,7 +120,13 @@ EOF
 
 @test "_watchdog_stop_service kills the whole service subtree (no orphaned grandchild) (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  command -v setsid >/dev/null 2>&1 || skip "setsid unavailable"
+  # Optional on purpose: setsid comes from the base distro userland
+  # (busybox on alpine), not from anything this repo installs or
+  # tracks, so its absence is a property of where the suite is running
+  # and there is no repo-side change that could cause it. Without a new
+  # session the SIGKILL escalation cannot be observed at all.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/spawner.sh" <<'EOF'
 #!/usr/bin/env bash
 # A grandchild that ignores SIGTERM and records its own pid, then the
@@ -141,7 +153,13 @@ EOF
 
 @test "restart-service give-up against a wedged (SIGTERM-ignoring) service still exits the container (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  command -v setsid >/dev/null 2>&1 || skip "setsid unavailable"
+  # Optional on purpose: setsid comes from the base distro userland
+  # (busybox on alpine), not from anything this repo installs or
+  # tracks, so its absence is a property of where the suite is running
+  # and there is no repo-side change that could cause it. Without a new
+  # session the SIGKILL escalation cannot be observed at all.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/wedged.sh" <<'EOF'
 #!/usr/bin/env bash
 trap '' TERM
@@ -167,7 +185,13 @@ EOF
 
 @test "restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  command -v setsid >/dev/null 2>&1 || skip "setsid unavailable"
+  # Optional on purpose: setsid comes from the base distro userland
+  # (busybox on alpine), not from anything this repo installs or
+  # tracks, so its absence is a property of where the suite is running
+  # and there is no repo-side change that could cause it. Without a new
+  # session the SIGKILL escalation cannot be observed at all.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/graceful.sh" <<'EOF'
 #!/usr/bin/env bash
 trap 'touch "$1"; exit 0' TERM

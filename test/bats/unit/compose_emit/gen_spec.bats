@@ -144,18 +144,25 @@ teardown() {
 
 @test "generate_compose_yaml emits volumes: before networks: (#482)" {
   # network on -> both top-level blocks present; volumes precedes networks.
+  #
+  # The network name is the EIGHTH POSITIONAL argument. This used to be
+  # passed as `NETWORK_MODE=bridge NETWORK_NAME=mynet` in the environment,
+  # which generate_compose_yaml never reads, so `networks:` was never
+  # emitted and the ordering assertion never ran -- an `else skip` reported
+  # that as a pass on every run since the test was written. Both blocks are
+  # now asserted present before the order is compared, so a generator that
+  # stops emitting either one fails here instead of skipping.
   local _extras=('my_state:/srv/state')
-  NETWORK_MODE=bridge NETWORK_NAME=mynet \
-    generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-      "false" "false" "0" "gpu" _extras
-  if grep -qE '^networks:$' "${COMPOSE_OUT}"; then
-    local _vol_ln _net_ln
-    _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
-    _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
-    (( _vol_ln < _net_ln ))
-  else
-    skip "networks: not emitted in this invocation shape"
-  fi
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "mynet"
+  run grep -cE '^volumes:$' "${COMPOSE_OUT}"
+  assert_output "1"
+  run grep -cE '^networks:$' "${COMPOSE_OUT}"
+  assert_output "1"
+  local _vol_ln _net_ln
+  _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  (( _vol_ln < _net_ln ))
 }
 
 @test "generate_compose_yaml emits workspace mount when present in extras" {

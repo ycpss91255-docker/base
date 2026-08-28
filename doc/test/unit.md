@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2944 tests**.
+Unit specs under `test/bats/unit/`: **2950 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1823,7 +1823,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (155)
+### test/bats/unit/template_spec.bats (156)
 
 | Test | Description |
 |------|-------------|
@@ -1890,6 +1890,7 @@ builds the env block only for the knobs the conf sets.
 | `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
+| `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
 | `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
 | `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
@@ -3356,3 +3357,23 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/spec_subject_guard_spec.bats (5)
+
+`assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
+opening 54 guards across this suite now share, plus the repo-wide
+invariant that no spec goes back to the fail-open form. Those guards used
+to read `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by
+design" from "renamed and nobody noticed" and answered the second with a
+green run: renaming one workflow turned 52 assertions into `ok ... # skip`
+and the suite still exited 0. Since a bats outcome cannot be observed from
+inside the test that produces it, each case writes a one-test spec into
+`BATS_TEST_TMPDIR` and asserts on the TAP the inner `bats` run emits.
+
+| Test | Description |
+|------|-------------|
+| `assert_spec_subject: a present subject lets the test run to completion` | The normal path costs the caller nothing and skips nothing |
+| `assert_spec_subject: a missing subject FAILS the test, it does not skip it` | The whole point: a skip here reports green for a spec that asserted nothing |
+| `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
+| `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
+| `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
