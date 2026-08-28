@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Shared smoke specs that ship under `dist/test/bats/smoke/`: **34 tests**.
+Shared smoke specs that ship under `dist/test/bats/smoke/`: **37 tests**.
 
 > **Not** part of the `just test` self-test grand total — these are
 > Dockerfile `-test`-stage build-time assertions, not self-tests. See
@@ -145,6 +145,27 @@ in devel-test).
 |------|-------------|
 | `entrypoint.sh is installed and executable` | Entrypoint present |
 | `bash is available on PATH` | Core shell present |
+
+### dist/test/bats/smoke/shared/reproducibility.bats (3)
+
+The reproducibility manifest the template's `sys` stage (and `runtime-base`,
+when the runtime split is enabled) writes: `base-image.env` and
+`packages.txt` under `/usr/local/share/base/`. Base's own unit specs read
+the template as TEXT, which cannot see the failure this file exists for —
+a manifest written from a stage where `${BASE_IMAGE}` expanded to the empty
+string, so the file lands with an empty record and every static grep stays
+green. Skips (rather than fails) when NEITHER file is present: this spec
+reaches a consumer through `.base/dist/`, which `just upgrade` refreshes,
+while the Dockerfile that writes the manifest is the consumer's own and is
+not rewritten by the upgrade. A repo that writes one file and not the
+other, or writes an empty record, has adopted the manifest and broken it,
+and fails.
+
+| Test | Description |
+|------|-------------|
+| `the reproducibility manifest is complete` | Both manifest files land in every `-test` stage |
+| `the manifest names the base image this stage was built from` | Non-empty `base_image_ref` value plus a `base_image_pin` verdict — the empty-expansion failure |
+| `the manifest records package versions, not just package names` | `dpkg-query -W` name/version pairs, not a bare name list |
 
 ### dist/test/bats/smoke/devel-test/script_help.bats (27)
 

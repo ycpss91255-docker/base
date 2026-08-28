@@ -11,15 +11,28 @@ ignored:
   # that cannot take a security update without a template release is worse
   # for its audience than one that drifts.
   #
-  # What compensates: the drift is recorded, not silent. Every image built
-  # from dist/dockerfile/Dockerfile writes
+  # What compensates: the drift is recorded, not silent. An image built
+  # from the CURRENT dist/dockerfile/Dockerfile writes
   # /usr/local/share/base/packages.txt (every package and its exact
   # version, rewritten after each apt layer) and
-  # /usr/local/share/base/base-image.env (the base reference, whether it
-  # was digest-pinned, and the base OS), so two divergent images can be
-  # diffed down to the version that changed. A consumer needing bit-for-bit
-  # builds pins BASE_IMAGE to a digest; see the note above `ARG BASE_IMAGE`
-  # in dist/dockerfile/Dockerfile.
+  # /usr/local/share/base/base-image.env (the base reference, its digest
+  # where one is known, and the base OS), so two divergent images can be
+  # diffed down to the version that changed.
+  #
+  # Read this in a DOWNSTREAM repo: init.sh symlinks this file from
+  # .base/dist/, and here it lints that repo's OWN Dockerfile, which is
+  # hand-edited and which `just upgrade` does not rewrite. So the
+  # compensating control above is a claim about the TEMPLATE, not about
+  # the image you are building: a repo whose Dockerfile predates this
+  # template revision has the ignore without the record. To adopt it,
+  # `just upgrade` and then port the two manifest blocks -- the sys stage
+  # RUN and, if the runtime split is enabled, runtime-base's -- from
+  # .base/dist/dockerfile/Dockerfile into your own. `just build` followed
+  # by reading /usr/local/share/base/base-image.env in the built image
+  # says which side of that you are on.
+  #
+  # A consumer needing bit-for-bit builds pins BASE_IMAGE to a digest; see
+  # the note above `ARG BASE_IMAGE` in dist/dockerfile/Dockerfile.
   - DL3008
   - DL3013  # Pin versions in pip install (downstream repo responsibility)
   - DL3018  # Pin versions in apk add (aligned with DL3008 strategy)

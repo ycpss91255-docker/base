@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cc8f75f17e7e a965288fe356 -->
+<!-- sync: dockerfile-stages-convention fbb905dae767 bda3ff5a0dbf -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -215,12 +215,16 @@ flowchart LR
   所以同一個 template 版本在不同時間並不會重現同一個 image。這個漂移是刻意的
   （consumer 本來就會覆寫 `BASE_IMAGE`，而 dev image 必須能在不發 template
   release 的情況下吃到安全性更新），但它會被「記錄」下來：`sys` 會寫出
-  `/usr/local/share/base/base-image.env`（base reference、是否 digest pin、
-  base OS）與 `/usr/local/share/base/packages.txt`（每個套件與其確切版本，
-  每個 apt layer 之後重寫一次），並標上
-  `org.opencontainers.image.base.name` label。`runtime-base` 因為是全新的
-  `${BASE_IMAGE}`、什麼都不繼承，所以會再寫一次。需要 bit-for-bit 重現時，
-  把 `BASE_IMAGE` pin 成 digest。
+  `/usr/local/share/base/base-image.env`（base reference、其 digest、該 digest
+  是否來自 reference 本身、base OS）與 `/usr/local/share/base/packages.txt`
+  （每個套件與其確切版本，每個 apt layer 之後重寫一次），並標上
+  `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
+  因為是全新的 `${BASE_IMAGE}`、什麼都不繼承，所以會再寫一次。
+- 出貨預設「沒有」記錄到的部分：照預設 build 出來的 manifest 會是
+  `base_image_pin=none`、`base_image_digest` 留空——build 內部無法向 daemon
+  詢問某個 tag 解析到哪個 image。要補上就在 `BASE_IMAGE` 之外再傳
+  `BASE_IMAGE_DIGEST`（那是「記錄」不是 pin）；或把 `BASE_IMAGE` pin 成 digest
+  以取得 bit-for-bit 重現，同樣的欄位就能單靠 reference 本身填滿。
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
 - `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的

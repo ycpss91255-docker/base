@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2949 tests**.
+Unit specs under `test/bats/unit/`: **2951 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1823,7 +1823,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (160)
+### test/bats/unit/template_spec.bats (162)
 
 | Test | Description |
 |------|-------------|
@@ -1950,10 +1950,12 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
 | `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
-| `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, OCI base-name label |
+| `Dockerfile.example states what the UNPINNED default does not record (#951)` | the digest half AC1 asks for is empty in the shipped default, and the file says so plus how to fill it |
+| `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |
 | `Dockerfile.example rewrites the package manifest after every apt layer (#951)` | `packages.txt` written twice (sys + devel-base), so the devel-base install set is not silently omitted |
-| `Dockerfile.example commented runtime-base records its own manifest (#951)` | the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented: it inherits nothing sys wrote |
-| `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | the unpinned-apt ignore names the manifest that compensates, not just why pinning is impractical |
+| `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
+| `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
+| `the shared smoke tree asserts the manifest at RUNTIME, not only in the template text (#951)` | the shipped smoke spec exists and asserts a non-empty `base_image_ref`, the one check text greps cannot make |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
 | `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |

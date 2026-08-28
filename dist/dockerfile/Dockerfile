@@ -77,21 +77,46 @@
 # What compensates is that the drift is RECORDED rather than silent. Every
 # image built from this file carries, from the image alone:
 #
-#   /usr/local/share/base/base-image.env  the base reference as given,
-#                                         whether it was digest-pinned, and
+#   /usr/local/share/base/base-image.env  the base reference as given, its
+#                                         digest, whether that digest came
+#                                         from the reference itself, and
 #                                         the base OS identity
 #   /usr/local/share/base/packages.txt    every installed package and its
 #                                         exact version, rewritten after
 #                                         each apt layer
 #
-# plus the OCI `org.opencontainers.image.base.name` label, so
-# `docker inspect` answers without unpacking. Two consumer images that
-# behave differently can be diffed down to the package version that
-# changed. This is also what the DL3008 ignore in .hadolint.yaml names as
-# its compensating control.
+# plus the OCI `org.opencontainers.image.base.name` /
+# `org.opencontainers.image.base.digest` labels, so `docker inspect`
+# answers without unpacking. Two consumer images that behave differently
+# can be diffed down to the package version that changed. This is also
+# what the DL3008 ignore in .hadolint.yaml names as its compensating
+# control.
+#
+# WHAT THE SHIPPED DEFAULT STILL DOES NOT ANSWER, stated plainly rather
+# than left for a reader to discover: built as shipped -- `ubuntu:24.04`,
+# no build args -- the manifest records
+#
+#   base_image_ref=ubuntu:24.04
+#   base_image_pin=none
+#   base_image_digest=
+#
+# i.e. it does NOT record which digest that tag resolved to. The record is
+# complete for a reference that carries its own digest and empty for the
+# case the moving tag is a problem in, because nothing INSIDE a build can
+# ask the daemon what it pulled. Closing that costs one build arg, from
+# whoever runs the build and can ask:
+#
+#   BASE_IMAGE_DIGEST="$(docker image inspect \
+#     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
+#
+# passed alongside BASE_IMAGE (`build_args:` in base's reusable
+# build-worker workflow, or `--build-arg`). It is a RECORD, not a pin: the
+# build still resolves the tag, and the digest lands in base-image.env and
+# in the OCI base.digest label.
 #
 # Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
-# reference and the manifest records the pin rather than the drift:
+# reference and the manifest fills the same fields from the reference
+# alone, with no second argument:
 #
 #   BASE_IMAGE=ubuntu@sha256:<digest>
 #
@@ -123,6 +148,11 @@ ARG DEBIAN_FRONTEND=noninteractive
 # FROM-scope only, and without this line ${BASE_IMAGE} expands to the
 # empty string inside the stage and the manifest records nothing.
 ARG BASE_IMAGE
+# The digest BASE_IMAGE resolved to, when the caller can supply it (see
+# the note above `ARG BASE_IMAGE`). Defaulted rather than left bare: this
+# stage's SHELL runs with `-u`, and an unsupplied bare ARG is what turns
+# a missing optional record into a failed build.
+ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
@@ -139,18 +169,25 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
     update-locale LANG="en_US.UTF-8" && \
     ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone && \
     mkdir -p /usr/local/share/base && \
-    { echo "base_image_ref=${BASE_IMAGE}"; \
+    { \
+      echo "base_image_ref=${BASE_IMAGE}"; \
       case "${BASE_IMAGE}" in \
-        *@sha256:*) echo "base_image_pin=digest" ;; \
-        *) echo "base_image_pin=none" ;; \
+        *@sha256:*) echo "base_image_pin=digest"; \
+                    echo "base_image_digest=sha256:${BASE_IMAGE##*@sha256:}" ;; \
+        *)          echo "base_image_pin=none"; \
+                    echo "base_image_digest=${BASE_IMAGE_DIGEST}" ;; \
       esac; \
       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
     } > /usr/local/share/base/base-image.env && \
     dpkg-query -W > /usr/local/share/base/packages.txt
 
 # The reference this image was built FROM, readable via `docker inspect`
-# without unpacking the image. Inherited by every stage below.
-LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+# without unpacking the image. Inherited by every stage below. The digest
+# is empty unless the caller supplied one or the reference carried it --
+# an empty OCI base.digest is a truthful "not recorded", which is what a
+# consumer needs to know before trusting the ref as reproducible.
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
 ENV LC_ALL="en_US.UTF-8"
 ENV LANG="en_US.UTF-8"
@@ -479,13 +516,15 @@ RUN bats /smoke_test/
 #
 # ARG DEBIAN_FRONTEND=noninteractive
 # # runtime-base is a FRESH ${BASE_IMAGE}: it inherits nothing the sys
-# # stage wrote, so the reproducibility manifest and the OCI base label
+# # stage wrote, so the reproducibility manifest and the OCI base labels
 # # have to be re-emitted here or the runtime image -- the one image of
 # # this graph that actually ships -- becomes the only one that cannot say
 # # what it was built from. Same bare re-declaration, same reason (the
 # # pre-FROM ARG is FROM-scope only). Note this block runs under /bin/sh,
-# # not the bash SHELL sys sets, so keep it POSIX.
+# # not the bash SHELL sys sets, so keep it POSIX -- which `${VAR##...}`
+# # is. Bare here, unlike sys: /bin/sh carries no `-u`.
 # ARG BASE_IMAGE
+# ARG BASE_IMAGE_DIGEST
 #
 # # Minimal runtime apt: sudo (entrypoint usually needs it), tini
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that
@@ -503,16 +542,20 @@ RUN bats /smoke_test/
 #     apt-get clean && \
 #     rm -rf /var/lib/apt/lists/* && \
 #     mkdir -p /usr/local/share/base && \
-#     { echo "base_image_ref=${BASE_IMAGE}"; \
+#     { \
+#       echo "base_image_ref=${BASE_IMAGE}"; \
 #       case "${BASE_IMAGE}" in \
-#         *@sha256:*) echo "base_image_pin=digest" ;; \
-#         *) echo "base_image_pin=none" ;; \
+#         *@sha256:*) echo "base_image_pin=digest"; \
+#                     echo "base_image_digest=sha256:${BASE_IMAGE##*@sha256:}" ;; \
+#         *)          echo "base_image_pin=none"; \
+#                     echo "base_image_digest=${BASE_IMAGE_DIGEST}" ;; \
 #       esac; \
 #       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
 #     } > /usr/local/share/base/base-image.env && \
 #     dpkg-query -W > /usr/local/share/base/packages.txt
 #
-# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+#       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 #
 # FROM runtime-base AS runtime
 #

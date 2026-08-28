@@ -251,12 +251,19 @@ Notes:
   the same image over time. The drift is deliberate (consumers override
   `BASE_IMAGE`, and a dev image must be able to take a security update without
   a template release) but it is RECORDED: `sys` writes
-  `/usr/local/share/base/base-image.env` (the base reference, whether it was
-  digest-pinned, the base OS) and `/usr/local/share/base/packages.txt` (every
-  package and its exact version, rewritten after each apt layer), and labels
-  the image `org.opencontainers.image.base.name`. `runtime-base` re-emits both,
-  since it starts from a fresh `${BASE_IMAGE}` and inherits nothing. Pin
-  `BASE_IMAGE` to a digest for bit-for-bit builds.
+  `/usr/local/share/base/base-image.env` (the base reference, its digest,
+  whether that digest came from the reference, the base OS) and
+  `/usr/local/share/base/packages.txt` (every package and its exact version,
+  rewritten after each apt layer), and labels the image
+  `org.opencontainers.image.base.name` / `.base.digest`. `runtime-base`
+  re-emits both, since it starts from a fresh `${BASE_IMAGE}` and inherits
+  nothing.
+- What the shipped default does **not** record: built as shipped, the manifest
+  says `base_image_pin=none` and leaves `base_image_digest` empty — nothing
+  inside a build can ask the daemon which image a tag resolved to. Pass
+  `BASE_IMAGE_DIGEST` (a record, not a pin) alongside `BASE_IMAGE` to fill it
+  in, or pin `BASE_IMAGE` to a digest for bit-for-bit builds, which fills the
+  same fields from the reference alone.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside

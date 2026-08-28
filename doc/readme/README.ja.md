@@ -198,7 +198,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cc8f75f17e7e db976a503cb4 -->
+<!-- sync: dockerfile-stages-convention fbb905dae767 a09dcf323227 -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -220,12 +220,19 @@ flowchart LR
   経てば同じ image は再現しません。このドリフトは意図的です（consumer は
   そもそも `BASE_IMAGE` を上書きしますし、dev image は template release なしで
   セキュリティ更新を取り込めなければなりません）。ただし「記録」されます：
-  `sys` が `/usr/local/share/base/base-image.env`（base reference、digest pin
-  かどうか、base OS）と `/usr/local/share/base/packages.txt`（各パッケージと
-  その正確なバージョン、apt レイヤーごとに書き直し）を出力し、
-  `org.opencontainers.image.base.name` label を付けます。`runtime-base` は
-  まっさらな `${BASE_IMAGE}` から始まり何も継承しないため、両方を再出力します。
-  bit-for-bit の再現性が必要なら `BASE_IMAGE` を digest に pin します。
+  `sys` が `/usr/local/share/base/base-image.env`（base reference、その digest、
+  その digest が reference 由来かどうか、base OS）と
+  `/usr/local/share/base/packages.txt`（各パッケージとその正確なバージョン、
+  apt レイヤーごとに書き直し）を出力し、
+  `org.opencontainers.image.base.name` / `.base.digest` label を付けます。
+  `runtime-base` はまっさらな `${BASE_IMAGE}` から始まり何も継承しないため、
+  両方を再出力します。
+- 出荷時のデフォルトが「記録しない」もの：そのまま build すると manifest は
+  `base_image_pin=none`、`base_image_digest` は空になります——build の内部から
+  daemon に「その tag はどの image に解決したか」を尋ねる手段がないためです。
+  埋めたい場合は `BASE_IMAGE` と併せて `BASE_IMAGE_DIGEST`（pin ではなく記録）
+  を渡すか、bit-for-bit の再現性が必要なら `BASE_IMAGE` を digest に pin
+  します。後者なら reference だけで同じ項目が埋まります。
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
   `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。

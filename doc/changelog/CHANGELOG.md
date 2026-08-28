@@ -81,16 +81,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **a failed `init.sh` resync no longer leaves the consumer's files half-rewritten (closes #937)** -- the resync rewrites the `Dockerfile`, `.gitignore` and the wrapper symlinks inside an upgrade that has already committed the pull, and whether a partial rewrite was undone depended on the caller: the current `upgrade.sh` has a trap, the vendored `v0.41.0` copy every deployed repo runs has none. `init.sh` now snapshots the roots it writes into -- a hand-written `.env` included, which no `git reset` could return -- and restores them itself, staged index removals and all, without touching history. A restore that does not fully work exits 1 naming the tree as NOT restored.
 
-- **the shipped Dockerfile now records what it was built from, instead of
-  drifting silently (closes #951)** -- `BASE_IMAGE` defaults to the moving
-  `ubuntu:24.04` and the apt layers on top carry no versions, so two consumers
-  building the same template version a month apart got different images with
-  nothing recording it. The default stays moving -- consumers override it
-  anyway, and a dev image that cannot take a security update without a template
-  release is worse for its audience than one that drifts -- but every image now
-  carries `/usr/local/share/base/base-image.env` and `packages.txt`, plus the
-  OCI base-name label, and the `DL3008` ignore names them as its compensating
-  control.
+- **the shipped Dockerfile now records what it was built from (closes #951)** --
+  `BASE_IMAGE` defaults to the moving `ubuntu:24.04` and the apt layers carry
+  no versions, so two builds of one template version differed with nothing
+  recording it. The default stays moving; every image now writes
+  `/usr/local/share/base/base-image.env` and `packages.txt`, carries the OCI
+  `base.name` / `base.digest` labels, and a shared smoke spec asserts the
+  record inside the BUILT image. Stated deviation: as shipped the digest is
+  not recorded (`base_image_pin=none`, empty `base_image_digest`) -- nothing
+  inside a build can ask the daemon what a tag resolved to. Pass
+  `BASE_IMAGE_DIGEST` or pin `BASE_IMAGE`.
 
 ### Added
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
