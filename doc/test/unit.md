@@ -3435,7 +3435,7 @@ untested) and uncommented.
 | `pins: a trailing comment does not leak whitespace into the version` | The stray space flowed into the reported `from`, the branch name and anything CI fed from `--value`. |
 | `pins: --set leaves the file's mode alone` | `mktemp` + `mv` dropped the target to 0600, unreadable to the lint container on a developer machine. |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week. |
-| `pins: --files lists every Dockerfile, workflow and script it walks` | The scan surface, derived by file SHAPE over the whole tree rather than from a list of directories. |
+| `pins: --files lists every file it walks, prose and specs aside` | The scan surface is the whole tree minus an EXEMPTION list, not a roster of shapes to include. |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | A hand-kept list of places to look decays exactly as a hand-kept list of tools does, and this one had. |
 | `pins: a shell script that generates a file is a declaration site` | A generator that writes a version into a workflow or a Dockerfile declares it; dependabot cannot read either. |
 | `pins: a pruned tree contributes nothing` | `.prev-release/` is `git archive` of past releases -- every version in it is supposed to be stale. |

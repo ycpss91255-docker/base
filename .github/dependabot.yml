@@ -10,18 +10,24 @@
 # exactly the pins the watch already reads out of their ARGs.
 #
 # The watch owns what dependabot provably cannot see or advance: a
-# Dockerfile ARG, a `FROM` tag, an image named inside a `run:` step (with
-# or without a namespace), a release-download URL, a `git clone -b <tag>`,
-# a `uses:` ref pinned to a BRANCH (it bumps a version ref to the next
-# VERSION, and `main` is not one), and any of those written inside a SHELL
-# SCRIPT that generates a file -- dependabot reads workflow files, and a
-# `uses:` ref inside a heredoc is not one.
+# Dockerfile ARG, an IMAGE REFERENCE AT A VERSION TAG WHEREVER IT IS
+# WRITTEN (a `FROM`, a compose `image:`, a job `container:`, a `docker
+# run`, a justfile recipe, a `sed` that writes any of those into a
+# generated file, with or without a namespace), a release-download URL, a
+# `git clone -b <tag>`, and a `uses:` ref pinned to a BRANCH (it bumps a
+# version ref to the next VERSION, and `main` is not one) -- plus every
+# `uses:` ref, version-shaped or not, written OUTSIDE .github/workflows/,
+# because a ref in a heredoc a generator writes is not a workflow file
+# and neither this repo's updater nor the generated repo's can advance it.
 #
 # The list above is a claim about the DETECTOR, not an aspiration: every
 # shape named here is a case in script/watch/lib.sh with a unit spec
-# behind it, because the earlier version of this comment claimed the
-# release-download URL while the detector was blind to it -- and that was
-# the shape three of the four staleness cases were actually written in.
+# behind it. This paragraph has twice been WIDER than the detector -- it
+# claimed the release-download URL while the detector was blind to it,
+# then claimed "an image named inside a `run:` step (with or without a
+# namespace)" while a namespace-less one was only ever seen next to a
+# `docker` verb. Both times the sentence was the accurate description of
+# the intent and the code was narrower, so the code moved.
 #
 # Every one of those carries a `tool-pin:` marker at its declaration site,
 # and the `pin-coverage` lint fails a PR that adds one without a marker --

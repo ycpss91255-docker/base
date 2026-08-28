@@ -334,10 +334,10 @@ _pins() {
   printf 'hello\n' > "${SCRATCH}/doc/a.md"
   _pins --list
   assert_failure
-  assert_output --partial 'no Dockerfile, workflow or script'
+  assert_output --partial 'no scannable file'
 }
 
-@test "pins: --files lists every Dockerfile, workflow and script it walks" {
+@test "pins: --files lists every file it walks, prose and specs aside" {
   _dockerfile 'FROM scratch'
   _pins --files
   assert_success

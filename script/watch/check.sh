@@ -39,9 +39,10 @@
 #   0   every pinned entry is current (or its upstream is on a skip list)
 #   10  at least one pin has drifted
 #   1   at least one source could not be resolved, OR the pin table itself
-#       could not be read (a renamed tree, a marker that does not parse).
-#       Both mean "this run proves nothing", and both must be impossible
-#       to mistake for the clean-week 0.
+#       could not be read (a renamed tree, a marker that does not parse),
+#       OR it was read and named no pin to compare at all. All three mean
+#       "this run proves nothing", and all three must be impossible to
+#       mistake for the clean-week 0.
 #   2   a usage error
 #
 # Usage:
@@ -258,7 +259,30 @@ _watch_report() {
   done
 }
 
+# _watch_compared -- how many pins this run actually held against an
+# upstream: drifted, refused, current, or attempted and unreachable. The
+# floating list is deliberately NOT counted; `unpinned` declares that
+# there is no version to compare, so a table of nothing but floating
+# entries compares nothing.
+_watch_compared() {
+  printf '%d' "$(( ${#_WATCH_DRIFT[@]} + ${#_WATCH_UNRESOLVED[@]} \
+    + ${#_WATCH_CURRENT[@]} + ${#_WATCH_REFUSED[@]} ))"
+}
+
 _watch_exit_status() {
+  # The vacuity floor, and it is the same floor the pin-coverage lint has
+  # had from the start ("a table with no pins would make every watch run
+  # come back clean"). This is the thing that actually comes back clean,
+  # and it had no floor: a tree the reader walked and found no pin in
+  # printed DRIFTED (0) / UNRESOLVED (0) / FLOATING (0) / CURRENT (0) and
+  # exited 0 -- `count=0` in the workflow, the bump skipped, the job
+  # green, indistinguishable from a week with nothing to do. The lint is a
+  # real second gate (it runs ungated in lint-static on every PR), so this
+  # is defence in depth; the point is that the two agree about what "no
+  # pins" means instead of one of them calling it success.
+  if [[ "$(_watch_compared)" -eq 0 ]]; then
+    return 1
+  fi
   if [[ "${#_WATCH_UNRESOLVED[@]}" -gt 0 ]]; then
     return 1
   fi
@@ -285,6 +309,17 @@ main() {
   if ! _watch_scan; then
     printf 'watch: the pin table could not be read -- NOTHING was compared,\n' >&2
     printf '  so this run says nothing about any pin. The reader complaint is above.\n' >&2
+    return 1
+  fi
+
+  # The table parsed and named no pin to compare. Same sentence on
+  # purpose: from the caller's seat these are one outcome -- this run
+  # proves nothing -- and the difference (a reader that stopped vs. a
+  # reader that found nothing) is in the line below it.
+  if [[ "$(_watch_compared)" -eq 0 ]]; then
+    printf 'watch: the pin table names no pin to compare -- NOTHING was compared,\n' >&2
+    printf '  so this run says nothing about any pin. Either the reader has stopped\n' >&2
+    printf '  matching the declaration sites, or every marker left is unpinned.\n' >&2
     return 1
   fi
 

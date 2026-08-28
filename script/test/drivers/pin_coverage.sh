@@ -38,12 +38,23 @@
 # and does that job well -- its open login-action PR is the evidence -- so
 # covering them here would produce two mechanisms with opinions about one
 # dependency, which is worse than one. What it provably cannot see is a
-# Dockerfile ARG, a FROM tag, an image named inside a `run:` step, a
-# release-download URL, a `git clone -b <tag>`, a `uses:` ref pinned to a
-# BRANCH, and any of those written inside a shell script that GENERATES a
-# file. Those shapes are the detector, and they live in
-# script/watch/lib.sh alongside the grammar so the lint and the watch can
-# never disagree about what a pin is.
+# Dockerfile ARG, an image reference at a version tag WHEREVER it is
+# written, a release-download URL, a `git clone -b <tag>`, a `uses:` ref
+# pinned to a BRANCH, and any `uses:` ref outside .github/workflows/ --
+# notably one a shell script writes into a file it GENERATES. Those shapes
+# are the detector, and they live in script/watch/lib.sh alongside the
+# grammar so the lint and the watch can never disagree about what a pin is.
+#
+# "Wherever it is written" is load-bearing and was learned the hard way.
+# The detector recognised a namespace-less image only with a `docker
+# run|pull|create|build` on the same line, which is a roster of CONTEXTS,
+# and it failed the way every roster in this mechanism has failed: a
+# compose `image:`, a job `container:` and the `sed` that rewrites a
+# downstream `FROM` line all passed in silence. What keeps that from being
+# paid for in false positives is a set of exemptions on the TOKEN -- a
+# numeric name is a port or a UID:GID, a 32+-hex tag is a digest, a
+# `-t`-introduced name is an image this repo BUILDS -- rather than another
+# test on the line around it.
 #
 # The release-URL and `clone -b` shapes are worth naming separately,
 # because leaving them out was not a gap at the margin: they are the forms
@@ -67,6 +78,12 @@
 #      repository, so the prune list is the only way to remove something
 #      from all of the above -- and it must not become the quiet place to
 #      put an awkward pin.
+#   7. No `tool-pin:` marker sits in a file the walk EXEMPTS. The scan is
+#      whole-tree minus prose and specs, and that exemption list is the
+#      other way to remove something from every check above. A marker
+#      written in an exempt file is a pin its author believes is watched
+#      and which nothing reads -- the precise belief this mechanism
+#      exists to make impossible -- so it fails here.
 
 # The pin registry: grammar, reader and detector. Sourced rather than
 # re-implemented so the lint and the watch cannot drift apart about what a
@@ -92,7 +109,7 @@ _run_pin_coverage() {
   done <<< "${_file_list}"
   if [[ "${#_files[@]}" -eq 0 ]]; then
     _die ci_pin_coverage \
-      "the walk yielded no Dockerfile, workflow or script at all -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's scanned shapes and prune list, not the tree, are what to look at."
+      "the walk yielded no scannable file at all -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's exempt shapes and prune list, not the tree, are what to look at."
     return 1
   fi
 
@@ -169,6 +186,26 @@ Known resolvers: $(printf '%s ' "${_PIN_RESOLVERS[@]}"). An unknown one is not a
       "script/watch/lib.sh prunes a tree that git does NOT ignore:
 $(printf '  %s\n' "${_tracked_prune[@]}")
 The prune list exists for generated trees. Pruning a tree the repo ships removes every version in it from the watch AND from this lint, and nothing else would report that."
+    return 1
+  fi
+
+  # The exemption list is the other hand-kept thing in the scan surface,
+  # and it removes a whole SHAPE from every check above. So it gets the
+  # prune list's treatment: a marker written where the reader never looks
+  # is caught here, by name, rather than becoming a pin its author
+  # believes is watched and which nothing reads.
+  local _exempt
+  local -a _stray=()
+  while IFS= read -r _exempt; do
+    [[ -n "${_exempt}" ]] || continue
+    grep -qE "${_PIN_MARKER_RE}" "${REPO_ROOT}/${_exempt}" 2>/dev/null \
+      && _stray+=("${_exempt}")
+  done <<< "$(_pin_exempt_files "${REPO_ROOT}")"
+  if [[ "${#_stray[@]}" -gt 0 ]]; then
+    _die ci_pin_coverage \
+      "a ${_PIN_MARKER} marker sits in a file that is not scanned:
+$(printf '  %s\n' "${_stray[@]}")
+Prose and .bats specs are exempt from the walk (script/watch/lib.sh says why), so a marker in one is read by NOTHING: the watch never compares it, this lint never counts it, and the person who wrote it has every reason to believe otherwise. Move the declaration to a file the walk reads, or drop the marker."
     return 1
   fi
 

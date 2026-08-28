@@ -130,14 +130,46 @@ readonly _PIN_RESOLVERS=(
 # whose machine it ran on, which is the one thing a gate must not do.
 readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release' '.claude')
 
-# The file shapes a version declaration can live in. `.sh` is here because
-# of the two escapes above: a script that writes a `uses:` ref into a
-# generated workflow, or seds an image tag into a downstream Dockerfile,
-# is a declaration site exactly like the Dockerfile that spells it out --
-# and it is one dependabot has no way to read at all.
-readonly _PIN_SCAN_SHAPES=(
-  -name 'Dockerfile' -o -name 'Dockerfile.*' -o -name '*.Dockerfile'
-  -o -name '*.yaml' -o -name '*.yml' -o -name '*.sh'
+# What is NOT read -- and nothing else. This was a list of the shapes a
+# declaration MAY live in (`Dockerfile*`, `*.y{a,}ml`, `*.sh`), which is
+# the roster failure one level up from the scan roots, with the same
+# tell: a justfile is this repo's control surface, 13 are tracked,
+# `_pin_is_declaration` answers TRUE for a `docker run` line in one, and
+# not one was ever walked. So this inverts too. Forgetting to touch this
+# list when a shape arrives means the new shape IS read and the lint
+# fires, rather than the new shape being quietly exempt.
+#
+# Two exemptions, each for a reason that is a property of the SHAPE
+# rather than of what happens to sit in it today:
+#
+#   Prose (`*.md`, `*.adoc`, `README`, `LICENSE`). Nothing executes it. A
+#   document QUOTES `docker run --rm alpine:3.21` -- that is what a
+#   document is for -- and a version in one is stale the way a sentence
+#   is stale, which is a doc-review problem and not a supply-chain one.
+#
+#   `*.bats`. A spec's heredoc IS the fixture the code under test parses,
+#   and the marker grammar cannot reach inside one: a marker's target is
+#   the next non-comment line, so declaring a fixture's `FROM` means
+#   inserting a comment INTO the fixture and changing what the test feeds
+#   its subject. That is the grammar, not a preference. Some 60 lines
+#   here spell `FROM ubuntu:24.04` for a Dockerfile parser to read, and
+#   demanding an `ignore` marker on each would teach every reader to
+#   reach for `ignore` first.
+#
+#   What that second one costs is real and bounded, and is recorded here
+#   because it is the next reader's question: two system specs really do
+#   BUILD `FROM alpine:3.20` and `FROM ubuntu:24.04`, and neither is
+#   watched. An image a TEST builds fails the test when it rots --
+#   loudly, in the run that uses it. That is the opposite of the failure
+#   this watch exists for, which is a version baked into a file this repo
+#   SHIPS going stale in silence in somebody else's repo.
+#
+# The lint checks this list rather than trusting it: a `tool-pin:` marker
+# in an exempt file is a failure, so "exempt the shape the awkward pin
+# lives in" cannot quietly become a way to stop watching a pin.
+readonly _PIN_SCAN_EXEMPT_SHAPES=(
+  -name '*.md' -o -name '*.adoc' -o -name 'README' -o -name 'LICENSE'
+  -o -name '*.bats'
 )
 
 # ── Declaration shapes the detector recognises ──────────────────────────────
@@ -147,10 +179,25 @@ readonly _PIN_SCAN_SHAPES=(
 # dependabot reads `uses:` version refs in WORKFLOW FILES and does that job
 # well (its login-action PR is open and current), so duplicating it would
 # produce two mechanisms disagreeing about one dependency. What it provably
-# cannot see is a Dockerfile ARG, a FROM tag, an image named inside a
-# `run:` step, a release-download URL, a `git clone -b <tag>`, a `uses:`
+# cannot see is a Dockerfile ARG, a FROM tag, an image reference wherever
+# it is written, a release-download URL, a `git clone -b <tag>`, a `uses:`
 # ref that is a BRANCH rather than a version, and ANY of those written
 # inside a shell script that generates a file.
+#
+# Every shape below is decided by what the LINE says. Only one consults
+# the file at all, and only to locate DEPENDABOT'S OWN SCOPE.
+#
+# That is this detector's third correction and all three are the same
+# correction. The first version listed the DIRECTORIES to look in and two
+# live pins sat outside them. The second listed the FILE SHAPES and the
+# repo's own control surface was not among them. The third listed the
+# CONTEXTS an image may be named in -- a `docker run|pull|create|build`
+# on the same line -- and a compose `image:`, a workflow `container:` and
+# the `sed` that rewrites a downstream `FROM` line were all outside it,
+# including the very line this change hoisted. Each list was complete when
+# it was written and each one went QUIET rather than red when the world
+# moved past it. There is no fifth-context-proof list, so there is no
+# list: an image reference is recognised by being one.
 #
 # The three shapes after the original four were not additions of scope.
 # They were the forms the staleness this whole mechanism was built for was
@@ -165,20 +212,51 @@ readonly _PIN_SCAN_SHAPES=(
 # version and needs no marker.
 readonly _PIN_ARG_VERSION_RE='^v?[0-9]+(\.[0-9]+)+([+~.-][A-Za-z0-9.]+)?$'
 
-# An `ARG <NAME>=<value>` whose value is an image reference with an
-# explicit tag (`ubuntu:24.04`).
-readonly _PIN_ARG_IMAGE_RE='^[a-z0-9]+([._/-][a-z0-9]+)*:[A-Za-z0-9][A-Za-z0-9._-]*$'
+# An image reference with an explicit, version-shaped tag, WHEREVER it is
+# written: `alpine:3.21`, `bats/bats:1.13.0`, `ghcr.io/ns/img:1.2.3`. One
+# shape for the namespaced and the namespace-less form, and no context
+# test -- the token is the declaration, and the places one can be written
+# (a Dockerfile `FROM`, an `ARG` default, a compose `image:`, a workflow
+# `container:`, a `docker run`, a justfile recipe, a `sed` expression that
+# writes any of those into a file this repo ships) do not enumerate.
+#
+# Group 2 is the name, group 3 the tag. A digit-leading tag is required:
+# `alpine:latest` and `${TEST_TOOLS_IMAGE}` name no version this can
+# compare, and the second is our own image anyway.
+readonly _PIN_IMAGE_REF_RE='(^|[[:space:]"'"'"'|=(,<[])([a-z0-9][a-z0-9._/-]*):([0-9][A-Za-z0-9._-]*)'
 
-# A registry reference with an explicit numeric tag, as written inside a
-# workflow `run:` step (`rhysd/actionlint:1.7.7`). Numeric-leading tag
-# only: `${TEST_TOOLS_IMAGE}` and `image:latest` are not versions this can
-# compare, and the first is our own image anyway.
-readonly _PIN_RUN_IMAGE_RE='(^|[[:space:]"'"'"'])[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*:[0-9][A-Za-z0-9._-]*'
+# What that shape matches and which is NOT an upstream version. Each is a
+# property of the TOKEN, or of the flag that introduces it -- never of the
+# rest of the line, because a test on the rest of the line is the thing
+# that just failed three times.
+#
+# A name that is entirely digits: `-p 8080:8080`, `--user 1000:1000`,
+# `12:30`. No image is named by a number, and port publishing and UID:GID
+# plumbing are core idiom in this repo, so this is the difference between
+# a guard and a nuisance.
+readonly _PIN_IMAGE_NUMERIC_NAME_RE='^[0-9]+$'
+
+# A digest: `sha256:0123abcd...`. Already immutable, so there is no newer
+# one to propose.
+readonly _PIN_IMAGE_DIGEST_RE='^[0-9a-f]{32,}$'
+
+# A name introduced by `-t` / `--tag`: `docker build -t base:0.1 .`. That
+# names an image this repo PRODUCES, and you cannot depend on a version
+# you are creating. A rule about the flag, not a list of our own image
+# names -- which is why it keeps working when we invent another one.
+readonly _PIN_IMAGE_BUILT_RE='(^|[[:space:]])(-t|--tag)[[:space:]=]+["'"'"']?'
 
 # A `uses:` ref that is neither a version tag nor a 40-hex commit --
 # i.e. a branch, which dependabot has no way to advance.
 readonly _PIN_USES_RE='uses:[[:space:]]*[A-Za-z0-9][A-Za-z0-9._-]*/[^[:space:]@]+@([^[:space:]#]+)'
 readonly _PIN_USES_VERSION_RE='^(v?[0-9]+([._][0-9A-Za-z.-]*)?|[0-9a-f]{40})$'
+
+# The only place a file's IDENTITY still decides anything, and it is not
+# this repo's roster to keep: dependabot reads `uses:` refs out of
+# .github/workflows/, so that is exactly and only where a VERSION ref is
+# somebody else's job. In a heredoc a generator writes, in a justfile, in
+# a manifest, nothing but this watch can ever advance one.
+readonly _PIN_DEPENDABOT_SCOPE_RE='^\.github/workflows/[^/]+\.ya?ml$'
 
 # A release asset URL that names the version in its PATH:
 # `.../releases/download/v2.12.0/hadolint-Linux-x86_64`. This is not a
@@ -195,14 +273,6 @@ readonly _PIN_RELEASE_URL_RE='releases/download/v?[0-9][A-Za-z0-9._-]*/'
 # masquerade as a tag.
 readonly _PIN_CLONE_REF_RE='(^|[[:space:]])(-b|--branch)[[:space:]]+["'"'"']?v?[0-9][A-Za-z0-9._-]*'
 
-# An OFFICIAL image, which has no namespace and therefore no slash for the
-# registry-reference shape above to anchor on (`alpine:3.21`, not
-# `bats/bats:1.13.0`). The `docker run|pull|create|build` context is what
-# keeps `sha256:1234...`, a `<host>:<port>` example and a `key: 3.11`
-# mapping out of it.
-readonly _PIN_DOCKER_CMD_RE='docker[[:space:]]+(run|pull|create|build)'
-readonly _PIN_BARE_IMAGE_RE='(^|[[:space:]])[a-z0-9][a-z0-9._-]*:[0-9][A-Za-z0-9._-]*'
-
 # The assignment shapes whose version is the WHOLE right-hand side: a
 # Dockerfile `ARG`, and a shell assignment with or without a declaration
 # keyword. Both DECOUPLE the version from the marker's coordinate, which
@@ -216,9 +286,10 @@ readonly _PIN_ASSIGN_RE='^([[:space:]]*(ARG|local|readonly|declare|export)?[[:sp
 # _pin_files <repo-root>
 #
 # Print every scanned file, repo-root-relative, one per line, sorted.
-# Every file of a scanned SHAPE anywhere under <repo-root>, minus the
-# pruned trees -- so a Dockerfile, workflow or script added tomorrow, at
-# any depth, is scanned without touching this file.
+# Every file under <repo-root> that is neither in a pruned tree nor of an
+# exempt shape -- so a Dockerfile, workflow, script, justfile or config
+# added tomorrow, at any depth, under any name, is scanned without
+# touching this file.
 #
 # A tree that yields nothing at all is an error rather than an empty
 # table: every caller would read "no pins declared" as a clean repo, which
@@ -233,12 +304,36 @@ _pin_files() {
   while IFS= read -r -d '' _abs; do
     _found+=("${_abs#"${_root}/"}")
   done < <(find "${_root}" "${_prune[@]}" -type f \
-    \( "${_PIN_SCAN_SHAPES[@]}" \) -print0)
+    ! \( "${_PIN_SCAN_EXEMPT_SHAPES[@]}" \) -print0)
   if [[ "${#_found[@]}" -eq 0 ]]; then
-    printf 'pin registry: no Dockerfile, workflow or script under %s\n' \
+    printf 'pin registry: no scannable file under %s\n' \
       "${_root}" >&2
     return 1
   fi
+  printf '%s\n' "${_found[@]}" | LC_ALL=C sort
+}
+
+# _pin_exempt_files <repo-root>
+#
+# The other half of that walk: every file the scan EXEMPTS, same pruning,
+# repo-root-relative and sorted. The lint reads it to prove no `tool-pin:`
+# marker was written where nothing reads it -- which is how the exemption
+# list is CHECKED rather than trusted, the treatment the prune list gets.
+#
+# Empty is a normal answer here, unlike _pin_files: a tree with no prose
+# and no specs in it is a tree, not a broken walk.
+_pin_exempt_files() {
+  local _root="${1}"
+  local _abs _p
+  local -a _found=() _prune=()
+  for _p in "${_PIN_SCAN_PRUNE[@]}"; do
+    _prune+=(-name "${_p}" -prune -o)
+  done
+  while IFS= read -r -d '' _abs; do
+    _found+=("${_abs#"${_root}/"}")
+  done < <(find "${_root}" "${_prune[@]}" -type f \
+    \( "${_PIN_SCAN_EXEMPT_SHAPES[@]}" \) -print0)
+  [[ "${#_found[@]}" -eq 0 ]] && return 0
   printf '%s\n' "${_found[@]}" | LC_ALL=C sort
 }
 
@@ -421,67 +516,81 @@ _pin_read() {
 
 # ── Detector ────────────────────────────────────────────────────────────────
 
+# _pin_has_image_ref <line>
+#
+# True when the line names an image at a version-shaped tag that is NOT
+# one of the three things that shape also matches (a numeric name, a
+# digest, a `-t`-assigned output). Every token on the line is considered,
+# so `docker build -t base:0.1 -f - alpine:3.21` still answers TRUE for
+# the one that is somebody else's release.
+_pin_has_image_ref() {
+  local _line="${1}" _rest="${1}" _name _tag
+  while [[ "${_rest}" =~ ${_PIN_IMAGE_REF_RE} ]]; do
+    _name="${BASH_REMATCH[2]}"
+    _tag="${BASH_REMATCH[3]}"
+    # Consume through the match so the next iteration cannot rematch it.
+    # BASH_REMATCH[0] is never empty here, so the loop always advances.
+    _rest="${_rest#*"${BASH_REMATCH[0]}"}"
+    [[ "${_name}" =~ ${_PIN_IMAGE_NUMERIC_NAME_RE} ]] && continue
+    [[ "${_tag}" =~ ${_PIN_IMAGE_DIGEST_RE} ]] && continue
+    _pin_image_is_built "${_line}" "${_name}:${_tag}" && continue
+    return 0
+  done
+  return 1
+}
+
+# _pin_image_is_built <line> <name:tag> -- is that token the argument of a
+# `-t` / `--tag`, i.e. an image this repo produces rather than consumes?
+# The token is matched LITERALLY (quoted on the right-hand side of `=~`),
+# so a `.` or `-` in an image name cannot act as a metacharacter.
+_pin_image_is_built() {
+  local _line="${1}" _tok="${2}"
+  [[ "${_line}" =~ ${_PIN_IMAGE_BUILT_RE}"${_tok}" ]]
+}
+
 # _pin_is_declaration <file> <line>
 #
 # True when the line declares a third-party version this repo names and
 # dependabot cannot bump. See the shape table above for the forms and why
 # the boundary sits where it does.
+#
+# Every test but the last is on the LINE. The last consults <file> for one
+# question only -- is this a workflow file, i.e. inside dependabot's own
+# scope -- because that is where the division of labour is real. Nothing
+# here asks what KIND of file it is otherwise: that question is what
+# quietly exempted the shapes and the contexts this detector kept missing.
 _pin_is_declaration() {
   local _file="${1}" _line="${2}"
   local _value _ref
 
-  # Two shapes mean the same thing wherever they are written -- a release
-  # asset URL and a `git clone -b <tag>` NAME a version in a Dockerfile
-  # RUN and in a shell script alike -- so they are tested before the
-  # per-file-kind split rather than duplicated into each arm.
   [[ "${_line}" =~ ${_PIN_RELEASE_URL_RE} ]] && return 0
   if [[ "${_line}" == *clone* && "${_line}" =~ ${_PIN_CLONE_REF_RE} ]]; then
     return 0
   fi
-  if [[ "${_line}" =~ ${_PIN_DOCKER_CMD_RE} \
-     && "${_line}" =~ ${_PIN_BARE_IMAGE_RE} ]]; then
-    return 0
-  fi
+  _pin_has_image_ref "${_line}" && return 0
 
-  if [[ "${_file}" == *Dockerfile* ]]; then
-    if [[ "${_line}" =~ ^[[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=(.+)$ ]]; then
-      _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[1]}")")"
-      [[ "${_value}" =~ ${_PIN_ARG_VERSION_RE} ]] && return 0
-      [[ "${_value}" =~ ${_PIN_ARG_IMAGE_RE} ]] && return 0
-      return 1
-    fi
-    # shellcheck disable=SC2016 # the literal expression opener, not an expansion.
-    if [[ "${_line}" =~ ^[[:space:]]*FROM[[:space:]] && "${_line}" != *'${'* ]]; then
-      [[ "${_line}" =~ ^[[:space:]]*FROM[[:space:]]+[^[:space:]]+:[^[:space:]]+ ]] && return 0
-    fi
+  # `ARG` is Dockerfile syntax wherever it is written, which includes a
+  # heredoc in a generator -- so this is not a Dockerfile-only branch, and
+  # the value decides. `ARG USER_UID=1000` carries no dot and is ours.
+  if [[ "${_line}" =~ ^[[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=(.+)$ ]]; then
+    _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[1]}")")"
+    [[ "${_value}" =~ ${_PIN_ARG_VERSION_RE} ]] && return 0
     return 1
   fi
 
-  if [[ "${_file}" == *.sh ]]; then
-    # A script that WRITES a version into a file it generates declares
-    # that version as surely as the generated file would. Both live
-    # instances were of this kind, and the `uses:` exemption below does
-    # NOT carry over to them: dependabot reads workflow files, and a
-    # `uses:` ref inside a shell heredoc is not one -- neither this repo's
-    # updater nor the generated repo's (there is none) can advance it. So
-    # here every `uses:` ref counts, version-shaped or not.
-    [[ "${_line}" =~ ${_PIN_RUN_IMAGE_RE} ]] && return 0
-    if [[ "${_line}" =~ ${_PIN_USES_RE} ]]; then
-      _ref="${BASH_REMATCH[1]}"
-      # shellcheck disable=SC2016 # the literal expression opener, not an expansion.
-      [[ "${_ref}" == *'${'* ]] && return 1
-      [[ "${_ref}" == './'* ]] && return 1
-      return 0
-    fi
-    return 1
-  fi
-
-  # Workflows.
-  [[ "${_line}" =~ ${_PIN_RUN_IMAGE_RE} ]] && return 0
   if [[ "${_line}" =~ ${_PIN_USES_RE} ]]; then
     _ref="${BASH_REMATCH[1]}"
+    # shellcheck disable=SC2016 # the literal expression opener, not an expansion.
+    [[ "${_ref}" == *'${'* ]] && return 1
     [[ "${_ref}" == './'* ]] && return 1
-    [[ "${_ref}" =~ ${_PIN_USES_VERSION_RE} ]] && return 1
+    # `@<tag>` in a help string is a placeholder telling a reader what to
+    # write, not a ref anything resolves.
+    [[ "${_ref}" == *'<'* ]] && return 1
+    if [[ "${_file}" =~ ${_PIN_DEPENDABOT_SCOPE_RE} ]]; then
+      # Dependabot's file, so a VERSION ref is its job and a BRANCH ref --
+      # which it bumps to nothing, ever -- is still ours.
+      [[ "${_ref}" =~ ${_PIN_USES_VERSION_RE} ]] && return 1
+    fi
     return 0
   fi
   return 1
