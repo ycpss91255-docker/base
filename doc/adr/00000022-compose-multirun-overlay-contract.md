@@ -166,11 +166,16 @@ relabel a running container, so a rename can only take effect on an EMPTY
 project.
 
 **Decision: defer, do not skip.** While anything of the user's exists
-under the recorded name, the wrapper keeps `.env.generated` on it and
-records the resolved one as `PROJECT_NAME_PENDING`; the first `build` /
-`run` that finds the old project empty adopts it. Both steps are reported,
-so the name a checkout runs under never changes silently. "Empty" counts
-containers AND named volumes, because both are keyed by the project name
+under the recorded name, `setup apply` keeps `.env.generated` on it and
+records the resolved one as `PROJECT_NAME_PENDING`
+(`_carry_project_name`, lib/compose.sh); the first `build` / `run` that
+finds the old project empty adopts it. The split is deliberate -- the
+side that resolves the configuration decides to DEFER, the side that can
+ask the daemon ADOPTS (see the reconciliation paragraph at the end of
+this section) -- and the wrapper has no direction that records a pending
+name. Both steps are reported, so the name a checkout runs under never
+changes silently. "Empty" counts containers AND named volumes, because
+both are keyed by the project name
 and only one of them is recoverable afterwards: `stop` runs `compose down`
 without `-v`, so a torn-down stack routinely leaves its volumes, and
 adopting on a container-only probe would hand the user a fresh EMPTY

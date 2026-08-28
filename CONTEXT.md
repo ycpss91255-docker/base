@@ -176,11 +176,16 @@ _Avoid_: instance name, stack name, container prefix.
 for this checkout but which cannot take effect yet, because containers may
 still exist under the recorded one and compose cannot relabel a running
 container. Only a changed derivation is carried this way; a configured
-`[project] name` takes effect at once. The wrapper records it, keeps `PROJECT_NAME` on the name the
-containers are under, says so on every `build` / `run`, and adopts it on
-the first one that finds the old project empty (`lib/wrapper.sh`
-`_wrapper_settle_project_name`, ADR-00000022 §3). Transient by design: the
-next `setup apply` re-derives it.
+`[project] name` takes effect at once. Deciding to DEFER is `setup
+apply`'s half: it records the pending name and keeps `PROJECT_NAME` on the
+name the containers are under (`_carry_project_name`, `lib/compose.sh`),
+because it cannot ask whether that project is still occupied -- setup.sh
+resolves configuration on hosts where docker need not be reachable. The
+wrapper's half is ADOPTION alone: it reports the deferral on every `build`
+/ `run` and takes the pending name on the first one that finds the old
+project empty (`lib/wrapper.sh` `_wrapper_settle_project_name`,
+ADR-00000022 §3). Transient by design: the next `setup apply` re-derives
+it.
 _Avoid_: staged name, project rename flag.
 
 **setup.conf schema**:
