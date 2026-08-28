@@ -519,6 +519,179 @@ _long_prose() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# A duplicated entry
+# ════════════════════════════════════════════════════════════════════
+#
+# Landing branches serially against `strict` protection merges origin/main
+# into every branch, and two branches that each APPEND to [Unreleased]
+# merge cleanly with BOTH sides kept. Nothing conflicts, so nothing
+# prompts a human -- the shape had produced a duplicated entry four times
+# in one cycle, caught by eye every time, and two instances were sitting on
+# main when this was written.
+
+@test "_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)" {
+  _write_changelog '### Added' \
+    '- **a duplicated thing** -- what a merge keeps twice.' \
+    '- **a duplicated thing** -- what a merge keeps twice.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'duplicate entry'
+}
+
+@test "_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)" {
+  # A message naming only the copy leaves the reader to find the original
+  # by eye, which is the manual step this check removes. Both numbers come
+  # from the fixture via grep, so the assertion cannot agree with a
+  # miscounted offset -- and each is read back out of the file, so a number
+  # the reader could not find fails here.
+  _write_changelog '### Added' \
+    '- **a duplicated thing** -- what a merge keeps twice.' \
+    '- **a duplicated thing** -- what a merge keeps twice.'
+  local -a _hits=()
+  mapfile -t _hits < <(grep -n -- '- \*\*a duplicated thing\*\*' "${CHANGELOG}" | cut -d: -f1)
+  assert_equal "${#_hits[@]}" 2
+  local _first="${_hits[0]}" _second="${_hits[1]}" _text
+  _text="$(sed -n "${_second}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '- **a duplicated thing** -- what a merge keeps twice.'
+  _text="$(sed -n "${_first}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '- **a duplicated thing** -- what a merge keeps twice.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "CHANGELOG.md:${_second}: duplicate entry"
+  assert_output --partial "already opened at doc/changelog/CHANGELOG.md:${_first}"
+}
+
+@test "_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)" {
+  # The lead LINE stops being the same string once a copy is re-wrapped,
+  # so the lead-bullet key alone would go quiet on it. The whole-entry key
+  # behind it is what keeps the answer the same.
+  local _one _wrapped
+  _one='- **a duplicated thing** -- the same sentence appears in both copies of this entry.'
+  _wrapped="$(printf '%s' "${_one}" | fold -s -w 40 | sed '2,$s/^/  /')"
+  _write_changelog '### Added' "${_one}" "${_wrapped}"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 're-wrapped'
+}
+
+@test "_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)" {
+  # The other direction: a check that fires on entries which merely look
+  # alike is a check that gets muted.
+  _write_changelog '### Added' \
+    '- **the first thing** -- what a merge keeps once.' \
+    '- **the second thing** -- what a merge keeps once.'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+}
+
+@test "_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)" {
+  # Same rule as the length cap, same reason: a released section is a
+  # historical record, a duplicate that shipped is a fact about what
+  # shipped, and rewriting it falsifies the record. A repeated category
+  # heading there is exempt for the same reason.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a short entry** -- fine.\n\n'
+    printf '## [v0.42.0] - 2026-08-25\n\n'
+    printf '### Added\n'
+    printf -- '- **a shipped entry** -- fine.\n'
+    printf -- '- **a shipped entry** -- fine.\n\n'
+    printf '### Added\n'
+    printf -- '- **another shipped entry** -- fine.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)" {
+  # The changelog documents its own format in fenced examples, and that
+  # block deliberately carries a '- **' bullet and headings. Parsed as
+  # structure, the example IS a byte-identical second copy of the entry
+  # that introduces it, and its '### Added' IS a second opening -- a
+  # failure on a clean file, which is how a lint gets muted.
+  _write_changelog '### Added' \
+    '- **a thing** -- the shape a duplicate takes is:' \
+    '' \
+    '```markdown' \
+    '### Added' \
+    '- **a thing** -- the shape a duplicate takes is:' \
+    '```'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)" {
+  # The opt-out means the same thing here as for the cap: an entry inside
+  # a region is not measured, and a region is a visible line in the diff
+  # carrying a stated reason.
+  _write_changelog '### Added' \
+    '- **a thing** -- fine.' \
+    '<!-- changelog-entry-lint: allow-begin -- a deliberate second copy -->' \
+    '- **a thing** -- fine.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A category heading that opens twice
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)" {
+  _write_changelog \
+    '### Added' \
+    '- **the first thing** -- fine.' \
+    '### Fixed' \
+    '- **the second thing** -- fine.' \
+    '### Added' \
+    '- **the third thing** -- fine.'
+  # The released tail _write_changelog appends carries a '### Added' too,
+  # so the first two matches are the ones inside [Unreleased].
+  local -a _hits=()
+  mapfile -t _hits < <(grep -n '^### Added$' "${CHANGELOG}" | cut -d: -f1)
+  local _first="${_hits[0]}" _second="${_hits[1]}" _text
+  _text="$(sed -n "${_second}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '### Added'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "CHANGELOG.md:${_second}: repeated category heading"
+  assert_output --partial "### Added already opened at doc/changelog/CHANGELOG.md:${_first}"
+}
+
+@test "_run_changelog_entry: the SAME category in a different release block is fine (#959)" {
+  # The rule is per release block, not per file: every release adds
+  # things, so '### Added' appearing once in each is the normal shape.
+  _write_changelog '### Added' '- **a thing** -- fine.'
+  local _count
+  _count="$(grep -c '^### Added$' "${CHANGELOG}")"
+  assert_equal "${_count}" 2
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: the clean line says how many category headings it compared (#959)" {
+  # Non-vacuity: a check that scanned nothing reports the same green line
+  # as a check that scanned the file, unless the line carries the count.
+  _write_changelog \
+    '### Added' \
+    '- **the first thing** -- fine.' \
+    '### Fixed' \
+    '- **the second thing** -- fine.'
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial '2 category headings compared'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 

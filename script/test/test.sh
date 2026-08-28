@@ -311,13 +311,16 @@ Options:
                           carry the same-repository condition, so fork-PR
                           code can never execute on the org's self-hosted
                           machine)
-  --changelog-entry       With --lint: run only the changelog entry length
-                          lint ([Unreleased] entries only; measured over the
-                          whole entry with whitespace collapsed, so
-                          rewrapping the same prose or splitting it into
-                          sub-bullets buys no budget. Released sections are
-                          never checked -- rewriting a shipped entry
-                          falsifies it)
+  --changelog-entry       With --lint: run only the changelog entry lint
+                          ([Unreleased] entries only: a length cap measured
+                          over the whole entry with whitespace collapsed,
+                          so rewrapping the same prose or splitting it into
+                          sub-bullets buys no budget; plus an entry that
+                          repeats another's lead bullet and a category
+                          heading that opens twice in one release block,
+                          both reported with BOTH line numbers. Released
+                          sections are never checked -- rewriting a shipped
+                          entry falsifies it)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -429,7 +432,7 @@ Examples:
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
-  ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
+  ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
