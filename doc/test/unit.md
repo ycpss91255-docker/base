@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3080 tests**.
+Unit specs under `test/bats/unit/`: **3116 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1843,7 +1843,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (158)
+### test/bats/unit/template_spec.bats (159)
 
 | Test | Description |
 |------|-------------|
