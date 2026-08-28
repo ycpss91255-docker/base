@@ -14,19 +14,27 @@
   constrains -- #927 decides how a release reaches downstream, this decides
   which releases do), **#926** (the locked changelog category set and
   per-`0.Y` files the PR-body extraction depends on), **#952** (the coverage
-  figure rides in the release commit); ADR-00000008's #710 amendment
-  (precedent for recording a cadence decision beside the mechanism it
-  governs), ADR-00000002 (immutable version pinning -- there is no `latest`
-  to drift onto, so a downstream's position is always a named tag),
+  figure rides in the release commit); ADR-00000008 (precedent for
+  amending an ADR in place, beside the mechanism it governs -- its
+  amendments, #710's included, all record mechanism, and the cadence
+  clause #952 requires of it has not landed), ADR-00000002 (immutable
+  version pinning -- there is no `latest` to drift onto, so a
+  downstream's position is always a named tag),
   ADR-00000006 / ADR-00000011 (the `upgrade.sh` path contract the
   "nothing is skipped" argument rests on)
 
 ## Context
 
-The release procedure is fully mechanised and lives outside this repo, in
-the harness: the `semver-bump` skill, `/release`, and the
-`release-bump.sh` / `release-tag.sh` primitives, with
-`batch-base-upgrade.sh` on the fanout side. What none of them state is
+The release procedure is fully mechanised. *Deciding and cutting* a tag is
+harness-side, outside this repo: the `semver-bump` skill, `/release`, and
+the `release-bump.sh` / `release-tag.sh` primitives, with
+`batch-base-upgrade.sh` on the fanout side. What the tag then *triggers*
+is in this repo -- the `release` job in `.github/workflows/self-test.yaml`
+plus `release-worker.yaml`, assembling the payload declared in
+`script/ci/release/archive.manifest` through `script/ci/release-archive.sh`
+(`script/release/justfile.release` is still a skeleton and says as much in
+its header). That half is purely mechanical: it acts on whatever tag
+arrives and states no cadence of its own. What none of them state is
 **when** a release is cut and **who** decides -- the procedure answers
 "how", and the cadence was carried in habit instead.
 
@@ -134,8 +142,8 @@ each of which a human must read because #927 forbids auto-merging them.
 a particular Z tracks it itself.
 
 This costs nothing in completeness, and the reason is not obvious enough to
-leave unwritten: **`just upgrade <tag>` is a subtree pull *to* that tag,
-not a sequential application of the releases in between.** In
+leave unwritten: **`just base upgrade <tag>` is a subtree pull *to* that
+tag, not a sequential application of the releases in between.** In
 `dist/script/base/upgrade.sh`, `_upgrade`'s "Step 1/5" is a single
 
 ```bash
@@ -151,7 +159,16 @@ Z cut in between, in full, whether or not it ever saw them announced.
 
 The gap this does create is real and is accepted deliberately: a downstream
 currently hitting a bug that a Z has already fixed gets no signal until the
-next Y. The alternative -- a notification per Z across 17 repos -- converts
+next Y. The tree still *generates* a path that would have covered exactly
+that case -- `init.sh`'s `_sync_base_monitor_workflow` writes a per-repo
+`base-version-monitor.yaml` that polls `releases/latest` weekly and opens
+an upgrade-reminder issue when the pin is behind, which a Z would trip --
+so the gap has to be stated against it, not around it. It is not a live
+counter-argument on two counts #927 establishes: adoption is zero (404 for
+that workflow on all seven repos checked, because a monitor delivered by
+`init.sh` only reaches a repo that already ran an `init.sh` carrying it),
+and #927 deletes it in favour of the fanout this section triggers. The
+alternative -- a notification per Z across 17 repos -- converts
 notification into noise, and noise is not read, which costs more than the
 gap. A genuinely urgent fix is a case where the maintainer directs a
 one-off fanout by hand. **The normal path is batched; the exception is
@@ -162,9 +179,11 @@ human.** Building a mechanism for the exception is the part being rejected.
 Because a Y now spans every Z since the last fanout, its PR body is the
 only place a downstream maintainer sees those Zs at all. It must carry:
 
-- **BREAKING entries expanded, at the top, never collapsed.** The reader is
-  scanning 17 PRs and must be able to tell "routine bump" from "this one
-  rewrites my Dockerfile" without opening each.
+- **BREAKING entries expanded, at the top, never collapsed** -- settled by
+  #927's design comment, not decided here; it is restated because the
+  release-span table below builds on it. The reader is scanning 17
+  PRs and must be able to tell "routine bump" from "this one rewrites my
+  Dockerfile" without opening each.
 - **The fixes that affect the receiving repo**, in the body proper.
 - **Base-internal changes in a collapsed `<details>`, explicitly labelled
   as not affecting this repo.** Omitting them is dishonest -- they ARE in
@@ -184,7 +203,9 @@ single changelog file is not reliable enough to generate this body from.
 `semver-bump`'s SKILL.md and `/release` state the *procedure* and are
 silent on cadence; they need to carry §1-§3 so an agent reading only the
 skill reaches the same answer. Both live in the harness at the workspace
-root, outside this repo, and are deliberately left untouched here.
+root, outside this repo, and are deliberately left untouched here. The
+in-repo half named in Context needs no follow-up: it runs off a tag and
+carries no cadence text to keep in sync.
 
 ## Consequences
 

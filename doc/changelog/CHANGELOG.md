@@ -91,8 +91,9 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   skill's own table, and one bug is one release so a downstream can name the
   tag carrying its fix. The binding half is classification: a fix that changes
   behaviour is a Y whatever it is labelled. #927's fanout triggers on X/Y
-  **only**, because `just upgrade <tag>` is one subtree pull to that tag, so a
-  Y delivers every Z in between and only the notification is batched. Affects
+  **only**, because `just base upgrade <tag>` is one subtree pull to that tag,
+  so a Y delivers every Z in between and only the notification is batched.
+  Affects
   anyone cutting a base release.
 
 ## [v0.42.0] - 2026-08-25
