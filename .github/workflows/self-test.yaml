@@ -274,6 +274,14 @@ jobs:
     #                     with whitespace collapsed, so rewrapping it or
     #                     splitting it into sub-bullets buys no budget;
     #                     released sections are never checked
+    #   action-ref-agreement
+    #                     every call site of one action's REPOSITORY across
+    #                     this directory names the same ref. actionlint
+    #                     reads each `uses:` in isolation, so a partial bump
+    #                     is invisible to it, and dependabot never
+    #                     re-raises a version pair whose PR was closed --
+    #                     which is how docker/build-push-action ran at v6
+    #                     here and v7 everywhere else for months, green
     #
     # A matrix rather than one lint-static job running the whole phase:
     # each entry is its own check ("lint-static (readme-sync)"), so the
@@ -313,6 +321,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - action-ref-agreement
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -401,7 +410,7 @@ jobs:
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
@@ -540,7 +549,7 @@ jobs:
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
@@ -635,7 +644,7 @@ jobs:
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
@@ -792,7 +801,7 @@ jobs:
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
@@ -1461,7 +1470,7 @@ jobs:
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: ${{ steps.obtain.outputs.build_local == 'true' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools

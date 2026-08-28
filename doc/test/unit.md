@@ -2008,7 +2008,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (113)
+### test/bats/unit/ci_spec.bats (114)
 
 | Test | Description |
 |------|-------------|
@@ -2087,6 +2087,7 @@ builds the env block only for the knobs the conf sets.
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
 | `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | - |
+| `main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)` | The CI join is host-direct, like its siblings |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -3434,6 +3435,31 @@ untested) and uncommented.
 | `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
+### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
+
+| Test | Description |
+|------|-------------|
+| `workflows: every action is used at exactly one ref (#949)` | The real tree, read independently of the lint |
+| `_run_action_ref_agreement: FAILS when two workflows disagree on an action's ref (#949)` | The v6/v7 split, as a fixture |
+| `_run_action_ref_agreement: names the action, both refs and every call site (#949)` | A finding you can act on without grepping |
+| `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
+| `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
+| `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
+| `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
+| `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
+| `_run_action_ref_agreement: an allow marker with NO reason is itself a failure (#949)` | A bare mute rebuilds the hazard inside the repo |
+| `_run_action_ref_agreement: an allow marker two comment lines above still applies (#949)` | The whole comment block carries the exception |
+| `_run_action_ref_agreement: an allow marker does NOT leak to the next call site (#949)` | One recorded divergence licenses no others |
+| `_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)` | Nothing scanned is an error, not a pass |
+| `_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)` | Same, one level in |
+| `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
+| `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
+| `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
+| `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
+| `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 ### test/bats/unit/code_lines_spec.bats (22)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
