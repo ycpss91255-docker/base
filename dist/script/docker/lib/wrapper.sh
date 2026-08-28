@@ -372,12 +372,41 @@ _wrapper_project_occupied() {
   [[ -n "${_wpo_held}" ]]
 }
 
-# _wrapper_record_project_name <env_file> <name> <pending>
+# _wrapper_flush_blanks <counter_varname>
 #
-# Rewrite PROJECT_NAME and set (or, with an empty <pending>, drop)
-# PROJECT_NAME_PENDING, atomically. Every other line is copied through
-# byte for byte -- this is a two-key edit of a generated file, not a
+# Emit the blank lines held back so far and reset the counter to zero.
+# Held rather than emitted on arrival so that a line dropped further down
+# the stream can also drop the blank that separated it from what came
+# before -- see _wrapper_record_project_name.
+_wrapper_flush_blanks() {
+  local -n _wfb_n="${1:?_wrapper_flush_blanks requires a counter}"
+  while (( _wfb_n > 0 )); do
+    printf '\n'
+    _wfb_n=$(( _wfb_n - 1 ))
+  done
+}
+
+# _wrapper_record_project_name <env_file> <name>
+#
+# Adopt <name> as this checkout's PROJECT_NAME and take the deferred
+# rename it came from back out, atomically. Every other line is copied
+# through byte for byte -- this is an edit of a generated file, not a
 # regeneration of it, and the wrapper is in no position to regenerate one.
+#
+# The whole deferred-rename BLOCK goes, not just its key. `write_env`
+# emits a banner comment above PROJECT_NAME_PENDING and a blank line above
+# that, so dropping the key alone leaves a file the user is told not to
+# edit announcing a deferral that is over, with nothing under it. The
+# banner text is one constant (`_PROJECT_PENDING_BANNER`, lib/compose.sh)
+# rather than a literal at each end, because a drift between writer and
+# remover has no symptom other than that same orphaned banner. Blank lines
+# are held back rather than emitted as they arrive, which is what lets the
+# block's own separator go without taking an ordinary blank line with it.
+#
+# There is no "record a pending name" direction on purpose: deciding to
+# DEFER is setup.sh's job (`_carry_project_name`, lib/compose.sh), because
+# it is the side that resolves the configuration. The wrapper's half of
+# that split is only ever adoption.
 #
 # Temp-file-then-rename, and the mode is carried over: `mktemp` makes 0600
 # and the file it replaces is the one `docker compose --env-file` reads
@@ -386,7 +415,6 @@ _wrapper_project_occupied() {
 _wrapper_record_project_name() {
   local _file="${1:?_wrapper_record_project_name requires a file}"
   local _name="${2?_wrapper_record_project_name requires a name}"
-  local _pending="${3-}"
   local _tmp=""
   if ! _tmp="$(mktemp "${_file}.XXXXXX" 2>/dev/null)" \
       || [[ -z "${_tmp}" || ! -f "${_tmp}" ]]; then
@@ -395,17 +423,34 @@ _wrapper_record_project_name() {
       "file=${_file}"
     return 1
   fi
-  local _line
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    case "${_line}" in
-      PROJECT_NAME=*)         printf 'PROJECT_NAME=%s\n' "${_name}" ;;
-      PROJECT_NAME_PENDING=*) : ;;
-      *)                      printf '%s\n' "${_line}" ;;
-    esac
-  done < "${_file}" > "${_tmp}"
-  if [[ -n "${_pending}" ]]; then
-    printf 'PROJECT_NAME_PENDING=%s\n' "${_pending}" >> "${_tmp}"
-  fi
+  local _line _blanks=0
+  {
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      case "${_line}" in
+        "")
+          _blanks=$(( _blanks + 1 ))
+          continue
+          ;;
+        "${_PROJECT_PENDING_BANNER}")
+          # The block's separator leaves with the block, and only if the
+          # block actually had one.
+          if (( _blanks > 0 )); then
+            _blanks=$(( _blanks - 1 ))
+          fi
+          continue
+          ;;
+        PROJECT_NAME_PENDING=*)
+          continue
+          ;;
+      esac
+      _wrapper_flush_blanks _blanks
+      case "${_line}" in
+        PROJECT_NAME=*) printf 'PROJECT_NAME=%s\n' "${_name}" ;;
+        *)              printf '%s\n' "${_line}" ;;
+      esac
+    done < "${_file}"
+    _wrapper_flush_blanks _blanks
+  } > "${_tmp}"
   chmod --reference="${_file}" "${_tmp}" 2>/dev/null || true
   if ! mv -f "${_tmp}" "${_file}"; then
     rm -f "${_tmp}"
@@ -438,7 +483,7 @@ _wrapper_settle_project_name() {
   local _body=""
   if (( _occupied == 1 )); then
     # Empty: the rename can take effect, and nothing of the user's moves.
-    _wrapper_record_project_name "${_env}" "${_new}" "" || return 0
+    _wrapper_record_project_name "${_env}" "${_new}" || return 0
     # shellcheck disable=SC2059  # the i18n template IS the format string
     printf -v _body "$(_wrapper_msg project_renamed)" "${_old}" "${_new}"
     _log_info "${_verb}" project_renamed "display=${_body}" \

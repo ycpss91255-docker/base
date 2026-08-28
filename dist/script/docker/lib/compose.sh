@@ -131,6 +131,14 @@ _recorded_project_name() {
   return 0
 }
 
+# The banner `write_env` emits above PROJECT_NAME_PENDING, named once here
+# because two files have to agree on it byte for byte: lib/env_emit.sh
+# writes the deferred-rename block, and lib/wrapper.sh removes the block
+# whole when it adopts the rename. A literal in both places drifts silently
+# -- the remover would simply stop matching, and the only symptom would be
+# a banner left standing over nothing.
+readonly _PROJECT_PENDING_BANNER='# -- Deferred project rename (adopted once the old project is empty) --'
+
 # _carry_project_name <recorded> <resolved> <configured>
 #                      <name_outvar> <pending_outvar>
 #

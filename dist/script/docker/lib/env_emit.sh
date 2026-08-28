@@ -139,7 +139,7 @@ EOF
   # only take effect on an empty project.
   if [[ -n "${_project_name_pending:-}" ]]; then
     {
-      printf '\n# -- Deferred project rename (adopted once the old project is empty) --\n'
+      printf '\n%s\n' "${_PROJECT_PENDING_BANNER}"
       printf 'PROJECT_NAME_PENDING=%s\n' "${_project_name_pending}"
     } >> "${_env_file}"
   fi

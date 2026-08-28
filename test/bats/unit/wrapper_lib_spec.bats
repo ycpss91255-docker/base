@@ -418,8 +418,15 @@ EOS
 }
 
 # A repo that already ran: all three artifacts present, .env.generated
-# carrying the project name $2 and, when given, the pending name $3 --
-# exactly the two keys `setup apply` leaves behind.
+# carrying the project name $2 and, when given, the pending name $3.
+#
+# The pending name is written as the whole BLOCK `write_env` emits -- a
+# blank separator, the banner comment, then the key -- and not as a bare
+# key. A fixture that writes only the key cannot see a remover that takes
+# only the key, which is exactly how an adopted rename came to leave its
+# banner standing over nothing. The banner is spelled out here rather than
+# read from `_PROJECT_PENDING_BANNER` so the constant and its consumers
+# are pinned by an independent copy of the text.
 _seed_recorded_repo() {
   local _root="$1" _project="$2" _pending="${3-}"
   _make_setup_sandbox "${_root}"
@@ -428,7 +435,11 @@ _seed_recorded_repo() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "PROJECT_NAME=${_project}"
-    [[ -n "${_pending}" ]] && echo "PROJECT_NAME_PENDING=${_pending}"
+    if [[ -n "${_pending}" ]]; then
+      echo ""
+      echo "# -- Deferred project rename (adopted once the old project is empty) --"
+      echo "PROJECT_NAME_PENDING=${_pending}"
+    fi
   } > "${_root}/.env.generated"
   echo "# c" > "${_root}/compose.yaml"
 }
@@ -449,8 +460,40 @@ _seed_recorded_repo() {
   run cat "${R}/.env.generated"
   assert_output --partial "PROJECT_NAME=tester-mockimg"
   refute_output --partial "PROJECT_NAME_PENDING"
-  # A two-key edit, not a regeneration: every other line survives.
+  # The banner goes with the key. A generated file the user is told not to
+  # edit must not be left announcing a deferral that is over.
+  refute_output --partial "Deferred project rename"
+  # An edit, not a regeneration: every other line survives.
   assert_output --partial "USER_NAME=tester"
+}
+
+@test "adopting a rename takes the deferral block out whole and nothing else (#920)" {
+  # Asserted byte for byte, because "every other line is copied through" is
+  # this function's contract and a blank line is a line. The bug it pins:
+  # dropping only the key left the banner standing over nothing, in a file
+  # whose own header tells the user not to edit it.
+  local F="${TEMP_DIR}/env.generated"
+  cat > "${F}" <<'ENVEOF'
+USER_NAME=tester
+PROJECT_NAME=local-mockimg
+
+# -- Deferred project rename (adopted once the old project is empty) --
+PROJECT_NAME_PENDING=tester-mockimg
+
+# -- SSH X11 forwarding cookie override --
+XAUTHORITY=/tmp/.docker.xauth
+ENVEOF
+  run bash -c "
+    source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
+    _wrapper_record_project_name '${F}' tester-mockimg
+    cat '${F}'
+  "
+  assert_success
+  assert_output "USER_NAME=tester
+PROJECT_NAME=tester-mockimg
+
+# -- SSH X11 forwarding cookie override --
+XAUTHORITY=/tmp/.docker.xauth"
 }
 
 @test "a deferred rename stays deferred while the old project is still up (#920)" {
