@@ -52,11 +52,11 @@
 #
 # ── The ratchet ─────────────────────────────────────────────────────────
 #
-# 1517 of 2556 rows carry the placeholder (747 of 1711 when the rule was
+# 1574 of 2670 rows carry the placeholder (747 of 1711 when the rule was
 # first written, before the 25 sections that had no per-test table at all
 # were given one -- 820 rows the catalogue had never listed and the rule
 # had therefore never reached).
-# Failing all of them turns CI red until 1517 sentences exist, which blocks
+# Failing all of them turns CI red until 1574 sentences exist, which blocks
 # everyone on a backfill nobody asked for -- and a rushed backfill produces
 # exactly the filler above. So the rows that were already there are
 # recorded in a baseline file and the lint fails only on a placeholder that
@@ -173,7 +173,7 @@
 # declare against the tests the index credits it with. Whether a section's
 # ROWS match its own declared count stays the drift gate's question.
 #
-# Summarising is a legitimate answer -- 13 sections here group 606 tests by
+# Summarising is a legitimate answer -- 13 sections here group 612 tests by
 # concern rather than list 606 near-identical assertion names -- and the
 # exemptions file is not shrink-only for that reason: unlike the baseline
 # it holds decisions, not debt. What it costs is a line, a sentence and a
@@ -540,7 +540,7 @@ _run_catalog_description() {
           fi
           _section_at["${_spec}"]="${_rel}:${_lineno}"
           _doc_declared["${_rel}"]=$((
-            ${_doc_declared["${_rel}"]} + ${BASH_REMATCH[2]}
+            ${_doc_declared["${_rel}"]} + BASH_REMATCH[2]
           ))
           _sections+=(
             "${_rel}"$'\t'"${_lineno}"$'\t'"${_spec}"$'\t'"${BASH_REMATCH[2]}"
