@@ -199,6 +199,8 @@ yaml_top_text() {
 #   that follows it.
 yaml_top_lines() {
     yaml_top_text "${1}" "${2}" | strip_comments
+}
+
 # ── spec subject presence ─────────────────────────────────────────────────────
 #
 # Many specs assert on the CONTENT of one tracked artifact -- a workflow
