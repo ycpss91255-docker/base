@@ -1,0 +1,149 @@
+#!/usr/bin/env bats
+#
+# Executable tests for `assert_spec_subject` (test/bats/unit/test_helper.bash),
+# the fail-closed replacement for the `[[ -f "${SUBJECT}" ]] || skip` opening
+# that 54 guards across this suite used to carry.
+#
+# Why this file exists at all: those guards were never tested against their
+# own failure mode, which is precisely how a renamed workflow could turn 52
+# assertions into `ok ... # skip` and still exit 0. The helper now decides
+# fail-vs-skip for every one of them, so the decision itself needs a test --
+# otherwise the fix reproduces the defect it replaces, one level up.
+#
+# Strategy: the outcome under test is a bats OUTCOME (not-ok vs ok-with-skip),
+# which cannot be observed from inside the test that produces it. So each case
+# writes a one-test spec into BATS_TEST_TMPDIR and runs `bats` over it,
+# asserting on the TAP the inner run emits.
+#
+# The generated `@test` line is INDENTED on purpose: bats accepts leading
+# whitespace, and the doc-count sync counts `^@test` per file, so a
+# column-0 heredoc line would be counted as a test of this file and would
+# earn a phantom catalogue row in doc/test/unit.md.
+
+bats_require_minimum_version 1.5.0
+
+setup() {
+  load "${BATS_TEST_DIRNAME}/test_helper"
+  INNER="${BATS_TEST_TMPDIR}/inner_spec.bats"
+
+  # The spelling variants a fail-open existence guard can take. `[[ -f X ]]`,
+  # `[ -f X ]` and `test -f X` ask the identical question, so a scan that
+  # knows only the first leaves the invariant one keystroke from being
+  # unenforced -- the guard comes back under another spelling and the scan
+  # stays green. Held in one variable so the scan below and the test that
+  # proves the scan can SEE each spelling cannot drift apart.
+  GUARD_RE='^[[:space:]]*(\[\[|\[|test)[[:space:]]+-f[[:space:]].*\|\|[[:space:]]*skip'
+
+  # Where the scan looks, and the floor the population may not fall below.
+  SPEC_TREE=/source/test/bats
+  SPEC_TREE_FLOOR=60
+}
+
+# _write_inner <path-argument-literal>
+#   Emit a one-test spec whose body is a single assert_spec_subject call on
+#   the given (already-quoted) path expression.
+_write_inner() {
+  local _arg="${1:?BUG: _write_inner expects a path expression}"
+  cat > "${INNER}" <<INNER_EOF
+#!/usr/bin/env bats
+setup() {
+  load "/source/test/bats/unit/test_helper"
+}
+
+  @test "inner: subject present" {
+    assert_spec_subject ${_arg} "the artifact the inner spec asserts on"
+  }
+INNER_EOF
+}
+
+@test "assert_spec_subject: a present subject lets the test run to completion" {
+  local _subject="${BATS_TEST_TMPDIR}/present.yaml"
+  printf 'name: anything\n' > "${_subject}"
+  _write_inner "\"${_subject}\""
+
+  run bats "${INNER}"
+  assert_success
+  assert_output --partial "ok 1 inner: subject present"
+  refute_output --partial "# skip"
+}
+
+@test "assert_spec_subject: a missing subject FAILS the test, it does not skip it" {
+  # The whole point. A skip here is the defect: it reports a green run for a
+  # spec that asserted nothing, which is indistinguishable from the artifact
+  # having been deleted or renamed with nobody noticing.
+  _write_inner "\"${BATS_TEST_TMPDIR}/absent.yaml\""
+
+  run bats "${INNER}"
+  assert_failure
+  assert_output --partial "not ok 1 inner: subject present"
+  refute_output --partial "# skip"
+}
+
+@test "assert_spec_subject: the failure names the missing path and what it was" {
+  _write_inner "\"${BATS_TEST_TMPDIR}/absent.yaml\""
+
+  run bats "${INNER}"
+  assert_failure
+  assert_output --partial "${BATS_TEST_TMPDIR}/absent.yaml"
+  assert_output --partial "the artifact the inner spec asserts on"
+}
+
+@test "assert_spec_subject: refuses an empty path rather than passing vacuously" {
+  # A guard called with an unset variable must be a loud bug, not a silent
+  # pass -- `[[ -f "" ]]` is false, so an unguarded version would have
+  # reported a missing subject for a caller typo instead of naming it.
+  _write_inner '""'
+
+  run bats "${INNER}"
+  assert_failure
+  assert_output --partial "BUG: assert_spec_subject expects a path"
+}
+
+@test "no spec opens with a fail-open '|| skip' existence guard" {
+  # The repo-wide invariant this helper exists to hold. An existence check
+  # answered with `skip` cannot tell "absent by design" from "renamed and
+  # nobody noticed"; the remaining skips in the suite guard host / image
+  # CAPABILITIES (command -v ...) or a mode-gated fixture, never the presence
+  # of a tracked artifact, and each states its reason at the guard.
+  #
+  # An invariant that scans a tree has the very failure mode it is looking
+  # for, so both halves are pinned. FIRST that the population is really
+  # there: a scan of nothing reports "no matches" exactly like a clean tree,
+  # and `assert_failure` on the grep would have accepted it.
+  run bash -c "find ${SPEC_TREE} -type f -name '*.bats' | wc -l | tr -d ' '"
+  assert_success
+  assert [ "${output}" -ge "${SPEC_TREE_FLOOR}" ]
+
+  # SECOND that the scan itself ran. grep answers 1 for "scanned, matched
+  # nothing" and 2 for "could not scan" (path gone, unreadable); only the
+  # first is this invariant holding, and `assert_failure` cannot tell them
+  # apart -- pointing the scan at a path that does not exist left this spec
+  # passing 5/5.
+  run grep -rnE "${GUARD_RE}" "${SPEC_TREE}/"
+  assert_equal "${status}" 1
+  assert_output ""
+}
+
+@test "the fail-open guard scan sees every spelling of the check, not just [[ -f ]]" {
+  # The other way the invariant above goes quietly blind: it holds because
+  # its PATTERN misses the guard, not because no guard exists. Reintroducing
+  # a real fail-open guard as `[ -f "${WF}" ] || skip "gone"` left it green.
+  #
+  # Each spelling is written by `printf` rather than a heredoc on purpose:
+  # a heredoc would put a literal guard line into THIS file, which lives
+  # under the tree the invariant above scans, and the invariant would fail
+  # on its own fixture. A `printf` line starts with `printf`, so the pattern
+  # cannot match the source that produces the match.
+  local _planted="${BATS_TEST_TMPDIR}/planted"
+  mkdir -p "${_planted}"
+  printf '  [[ -f "${WF}" ]] || skip "gone"\n' > "${_planted}/double_bracket.bats"
+  printf '  [ -f "${WF}" ] || skip "gone"\n'   > "${_planted}/single_bracket.bats"
+  printf '  test -f "${WF}" || skip "gone"\n'  > "${_planted}/test_builtin.bats"
+
+  local _spelling
+  for _spelling in double_bracket single_bracket test_builtin; do
+    run grep -nE "${GUARD_RE}" "${_planted}/${_spelling}.bats"
+    [[ "${status}" -eq 0 ]] || fail \
+      "the fail-open guard scan does not match the ${_spelling} spelling, so the repo-wide invariant would stay green with that guard in the tree"
+  done
+}

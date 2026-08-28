@@ -32,7 +32,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/self-test.yaml"
-  [[ -f "${WF}" ]] || skip "self-test.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "base's own CI workflow this spec pins"
 }
 
 # _render_run_names <run_id> <run_attempt>
@@ -880,7 +881,8 @@ _render_run_names() {
   # same failure that hit setup_tui.sh). Parsing keeps the guard
   # running under coverage instead of skipping it there.
   local _test_sh="/source/script/test/test.sh"
-  [[ -f "${_test_sh}" ]] || skip "test.sh not at expected path"
+  assert_spec_subject "${_test_sh}" \
+      "the self-test dispatcher whose lint table this spec cross-checks"
   run awk '
     /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
     inside && /^\)/            { inside = 0 }
@@ -949,6 +951,42 @@ _render_run_names() {
   run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
   assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
+}
+
+@test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
+  # Every GitHub release already carries auto-generated source archives
+  # (tarball_url / zipball_url) holding the FULL tracked tree. The job used
+  # to hand-build a second pair from a hardcoded nine-operand `cp -r`, which
+  # is a strictly worse subset: a tracked path that was never listed is
+  # simply absent, with no error to notice, so the payload had silently lost
+  # .version and the repo-root init.sh -- the two files the upgrade path
+  # reads first. The operand list is also a release-time landmine: under
+  # `bash -e` one absent operand fails the whole `cp`, and no Release is cut
+  # at all.
+  #
+  # Comment lines are stripped first: the prohibition is on what the job
+  # RUNS, and the note that keeps the next person from re-adding the step
+  # necessarily names the very construct it rules out.
+  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
+    '${WF}' | grep -vE '^[[:space:]]*#'"
+  assert_success
+  refute_output --partial 'Create release archive'
+  refute_output --partial 'cp -r'
+  refute_output --partial 'tar czf'
+  refute_output --partial 'zip -r'
+}
+
+@test "self-test.yaml: the release upload attaches no hand-built asset (#924)" {
+  # The other half of the same removal: leaving the upload glob behind keeps
+  # a `files:` pattern that matches nothing, and action-gh-release turns an
+  # unmatched pattern into a failed release. Asserted separately from the
+  # assembly step so a half-done removal names WHICH half is left. Comments
+  # are stripped for the same reason as above.
+  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
+    '${WF}' | grep -vE '^[[:space:]]*#'"
+  assert_success
+  refute_output --partial 'files:'
+  refute_output --partial 'template-'
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────
