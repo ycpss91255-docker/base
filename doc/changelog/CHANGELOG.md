@@ -81,6 +81,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **a failed `init.sh` resync no longer leaves the consumer's files half-rewritten (closes #937)** -- the resync rewrites the `Dockerfile`, `.gitignore` and the wrapper symlinks inside an upgrade that has already committed the pull, and whether a partial rewrite was undone depended on the caller: the current `upgrade.sh` has a trap, the vendored `v0.41.0` copy every deployed repo runs has none. `init.sh` now snapshots the roots it writes into -- a hand-written `.env` included, which no `git reset` could return -- and restores them itself, staged index removals and all, without touching history. A restore that does not fully work exits 1 naming the tree as NOT restored.
 ### Added
+- **an ADR's claims about this repo are now checked against this repo (refs #927)** -- `test/bats/unit/adr_doc_claims_spec.bats` reads every record under `doc/adr/` block by block and refuses three ways of being wrong about the tree: a trigger claim that leaves a `workflow_call`-only workflow looking tag-triggered, an assembler or payload manifest attributed to a workflow that never references it, and a "verbatim" quotation of a file this repo does not carry. All three are derived from the tree, so a migration lifts the constraint instead of breaking the test. ADR-00000027 shipped all three and is the reason.
+- **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
@@ -93,8 +95,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   behaviour is a Y whatever it is labelled. #927's fanout triggers on X/Y
   **only**, because `just base upgrade <tag>` is one subtree pull to that tag,
   so a Y delivers every Z in between and only the notification is batched.
-  Affects
-  anyone cutting a base release.
+  Affects anyone cutting a base release.
 
 ## [v0.42.0] - 2026-08-25
 

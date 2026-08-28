@@ -28,20 +28,34 @@
 The release procedure is fully mechanised. *Deciding and cutting* a tag is
 harness-side, outside this repo: the `semver-bump` skill, `/release`, and
 the `release-bump.sh` / `release-tag.sh` primitives, with
-`batch-base-upgrade.sh` on the fanout side. What the tag then *triggers*
-is in this repo -- the `release` job in `.github/workflows/self-test.yaml`
-plus `release-worker.yaml`, assembling the payload declared in
-`script/ci/release/archive.manifest` through `script/ci/release-archive.sh`
+`batch-base-upgrade.sh` on the fanout side. What a tag then *triggers* is
+in this repo, and the two workflows that do it are not the same path --
+conflating them is easy and this record did it once:
+
+- A **base** tag push runs the `release` job in
+  `.github/workflows/self-test.yaml`, whose `on:` block carries
+  `tags: ['v*']`. That job still assembles its archive from a hardcoded
+  `cp -r` operand list of its own; the declared payload #914 introduced
+  never reached it.
+- `.github/workflows/release-worker.yaml` is `on: workflow_call` only, so
+  no base tag reaches it. It is what a **downstream** repo's release
+  calls, through the `uses:` line `init.sh` writes into that repo's
+  `main.yaml`, and it is the half that assembles the payload declared in
+  `script/ci/release/archive.manifest` through
+  `script/ci/release-archive.sh`.
+
 (`script/release/justfile.release` is still a skeleton and says as much in
-its header). That half is purely mechanical: it acts on whatever tag
-arrives and states no cadence of its own. What none of them state is
-**when** a release is cut and **who** decides -- the procedure answers
-"how", and the cadence was carried in habit instead.
+its header.) Both are purely mechanical: each acts on whatever tag reaches
+it and states no cadence of its own. What none of them state is **when** a
+release is cut and **who** decides -- the procedure answers "how", and the
+cadence was carried in habit instead.
 
 Two things made that gap start to cost something.
 
 **The ACK rule had already been decided, and was being misread.**
-`semver-bump`'s bump-classification table reads, verbatim:
+`semver-bump`'s bump-classification table settles it. Quoting its three
+bump rows -- the table's fourth row covers the `vX.Y.Z-rcN` tag itself,
+which nothing here touches:
 
 | Tag shape | Bump | Requires |
 |---|---|---|
@@ -99,10 +113,13 @@ classification is the only gate left before a tag exists.
 The v0.42.1 episode is why this clause is written down. That release was
 **not** cut, because its content was not Z-shaped:
 
-- `c6b53ea2` (closes **#914**) replaced the release archive's hardcoded
-  `cp -r` operand list with a declared payload -- `script/ci/release/archive.manifest`
-  plus a `release-archive.sh` assembler. The archive's payload contract
-  changed shape.
+- `c6b53ea2` (closes **#914**) replaced the hardcoded `cp -r` operand list
+  in `.github/workflows/release-worker.yaml` -- the reusable workflow a
+  downstream repo's release calls -- with a declared payload,
+  `script/ci/release/archive.manifest` plus a `release-archive.sh`
+  assembler. The archive's payload contract changed shape for every
+  consumer. (base's own `release` job was not part of that change and
+  still carries its own list; see Context.)
 - `3a36f8b4` (closes **#915**) put an EXIT trap over the whole post-pull
   window of `upgrade.sh`, so a failure after the subtree pull now undoes
   it. That is a rollback mechanism that did not previously exist.
@@ -204,8 +221,8 @@ single changelog file is not reliable enough to generate this body from.
 silent on cadence; they need to carry §1-§3 so an agent reading only the
 skill reaches the same answer. Both live in the harness at the workspace
 root, outside this repo, and are deliberately left untouched here. The
-in-repo half named in Context needs no follow-up: it runs off a tag and
-carries no cadence text to keep in sync.
+in-repo workflows named in Context need no follow-up: each runs off
+whatever tag reaches it and carries no cadence text to keep in sync.
 
 ## Consequences
 
