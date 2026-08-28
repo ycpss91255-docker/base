@@ -160,6 +160,19 @@ _migrate_wrapper_copy_apply() {
 # reported, per the apply policy at the top of this file: a shape the
 # migration does not recognise is warned about, never force-rewritten.
 #
+# WHICH directory that file sits in is itself a question, and answering it
+# "config/, always" would narrow the silent package loss rather than close
+# it. CONFIG_SRC is a build ARG: a repo can redeclare it in its own
+# Dockerfile, or set it as a compose build arg via a
+# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf. Either way
+# ${CONFIG_DIR} is overlaid from <repo>/<something-else>, config/ holds
+# nothing the RUN line reads, and reading it anyway would report "not
+# populated" over a real dependency list. So the source directory has to
+# RESOLVE to the default before its contents count as proof; where the
+# migration cannot locate it -- redirected, or simply not there -- the
+# install is unprovable and the line is kept, same as any other shape this
+# migration does not recognise.
+#
 # The delete is also line-based, so it is only safe on a pip line that is a
 # complete physical instruction. Inside a backslash-continued RUN, removing
 # one physical line either dangles the previous line's continuation (which
@@ -178,15 +191,54 @@ readonly _DFM_PIP_HELPER_RE='pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/
 # quote removal, which would silently turn this into "a literal [".
 readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
 
-# _dfm_pip_requirements_populated <dockerfile>
+# The default of the Dockerfile's `ARG CONFIG_SRC` -- the repo directory the
+# layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
+readonly _DFM_CONFIG_SRC_DEFAULT='config'
+
+# _dfm_pip_config_dir <dockerfile>
+#   Print the repo directory ${CONFIG_DIR} is overlaid from, or exit
+#   non-zero when this migration cannot know it. Non-zero on either of the
+#   two ways the answer stops being <repo>/config: something redirects
+#   CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the Dockerfile itself,
+#   or a `[build] arg_N = CONFIG_SRC=...` in .setup.conf / .setup.conf.local,
+#   which reaches the build as a compose build arg), or the default
+#   directory is not next to the Dockerfile at all. A bare `ARG CONFIG_SRC`
+#   with no `=` is a per-stage re-scope, not a redirect, and is ignored.
+_dfm_pip_config_dir() {
+  local _file="$1"
+  local _dir
+  _dir="$(dirname -- "${_file}")"
+
+  local _line _val
+  while IFS= read -r _line; do
+    _val="${_line#*=}"
+    _val="${_val%\"}"; _val="${_val#\"}"
+    _val="${_val%\'}"; _val="${_val#\'}"
+    [[ "${_val}" == "${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
+  done < <(grep -E '^[[:space:]]*ARG[[:space:]]+CONFIG_SRC=' "${_file}" 2>/dev/null)
+
+  local _conf
+  for _conf in "${_dir}/.setup.conf" "${_dir}/.setup.conf.local"; do
+    [[ -f "${_conf}" ]] || continue
+    if grep -qE '^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC=' \
+        "${_conf}"; then
+      return 1
+    fi
+  done
+
+  [[ -d "${_dir}/${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
+  printf '%s' "${_dir}/${_DFM_CONFIG_SRC_DEFAULT}"
+}
+
+# _dfm_pip_requirements_populated <config_dir>
 #   Exit 0 when the repo ships a requirements file with at least one real
 #   requirement: any line that is neither blank nor a `#` comment. An
 #   absent file is NOT populated -- that is the case whose build the
-#   migration is repairing.
+#   migration is repairing. Takes the RESOLVED config source dir, so it is
+#   never the one that decides where to look.
 _dfm_pip_requirements_populated() {
-  local _file="$1"
-  local _req
-  _req="$(dirname -- "${_file}")/config/pip/requirements.txt"
+  local _config_dir="$1"
+  local _req="${_config_dir}/pip/requirements.txt"
   [[ -f "${_req}" ]] || return 1
   grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}"
 }
@@ -221,7 +273,13 @@ _migrate_pip_helper_detect() {
 _migrate_pip_helper_apply() {
   local _file="$1"
 
-  if _dfm_pip_requirements_populated "${_file}"; then
+  local _config_dir
+  if ! _config_dir="$(_dfm_pip_config_dir "${_file}")"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not overlaid from <repo>/config here (CONFIG_SRC is redirected, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
+    return 0
+  fi
+
+  if _dfm_pip_requirements_populated "${_config_dir}"; then
     _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
     return 0
   fi
