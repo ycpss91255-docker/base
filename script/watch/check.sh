@@ -38,7 +38,11 @@
 # Exit codes:
 #   0   every pinned entry is current (or its upstream is on a skip list)
 #   10  at least one pin has drifted
-#   1   at least one source could not be resolved, or a usage error
+#   1   at least one source could not be resolved, OR the pin table itself
+#       could not be read (a renamed tree, a marker that does not parse).
+#       Both mean "this run proves nothing", and both must be impossible
+#       to mistake for the clean-week 0.
+#   2   a usage error
 #
 # Usage:
 #   ./script/watch/check.sh              # human report on stdout
@@ -166,11 +170,30 @@ _WATCH_CURRENT=()
 _WATCH_REFUSED=()
 _WATCH_FLOATING=()
 
+# _watch_scan -- fill the five report buckets. Returns non-zero when the
+# pin TABLE could not be read at all, which is a different failure from an
+# upstream that did not answer and must stay distinguishable from it.
 _watch_scan() {
   local _state _name _resolver _coord _pattern _skip _current _file _line
-  local _latest
+  local _latest _table
+
+  # Command substitution, NOT `done < <(_pin_read ...)`. A process
+  # substitution discards the producer's status, so an unreadable tree --
+  # a renamed directory, a marker with a typo'd option that stops the
+  # reader mid-file -- would end this loop quietly with every bucket
+  # empty. That prints DRIFTED (0) / UNRESOLVED (0) / CURRENT (0) and
+  # exits 0: `count=0` in the workflow, the bump skipped, the job green,
+  # and INDISTINGUISHABLE from a clean week, on the one run nobody reads
+  # precisely because it normally does nothing. lib.sh avoids the same
+  # hazard in _pin_read and _pin_uncovered for the same reason; this was
+  # the single line that decided the exit code and did not.
+  _table="$(_pin_read "${PIN_REPO_ROOT}")" || return 1
+
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
       _current _file _line; do
+    # A table with no records still yields one empty line through a
+    # here-string.
+    [[ -z "${_state}" ]] && continue
     case "${_state}" in
       "${_PIN_STATE_IGNORE}") continue ;;
       "${_PIN_STATE_UNPINNED}")
@@ -189,7 +212,7 @@ _watch_scan() {
     else
       _WATCH_DRIFT+=("${_name}"$'\t'"${_current}"$'\t'"${_latest}"$'\t'"${_file}"$'\t'"${_line}")
     fi
-  done < <(_pin_read "${PIN_REPO_ROOT}")
+  done <<< "${_table}"
 }
 
 _watch_report() {
@@ -259,7 +282,11 @@ main() {
       ;;
   esac
 
-  _watch_scan
+  if ! _watch_scan; then
+    printf 'watch: the pin table could not be read -- NOTHING was compared,\n' >&2
+    printf '  so this run says nothing about any pin. The reader complaint is above.\n' >&2
+    return 1
+  fi
 
   if [[ "${_mode}" == "--drift-tsv" ]]; then
     # stdout is the machine answer, stderr is the whole report -- INCLUDING
