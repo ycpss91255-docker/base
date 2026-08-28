@@ -197,6 +197,87 @@ EOF
   assert_failure
 }
 
+# The delete's precondition is "this line installs nothing", and the line
+# alone cannot say so: dist/dockerfile/Dockerfile's layer-2 overlay copies
+# the repo's own `config/` (ARG CONFIG_SRC="config") onto ${CONFIG_DIR}, so
+# the SAME byte-identical instruction installs base's placeholder in one
+# repo and a real dependency list in the next. The precondition IS
+# checkable -- the requirements file sits next to the Dockerfile -- so the
+# migration reads it, and deletes only where it can prove the install is
+# inert. Where it cannot, it warns and leaves the file alone; the apply
+# policy at the top of this file already says a migration never
+# force-rewrites a shape it does not recognise.
+
+# _seed_requirements <content>
+#   Write the repo-side config/pip/requirements.txt the Dockerfile's
+#   ${CONFIG_DIR}/pip/requirements.txt resolves to at build time.
+_seed_requirements() {
+  mkdir -p "${TEMP_DIR}/config/pip"
+  printf '%s\n' "$1" > "${TEMP_DIR}/config/pip/requirements.txt"
+}
+
+@test "migration 2 (pip-helper): keeps a pip line whose requirements file carries real requirements (#956)" {
+  _seed_requirements "numpy==1.26.4"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)" {
+  # The placeholder every repo on the remote actually ships today.
+  _seed_requirements "# install python dep"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  ! grep -q 'CONFIG_DIR.*pip/requirements.txt' "${DF}"
+  ! grep -q '# Setup pip packages' "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)" {
+  # Deleting this physical line leaves `RUN apt-get update && \` dangling,
+  # which swallows the next instruction into the same shell command.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN apt-get update && \
+    pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)" {
+  # Deleting this physical line orphans `    apt-get clean` as a bare
+  # non-instruction line, which is a Dockerfile parse error.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt && \
+    apt-get clean
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
 # ── migration 3: explicit hand-listed lib/wrapper COPYs ─────────────────────
 # Multi-distro repos (ros_distro / ros2_distro / ros1_bridge) hand-listed the
 # now-moved top-level files in their lint stage, e.g.

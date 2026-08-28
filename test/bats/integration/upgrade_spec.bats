@@ -211,6 +211,30 @@ EOF
   diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.orig"
 }
 
+# The fanout case the pip-helper migration must not get wrong: a mechanical
+# `just upgrade` reaches every consumer repo, and the retired-helper line is
+# byte-identical whether the repo's own config/pip/requirements.txt is the
+# shipped placeholder or a real dependency list. Deleting it in the second
+# case leaves a build that still goes green with the packages missing.
+@test "upgrade.sh keeps the pip install when the repo ships real requirements (#956)" {
+  cd "${DOWN_DIR}"
+  mkdir -p config/pip
+  echo "numpy==1.26.4" > config/pip/requirements.txt
+  cat > Dockerfile <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+EOF
+  git add Dockerfile config
+  git commit -q -m "add Dockerfile + a populated config/pip/requirements.txt"
+  cp Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "kept"
+  diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
+}
+
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 
