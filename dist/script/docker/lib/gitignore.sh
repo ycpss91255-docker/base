@@ -23,15 +23,17 @@ unset _gitignore_lib_dir
 #
 #   Add new entries here when the template introduces another derived or
 #   machine-local artifact, then bump the next release. `.setup.conf.local`
-#   is the one member that is NOT derived: it is the operator's per-worktree
-#   config override, hand-authored and never regenerated, and it is here
-#   because it must never be committed -- an untracked layer that got
-#   committed would silently become everyone's config. Downstreams pick it up via
+#   and `.env.local` are the members that are NOT derived: they are the
+#   operator's per-worktree config override and per-machine env override,
+#   hand-authored and never regenerated, and they are here because they
+#   must never be committed -- an untracked layer that got committed would
+#   silently become everyone's config. Downstreams pick it up via
 #   `just base upgrade` -> ./.base/dist/script/base/upgrade.sh ->
 #   init.sh resync chain.
 _canonical_gitignore_entries() {
   cat <<'EOF'
 .env
+.env.local
 .env.generated
 .env.bak
 compose.yaml

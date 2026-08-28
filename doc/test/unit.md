@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2979 tests**.
+Unit specs under `test/bats/unit/`: **3001 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -265,7 +265,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (114)
+#### test/bats/unit/setup_spec.bats (117)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -318,7 +318,7 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (4)
+#### test/bats/unit/env_emit_spec.bats (26)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
@@ -1424,7 +1424,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (29)
+### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1439,7 +1439,8 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: all empty emits nothing` | caps off |
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
-| `_emit_env_file_block: emits the .env workload overlay block` | #502 env_file |
+| `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
+| `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
 | `_emit_build_network_line: empty omits; set emits network line` | build.network |
 | `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
@@ -1464,7 +1465,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (87)
+### test/bats/unit/compose_emit/gen_spec.bats (81)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1503,12 +1504,6 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
-| `generate_compose_yaml emits environment block from env_ list` | - |
-| `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
-| `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
-| `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
-| `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
-| `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
@@ -1584,7 +1579,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (52)
+### test/bats/unit/deploy_spec.bats (53)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1624,9 +1619,10 @@ refused before any build or bundle step.
 | `_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)` | follow-stage GUI |
 | `_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)` | per-stage override |
 | `_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)` | ipc/shm literals |
-| `_generate_resolved_compose: carries the [lifecycle] watchdog env into the field service (#840)` | - |
+| `_generate_resolved_compose: the watchdog env leaves environment: for the bundle .env (#868)` | - |
+| `_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)` | - |
 | `_generate_resolved_compose: no environment: block when the watchdog is off and gui is off (#840)` | - |
-| `_generate_resolved_compose: gui X11 and the watchdog share one environment: header (#840)` | - |
+| `_generate_resolved_compose: gui X11 still owns the environment: block (#840)` | - |
 | `_generate_resolved_compose: restart defaults to unless-stopped, an explicit policy wins (#840)` | - |
 | `_generate_resolved_compose: a malformed [lifecycle] restart falls back to the field default (#840)` | - |
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
@@ -2627,7 +2623,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)` | - |
+| `_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)` | - |
 | `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
 | `no entry is both canonical and retired (#893)` | - |
 | `_retired_gitignore_entries: retires nothing today (#893)` | - |
@@ -3018,21 +3014,22 @@ vice versa). Pure git + filesystem, no docker.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/env_generated_claim_spec.bats (11)
+### test/bats/unit/env_generated_claim_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
-| `just docker help: en setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-TW setup summary names .env.generated (#879)` | - |
-| `just docker help: zh-CN setup summary names .env.generated (#879)` | - |
-| `just docker help: ja setup summary names .env.generated (#879)` | - |
-| `justfile.docker: the setup doc comment names .env.generated (#879)` | - |
-| `setup.sh --help: usage names .env.generated (#879)` | - |
-| `setup.sh set: the next hint names .env.generated (#879)` | - |
-| `setup.sh add: the next hint names .env.generated (#879)` | - |
-| `setup.sh remove: the next hint names .env.generated (#879)` | - |
-| `setup.sh env done message names .env.generated in all four locales (#879)` | - |
-| `no shipped surface claims setup regenerates a bare .env (#879)` | - |
+| `just docker help: en setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-TW setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: zh-CN setup summary names .env + .env.generated (#868)` | - |
+| `just docker help: ja setup summary names .env + .env.generated (#868)` | - |
+| `justfile.docker: the setup doc comment names .env + .env.generated (#868)` | - |
+| `setup.sh --help: usage names .env + .env.generated (#868)` | - |
+| `setup.sh set: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh add: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh remove: the next hint names .env + .env.generated (#868)` | - |
+| `setup.sh env done message names .env.generated in all four locales (#868)` | - |
+| `no shipped surface calls a bare .env hand-authored or a workload overlay (#868)` | - |
+| `the shipped surfaces name .env.local as the override channel (#868)` | - |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
