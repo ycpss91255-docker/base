@@ -357,6 +357,30 @@ EOF
 
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_dispatch <subcommand> [args...]
+#
+# Route an already-validated subcommand to its handler and return the
+# handler's exit status. Split out of main so main's single
+# `|| _rc=$?` guard covers every arm at once -- see the comment at the
+# call site.
+# ════════════════════════════════════════════════════════════════════
+_setup_dispatch() {
+  local _subcmd="${1:?"${FUNCNAME[0]}: missing subcommand"}"
+  shift
+  case "${_subcmd}" in
+    apply)        _setup_apply       "$@" ;;
+    check-drift)  _setup_check_drift "$@" ;;
+    set)          _setup_set         "$@" ;;
+    show)         _setup_show        "$@" ;;
+    list)         _setup_list        "$@" ;;
+    add)          _setup_add         "$@" ;;
+    remove)       _setup_remove      "$@" ;;
+    reset)        _setup_reset       "$@" ;;
+    deploy)       _setup_deploy      "$@" ;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════
 # main
 #
 # Top-level entry. Routes to subcommand handlers; preserves the legacy
@@ -401,20 +425,18 @@ main() {
   # subcommands get uniform pre/post coverage.
   _run_pre_hook setup "$@" || exit $?
 
-  case "${_subcmd}" in
-    apply)        _setup_apply       "$@" ;;
-    check-drift)  _setup_check_drift "$@" ;;
-    set)          _setup_set         "$@" ;;
-    show)         _setup_show        "$@" ;;
-    list)         _setup_list        "$@" ;;
-    add)          _setup_add         "$@" ;;
-    remove)       _setup_remove      "$@" ;;
-    reset)        _setup_reset       "$@" ;;
-    deploy)       _setup_deploy      "$@" ;;
-  esac
-  local _rc=$?
+  local _rc=0
+  # `|| _rc=$?` on the dispatch as a whole. Under `set -euo pipefail` --
+  # which setup.sh enables whenever it is the entry point -- an unguarded
+  # subcommand call aborts main the moment it returns non-zero, and the
+  # post-hook below is never reached. The guard sits on this ONE call
+  # rather than on each case arm so a subcommand added later inherits it
+  # instead of having to remember it.
+  _setup_dispatch "${_subcmd}" "$@" || _rc=$?
 
-  # post-setup hook fires after the subcommand returns.
+  # post-setup hook fires after the subcommand returns, on the success and
+  # the failure path alike. A failing hook still wins over the
+  # subcommand's own rc.
   _run_post_hook setup "$@" || exit $?
   return "${_rc}"
 }

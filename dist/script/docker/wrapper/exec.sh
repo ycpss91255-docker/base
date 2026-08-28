@@ -360,11 +360,18 @@ ${_hint}"
   # orchestration (incl. the not-running precheck error + pre-hook)
   # is captured; detach before handing the terminal to the exec session.
   _transcript_detach
-  _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@"
-  local _exec_rc=$?
+  # `|| _exec_rc=$?` and not a bare call plus `$?`: under `set -euo
+  # pipefail` an unguarded failure aborts main here, and the post-hook
+  # below is never reached -- so a hook whose documented job is final
+  # reporting would miss precisely the runs worth reporting on. The
+  # capture is the same shape run.sh and lib/deploy.sh already use.
+  local _exec_rc=0
+  _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@" || _exec_rc=$?
 
-  # post-exec hook fires after exec returns; container is still
-  # running so the hook can `docker exec` for final reporting.
+  # post-exec hook fires after exec returns, on the success and the
+  # failure path alike; the container is still running so the hook can
+  # `docker exec` for final reporting. A failing hook still wins over the
+  # container's own rc.
   _run_post_hook exec "$@" || exit $?
   return "${_exec_rc}"
 }
