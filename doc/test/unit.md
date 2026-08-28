@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2951 tests**.
+Unit specs under `test/bats/unit/`: **2952 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3359,7 +3359,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/spec_subject_guard_spec.bats (5)
+### test/bats/unit/spec_subject_guard_spec.bats (6)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
 opening 54 guards across this suite now share, plus the repo-wide
@@ -3378,3 +3378,4 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
+| `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |

@@ -25,6 +25,18 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   INNER="${BATS_TEST_TMPDIR}/inner_spec.bats"
+
+  # The spelling variants a fail-open existence guard can take. `[[ -f X ]]`,
+  # `[ -f X ]` and `test -f X` ask the identical question, so a scan that
+  # knows only the first leaves the invariant one keystroke from being
+  # unenforced -- the guard comes back under another spelling and the scan
+  # stays green. Held in one variable so the scan below and the test that
+  # proves the scan can SEE each spelling cannot drift apart.
+  GUARD_RE='^[[:space:]]*(\[\[|\[|test)[[:space:]]+-f[[:space:]].*\|\|[[:space:]]*skip'
+
+  # Where the scan looks, and the floor the population may not fall below.
+  SPEC_TREE=/source/test/bats
+  SPEC_TREE_FLOOR=60
 }
 
 # _write_inner <path-argument-literal>
@@ -93,6 +105,45 @@ INNER_EOF
   # nobody noticed"; the remaining skips in the suite guard host / image
   # CAPABILITIES (command -v ...) or a mode-gated fixture, never the presence
   # of a tracked artifact, and each states its reason at the guard.
-  run grep -rnE '^\s*\[\[ -f "[^"]*" \]\] \|\| skip' /source/test/bats/
-  assert_failure
+  #
+  # An invariant that scans a tree has the very failure mode it is looking
+  # for, so both halves are pinned. FIRST that the population is really
+  # there: a scan of nothing reports "no matches" exactly like a clean tree,
+  # and `assert_failure` on the grep would have accepted it.
+  run bash -c "find ${SPEC_TREE} -type f -name '*.bats' | wc -l | tr -d ' '"
+  assert_success
+  assert [ "${output}" -ge "${SPEC_TREE_FLOOR}" ]
+
+  # SECOND that the scan itself ran. grep answers 1 for "scanned, matched
+  # nothing" and 2 for "could not scan" (path gone, unreadable); only the
+  # first is this invariant holding, and `assert_failure` cannot tell them
+  # apart -- pointing the scan at a path that does not exist left this spec
+  # passing 5/5.
+  run grep -rnE "${GUARD_RE}" "${SPEC_TREE}/"
+  assert_equal "${status}" 1
+  assert_output ""
+}
+
+@test "the fail-open guard scan sees every spelling of the check, not just [[ -f ]]" {
+  # The other way the invariant above goes quietly blind: it holds because
+  # its PATTERN misses the guard, not because no guard exists. Reintroducing
+  # a real fail-open guard as `[ -f "${WF}" ] || skip "gone"` left it green.
+  #
+  # Each spelling is written by `printf` rather than a heredoc on purpose:
+  # a heredoc would put a literal guard line into THIS file, which lives
+  # under the tree the invariant above scans, and the invariant would fail
+  # on its own fixture. A `printf` line starts with `printf`, so the pattern
+  # cannot match the source that produces the match.
+  local _planted="${BATS_TEST_TMPDIR}/planted"
+  mkdir -p "${_planted}"
+  printf '  [[ -f "${WF}" ]] || skip "gone"\n' > "${_planted}/double_bracket.bats"
+  printf '  [ -f "${WF}" ] || skip "gone"\n'   > "${_planted}/single_bracket.bats"
+  printf '  test -f "${WF}" || skip "gone"\n'  > "${_planted}/test_builtin.bats"
+
+  local _spelling
+  for _spelling in double_bracket single_bracket test_builtin; do
+    run grep -nE "${GUARD_RE}" "${_planted}/${_spelling}.bats"
+    [[ "${status}" -eq 0 ]] || fail \
+      "the fail-open guard scan does not match the ${_spelling} spelling, so the repo-wide invariant would stay green with that guard in the tree"
+  done
 }
