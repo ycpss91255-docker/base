@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **147 tests**.
+Integration specs under `test/bats/integration/`: **148 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -8,7 +8,7 @@ Integration specs under `test/bats/integration/`: **147 tests**.
 
 ## Test Files
 
-### test/bats/integration/init_new_repo_spec.bats (59)
+### test/bats/integration/init_new_repo_spec.bats (60)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -36,7 +36,8 @@ the unit `tui_spec`.
 | `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
 | `new repo: .github/workflows/base-version-monitor.yaml exists (#777)` | - |
-| `new repo: main.yaml grants permissions: contents: write` | #62 release perms |
+| `new repo: main.yaml grants contents: write on the release job only (#957)` | #62 release perms, job-scoped |
+| `new repo: main.yaml leaves the build call at contents: read (#957)` | #957 build call read-only |
 | `new repo: .gitignore exists` | gitignore |
 | `new repo: .dockerignore exists (#604)` | - |
 | `new repo: .dockerignore contains compose.yaml (derived artifact) (#604)` | - |

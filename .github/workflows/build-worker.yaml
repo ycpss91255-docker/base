@@ -353,6 +353,10 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   path-filter:
     runs-on: ubuntu-latest
+    # Checks out and diffs; touches nothing else. Without the block this
+    # job would inherit the calling repo's whole grant.
+    permissions:
+      contents: read
     outputs:
       code_changed: ${{ steps.classify.outputs.code_changed }}
     steps:
@@ -463,6 +467,19 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    # The job builds but never pushes an image (`push: false`, no `tags:`);
+    # the one package write it can make is the buildx cache under
+    # ghcr.io/<repo>/buildcache, which only `cache_backend: registry`
+    # reaches. `permissions:` accepts no expression, so it cannot be gated
+    # on that input the way the GHCR login step below is. The static
+    # superset is still the least privilege base can enforce: a called
+    # workflow's permissions INTERSECT the caller's, so a `gha` caller that
+    # grants only `contents: read` gets read here, and a `registry` caller
+    # gets exactly the write its own main.yaml already had to declare for
+    # the preflight probe to pass.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -889,6 +906,11 @@ jobs:
     needs: [path-filter, build]
     if: always()
     runs-on: ubuntu-latest
+    # Reads the matrix result off `needs` and exits; it does not even
+    # check out. `contents: read` rather than `{}` keeps the block
+    # uniform with its siblings.
+    permissions:
+      contents: read
     steps:
       - name: Aggregate matrix result
         # #273 — short-circuit to success when the PR diff was doc-only,

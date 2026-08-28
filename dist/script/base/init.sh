@@ -413,16 +413,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# call-release uses softprops/action-gh-release@v2 which needs
-# contents: write to create a GitHub Release. Reusable workflow
-# permissions intersect with the caller's, and GitHub Actions'
-# default GITHUB_TOKEN is read-only, so this grant must live here
-# (release-worker.yaml declaring it upstream is not enough).
-permissions:
-  contents: write
-
 jobs:
   call-docker-build:
+    # The build worker checks out and builds; it pushes no image, and the
+    # default cache_backend (gha) touches no package. Opting into
+    # cache_backend: registry is what adds \`packages: write\` here.
+    permissions:
+      contents: read
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}
     with:
       image_name: ${name}
@@ -430,6 +427,15 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
+    # call-release uses softprops/action-gh-release@v2, which needs
+    # contents: write to create a GitHub Release. A reusable workflow's
+    # permissions intersect with its caller's, and GitHub Actions' default
+    # GITHUB_TOKEN is read-only, so this grant must live here
+    # (release-worker.yaml declaring it upstream is not enough). It sits on
+    # this job rather than at the workflow scope so call-docker-build does
+    # not inherit a write it never uses.
+    permissions:
+      contents: write
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/release-worker.yaml@${ref}
     with:
       archive_name_prefix: ${name}

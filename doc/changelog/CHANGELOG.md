@@ -58,6 +58,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 ### Fixed
+- **the reusable build worker's jobs no longer inherit the caller's whole
+  token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
+  declared no `permissions:`, so each ran with the CALLING repo's grant, and a
+  downstream that legitimately grants `packages: write` workflow-wide handed
+  that write to jobs which only read. Each job now names its own set, which the
+  caller's grant still intersects: `contents: read`, plus `packages: write` on
+  `build` alone for the `cache_backend: registry` buildx cache. The seeded
+  `main.yaml` moves `contents: write` off the workflow scope onto
+  `call-release`, so a newly seeded repo's build call is born read-only.
+- **the README file table named `setup.conf`, a file that has not existed since
+  the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
+  all four READMEs; the prose around it was already dotted.
 - **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.

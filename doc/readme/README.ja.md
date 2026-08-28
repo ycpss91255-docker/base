@@ -138,7 +138,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f 4c85128450a3 -->
+<!-- sync: whats-included d3f9b7157d86 a38e0b5c7029 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -168,7 +168,7 @@ flowchart LR
 | `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
 | `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
+| `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/bats/unit/` | base 自己テスト、ユニット（bats + kcov） |
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
