@@ -40,7 +40,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/self-test.yaml"
-  [[ -f "${WF}" ]] || skip "self-test.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "base's own CI workflow this spec pins"
 }
 
 # _render_run_names <run_id> <run_attempt>
@@ -959,7 +960,8 @@ _job_comments() {
   # same failure that hit setup_tui.sh). Parsing keeps the guard
   # running under coverage instead of skipping it there.
   local _test_sh="/source/script/test/test.sh"
-  [[ -f "${_test_sh}" ]] || skip "test.sh not at expected path"
+  assert_spec_subject "${_test_sh}" \
+      "the self-test dispatcher whose lint table this spec cross-checks"
   run awk '
     /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
     inside && /^\)/            { inside = 0 }

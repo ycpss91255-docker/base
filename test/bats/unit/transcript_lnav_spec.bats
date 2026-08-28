@@ -14,7 +14,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   FMT="/source/dist/script/docker/lib/transcript.lnav-format.json"
-  [[ -f "${FMT}" ]] || skip "transcript.lnav-format.json not at expected path"
+  assert_spec_subject "${FMT}" \
+      "the shipped lnav transcript format this spec pins"
 }
 
 # Extract the regex pattern and JSON-unescape it (\\ -> \) for grep -P.

@@ -37,7 +37,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/multi-distro-build-worker.yaml"
-  [[ -f "${WF}" ]] || skip "multi-distro-build-worker.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the multi-distro build worker this spec pins"
 }
 
 # _on_block -- the code lines of the trigger + workflow_call interface, from

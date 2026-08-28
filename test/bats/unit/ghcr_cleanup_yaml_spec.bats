@@ -42,7 +42,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/ghcr-cleanup.yaml"
-  [[ -f "${WF}" ]] || skip "ghcr-cleanup.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the GHCR cleanup workflow this spec pins"
 }
 
 # _code_lines -- the workflow with comment-only and blank lines dropped.

@@ -199,4 +199,38 @@ yaml_top_text() {
 #   that follows it.
 yaml_top_lines() {
     yaml_top_text "${1}" "${2}" | strip_comments
+# ── spec subject presence ─────────────────────────────────────────────────────
+#
+# Many specs assert on the CONTENT of one tracked artifact -- a workflow
+# file, a shipped template, a CI script. Those specs used to open with
+# `[[ -f "${SUBJECT}" ]] || skip "... not at expected path"`, which is a
+# guard that fails open: it cannot tell "absent by design in this run mode"
+# from "renamed and nobody noticed", and it answers the second case with a
+# green run. Since the artifact moving is exactly the regression the spec
+# exists to catch, the guard was silent about the only event it was there
+# for -- renaming one workflow turned 52 assertions into `ok ... # skip`
+# and the suite still exited 0.
+#
+# `assert_spec_subject` is the fail-closed replacement. `/source` is the
+# repo checkout itself (compose.yaml bind-mounts `.:/source` for every
+# service), and base's spec tree runs nowhere else -- downstream repos get
+# no `test` namespace -- so a tracked path under `/source` is present in
+# every mode the suite has. Its absence is a defect, never a context.
+#
+# Skips remain correct for a subject that genuinely varies: a host or image
+# capability the spec needs in order to observe anything (`command -v`), or
+# a fixture only some dispatch mode produces. Each of those states its
+# reason at the guard.
+#
+# Same idiom, same reasoning, as `_release_tag` in
+# test/bats/integration/prev_release_upgrade_spec.bats.
+
+# assert_spec_subject <path> [what_it_is]
+#   Assert the tracked artifact this spec asserts on is present, failing
+#   with the path and what it was when it is not.
+assert_spec_subject() {
+    local _path="${1:?BUG: assert_spec_subject expects a path}"
+    local _what="${2:-the artifact this spec asserts on}"
+    [[ -f "${_path}" ]] || fail \
+        "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
 }

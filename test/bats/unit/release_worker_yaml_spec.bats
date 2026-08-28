@@ -29,7 +29,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/release-worker.yaml"
-  [[ -f "${WF}" ]] || skip "release-worker.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the reusable release worker this spec pins"
 }
 
 # ── the payload is not reconstructed in the workflow ─────────────────────────

@@ -1896,6 +1896,8 @@ builds the env block only for the knobs the conf sets.
 | `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
+| `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
+| `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
 | `Dockerfile.test-tools COPYs the kcov binary into the final image (#686)` | kcov binary present in final image |
 | `Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)` | kcov runtime libs (libstdc++/libcurl/libdw/...) present |
@@ -3439,3 +3441,23 @@ got wrong.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
+### test/bats/unit/spec_subject_guard_spec.bats (6)
+
+`assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
+opening 54 guards across this suite now share, plus the repo-wide
+invariant that no spec goes back to the fail-open form. Those guards used
+to read `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by
+design" from "renamed and nobody noticed" and answered the second with a
+green run: renaming one workflow turned 52 assertions into `ok ... # skip`
+and the suite still exited 0. Since a bats outcome cannot be observed from
+inside the test that produces it, each case writes a one-test spec into
+`BATS_TEST_TMPDIR` and asserts on the TAP the inner `bats` run emits.
+
+| Test | Description |
+|------|-------------|
+| `assert_spec_subject: a present subject lets the test run to completion` | The normal path costs the caller nothing and skips nothing |
+| `assert_spec_subject: a missing subject FAILS the test, it does not skip it` | The whole point: a skip here reports green for a spec that asserted nothing |
+| `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
+| `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
+| `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
+| `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
