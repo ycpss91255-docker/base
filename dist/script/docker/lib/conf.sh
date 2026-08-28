@@ -694,8 +694,19 @@ _upsert_conf_value() {
     # command, an [environment] entry): the existing key never matched,
     # the in-place replace was skipped, and a second `key = ...` was
     # appended at the section end. Reads are last-wins, so the duplicate
-    # corrupted the file without changing behaviour. Test the trimmed
-    # line so an INDENTED comment is still recognised as one.
+    # corrupted the file without changing behaviour. Dropping the
+    # space-then-hash clause is the whole of the behaviour change.
+    #
+    # The surviving `!= #*` clause is belt-and-braces and has no
+    # behaviour of its own today: the match below compares the key
+    # against `__rest`, the TRIMMED text left of `=`, and a comment
+    # line's first token always begins with `#`, so it can never equal a
+    # schema key whether the clause tests `__line` or `__trimmed`.
+    # Deleting both comment clauses outright leaves the whole suite
+    # green. It is kept, and tested against the trimmed line, so the
+    # writer states the reader's rule in the reader's terms instead of
+    # leaning on that coincidence -- not because an indented comment
+    # behaves differently without it.
     __trimmed="${__line#"${__line%%[![:space:]]*}"}"
     if (( __in_sect )) && [[ -n "${__trimmed}" ]] && [[ "${__trimmed}" != \#* ]] \
        && [[ "${__line}" == *=* ]]; then

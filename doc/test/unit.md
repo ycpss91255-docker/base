@@ -324,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (121)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -364,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (139)
+### test/bats/unit/tui_spec.bats (138)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string

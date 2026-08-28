@@ -1038,25 +1038,6 @@ EOF
   assert_output 'restart = no'
 }
 
-@test "_upsert_conf_value leaves an indented full-line comment alone (#955)" {
-  # The other half of the same rule: an INDENTED `#` line is a real
-  # comment and must never be mistaken for the key it mentions.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[lifecycle]
-  # watchdog_check = curl http://old/x
-watchdog_check = curl http://h/x
-EOF
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "lifecycle" "watchdog_check" \
-    'curl http://h/y'
-
-  run cat "${TEMP_DIR}/.setup.conf"
-  assert_output --partial '  # watchdog_check = curl http://old/x'
-  run grep -c '^watchdog_check' "${TEMP_DIR}/.setup.conf"
-  assert_output "1"
-  run grep '^watchdog_check' "${TEMP_DIR}/.setup.conf"
-  assert_output 'watchdog_check = curl http://h/y'
-}
-
 @test "_write_setup_conf keeps a logging.<svc> override out of the parent [logging] section (#955)" {
   # The TUI Save path hands _write_setup_conf EVERY current key as an
   # override, so a repo carrying a per-service `[logging.<svc>]` section
