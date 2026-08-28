@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2944 tests**.
+Unit specs under `test/bats/unit/`: **2969 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3278,7 +3278,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (32)
+### test/bats/unit/changelog_entry_lint_spec.bats (41)
 
 | Test | Description |
 |------|-------------|
@@ -3309,6 +3309,15 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a '- ' line inside a fenced example counts toward its entry, not as a new one (#917)` | - |
 | `_run_changelog_entry: FAILS on a bullet marker the parser does not recognise (#917)` | - |
 | `_run_changelog_entry: FAILS on unrecognised content that FOLLOWS a valid entry (#917)` | - |
+| `_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)` | - |
+| `_run_changelog_entry: names the orphan's real line number in the file (#927)` | - |
+| `_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)` | - |
+| `_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)` | - |
+| `_run_changelog_entry: a table separator row is not an orphaned word (#927)` | - |
+| `_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)` | - |
+| `_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)` | - |
+| `_run_changelog_entry: an orphan in a RELEASED section is never checked (#927)` | - |
+| `_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)` | - |
 | `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | - |
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
@@ -3356,3 +3365,24 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/adr_doc_claims_spec.bats (16)
+
+| Test | Description |
+|------|-------------|
+| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | - |
+| `doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)` | - |
+| `release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)` | - |
+| `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
+| `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
+| `R1: PASSES the same claim once the block states the real trigger (#927)` | - |
+| `R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)` | - |
+| `R1: IGNORES a workflow named with no trigger claim in the block (#927)` | - |
+| `R1: IGNORES a name this repo has no workflow for (#927)` | - |
+| `R1: a workflow named inside a fenced example is inert (#927)` | - |
+| `R2: FAILS attributing the payload manifest to a workflow that never reads it (#927)` | - |
+| `R2: PASSES the attribution against the workflow that does read it (#927)` | - |
+| `R2: a separate bullet is a separate claim (#927)` | - |
+| `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
+| `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
+| `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |

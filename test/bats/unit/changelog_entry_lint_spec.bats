@@ -457,6 +457,135 @@ _long_prose() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Orphaned wrap lines
+#
+# The length measure collapses whitespace on purpose, so it is blind to
+# how the entry is wrapped -- and markdown collapses the same whitespace
+# when it renders, so a hand-edit that leaves one word alone on its line
+# is invisible in both places and survives review. The source is where the
+# file is read while it is being written, so that is where the rule bites.
+# It is narrow by design: one word on the line AND more of the same
+# paragraph on the very next SOURCE line. Anything else -- a short final
+# line, a table row, a fenced line, an HTML comment -- is left alone,
+# which the cases below pin one by one.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)" {
+  _write_changelog '### Documentation' \
+    '- **an entry that was edited and not re-wrapped** -- the prose runs on' \
+    '  for a while and then the tail was rewritten in place, leaving one' \
+    '  word behind.' \
+    '  Affects' \
+    '  anyone reading the source.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'orphaned wrap line'
+  assert_output --partial "'Affects'"
+}
+
+@test "_run_changelog_entry: names the orphan's real line number in the file (#927)" {
+  # Reported against the CHANGELOG's own numbering, not an offset within
+  # the section -- the author has to be able to jump straight to it.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    '  anyone reading the source.'
+  run _run_changelog_entry
+  assert_failure
+  # preamble (4 lines) + heading + blank + '### Documentation' + bullet = 8.
+  assert_output --partial 'CHANGELOG.md:9:'
+}
+
+@test "_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)" {
+  # A paragraph is allowed to end on a short line; nothing follows it to
+  # re-flow into, so there is nothing to fix.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- the prose runs on for a while and then ends on a' \
+    '  word.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)" {
+  # The next source line is not more of the same paragraph, so the two
+  # were never one wrapped run. Contiguity is the whole test.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose that ends on a' \
+    '  word.' \
+    '' \
+    '  A second paragraph of the same entry.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a table separator row is not an orphaned word (#927)" {
+  # '|---|---|' is one whitespace-delimited word and always will be; a
+  # table is not a paragraph that failed to re-flow.
+  _write_changelog '### Documentation' \
+    '- **an entry with a table** -- the shapes:' \
+    '' \
+    '  | Tag | Bump |' \
+    '  |---|---|' \
+    '  | `vX.Y.Z` | Z |'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)" {
+  # Inside a fence the line is code, and code is not wrapped prose. The
+  # fence delimiters are single "words" of their own, too.
+  _write_changelog '### Documentation' \
+    '- **an entry with a snippet** -- like so:' \
+    '' \
+    '  ```bash' \
+    '  make' \
+    '  test' \
+    '  ```'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)" {
+  _write_changelog '<!-- changelog-entry-lint: allow-begin -- pinned quotation -->' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    '  anyone reading the source.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan in a RELEASED section is never checked (#927)" {
+  # Same scoping as the length cap: a shipped entry is history, and a lint
+  # that fails on something nobody may fix gets muted.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '## [v0.1.0] - 2026-03-28\n\n'
+    printf '### Documentation\n'
+    printf -- '- **a shipped entry** -- prose.\n'
+    printf '  Affects\n'
+    printf '  anyone reading the source.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)" {
+  _write_changelog '### Documentation' \
+    '- **first** -- prose.' \
+    '  Affects' \
+    '  one reader.' \
+    '- **second** -- prose.' \
+    '  Breaks' \
+    '  another reader.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "'Affects'"
+  assert_output --partial "'Breaks'"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The measure is characters, in every locale
 # ════════════════════════════════════════════════════════════════════
 
