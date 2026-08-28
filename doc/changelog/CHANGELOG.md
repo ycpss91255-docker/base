@@ -74,6 +74,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   per-line allow opts out, and either must state a reason.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
+
+- **`action-ref-agreement`: one action called at two refs across the workflows
+  now fails the lint (closes #949)** -- `docker/build-push-action` ran at `@v6`
+  in five `self-test.yaml` steps and `@v7` in six elsewhere, green for months,
+  because actionlint reads each `uses:` in isolation and dependabot will not
+  re-propose a version pair whose PR was closed -- so nothing would have
+  offered it again, and `dependabot.yml` shows no trace. All eleven are on
+  `@v7` (the majors share an input set). The lint groups by the action's
+  REPOSITORY, so `actions/cache/save` and `.../restore` move together. A call
+  site may hold back behind an `action-ref-agreement: allow -- <why>` comment;
+  a bare marker fails.
+
 ### Fixed
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
