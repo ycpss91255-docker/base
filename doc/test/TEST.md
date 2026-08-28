@@ -87,6 +87,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `readme-sync` | localized READMEs still match `README.md` | `lint-static (readme-sync)` | ungated |
 | `doc-counts` | the figures / catalog rows below | `doc-counts` (`--doc-counts-only`) | ungated |
 | `home-literal` | no concrete username in a home path under `dist/` or `dockerfile/` (ADR-00000024) | `lint-static (home-literal)` | ungated |
+| `arch-literal` | no bare architecture literal in a shipped Dockerfile under `dist/` or `dockerfile/`; architecture comes from `ARG TARGETARCH`, and a mapping onto an upstream asset spelling opts out with a stated reason | `lint-static (arch-literal)` | ungated |
 | `bash-source-guard` | no undefaulted `BASH_SOURCE` self-location read under `dist/` or `script/` | `lint-static (bash-source-guard)` | ungated |
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
