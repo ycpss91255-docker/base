@@ -92,7 +92,7 @@ CONF
   _is_overlay_overridable "${_val}"
 }
 
-@test "overlay guard: container_name: is never emitted at all (#920)" {
+@test "overlay guard: the dev-stack emitter emits no container_name at all (#920)" {
   # The weaker predicate this replaces asked only that the value carry SOME
   # interpolation, and `${USER_NAME}-myrepo-headless` satisfied it -- yet
   # ${USER_NAME} is one string for all of a user's instances, so the name it
@@ -104,6 +104,50 @@ CONF
   local _found
   _found="$(grep -nE '^[[:space:]]*container_name:' "${COMPOSE_OUT}" || true)"
   [[ -z "${_found}" ]] || { echo "container_name emitted: ${_found}"; return 1; }
+}
+
+@test "the field-deploy emitter's baked container_name is a STATED exemption (#920)" {
+  # The guard above scans `generate_compose_yaml` -- the dev stack, the
+  # only emission a multi_run overlay ever expands. It is not the only
+  # emitter base ships: `_generate_resolved_compose` (just setup deploy)
+  # writes a fully-resolved single-device bundle and DOES bake a
+  # container_name, deliberately, so an operator has a stable name to
+  # `docker logs`. Two emitters, two rules.
+  #
+  # A guard whose name overstates its reach is how a documented invariant
+  # comes to be believed of a bundle it never looked at, so the exemption
+  # is asserted here, next to the invariant, in both directions: the
+  # deploy emitter still bakes one, and every document that states the
+  # invariant states the exemption with it.
+  local _deploy="/source/dist/script/docker/lib/deploy.sh"
+  assert_spec_subject "${_deploy}" \
+      "the field-deploy compose emitter this exemption is about"
+  run grep -F "printf '    container_name: %s" "${_deploy}"
+  assert_success
+
+  # README.md's claim and ADR-00000022's amendment are the two places that
+  # state the invariant in prose. Each must name the deploy bundle within
+  # the paragraph that states it -- an unqualified "base emits no
+  # container_name" is false for a `just setup deploy` bundle.
+  local _readme="/source/README.md" _adr
+  _adr="/source/doc/adr/00000022-compose-multirun-overlay-contract.md"
+  assert_spec_subject "${_readme}" "the English README stating the invariant"
+  assert_spec_subject "${_adr}" "ADR-00000022, which records the contract"
+
+  local _claim
+  _claim="$(grep -A8 -F 'base emits no `container_name:`' "${_readme}")" \
+    || fail "README.md no longer states the container_name invariant at all"
+  [[ "${_claim}" == *deploy* ]] \
+    || { echo "README states the invariant unqualified:"; echo "${_claim}"
+         fail "the deploy-bundle exemption is not stated with the claim"; }
+
+  local _amendment
+  _amendment="$(grep -A20 -F 'Amendment (2026-08-26, issue #920)' "${_adr}")" \
+    || fail "ADR-00000022 no longer carries the #920 amendment"
+  [[ "${_amendment}" == *deploy* ]] \
+    || { echo "ADR amendment states the invariant unqualified:"
+         echo "${_amendment}"
+         fail "the deploy-bundle exemption is not stated with the amendment"; }
 }
 
 @test "overlay guard: network_mode: is an env interpolation, never a baked literal" {
