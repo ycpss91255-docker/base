@@ -599,6 +599,13 @@ XAUTHORITY=/tmp/.docker.xauth"
 
 # ── _wrapper_service_running (the probe both run and exec ask) ──────────────
 
+# The two answers are spelled as DISJOINT tokens, and every assertion on
+# them is a whole-line match (`assert_line`, never `--partial`). The pair
+# `RUNNING` / `NOT_RUNNING` read with `--partial` is what let a probe that
+# can never find anything pass the positive half too -- "NOT_RUNNING"
+# contains "RUNNING" -- so the discrimination the cases below claim to make
+# was made by nothing. `assert_line` also survives the warning line the
+# failing-probe case prints alongside the verdict.
 _run_service_probe() {
   local _root="$1" _service="$2"
   run bash -c "
@@ -608,9 +615,9 @@ _run_service_probe() {
     PROJECT_NAME='proj'
     DRY_RUN=true
     if _wrapper_service_running '${_service}'; then
-      echo 'RUNNING'
+      echo 'PROBE_UP'
     else
-      echo 'NOT_RUNNING'
+      echo 'PROBE_DOWN'
     fi
   "
 }
@@ -626,14 +633,14 @@ _run_service_probe() {
   export COMPOSE_PS_SERVICES="neighbour/devel"
   _run_service_probe "${R}" devel
   assert_success
-  assert_output --partial "NOT_RUNNING"
+  assert_line "PROBE_DOWN"
   # Same stub, same seed: asked about the project that DOES have it, the
   # answer flips. Without that pair the case above passes on a stub that
   # never answers anything.
   export COMPOSE_PS_SERVICES="proj/devel"
   _run_service_probe "${R}" devel
   assert_success
-  assert_output --partial "RUNNING"
+  assert_line "PROBE_UP"
 }
 
 @test "a FAILING service probe is reported, not silently read as not-running (#920)" {
@@ -648,7 +655,7 @@ _run_service_probe() {
   export COMPOSE_PS_RC=125
   _run_service_probe "${R}" devel
   assert_success
-  assert_output --partial "NOT_RUNNING"
+  assert_line "PROBE_DOWN"
   assert_output --partial "unknown flag: --status"
   assert_output --partial "devel"
   assert_output --partial "proj"
@@ -662,6 +669,6 @@ _run_service_probe() {
   export COMPOSE_PS_SERVICES="proj/devel"
   _run_service_probe "${R}" devel
   assert_success
-  assert_output --partial "RUNNING"
+  assert_line "PROBE_UP"
   refute_output --partial "Could not ask compose"
 }
