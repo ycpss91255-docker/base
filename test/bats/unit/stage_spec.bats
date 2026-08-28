@@ -335,6 +335,26 @@ EOF
   assert_success
 }
 
+@test "the shipped stage-authoring comment promises no container_name override (#920)" {
+  # dist/dockerfile/Dockerfile is the template every downstream repo
+  # receives on `just upgrade`, so the stage-authoring contract written in
+  # its comments is not local prose: it is what every consumer of base
+  # reads before adding a stage. The emitter above emits no
+  # container_name, so a comment listing one as an auto-emitted override
+  # documents a field that does not exist -- org-wide, on the next
+  # upgrade, with nothing else in the tree contradicting it.
+  local _dockerfile="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_dockerfile}" \
+      "the shipped template Dockerfile whose stage-authoring comment this pins"
+  # The sentence has to still BE there: deleting the paragraph would
+  # otherwise read as a fix.
+  run grep -F 'overrides only build.target' "${_dockerfile}"
+  assert_success
+  # And nothing in the shipped template may name container_name at all.
+  run grep -n 'container_name' "${_dockerfile}"
+  assert_failure
+}
+
 @test "auto-emit: no extra stages → only devel + test in compose.yaml" {
   # (A1'-b): the `test` service is emitted from the devel-test
   # baseline stage, so the baseline-only fixture declares it.
