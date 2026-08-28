@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3028 tests**.
+Unit specs under `test/bats/unit/`: **3035 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3406,7 +3406,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/adr_doc_claims_spec.bats (16)
+### test/bats/unit/adr_doc_claims_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -3421,6 +3421,7 @@ untested) and uncommented.
 | `R1: IGNORES a name this repo has no workflow for (#927)` | - |
 | `R1: a workflow named inside a fenced example is inert (#927)` | - |
 | `R2: FAILS attributing the payload manifest to a workflow that never reads it (#927)` | - |
+| `R2: a workflow that only MENTIONS the manifest in a comment does not count (#927)` | - |
 | `R2: PASSES the attribution against the workflow that does read it (#927)` | - |
 | `R2: a separate bullet is a separate claim (#927)` | - |
 | `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
