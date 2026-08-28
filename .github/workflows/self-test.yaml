@@ -61,14 +61,15 @@ jobs:
           # is a valid GitHub Actions context property (the commit SHA of a
           # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
           # to pin the preflight checkout to the worker's own version. actionlint
-          # 1.7.7 is missing this property from its github-context type and wrongly
+          # is missing this property from its github-context type and wrongly
           # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
-          # regex matched against the error message. Remove this once actionlint
-          # ships the property in its type.
+          # regex matched against the error message. Still absent as of 1.7.12
+          # (measured: the run without `-ignore` reports it at five call sites),
+          # so remove this only once actionlint ships the property in its type.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
-            rhysd/actionlint:1.7.7 \
+            rhysd/actionlint:1.7.12 \
             -color \
             -ignore 'property "job_workflow_sha" is not defined'
 
