@@ -335,11 +335,19 @@ _render_run_names() {
 }
 
 # ── buildx GHA cache on test-tools builds ────────────────
+#
+# These three assert the ACTION and its cache wiring, not the ref. The
+# ref used to be spelled here as `@v6`, in three copies, which made a
+# major bump a hand-edit in three test files as well as the workflow --
+# and pinned only three of the eleven call sites, so the eight it did
+# not name are how the tree ended up running v6 and v7 at once. Which
+# ref they carry is the action-ref-agreement lint's question now, asked
+# over every call site at once.
 
 @test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
   run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'uses: docker/build-push-action@v6'
+  assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
@@ -347,7 +355,7 @@ _render_run_names() {
 @test "self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
   run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'uses: docker/build-push-action@v6'
+  assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
@@ -355,7 +363,7 @@ _render_run_names() {
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
   run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial 'uses: docker/build-push-action@v6'
+  assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
