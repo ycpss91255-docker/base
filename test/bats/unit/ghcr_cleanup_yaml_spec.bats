@@ -52,9 +52,10 @@ setup() {
 # therefore match the WARNING and report the footgun as present, so every
 # must-not-appear assertion runs against this instead. Trailing comments
 # on a real line (the `# v1.2.2` after the pin) survive, because that line
-# is code.
+# is code. The stripping itself now lives in test_helper.bash, where the
+# whole workflow spec family shares one copy of it.
 _code_lines() {
-  grep -vE '^[[:space:]]*(#|$)' "${WF}"
+  code_lines "${WF}"
 }
 
 # _block <top-level-key> -- the body of a top-level mapping (`on`,
@@ -63,8 +64,7 @@ _code_lines() {
 # keys is not indented-out by the terminator, so without it a block would
 # carry the prose that follows it.
 _block() {
-  awk -v _key="^${1}:" '$0 ~ _key {flag=1; next} /^[a-z]/{flag=0} flag' "${WF}" \
-    | grep -vE '^[[:space:]]*(#|$)'
+  yaml_top_lines "${WF}" "${1}"
 }
 
 # _with_block -- the `with:` mapping of the cleanup step, comments and
@@ -73,7 +73,7 @@ _block() {
 # about what the action is actually configured with.
 _with_block() {
   awk '/^        with:$/{flag=1; next} /^[^ ]|^      - /{flag=0} flag' "${WF}" \
-    | grep -vE '^[[:space:]]*(#|$)'
+    | strip_comments
 }
 
 # _exclude_tags -- just the comma-separated value of `exclude-tags`, on
@@ -103,7 +103,7 @@ _exclude_tags() {
 }
 
 @test "ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action" {
-  run grep -F 'uses: dataaxiom/ghcr-cleanup-action@' "${WF}"
+  run code_grep -F 'uses: dataaxiom/ghcr-cleanup-action@' "${WF}"
   assert_success
 }
 
@@ -113,13 +113,13 @@ _exclude_tags() {
   # A floating tag on the one third-party action holding packages: write
   # over a package we publish means a moved tag hands deletion rights to
   # unreviewed code.
-  run grep -E 'uses: dataaxiom/ghcr-cleanup-action@[0-9a-f]{40}( |$)' "${WF}"
+  run code_grep -E 'uses: dataaxiom/ghcr-cleanup-action@[0-9a-f]{40}( |$)' "${WF}"
   assert_success
 }
 
 @test "ghcr-cleanup.yaml: records the pinned action's version in a trailing comment" {
   # Keeps the SHA readable and is the form Dependabot rewrites on bump.
-  run grep -E 'uses: dataaxiom/ghcr-cleanup-action@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+' "${WF}"
+  run code_grep -E 'uses: dataaxiom/ghcr-cleanup-action@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+' "${WF}"
   assert_success
 }
 
@@ -186,9 +186,9 @@ _exclude_tags() {
 @test "ghcr-cleanup.yaml: scheduled runs stay dry until GHCR_CLEANUP_ENFORCE opts in" {
   # Enforcement is opt-in, so forgetting the rollout review costs
   # continued sprawl rather than a broken tag.
-  run grep -F 'vars.GHCR_CLEANUP_ENFORCE' "${WF}"
+  run code_grep -F 'vars.GHCR_CLEANUP_ENFORCE' "${WF}"
   assert_success
-  run grep -F 'ENFORCE}" == "true"' "${WF}"
+  run code_grep -F 'ENFORCE}" == "true"' "${WF}"
   assert_success
 }
 
@@ -207,7 +207,7 @@ _exclude_tags() {
   # `a && b || c` collapses to `c` when b is false -- which here is the
   # dispatch-with-dry-run-false branch, the one case where getting it
   # wrong deletes what nobody asked to delete.
-  run grep -E '^[[:space:]]+id: mode$' "${WF}"
+  run code_grep -E '^[[:space:]]+id: mode$' "${WF}"
   assert_success
   run _code_lines
   assert_success

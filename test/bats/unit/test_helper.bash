@@ -106,3 +106,97 @@ exec cat "${_dir}/${_name}.late"
 EOF
     chmod +x "${_dir}/${_name}"
 }
+
+# ── Comment-stripped views of a file ──────────────────────────────────────────
+#
+# A structural spec greps a file for the shape it wants to pin. Grepping the
+# WHOLE file makes a string that appears only in a COMMENT satisfy an
+# assertion about CODE -- and the comments in this repo name, in prose,
+# exactly the things the specs assert about: the header of a workflow spells
+# out the action it must never use, a `run:` block explains why `docker tag`
+# is the wrong tool, a script's header lists the helpers it calls. A guard
+# written that way stays green while the property it names is deleted, which
+# is the failure mode these helpers exist to remove.
+#
+# The rule is deliberately narrow: a line is a comment when its first
+# non-blank character is `#`. That is the one form a YAML comment, a shell
+# comment inside a `run: |` block scalar, and a Dockerfile comment all share,
+# and it is the only form that can be recognised without parsing the host
+# language.
+#
+# What is NOT stripped, on purpose -- the over-strict failure is the same
+# defect with the sign flipped, a spec that stops matching real code:
+#   * a `#` that follows anything else on the line (`uses: a/b@sha # v1.2.2`,
+#     `run: echo "count: 3 # not a comment"`) -- that line IS code, and a
+#     naive `s/#.*//` would silently shorten it;
+#   * a `#` inside a quoted string, for the same reason;
+#   * any line of a block scalar that is not itself comment-only.
+
+# strip_comments
+#   Filter form: read stdin, drop comment-only and blank lines. Use where the
+#   source is a pipeline (an extracted block) rather than a file.
+strip_comments() {
+    grep -vE '^[[:space:]]*(#|$)'
+}
+
+# only_comments
+#   The mirror of strip_comments: keep ONLY the comment-only lines. A few
+#   assertions are genuinely about what a file SAYS -- "the job documents
+#   setup-tui as out of scope" -- and those belong here, so that asserting
+#   against a comment is a visible choice rather than the accident this
+#   whole section exists to remove.
+only_comments() {
+    grep -E '^[[:space:]]*#'
+}
+
+# code_lines <file>
+#   <file> with its comment-only and blank lines dropped. Exits non-zero when
+#   nothing survives (grep's own no-match status), so a spec that asserts
+#   success also learns that the file has no code at all.
+code_lines() {
+    strip_comments < "${1}"
+}
+
+# code_grep <grep-arg>... <file>
+#   `grep <arg>... <file>` restricted to the code lines of <file>. Argument
+#   order mirrors grep's own, file last.
+code_grep() {
+    local _file="${*: -1}"
+    code_lines "${_file}" | grep "${@:1:$#-1}"
+}
+
+# yaml_job_text <file> <job>
+#   One top-level `jobs:` entry of <file>, VERBATIM -- from `  <job>:` up to
+#   the next two-space-indented key. Comments included, so pair it with
+#   only_comments where the assertion is about the prose.
+yaml_job_text() {
+    awk -v _key="^  ${2}:" \
+        '$0 ~ _key {flag=1; next} /^  [a-z]/{flag=0} flag' "${1}"
+}
+
+# yaml_job_lines <file> <job>
+#   The code lines of one top-level `jobs:` entry. Replaces the hand-rolled
+#   awk block extractor the workflow specs each carried, which kept the
+#   comment paragraphs sitting inside the job -- and those paragraphs are
+#   long: they are where a workflow explains the mechanism the spec is
+#   trying to pin.
+yaml_job_lines() {
+    yaml_job_text "${1}" "${2}" | strip_comments
+}
+
+# yaml_top_text <file> <key>
+#   One TOP-level mapping of <file> (`on`, `env`, `permissions`,
+#   `concurrency`), VERBATIM -- from `<key>:` up to the next unindented key.
+yaml_top_text() {
+    awk -v _key="^${2}:" \
+        '$0 ~ _key {flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${1}"
+}
+
+# yaml_top_lines <file> <key>
+#   The code lines of one TOP-level mapping. The stripping matters more here
+#   than anywhere: a comment paragraph between two top-level keys is not
+#   indented out by the terminator, so an unstripped block carries the prose
+#   that follows it.
+yaml_top_lines() {
+    yaml_top_text "${1}" "${2}" | strip_comments
+}

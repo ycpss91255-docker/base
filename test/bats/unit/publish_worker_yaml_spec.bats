@@ -26,16 +26,29 @@ setup() {
   [[ -f "${WF}" ]] || skip "publish-worker.yaml not at expected path"
 }
 
+# _resolve_tags_onward / _merge_onward -- the code lines from a named point
+# to the end of the workflow. Open-ended on purpose (the tag resolution and
+# the merge job are both the last of their kind), comment-stripped so the
+# prose that explains the tag scheme cannot stand in for the code that
+# builds it.
+_resolve_tags_onward() {
+  awk '/Resolve tags/{flag=1} flag' "${WF}" | strip_comments
+}
+
+_merge_onward() {
+  awk '/^  merge:/{flag=1} flag' "${WF}" | strip_comments
+}
+
 # ── Reusable-workflow surface preserved ──────────────────────────────
 
 @test "publish-worker.yaml: stays a reusable workflow_call workflow" {
-  run grep -E '^\s+workflow_call:' "${WF}"
+  run code_grep -E '^\s+workflow_call:' "${WF}"
   assert_success
 }
 
 @test "publish-worker.yaml: preserves the registry-parameterised inputs" {
   for _in in image_name tag_suffix is_latest registry target build_args platforms context_path dockerfile_path build_contexts test_tools_version; do
-    run grep -E "^      ${_in}:" "${WF}"
+    run code_grep -E "^      ${_in}:" "${WF}"
     assert_success
   done
 }
@@ -43,25 +56,25 @@ setup() {
 # ── Native-runner matrix (shared with build/publishconvention) ─
 
 @test "publish-worker.yaml: compute-matrix maps platforms to native runners" {
-  run grep -E '^  compute-matrix:' "${WF}"
+  run code_grep -E '^  compute-matrix:' "${WF}"
   assert_success
-  run grep -F 'ubuntu-24.04-arm' "${WF}"
+  run code_grep -F 'ubuntu-24.04-arm' "${WF}"
   assert_success
-  run grep -F 'ubuntu-latest' "${WF}"
+  run code_grep -F 'ubuntu-latest' "${WF}"
   assert_success
 }
 
 @test "publish-worker.yaml: build shards run on the matrix runner" {
-  run grep -F 'runs-on: ${{ matrix.runner }}' "${WF}"
+  run code_grep -F 'runs-on: ${{ matrix.runner }}' "${WF}"
   assert_success
 }
 
 # ──push-by-digest per shard + manifest merge ──────────────────
 
 @test "publish-worker.yaml: build shards push per-platform BY DIGEST (#602)" {
-  run grep -F 'platforms: ${{ matrix.platform }}' "${WF}"
+  run code_grep -F 'platforms: ${{ matrix.platform }}' "${WF}"
   assert_success
-  run grep -F 'push-by-digest=true' "${WF}"
+  run code_grep -F 'push-by-digest=true' "${WF}"
   assert_success
 }
 
@@ -69,23 +82,23 @@ setup() {
   # The latent bug: every matrix shard ran `push: true` + a shared
   # `tags: ${{ steps.tags.outputs.tags }}`, overwriting the tag with a
   # single arch. After the fix tags are applied only by the merge job.
-  run grep -F 'tags: ${{ steps.tags.outputs.tags }}' "${WF}"
+  run code_grep -F 'tags: ${{ steps.tags.outputs.tags }}' "${WF}"
   assert_failure
 }
 
 @test "publish-worker.yaml: each shard exports + uploads its digest as an artifact (#602)" {
-  run grep -F 'actions/upload-artifact' "${WF}"
+  run code_grep -F 'actions/upload-artifact' "${WF}"
   assert_success
-  run grep -F 'name: digests-${{ matrix.hardware }}' "${WF}"
+  run code_grep -F 'name: digests-${{ matrix.hardware }}' "${WF}"
   assert_success
 }
 
 @test "publish-worker.yaml: merge job assembles the multi-arch manifest via imagetools (#602)" {
-  run grep -E '^  merge:' "${WF}"
+  run code_grep -E '^  merge:' "${WF}"
   assert_success
-  run grep -F 'actions/download-artifact' "${WF}"
+  run code_grep -F 'actions/download-artifact' "${WF}"
   assert_success
-  run grep -F 'docker buildx imagetools create' "${WF}"
+  run code_grep -F 'docker buildx imagetools create' "${WF}"
   assert_success
 }
 
@@ -93,7 +106,7 @@ setup() {
   # The tag-resolution logic (github.ref_name + tag_suffix, plus
   # :latest${suffix} when is_latest) moved intact into the merge job so
   # tags are applied exactly once, at manifest-create time.
-  run awk '/Resolve tags/{flag=1} flag' "${WF}"
+  run _resolve_tags_onward
   assert_success
   assert_output --partial 'latest'
   assert_output --partial 'SUFFIX'
@@ -102,7 +115,7 @@ setup() {
 @test "publish-worker.yaml: merge login uses the parameterised registry (not hardcoded ghcr.io)" {
   # publish-worker is registry-parameterised; the merge job must log in
   # to inputs.registry to push the manifest list.
-  run awk '/^  merge:/{flag=1} flag' "${WF}"
+  run _merge_onward
   assert_success
   assert_output --partial 'registry: ${{ inputs.registry }}'
 }
@@ -112,7 +125,7 @@ setup() {
 @test "publish-worker.yaml: declares packages: write on both push jobs" {
   # build (by-digest push) and merge (manifest push) each need it;
   # reusable-workflow permissions are per-job.
-  run grep -cE '^\s+packages:\s+write' "${WF}"
+  run code_grep -cE '^\s+packages:\s+write' "${WF}"
   assert_success
   [ "${output}" -ge 2 ]
 }
@@ -124,7 +137,7 @@ setup() {
   # over a runtime-computed matrix. Inert today (the callers are tag-push
   # release flows, and every non-PR event passes the first disjunct), which
   # is exactly when insurance is cheap to install.
-  run awk '/^  publish:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" publish
   assert_success
   assert_output --partial "github.event_name != 'pull_request' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'

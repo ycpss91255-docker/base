@@ -1716,11 +1716,19 @@ _manifest_declares() {
 
 @test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
   # Regression guard for Q13: dry-run contract requires no side effects.
-  run grep -E 'DRY_RUN.*true' /source/dist/script/docker/lib/hook.sh
+  #
+  # Over the code lines, and against the guard itself rather than the two
+  # words near each other. hook.sh's header lists `DRY_RUN=true -> both pre
+  # and post silently skipped` as part of its contract, so deleting the
+  # actual early return left the whole-file regex matching that sentence
+  # and this guard green. Both helpers route through __hook_run, so the one
+  # early return is the whole property.
+  run code_grep -F '[[ "${DRY_RUN:-false}" == "true" ]]' \
+    /source/dist/script/docker/lib/hook.sh
   assert_success
 }
 
 @test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
-  run grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
+  run code_grep -E 'not executable.*chmod' /source/dist/script/docker/lib/hook.sh
   assert_success
 }

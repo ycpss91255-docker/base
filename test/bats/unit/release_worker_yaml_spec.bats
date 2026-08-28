@@ -46,12 +46,12 @@ setup() {
 }
 
 @test "release-worker.yaml: archive step delegates to script/ci/release-archive.sh (#914)" {
-  run grep -F 'script/ci/release-archive.sh' "${WF}"
+  run code_grep -F 'script/ci/release-archive.sh' "${WF}"
   assert_success
 }
 
 @test "release-worker.yaml: archive step passes the declared payload manifest (#914)" {
-  run grep -F 'script/ci/release/archive.manifest' "${WF}"
+  run code_grep -F 'script/ci/release/archive.manifest' "${WF}"
   assert_success
 }
 
@@ -61,7 +61,7 @@ setup() {
   # Same rule the preflight job follows: the script the worker runs must
   # come from the SAME ref as the worker, or a consumer pinned to an old
   # tag would run today's assembler against yesterday's contract.
-  run grep -c 'ref: ${{ github.job_workflow_sha }}' "${WF}"
+  run code_grep -c 'ref: ${{ github.job_workflow_sha }}' "${WF}"
   assert_success
   assert_output "2"
 }
@@ -69,16 +69,16 @@ setup() {
 @test "release-worker.yaml: the base checkout the archive step runs is the one it reads (#914)" {
   # The checkout path and the script path must agree; a rename of one
   # without the other fails only at tag time.
-  run grep -F 'path: .release-base' "${WF}"
+  run code_grep -F 'path: .release-base' "${WF}"
   assert_success
-  run grep -F '.release-base/script/ci/release-archive.sh' "${WF}"
+  run code_grep -F '.release-base/script/ci/release-archive.sh' "${WF}"
   assert_success
 }
 
 # ── caller input reaches the shell through env, not interpolation ────────────
 
 @test "release-worker.yaml: extra_files reaches the archive step via env (#914)" {
-  run grep -F 'RELEASE_EXTRA_FILES: ${{ inputs.extra_files }}' "${WF}"
+  run code_grep -F 'RELEASE_EXTRA_FILES: ${{ inputs.extra_files }}' "${WF}"
   assert_success
 }
 

@@ -40,15 +40,29 @@ setup() {
   [[ -f "${WF}" ]] || skip "multi-distro-build-worker.yaml not at expected path"
 }
 
+# _on_block -- the code lines of the trigger + workflow_call interface, from
+# `on:` to `jobs:`. Comment-stripped, so the paragraphs that discuss the
+# removed 1D inputs by name cannot satisfy the assertion that they are gone.
+_on_block() {
+  awk '/^on:/{flag=1} /^jobs:/{flag=0} flag' "${WF}" | strip_comments
+}
+
+# _input_block <input> -- the code lines of one workflow_call input's mapping.
+_input_block() {
+  awk -v _key="^      ${1}:" \
+      '$0 ~ _key {flag=1; next} /^      [a-z]/{flag=0} flag' "${WF}" \
+    | strip_comments
+}
+
 # ── workflow_call interface ─────────────────────────────────────────
 
 @test "multi-distro-build-worker.yaml: declares workflow_call (#325 B-1)" {
-  run grep -E '^\s+workflow_call:' "${WF}"
+  run code_grep -E '^\s+workflow_call:' "${WF}"
   assert_success
 }
 
 @test "multi-distro-build-worker.yaml: required inputs include pr_matrix + tag_matrix + image_name (#344 matrix-mode)" {
-  run awk '/^on:/{flag=1} /^jobs:/{flag=0} flag' "${WF}"
+  run _on_block
   assert_success
   assert_output --partial 'pr_matrix:'
   assert_output --partial 'tag_matrix:'
@@ -56,7 +70,7 @@ setup() {
 }
 
 @test "multi-distro-build-worker.yaml: legacy 1D inputs are gone (no pr_distros / tag_distros / distro_input_name / extra_build_args) (#344 BREAKING)" {
-  run awk '/^on:/{flag=1} /^jobs:/{flag=0} flag' "${WF}"
+  run _on_block
   assert_success
   refute_output --partial 'pr_distros:'
   refute_output --partial 'tag_distros:'
@@ -65,21 +79,21 @@ setup() {
 }
 
 @test "multi-distro-build-worker.yaml: pr_matrix description mentions required name + build_args fields per entry (#344)" {
-  run awk '/^      pr_matrix:/{flag=1; next} /^      [a-z]/{flag=0} flag' "${WF}"
+  run _input_block pr_matrix
   assert_success
   assert_output --partial 'name'
   assert_output --partial 'build_args'
 }
 
 @test "multi-distro-build-worker.yaml: tag_matrix description mentions required name + build_args fields per entry (#344)" {
-  run awk '/^      tag_matrix:/{flag=1; next} /^      [a-z]/{flag=0} flag' "${WF}"
+  run _input_block tag_matrix
   assert_success
   assert_output --partial 'name'
   assert_output --partial 'build_args'
 }
 
 @test "multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) (#325 B-1)" {
-  run awk '/^on:/{flag=1} /^jobs:/{flag=0} flag' "${WF}"
+  run _on_block
   assert_success
   assert_output --partial 'build_runtime:'
   assert_output --partial 'test_tools_version:'
@@ -92,13 +106,13 @@ setup() {
 # ── resolve-matrix job ───────────────────────────────────────────────
 
 @test "multi-distro-build-worker.yaml: resolve-matrix job emits matrix output (#344 include-shape)" {
-  run awk '/^  resolve-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" resolve-matrix
   assert_success
   assert_output --partial 'matrix: ${{ steps.r.outputs.matrix }}'
 }
 
 @test "multi-distro-build-worker.yaml: resolve-matrix branches on github.event_name == pull_request (#344)" {
-  run awk '/^  resolve-matrix:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" resolve-matrix
   assert_success
   assert_output --partial 'EVENT_NAME: ${{ github.event_name }}'
   assert_output --partial '"${EVENT_NAME}" == "pull_request"'
@@ -109,13 +123,13 @@ setup() {
 # ── call-build matrix job ────────────────────────────────────────────
 
 @test "multi-distro-build-worker.yaml: call-build uses local build-worker via ./.github/workflows/build-worker.yaml (#325 B-1)" {
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'uses: ./.github/workflows/build-worker.yaml'
 }
 
 @test "multi-distro-build-worker.yaml: call-build matrix is include: fromJSON(needs.resolve-matrix.outputs.matrix) (#344 N-D)" {
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'include: ${{ fromJSON(needs.resolve-matrix.outputs.matrix) }}'
 }
@@ -124,26 +138,26 @@ setup() {
   # Hyphen separator chosen to match the existing org pattern (e.g.
   # app/ros1_bridge's pre-dispatcher main.yaml shipped
   # `ros1_bridge-${distro}`). v0.29.1 fix carried over.
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'image_name: ${{ inputs.image_name }}-${{ matrix.name }}'
   refute_output --partial 'image_name: ${{ inputs.image_name }}_${{ matrix.name }}'
 }
 
 @test "multi-distro-build-worker.yaml: call-build passes matrix.build_args verbatim as build_args (#344)" {
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'build_args: ${{ matrix.build_args }}'
 }
 
 @test "multi-distro-build-worker.yaml: call-build splits buildx cache by name via cache_variant: matrix.name (#272 reuse, #344)" {
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'cache_variant: ${{ matrix.name }}'
 }
 
 @test "multi-distro-build-worker.yaml: call-build has fail-fast: false so one shard's failure doesn't cancel siblings (#325 B-1)" {
-  run awk '/^  call-build:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" call-build
   assert_success
   assert_output --partial 'fail-fast: false'
 }
@@ -151,7 +165,7 @@ setup() {
 # ── ci-passed rollup ─────────────────────────────────────────────────
 
 @test "multi-distro-build-worker.yaml: ci-passed rollup job exists, depends on call-build, runs even if matrix failed (#325 B-1)" {
-  run awk '/^  ci-passed:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-passed
   assert_success
   assert_output --partial 'needs: call-build'
   assert_output --partial 'if: ${{ always() }}'
@@ -160,7 +174,7 @@ setup() {
 }
 
 @test "multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)" {
-  run awk '/^  ci-passed:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-passed
   assert_success
   assert_output --partial 'name: ci-passed'
 }

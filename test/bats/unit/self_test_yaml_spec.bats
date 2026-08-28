@@ -27,6 +27,14 @@
 #    shellcheck/hadolint, bats-unit/bats-integration) can join
 #    its `needs:` without further branch-protection churn.
 
+# Assertions here read the workflow's CODE, via the comment-stripped views
+# in test_helper.bash (code_grep / yaml_job_lines / yaml_top_lines) rather
+# than the raw file. self-test.yaml is a heavily commented file whose prose
+# names the very mechanisms this spec pins -- `docker tag`, `~/work`,
+# `skipped` -- so a whole-file read is satisfied by the explanation of a
+# thing instead of the thing. Where an assertion IS about the prose, it says
+# so by reading yaml_job_text / _job_comments instead.
+
 bats_require_minimum_version 1.5.0
 
 setup() {
@@ -45,45 +53,52 @@ setup() {
 # comparison is over values only.
 _render_run_names() {
   local _run_id="${1}" _attempt="${2}"
-  awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}" \
+  yaml_top_lines "${WF}" env \
     | grep -E '^  [A-Za-z_][A-Za-z0-9_]*:' \
     | sed -e "s/\${{ *github\.run_id *}}/${_run_id}/g" \
           -e "s/\${{ *github\.run_attempt *}}/${_attempt}/g"
 }
 
+# _job_comments <job> -- the comment lines of one job block: the mirror of
+# yaml_job_lines, for the rare assertion that is genuinely about what the
+# workflow SAYS rather than what it does.
+_job_comments() {
+  yaml_job_text "${WF}" "${1}" | only_comments
+}
+
 # ── actionlint job declared ────────────────────────────────────
 
 @test "self-test.yaml: declares actionlint job" {
-  run grep -E '^  actionlint:' "${WF}"
+  run code_grep -E '^  actionlint:' "${WF}"
   assert_success
 }
 
 @test "self-test.yaml: actionlint job runs rhysd/actionlint via Docker with pinned tag" {
-  run grep -E 'rhysd/actionlint:[0-9]+\.[0-9]+\.[0-9]+' "${WF}"
+  run code_grep -E 'rhysd/actionlint:[0-9]+\.[0-9]+\.[0-9]+' "${WF}"
   assert_success
 }
 
 # ── classify job declared with both outputs ────────────────────
 
 @test "self-test.yaml: declares classify job (#317)" {
-  run grep -E '^  classify:' "${WF}"
+  run code_grep -E '^  classify:' "${WF}"
   assert_success
 }
 
 @test "self-test.yaml: classify job declares code_changed output (#317)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'code_changed: ${{ steps.diff.outputs.code_changed }}'
 }
 
 @test "self-test.yaml: classify job declares system_relevant output (#317)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'system_relevant: ${{ steps.diff.outputs.system_relevant }}'
 }
 
 @test "self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' + 'CONTEXT.md' (#317)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial "':!doc/**'"
   assert_output --partial "':!README.md'"
@@ -95,7 +110,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: classify uses system block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial "'script/entrypoint.sh'"
   assert_output --partial "'compose.yaml'"
@@ -112,7 +127,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: classify defaults code_changed/system_relevant to true on non-PR events (#317)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   # Both outputs branch to 'true' when EVENT_NAME != pull_request
   assert_output --partial '!= "pull_request"'
@@ -125,7 +140,7 @@ _render_run_names() {
   # `test` job needs classify as a gate, and aborting here would block all
   # PR merges (Q4 fail-closed chain). Verify `set -e` is not in effect by
   # asserting `set -uo pipefail` (not `set -euo pipefail`) is used.
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'set -uo pipefail'
   refute_output --partial 'set -euo pipefail'
@@ -137,7 +152,7 @@ _render_run_names() {
   # histories) start without `origin/<base>` present locally; the
   # classifier must pre-fetch it explicitly, with failure being non-fatal
   # so the diff fall-through can still take over.
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'git fetch origin'
   assert_output --partial '"${BASE_REF}:refs/remotes/origin/${BASE_REF}"'
@@ -147,19 +162,19 @@ _render_run_names() {
 # ── Downstream jobs gate on actionlint + classify ─
 
 @test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
 @test "self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)" {
-  run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
 @test "self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)" {
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -167,7 +182,7 @@ _render_run_names() {
 @test "self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)" {
   # A3: exercise the documented `just` entry points so a broken
   # container-ops justfile is caught (the user entry is just).
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'just docker build'
   assert_output --partial 'just docker run -d'
@@ -181,13 +196,20 @@ _render_run_names() {
 @test "self-test.yaml: acceptance asserts the runnability contract (#579)" {
   # A1: the job must ASSERT results, not just run steps. Covers the
   # five-point contract: configured user (not initial/root), container
-  # still running, wired ENTRYPOINT, usable ~/work mount, and full
+  # still running, wired ENTRYPOINT, usable workspace mount, and full
   # teardown (container + project network) on stop.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  #
+  # The mount probe is asserted by the path the step actually builds, not
+  # by the tilde form: `~` never appears in this job's code -- `just docker
+  # exec` takes per-call argv, so the step spells the mount absolutely.
+  # `~/work` occurs exactly once in the whole workflow, in the comment that
+  # introduces point (4), which is what made the old assertion vacuous.
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'USER_NAME'
   assert_output --partial '/entrypoint.sh'
-  assert_output --partial '~/work'
+  assert_output --partial 'work="/home/${USER_NAME}/work"'
+  assert_output --partial 'just docker exec test -d "${work}"'
   assert_output --partial '_default'
 }
 
@@ -196,7 +218,7 @@ _render_run_names() {
   # downstream verb with REAL execution (not --dry-run): the foreground run
   # variant, start (build + run), a real prune, an explicit setup re-run,
   # the base update check, and the base completions installer.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'just docker run id -un'
   assert_output --partial 'just docker start'
@@ -215,7 +237,7 @@ _render_run_names() {
   # (script/local/<name>/ + its registration), i.e. from the consumer's
   # chair (UAT). Placed here, not as a bats spec, because a faithful
   # exercise needs the init.sh-scaffolded consumer this job already builds.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'just template new'
   assert_output --partial 'script/local/'
@@ -225,9 +247,18 @@ _render_run_names() {
   # setup-tui is interactive (TUI); it stays covered by tui_spec and is
   # NOT driven for real in the e2e. The job must say so, and must not try
   # to invoke it.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  #
+  # The two halves read different streams on purpose. "Says so" is a claim
+  # about the PROSE, so it is asserted over the job's comment lines -- the
+  # one shape where a comment is the right subject. "Does not invoke it" is
+  # a claim about what the job RUNS, so it is asserted over the code lines;
+  # over the whole block the refutation would be broken by the very comment
+  # the first half demands.
+  run _job_comments acceptance
   assert_success
   assert_output --partial 'setup-tui'
+  run yaml_job_lines "${WF}" acceptance
+  assert_success
   refute_output --partial 'just docker setup-tui'
 }
 
@@ -235,7 +266,7 @@ _render_run_names() {
   # A2: verify the runnability contract on BOTH arches via native
   # runners (no QEMU), mirroring the platform->runner convention in
   # build-worker / publish-worker / release-test-tools.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'fail-fast: false'
   assert_output --partial 'linux/amd64'
@@ -245,7 +276,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: acceptance shards run on the matrix runner (#603)" {
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'runs-on: ${{ matrix.runner }}'
 }
@@ -255,14 +286,14 @@ _render_run_names() {
   # variant (test-tools is multi-arch); a hardcoded
   # linux/amd64 would resolve the wrong arch for the downstream
   # FROM ${TEST_TOOLS_IMAGE} build.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'docker pull --platform ${{ matrix.platform }}'
   refute_output --partial 'docker pull --platform linux/amd64'
 }
 
 @test "self-test.yaml: system job declares needs on actionlint AND classify (#317)" {
-  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -272,13 +303,13 @@ _render_run_names() {
 @test "self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)" {
   # bats-fragile replaces the bats-unit matrix; same job-level skip so
   # ci-rollup's SKIPPED=pass rule keeps doc-only PRs merge-able.
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
 @test "self-test.yaml: bats-integration job-level if: gates on code_changed (#377)" {
-  run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
@@ -287,12 +318,12 @@ _render_run_names() {
   # a `test` job ran shellcheck + bats sequentially.
   # peeled shellcheck out, splits the rest into bats-unit
   # (matrix) + bats-integration. The old job is fully removed.
-  run grep -E '^  test:' "${WF}"
+  run code_grep -E '^  test:' "${WF}"
   assert_failure
 }
 
 @test "self-test.yaml: acceptance job-level if: gates on code_changed (#317)" {
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
@@ -302,7 +333,7 @@ _render_run_names() {
   # output was emitted-but-unused; P3 tightens to the narrower output so
   # PRs that change pure lint / unit-test paths (already covered by
   # `test`) don't burn the docker.sock-mounted compose run.
-  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
   refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
@@ -314,7 +345,7 @@ _render_run_names() {
   # logs); prune.sh is part of the wrapper family. All four indirectly
   # affect what the docker.sock-mounted compose service does, so they
   # must invalidate the system-skip optimization.
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial "'dist/script/docker/wrapper/setup.sh'"
   assert_output --partial "'dist/script/docker/lib/i18n.sh'"
@@ -328,7 +359,7 @@ _render_run_names() {
   # a PR touching ONLY those -- without a .github/workflows/** change -- must
   # still flip system_relevant=true and re-run the System self-test instead
   # of skipping it.
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial "'script/ci/build_worker/**'"
   assert_output --partial "'test/fixtures/build-worker/**'"
@@ -337,7 +368,7 @@ _render_run_names() {
 # ── buildx GHA cache on test-tools builds ────────────────
 
 @test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial 'uses: docker/build-push-action@v6'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
@@ -345,7 +376,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
-  run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'uses: docker/build-push-action@v6'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
@@ -353,7 +384,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
-  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial 'uses: docker/build-push-action@v6'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
@@ -363,24 +394,34 @@ _render_run_names() {
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)" {
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  # The re-tag is a one-line `FROM ... LABEL ...` build, NOT `docker tag`:
+  # the pulled image has to carry this run's ownership label so reclaim can
+  # tell whose it is, and `docker tag` cannot add a label. The step's own
+  # comment says exactly that, in the words `docker tag` -- which is why the
+  # old `--partial 'docker tag'` here asserted nothing: all six occurrences
+  # of the string in this workflow are inside that one comment, repeated per
+  # job, and none is code. Both halves are pinned against the code lines:
+  # the mechanism that IS used, and the one that must not come back.
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'docker pull --platform linux/amd64'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  assert_output --partial 'docker tag'
+  assert_output --partial 'LABEL base.ci.run=%s'
+  assert_output --partial 'docker build -q -t "${TEST_TOOLS_IMAGE}" -'
+  refute_output --partial 'docker tag'
   assert_output --partial 'build_local=true'
   assert_output --partial 'build_local=false'
 }
 
 @test "self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)" {
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial "steps.obtain.outputs.build_local == 'true'"
 }
 
 @test "self-test.yaml: bats-integration job has Obtain step + 3-layer fallback (#317 P2 + #377)" {
-  run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
@@ -389,7 +430,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
@@ -408,13 +449,13 @@ _render_run_names() {
   # uncached (GHA cache requires docker-container), accepted because
   # the hot path is `docker pull :main` and the cold path matches
   # pre-P2 cost.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'driver: docker'
 }
 
 @test "self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)" {
-  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
@@ -431,7 +472,7 @@ _render_run_names() {
   # step must PROBE for the required tools (kcov at minimum) and, on a
   # miss, fall back to building locally (build_local=true) instead of
   # running the suite against a stale image.
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial 'REQUIRED_TOOLS'
   assert_output --partial 'kcov'
@@ -443,7 +484,7 @@ _render_run_names() {
   # The coverage shards are the ones that actually race (kcov-not-found
   # fast-fail). Same probe-and-rebuild guard as bats-unit so a stale
   # :main self-corrects to a local rebuild.
-  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage
   assert_success
   assert_output --partial 'REQUIRED_TOOLS'
   assert_output --partial 'kcov'
@@ -455,7 +496,7 @@ _render_run_names() {
   # The probe drives off a single REQUIRED_TOOLS list so a new baked
   # tool is covered by adding one word, not editing loop logic. kcov is
   # the racing one; bats / shellcheck / hadolint are also asserted.
-  run grep 'REQUIRED_TOOLS=' "${WF}"
+  run code_grep 'REQUIRED_TOOLS=' "${WF}"
   assert_success
   assert_output --partial 'kcov'
   assert_output --partial 'bats'
@@ -463,14 +504,34 @@ _render_run_names() {
   assert_output --partial 'hadolint'
 }
 
-@test "self-test.yaml: every :main-pulling Obtain step carries the probe-and-rebuild guard (#697)" {
-  # All five build_local-pattern obtain steps (hadolint, bats-fragile,
-  # bats-integration, coverage, system) pull the same :main tag and
-  # so race identically; each must probe + rebuild on a miss. One
-  # REQUIRED_TOOLS line per such job.
-  run grep -c 'REQUIRED_TOOLS=' "${WF}"
-  assert_success
-  assert_output '5'
+@test "self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)" {
+  # The five build_local-pattern obtain steps (hadolint, bats-fragile,
+  # bats-integration, coverage, system) pull the same :main tag and race
+  # identically; each must probe + rebuild on a miss.
+  #
+  # Named per job, not counted. The previous form asserted
+  # a `grep -c 'REQUIRED_TOOLS='` equal to 5 over the whole workflow,
+  # which is satisfied by ANY five occurrences: deleting hadolint's guard
+  # and double-listing coverage's keeps it green, and the count says
+  # nothing about which job is covered. It also carried the wrong name --
+  # there are SIX :main-pulling Obtain steps, so as written the invariant
+  # it claimed was false while the test was green.
+  #
+  # The sixth, `acceptance`, is deliberately not in this list and is not a
+  # gap: REQUIRED_TOOLS is about the tools a job EXECUTES, and acceptance
+  # executes none of them. It consumes the image only as the `FROM` base of
+  # the scaffolded consumer's test stage, so a :main missing kcov costs it
+  # nothing. The honest invariant is the one this test now names -- every
+  # job that runs the baked tools probes for them -- rather than every job
+  # that pulls the tag.
+  local _job
+  for _job in hadolint bats-fragile bats-integration coverage system; do
+    run yaml_job_lines "${WF}" "${_job}"
+    assert_success
+    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint"'
+    assert_output --partial 'command -v ${_tool}'
+    assert_output --partial 'build_local=true'
+  done
 }
 
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {
@@ -482,13 +543,13 @@ _render_run_names() {
   # reported every file as changed and rebuilt the image on EVERY PR. They now
   # read needs.classify.outputs.testtools_changed instead -- so `git fetch
   # origin` appears exactly once (classify).
-  run grep -c 'git fetch origin' "${WF}"
+  run code_grep -c 'git fetch origin' "${WF}"
   assert_success
   assert_output '1'
 }
 
 @test "self-test.yaml: classify emits testtools_changed from a full-history diff (#734)" {
-  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'testtools_changed:'
   assert_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
@@ -497,7 +558,7 @@ _render_run_names() {
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
   # Every job that rebuilds test-tools keys off the single classify output,
   # not its own shallow-checkout diff. One env wiring per image job (6).
-  run grep -c 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  run code_grep -c 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
   assert_success
   assert_output '6'
 }
@@ -509,7 +570,7 @@ _render_run_names() {
   # shard restores the cached weights to the in-repo path _spec_weight reads
   # by default, so every shard computes the identical (exhaustive + disjoint)
   # partition. A cache miss degrades to the @test-count fallback.
-  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage
   assert_success
   assert_output --partial 'actions/cache/restore'
   assert_output --partial 'test/bats/.shard-weights'
@@ -520,7 +581,7 @@ _render_run_names() {
   # coverage-gate already downloads every shard artifact (cobertura), which
   # now also carries each shard's timings.tsv; it merges them into one
   # weights file via the gate driver's --merge-timings subcommand.
-  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage-gate
   assert_success
   assert_output --partial '--merge-timings'
   assert_output --partial 'timings.tsv'
@@ -529,7 +590,7 @@ _render_run_names() {
 @test "self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)" {
   # Only authoritative main-push runs refresh the cache (stable runners);
   # PR runs read-only so PR-runner noise never poisons the shared weights.
-  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage-gate
   assert_success
   assert_output --partial 'actions/cache/save'
   assert_output --partial "github.event_name == 'push'"
@@ -538,7 +599,7 @@ _render_run_names() {
 # ── ci-rollup aggregator ───────────────────────────────────────
 
 @test "self-test.yaml: declares ci-rollup job (#337)" {
-  run grep -E '^  ci-rollup:' "${WF}"
+  run code_grep -E '^  ci-rollup:' "${WF}"
   assert_success
 }
 
@@ -549,7 +610,7 @@ _render_run_names() {
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
@@ -559,7 +620,7 @@ _render_run_names() {
   # reverses that — the sharded kcov gate joins the rollup so a kcov
   # failure blocks merge. ci-rollup's SKIPPED=pass rule keeps doc-only
   # PRs merge-able even though coverage is now in `needs:`.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs.coverage.result'
   assert_output --partial ', coverage,'
@@ -569,7 +630,7 @@ _render_run_names() {
   # Without `if: always` the rollup would skip when any upstream
   # need failed, masking the failure as SKIPPED — branch protection
   # treats SKIPPED as missing, so the merge gate would lift falsely.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'if: always()'
 }
@@ -577,7 +638,7 @@ _render_run_names() {
 @test "self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)" {
   # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
   # to translate the parallel job graph into a single pass/fail signal.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs.actionlint.result'
   assert_output --partial 'needs.classify.result'
@@ -597,19 +658,37 @@ _render_run_names() {
   # always-running `test` job no longer exists). The rollup must
   # collapse SKIPPED into pass for those, otherwise doc-only PRs
   # cannot merge.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  #
+  # Asserted as the comparison, not as the word. `--partial 'skipped'` was
+  # satisfied by the word inside the fork-PR `::error::` message a few
+  # lines below -- a code line, so stripping comments does not help here:
+  # deleting `|| "${r}" == "skipped"` outright left this green. The
+  # membership half matters as much as the comparison: a job moved out of
+  # the tolerant loop loses its skip tolerance without touching the
+  # comparison at all.
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'skipped'
+  assert_output --partial 'for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \'
+  assert_output --partial '"${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \'
+  assert_output --partial '[[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1'
 }
 
 @test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)" {
-  # only actionlint + classify are hard-mandatory (the old
-  # always-running `test` job no longer exists). SKIPPED there
-  # indicates a workflow bug, not an intentional gate. Verified
-  # indirectly by asserting the success comparison appears.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  # actionlint + classify + doc-counts + lint-static are hard-mandatory:
+  # they carry no `if:` gate, so SKIPPED there indicates a workflow bug,
+  # not an intentional gate.
+  #
+  # Asserted as the strict comparison plus the membership of the strict
+  # loop. `--partial 'success'` matched the word anywhere in the job --
+  # every result echo, and the tolerant loop's own first disjunct -- so it
+  # held whether or not a strict bucket existed at all. The strict line is
+  # not a substring of the tolerant one (`"success"` is followed by ` ]]`
+  # there, by ` ||` here), so this discriminates between them.
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'success'
+  assert_output --partial 'for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \'
+  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do'
+  assert_output --partial '[[ "${r}" == "success" ]] || fail=1'
 }
 
 # ── Fork PRs cannot make the rollup vacuously green ────────────
@@ -624,7 +703,7 @@ _render_run_names() {
   # untrusted PR. A required check is a claim the commit was fully tested;
   # on a fork PR that claim is false, so the rollup has to say so rather
   # than pass.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'IS_FORK_PR:'
   assert_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
@@ -646,7 +725,7 @@ _render_run_names() {
   # Belt to the _LINT_TOOLS completeness guard's braces: that check proves
   # SOME job names every lint, this one names the join the guard is meant
   # to have. A guard whose own CI job vanished would gate nothing.
-  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" lint-static
   assert_success
   assert_output --partial '- self-hosted-guard'
 }
@@ -659,9 +738,9 @@ _render_run_names() {
   # semantic break in the worker turns this job red instead of surfacing
   # only when a downstream runs it in production. The `uses:` is the LOCAL
   # reusable-workflow reference (must stay actionlint-clean).
-  run grep -E '^  worker-selftest:' "${WF}"
+  run code_grep -E '^  worker-selftest:' "${WF}"
   assert_success
-  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" worker-selftest
   assert_success
   assert_output --partial 'uses: ./.github/workflows/build-worker.yaml'
 }
@@ -671,7 +750,7 @@ _render_run_names() {
   # worker is pointed at the trivial alpine fixture
   # (test/fixtures/build-worker/Dockerfile) via context_path, with the
   # required image_name input supplied.
-  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" worker-selftest
   assert_success
   assert_output --partial 'image_name: worker-selftest'
   assert_output --partial 'context_path: test/fixtures/build-worker'
@@ -681,7 +760,7 @@ _render_run_names() {
   # Same upstream pattern as the system job: actionlint fires first, and the
   # narrower system_relevant output skips it on pure lint / unit / doc PRs
   # (any change to .github/workflows/** re-runs it via the block-list).
-  run awk '/^  worker-selftest:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" worker-selftest
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
@@ -691,17 +770,25 @@ _render_run_names() {
   # The System self-test joins the aggregator branch protection keys on, in
   # the success-or-skipped bucket (it skips on non-system PRs). ci-rollup
   # must list it in needs: and inspect its result.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs.worker-selftest.result'
   assert_output --partial ', worker-selftest]'
+
+  # ...and be IN the tolerant bucket, which "consumes its result" does not
+  # say: deleting the tolerant loop outright left the two assertions above
+  # green. Same membership check the doc-counts / lint-static siblings make
+  # against the strict loop.
+  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
+  assert_success
+  assert_output --partial 'WORKER_SELFTEST_RESULT'
 }
 
 @test "self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)" {
   # Acceptance criterion: the System job is part of the required gate before
   # a tag. release fires on tag push only; if the worker self-test fails the
   # tag must NOT produce a Release.
-  run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" release
   assert_success
   assert_output --partial 'worker-selftest]'
 }
@@ -709,7 +796,7 @@ _render_run_names() {
 # ── shellcheck + hadolint dedicated jobs ───────────────────────
 
 @test "self-test.yaml: declares shellcheck job (#376)" {
-  run grep -E '^  shellcheck:' "${WF}"
+  run code_grep -E '^  shellcheck:' "${WF}"
   assert_success
 }
 
@@ -717,7 +804,7 @@ _render_run_names() {
   # Same upstream pattern as the test/acceptance jobs so the
   # actionlint workflow-validator gate still fires first, and the
   # doc-only short-circuit still skips lint runs.
-  run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
@@ -728,7 +815,7 @@ _render_run_names() {
   # ships shellcheck pre-installed so no apt-install / no buildx /
   # no test-tools image is needed — keeps the job cold-startup cost
   # near zero.
-  run awk '/^  shellcheck:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial './script/test/test.sh --shellcheck-only'
@@ -738,7 +825,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: declares doc-counts job (#864)" {
-  run grep -E '^  doc-counts:' "${WF}"
+  run code_grep -E '^  doc-counts:' "${WF}"
   assert_success
 }
 
@@ -748,7 +835,7 @@ _render_run_names() {
   # one tool and every bats job sets BATS_ONLY=1. This job is the CI half.
   # Pure bash + diff, so no buildx / test-tools image, same cold-start cost
   # as the shellcheck job.
-  run awk '/^  doc-counts:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" doc-counts
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
@@ -761,7 +848,7 @@ _render_run_names() {
   # be broken by hand-editing doc/test/*.md, which classify scores as a
   # doc-only change. A code_changed gate would skip the gate on exactly
   # the PR that hand-edited a count.
-  run awk '/^  doc-counts:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" doc-counts
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
@@ -778,11 +865,11 @@ _render_run_names() {
   # skipped-tolerated one. The success-only loop is the one whose body
   # compares against "success" alone; grep the two lines following the
   # ACTIONLINT/CLASSIFY loop header to see what else it iterates.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs.doc-counts.result'
 
-  run grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
   assert_success
   assert_output --partial 'DOC_COUNTS_RESULT'
 }
@@ -790,7 +877,7 @@ _render_run_names() {
 # ── lint-static matrix (the rest of the lint phase) ────────────
 
 @test "self-test.yaml: declares lint-static job (#866)" {
-  run grep -E '^  lint-static:' "${WF}"
+  run code_grep -E '^  lint-static:' "${WF}"
   assert_success
 }
 
@@ -802,7 +889,7 @@ _render_run_names() {
   # Each is pure bash over the checkout, so a plain ubuntu-latest runner
   # can call it host-direct -- no buildx, no test-tools image. One matrix
   # entry each so the checks list names WHICH lint failed.
-  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" lint-static
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
@@ -833,7 +920,7 @@ _render_run_names() {
   # would skip them on exactly the PR they exist to catch. A matrix
   # shares ONE job-level `if:`, so the gate would be all-or-nothing
   # anyway.
-  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" lint-static
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
@@ -845,11 +932,11 @@ _render_run_names() {
   # No `if:` gate, so SKIPPED means a workflow bug -- same contract as
   # doc-counts. It must sit in the success-only loop, never the
   # skipped-tolerated one.
-  run awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'needs.lint-static.result'
 
-  run grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
   assert_success
   assert_output --partial 'LINT_STATIC_RESULT'
 }
@@ -900,18 +987,18 @@ _render_run_names() {
   done
 
   for _t in "${_tools[@]}"; do
-    grep -qE -- "--${_t}-only|--lint --${_t}|^ +- ${_t}\$" "${WF}" \
+    code_grep -qE -- "--${_t}-only|--lint --${_t}|^ +- ${_t}\$" "${WF}" \
       || fail "lint '${_t}' runs in the just test lint phase but NO job in self-test.yaml runs it -- it would gate nothing on a PR"
   done
 }
 
 @test "self-test.yaml: declares hadolint job (#376)" {
-  run grep -E '^  hadolint:' "${WF}"
+  run code_grep -E '^  hadolint:' "${WF}"
   assert_success
 }
 
 @test "self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)" {
-  run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" hadolint
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
@@ -924,7 +1011,7 @@ _render_run_names() {
   # the SAME driver (script/test/drivers/hadolint.sh via `test.sh --lint
   # --hadolint`) inside the test-tools image, so the Dockerfile list +
   # config live in ONE place (the driver) for both local + CI.
-  run awk '/^  hadolint:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" hadolint
   assert_success
   assert_output --partial './script/test/test.sh --lint --hadolint'
   # The driver image (test-tools) is obtained like the bats jobs.
@@ -938,7 +1025,7 @@ _render_run_names() {
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
   # the release chain.
-  run awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" release
   assert_success
   assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
 }
@@ -946,7 +1033,7 @@ _render_run_names() {
 # ── bats-unit + bats-integration + coverage jobs ───────────────
 
 @test "self-test.yaml: declares bats-fragile job (#677)" {
-  run grep -E '^  bats-fragile:' "${WF}"
+  run code_grep -E '^  bats-fragile:' "${WF}"
   assert_success
 }
 
@@ -954,7 +1041,7 @@ _render_run_names() {
   # The 4-shard bats-unit matrix (which double-ran the same specs the
   # coverage matrix runs) is replaced with ONE plain job running only the
   # kcov-fragile specs the coverage matrix skips. No strategy.matrix here.
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   refute_output --partial 'strategy:'
   refute_output --partial 'matrix:'
@@ -962,7 +1049,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)" {
-  run awk '/^  bats-fragile:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial './script/test/test.sh --bats-fragile'
 }
@@ -970,23 +1057,23 @@ _render_run_names() {
 @test "self-test.yaml: no bats-unit shard matrix remains after #677" {
   # The double-run bats-unit matrix is fully removed; coverage is the
   # primary unit gate and bats-fragile covers the kcov-skipped delta.
-  run grep -E '^  bats-unit:' "${WF}"
+  run code_grep -E '^  bats-unit:' "${WF}"
   assert_failure
 }
 
 @test "self-test.yaml: declares bats-integration job (#377)" {
-  run grep -E '^  bats-integration:' "${WF}"
+  run code_grep -E '^  bats-integration:' "${WF}"
   assert_success
 }
 
 @test "self-test.yaml: bats-integration invokes test.sh --bats-integration (#377)" {
-  run awk '/^  bats-integration:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial './script/test/test.sh --bats-integration'
 }
 
 @test "self-test.yaml: declares coverage job (#377)" {
-  run grep -E '^  coverage:' "${WF}"
+  run code_grep -E '^  coverage:' "${WF}"
   assert_success
 }
 
@@ -996,7 +1083,7 @@ _render_run_names() {
   # ballpark, and gates it on the same `code_changed` output as the other
   # PR-check jobs so PR coverage data exists for the gate. The old
   # push&&main-only `if:` is gone.
-  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage
   assert_success
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
   refute_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
@@ -1007,7 +1094,7 @@ _render_run_names() {
   # the matrix is built from compute-shards' JSON output via fromJSON, not a
   # hardcoded 1/4..4/4 list. fail-fast: false so one shard's failure doesn't
   # cancel the rest.
-  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage
   assert_success
   assert_output --partial 'fail-fast: false'
   assert_output --partial 'shard: ${{ fromJSON(needs.compute-shards.outputs.shards) }}'
@@ -1016,7 +1103,7 @@ _render_run_names() {
 }
 
 @test "self-test.yaml: compute-shards job emits a dynamic shard array from vars.CI_SHARDS (default 8, clamped) (#725)" {
-  run awk '/^  compute-shards:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" compute-shards
   assert_success
   assert_output --partial 'shards: ${{ steps.gen.outputs.shards }}'
   assert_output --partial 'CI_SHARDS: ${{ vars.CI_SHARDS }}'
@@ -1030,7 +1117,7 @@ _render_run_names() {
   # kcov output (HTML + cobertura) as a CI artifact keyed by the shard
   # index, for the self-hosted coverage-gate to merge locally. No external
   # coverage-SaaS upload (the SaaS path is superseded by coverage_gate.sh).
-  run awk '/^  coverage:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage
   assert_success
   assert_output --partial './script/test/test.sh --coverage-shard ${{ matrix.shard }}'
   assert_output --partial 'actions/upload-artifact@v7'
@@ -1041,7 +1128,7 @@ _render_run_names() {
 @test "self-test.yaml: NO codecov reference anywhere in the workflow (#710)" {
   # The whole Codecov path (action, token, directory, per-shard flag) is
   # removed; coverage merge + gate is now self-hosted via coverage_gate.sh.
-  run grep -i 'codecov' "${WF}"
+  run code_grep -i 'codecov' "${WF}"
   assert_failure
 }
 
@@ -1050,9 +1137,9 @@ _render_run_names() {
   # and runs coverage_gate.sh to merge the per-shard cobertura reports
   # into one line-weighted project rate, failing below COVERAGE_MIN. Joins
   # ci-rollup so the floor gates merge with no external SaaS.
-  run grep -E '^  coverage-gate:' "${WF}"
+  run code_grep -E '^  coverage-gate:' "${WF}"
   assert_success
-  run awk '/^  coverage-gate:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" coverage-gate
   assert_success
   assert_output --partial 'needs: [classify, coverage]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
@@ -1066,7 +1153,7 @@ _render_run_names() {
   # directly instead of through test.sh, so it is the only one that has to
   # put the runner's ids in the environment compose interpolates. Without
   # them the service definition refuses to resolve.
-  run awk '/^  system:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial 'HOST_UID="$(id -u)"'
   assert_output --partial 'HOST_GID="$(id -g)"'
@@ -1083,7 +1170,7 @@ _render_run_names() {
 # instead: if any name comes out equal, two jobs sharing a host share it.
 
 @test "self-test.yaml: declares a workflow-level env block carrying the run identity (#900)" {
-  run awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" env
   assert_success
   assert_output --partial 'github.run_id'
   assert_output --partial 'github.run_attempt'
@@ -1125,7 +1212,7 @@ _render_run_names() {
   # cannot be traced back to a run; github.sha is shared by every job of a
   # run AND identical across re-runs. run_id + run_attempt are both in the
   # Actions UI, so a leftover names the run that made it.
-  run awk '/^env:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${WF}"
+  run yaml_top_lines "${WF}" env
   assert_success
   refute_output --partial 'github.sha'
   refute_output --partial 'date +'
@@ -1136,11 +1223,11 @@ _render_run_names() {
   # to write over each other. No job may reintroduce it, and no job may
   # spell its own variant of the run-scoped tag either -- the workflow-level
   # env block is the single source every job inherits.
-  run grep -n 'test-tools:local' "${WF}"
+  run code_grep -F 'test-tools:local' "${WF}"
   assert_failure
-  run grep -cE '^ +TEST_TOOLS_IMAGE:' "${WF}"
+  run code_grep -cE '^ +TEST_TOOLS_IMAGE:' "${WF}"
   assert_output '1'
-  run grep -cE '^ +COMPOSE_PROJECT_NAME:' "${WF}"
+  run code_grep -cE '^ +COMPOSE_PROJECT_NAME:' "${WF}"
   assert_output '1'
 }
 
@@ -1149,7 +1236,7 @@ _render_run_names() {
   # so cleanup cannot ask compose "whose is this". Every path that puts it
   # in the runner's daemon -- the cached build, the inline build, the
   # pulled-and-retagged hot path -- stamps the run identity on it.
-  run grep -c 'base.ci.run' "${WF}"
+  run code_grep -c 'base.ci.run' "${WF}"
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected the ownership label on every test-tools provisioning path, found ${output}"
@@ -1159,7 +1246,7 @@ _render_run_names() {
   # The scaffolded consumer's directory basename becomes IMAGE_NAME, which
   # is what the image tag, the container name and the compose project are
   # all built from -- so one unique directory name makes all three unique.
-  run awk '/^  acceptance:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"'
   # The throwaway probe network `just docker prune` is asserted against is
@@ -1187,12 +1274,12 @@ _render_run_names() {
   # The six docker-using jobs: hadolint, bats-fragile, bats-integration,
   # coverage, acceptance, system. Each one loads a test-tools image into
   # the runner's daemon, so each one has to hand it back.
-  run grep -c 'script/ci/reclaim.sh' "${WF}"
+  run code_grep -c 'script/ci/reclaim.sh' "${WF}"
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected a reclaim step in every docker-using job, found ${output}"
   # Every reclaim step names the run it is allowed to remove.
-  run grep -c -- '--run "\${CI_RUN_KEY}"' "${WF}"
+  run code_grep -c -- '--run "\${CI_RUN_KEY}"' "${WF}"
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected every reclaim step to be scoped to CI_RUN_KEY, found ${output}"
@@ -1201,7 +1288,7 @@ _render_run_names() {
 @test "self-test.yaml: teardown runs on failure too, not just on success (#900)" {
   # A job that fails halfway is the job most likely to have left something
   # behind, so the teardown cannot be conditional on the job passing.
-  run grep -B2 'script/ci/reclaim.sh' "${WF}"
+  run code_grep -B2 'script/ci/reclaim.sh' "${WF}"
   assert_success
   assert_output --partial 'if: always()'
 }
@@ -1211,11 +1298,10 @@ _render_run_names() {
   # build cache and images. The naive fix for the leftover problem breaks
   # the thing the uniqueness was protecting.
   #
-  # Comment lines are stripped first: the prohibition is on the command a
-  # job RUNS, and the rationale for it necessarily names the command it
-  # rules out.
-  run bash -c "grep -vE '^[[:space:]]*#' '${WF}' \
-    | grep -E 'docker system prune|image prune -a|docker volume prune'"
+  # Asserted over the code lines: the prohibition is on the command a job
+  # RUNS, and the rationale for it necessarily names the command it rules
+  # out.
+  run code_grep -E 'docker system prune|image prune -a|docker volume prune' "${WF}"
   assert_failure
 }
 
@@ -1224,7 +1310,7 @@ _render_run_names() {
   # A CI window has a hard floor instead: an artifact belonging to a LIVE
   # run can be as old as the longest a job may run, so anything shorter
   # than that ceiling deletes work in flight.
-  run grep -c -- '--stale 12h' "${WF}"
+  run code_grep -c -- '--stale 12h' "${WF}"
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
