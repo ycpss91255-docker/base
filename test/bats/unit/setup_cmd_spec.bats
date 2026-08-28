@@ -1595,3 +1595,25 @@ _seed_post_setup_hook() {
     show bogus-section --base-path "${TEMP_DIR}"
   assert_output --partial "POST_SETUP_HOOK_FIRED"
 }
+
+@test "setup.sh apply aborts where a handler command fails mid-apply (#956)" {
+  # errexit must stay in force INSIDE the subcommand handlers. Bash
+  # suppresses `set -e` for the whole call tree of a `||` left operand, so
+  # guarding the dispatch itself (`_setup_dispatch ... || _rc=$?`) turns
+  # every unguarded mid-handler failure -- an unwritable .env, ENOSPC --
+  # into a silent exit 0 that still prints the done message and leaves
+  # build/run consuming a half-written config set.
+  #
+  # The trigger here is a real one, not an injected stub: a corrupt
+  # .env.generated (the truncated cache an interrupted apply leaves
+  # behind) makes _setup_apply's unguarded `source "${_env_file}"` fail
+  # before a single file is written. Run as a SCRIPT -- strict mode is
+  # only in force when setup.sh is the entry point.
+  printf 'FOO=1\n((( \n' > "${TEMP_DIR}/.env.generated"
+  cd "${TEMP_DIR}"
+  run ! bash /source/dist/script/docker/wrapper/setup.sh \
+    apply --base-path "${TEMP_DIR}" -q
+  # Aborting AT the failure, not carrying on to the end of apply.
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ ! -f "${TEMP_DIR}/.env" ]
+}
