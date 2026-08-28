@@ -236,17 +236,28 @@ on:
           `registry` stores the cache in the GHCR registry
           (`type=registry,ref=ghcr.io/<owner>/<repo>/buildcache:<scope>`),
           which has no 10 GB ceiling, so the second run genuinely hits and
-          does not recompile. Selecting `registry` requires the calling job
-          to grant `packages: write` -- verified up front by the preflight
-          (#800), which does a real write-scope probe (not just a login) so
-          a caller that forgot the permission fails within seconds with the
-          fix instead of 403-ing deep in a 20-minute build. The registry
-          backend also adds a GHCR `docker/login-action` login step.
+          does not recompile. It also adds a GHCR `docker/login-action`
+          login step.
+
+          `registry` is NOT usable today, and selecting it fails at the
+          preflight. Its cache export needs `packages: write` on the build
+          job, and the build job declares a read-only `permissions:` block
+          of its own (#957) -- a job that declares a block gets exactly
+          that block, and a job in a called workflow that names a scope
+          its caller did not grant fails the run outright rather than
+          intersecting down, so no static set can serve both backends. The
+          preflight (#800) probes for a REAL write (a GHCR blob-upload
+          scope check, not a bare login, since a read-only token can still
+          log in), but it runs under `contents: read` as well, so its
+          probe reports the grant missing whatever the caller granted.
+          Making `registry` work needs a permission the worker can vary
+          per input; until then `gha` is the supported backend.
 
           Default `gha` keeps every existing caller unchanged (backward
-          compatible) and needs no extra permission. Closes #801.
+          compatible) and needs no extra permission. Refs #801.
 
-          Example (opt in on a source-heavy repo):
+          What a `registry` caller will have to grant once the backend is
+          reachable (it is the CALLING job's grant, never the worker's):
             with:
               image_name: ros1_bridge
               cache_backend: registry
@@ -467,19 +478,18 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
-    # The job builds but never pushes an image (`push: false`, no `tags:`);
-    # the one package write it can make is the buildx cache under
-    # ghcr.io/<repo>/buildcache, which only `cache_backend: registry`
-    # reaches. `permissions:` accepts no expression, so it cannot be gated
-    # on that input the way the GHCR login step below is. The static
-    # superset is still the least privilege base can enforce: a called
-    # workflow's permissions INTERSECT the caller's, so a `gha` caller that
-    # grants only `contents: read` gets read here, and a `registry` caller
-    # gets exactly the write its own main.yaml already had to declare for
-    # the preflight probe to pass.
+    # The job builds but never pushes an image (`push: false`, no `tags:`),
+    # so on the default cache backend a checkout grant is all it needs.
+    # A job in a CALLED workflow may only NARROW the calling job's grant,
+    # never widen it: naming a scope the caller did not grant does not
+    # intersect down, it fails the run before it starts ("the nested job
+    # is requesting ..., but is only allowed ..."). `permissions:` also
+    # accepts no expression, so one static set has to serve both cache
+    # backends, and the read-only set is the only one every caller can
+    # satisfy. That caps the registry backend's cache export -- see the
+    # `cache_backend` input description.
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -539,7 +549,8 @@ jobs:
       # #801 -- the registry cache backend reads/writes the buildx cache
       # under ghcr.io/<repo>/buildcache, which needs an authenticated buildx
       # session for cache-to. Gated on cache_backend so the default gha path
-      # adds no login; packages: write is verified up front by the preflight.
+      # adds no login. The write is the caller's to grant, and this job
+      # cannot receive it while it declares a read-only block of its own.
       - name: Log in to GHCR (registry cache backend)
         if: ${{ inputs.cache_backend == 'registry' }}
         uses: docker/login-action@v4.5.2

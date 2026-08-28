@@ -672,11 +672,11 @@ _job_block() {
 @test "build-worker.yaml: every job declares its own permissions block (#957)" {
   # This is a REUSABLE workflow. A job with no `permissions:` inherits the
   # CALLER's grant -- a downstream repo's token, not base's -- so a caller
-  # that legitimately grants `packages: write` workflow-wide hands that
-  # write to jobs which only ever read. Declaring the block makes the
-  # effective set the INTERSECTION of the caller's grant and the job's
-  # need, which is the only place base can enforce least privilege on a
-  # permission it does not own.
+  # that legitimately grants `contents: write` or `packages: write`
+  # workflow-wide hands that write to jobs which only ever read. A job
+  # that declares a block gets exactly that block instead (capped by the
+  # caller, which it may narrow but never widen), which is the only place
+  # base can bound a permission it does not own.
   run _jobs_without_permissions
   assert_success
   assert_output ''

@@ -149,8 +149,8 @@ teardown() {
 
 @test "new repo: main.yaml grants contents: write on the release job only (#957)" {
   # softprops/action-gh-release@v2 (used by release-worker.yaml) needs
-  # `contents: write` to create a Release. Reusable workflow permissions
-  # intersect with the caller's, and GitHub's default GITHUB_TOKEN is
+  # `contents: write` to create a Release. A called workflow can only
+  # narrow the grant it is handed, and GitHub's default GITHUB_TOKEN is
   # read-only, so this grant must live in the caller's (i.e. new repo's)
   # main.yaml. Without it, the first downstream tag push fails with HTTP
   # 403 from the action-gh-release step (ros1_bridge v1.5.0 release
@@ -158,8 +158,8 @@ teardown() {
   #
   # At the WORKFLOW scope it also reached call-docker-build, which only
   # ever reads the tree -- so the grant is scoped to the one job that
-  # needs it. Job-level permissions on a `uses:` job are the caller half
-  # of the intersection, so this is still the caller's grant.
+  # needs it. Job-level permissions on a `uses:` job ARE the caller's
+  # grant: they set the ceiling the called workflow's own jobs run under.
   bash .base/dist/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   assert [ -f "${_yaml}" ]
@@ -173,9 +173,9 @@ teardown() {
 }
 
 @test "new repo: main.yaml leaves the build call at contents: read (#957)" {
-  # The build worker checks out and builds; it pushes no image and, on the
-  # seeded default `cache_backend: gha`, touches no package. A write grant
-  # here would be inherited straight into the reusable worker.
+  # The build worker checks out and builds; it pushes no image and touches
+  # no package. A write grant here would raise the ceiling every job of
+  # the reusable worker runs under, for no job that needs it.
   bash .base/dist/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   run awk '/^  call-docker-build:/{flag=1; next} /^  [^ ]/{flag=0} flag' "${_yaml}"

@@ -60,13 +60,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Fixed
 - **the reusable build worker's jobs no longer inherit the caller's whole
   token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
-  declared no `permissions:`, so each ran with the CALLING repo's grant, and a
-  downstream that legitimately grants `packages: write` workflow-wide handed
-  that write to jobs which only read. Each job now names its own set, which the
-  caller's grant still intersects: `contents: read`, plus `packages: write` on
-  `build` alone for the `cache_backend: registry` buildx cache. The seeded
-  `main.yaml` moves `contents: write` off the workflow scope onto
-  `call-release`, so a newly seeded repo's build call is born read-only.
+  declared no `permissions:`, so each ran with the CALLING repo's grant: a
+  downstream granting `contents: write` workflow-wide handed that write to
+  jobs which only read. All three now declare `contents: read`. No job names
+  `packages: write`: a called job asking for a scope its caller did not grant
+  fails the run outright rather than intersecting down, so `cache_backend:
+  registry` is unreachable from here and the input says so. The seeded
+  `main.yaml` moves `contents: write` onto `call-release`.
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted.
