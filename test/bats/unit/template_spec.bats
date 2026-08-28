@@ -1263,6 +1263,94 @@ EOF
   assert_success
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: BASE_IMAGE reproducibility
+#
+# The shipped template builds from a moving tag and installs unversioned
+# apt packages on top of it, so two consumers building the same template
+# version a month apart do not get the same image. The decision (see the
+# note above `ARG BASE_IMAGE`) is to keep the moving default -- almost
+# every consumer overrides BASE_IMAGE anyway, and a dev image that cannot
+# take a security update without a template release is worse than one
+# that drifts -- and to make the drift RECORDED rather than silent. These
+# specs lock the record, since a manifest nothing asserts is a manifest
+# that quietly stops being written.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # A downstream author meets this trade in the file they edit, not in
+  # base's docs, so the file has to name the drift, the compensating
+  # record, and the escape hatch.
+  run grep -F 'MOVING tag' "${_df}"
+  assert_success
+  run grep -F '/usr/local/share/base/base-image.env' "${_df}"
+  assert_success
+  run grep -F '/usr/local/share/base/packages.txt' "${_df}"
+  assert_success
+  # The escape hatch is a build arg, so pinning costs a consumer no edit
+  # to this file and no divergence from the template.
+  run grep -F 'BASE_IMAGE=ubuntu@sha256:' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The pre-FROM ARG is FROM-scope only. Without a bare re-declaration
+  # inside the stage, ${BASE_IMAGE} expands to the empty string in the
+  # RUN that records it and the manifest records nothing, silently.
+  run grep -cE '^ARG BASE_IMAGE$' "${_df}"
+  assert_output "1"
+  run grep -F 'echo "base_image_ref=${BASE_IMAGE}"' "${_df}"
+  assert_success
+  # Whether the reference was digest-pinned is part of the record: an
+  # unpinned reference names an image that may already have moved.
+  run grep -F 'base_image_pin=digest' "${_df}"
+  assert_success
+  # OCI annotation too, so `docker inspect` answers without unpacking.
+  run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # sys and devel-base each install packages. A manifest written only in
+  # sys would omit the devel-base set (sudo / git / curl / ...) -- the
+  # larger half of what floats -- while reading as complete.
+  run grep -cE '^ +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
+  assert_output "2"
+}
+
+@test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # runtime-base is a FRESH ${BASE_IMAGE}, so it inherits nothing the sys
+  # stage wrote. Uncommenting the optional builder/runtime split must not
+  # produce the one image in the graph that cannot say what built it.
+  run grep -F '# ARG BASE_IMAGE' "${_df}"
+  assert_success
+  run grep -F '#     dpkg-query -W > /usr/local/share/base/packages.txt' "${_df}"
+  assert_success
+  run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' "${_df}"
+  assert_success
+}
+
+@test ".hadolint.yaml DL3008 ignore names its compensating control (#951)" {
+  local _cfg="/source/dist/.hadolint.yaml"
+  [[ -f "${_cfg}" ]] || skip ".hadolint.yaml not present in /source"
+  # DL3008 is the one rule that exists for the unpinned apt lines this
+  # template ships. Ignoring it with no compensating control is what
+  # makes the template lint clean while being non-reproducible, so the
+  # ignore has to name what compensates for it.
+  run grep -F 'DL3008' "${_cfg}"
+  assert_success
+  run grep -F '/usr/local/share/base/packages.txt' "${_cfg}"
+  assert_success
+}
+
 @test "build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)" {
   # When runtime-test does COPY --from=test-tools-stage, test-tools
   # enters its build graph, so its build must receive the pinned
