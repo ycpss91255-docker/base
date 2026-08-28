@@ -28,10 +28,21 @@ setup() {
   # (docker-cli-compose in dockerfile/Dockerfile.test-tools), and a run
   # against a PUBLISHED tag older than that package predates it. Nothing
   # about the resolution can be observed without it, so say so instead of
-  # asserting on a `docker --help` dump. The file-shape half of this
-  # invariant is pinned unconditionally in base_docker_namespace_spec.
+  # asserting on a `docker --help` dump.
+  #
+  # This skip is only safe because the OTHER way the plugin can go
+  # missing -- somebody dropping docker-cli-compose from the Dockerfile --
+  # is caught fail-closed by template_spec's "Dockerfile.test-tools
+  # installs the docker compose plugin (docker-cli-compose)". With that
+  # assertion in place a skip here can only mean an old pinned image,
+  # which is a context; without it, the same skip would also cover a
+  # regression, which is the fail-open shape #953 removed.
+  #
+  # (base_docker_namespace_spec pins compose.yaml's FILE SHAPE. That is a
+  # different invariant and says nothing about the tooling image, so it is
+  # not this guard's fail-closed counterpart.)
   docker compose version >/dev/null 2>&1 \
-    || skip "this test-tools image has no docker compose plugin (older pinned TEST_TOOLS_IMAGE); the file shape is pinned unconditionally in base_docker_namespace_spec"
+    || skip "this test-tools image has no docker compose plugin (older pinned TEST_TOOLS_IMAGE); the package is pinned unconditionally by template_spec's \"Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)\""
 }
 
 # ════════════════════════════════════════════════════════════════════

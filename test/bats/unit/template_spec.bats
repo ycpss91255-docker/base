@@ -502,6 +502,25 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)" {
+  # The runtime counterpart of this assertion
+  # (test/bats/integration/compose_host_identity_spec.bats, which drives
+  # `docker compose config` to observe how HOST_UID / HOST_GID resolve)
+  # can only SKIP when the plugin is absent, so losing the package from
+  # the image has to be caught statically here -- exactly as the
+  # shellcheck / hadolint COPYs are below. Without this, deleting
+  # docker-cli-compose from the apk line leaves that spec reporting a
+  # green run of three skipped tests.
+  #
+  # Scoped to the FINAL stage's apk line (the one that also installs
+  # bash), for the same reason the make guard below is: an earlier
+  # builder stage is discarded and installing it there would not put it
+  # in the image the suite runs in.
+  run grep -E 'apk add .*\bbash\b.*\bdocker-cli-compose\b' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools COPYs shellcheck + hadolint into the final image" {
   # The runtime counterpart of this assertion (deploy_spec's generated
   # launcher being ShellCheck-clean) can only skip when the binary is
