@@ -658,6 +658,50 @@ _write_summary_section() {
     || fail "the description was truncated: ${_desc}"
 }
 
+@test "_run_catalog_description: a FENCED example is not structure (#922)" {
+  # This branch has just made doc/test/TEST.md the home of the convention,
+  # which is exactly the document that wants a worked example of a
+  # catalogue section -- and a lint that cannot be illustrated where it is
+  # documented is a lint people paraphrase instead. Inside a ``` block
+  # nothing is structure, the way the sibling changelog-entry lint already
+  # reads its own file.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'Why alpha matters')"
+  {
+    printf '\n## How this catalogue is maintained\n\n'
+    printf '```markdown\n'
+    printf '### test/bats/unit/example_spec.bats (1)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `an example row` | - |\n'
+    printf '```\n'
+  } >> "${CATALOG}"
+  run _run_catalog_description
+  assert_success
+  refute_output --partial 'example_spec.bats'
+}
+
+@test "_run_catalog_description: a fenced heading does not close the section it sits in (#922)" {
+  # The inverse, which is the direction that would be a HOLE rather than a
+  # false positive: if a fenced `###` line closed the real section, the
+  # rows after it would belong to no spec, and rows under no section are
+  # not scanned at all. The row below is alpha's and has to be reported as
+  # alpha's.
+  {
+    printf '# Unit Tests\n\n'
+    printf '### test/bats/unit/alpha_spec.bats (1)\n\n'
+    printf 'An example of the shape this section takes:\n\n'
+    printf '~~~markdown\n'
+    printf '### test/bats/unit/not_a_real_spec.bats (1)\n'
+    printf '~~~\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `alpha does a thing` | - |\n'
+  } > "${CATALOG}"
+  run _run_catalog_description
+  assert_failure
+  assert_output --partial 'test/bats/unit/alpha_spec.bats: no description'
+  refute_output --partial 'not_a_real_spec.bats'
+}
+
 @test "_run_catalog_description: a table under no spec section is not scanned (#922)" {
   # TEST.md's own index tables are `| Lint | ... |` shaped and belong to
   # no spec; only a table under a generated `### <path> (N)` heading is a
