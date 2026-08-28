@@ -337,7 +337,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   # which reads BASH_SOURCE unguarded, and under the kcov-instrumented
   # bash of the coverage shard that aborts.
   local _test_sh="/source/script/test/test.sh"
-  [[ -f "${_test_sh}" ]] || skip "test.sh not at expected path"
+  assert_spec_subject "${_test_sh}" "the test runner whose _LINT_TOOLS table this lint joins"
   run awk '
     /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
     inside && /^\)/            { inside = 0 }
@@ -357,7 +357,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   # a plain-runner matrix entry, because the driver is pure bash over the
   # checkout and touches no docker.
   local _wf="/source/.github/workflows/self-test.yaml"
-  [[ -f "${_wf}" ]] || skip "self-test.yaml not at expected path"
+  assert_spec_subject "${_wf}" "the workflow whose lint-static matrix this lint joins"
   run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${_wf}"
   assert_success
   assert_output --partial '- action-ref-agreement'
