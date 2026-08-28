@@ -104,16 +104,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
 ### Changed
-- **the emitted `compose.yaml` no longer names containers (closes #920)** -- a
-  baked `container_name` is namespaced by the daemon, not the project, so a
-  second stack of a repo died on `name ... is already in use` and compose
+- **the dev stack's `compose.yaml` no longer names containers (closes #920)**
+  -- a baked `container_name` is namespaced by the daemon, not the project, so
+  a second stack of a repo died on `name ... is already in use` and compose
   refused `--scale`. Compose derives `<project>-<service>-<n>`, so per-host
   isolation rests on the project name -- per-OS-user already, since
   `DOCKER_HUB_USER` detection falls back to the OS user; `[project] name` still
-  wins, and answers a shared login. A re-detected rename DEFERS as a reported
-  `PROJECT_NAME_PENDING` until the old project holds no container and no named
-  volume, so upgrades orphan neither stack nor data. `docker exec
-  <fixed-name>` is gone; ask `just exec`.
+  wins. A re-detected rename DEFERS as `PROJECT_NAME_PENDING` until the old
+  project holds no container and no named volume. `docker exec <fixed-name>`
+  is gone; ask `just exec`. The field-deploy bundle still bakes one.
 ### Removed
 - **base's own release no longer attaches a hand-built source archive (closes
   #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`

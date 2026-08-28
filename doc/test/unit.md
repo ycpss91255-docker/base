@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3007 tests**.
+Unit specs under `test/bats/unit/`: **3043 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -329,7 +329,7 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (26)
+#### test/bats/unit/env_emit_spec.bats (27)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
@@ -351,7 +351,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (103)
+#### test/bats/unit/stage_spec.bats (104)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -1578,7 +1578,7 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)` | - |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/bats/unit/compose_emit/overlay_guard_spec.bats (6)
+### test/bats/unit/compose_emit/overlay_guard_spec.bats (7)
 
 Forward-invariant guard (ADR-00000022): base's emitted compose must never
 bake a hardcoded per-instance literal over the interpolation-channel field
@@ -1591,7 +1591,8 @@ per-instance field fails immediately.
 |------|-------------|
 | `overlay guard predicate rejects a baked literal, accepts an interpolation` | self-check discrimination |
 | `overlay guard: project name: is an overlay interpolation` | name interpolated |
-| `overlay guard: container_name: is never emitted at all (#920)` | no container name to collide on |
+| `overlay guard: the dev-stack emitter emits no container_name at all (#920)` | no container name to collide on |
+| `the field-deploy emitter's baked container_name is a STATED exemption (#920)` | deploy bundle exemption stated in README + ADR |
 | `overlay guard: network_mode: is an env interpolation, never a baked literal` | network_mode interpolated |
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
@@ -1836,7 +1837,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (157)
+### test/bats/unit/template_spec.bats (158)
 
 | Test | Description |
 |------|-------------|

@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **13 tests**.
+System specs under `test/bats/system/`: **16 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
