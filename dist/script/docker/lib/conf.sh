@@ -616,7 +616,8 @@ _upsert_conf_value() {
     return 1
   fi
 
-  local __line __current="" __k __rest __matched=0 __in_sect=0 __sect_found=0
+  local __line __current="" __k __rest __trimmed
+  local __matched=0 __in_sect=0 __sect_found=0
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
     if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       # Leaving target section without finding key → append key before next section
@@ -633,8 +634,19 @@ _upsert_conf_value() {
       printf '%s\n' "${__line}" >> "${_tmp}"
       continue
     fi
-    if (( __in_sect )) && [[ -n "${__line}" ]] && [[ "${__line}" != *[[:space:]]\#* ]] \
-       && [[ "${__line}" != \#* ]] && [[ "${__line}" == *=* ]]; then
+    # A line is a comment when `#` is its FIRST non-blank character --
+    # the rule `_ini_tokenize` (the canonical reader) applies, so an
+    # inline `#` is part of the value, not a comment marker. The guard
+    # used to skip any line containing a space-then-hash as well, which
+    # fired on a VALUE carrying one (a lifecycle.watchdog_check shell
+    # command, an [environment] entry): the existing key never matched,
+    # the in-place replace was skipped, and a second `key = ...` was
+    # appended at the section end. Reads are last-wins, so the duplicate
+    # corrupted the file without changing behaviour. Test the trimmed
+    # line so an INDENTED comment is still recognised as one.
+    __trimmed="${__line#"${__line%%[![:space:]]*}"}"
+    if (( __in_sect )) && [[ -n "${__trimmed}" ]] && [[ "${__trimmed}" != \#* ]] \
+       && [[ "${__line}" == *=* ]]; then
       __k="${__line%%=*}"
       __rest="${__k#"${__k%%[![:space:]]*}"}"
       __rest="${__rest%"${__rest##*[![:space:]]}"}"
