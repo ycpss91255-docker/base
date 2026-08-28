@@ -19,13 +19,18 @@
 # Why the guard below skips rather than fails: this file is COPYed into a
 # consumer's `-test` stage from `.base/dist/`, which `just upgrade`
 # refreshes -- while the Dockerfile that would write the manifest is the
-# consumer's own, hand-edited, and NOT rewritten by the upgrade. A repo
-# that has not yet adopted the template revision therefore gets this spec
-# before it gets the manifest, and failing it would turn an upgrade into a
-# broken build over a record the repo never claimed to keep. The skip is
-# narrow: it fires only when NEITHER file is present. A repo that writes
-# one and not the other, or writes an empty record, has adopted the
-# manifest and broken it, and that fails.
+# consumer's own and hand-edited. The upgrade CAN rewrite that file
+# (init.sh and upgrade.sh both run apply_migrations from
+# dist/script/docker/lib/dockerfile_migrate.sh), but no migration was
+# written for this record: every entry in that list anchors on a whole
+# self-contained line, and the manifest splices into the middle of the
+# sys stage's backslash-continued RUN chain, whose shape is the
+# consumer's own. So a repo that has not yet hand-ported it gets this
+# spec before it gets the manifest, and failing it would turn an upgrade
+# into a broken build over a record the repo never claimed to keep. The
+# skip is narrow: it fires only when NEITHER file is present. A repo that
+# writes one and not the other, or writes an empty record, has adopted
+# the manifest and broken it, and that fails.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"

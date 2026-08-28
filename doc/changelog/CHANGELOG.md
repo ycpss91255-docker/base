@@ -122,14 +122,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **the shipped Dockerfile now records what it was built from (closes #951)** --
   `BASE_IMAGE` defaults to the moving `ubuntu:24.04` and the apt layers carry
-  no versions, so two builds of one template version differed with nothing
-  recording it. The default stays moving; every image now writes
+  no versions, so two builds of one template version differed silently. The
+  default stays moving; every image now writes
   `/usr/local/share/base/base-image.env` and `packages.txt`, carries the OCI
   `base.name` / `base.digest` labels, and a shared smoke spec asserts the
-  record inside the BUILT image. Stated deviation: as shipped the digest is
-  not recorded (`base_image_pin=none`, empty `base_image_digest`) -- nothing
-  inside a build can ask the daemon what a tag resolved to. Pass
-  `BASE_IMAGE_DIGEST` or pin `BASE_IMAGE`.
+  record inside the BUILT image. As shipped the digest is NOT recorded --
+  nothing in a build can ask the daemon what a tag resolved to; supply it as
+  `arg_4 = BASE_IMAGE_DIGEST=sha256:...` under `[build]` in `.setup.conf`, or
+  pin `BASE_IMAGE`. Existing repos hand-port the blocks.
 
 - **260 tests no longer pass when the artifact they assert on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
 - **the shard-balance guard failed CI on a partition that was fine, and could never fail locally (closes #940)** -- its total was summed over `test/bats/unit/` while `_shard_unit_files` partitions unit **+** integration, so the average was short by every integration spec, condemning a healthy partition. A latent second defect: it counted `@test` lines while the partitioner weighs recorded seconds, which collapse to one number locally. The probe now measures through `_spec_weight` against the bound no partition can beat, over the eight shards CI runs rather than four; synthesised weights drive skewed distributions locally, and a case asserts the probe's total still spans the whole pool.

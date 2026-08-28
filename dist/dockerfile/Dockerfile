@@ -109,10 +109,30 @@
 #   BASE_IMAGE_DIGEST="$(docker image inspect \
 #     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
 #
-# passed alongside BASE_IMAGE (`build_args:` in base's reusable
-# build-worker workflow, or `--build-arg`). It is a RECORD, not a pin: the
-# build still resolves the tag, and the digest lands in base-image.env and
-# in the OCI base.digest label.
+# passed alongside BASE_IMAGE. Three routes, in the order to reach for
+# them:
+#
+#   1. LOCAL, and the one this repo actually drives builds through: add
+#      it to the `[build]` arg list in the repo-root `.setup.conf`, next
+#      to the APT_MIRROR_* / TZ args already there --
+#
+#        arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>
+#
+#      -- then `just setup` (which emits it into compose.yaml's build
+#      `args:` and into `.env`) and `just build`. The value is versioned
+#      with the repo instead of living in one shell's history, and no
+#      template-owned line is edited. `.setup.conf.local` takes the same
+#      key for a machine-local value, but a section written there
+#      replaces the whole `[build]` section -- restate the other args
+#      in it or lose them.
+#   2. CI: the `build_args:` input of base's reusable build-worker
+#      workflow, which forwards it to every build step.
+#   3. `--build-arg`, for a throwaway one-off. Every container operation
+#      here goes through `just`, so this is the route that leaves nothing
+#      behind and repeats nothing; prefer (1) unless that is the point.
+#
+# It is a RECORD, not a pin: the build still resolves the tag, and the
+# digest lands in base-image.env and in the OCI base.digest label.
 #
 # Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
 # reference and the manifest fills the same fields from the reference
@@ -120,11 +140,13 @@
 #
 #   BASE_IMAGE=ubuntu@sha256:<digest>
 #
-# either as the `ARG BASE_IMAGE=` default in this repo's own copy of this
-# file, or through the `build_args:` input of base's reusable
-# build-worker workflow. Pinning is a per-repo call because the bump
-# maintenance it costs is the repo's to carry -- and one repo pinning
-# does not conscript every other repo under the org.
+# supplied by the same three routes -- `arg_4 = BASE_IMAGE=ubuntu@sha256:`
+# under `[build]` is the one that costs no hand-edit of this file and
+# survives the next `just upgrade`, whereas changing the `ARG BASE_IMAGE=`
+# default below edits a template-owned line a later migration may rewrite.
+# Pinning is a per-repo call because the bump maintenance it costs is the
+# repo's to carry -- and one repo pinning does not conscript every other
+# repo under the org.
 ARG BASE_IMAGE="ubuntu:24.04"
 # No bare-tag default (was `test-tools:local`): build.sh (local) passes a
 # version-scoped `test-tools:<base-version>` and CI passes

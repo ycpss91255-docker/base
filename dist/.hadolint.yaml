@@ -20,16 +20,30 @@ ignored:
   # diffed down to the version that changed.
   #
   # Read this in a DOWNSTREAM repo: init.sh symlinks this file from
-  # .base/dist/, and here it lints that repo's OWN Dockerfile, which is
-  # hand-edited and which `just upgrade` does not rewrite. So the
-  # compensating control above is a claim about the TEMPLATE, not about
-  # the image you are building: a repo whose Dockerfile predates this
-  # template revision has the ignore without the record. To adopt it,
-  # `just upgrade` and then port the two manifest blocks -- the sys stage
-  # RUN and, if the runtime split is enabled, runtime-base's -- from
-  # .base/dist/dockerfile/Dockerfile into your own. `just build` followed
-  # by reading /usr/local/share/base/base-image.env in the built image
-  # says which side of that you are on.
+  # .base/dist/, and here it lints that repo's OWN, hand-edited
+  # Dockerfile. So the compensating control above is a claim about the
+  # TEMPLATE, not about the image you are building: a repo whose
+  # Dockerfile predates this template revision has the ignore without the
+  # record.
+  #
+  # `just upgrade` does not close that by itself, and not because it
+  # cannot touch your Dockerfile -- it can: init.sh and upgrade.sh both
+  # run apply_migrations from dist/script/docker/lib/dockerfile_migrate.sh
+  # over a declarative list already populated for exactly this situation
+  # (a base contract change downstream Dockerfiles must adopt). No
+  # migration was written for THIS record, on purpose.
+  # Every entry in that list rewrites a whole self-contained line (a COPY,
+  # an ARG, a FROM) it can anchor on; the manifest instead splices into
+  # the middle of the sys stage's backslash-continued `RUN ... && \`
+  # chain, whose shape is the consumer's own, and a mis-spliced
+  # continuation is a broken build rather than a missing record.
+  #
+  # So it is a hand port: `just upgrade`, then copy the two manifest
+  # blocks -- the sys stage RUN and, if the runtime split is enabled,
+  # runtime-base's -- from .base/dist/dockerfile/Dockerfile into your own.
+  # `just build` followed by reading
+  # /usr/local/share/base/base-image.env in the built image says which
+  # side of that you are on.
   #
   # A consumer needing bit-for-bit builds pins BASE_IMAGE to a digest; see
   # the note above `ARG BASE_IMAGE` in dist/dockerfile/Dockerfile.
