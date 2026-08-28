@@ -53,13 +53,18 @@ _make_release_tree() {
 }
 
 # The provenance a real `just test coverage` leaves behind: the sha the
-# reports under coverage/ were produced from. Mtime alone only catches a
-# report that is too OLD; it cannot tell that the tree moved somewhere
-# else between the run and the release.
+# reports under coverage/ were produced from, and the SCOPE they cover.
+# Mtime alone only catches a report that is too OLD; it cannot tell that
+# the tree moved somewhere else between the run and the release, and the
+# sha alone cannot tell that only a quarter of the suite ran.
+#   $1 root  [$2 scope, default full]
 _stamp_head() {
-  local _root="${1}"
+  local _root="${1}" _scope="${2:-full}"
   mkdir -p "${_root}/coverage"
-  git -C "${_root}" rev-parse HEAD > "${_root}/coverage/.head-sha"
+  {
+    git -C "${_root}" rev-parse HEAD
+    printf 'scope=%s\n' "${_scope}"
+  } > "${_root}/coverage/.head-sha"
 }
 
 # Minimal kcov-style cobertura.xml at $1 with $2 covered of $3 valid
@@ -255,7 +260,119 @@ _make_cobertura() {
     _ "${_root}"
   [ "${status}" -eq 0 ]
   [ -f "${_root}/coverage/.head-sha" ]
-  [ "$(cat "${_root}/coverage/.head-sha")" = "$(git -C "${_root}" rev-parse HEAD)" ]
+  [ "$(head -n 1 "${_root}/coverage/.head-sha")" = "$(git -C "${_root}" rev-parse HEAD)" ]
+
+  # A sha alone says which TREE the reports describe and nothing about
+  # WHETHER the whole suite produced them, so the scope is stamped too.
+  run cat "${_root}/coverage/.head-sha"
+  assert_output --partial "scope=full"
+}
+
+@test "coverage_badge: a shard run records the partition, not a whole-suite scope" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  rm -f "${_root}/coverage/.head-sha"
+
+  # `just test coverage <n>/<total>` writes its slice into the SAME
+  # coverage/ tree a full run uses. If it stamped the way a full run does,
+  # the reports and the certificate would agree on the commit and disagree
+  # with nothing, and the badge would publish a quarter of the suite as
+  # the release rate.
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
+    _ "${_root}" "1/4"
+  [ "${status}" -eq 0 ]
+
+  run cat "${_root}/coverage/.head-sha"
+  assert_output --partial "scope=shard 1/4"
+  refute_output --partial "scope=full"
+}
+
+@test "coverage_badge: a shard run overwrites an earlier full run's scope" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+
+  # The tree already carries a full-suite stamp from an earlier run at the
+  # same commit. Leaving it in place would let the shard's partial reports
+  # inherit a certificate that says "whole suite".
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
+    _ "${_root}" "2/4"
+  [ "${status}" -eq 0 ]
+
+  run cat "${_root}/coverage/.head-sha"
+  refute_output --partial "scope=full"
+  assert_output --partial "scope=shard 2/4"
+}
+
+@test "coverage_badge: --coverage-shard tells the stamp which partition ran" {
+  # The joint between the two halves: the writer can only record a
+  # partition if the dispatch passes it one. Stub the container run and
+  # the writer, and read back what the dispatch handed over.
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_via_compose() { :; }
+    _stamp_coverage_head() { printf "stamp-args: %s\n" "$*"; }
+    main --coverage-shard 1/4
+  '
+  [ "${status}" -eq 0 ]
+  assert_output --partial "stamp-args: /source 1/4"
+}
+
+@test "coverage_badge: a full --coverage run hands the stamp no partition" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_via_compose() { :; }
+    _stamp_coverage_head() { printf "stamp-args: [%s]\n" "$*"; }
+    main --coverage
+  '
+  [ "${status}" -eq 0 ]
+  assert_output --partial "stamp-args: [/source]"
+}
+
+@test "coverage_badge: refuses when the reports cover one shard, not the suite" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  _stamp_head "${_root}" "shard 1/4"
+
+  # Every identity check passes here: the sha IS HEAD, the worktree is
+  # clean, the reports are newer than the commit. What is wrong is the
+  # coverage, not the tree -- 13 lines of 100 is one partition's slice.
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "shard 1/4"
+  [ ! -f "${_root}/badge.svg" ]
+}
+
+@test "coverage_badge: refuses when the stamp records no scope at all" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  # A stamp carrying only a sha -- what a hand-assembled report set or an
+  # older writer leaves. It proves the tree and says nothing about how
+  # much of the suite ran, so it is not evidence of a release figure.
+  git -C "${_root}" rev-parse HEAD > "${_root}/coverage/.head-sha"
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "scope"
+  [ ! -f "${_root}/badge.svg" ]
+}
+
+@test "coverage_badge: the operator sequence shard-then-badge publishes nothing" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  rm -f "${_root}/coverage/.head-sha"
+
+  # End to end over the real writer and the real reader, at ONE commit:
+  # `just test coverage 1/4` to check the sharded path, then
+  # `just release coverage-badge`. The figure that must not be published
+  # is 13% -- a quarter of the suite wearing the release's name.
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
+    _ "${_root}" "1/4"
+  [ "${status}" -eq 0 ]
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  [ ! -f "${_root}/badge.svg" ]
+  refute_output --partial "13.0%"
 }
 
 @test "coverage_badge: refuses when instrumented sources are modified in the worktree" {
@@ -336,14 +453,62 @@ _make_cobertura() {
 @test "coverage_badge: the un-wired release step is recorded as pending, with its issue" {
   # The generator has no automatic caller: the release bump lives in the
   # harness repo, not this one. A decision record that describes that
-  # wiring in the present tense is a false record of what shipped, so the
-  # ADR and the recipe doc must name the tracking issue instead.
-  run grep -F 'docker_harness#' \
-    "${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"
+  # wiring in the present tense is a false record of what shipped.
+  #
+  # A bare `grep docker_harness#` was too weak for the title it wears: it
+  # proves a tracking ref appears SOMEWHERE, so the rejected present-tense
+  # text can come back with the ref still sitting four lines below it.
+  # Anchor on the claim itself -- the two sentences that state the wiring
+  # has not happened -- and forbid the shipped-fact phrasings.
+  local _adr="${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"
+
+  # The amendment's Status paragraph: what shipped, and what did not.
+  run grep -F 'the automatic caller has NOT' "${_adr}"
   [ "${status}" -eq 0 ]
 
-  run grep -F 'docker_harness#' "${REPO}/script/release/justfile.release"
+  # Decision 4's heading, which names the end state and its absence in the
+  # same breath.
+  run grep -F 'is not one yet' "${_adr}"
   [ "${status}" -eq 0 ]
+
+  # The future tense in the body of decision 4.
+  run grep -F 'is to become' "${_adr}"
+  [ "${status}" -eq 0 ]
+
+  # And no formulation that reads as already done.
+  run grep -nEi 'already wired|is a step of the release bump|the bump calls it' \
+    "${_adr}"
+  [ "${status}" -ne 0 ]
+
+  # The recipe doc carries the same pair: the hand-run reality and the ref.
+  run grep -F 'HAND-RUN STEP' "${REPO}/script/release/justfile.release"
+  [ "${status}" -eq 0 ]
+
+  run grep -F 'docker_harness#289' "${REPO}/script/release/justfile.release"
+  [ "${status}" -eq 0 ]
+
+  run grep -F 'docker_harness#289' "${_adr}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "coverage_badge: the generator header records the bump wiring as pending" {
+  # The same false record, in the one place the reword did not reach. The
+  # header's property list is what a reader stops at; the Cadence block 50
+  # lines below it already says the wiring is tracked, so an unqualified
+  # "regenerated by the release bump" up top contradicts the same file.
+  local _block="${SCRATCH}/props.txt"
+  sed -n '/^# The three properties/,/^# WHERE THE NUMBER COMES FROM/p' \
+    "${REPO}/script/release/coverage_badge.sh" > "${_block}"
+  [ -s "${_block}" ]
+
+  # The property that names a caller must name the issue that will build
+  # it, exactly as the ADR, the recipe and the Cadence block do.
+  run grep -F 'docker_harness#289' "${_block}"
+  [ "${status}" -eq 0 ]
+
+  # ... and must not state the wiring as an accomplished property.
+  run grep -nEi 'by the release bump, alongside|already wired' "${_block}"
+  [ "${status}" -ne 0 ]
 }
 
 # ── The repo's own published figure ──────────────────────────────────────────

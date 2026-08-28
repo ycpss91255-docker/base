@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3052 tests**.
+Unit specs under `test/bats/unit/`: **3083 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3403,7 +3403,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/coverage_badge_spec.bats (23)
+### test/bats/unit/coverage_badge_spec.bats (31)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -3431,6 +3431,13 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: refuses when the reports were produced from a different commit` | Measure one tree, check an older commit out: every timestamp check passes and the sha does not |
 | `coverage_badge: refuses when the reports carry no provenance` | Reports with no recorded sha describe no particular tree |
 | `coverage_badge: the coverage run records the sha its reports describe` | The producer half: without a writer the reader refuses every real release |
+| `coverage_badge: a shard run records the partition, not a whole-suite scope` | A sha proves WHICH tree; the scope proves WHETHER the whole suite ran |
+| `coverage_badge: a shard run overwrites an earlier full run's scope` | Shards write into the same coverage/ tree, so a stale full-suite stamp must not survive |
+| `coverage_badge: --coverage-shard tells the stamp which partition ran` | The joint: the writer can only record a partition the dispatch hands it |
+| `coverage_badge: a full --coverage run hands the stamp no partition` | The release path still stamps a whole-suite measurement |
+| `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
+| `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
+| `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |
 | `coverage_badge: refuses when instrumented sources are modified in the worktree` | The reports then describe neither the commit nor the tree |
 | `coverage_badge: a release-bump edit is not a source change` | `.version` moving is the bump's own edit and must not block the step it runs |
 | `coverage_badge: refuses to overwrite an existing badge when it cannot measure` | A refusal leaves the last good badge byte-identical |
@@ -3439,6 +3446,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: a missing option value is an arg error, not a refusal` | A typo'd flag must not wear the "re-run just test coverage" exit code |
 | `coverage_badge: --help states the once-per-release cadence` | The claim itself, not the incidental word "release" |
 | `coverage_badge: the un-wired release step is recorded as pending, with its issue` | The ADR and the recipe doc name docker_harness#289 instead of claiming a caller that does not exist |
+| `coverage_badge: the generator header records the bump wiring as pending` | The property list is where the round-2 reword did not reach |
 | `coverage_badge: the README shows the committed badge, not a static one` | The `Coverage-Kcov` badge is gone and the SVG is referenced |
 | `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
 | `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |
