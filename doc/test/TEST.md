@@ -1,10 +1,22 @@
 # TEST.md
 
+<<<<<<< HEAD
 Template self-tests: **3211 tests** total (3062 unit + 149 integration).
+||||||| 5f4dbf50
+Template self-tests: **3201 tests** total (3052 unit + 149 integration).
+=======
+Template self-tests: **3229 tests** total (3080 unit + 149 integration).
+>>>>>>> origin/main
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (13) and smoke (34) tests are tracked here
+<<<<<<< HEAD
 > too but are **not** in the 3211 figure: System specs need host docker
+||||||| 5f4dbf50
+> too but are **not** in the 3201 figure: System specs need host docker
+=======
+> too but are **not** in the 3229 figure: System specs need host docker
+>>>>>>> origin/main
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +32,25 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
+<<<<<<< HEAD
 | [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3062 |
+||||||| 5f4dbf50
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3052 |
+=======
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3080 |
+>>>>>>> origin/main
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 149 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 13 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
+<<<<<<< HEAD
 Self-test grand total (unit + integration): **3211**.
+||||||| 5f4dbf50
+Self-test grand total (unit + integration): **3201**.
+=======
+Self-test grand total (unit + integration): **3229**.
+>>>>>>> origin/main
 
 ## Running one spec under kcov: `just test coverage-path`
 
