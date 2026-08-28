@@ -122,8 +122,22 @@ _gwa_hits() {
   for _p in "${_GWA_SCAN_PRUNE[@]}"; do
     _prune+=("--exclude-dir=${_p}")
   done
-  grep -rn --include="${_glob}" "${_prune[@]}" -E 'uses:[[:space:]]' \
-    "${_dir}" 2>/dev/null | sed "s|^${REPO_ROOT}/||"
+  # grep exits 1 for "matched nothing", which is an ordinary answer here --
+  # this repo has no `.yml` workflow, so the `.yml` pass always takes it.
+  # Under the dispatcher's `pipefail` + ERR trap that ordinary answer was
+  # logged as `ci_lint_driver_failed ... stopped at sed, status 1` on every
+  # run, INCLUDING a green one: an ERROR line in a passing log, naming this
+  # driver as having stopped when it had not. Exit 2 and above is a real
+  # grep failure and still propagates, so tolerating no-match does not
+  # turn a broken scan into a silent pass.
+  local _out _status=0
+  _out="$(grep -rn --include="${_glob}" "${_prune[@]}" \
+    -E 'uses:[[:space:]]' "${_dir}")" || _status=$?
+  if (( _status > 1 )); then
+    return "${_status}"
+  fi
+  [[ -n "${_out}" ]] || return 0
+  printf '%s\n' "${_out}" | sed "s|^${REPO_ROOT}/||"
 }
 
 # _gwa_split <hit> -- set _GWA_FILE / _GWA_LINENO / _GWA_TEXT from one
