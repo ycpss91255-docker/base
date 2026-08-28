@@ -527,6 +527,45 @@ EOF
   assert_line --index 2 "privileged = true"
 }
 
+@test "show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)" {
+  # The whole-section dump decided membership with a raw dot-prefix
+  # match (`${_section}.`*), the exact test _conf_split_nskey's doc
+  # comment forbids: `logging.` prefixes `logging.web.driver` too, so a
+  # per-service override was listed under the parent [logging] as a
+  # bogus `web.driver` key. Membership is _conf_split_nskey's question.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main show logging --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line "driver = json-file"
+  refute_output --partial "web.driver"
+}
+
+@test "show logging.<svc> dumps the sub-section it accepts as a valid section (#955)" {
+  # `_setup_known_section` accepts `logging.?*`, so [logging.web] is a
+  # section the tool considers legal -- but the spec split reads a bare
+  # `logging.web` as section `logging` + key `web`, and the key lookup
+  # failed with "Key not found". A section the tool accepts must be
+  # readable.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+max_size = 1m
+EOF
+  run main show logging.web --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line --index 0 "driver = local"
+  assert_line --index 1 "max_size = 1m"
+}
+
 @test "show returns non-zero on a missing key" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
@@ -579,6 +618,30 @@ EOF
   assert_output --partial "rule_1 = @basename"
   assert_output --partial "[network]"
   assert_output --partial "mode = host"
+}
+
+@test "list emits a per-service logging key once, under its own section (#955)" {
+  # `list` output is documented as "suitable for piping into other
+  # tooling", so its section membership has to survive a round-trip.
+  # The dot-prefix match printed `logging.web.driver` under BOTH
+  # [logging] (as `web.driver`) and [logging.web] (as `driver`) -- the
+  # same value twice, once under the wrong section, and piping that
+  # back reproduces the dotted-key-in-[logging] file _write_setup_conf
+  # was fixed to stop writing.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main list --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "[logging.web]"
+  refute_output --partial "web.driver"
+  # The sub-section value appears exactly once in the whole dump.
+  run bash -c "main list --base-path '${TEMP_DIR}' | grep -c '^driver = local$'"
+  assert_output "1"
 }
 
 @test "list <section> mirrors show <section>" {
