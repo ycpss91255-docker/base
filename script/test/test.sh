@@ -1189,7 +1189,7 @@ main() {
       fi
       # The reports are only usable for a release badge if something
       # records WHICH commit they measured; see _stamp_coverage_head.
-      _stamp_coverage_head
+      _stamp_coverage_head "${REPO_ROOT}"
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine
