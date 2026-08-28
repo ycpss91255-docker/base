@@ -77,7 +77,7 @@ channel differs by kind:
 | Field kind | Per-instance override channel | Emitted form |
 |---|---|---|
 | project `name:` | compose interpolation from `--env-file` | `${PROJECT_NAME}` (was `${DOCKER_HUB_USER}-${IMAGE_NAME}`; see the 2026-08-05 amendment below) |
-| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` -- **no longer emitted at all; see the 2026-08-26 amendment below** |
+| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` -- **no longer emitted by the dev stack; see the 2026-08-26 amendment below** |
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
 | **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = **1-based** index within the service's port list -- `PORT_1` = first port, matching base's 1-based indexed-key convention `port_1` / `mount_1` / `arg_1`) |
@@ -107,11 +107,19 @@ second worktree and multi_run's Nth instance are different stages of the
 pipeline, and neither mechanism can do the other's job. ADR-00000025 sec. 5
 carries the full division of labour.
 
-**Amendment (2026-08-26, issue #920): base stopped emitting
-`container_name:` itself.** §4 below records that the field is removable and
-that `multi_run` *may* drop it; the emitter has now dropped it, so there is
-no `container_name:` line in a generated `compose.yaml` for an overlay to
-override or remove. The reason the weaker form was not enough: the guard
+**Amendment (2026-08-26, issue #920): the dev-stack emitter stopped
+emitting `container_name:` itself.** §4 below records that the field is
+removable and that `multi_run` *may* drop it;
+`generate_compose_yaml` has now dropped it, so there is no
+`container_name:` line in the `compose.yaml` a repo runs for an overlay to
+override or remove. Scope: this is the dev stack, the only emission an
+overlay ever expands. The field-deploy bundle (`_generate_resolved_compose`,
+`just setup deploy`) still bakes one, deliberately -- it is a fully
+resolved single-device artifact, one stack per device, never co-located,
+and its operator wants a stable name to `docker logs`. Two emitters, two
+rules; the co-location argument below is the dev stack's.
+
+The reason the weaker form was not enough: the guard
 asked only that the value carry an interpolation, and `${USER_NAME}-<repo>`
 satisfied that -- yet a container name is namespaced by the DAEMON, not by
 the project, and `${USER_NAME}` is one string for all of a user's instances.
@@ -223,8 +231,8 @@ convention above (a human who configured `[network] port_1` overrides
 interpolation-
 channel fields (`name` / `container_name` / `network_mode` / `ipc` /
 `privileged` / `pid`) were already compliant; the guard locks them.
-(`container_name` is since gone entirely -- see the 2026-08-26 amendment
-above.)
+(`container_name` is since gone from the dev-stack emitter entirely --
+see the 2026-08-26 amendment above; the field-deploy bundle keeps one.)
 
 ### 4. Contract `multi_run` depends on (held, verified)
 
@@ -234,9 +242,9 @@ above.)
   service references it, and the top-level project `name:` namespaces the
   container, so `multi_run` may drop it entirely to let compose auto-name
   `<project>-<service>-<n>` per instance. (Verified, and then taken: base
-  itself stopped emitting it -- 2026-08-26 amendment in §3. The wrapper
-  prechecks that used to rebuild the name now ask `compose ps` for the
-  service inside `-p <project>`.)
+  itself stopped emitting it from the dev stack -- 2026-08-26 amendment
+  in §3. The wrapper prechecks that used to rebuild the name now ask
+  `compose ps` for the service inside `-p <project>`.)
 - Stage / service identity is **not tied to the literal name `devel`**:
   each service carries `build.target: <stage>`, `image: .../<stage>`, and
   `profiles: [<stage>]`, so `multi_run` extracts the stage stage-

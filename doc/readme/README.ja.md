@@ -854,7 +854,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 467f98bc67e8 1e055a691547 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 6342fd8fd107 06ebca3032c0 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
@@ -891,7 +891,7 @@ Hub の layer 共有が破綻します。Project name も同じ identity を使�
 分けられないのは、2 人の OS user が 1 つの Docker Hub ログインを
 共有している場合です。下の具体例を参照してください。
 
-**base は `container_name:` を emit しません。** container 名は
+**開発 stack は `container_name:` を emit しません。** container 名は
 project ではなく daemon の namespace に属するため、固定名を書くと
 その service は「1 ホストにつき 1 インスタンス」に固定されます:
 同一 repo の 2 つめの stack は project name を何にしても
@@ -899,6 +899,13 @@ project ではなく daemon の namespace に属するため、固定名を書�
 compose は `--scale` を拒否します。compose に
 `<project>-<service>-<n>` を導出させれば名前は構造上一意になり、
 ホスト内の分離は完全に project name の担当になります。
+
+唯一の例外は field deploy bundle (`just setup deploy`) で、これは
+`container_name:` を実際に焼き込みます。この bundle は完全に解決済み
+の自己完結した単一デバイス向け artifact -- 1 台に 1 stack、同一ホスト
+に並置されることはなく、展開する overlay も存在しません -- で、運用者
+が求めるのは `docker logs` に使える固定名です。emitter が 2 つ、規則
+も 2 つ。上の並置の議論は開発 stack のものです。
 
 ```
 COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1

@@ -135,7 +135,7 @@ CONF
   assert_spec_subject "${_adr}" "ADR-00000022, which records the contract"
 
   local _claim
-  _claim="$(grep -A8 -F 'base emits no `container_name:`' "${_readme}")" \
+  _claim="$(grep -A16 -F 'emits no `container_name:`' "${_readme}")" \
     || fail "README.md no longer states the container_name invariant at all"
   [[ "${_claim}" == *deploy* ]] \
     || { echo "README states the invariant unqualified:"; echo "${_claim}"

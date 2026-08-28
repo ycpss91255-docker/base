@@ -1247,13 +1247,21 @@ the detection above already falls back to the OS user. The one thing
 that identity cannot separate is two OS users sharing a single Docker
 Hub login; see the worked example below.
 
-**base emits no `container_name:`.** A container name is namespaced by
-the daemon rather than by the project, so a fixed one pins the service
-to a single instance per host: a second stack of the same repo fails to
-start with `name ... is already in use` however it is named, and compose
-refuses `--scale` while the directive is present. Letting compose derive
-`<project>-<service>-<n>` makes the name unique by construction, which
-is what puts per-host isolation entirely in the project name.
+**The dev stack emits no `container_name:`.** A container name is
+namespaced by the daemon rather than by the project, so a fixed one pins
+the service to a single instance per host: a second stack of the same
+repo fails to start with `name ... is already in use` however it is
+named, and compose refuses `--scale` while the directive is present.
+Letting compose derive `<project>-<service>-<n>` makes the name unique
+by construction, which is what puts per-host isolation entirely in the
+project name.
+
+The one exemption is the field-deploy bundle (`just setup deploy`),
+which does bake a `container_name:`. That bundle is a fully resolved,
+self-contained single-device artifact -- one stack per device, never
+co-located, no overlay expanding it -- and the operator running it wants
+one stable name to `docker logs`. Two emitters, two rules; the
+co-location argument above applies to the dev stack.
 
 ```
 COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1

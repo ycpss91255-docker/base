@@ -805,7 +805,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 467f98bc67e8 fb2d38808526 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 6342fd8fd107 51fd89e7f76e -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
 `setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
@@ -836,13 +836,19 @@ Docker Hub layer 共用會直接破功。Project name 用的就是同一個身�
 已經因人而異。這個身份唯一分不開的情況，是兩個 OS user 共用同一個
 Docker Hub 登入；見下方範例。
 
-**base 不 emit `container_name:`。** Container 名稱是 daemon 層的
-namespace、不是 project 層的，所以寫死一個名字等於把該 service 綁
-在「每台 host 只能有一份」：同一個 repo 的第二份 stack 不管取什麼
+**開發 stack 不 emit `container_name:`。** Container 名稱是 daemon
+層的 namespace、不是 project 層的，所以寫死一個名字等於把該 service
+綁在「每台 host 只能有一份」：同一個 repo 的第二份 stack 不管取什麼
 project name，都會以 `name ... is already in use` 起不來，而且只要
 這個欄位在，compose 就拒絕 `--scale`。交給 compose 推導
 `<project>-<service>-<n>`，名字就天生唯一 — 於是 host 層的隔離完全
 落在 project name 上。
+
+唯一的例外是 field deploy bundle（`just setup deploy`），它確實會
+寫死一個 `container_name:`。那份 bundle 是完全 resolve 過、自帶所有
+內容的單機 artifact — 一台裝置一份 stack、不會和別人同機共存、也沒有
+任何 overlay 會展開它 — 操作者要的就是一個固定名字可以 `docker
+logs`。兩個 emitter、兩套規則；上面共存的論述講的是開發 stack。
 
 ```
 COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
