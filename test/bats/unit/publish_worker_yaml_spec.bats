@@ -23,7 +23,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/publish-worker.yaml"
-  [[ -f "${WF}" ]] || skip "publish-worker.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the reusable publish worker this spec pins"
 }
 
 # ── Reusable-workflow surface preserved ──────────────────────────────

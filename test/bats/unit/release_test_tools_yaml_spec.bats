@@ -32,7 +32,8 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/release-test-tools.yaml"
-  [[ -f "${WF}" ]] || skip "release-test-tools.yaml not at expected path"
+  assert_spec_subject "${WF}" \
+      "the test-tools release workflow this spec pins"
 }
 
 # ── Trigger surface ──────────────────────────────────────────────────
