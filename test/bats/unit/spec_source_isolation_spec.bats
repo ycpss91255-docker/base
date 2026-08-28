@@ -7,10 +7,11 @@
 # Why the population is drawn that way. Two specs lost a race against their
 # own suite and cost two or three full gate runs per landed branch.
 # The obvious framing -- "audit every spec that touches /source" -- is not
-# actionable: 119 of the 122 spec files reference /source, because that is
-# where the script under test, the tracked workflow being asserted on, and
-# the real tree the "clean today" guards lint all live. A read of the
-# subject is the point of a unit test, not a defect.
+# actionable: all but a handful of the specs reference /source -- 124 of the
+# 128 spec files when this was written -- because that is where the script
+# under test, the tracked workflow being asserted on, and the real tree the
+# "clean today" guards lint all live. A read of the subject is the point of
+# a unit test, not a defect.
 #
 # What separates the defect from the population is OWNERSHIP of the answer.
 # `diff -r /source/doc/readme "${SCRATCH}/doc/readme"` asked the generator a
