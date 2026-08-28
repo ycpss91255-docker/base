@@ -437,11 +437,57 @@ setup() {
   # The derived-name reconstruction is what made the precheck a second
   # answerer to "what is this container called". Compose owns that name now;
   # nothing in the wrappers may assemble one to compare against.
-  local _hit
-  _hit="$(grep -rn '\${USER_NAME}-\${IMAGE_NAME}' \
-            /source/dist/script/docker/wrapper /source/dist/script/docker/lib \
-            2>/dev/null || true)"
-  [[ -z "${_hit}" ]] || { echo "container name reconstructed: ${_hit}"; return 1; }
+  #
+  # This asserts a ROSTER, not a spelling. The predecessor grepped for the
+  # single literal `${USER_NAME}-${IMAGE_NAME}`, which any other spelling
+  # of the same reconstruction walked straight past -- `$USER_NAME-$IMAGE_NAME`,
+  # or a two-step `_name="${USER_NAME}"; _name+="-${IMAGE_NAME}"`. What the
+  # reconstruction actually needs is to READ USER_NAME inside a wrapper, and
+  # in these three files exactly one line legitimately does (run.sh's xhost
+  # grant, where the OS user is an X11 identity, not a container to look up).
+  # So the guard pins that roster: a new USER_NAME read here fails, and
+  # whoever adds it says which kind it is. The three files are the ones that
+  # carried the precheck / guard; the wrapper tree's other USER_NAME readers
+  # (setup_tui's prompt strings) are message text, not lookups.
+  local -a _files=(
+    /source/dist/script/docker/wrapper/exec.sh
+    /source/dist/script/docker/wrapper/run.sh
+    /source/dist/script/docker/lib/wrapper.sh
+  )
+  local _f
+  for _f in "${_files[@]}"; do
+    assert_spec_subject "${_f}" \
+        "a wrapper this guard scans for a rebuilt container name"
+  done
+
+  # grep exit 2 (unreadable path) must never read as "no match". The
+  # predecessor captured stdout with `|| true`, so a renamed scan root --
+  # nothing scanned -- passed as clean.
+  local _out _rc=0
+  _out="$(grep -Hn 'USER_NAME' "${_files[@]}")" || _rc=$?
+  (( _rc <= 1 )) || fail "grep exited ${_rc} scanning the wrapper roster"
+
+  # Comment lines are prose ABOUT the removed reconstruction; keep only code.
+  local _code
+  _code="$(printf '%s\n' "${_out}" \
+    | awk '{ _l = $0; sub(/^[^:]*:[0-9]+:/, "", _l)
+             if (_l !~ /^[[:space:]]*#/ && _l != "") print }')"
+
+  local _unexpected
+  _unexpected="$(printf '%s\n' "${_code}" \
+    | grep -v '^[[:space:]]*$' \
+    | grep -vF 'xhost "+SI:localuser:${USER_NAME}"' || true)"
+  [[ -z "${_unexpected}" ]] || {
+    echo "unreviewed USER_NAME read in a wrapper (name reconstruction?):"
+    echo "${_unexpected}"
+    return 1
+  }
+
+  # The allowlisted line must still be found. Without this, an allowlist
+  # whose entry stopped matching would silently widen into "nothing is
+  # checked" -- the same vacuous pass this guard was rewritten to close.
+  [[ "${_code}" == *xhost* ]] \
+    || fail "the allowlisted xhost line is gone: the roster scanned nothing"
 }
 
 @test "exec.sh precheck error mentions run.sh hint" {
