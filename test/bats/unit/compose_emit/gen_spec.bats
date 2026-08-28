@@ -332,8 +332,8 @@ teardown() {
 
 @test "generate_compose_yaml expands \${VAR} env cross-refs in a per-stage env_N addition (refs #955)" {
   # A `[stage:*]` that APPENDS its own env_N is the append-mode case: the
-  # shared prefix stays in `.env` (where write_container_env expands it,
-  # #868) and only this stage's own tail is restated inline. That tail
+  # shared prefix stays in `.env` (where write_container_env expands
+  # it) and only this stage's own tail is restated inline. That tail
   # skipped the expansion entirely, so the SAME setup.conf produced two
   # different container envs -- `.env` carried the resolved value and the
   # stage service a literal `${VAR}` compose cannot resolve, because its
