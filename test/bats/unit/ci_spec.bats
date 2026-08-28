@@ -1772,6 +1772,23 @@ SH
   refute_output --partial "docker should not be called"
 }
 
+@test "main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)" {
+  # Same CI-reachability shape as the sibling primitives: the lint-static
+  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
+  # must be pure bash over the checkout and never touch docker.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --action-ref-agreement-only
+  '
+  assert_success
+  assert_output --partial "action ref agreement lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)" {
   # The clearest case for an ungated CI job: a README.md edit that leaves a
   # translation behind is a doc-only change end to end.
@@ -1809,6 +1826,7 @@ SH
   assert_line "doc-counts"
   assert_line "home-literal"
   assert_line "changelog-entry"
+  assert_line "action-ref-agreement"
 }
 
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {

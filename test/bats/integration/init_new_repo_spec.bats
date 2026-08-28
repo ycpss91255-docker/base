@@ -445,11 +445,20 @@ teardown() {
   # ENV, not shell-time $HOME. Without an explicit ENV HOME, the
   # `WORKDIR "${HOME}/work"` collapses to /work and BuildKit emits
   # `WARN: UndefinedVar`. The ENV must appear BEFORE the WORKDIR.
-  run grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}"
+  #
+  # Read over the code lines, not the file: the commented-out runtime
+  # stage at the foot of this Dockerfile carries an `ENV HOME=` /
+  # `WORKDIR "${HOME}/work"` pair of its own as a worked example, so a
+  # whole-file read finds a matching pair in the right ORDER even with the
+  # active directives deleted. (The ad-hoc `grep -v '^[0-9]*:#'` this
+  # replaces was one file's private answer to the same problem.) Line
+  # numbers are of the stripped stream and are used only for the ordering
+  # comparison, which stripping preserves.
+  run code_grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}"
   assert_success
   local _env_line _workdir_line
-  _env_line="$(grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}" | head -1 | cut -d: -f1)"
-  _workdir_line="$(grep -nF 'WORKDIR "${HOME}/work"' "${_df}" | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)"
+  _env_line="$(code_grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}" | head -1 | cut -d: -f1)"
+  _workdir_line="$(code_grep -nF 'WORKDIR "${HOME}/work"' "${_df}" | head -1 | cut -d: -f1)"
   [[ -n "${_env_line}" && -n "${_workdir_line}" ]]
   (( _env_line < _workdir_line ))
 }
@@ -462,9 +471,9 @@ teardown() {
   # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form
   # tolerates missing source files (.base/dist/config/shell/bashrc.d/
   # is empty by default; only an explicit .gitkeep ships).
-  run grep -F 'mkdir -p "${HOME}/.bashrc.d"' "${_df}"
+  run code_grep -F 'mkdir -p "${HOME}/.bashrc.d"' "${_df}"
   assert_success
-  run grep -F 'cp -n "${CONFIG_DIR}"/shell/bashrc.d/*.sh "${HOME}/.bashrc.d/"' "${_df}"
+  run code_grep -F 'cp -n "${CONFIG_DIR}"/shell/bashrc.d/*.sh "${HOME}/.bashrc.d/"' "${_df}"
   assert_success
 }
 
@@ -476,10 +485,16 @@ teardown() {
   # one-liner -- no $USER deref, no WS_PATH dependence, works at
   # build-time smoke AND runtime on multi-repo workspaces. Pin the
   # COPY here so init.sh seeding regressions are caught.
+  #
+  # Over the code lines: the same COPY appears again, commented out, in
+  # the worked runtime-stage example near the foot of this Dockerfile.
+  # Deleting the ACTIVE COPY -- which breaks runtime logging in every
+  # generated image -- left the unanchored whole-file read matching the
+  # example and this guard green.
   bash .base/dist/script/base/init.sh
   local _df="${REPO_DIR}/Dockerfile"
   assert [ -f "${_df}" ]
-  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  run code_grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
   assert_success
 }
 
