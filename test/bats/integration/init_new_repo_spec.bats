@@ -738,3 +738,69 @@ teardown() {
   assert_output --partial "template source"
   assert [ ! -f "${REPO_DIR}/Dockerfile" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# init.sh on an EXISTING repo: main.yaml is never rewritten
+# (#957 item 2, checked against #927 / #928)
+# ════════════════════════════════════════════════════════════════════
+
+@test "existing repo: init never rewrites a main.yaml it did not create (#957)" {
+  # #957 moved the seeded main.yaml's `contents: write` off the workflow
+  # scope and onto the release job. The seed is emitted ONLY by
+  # _create_new_repo, so that change reaches newly created repos; an
+  # existing repo's main.yaml is its own file, hand-maintained (extra
+  # jobs, a pinned tag, repo-specific gates), and init must not touch it.
+  #
+  # This is the safety half of the delivery boundary the issue asked to
+  # check: a resync that overwrote main.yaml would silently discard a
+  # consumer's CI, which is why the least-privilege seed cannot simply be
+  # pushed out the way _sync_base_monitor_workflow pushes the monitor.
+  printf 'FROM alpine\n' > "${REPO_DIR}/Dockerfile"
+  mkdir -p "${REPO_DIR}/.github/workflows"
+  cat > "${REPO_DIR}/.github/workflows/main.yaml" <<'YAML'
+name: Main CI/CD
+
+# A repo seeded before #957: the write grant sits at the workflow scope,
+# and the repo has since added a job of its own.
+permissions:
+  contents: write
+
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.41.0
+    with:
+      image_name: legacy_repo
+
+  repo-specific-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hand-written, not base's"
+YAML
+  cp "${REPO_DIR}/.github/workflows/main.yaml" "${TMP_ROOT}/main.yaml.orig"
+
+  run bash .base/dist/script/base/init.sh
+  assert_success
+
+  run cmp "${TMP_ROOT}/main.yaml.orig" "${REPO_DIR}/.github/workflows/main.yaml"
+  assert_success
+}
+
+@test "existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)" {
+  # The delivery boundary itself, stated as a contrast: init DOES converge
+  # an existing repo on base-version-monitor.yaml (never-overwrite sync),
+  # and does NOT deliver main.yaml at all. So the #957 seed change is
+  # scoped to newly created repos -- and, per #928, `_create_new_repo` is
+  # currently unreachable through bootstrap.sh (the template ships a
+  # Dockerfile, so init takes this existing-repo branch), which is why
+  # that issue, not this one, owns getting the seed to run.
+  #
+  # If a future change starts resyncing main.yaml, this test names it, and
+  # the scoped claim in the changelog has to be revisited with it.
+  printf 'FROM alpine\n' > "${REPO_DIR}/Dockerfile"
+
+  run bash .base/dist/script/base/init.sh
+  assert_success
+
+  assert [ -f "${REPO_DIR}/.github/workflows/base-version-monitor.yaml" ]
+  assert [ ! -e "${REPO_DIR}/.github/workflows/main.yaml" ]
+}

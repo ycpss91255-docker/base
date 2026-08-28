@@ -77,16 +77,20 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Fixed
 - **the reusable build worker's jobs no longer inherit the caller's whole
   token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
-  declared no `permissions:`, so each ran with the CALLING repo's grant: a
-  downstream granting `contents: write` workflow-wide handed that write to
-  jobs which only read. All three now declare `contents: read`. No job names
-  `packages: write`: a called job asking for a scope its caller did not grant
-  fails the run outright rather than intersecting down, so `cache_backend:
-  registry` is unreachable from here and the input says so. The seeded
-  `main.yaml` moves `contents: write` onto `call-release`.
+  declared no `permissions:`, so each ran with the CALLING repo's grant. All
+  three now declare `contents: read`, asserted as an exact entry set so an
+  added scope fails too. No job names `packages: write`: a called job asking
+  for a scope its caller did not grant fails the run outright rather than
+  intersecting down, so `cache_backend: registry` is unreachable from here --
+  the input description and the preflight hint a failing caller reads now say
+  that, instead of asking for a grant that cannot help. The seeded `main.yaml`
+  moves `contents: write` onto `call-release`; that seed reaches NEWLY created
+  repos only, an existing repo's own `main.yaml` is never rewritten (#927,
+  #928).
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
-  all four READMEs; the prose around it was already dotted.
+  all four READMEs; the prose around it was already dotted. Every row of that
+  table is now pinned to a path that exists.
 - **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
