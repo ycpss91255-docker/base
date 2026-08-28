@@ -262,23 +262,13 @@ _setup_set() {
     return 1
   fi
 
-  # Split <section>.<key>; the first '.' is the separator. The only
-  # sub-section pattern is [logging.<svc>] (per-service override), so
-  # `logging.<svc>.<key>` is split as section=`logging.<svc>`,
-  # key=`<key>` (rightmost-dot). All other shapes use first-dot.
-  if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage set >&2
-    return 1
-  fi
+  # Split <section>.<key> through conf.sh's _conf_split_nskey, the one
+  # owner of that rule (first-dot, except the [logging.<svc>] per-service
+  # sub-section, which splits rightmost-dot). A dotless spec names no
+  # key, which `set` cannot act on.
   local _section _key
-  if [[ "${_spec}" == logging.*.* ]]; then
-    _section="${_spec%.*}"
-    _key="${_spec##*.}"
-  else
-    _section="${_spec%%.*}"
-    _key="${_spec#*.}"
-  fi
-  if [[ -z "${_section}" || -z "${_key}" ]]; then
+  if ! _conf_split_nskey "${_spec}" _section _key \
+     || [[ -z "${_section}" || -z "${_key}" ]]; then
     _setup_msg usage set >&2
     return 1
   fi
@@ -375,16 +365,10 @@ _setup_show() {
     return 1
   fi
 
+  # Same split rule as `set` / `remove` (conf.sh owns it); unlike those,
+  # a dotless spec is legal here and means "show the whole section".
   local _section _key
-  if [[ "${_spec}" == logging.*.* ]]; then
-    # [logging.<svc>] sub-section: section is `logging.<svc>`, key is
-    # the rightmost dot-delimited segment.
-    _section="${_spec%.*}"
-    _key="${_spec##*.}"
-  elif [[ "${_spec}" == *.* ]]; then
-    _section="${_spec%%.*}"
-    _key="${_spec#*.}"
-  else
+  if ! _conf_split_nskey "${_spec}" _section _key; then
     _section="${_spec}"
     _key=""
   fi
@@ -792,19 +776,11 @@ _setup_remove() {
     esac
   done
 
-  if [[ -z "${_spec}" || "${_spec}" != *.* ]]; then
-    _setup_msg usage remove >&2
-    return 1
-  fi
+  # Same split rule as `set` (conf.sh owns it): a dotless spec names no
+  # key, and `remove` needs one.
   local _section _rest
-  if [[ "${_spec}" == logging.*.* ]]; then
-    _section="${_spec%.*}"
-    _rest="${_spec##*.}"
-  else
-    _section="${_spec%%.*}"
-    _rest="${_spec#*.}"
-  fi
-  if [[ -z "${_section}" || -z "${_rest}" ]]; then
+  if ! _conf_split_nskey "${_spec}" _section _rest \
+     || [[ -z "${_section}" || -z "${_rest}" ]]; then
     _setup_msg usage remove >&2
     return 1
   fi
