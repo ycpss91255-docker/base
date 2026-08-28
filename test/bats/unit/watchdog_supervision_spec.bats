@@ -24,13 +24,63 @@ teardown() {
   rm -rf "${TMP_DIR}"
 }
 
+# ── event-driven synchronisation, never a fixed sleep (#965) ─────────
+#
+# Every case below drives REAL processes, so the harness has to wait for
+# something a child does before it acts: the pid file is written, the TERM
+# trap is installed. A fixed `sleep N` cannot express that wait -- N is a
+# guess about the scheduler, and this suite runs 32-way parallel, often
+# beside a sibling checkout's gate, so the guess is regularly wrong. When it
+# was wrong here the signal landed BEFORE the service installed its trap and
+# the assertion read NO_SIGNAL: a correct supervisor reported as a product
+# defect, five gate runs across four unrelated branches.
+#
+# `_await_file` / `_await_gone` poll for the OBSERVABLE EVENT under a
+# generous ceiling instead. A slow machine then costs latency, never a
+# verdict. Just as important, a harness that never got going reports its OWN
+# distinct outcome (NOT_READY / NO_PID) rather than borrowing the product's
+# failure word, so "the test never set the experiment up" can never again be
+# read as "the supervisor did not forward the signal".
+#
+# The helper text is injected into each `bash -c` body because those run in
+# their own process, not in the bats shell. The ceilings are in units of
+# 0.1s and are deliberately far larger than any plausible scheduling delay;
+# they exist to bound a HANG, not to time a correct run.
+_SYNC_FN='
+_await_file() {
+  local _p="${1}" _n="${2:-100}" _i=0
+  while [ "${_i}" -lt "${_n}" ]; do
+    [ -s "${_p}" ] && return 0
+    sleep 0.1
+    _i=$(( _i + 1 ))
+  done
+  return 1
+}
+_await_gone() {
+  local _pid="${1}" _n="${2:-100}" _i=0
+  while [ "${_i}" -lt "${_n}" ]; do
+    kill -0 "${_pid}" 2>/dev/null || return 0
+    sleep 0.1
+    _i=$(( _i + 1 ))
+  done
+  return 1
+}
+'
+
 # ── restart-container monitor loop ───────────────────────────────────
 
 @test "restart-container monitor DEFERS checks during the start period (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # A failing check + a start period longer than the observation window
   # must NOT trigger a container exit yet (still initializing).
-  run timeout 6 bash -c "
+  #
+  # The 2s window is an OBSERVATION window, not a synchronisation point: the
+  # property is the ABSENCE of an event, and load can only make that absence
+  # more likely, never less. What load CAN do is make it vacuous -- a monitor
+  # that crashed on its first line also never prints ACTED. So the window
+  # ends by asking whether the monitor is still there, which separates "it
+  # deferred" from "it was never running to defer" (#965).
+  run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=30 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1
@@ -38,16 +88,23 @@ teardown() {
     ( _watchdog_monitor ) &
     _pid=\$!
     sleep 2
+    if kill -0 \${_pid} 2>/dev/null; then echo STILL_DEFERRING; else echo MONITOR_GONE; fi
     kill \${_pid} 2>/dev/null || true
     echo DONE
   "
   refute_output --partial "ACTED"
+  assert_output --partial "STILL_DEFERRING"
+  refute_output --partial "MONITOR_GONE"
   assert_output --partial "DONE"
 }
 
 @test "restart-container monitor EXITS the container after consecutive failures (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  run timeout 8 bash -c "
+  # timeout 30, not 8: the loop needs two 1s intervals plus two bounded
+  # checks, so a value sized to the EXPECTED wall clock turns a loaded
+  # machine into a red gate. The timeout is here to catch a loop that never
+  # terminates, and 30s catches that just as well (#965).
+  run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=2
@@ -64,7 +121,9 @@ teardown() {
 
 @test "restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  run timeout 10 bash -c "
+  # timeout 30 for the reason given on the monitor case above: it bounds a
+  # non-terminating loop, it does not schedule a correct one (#965).
+  run timeout 30 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1 _WATCHDOG_MAX_RESTARTS=2
@@ -100,20 +159,25 @@ trap '' TERM
 echo $$ > "$1"
 sleep 60
 EOF
-  # timeout 10: an unbounded wait (the pre-fix bug) hangs here -> status 124.
-  run timeout 10 bash -c "
+  # timeout 30: an unbounded wait (the pre-fix bug) hangs here -> status 124.
+  # The two waits inside are event-driven (#965): a `sleep 0.5` before
+  # reading the pid file is a guess, and when the guess lost the read
+  # produced an EMPTY pid, `kill -0 ""` failed, and the case reported KILLED
+  # -- a green run that had killed nothing. NO_PID is now its own outcome.
+  run timeout 30 bash -c "
+    ${_SYNC_FN}
     . '${WD}'
     export _WATCHDOG_TIMEOUT=1
     _watchdog_start_service bash '${TMP_DIR}/ignore_term.sh' '${TMP_DIR}/svc.pid'
-    sleep 0.5
+    if ! _await_file '${TMP_DIR}/svc.pid' 150; then echo NO_PID; exit 0; fi
     _pid=\"\$(cat '${TMP_DIR}/svc.pid')\"
     _watchdog_stop_service
-    sleep 0.3
-    if kill -0 \"\${_pid}\" 2>/dev/null; then echo STILL_ALIVE; else echo KILLED; fi
+    if _await_gone \"\${_pid}\" 100; then echo KILLED; else echo STILL_ALIVE; fi
   "
   assert_success
   assert_output --partial "KILLED"
   refute_output --partial "STILL_ALIVE"
+  refute_output --partial "NO_PID"
 }
 
 # ── whole-subtree kill: no orphaned grandchild survives a stop ───────
@@ -134,19 +198,23 @@ EOF
 ( trap '' TERM; echo $$ > "$1"; sleep 60 ) &
 sleep 60
 EOF
-  run timeout 10 bash -c "
+  # Event-driven for the same reason as the case above (#965): losing the
+  # `sleep 0.7` race read an empty grandchild pid and reported SUBTREE_DEAD
+  # without having observed any subtree.
+  run timeout 30 bash -c "
+    ${_SYNC_FN}
     . '${WD}'
     export _WATCHDOG_TIMEOUT=1
     _watchdog_start_service bash '${TMP_DIR}/spawner.sh' '${TMP_DIR}/grand.pid'
-    sleep 0.7
+    if ! _await_file '${TMP_DIR}/grand.pid' 150; then echo NO_PID; exit 0; fi
     _gpid=\"\$(cat '${TMP_DIR}/grand.pid')\"
     _watchdog_stop_service
-    sleep 0.3
-    if kill -0 \"\${_gpid}\" 2>/dev/null; then echo ORPHAN_ALIVE; else echo SUBTREE_DEAD; fi
+    if _await_gone \"\${_gpid}\" 100; then echo SUBTREE_DEAD; else echo ORPHAN_ALIVE; fi
   "
   assert_success
   assert_output --partial "SUBTREE_DEAD"
   refute_output --partial "ORPHAN_ALIVE"
+  refute_output --partial "NO_PID"
 }
 
 # ── give-up against a wedged service still reaches container exit ────
@@ -167,8 +235,10 @@ sleep 300
 EOF
   # Real (bounded) stop_service against a wedged child; only exit_container
   # is overridden to observe that give-up REACHES it (the pre-fix unbounded
-  # wait would hang stop_service so give-up never exits -> timeout 15).
-  run timeout 15 bash -c "
+  # wait would hang stop_service so give-up never exits -> the timeout
+  # fires). 45, not 15: the timeout bounds that hang, it does not schedule
+  # the several bounded stop cycles a correct run performs (#965).
+  run timeout 45 bash -c "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1 _WATCHDOG_MAX_RESTARTS=1
@@ -194,26 +264,58 @@ EOF
     || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/graceful.sh" <<'EOF'
 #!/usr/bin/env bash
-trap 'touch "$1"; exit 0' TERM
+# $1 -- written IFF a trapped SIGTERM arrives (the graceful forward).
+# $2 -- the READY marker, written only AFTER the trap is installed. It is
+#       what makes the harness's wait an EVENT rather than a guess: until
+#       this file exists a SIGTERM would be taken by the DEFAULT handler and
+#       kill the service silently, which says nothing about forwarding.
+trap 'echo forwarded > "$1"; exit 0' TERM
+echo ready > "$2"
 sleep 300
 EOF
-  # INTERVAL=30 but the whole harness is timeout 12: a bare foreground
-  # `sleep 30` would DEFER the trapped SIGTERM past the 12s timeout, so the
-  # graceful forward (marker) would never run and the harness would be
-  # SIGKILL'd at 12s (status 124). The interruptible sleep handles SIGTERM
-  # at ~1s -> marker created, supervisor exits, well under the interval.
-  run timeout 12 bash -c "
+  # Two separate properties, asserted separately.
+  #
+  # FORWARDING: with INTERVAL=30 a bare foreground `sleep 30` in the
+  # supervisor would DEFER the trapped SIGTERM until the interval elapsed,
+  # so the marker would never be written; the interruptible sleep handles it
+  # at once. This used to be measured by the harness's own `timeout 12`
+  # cutting a deferred run short -- i.e. by wall clock.
+  #
+  # PROMPTNESS: measured directly instead, as the seconds between the signal
+  # and the supervisor's exit, and required to be well under the 30s
+  # interval. A deferred forward reports DEFERRED_30s by name rather than
+  # by being killed, and a merely SLOW machine no longer looks like one.
+  #
+  # The wait for readiness gets a 20s ceiling and its own NOT_READY outcome
+  # (#965): under 32-way parallel load one fixed second was not enough for
+  # the supervisor to spawn the service and for the service to install its
+  # trap, so the signal arrived first, no marker was written, and the case
+  # reported NO_SIGNAL -- the harness's own failure wearing the product's
+  # failure word, five times across four branches.
+  run timeout 60 bash -c "
+    ${_SYNC_FN}
     . '${WD}'
     export WATCHDOG_CHECK='true'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
-    _watchdog_supervise bash '${TMP_DIR}/graceful.sh' '${TMP_DIR}/graceful.marker' &
+    _watchdog_supervise bash '${TMP_DIR}/graceful.sh' \
+      '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' &
     _sup=\$!
-    sleep 1
+    if ! _await_file '${TMP_DIR}/graceful.ready' 200; then
+      kill -KILL \${_sup} 2>/dev/null || true
+      echo NOT_READY
+      exit 0
+    fi
+    _t0=\$(date +%s)
     kill -TERM \${_sup}
     wait \${_sup} 2>/dev/null || true
-    if [ -f '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
+    _elapsed=\$(( \$(date +%s) - _t0 ))
+    if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
+    if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
   "
   assert_success
   assert_output --partial "GRACEFUL"
+  assert_output --partial "PROMPT_"
   refute_output --partial "NO_SIGNAL"
+  refute_output --partial "NOT_READY"
+  refute_output --partial "DEFERRED_"
 }
