@@ -83,6 +83,25 @@ if ! declare -p _ATEXIT_FNS >/dev/null 2>&1; then
   _ATEXIT_FNS=()
 fi
 
+# _atexit_set_exit_code <rc>
+#   Ask for the process to exit with <rc>. The ONLY way an atexit callback
+#   may override the exit status: a bare `exit` from inside a callback
+#   terminates the shell there and then -- mid atexit loop, before
+#   _transcript_exit_handler reaches _transcript_finalize -- which leaves
+#   the raw capture unstripped as <file>.log.raw, with no
+#   transcript_complete line, latest.log still pointing at the previous
+#   run and no prune. The callback that most wants a non-zero code is a
+#   failing post-verb hook, i.e. exactly the run whose transcript matters
+#   most (ADR-00000007). Recorded here, applied by the handler after
+#   finalize. Last writer wins; 0 is a no-op, so a callback cannot mask a
+#   failure that is already on its way out.
+_atexit_set_exit_code() {
+  local _rc="${1:?_atexit_set_exit_code requires an exit code}"
+  (( _rc == 0 )) && return 0
+  _ATEXIT_EXIT_CODE="${_rc}"
+  return 0
+}
+
 # ── Pure helpers (unit-tested) ──────────────────────────────────────
 
 # _transcript_repo_root
@@ -243,6 +262,13 @@ _transcript_exit_handler() {
     "${_ATEXIT_FNS[_i]}" || true
   done
 
+  # A callback that asked for its own exit code (a failing post-verb hook)
+  # takes over BEFORE finalize, so the closing line records the code the
+  # caller actually sees rather than the one the callback overrode.
+  if [[ -n "${_ATEXIT_EXIT_CODE:-}" ]]; then
+    _rc="${_ATEXIT_EXIT_CODE}"
+  fi
+
   if [[ -n "${_TRANSCRIPT_ACTIVE:-}" ]]; then
     local _dur=0
     if [[ -n "${_TRANSCRIPT_START:-}" ]]; then
@@ -251,6 +277,13 @@ _transcript_exit_handler() {
       (( _end > 0 )) && _dur=$(( _end - _TRANSCRIPT_START ))
     fi
     _transcript_finalize "transcript_complete exit_code=${_rc} duration=${_dur}s"
+  fi
+  # `exit` only for the override: a bare `return` from an EXIT trap keeps
+  # the status the shell was already exiting with, which would silently
+  # drop a callback's code. Exiting from the EXIT trap does not re-enter
+  # it, and finalize has already run by here.
+  if [[ -n "${_ATEXIT_EXIT_CODE:-}" ]]; then
+    exit "${_rc}"
   fi
   return "${_rc}"
 }

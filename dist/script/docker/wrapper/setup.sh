@@ -403,14 +403,19 @@ _SETUP_POST_HOOK_ARGV=()
 # transcript.sh owns the single EXIT trap and _atexit fires on an errexit
 # abort too, so the hook is reached without opening that hole.
 #
-# A failing hook still wins over the subcommand's own rc, via `exit` from
-# the trap -- the same shape run.sh's _app_cleanup uses.
+# A failing hook still wins over the subcommand's own rc -- recorded with
+# _atexit_set_exit_code, NOT with a bare `exit`. `exit` from inside a
+# callback terminates the shell mid atexit loop, before
+# _transcript_exit_handler reaches _transcript_finalize: the run would end
+# with an unstripped log/setup/<ts>-<id>.log.raw, no transcript_complete
+# line and latest.log still naming the previous run, on exactly the
+# failing run worth reading (ADR-00000007).
 # ════════════════════════════════════════════════════════════════════
 _setup_post_hook_atexit() {
   local _hook_rc=0
   _run_post_hook setup \
     "${_SETUP_POST_HOOK_ARGV[@]+"${_SETUP_POST_HOOK_ARGV[@]}"}" || _hook_rc=$?
-  (( _hook_rc == 0 )) || exit "${_hook_rc}"
+  (( _hook_rc == 0 )) || _atexit_set_exit_code "${_hook_rc}"
 }
 
 # ════════════════════════════════════════════════════════════════════
