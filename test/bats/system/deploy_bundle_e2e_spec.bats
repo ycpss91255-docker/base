@@ -82,6 +82,12 @@ setup_file() {
   printf '%s\n' \
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
+    "[environment]" "env_1 = APP_MODE=shipped-default" \
+    "env_2 = APP_NOTE=a #b" \
+    'env_3 = APP_LIT=${NOT_SET_ANYWHERE}' \
+    'env_4 = APP_QB=a"b\c' \
+    "env_5 = APP_APOS=it's fine" \
+    "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
     > "${REPO}/.setup.conf"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
@@ -204,6 +210,79 @@ teardown_file() {
   [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
   run docker ps --filter "name=${CNAME}" --filter "status=running" --format '{{.Names}}'
   [[ "${output}" != *"${CNAME}"* ]]
+}
+
+@test "field-deploy e2e: an operator .env.local override reaches the RUNNING container" {
+  # The acceptance criterion this exists for: not "the compose looks right",
+  # but "the value inside the container changed". compose gives environment:
+  # precedence over env_file, so a WATCHDOG_* / [environment] default left in
+  # the service's environment: block would make this override silently inert.
+  [ -f "${BUNDLE}/.env" ]
+  [ -f "${BUNDLE}/.env.local" ]
+  run cat "${BUNDLE}/.env"
+  [[ "${output}" == *"APP_MODE="*"shipped-default"* ]] || { echo "bundle .env: ${output}"; false; }
+  [[ "${output}" == *"WATCHDOG_INTERVAL="*"30"* ]] || { echo "bundle .env: ${output}"; false; }
+
+  run "${BUNDLE}/deploy.sh" up
+  [ "${status}" -eq 0 ] || { echo "deploy.sh up failed (status=${status}):"; echo "${output}"; false; }
+
+  # Before any override: the shipped default is what the container sees.
+  run docker exec "${CNAME}" printenv APP_MODE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_MODE failed: ${output}"; false; }
+  [[ "${output}" == "shipped-default" ]] || { echo "expected shipped-default, got: ${output}"; false; }
+
+  # A value carrying an inline " #" survives the env_file parser intact.
+  # Unquoted, that parser treats the rest of the line as a comment and the
+  # container receives a silently truncated value -- undiagnosable in the
+  # field, which is why the writer quotes every value.
+  run docker exec "${CNAME}" printenv APP_NOTE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_NOTE failed: ${output}"; false; }
+  [[ "${output}" == "a #b" ]] || { echo "env_file value truncated; got: ${output}"; false; }
+
+  # ... and a `$` reaches the container as a `$`. The writer escapes it
+  # because a quoted env_file value is variable-expanded, and it must not
+  # be: an unresolved reference is left literal on purpose so a genuinely
+  # undefined name is visible rather than silently empty. Getting the
+  # escape wrong in the other direction leaks the backslash, which only a
+  # real parser can tell us.
+  # ... a `$` reaches the container as a `$`. The writer keeps it literal
+  # on purpose so a genuinely undefined name stays visible instead of
+  # silently resolving to empty -- and a double-quoted env_file value would
+  # have expanded it away.
+  run docker exec "${CNAME}" printenv APP_LIT
+  [ "${status}" -eq 0 ] || { echo "printenv APP_LIT failed: ${output}"; false; }
+  [[ "${output}" == '${NOT_SET_ANYWHERE}' ]] || { echo "reference expanded away; got: ${output}"; false; }
+
+  # ... a double quote and a backslash pass through unchanged (the parser
+  # does not unescape a doubled backslash, so the writer must not double
+  # one), and the quote character that delimits the value survives being
+  # inside it.
+  run docker exec "${CNAME}" printenv APP_QB
+  [ "${status}" -eq 0 ] || { echo "printenv APP_QB failed: ${output}"; false; }
+  [[ "${output}" == 'a"b\c' ]] || { echo "backslash mangled; got: ${output}"; false; }
+
+  run docker exec "${CNAME}" printenv APP_APOS
+  [ "${status}" -eq 0 ] || { echo "printenv APP_APOS failed: ${output}"; false; }
+  [[ "${output}" == "it's fine" ]] || { echo "delimiter escape mangled; got: ${output}"; false; }
+
+  # The operator edits .env.local in the field and re-ups. No rebuild, no
+  # regenerate, no edit to the machine-generated compose.yaml.
+  printf 'APP_MODE=field-override\nWATCHDOG_INTERVAL=5\n' > "${BUNDLE}/.env.local"
+  run "${BUNDLE}/deploy.sh" up
+  [ "${status}" -eq 0 ] || { echo "deploy.sh re-up failed (status=${status}):"; echo "${output}"; false; }
+
+  run docker exec "${CNAME}" printenv APP_MODE
+  [ "${status}" -eq 0 ] || { echo "printenv APP_MODE failed: ${output}"; false; }
+  [[ "${output}" == "field-override" ]] || { echo "operator override IGNORED; got: ${output}"; false; }
+
+  run docker exec "${CNAME}" printenv WATCHDOG_INTERVAL
+  [ "${status}" -eq 0 ] || { echo "printenv WATCHDOG_INTERVAL failed: ${output}"; false; }
+  [[ "${output}" == "5" ]] || { echo "watchdog override IGNORED; got: ${output}"; false; }
+
+  # Restore the pristine override file so the sibling tests are unaffected.
+  : > "${BUNDLE}/.env.local"
+  run "${BUNDLE}/deploy.sh" down
+  [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
 }
 
 @test "field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host" {

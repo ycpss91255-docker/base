@@ -889,6 +889,15 @@ _init_disarm_rollback() {
 _init_existing_repo() {
   _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
+  # BEFORE anything can regenerate: a `.env` written back when that name
+  # meant "yours" is moved to `.env.local`. This runs here, not in
+  # upgrade.sh, on purpose. An upgrade is driven by the CONSUMER'S OWN
+  # vendored upgrade.sh -- a copy that shipped in an older release and
+  # knows nothing about the rename -- but every one of those releases
+  # re-runs the NEWLY PULLED init.sh as its resync step, so this is the
+  # earliest point in the upgrade that runs current code. Nothing between
+  # here and the user's next `just setup` writes `.env`.
+  _migrate_env_to_local "${REPO_ROOT}"
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;

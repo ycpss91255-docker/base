@@ -98,7 +98,7 @@ stop *args:
 prune *args:
     ./script/prune.sh {{args}}
 
-# Regenerate .env.generated + compose.yaml from setup.conf
+# Regenerate .env / .env.generated / compose.yaml from setup.conf
 setup *args:
     ./script/setup.sh {{args}}
 

@@ -10,7 +10,7 @@
 #   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
 # On save, setup_tui.sh writes <repo>/.setup.conf and execs setup.sh to
-# regenerate .env.generated + compose.yaml. Cancel / Esc exits 0 without
+# regenerate .env / .env.generated / compose.yaml. Cancel / Esc exits 0 without
 # saving.
 #
 # Style: Google Shell Style Guide.
@@ -263,10 +263,10 @@ _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a posit
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_EN[main.lifecycle]="container restart policy"
-# runtime-env info page (info-only: points at the .env workload overlay)
-_TUI_MSG_EN[main.envinfo]="workload env (.env) -- how to set"
+# runtime-env info page (info-only: points at the .env.local overrides)
+_TUI_MSG_EN[main.envinfo]="workload env (.env.local) -- how to set"
 _TUI_MSG_EN[envinfo.title]="Workload env (.env)"
-_TUI_MSG_EN[envinfo.info]=$'Volatile per-task env vars (ROS_DOMAIN_ID, LOG_LEVEL, tokens, ...)\nbelong in the gitignored .env overlay -- edit that file directly.\nsetup.sh never touches .env after scaffolding it, and changes take\neffect with `just run` alone: no compose regenerate, no SETUP_CONF_HASH\ndrift, no git churn.\n\nSet-once defaults that rarely change live in [environment] (this menu ->\n"runtime env vars"). They are baked into the field image as ENV and\nemitted into compose; .env overrides them at runtime (.env wins).\n\nThis page is informational -- it does not edit .env.'
+_TUI_MSG_EN[envinfo.info]=$'Volatile per-task env vars (ROS_DOMAIN_ID, LOG_LEVEL, tokens, ...)\nbelong in the gitignored .env.local -- edit that file directly. The\ntoolchain never touches it, and changes take effect with `just run`\nalone: no compose regenerate, no SETUP_CONF_HASH drift, no git churn.\n\nSet-once defaults that rarely change live in [environment] (this menu ->\n"runtime env vars"). apply writes them into the generated .env and bakes\nthem into the field image as ENV; .env.local is loaded after .env, so a\nkey in both resolves to yours.\n\nNaming rule: the standard name is ours (.env is regenerated), a suffix\nmarks the local variant (.env.local is yours).\n\nThis page is informational -- it does not edit .env.local.'
 _TUI_MSG_EN[lifecycle.title]="Lifecycle"
 _TUI_MSG_EN[lifecycle.restart.prompt]=$'Container restart policy.\n\nCaveat: always / unless-stopped restart on ANY exit -- a stage that\nextends devel and exits 0 (e.g. the test service) would loop. Prefer\non-failure for auto-retry.'
 _TUI_MSG_EN[lifecycle.restart.no]="no (never restart -- default; emits no restart: field)"
@@ -310,7 +310,7 @@ _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
 _TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
 _TUI_MSG_EN[deploy.ambiguous.body]=$'You opened the [deploy] section editor.\n\n[deploy] configures GPU reservation ONLY -- the section is named after\nCompose\'s `deploy:` key, not after deployment.\n\nThe field-deploy bundle is a different command:\n  ./setup.sh deploy      (just docker setup deploy)\n\nThe unambiguous name for THIS editor is `gpu`:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
-_TUI_MSG_EN[saved]="Saved to %s. Regenerating .env.generated + compose.yaml..."
+_TUI_MSG_EN[saved]="Saved to %s. Regenerating .env / .env.generated / compose.yaml..."
 _TUI_MSG_EN[action.prompt]="Choose an action"
 _TUI_MSG_EN[action.edit]="Edit"
 _TUI_MSG_EN[action.remove]="Remove (delete entry)"
@@ -500,10 +500,10 @@ _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_TW[main.lifecycle]="容器重啟策略"
-# runtime-env info page (info-only: points at the .env workload overlay)
-_TUI_MSG_ZH_TW[main.envinfo]="workload 環境變數（.env）-- 設定方式"
+# runtime-env info page (info-only: points at the .env.local overrides)
+_TUI_MSG_ZH_TW[main.envinfo]="workload 環境變數（.env.local）-- 設定方式"
 _TUI_MSG_ZH_TW[envinfo.title]="Workload 環境變數（.env）"
-_TUI_MSG_ZH_TW[envinfo.info]=$'每個任務會變動的環境變數（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n應寫進 gitignore 的 .env overlay —— 直接編輯該檔。\nsetup.sh 在首次 scaffold 後永不碰 .env，且改動只要 `just run` 即\n生效：不需重生 compose、不會動 SETUP_CONF_HASH、不產生 git 變更。\n\n極少變動的 set-once 預設值放在 [environment]（本選單 ->「執行時期\n環境變數」）。它們會 bake 進 field image 的 ENV 並輸出到 compose；\n執行時 .env 會覆蓋它們（.env 優先）。\n\n本頁僅供說明 —— 不會編輯 .env。'
+_TUI_MSG_ZH_TW[envinfo.info]=$'每個任務會變動的環境變數（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n應寫進 gitignore 的 .env.local —— 直接編輯該檔。\n工具鏈永不碰 .env.local，且改動只要 `just run` 即生效：不需重生\ncompose、不會動 SETUP_CONF_HASH、不產生 git 變更。\n\n極少變動的 set-once 預設值放在 [environment]（本選單 ->「執行時期\n環境變數」）。apply 會把它們寫進產生的 .env，並 bake 進 field image\n的 ENV；.env.local 在 .env 之後載入，同名 key 以 .env.local 為準。\n\n命名規則：標準名是我們的（.env 會被重新產生），加後綴才是本機變體\n（.env.local 是你的）。\n\n本頁僅供說明 —— 不會編輯 .env.local。'
 _TUI_MSG_ZH_TW[lifecycle.title]="生命週期"
 _TUI_MSG_ZH_TW[lifecycle.restart.prompt]=$'容器重啟策略。\n\n注意：always / unless-stopped 會在「任何」退出時重啟 —— 一個 extends\ndevel 且以 0 結束的 stage（例如 test service）會無限重啟。要自動重試\n請優先選 on-failure。'
 _TUI_MSG_ZH_TW[lifecycle.restart.no]="no（永不重啟 —— 預設；不輸出 restart: 欄位）"
@@ -545,7 +545,7 @@ _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
 _TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
 _TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
-_TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env.generated + compose.yaml..."
+_TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env / .env.generated / compose.yaml..."
 _TUI_MSG_ZH_TW[action.prompt]="選擇動作"
 _TUI_MSG_ZH_TW[action.edit]="編輯"
 _TUI_MSG_ZH_TW[action.remove]="移除（刪除項目）"
@@ -759,10 +759,10 @@ _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_CN[main.lifecycle]="容器重启策略"
-# runtime-env info page (info-only: points at the .env workload overlay)
-_TUI_MSG_ZH_CN[main.envinfo]="workload 环境变量（.env）-- 设置方式"
+# runtime-env info page (info-only: points at the .env.local overrides)
+_TUI_MSG_ZH_CN[main.envinfo]="workload 环境变量（.env.local）-- 设置方式"
 _TUI_MSG_ZH_CN[envinfo.title]="Workload 环境变量（.env）"
-_TUI_MSG_ZH_CN[envinfo.info]=$'每个任务会变动的环境变量（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n应写进 gitignore 的 .env overlay —— 直接编辑该文件。\nsetup.sh 在首次 scaffold 后永不碰 .env，且改动只要 `just run` 即\n生效：无需重新生成 compose、不会动 SETUP_CONF_HASH、不产生 git 变更。\n\n极少变动的 set-once 默认值放在 [environment]（本菜单 ->「运行时\n环境变量」）。它们会 bake 进 field image 的 ENV 并输出到 compose；\n运行时 .env 会覆盖它们（.env 优先）。\n\n本页仅供说明 —— 不会编辑 .env。'
+_TUI_MSG_ZH_CN[envinfo.info]=$'每个任务会变动的环境变量（ROS_DOMAIN_ID、LOG_LEVEL、token 等）\n应写进 gitignore 的 .env.local —— 直接编辑该文件。\n工具链永不碰 .env.local，且改动只要 `just run` 即生效：无需重新生成\ncompose、不会动 SETUP_CONF_HASH、不产生 git 变更。\n\n极少变动的 set-once 默认值放在 [environment]（本菜单 ->「运行时\n环境变量」）。apply 会把它们写进生成的 .env，并 bake 进 field image\n的 ENV；.env.local 在 .env 之后加载，同名 key 以 .env.local 为准。\n\n命名规则：标准名是我们的（.env 会被重新生成），加后缀才是本机变体\n（.env.local 是你的）。\n\n本页仅供说明 —— 不会编辑 .env.local。'
 _TUI_MSG_ZH_CN[lifecycle.title]="生命周期"
 _TUI_MSG_ZH_CN[lifecycle.restart.prompt]=$'容器重启策略。\n\n注意：always / unless-stopped 会在「任何」退出时重启 —— 一个 extends\ndevel 且以 0 结束的 stage（例如 test service）会无限重启。要自动重试\n请优先选 on-failure。'
 _TUI_MSG_ZH_CN[lifecycle.restart.no]="no（永不重启 —— 默认；不输出 restart: 字段）"
@@ -775,7 +775,7 @@ _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数�
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
 _TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
 _TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
-_TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env.generated + compose.yaml..."
+_TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env / .env.generated / compose.yaml..."
 _TUI_MSG_ZH_CN[action.prompt]="选择动作"
 _TUI_MSG_ZH_CN[action.edit]="编辑"
 _TUI_MSG_ZH_CN[action.remove]="移除（删除项目）"
@@ -989,10 +989,10 @@ _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整�
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_JA[main.lifecycle]="コンテナ再起動ポリシー"
-# runtime-env info page (info-only: points at the .env workload overlay)
-_TUI_MSG_JA[main.envinfo]="ワークロード環境変数（.env）-- 設定方法"
+# runtime-env info page (info-only: points at the .env.local overrides)
+_TUI_MSG_JA[main.envinfo]="ワークロード環境変数（.env.local）-- 設定方法"
 _TUI_MSG_JA[envinfo.title]="ワークロード環境変数（.env）"
-_TUI_MSG_JA[envinfo.info]=$'タスクごとに変わる環境変数（ROS_DOMAIN_ID、LOG_LEVEL、token など）\nは gitignore された .env overlay に書きます —— そのファイルを直接編集\nします。setup.sh は scaffold 後 .env に触れず、変更は `just run` だけ\nで反映されます：compose 再生成なし、SETUP_CONF_HASH のdrift なし、\ngit の変更なし。\n\nめったに変わらない set-once 既定値は [environment]（本メニュー ->\n「実行時環境変数」）に置きます。これらは field image に ENV として\nbake され compose にも出力されます。実行時は .env が上書きします\n（.env 優先）。\n\nこのページは情報提供のみ —— .env は編集しません。'
+_TUI_MSG_JA[envinfo.info]=$'タスクごとに変わる環境変数（ROS_DOMAIN_ID、LOG_LEVEL、token など）\nは gitignore された .env.local に書きます —— そのファイルを直接編集\nします。ツールチェーンは .env.local に触れず、変更は `just run` だけ\nで反映されます：compose 再生成なし、SETUP_CONF_HASH のdrift なし、\ngit の変更なし。\n\nめったに変わらない set-once 既定値は [environment]（本メニュー ->\n「実行時環境変数」）に置きます。apply が生成する .env に書き出され、\nfield image に ENV として bake されます。.env.local は .env の後に\n読み込まれるので、同じキーは .env.local が優先します。\n\n命名規則：標準名は我々のもの（.env は再生成される）、サフィックスが\nローカル版（.env.local はあなたのもの）。\n\nこのページは情報提供のみ —— .env.local は編集しません。'
 _TUI_MSG_JA[lifecycle.title]="ライフサイクル"
 _TUI_MSG_JA[lifecycle.restart.prompt]=$'コンテナ再起動ポリシー。\n\n注意：always / unless-stopped は「あらゆる」終了で再起動します ——\ndevel を extends して 0 で終了する stage（例：test サービス）は\nループします。自動リトライには on-failure を推奨します。'
 _TUI_MSG_JA[lifecycle.restart.no]="no（再起動しない —— デフォルト；restart: フィールドを出力しない）"
@@ -1005,7 +1005,7 @@ _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数�
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
 _TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
 _TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
-_TUI_MSG_JA[saved]="%s に保存しました。.env.generated + compose.yaml を再生成中..."
+_TUI_MSG_JA[saved]="%s に保存しました。.env / .env.generated / compose.yaml を再生成中..."
 _TUI_MSG_JA[action.prompt]="アクションを選択"
 _TUI_MSG_JA[action.edit]="編集"
 _TUI_MSG_JA[action.remove]="削除（項目を削除）"
@@ -2498,7 +2498,7 @@ _render_main_menu() {
 }
 
 # Runtime-env info page. Info-only: explains where volatile workload
-# env vars belong (the gitignored .env overlay, edited by hand) versus the
+# env vars belong (the gitignored .env.local, edited by hand) versus the
 # set-once [environment] defaults. The S2 invariant is that setup.sh
 # / the TUI never write .env, so this is a guidance msgbox, not an editor.
 _show_runtime_env_info() {
