@@ -26,7 +26,8 @@ and drifting from every other. base is vendored into each downstream as a
   smoke), and field delivery (a self-contained deploy bundle).
 - Host detection -> config resolution -> render, where one source
   (`setup.conf` + detection) fans out to every artifact (`compose.yaml`,
-  `.env.generated`, the `.env` overlay, `deploy.sh`, the baked runtime `ENV`).
+  `.env.generated`, the generated `.env`, `deploy.sh`, the baked runtime
+  `ENV`).
 - The **shared CI mechanism** downstream repos call (reusable build/release
   workers + the `test-tools` image).
 - The **propagation mechanism** (subtree + `init.sh` resync) that keeps
@@ -103,7 +104,8 @@ later without hitting a wall; a decision that hardcoded a per-instance value
 would silently re-introduce that wall.
 
 *Serves / established by:* ADR-00000022 (+ its enforcing guard); the
-per-instance-isolation-via-.env-overlay model (ADR-00000003 axis-A resolution).
+per-instance-isolation-via-env-overlay model (ADR-00000003 axis-A
+resolution; the overlay file is `.env.local`).
 
 ### 4. Fail-safe defaults
 
@@ -173,7 +175,11 @@ environment cleanly apart, and provides the same config by opposite means:
 
 The developer-vs-user split follows **git-tracking**: committed = the
 developer's default (baked); gitignored / not in the repo = the
-user/operator-editable overlay. Only a **deployable stage** deploys; every
+user/operator-editable overlay. The names follow one rule everywhere -- the
+standard name is the tool's and is regenerated (`Dockerfile`,
+`compose.yaml`, `.setup.conf`, `.env`), a suffix marks the local variant
+that is the operator's and is never rewritten (`.setup.conf.local`,
+`.env.local`). Only a **deployable stage** deploys; every
 downstream repo follows this. `_is_deployable_stage` (`lib/stage.sh`) is the
 one predicate that enforces it, and it rejects more than the two obvious
 cases: **`devel`** (the interactive shell), **any `*-test` stage** (it exists
@@ -238,8 +244,8 @@ the content-keyed tooling tag + checkout-keyed test project (#891 / #892).
 - **Single-service lifecycle ownership** (invariant 1): base owns build -> run
   -> supervise -> log -> field-deliver for one service.
 - **One source, many render targets:** `setup.conf` + host detection resolve
-  once and render `compose.yaml`, `.env.generated`, the `.env` overlay,
-  `deploy.sh`, and the baked runtime `ENV` -- so the same configuration is
+  once and render `compose.yaml`, `.env.generated`, the container-bound
+  `.env`, `deploy.sh`, and the baked runtime `ENV` -- so the same configuration is
   correct on the dev host and in a field image (ADR-00000003). The source is
   a layered chain of files -- shipped default, the repo's committed
   override, the operator's gitignored per-worktree override -- resolved

@@ -20,9 +20,12 @@
 # shard whose root <coverage> element carries lines-covered / lines-valid.
 # The project total is SUM(covered) / SUM(valid) across all shards -- a
 # LINE-WEIGHTED merge. It is NOT the average of the per-shard line-rate
-# attributes: shards have different denominators (the integration suite
-# runs on the last shard only), so averaging the rates would weight a
-# small shard equally with a large one and report a wrong total.
+# attributes: shards have different denominators (each shard instruments
+# only the slice of the time-balanced partition it was handed -- unit and
+# integration specs are ONE pool, spread by recorded runtime, so two
+# slices practically never cover the same number of lines), so averaging
+# the rates would weight a small shard equally with a large one and
+# report a wrong total.
 #
 # THRESHOLD: COVERAGE_MIN (percent, env-overridable). The default is set
 # just below the current measured rate so it does not false-fail today;

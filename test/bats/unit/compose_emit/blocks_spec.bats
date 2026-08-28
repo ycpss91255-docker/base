@@ -65,10 +65,23 @@ setup() {
 # _emit_env_file_block  (constant)
 # ════════════════════════════════════════════════════════════════════
 
-@test "_emit_env_file_block: emits the .env workload overlay block" {
+@test "_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)" {
   run _emit_env_file_block
-  assert_line "    env_file:"
-  assert_line "      - .env"
+  assert_success
+  assert_output - <<'EXPECTED'
+    env_file:
+      - .env
+      - .env.local
+EXPECTED
+}
+
+@test "_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)" {
+  run _emit_env_file_block own
+  assert_success
+  assert_output - <<'EXPECTED'
+    env_file:
+      - .env.local
+EXPECTED
 }
 
 # ════════════════════════════════════════════════════════════════════
