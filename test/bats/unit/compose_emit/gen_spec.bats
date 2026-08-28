@@ -406,6 +406,65 @@ teardown() {
   assert_success
 }
 
+@test "generate_compose_yaml expands \${VAR} env cross-refs on a per-stage service too (refs #955)" {
+  # The standalone per-stage `environment:` block is emitted whenever a
+  # `[stage:*]` override exists. It quoted the effective env entries but
+  # never ran the cross-ref expansion the devel service runs, so the SAME
+  # setup.conf produced two different container envs: devel saw the
+  # expanded value, the stage service saw a literal `${VAR}` compose
+  # cannot resolve from a sibling env entry.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:probe]
+network.ipc = private
+CONF
+  local _extras=()
+  local _env
+  printf -v _env '%s\n%s' "BUILD_TARGET=production" \
+    "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F -- 'LD_LIBRARY_PATH=/foo/production/lib' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F -- '${BUILD_TARGET}' <<< "${_probe_block}")" ]
+}
+
+@test "generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)" {
+  # Same rule when the stage REPLACES the inherited list: the stage's own
+  # env_N entries cross-reference each other exactly like the devel ones.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:probe]
+environment.env_inherit = false
+environment.env_1 = ROOT=/opt
+environment.env_2 = BASE=${ROOT}/lib
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host"
+
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F -- 'BASE=/opt/lib' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F -- '${ROOT}' <<< "${_probe_block}")" ]
+}
+
 @test "generate_compose_yaml emits tmpfs block from tmpfs_ list" {
   local _extras=()
   local _tmpfs
