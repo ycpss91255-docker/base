@@ -84,6 +84,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
 
+### Documentation
+- **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
+  the maintainer's, and only X/Y fans out** -- policy behind `semver-bump` /
+  `/release`, not a new mechanism. A `vX.Y.Z` (Z>0) needs no ACK, restoring the
+  skill's own table, and one bug is one release so a downstream can name the
+  tag carrying its fix. The binding half is classification: a fix that changes
+  behaviour is a Y whatever it is labelled. #927's fanout triggers on X/Y
+  **only**, because `just upgrade <tag>` is one subtree pull to that tag, so a
+  Y delivers every Z in between and only the notification is batched. Affects
+  anyone cutting a base release.
+
 ## [v0.42.0] - 2026-08-25
 
 `v0.42.0-rc4` promoted unchanged -- the tree is identical apart from this
