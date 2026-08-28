@@ -54,8 +54,8 @@ Two things made that gap start to cost something.
 
 **The ACK rule had already been decided, and was being misread.**
 `semver-bump`'s bump-classification table settles it. Quoting its three
-bump rows -- the table's fourth row covers the `vX.Y.Z-rcN` tag itself,
-which nothing here touches:
+bump rows -- the table opens with a `vX.Y.Z-rcN` row covering the RC tag
+itself, which nothing here touches:
 
 | Tag shape | Bump | Requires |
 |---|---|---|
