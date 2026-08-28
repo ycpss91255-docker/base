@@ -1013,6 +1013,50 @@ EOF
   assert_output --partial "mount_1 = /a:/a"
 }
 
+@test "_upsert_conf_value replaces a value carrying an inline ' #' instead of appending a duplicate key (#955)" {
+  # `_ini_tokenize` -- the canonical reader -- treats `#` as a comment
+  # marker only when it is the first non-blank character of the line, so
+  # a space-then-hash INSIDE a value is part of the value.
+  # lifecycle.watchdog_check accepts any non-empty single-line string, so
+  # a shell command carrying a comment is a legitimate value. The writer
+  # must agree with the reader: match the existing line and replace it,
+  # never append a second one.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[lifecycle]
+watchdog_check = curl http://h/x #ping
+restart = no
+EOF
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "lifecycle" "watchdog_check" \
+    'curl http://h/y #pong'
+
+  run grep -c '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+  run grep '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output 'watchdog_check = curl http://h/y #pong'
+  # The rest of the section survives the rewrite.
+  run grep '^restart' "${TEMP_DIR}/.setup.conf"
+  assert_output 'restart = no'
+}
+
+@test "_upsert_conf_value leaves an indented full-line comment alone (#955)" {
+  # The other half of the same rule: an INDENTED `#` line is a real
+  # comment and must never be mistaken for the key it mentions.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[lifecycle]
+  # watchdog_check = curl http://old/x
+watchdog_check = curl http://h/x
+EOF
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "lifecycle" "watchdog_check" \
+    'curl http://h/y'
+
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial '  # watchdog_check = curl http://old/x'
+  run grep -c '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+  run grep '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output 'watchdog_check = curl http://h/y'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _edit_list_section — regression tests for B5 (volumes mount_1)
 # ════════════════════════════════════════════════════════════════════
