@@ -157,6 +157,22 @@
 # rows the baseline still excuses, sections declared out, and the tests
 # those sections account for.
 #
+# That much is a statement about the documents that are THERE, which is
+# the reach a `find` can bound. Deleting doc/test/system.md took its 3
+# sections and 12 tests out of the rule with this lint and the doc-counts
+# drift gate both green -- the drift gate maps doc name to spec glob
+# through a hand-kept case, so it never misses a document that is absent,
+# and a clean line with no denominator cannot notice either. So the SET of
+# catalogues is declared rather than discovered: doc/test/TEST.md's index
+# table names every catalogue and the tests it holds, it is regenerated
+# from the spec files and drift-gated (so it is not this driver's own
+# arithmetic coming back around), and it still names a document after the
+# document is deleted. Both directions are checked -- an index row with no
+# catalogue, and a catalogue with no index row, which is how the first
+# would be worked around -- along with the tests each document's sections
+# declare against the tests the index credits it with. Whether a section's
+# ROWS match its own declared count stays the drift gate's question.
+#
 # Summarising is a legitimate answer -- 13 sections here group 606 tests by
 # concern rather than list 606 near-identical assertion names -- and the
 # exemptions file is not shrink-only for that reason: unlike the baseline
@@ -164,8 +180,8 @@
 # bumped number, in front of a reviewer.
 #
 # Non-vacuity: a missing catalog directory, a missing baseline file, a
-# missing exemptions file, or a scan that finds no catalog rows at all DIES
-# rather than reporting clean. The clean line states how many rows were
+# missing exemptions file, a missing or empty index, or a scan that finds
+# no catalog rows at all DIES rather than reporting clean. The clean line states how many rows were
 # checked, how many the baseline still excuses and how much of the suite is
 # declared out, so a green line is never read as a verdict over rows that
 # were never there.
@@ -189,6 +205,17 @@ source "${_CATALOG_DESC_DRIVER_DIR}/../sync-doc-counts.sh"
 readonly _CATALOG_DESC_DOC_DIR='doc/test'
 readonly _CATALOG_DESC_BASELINE_FILE='script/test/catalog-description-baseline.txt'
 readonly _CATALOG_DESC_EXEMPT_FILE='script/test/catalog-description-exemptions.txt'
+
+# The index: the document that says which catalogues doc/test/ is supposed
+# to HAVE. See the header -- without it the scanned set is whatever the
+# directory happens to hold, and a deleted catalogue is a catalogue with
+# nothing to report.
+readonly _CATALOG_DESC_INDEX_FILE='doc/test/TEST.md'
+
+# One row of that index: `| [<doc>.md](<link>) | <scope> | <tests> |`, the
+# shape sync-doc-counts.sh regenerates. The last cell is the count, so the
+# scope cell is skipped greedily.
+readonly _CATALOG_DESC_INDEX_ROW_RE='^\|[[:space:]]*\[([A-Za-z0-9._-]+\.md)\]\([^)]*\)[[:space:]]*\|.*\|[[:space:]]*([0-9]+)[[:space:]]*\|[[:space:]]*$'
 
 # The placeholder sync-doc-counts.sh writes for a row it has no description
 # for (`_catalog_flush_desc[${_name}]:--`). An empty cell counts as one
@@ -352,6 +379,13 @@ _run_catalog_description() {
     return 1
   fi
 
+  local _index="${REPO_ROOT}/${_CATALOG_DESC_INDEX_FILE}"
+  if [[ ! -f "${_index}" ]]; then
+    _die ci_catalog_description \
+      "index '${_CATALOG_DESC_INDEX_FILE}' not found under ${REPO_ROOT} -- it is what says which catalogues doc/test/ is supposed to have, and without it the lint checks whatever files happen to be there. Restore it: a deleted catalogue is a catalogue with no rows to report."
+    return 1
+  fi
+
   if [[ ! -f "${_exempt}" ]]; then
     _die ci_catalog_description \
       "exemptions file '${_CATALOG_DESC_EXEMPT_FILE}' not found under ${REPO_ROOT} -- without it every section that answers with a summary instead of a row each fails at once. Restore the file rather than regenerating it: it is a record of decisions somebody made, not a cache."
@@ -397,6 +431,13 @@ _run_catalog_description() {
   # string).
   local _fence_open=''
   local _trimmed
+  # What the directory turned out to hold, and what the index says it
+  # should: `<doc rel path>` -> the tests its sections declare, and the
+  # index's own claim per document. Compared after the scan, which is the
+  # only place a document that is NOT there can be noticed.
+  local -A _doc_declared=()
+  local -A _index_tests=()
+  local _index_rel="${_CATALOG_DESC_INDEX_FILE}"
   # Where each described row was read, keyed the way the baseline is. A
   # baseline entry over one of these is refused below: the entry would
   # excuse a row that does not need excusing, and the description it sits
@@ -417,6 +458,7 @@ _run_catalog_description() {
   while IFS= read -r -d '' _doc; do
     _rel="${_doc#"${REPO_ROOT}"/}"
     _catalogs=$(( _catalogs + 1 ))
+    _doc_declared["${_rel}"]="${_doc_declared[${_rel}]:-0}"
     _spec=''
     _in_table=0
     _lineno=0
@@ -440,6 +482,15 @@ _run_catalog_description() {
         # it does NOT end the section, which is what keeps an illustrated
         # section governed rather than quietly outside the rule.
         _in_table=0
+        continue
+      fi
+
+      # The index's own rows. Read here rather than in a second pass so
+      # they inherit this loop's fence state: TEST.md documents its own
+      # format, and an example of an index row is not one.
+      if [[ "${_rel}" == "${_index_rel}" ]] \
+        && [[ "${_line}" =~ ${_CATALOG_DESC_INDEX_ROW_RE} ]]; then
+        _index_tests["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
         continue
       fi
 
@@ -488,6 +539,9 @@ _run_catalog_description() {
             continue
           fi
           _section_at["${_spec}"]="${_rel}:${_lineno}"
+          _doc_declared["${_rel}"]=$((
+            ${_doc_declared["${_rel}"]} + ${BASH_REMATCH[2]}
+          ))
           _sections+=(
             "${_rel}"$'\t'"${_lineno}"$'\t'"${_spec}"$'\t'"${BASH_REMATCH[2]}"
           )
@@ -503,6 +557,63 @@ _run_catalog_description() {
       fi
     done < "${_doc}"
   done < <(find "${_doc_dir}" -maxdepth 1 -type f -name '*.md' -print0 | LC_ALL=C sort -z)
+
+  # ── The set of catalogues is DECLARED, not discovered ────────────────
+  #
+  # Everything above this point is a statement about the documents that
+  # are THERE, and a `find` cannot report a document that is not. The
+  # index is the one artifact in the tree that still names a catalogue
+  # after the catalogue is deleted, and it is regenerated from the spec
+  # files and drift-gated, so it is not this driver's own arithmetic
+  # coming back around. The two directions are both needed: an index row
+  # with no document catches the deletion, a document with no index row
+  # catches deleting the row alongside it.
+  #
+  # What is compared is the tests each document's sections DECLARE against
+  # the tests the index credits it with. Whether a section's rows match its
+  # own declared count is the doc-counts drift gate's question, and asking
+  # it twice here would fail this lint for a reason it cannot explain.
+  if [[ "${#_index_tests[@]}" -eq 0 ]]; then
+    _die ci_catalog_description \
+      "'${_CATALOG_DESC_INDEX_FILE}' declares no catalogue -- its index table is what bounds this lint, and an empty one makes every reach figure below vacuous. A row is '| [<doc>.md](<doc>.md) | <scope> | <tests> |'."
+    return 1
+  fi
+
+  local -a _index_findings=()
+  local _index_total=0 _doc_key _doc_rel
+  for _doc_key in "${!_index_tests[@]}"; do
+    # The subscript is expanded before the arithmetic: a bare name inside
+    # `$(( ))` would be read as the literal key '_doc_key'.
+    _index_total=$(( _index_total + ${_index_tests[${_doc_key}]} ))
+    _doc_rel="${_CATALOG_DESC_DOC_DIR}/${_doc_key}"
+    if [[ -z "${_doc_declared[${_doc_rel}]+set}" ]]; then
+      _index_findings+=(
+        "${_CATALOG_DESC_INDEX_FILE}: declares '${_doc_key}' (${_index_tests[${_doc_key}]} test(s)), which is not a catalogue under ${_CATALOG_DESC_DOC_DIR}/ -- a document that is gone takes its sections out of the description rule with nothing to report. Restore it, or remove the level and its index row together."
+      )
+      continue
+    fi
+    if [[ "${_doc_declared[${_doc_rel}]}" \
+      -ne "${_index_tests[${_doc_key}]}" ]]; then
+      _index_findings+=(
+        "${_doc_rel}: its sections declare ${_doc_declared[${_doc_rel}]} test(s), the index credits it with ${_index_tests[${_doc_key}]} -- a section is missing from the document or the index is stale. Run 'just test sync-docs'."
+      )
+    fi
+  done
+  for _doc_rel in "${!_doc_declared[@]}"; do
+    [[ "${_doc_rel}" == "${_index_rel}" ]] && continue
+    [[ -n "${_index_tests[${_doc_rel#"${_CATALOG_DESC_DOC_DIR}"/}]+set}" ]] \
+      && continue
+    _index_findings+=(
+      "${_doc_rel}: not named by ${_CATALOG_DESC_INDEX_FILE} -- the index is what bounds this lint, so a catalogue it does not list is one nothing can notice the loss of. Add its row."
+    )
+  done
+  if [[ "${#_index_findings[@]}" -gt 0 ]]; then
+    local _finding
+    while IFS= read -r _finding; do
+      printf '%s\n' "${_finding}"
+      _violations=$(( _violations + 1 ))
+    done < <(printf '%s\n' "${_index_findings[@]}" | LC_ALL=C sort)
+  fi
 
   # Every section is a catalogue or a declared exemption. There is no
   # third answer: a section outside the rule by table shape alone is what
@@ -591,9 +702,9 @@ _run_catalog_description() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_catalog_description \
-      "${_violations} undescribed catalogue row / ungoverned or duplicated section / stale, absorbing or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. A cell with no word in it ('.', '--', '...') and the written-out non-answers ('n/a', 'TBD', 'TODO') are that same placeholder and are refused with it. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why. An entry that excuses a row somebody already described is refused too -- the baseline records what was missing, never a row that was fine -- and so is a spec carrying two sections, which is how a described row acquires a placeholder twin."
+      "${_violations} undescribed catalogue row / ungoverned or duplicated section / catalogue the index and the directory disagree about / stale, absorbing or malformed baseline or exemption entry. The Description column is REQUIRED: write it after 'just test sync-docs' fills the row with '${_CATALOG_DESC_PLACEHOLDER}'. A cell with no word in it ('.', '--', '...') and the written-out non-answers ('n/a', 'TBD', 'TODO') are that same placeholder and are refused with it. It answers WHY THIS CASE MATTERS -- what it defends, whether it is the load-bearing one, what breaks without it -- and it does NOT restate what the test does, which the name already says at length. See doc/test/TEST.md. Rows that predate the rule are parked in '${_CATALOG_DESC_BASELINE_FILE}', which may only SHRINK: a stale entry there means its row was described, renamed, moved or deleted, so delete the line and lower the file's '# entries:' count to match. A section that answers with a summary rather than a row each is outside the rule only when '${_CATALOG_DESC_EXEMPT_FILE}' says so and says why. Which catalogues exist at all is declared by '${_CATALOG_DESC_INDEX_FILE}': a document it names must be there, a document under ${_CATALOG_DESC_DOC_DIR}/ must be named, and the two must agree on how many tests the document holds. An entry that excuses a row somebody already described is refused too -- the baseline records what was missing, never a row that was fine -- and so is a spec carrying two sections, which is how a described row acquires a placeholder twin."
     return 1
   fi
 
-  echo "catalog description lint: clean (${_rows} rows checked across ${_catalogs} catalogue(s), ${_excused} still on the baseline; ${_exempt_sections} section(s) declared outside the per-test rule, covering ${_exempt_tests} test(s))"
+  echo "catalog description lint: clean (${_rows} rows checked across ${_catalogs} catalogue(s), ${_excused} still on the baseline; ${_exempt_sections} section(s) declared outside the per-test rule, covering ${_exempt_tests} test(s); ${_CATALOG_DESC_INDEX_FILE} declares ${_index_total} test(s) in ${#_index_tests[@]} catalogue(s))"
 }
