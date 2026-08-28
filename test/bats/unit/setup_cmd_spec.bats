@@ -645,6 +645,24 @@ EOF
   [[ "${_hits}" == "1" ]]
 }
 
+@test "no setup.conf reader re-derives section membership by dot-prefix (#955)" {
+  # The CHANGELOG entry and _conf_split_nskey's doc comment both claim
+  # one owner for "which section does this key belong to". This is that
+  # claim as an assertion: a `== "${var}."*` glob over namespace keys is
+  # exactly the re-derivation that bound `logging.web.driver` to the
+  # parent [logging]. New readers must call _conf_split_nskey (or
+  # _setup_dump_section, which wraps it) instead.
+  #
+  # Scoped to the two libs that handle USER override keys. schema.sh's
+  # `_schema_section_keys` prefix-matches the static SCHEMA_VALIDATOR
+  # registry, whose section names carry no dot, so it cannot be
+  # ambiguous.
+  run grep -nE '== "\$\{_[a-z_]+\}\."\*' \
+    /source/dist/script/docker/lib/setup_cmd.sh \
+    /source/dist/script/docker/lib/conf.sh
+  assert_failure
+}
+
 @test "list <section> mirrors show <section>" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
