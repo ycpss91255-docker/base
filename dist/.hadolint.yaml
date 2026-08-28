@@ -1,7 +1,25 @@
 ---
 ignored:
   - DL3004  # Do not use sudo (dev container passwordless sudo is by design)
-  - DL3008  # Pin versions in apt get install (impractical for dev images on rolling base)
+  # Pin versions in apt get install. Ignored deliberately, WITH a
+  # compensating control -- an ignore that names nothing is what let the
+  # shipped template lint clean while being non-reproducible.
+  #
+  # Why not pinned: BASE_IMAGE is chosen by the consumer (ubuntu / ros /
+  # nvidia-cuda / python-slim ...), so one pinned version set cannot hold
+  # across the bases this template is built on; and a development image
+  # that cannot take a security update without a template release is worse
+  # for its audience than one that drifts.
+  #
+  # What compensates: the drift is recorded, not silent. Every image built
+  # from dist/dockerfile/Dockerfile writes
+  # /usr/local/share/base/packages.txt (every package and its exact
+  # version, rewritten after each apt layer) and
+  # /usr/local/share/base/base-image.env (the base reference, whether it
+  # was digest-pinned, and the base OS), so two divergent images can be
+  # diffed down to the version that changed. A consumer needing bit-for-bit
+  # builds pins BASE_IMAGE to a digest; see the note above `ARG BASE_IMAGE`
+  # in dist/dockerfile/Dockerfile.
+  - DL3008
   - DL3013  # Pin versions in pip install (downstream repo responsibility)
   - DL3018  # Pin versions in apk add (aligned with DL3008 strategy)
-

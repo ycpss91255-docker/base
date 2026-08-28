@@ -59,6 +59,47 @@
 # Dockerfiles renamed to `devel-base` / `devel-test` over a coordinated
 # rollout). They will be removed from the blocklist in a future major.
 
+# BASE_IMAGE defaults to a MOVING tag: `ubuntu:24.04` re-resolves on every
+# Ubuntu point release and every security respin, and the apt packages
+# installed on top of it (here and in devel-base) carry no versions. Two
+# builds of the same template version a month apart are therefore not the
+# same image. That is a deliberate trade, not an oversight:
+#
+#   - The default is only a default. Consumers routinely override
+#     BASE_IMAGE from their own Dockerfile or CI matrix (ros:humble,
+#     nvidia/cuda, python:3.11-slim, ...), so a digest baked in here would
+#     govern almost nothing -- while making every upstream security respin
+#     a template release fanned out across every repo under the org.
+#   - These are DEVELOPMENT images. One that cannot pick up a security
+#     update without a template release is worse for its audience than one
+#     that drifts.
+#
+# What compensates is that the drift is RECORDED rather than silent. Every
+# image built from this file carries, from the image alone:
+#
+#   /usr/local/share/base/base-image.env  the base reference as given,
+#                                         whether it was digest-pinned, and
+#                                         the base OS identity
+#   /usr/local/share/base/packages.txt    every installed package and its
+#                                         exact version, rewritten after
+#                                         each apt layer
+#
+# plus the OCI `org.opencontainers.image.base.name` label, so
+# `docker inspect` answers without unpacking. Two consumer images that
+# behave differently can be diffed down to the package version that
+# changed. This is also what the DL3008 ignore in .hadolint.yaml names as
+# its compensating control.
+#
+# Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
+# reference and the manifest records the pin rather than the drift:
+#
+#   BASE_IMAGE=ubuntu@sha256:<digest>
+#
+# either as the `ARG BASE_IMAGE=` default in this repo's own copy of this
+# file, or through the `build_args:` input of base's reusable
+# build-worker workflow. Pinning is a per-repo call because the bump
+# maintenance it costs is the repo's to carry -- and one repo pinning
+# does not conscript every other repo under the org.
 ARG BASE_IMAGE="ubuntu:24.04"
 # No bare-tag default (was `test-tools:local`): build.sh (local) passes a
 # version-scoped `test-tools:<base-version>` and CI passes
@@ -78,6 +119,10 @@ ARG USER_GROUP="user"
 ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
 ARG DEBIAN_FRONTEND=noninteractive
+# Re-declared bare so the RUN below can record it: the pre-FROM ARG is
+# FROM-scope only, and without this line ${BASE_IMAGE} expands to the
+# empty string inside the stage and the manifest records nothing.
+ARG BASE_IMAGE
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
@@ -92,7 +137,20 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
     sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && \
     locale-gen && \
     update-locale LANG="en_US.UTF-8" && \
-    ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone
+    ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone && \
+    mkdir -p /usr/local/share/base && \
+    { echo "base_image_ref=${BASE_IMAGE}"; \
+      case "${BASE_IMAGE}" in \
+        *@sha256:*) echo "base_image_pin=digest" ;; \
+        *) echo "base_image_pin=none" ;; \
+      esac; \
+      sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
+    } > /usr/local/share/base/base-image.env && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
+
+# The reference this image was built FROM, readable via `docker inspect`
+# without unpacking the image. Inherited by every stage below.
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
 
 ENV LC_ALL="en_US.UTF-8"
 ENV LANG="en_US.UTF-8"
@@ -132,7 +190,8 @@ RUN apt-get update && \
         wget \
         && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
 
 ############################## devel ##############################
 FROM devel-base AS devel
@@ -155,13 +214,16 @@ ARG CONFIG_DIR="/tmp/config"
 # template default to start receiving template-side improvements.
 ARG CONFIG_SRC="config"
 
-# Add your application-specific packages here
+# Add your application-specific packages here. Keep the trailing
+# dpkg-query: it rewrites the reproducibility manifest so YOUR packages
+# and their versions are recorded too (see the BASE_IMAGE note at the top).
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
 #         your-package \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Host-side log tee helper. Source from
@@ -397,7 +459,8 @@ RUN bats /smoke_test/
 #         python3-dev \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 #
 # # Fetch + build (example: a colcon workspace).
 # WORKDIR /build_ws
@@ -415,6 +478,14 @@ RUN bats /smoke_test/
 # FROM ${BASE_IMAGE} AS runtime-base
 #
 # ARG DEBIAN_FRONTEND=noninteractive
+# # runtime-base is a FRESH ${BASE_IMAGE}: it inherits nothing the sys
+# # stage wrote, so the reproducibility manifest and the OCI base label
+# # have to be re-emitted here or the runtime image -- the one image of
+# # this graph that actually ships -- becomes the only one that cannot say
+# # what it was built from. Same bare re-declaration, same reason (the
+# # pre-FROM ARG is FROM-scope only). Note this block runs under /bin/sh,
+# # not the bash SHELL sys sets, so keep it POSIX.
+# ARG BASE_IMAGE
 #
 # # Minimal runtime apt: sudo (entrypoint usually needs it), tini
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that
@@ -430,7 +501,18 @@ RUN bats /smoke_test/
 #         # libgpgme11 \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     mkdir -p /usr/local/share/base && \
+#     { echo "base_image_ref=${BASE_IMAGE}"; \
+#       case "${BASE_IMAGE}" in \
+#         *@sha256:*) echo "base_image_pin=digest" ;; \
+#         *) echo "base_image_pin=none" ;; \
+#       esac; \
+#       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
+#     } > /usr/local/share/base/base-image.env && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
+#
+# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
 #
 # FROM runtime-base AS runtime
 #

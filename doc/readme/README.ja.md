@@ -198,7 +198,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 58d9b3fd819e -->
+<!-- sync: dockerfile-stages-convention cc8f75f17e7e db976a503cb4 -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -206,7 +206,7 @@ flowchart LR
 
 | ステージ | 親ステージ | 用途 | 出荷 |
 |----------|------------|------|------|
-| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror | 中間 |
+| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror、再現性 manifest | 中間 |
 | `devel-base` | `sys` | 開発ツールと言語パッケージ | 中間 |
 | `devel` | `devel-base` | アプリ固有ツール + `entrypoint.sh` + config レイヤリング | **はい**（主成果物） |
 | `devel-test` | `devel` | 一時的：ShellCheck + Hadolint + Bats smoke（いずれも `test-tools:local` から） | いいえ（build 後破棄） |
@@ -215,6 +215,17 @@ flowchart LR
 | `runtime-test`（任意） | `runtime` | 一時的：runtime install-check smoke | いいえ（build 後破棄） |
 
 補足：
+- `BASE_IMAGE` のデフォルトは動く tag `ubuntu:24.04` で、その上に入れる apt
+  パッケージにもバージョン指定がないため、同じ template バージョンでも時間が
+  経てば同じ image は再現しません。このドリフトは意図的です（consumer は
+  そもそも `BASE_IMAGE` を上書きしますし、dev image は template release なしで
+  セキュリティ更新を取り込めなければなりません）。ただし「記録」されます：
+  `sys` が `/usr/local/share/base/base-image.env`（base reference、digest pin
+  かどうか、base OS）と `/usr/local/share/base/packages.txt`（各パッケージと
+  その正確なバージョン、apt レイヤーごとに書き直し）を出力し、
+  `org.opencontainers.image.base.name` label を付けます。`runtime-base` は
+  まっさらな `${BASE_IMAGE}` から始まり何も継承しないため、両方を再出力します。
+  bit-for-bit の再現性が必要なら `BASE_IMAGE` を digest に pin します。
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
   `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。

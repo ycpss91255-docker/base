@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 610a26e2f7b8 -->
+<!-- sync: dockerfile-stages-convention cc8f75f17e7e a965288fe356 -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -202,7 +202,7 @@ flowchart LR
 
 | 階段 | 父階段 | 用途 | 是否出貨 |
 |------|--------|------|---------|
-| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror | 中介 |
+| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror、可重現性 manifest | 中介 |
 | `devel-base` | `sys` | 開發工具與語言套件 | 中介 |
 | `devel` | `devel-base` | 應用專屬工具 + `entrypoint.sh` + config layering | **是**（主要產物） |
 | `devel-test` | `devel` | 短暫：ShellCheck + Hadolint + Bats smoke（均來自 `test-tools:local`） | 否（build 完即丟） |
@@ -211,6 +211,16 @@ flowchart LR
 | `runtime-test`（選用） | `runtime` | 短暫：runtime install-check smoke | 否（build 完即丟） |
 
 說明：
+- `BASE_IMAGE` 預設是會移動的 tag `ubuntu:24.04`，其上安裝的 apt 套件也沒有版本，
+  所以同一個 template 版本在不同時間並不會重現同一個 image。這個漂移是刻意的
+  （consumer 本來就會覆寫 `BASE_IMAGE`，而 dev image 必須能在不發 template
+  release 的情況下吃到安全性更新），但它會被「記錄」下來：`sys` 會寫出
+  `/usr/local/share/base/base-image.env`（base reference、是否 digest pin、
+  base OS）與 `/usr/local/share/base/packages.txt`（每個套件與其確切版本，
+  每個 apt layer 之後重寫一次），並標上
+  `org.opencontainers.image.base.name` label。`runtime-base` 因為是全新的
+  `${BASE_IMAGE}`、什麼都不繼承，所以會再寫一次。需要 bit-for-bit 重現時，
+  把 `BASE_IMAGE` pin 成 digest。
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
 - `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的

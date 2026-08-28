@@ -238,7 +238,7 @@ parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
 |-------|--------|---------|----------|
-| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror, reproducibility manifest | intermediate |
 | `base` | `sys` | Development tools and language packages | intermediate |
 | `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
 | `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
@@ -246,6 +246,17 @@ parameterized by `ARG BASE_IMAGE`.
 | `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
 
 Notes:
+- `BASE_IMAGE` defaults to the moving tag `ubuntu:24.04` and the apt layers on
+  top of it are unversioned, so the same template version does not reproduce
+  the same image over time. The drift is deliberate (consumers override
+  `BASE_IMAGE`, and a dev image must be able to take a security update without
+  a template release) but it is RECORDED: `sys` writes
+  `/usr/local/share/base/base-image.env` (the base reference, whether it was
+  digest-pinned, the base OS) and `/usr/local/share/base/packages.txt` (every
+  package and its exact version, rewritten after each apt layer), and labels
+  the image `org.opencontainers.image.base.name`. `runtime-base` re-emits both,
+  since it starts from a fresh `${BASE_IMAGE}` and inherits nothing. Pin
+  `BASE_IMAGE` to a digest for bit-for-bit builds.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside

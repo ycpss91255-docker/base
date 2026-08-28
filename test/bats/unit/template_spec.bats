@@ -1322,6 +1322,12 @@ EOF
   # larger half of what floats -- while reading as complete.
   run grep -cE '^ +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
   assert_output "2"
+  # Every commented-out apt block a consumer is invited to uncomment
+  # (devel's application packages, builder's build deps) carries the
+  # refresh too, so following the template does not silently produce an
+  # image whose manifest omits the packages the consumer added.
+  run grep -cE '^# +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
+  assert_output "3"
 }
 
 @test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
