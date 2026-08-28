@@ -187,6 +187,23 @@ _write_generator() {
   refute_output --partial 'v2'
 }
 
+@test "generated-workflow-actions: ignores a generator under .prev-release/ (#950)" {
+  # The self-test materialises PAST releases into .prev-release/, and a
+  # shipped release's refs are stale BY DEFINITION -- a release cannot be
+  # re-pinned. Scanning it would mean the first dependabot bump after any
+  # release fails a lint that no edit in the tree can satisfy.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator '      - uses: actions/checkout@v8'
+  mkdir -p "${SCRATCH}/.prev-release/v0.1.0"
+  printf '      - uses: actions/checkout@v6\n' \
+    > "${SCRATCH}/.prev-release/v0.1.0/init.sh"
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+  assert_output --partial '1 generated ref'
+}
+
 # ── The cases where there is no single ref to follow ────────────────────
 
 @test "generated-workflow-actions: fails when this repo pins the action at two refs (#950)" {

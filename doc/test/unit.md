@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2944 tests**.
+Unit specs under `test/bats/unit/`: **2955 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3356,3 +3356,19 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (11)
+
+| Test | Description |
+|------|-------------|
+| `generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)` | The drift itself -- dependabot bumps the workflows and cannot reach the heredoc |
+| `generated-workflow-actions: names the generated ref's file and line (#950)` | A bump proposal is actionable only if it says which line to edit |
+| `generated-workflow-actions: passes when the two copies agree (#950)` | Lockstep is the whole assertion; the lint owns no opinion on which version is right |
+| `generated-workflow-actions: a ref ahead of this repo's own fails too (#950)` | Direction-agnostic: a hand-edit past the workflows is the same defect, other sign |
+| `generated-workflow-actions: ignores an interpolated ref (#950)` | This repo calling its OWN reusable workflow -- no literal to compare, upgrade.sh rewrites it |
+| `generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)` | Prose quoting a step is not a step; a lint that fails on its own docs gets muted |
+| `generated-workflow-actions: ignores a generator under .prev-release/ (#950)` | A shipped release cannot be re-pinned, so scanning it fails a lint no edit can satisfy |
+| `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
+| `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
+| `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
+| `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |

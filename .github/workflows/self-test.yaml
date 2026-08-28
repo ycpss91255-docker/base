@@ -261,6 +261,14 @@ jobs:
     #                     org registers an org-level self-hosted runner that
     #                     public repos may use, so an unguarded eligible job
     #                     is fork-PR code executing on that machine
+    #   generated-workflow-actions
+    #                     a `uses:` ref a shell script writes into a
+    #                     generated downstream workflow names the same ref
+    #                     .github/workflows/ uses -- dependabot reads
+    #                     workflow FILES, so a ref inside a heredoc is
+    #                     outside it, and the release watch leaves `uses:`
+    #                     version refs to dependabot, so without this the
+    #                     ref is watched by nothing at all
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
@@ -304,6 +312,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - generated-workflow-actions
     steps:
       - name: Checkout
         uses: actions/checkout@v7
