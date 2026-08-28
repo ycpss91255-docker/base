@@ -7,10 +7,12 @@
 # passthrough -- no MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim.
 #
 # These RUN `just` for real (parity with the retired makefile_user_spec).
-# They skip when `just` is not in the test-tools image yet (pre-release
-# GHCR pull); see template_spec for the static `apk add ... just` guard
-# and the release-test-tools smoke check. Static content lives in
-# justfile_spec.bats.
+# They skip when the pinned TEST_TOOLS_IMAGE predates `just` being baked
+# into the tooling image -- a capability of the image, not of this repo.
+# The repo-side half is pinned fail-closed in template_spec (the
+# `apk add ... just` line) plus the release-test-tools smoke check, so a
+# removal fails there instead of silently emptying this file. Static
+# content lives in justfile_spec.bats.
 #
 # Strategy mirrors the old makefile_user_spec: sandbox a repo with the
 # justfile symlinked at root and the wrapper scripts stubbed under
@@ -20,7 +22,14 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # `apk add ... just` line is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
 
   # shellcheck disable=SC2154
   TMP_REPO="$(mktemp -d)"

@@ -106,3 +106,133 @@ exec cat "${_dir}/${_name}.late"
 EOF
     chmod +x "${_dir}/${_name}"
 }
+
+# ── Comment-stripped views of a file ──────────────────────────────────────────
+#
+# A structural spec greps a file for the shape it wants to pin. Grepping the
+# WHOLE file makes a string that appears only in a COMMENT satisfy an
+# assertion about CODE -- and the comments in this repo name, in prose,
+# exactly the things the specs assert about: the header of a workflow spells
+# out the action it must never use, a `run:` block explains why `docker tag`
+# is the wrong tool, a script's header lists the helpers it calls. A guard
+# written that way stays green while the property it names is deleted, which
+# is the failure mode these helpers exist to remove.
+#
+# The rule is deliberately narrow: a line is a comment when its first
+# non-blank character is `#`. That is the one form a YAML comment, a shell
+# comment inside a `run: |` block scalar, and a Dockerfile comment all share,
+# and it is the only form that can be recognised without parsing the host
+# language.
+#
+# What is NOT stripped, on purpose -- the over-strict failure is the same
+# defect with the sign flipped, a spec that stops matching real code:
+#   * a `#` that follows anything else on the line (`uses: a/b@sha # v1.2.2`,
+#     `run: echo "count: 3 # not a comment"`) -- that line IS code, and a
+#     naive `s/#.*//` would silently shorten it;
+#   * a `#` inside a quoted string, for the same reason;
+#   * any line of a block scalar that is not itself comment-only.
+
+# strip_comments
+#   Filter form: read stdin, drop comment-only and blank lines. Use where the
+#   source is a pipeline (an extracted block) rather than a file.
+strip_comments() {
+    grep -vE '^[[:space:]]*(#|$)'
+}
+
+# only_comments
+#   The mirror of strip_comments: keep ONLY the comment-only lines. A few
+#   assertions are genuinely about what a file SAYS -- "the job documents
+#   setup-tui as out of scope" -- and those belong here, so that asserting
+#   against a comment is a visible choice rather than the accident this
+#   whole section exists to remove.
+only_comments() {
+    grep -E '^[[:space:]]*#'
+}
+
+# code_lines <file>
+#   <file> with its comment-only and blank lines dropped. Exits non-zero when
+#   nothing survives (grep's own no-match status), so a spec that asserts
+#   success also learns that the file has no code at all.
+code_lines() {
+    strip_comments < "${1}"
+}
+
+# code_grep <grep-arg>... <file>
+#   `grep <arg>... <file>` restricted to the code lines of <file>. Argument
+#   order mirrors grep's own, file last.
+code_grep() {
+    local _file="${*: -1}"
+    code_lines "${_file}" | grep "${@:1:$#-1}"
+}
+
+# yaml_job_text <file> <job>
+#   One top-level `jobs:` entry of <file>, VERBATIM -- from `  <job>:` up to
+#   the next two-space-indented key. Comments included, so pair it with
+#   only_comments where the assertion is about the prose.
+yaml_job_text() {
+    awk -v _key="^  ${2}:" \
+        '$0 ~ _key {flag=1; next} /^  [a-z]/{flag=0} flag' "${1}"
+}
+
+# yaml_job_lines <file> <job>
+#   The code lines of one top-level `jobs:` entry. Replaces the hand-rolled
+#   awk block extractor the workflow specs each carried, which kept the
+#   comment paragraphs sitting inside the job -- and those paragraphs are
+#   long: they are where a workflow explains the mechanism the spec is
+#   trying to pin.
+yaml_job_lines() {
+    yaml_job_text "${1}" "${2}" | strip_comments
+}
+
+# yaml_top_text <file> <key>
+#   One TOP-level mapping of <file> (`on`, `env`, `permissions`,
+#   `concurrency`), VERBATIM -- from `<key>:` up to the next unindented key.
+yaml_top_text() {
+    awk -v _key="^${2}:" \
+        '$0 ~ _key {flag=1; next} /^[a-zA-Z]/{flag=0} flag' "${1}"
+}
+
+# yaml_top_lines <file> <key>
+#   The code lines of one TOP-level mapping. The stripping matters more here
+#   than anywhere: a comment paragraph between two top-level keys is not
+#   indented out by the terminator, so an unstripped block carries the prose
+#   that follows it.
+yaml_top_lines() {
+    yaml_top_text "${1}" "${2}" | strip_comments
+}
+
+# ── spec subject presence ─────────────────────────────────────────────────────
+#
+# Many specs assert on the CONTENT of one tracked artifact -- a workflow
+# file, a shipped template, a CI script. Those specs used to open with
+# `[[ -f "${SUBJECT}" ]] || skip "... not at expected path"`, which is a
+# guard that fails open: it cannot tell "absent by design in this run mode"
+# from "renamed and nobody noticed", and it answers the second case with a
+# green run. Since the artifact moving is exactly the regression the spec
+# exists to catch, the guard was silent about the only event it was there
+# for -- renaming one workflow turned 52 assertions into `ok ... # skip`
+# and the suite still exited 0.
+#
+# `assert_spec_subject` is the fail-closed replacement. `/source` is the
+# repo checkout itself (compose.yaml bind-mounts `.:/source` for every
+# service), and base's spec tree runs nowhere else -- downstream repos get
+# no `test` namespace -- so a tracked path under `/source` is present in
+# every mode the suite has. Its absence is a defect, never a context.
+#
+# Skips remain correct for a subject that genuinely varies: a host or image
+# capability the spec needs in order to observe anything (`command -v`), or
+# a fixture only some dispatch mode produces. Each of those states its
+# reason at the guard.
+#
+# Same idiom, same reasoning, as `_release_tag` in
+# test/bats/integration/prev_release_upgrade_spec.bats.
+
+# assert_spec_subject <path> [what_it_is]
+#   Assert the tracked artifact this spec asserts on is present, failing
+#   with the path and what it was when it is not.
+assert_spec_subject() {
+    local _path="${1:?BUG: assert_spec_subject expects a path}"
+    local _what="${2:-the artifact this spec asserts on}"
+    [[ -f "${_path}" ]] || fail \
+        "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
+}
