@@ -1390,6 +1390,53 @@ EOF
 # shipped template, bounded by its own `FROM` marker and the next stage's.
 # Printed as-is (comment markers included) so a caller greps the literal
 # commented text.
+# _df_sys_block -- the LIVE `sys` stage of the shipped template, bounded
+# by its own `FROM` and the next live stage's. The commented builder /
+# runtime-base scaffold carries a copy of every line the sys record is
+# made of, so a whole-file grep for one of them is satisfied by the
+# comment and the record itself can be deleted with the grep still green.
+# The commented `# FROM ...` markers do not close the window (they never
+# match `^FROM `), which is what keeps the window the STAGE and not the
+# text between two FROM-shaped strings.
+_df_sys_block() {
+  awk '
+    /^FROM \$\{BASE_IMAGE\} AS sys$/ { in_b = 1; next }
+    in_b && /^FROM /                  { in_b = 0 }
+    in_b
+  ' "${1:?_df_sys_block: missing file}"
+}
+
+# _df_apt_run_blocks <file> <live|commented> -- every logical RUN block of
+# the template that installs apt packages, one per output line with
+# backslash continuations folded, so a caller can ask what a single block
+# does rather than what the file contains somewhere.
+#
+# `commented` strips one leading comment marker first and reads the result
+# as the RUN it becomes when a consumer uncomments it. A doubly-commented
+# illustration nested inside such a block (`# #   RUN ...`) still starts
+# with `#` after that strip and is correctly NOT a block.
+_df_apt_run_blocks() {
+  awk -v mode="${2:?_df_apt_run_blocks: missing mode}" '
+    function flush() { if (buf ~ /apt-get install/) print buf; buf = ""; in_r = 0 }
+    {
+      line = $0
+      if (mode == "commented") {
+        if (line !~ /^#/) { if (in_r) flush(); next }
+        sub(/^#[[:space:]]?/, "", line)
+      }
+      if (!in_r) {
+        if (line !~ /^RUN[[:space:]]/) next
+        in_r = 1
+        buf = line
+      } else {
+        buf = buf " " line
+      }
+      if (line !~ /\\[[:space:]]*$/) flush()
+    }
+    END { if (in_r) flush() }
+  ' "${1:?_df_apt_run_blocks: missing file}"
+}
+
 _df_runtime_base_block() {
   awk '
     /^# FROM \$\{BASE_IMAGE\} AS runtime-base$/ { in_b = 1; next }
@@ -1427,6 +1474,16 @@ _hadolint_ignore_rationale() {
   # to this file and no divergence from the template.
   run grep -F 'BASE_IMAGE=ubuntu@sha256:' "${_df}"
   assert_success
+  # ... and the route it names first has to be the one this repo actually
+  # drives builds through. `[build] arg_N` in .setup.conf reaches the
+  # build via `just setup` + `just build`; a note that offers only
+  # `--build-arg` sends a local reader to the one surface the repo's
+  # convention refuses, and offering only an `ARG` default edit sends
+  # them to a template-owned line a later migration may rewrite.
+  run grep -F '.setup.conf' "${_df}"
+  assert_success
+  run grep -F 'just setup' "${_df}"
+  assert_success
 }
 
 @test "Dockerfile.example states what the UNPINNED default does not record (#951)" {
@@ -1447,54 +1504,96 @@ _hadolint_ignore_rationale() {
   # digest recorded without pinning to it.
   run grep -F 'BASE_IMAGE_DIGEST' "${_df}"
   assert_success
+  # Spelled as the config entry a reader can paste, not as prose about a
+  # config file: the `[build] arg_N` list is the local control surface,
+  # and `arg_4` is the next free slot after the three the template ships.
+  run grep -F 'arg_4 = BASE_IMAGE_DIGEST=sha256:' "${_df}"
+  assert_success
+  # The layering caveat travels with it. `.setup.conf.local` merges
+  # section-REPLACE, so adding one arg there silently drops the
+  # APT_MIRROR_* / TZ args the repo already had.
+  run grep -F 'replaces the whole' "${_df}"
+  assert_success
 }
 
 @test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Read the LIVE sys stage's own window, not the file. Every line below
+  # also exists, commented, in the runtime-base scaffold, so a whole-file
+  # grep is satisfied by the comment: the primary deliverable of this
+  # change could be deleted outright with each assertion still green.
+  local _block
+  _block="$(_df_sys_block "${_df}")"
+  [[ -n "${_block}" ]] || fail "sys stage window not found in ${_df}"
+
   # The pre-FROM ARG is FROM-scope only. Without a bare re-declaration
   # inside the stage, ${BASE_IMAGE} expands to the empty string in the
   # RUN that records it and the manifest records nothing, silently.
-  run grep -cE '^ARG BASE_IMAGE$' "${_df}"
+  run grep -cE '^ARG BASE_IMAGE$' <<< "${_block}"
   assert_output "1"
-  run grep -F 'echo "base_image_ref=${BASE_IMAGE}"' "${_df}"
+  run grep -F 'echo "base_image_ref=${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  # ... written to the file a consumer and the runtime smoke both read.
+  run grep -F '} > /usr/local/share/base/base-image.env' <<< "${_block}"
   assert_success
   # Whether the reference was digest-pinned is part of the record: an
   # unpinned reference names an image that may already have moved.
-  run grep -F 'base_image_pin=digest' "${_df}"
+  run grep -F 'base_image_pin=digest' <<< "${_block}"
   assert_success
   # The digest itself, on both routes it can be known: taken from the
   # reference when that reference carries one, and from the build arg
   # otherwise. A record that reports the digest only when the reference
   # already spelled it out records it exactly when it was never in doubt.
-  run grep -cE '^ARG BASE_IMAGE_DIGEST=' "${_df}"
+  run grep -cE '^ARG BASE_IMAGE_DIGEST=' <<< "${_block}"
   assert_output "1"
-  run grep -F 'base_image_digest=sha256:${BASE_IMAGE##*@sha256:}' "${_df}"
+  run grep -F 'base_image_digest=sha256:${BASE_IMAGE##*@sha256:}' <<< "${_block}"
   assert_success
-  run grep -F 'base_image_digest=${BASE_IMAGE_DIGEST}' "${_df}"
+  run grep -F 'base_image_digest=${BASE_IMAGE_DIGEST}' <<< "${_block}"
   assert_success
   # OCI annotations too, so `docker inspect` answers without unpacking.
-  run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' "${_df}"
+  run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
   assert_success
-  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' "${_df}"
+  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' <<< "${_block}"
   assert_success
 }
 
 @test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The property is a RELATION over the apt layers, not a tally of
+  # refreshes. A hand-kept count ("2 live, 3 commented") is green for a
+  # template that grew a fourth apt layer and no fourth refresh -- the
+  # exact defect this test is named for -- because the number it checks
+  # is not derived from the thing it is about.
+  local _refresh='dpkg-query -W > /usr/local/share/base/packages.txt'
+  local _blk _n
+
   # sys and devel-base each install packages. A manifest written only in
   # sys would omit the devel-base set (sudo / git / curl / ...) -- the
   # larger half of what floats -- while reading as complete.
-  run grep -cE '^ +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
-  assert_output "2"
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    [[ "${_blk}" == *"${_refresh}"* ]] \
+      || fail "live apt RUN block installs without refreshing the manifest: ${_blk}"
+  done < <(_df_apt_run_blocks "${_df}" live)
+  # ... and a template that lost its apt layers would satisfy the
+  # relation vacuously, so the two known live installers are a floor.
+  (( _n >= 2 )) || fail "expected >= 2 live apt RUN blocks in ${_df}, found ${_n}"
+
   # Every commented-out apt block a consumer is invited to uncomment
   # (devel's application packages, builder's build deps, runtime-base's
   # runtime deps) carries the refresh too, so following the template does
   # not silently produce an image whose manifest omits the packages the
   # consumer added.
-  run grep -cE '^# +dpkg-query -W > /usr/local/share/base/packages\.txt$' "${_df}"
-  assert_output "3"
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    [[ "${_blk}" == *"${_refresh}"* ]] \
+      || fail "commented apt RUN example omits the manifest refresh: ${_blk}"
+  done < <(_df_apt_run_blocks "${_df}" commented)
+  (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
 }
 
 @test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
@@ -1550,6 +1649,15 @@ _hadolint_ignore_rationale() {
   assert_success
   run grep -F 'just upgrade' <<< "${_why}"
   assert_success
+  # And it has to say WHY the upgrade does not close the gap on its own.
+  # `just upgrade` can rewrite a consumer Dockerfile (init.sh and
+  # upgrade.sh both call apply_migrations over a 15-entry migration
+  # list), so "the upgrade does not rewrite it" is not the reason; "no
+  # migration was written for this record, because it splices into the
+  # middle of a hand-shaped RUN chain" is. Naming the mechanism is what
+  # stops the false reason coming back.
+  run grep -F 'dockerfile_migrate.sh' <<< "${_why}"
+  assert_success
 }
 
 @test "the shared smoke tree asserts the manifest at RUNTIME, not only in the template text (#951)" {
@@ -1564,6 +1672,15 @@ _hadolint_ignore_rationale() {
   # The load-bearing half is the non-empty VALUE. A spec that only checks
   # the file exists passes on the empty record.
   run grep -F 'base_image_ref=[^[:space:]]+' "${_spec}"
+  assert_success
+  # The skip's stated REASON has to match the wiring. `just upgrade` does
+  # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call
+  # apply_migrations -- so "the consumer's Dockerfile is not rewritten by
+  # the upgrade" was false where this file ships it to 17 repos. The true
+  # reason is that no migration was written for this record, which means
+  # the header has to name the mechanism it is declining or the next
+  # reader re-derives the wrong one.
+  run grep -F 'dockerfile_migrate.sh' "${_spec}"
   assert_success
 }
 
