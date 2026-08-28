@@ -787,7 +787,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 9bf1068e7979 bcb2c259562d -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 467f98bc67e8 fb2d38808526 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
 `setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
@@ -799,22 +799,24 @@ user）的場景下這個差異會浮現；個人開發機上兩個身份通常�
 | 名稱 | 格式 | Namespace | User 前綴 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **本地 daemon**（界定 container / 預設 network / volume label） | `DOCKER_HUB_USER`，沒有則 `USER_NAME` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 預設 network / volume label） | `DOCKER_HUB_USER`（沒有登入時偵測為 OS user） |
 | container 名稱 | `<project>-<service>-<n>`，由 compose 推導 | **本地 daemon**（flat 全域） | 繼承自 project |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 帳號，用來在 registry 端把
   image 加上命名空間。即使從未實際 push，image tag 仍透過這個
-  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
-- `USER_NAME` — 主機 OS user（`id -un`）。沒有 Docker Hub 帳號可用
-  時，它就是 project name 的前綴；不需要任何設定，同台機器上兩個
-  OS user 的 container、network、volume 就彼此隔開。
+  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。機器上沒有登入
+  Docker Hub 時，`setup.sh` 不會讓它留空，而是偵測成你的 **OS
+  user**（`${USER}`，否則 `id -un`）。
+- `USER_NAME` — 主機 OS user（`id -un`），以 build arg 傳進去讓
+  container 內的使用者與家目錄和你一致。它不是上表任何名稱的前綴。
 
 刻意把兩個身份分開。Image 用 Docker Hub 身份，因為 image 是會在
 registry 上被定址的物件；若以 OS user 做前綴，buildx cache 與
-Docker Hub layer 共用會直接破功。Project name 優先用同一個身份，
-單人機上兩者才會對齊；退回 OS 身份是因為這層解決的衝突（同 host
-兩 user 同跑同 repo）是 daemon 端問題、無 registry 牽涉 — 而且沒
-開 Docker Hub 帳號的機器，根本沒有 registry 身份可退。
+Docker Hub layer 共用會直接破功。Project name 用的就是同一個身份，
+單人機上兩者才會對齊 — 而在共用機器上，因為上面那層偵測本來就會
+退回 OS user，不需要第二條規則、也不需要任何設定，project name 就
+已經因人而異。這個身份唯一分不開的情況，是兩個 OS user 共用同一個
+Docker Hub 登入；見下方範例。
 
 **base 不 emit `container_name:`。** Container 名稱是 daemon 層的
 namespace、不是 project 層的，所以寫死一個名字等於把該 service 綁
@@ -856,8 +858,8 @@ container:      alice-hub-claude_code-devel-1   (compose 推導)
 第二位 OS user `bob` 在同台機器，且沒有設定 Docker Hub 帳號：
 
 ```
-image:          local/claude_code:devel
-project name:   bob-claude_code                 (OS user,零設定)
+image:          bob/claude_code:devel           (hub user 偵測成 OS user)
+project name:   bob-claude_code                 (同一個前綴,零設定)
 container:      bob-claude_code-devel-1         (compose 推導)
 ```
 

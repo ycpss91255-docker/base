@@ -787,7 +787,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 9bf1068e7979 6be09fd0bcd7 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 467f98bc67e8 47361ea3294b -->
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生两个名称，第三个由
@@ -799,22 +799,24 @@ compose 自己推导。它们在单人开发机上看起来很像，但其实分
 | 名称 | 格式 | Namespace | User 前缀 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **本地 daemon**（界定 container / 默认 network / volume label） | `DOCKER_HUB_USER`，没有则 `USER_NAME` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 默认 network / volume label） | `DOCKER_HUB_USER`（没有登录时检测为 OS user） |
 | container 名称 | `<project>-<service>-<n>`，由 compose 推导 | **本地 daemon**（flat 全局） | 继承自 project |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 账号，用于在 registry 端把
   image 加上命名空间。即使从未实际 push，image tag 也以这个
-  identity 拼成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
-- `USER_NAME` — 主机 OS user（`id -un`）。没有 Docker Hub 账号可用
-  时，它就是 project name 的前缀；无需任何配置，同一台机器上两个
-  OS user 的 container、network、volume 就彼此隔离。
+  identity 拼成 `<DOCKER_HUB_USER>/<repo>:<tag>`。机器上没有登录
+  Docker Hub 时，`setup.sh` 不会让它留空，而是检测成你的 **OS
+  user**（`${USER}`，否则 `id -un`）。
+- `USER_NAME` — 主机 OS user（`id -un`），以 build arg 传进去让
+  container 内的用户与家目录和你一致。它不是上表任何名称的前缀。
 
 刻意把两个身份分开。Image 用 Docker Hub 身份是因为 image 是会在
 registry 上被定址的；如果以 OS user 做前缀，buildx cache 与
-Docker Hub layer 共享会直接失效。Project name 优先用同一个身份，
-单人机上两者才会对齐；退回 OS 身份是因为这层解决的冲突（同 host
-两个 user 跑同一个 repo）是 daemon 端问题、与 registry 无关 — 而且
-没开 Docker Hub 账号的机器，根本没有 registry 身份可退。
+Docker Hub layer 共享会直接失效。Project name 用的就是同一个身份，
+单人机上两者才会对齐 — 而在共享机器上，因为上面那层检测本来就会
+退回 OS user，不需要第二条规则、也不需要任何配置，project name 就
+已经因人而异。这个身份唯一分不开的情况，是两个 OS user 共用同一个
+Docker Hub 登录；见下方示例。
 
 **base 不 emit `container_name:`。** Container 名称属于 daemon 层的
 namespace、不属于 project 层，所以写死一个名字等于把该 service 绑
@@ -856,8 +858,8 @@ container:      alice-hub-claude_code-devel-1   (compose 推导)
 第二位 OS user `bob` 在同台机器上，且没有配置 Docker Hub 账号：
 
 ```
-image:          local/claude_code:devel
-project name:   bob-claude_code                 (OS user,零配置)
+image:          bob/claude_code:devel           (hub user 检测成 OS user)
+project name:   bob-claude_code                 (同一个前缀,零配置)
 container:      bob-claude_code-devel-1         (compose 推导)
 ```
 

@@ -20,9 +20,11 @@
 # refuses `--scale` outright ("Compose does not scale a service beyond one
 # container if the Compose file specifies a container_name"). Omitting it
 # lets compose derive `<project>-<service>-<n>`, which is unique by
-# construction -- so per-host isolation is the PROJECT NAME's job, and
-# lib/compose.sh's _resolve_project_name is what makes that name differ per
-# OS user with nothing configured.
+# construction -- so per-host isolation is the PROJECT NAME's job. That name
+# differs per OS user with nothing configured because its `${DOCKER_HUB_USER}`
+# prefix does: detection falls back to the OS user when there is no Docker
+# Hub login (lib/compose.sh's _resolve_project_name header carries the whole
+# chain, including the one case it cannot separate).
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). Calls into
 # setup.sh-resident deps (resolvers, _setup_msg, _SETUP_SCRIPT_DIR), deploy.sh
 # (_resolve_deploy_context), and conf.sh accessors; all resolve at call-time

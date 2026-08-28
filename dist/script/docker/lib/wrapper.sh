@@ -257,12 +257,16 @@ _wrapper_probe() {
 # `docker` can reach. `--remove-orphans` does not reach it either --
 # orphans are same-project containers of a removed service.
 #
-# That is not a hypothetical. `_resolve_project_name`'s fallback changed
-# with the drop of `container_name` (ADR-00000022 amendment): a checkout
-# with DOCKER_HUB_USER unset derived `local-<image>` and now derives
-# `<osuser>-<image>`. Nobody asks for that rename -- `upgrade` runs
-# `init.sh`, which runs `setup apply`, and the resolved name changes under
-# a stack that is still up.
+# That is not a hypothetical, and the trigger is NOT a changed derivation
+# -- the derivation is the same `<hub>-<image>` it always was. It is that
+# `setup apply` RE-DETECTS the prefix and `upgrade` runs it: `upgrade.sh`
+# calls `init.sh`, which calls `setup apply`. A `docker logout`, a login as
+# a different account, or CI versus a workstation therefore resolves a name
+# the live containers do not carry, under a stack that is still up, and
+# nobody asked for the rename. What dropping `container_name` changed is
+# the COST of it: a baked container name used to make the second stack die
+# loudly on `name ... is already in use`, and the `<project>-<service>-<n>`
+# compose derives instead collides with nothing and starts.
 #
 # Compose cannot relabel a running container, so a rename can only take
 # effect on an EMPTY project. The split of labour follows from that:

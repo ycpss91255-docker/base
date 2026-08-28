@@ -1342,7 +1342,7 @@ _setup_apply() {
   local project_name="" project_name_pending=""
   _conf_get_into _APPLY_CONF project name "" _project_name_conf
   _resolve_project_name "${_project_name_conf}" "${docker_hub_user}" \
-    "${user_name}" "${image_name}" "${_base_path}" _project_name_resolved
+    "${image_name}" "${_base_path}" _project_name_resolved
   # What gets RECORDED is not always what just resolved: a checkout that
   # already runs under a name keeps it, and the resolved one is carried
   # beside it as pending until the wrapper can see the old project is

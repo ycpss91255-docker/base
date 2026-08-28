@@ -162,18 +162,22 @@ EOF
   assert_output "alice-myrepo"
 }
 
-@test "_compute_project_name falls back to USER_NAME when the hub user is unset (#920)" {
-  # The wrapper's pre-bootstrap path derives the same name setup records,
-  # so the OS-user fallback has to be visible from here too -- otherwise a
-  # repo with no .env.generated lands in a project named after nobody.
+@test "_compute_project_name derives local-<basename> with nothing loaded (#920)" {
+  # The wrapper's pre-bootstrap path, and the ONLY path that reaches the
+  # `local` last resort. Nothing has been loaded, so there is no hub user
+  # AND no USER_NAME -- both keys come from the same `.env.generated`, so
+  # an OS-user rung in the resolver could never fire here. The checkout's
+  # basename is what distinguishes this project, which is why `local` is
+  # honest rather than a shared-prefix collision.
   run bash -c "
     source ${LIB}
-    USER_NAME=tester IMAGE_NAME=myrepo
+    unset DOCKER_HUB_USER IMAGE_NAME USER_NAME PROJECT_NAME
+    FILE_PATH=/tmp/some-checkout
     _compute_project_name
     echo \"\${PROJECT_NAME}\"
   "
   assert_success
-  assert_output "tester-myrepo"
+  assert_output "local-some-checkout"
 }
 
 @test "_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)" {
@@ -214,7 +218,7 @@ EOF
 @test "_resolve_project_name: a configured name is used verbatim (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name 'myrepo-wt2' alice tester myrepo /tmp/whatever _out
+    _resolve_project_name 'myrepo-wt2' alice myrepo /tmp/whatever _out
     echo \"\${_out}\"
   "
   assert_success
@@ -224,38 +228,26 @@ EOF
 @test "_resolve_project_name: empty configured name derives the historical default (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name '' alice tester myrepo /tmp/whatever _out
+    _resolve_project_name '' alice myrepo /tmp/whatever _out
     echo \"\${_out}\"
   "
   assert_success
   assert_output "alice-myrepo"
 }
 
-@test "_resolve_project_name: a configured name still wins over the OS user (#920)" {
+@test "_resolve_project_name: a configured name wins where the derivation cannot separate two users (#920)" {
   # The project name is now the ONLY per-host isolation the emitted stack
-  # has, so the setting that overrides it has to keep overriding it.
+  # has, and the one case the derivation cannot separate is two OS users
+  # behind ONE Docker Hub login -- detection hands both the same prefix.
+  # `[project] name` is the documented answer there, so it has to keep
+  # winning over a NON-empty derived prefix.
   run bash -c "
     source ${LIB}
-    _resolve_project_name 'myrepo-wt2' '' tester myrepo /tmp/whatever _out
+    _resolve_project_name 'myrepo-wt2' shared-hub myrepo /tmp/whatever _out
     echo \"\${_out}\"
   "
   assert_success
   assert_output "myrepo-wt2"
-}
-
-@test "_resolve_project_name: an unset hub user falls back to the OS user (#920)" {
-  # DOCKER_HUB_USER is frequently unset, and the literal 'local' it used to
-  # fall back to is the SAME string for every OS user on the host. With the
-  # per-container name gone, that would put two users' whole stacks in one
-  # project -- the collision promoted, not fixed. The OS user is the
-  # identity that is always set and always differs.
-  run bash -c "
-    source ${LIB}
-    _resolve_project_name '' '' tester myrepo /tmp/whatever _out
-    echo \"\${_out}\"
-  "
-  assert_success
-  assert_output "tester-myrepo"
 }
 
 # ── _env_file_value / _carry_project_name (project-name continuity) ────────
@@ -402,31 +394,29 @@ EOF
   assert_output "[][][][]"
 }
 
-@test "_resolve_project_name: two OS users derive distinct project names (#920)" {
+@test "_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)" {
+  # The property that dropping the container name made load-bearing, pinned
+  # through the chain that actually delivers it. The resolver has no OS-user
+  # rung of its own -- one would be unreachable, since the two detectors end
+  # in the same fallback -- so the prefix differs per OS user because
+  # DETECTION resolves the hub user to the OS user when there is no login.
   run bash -c "
     source ${LIB}
-    _resolve_project_name '' '' alice myrepo /tmp/whatever _a
-    _resolve_project_name '' '' bob   myrepo /tmp/whatever _b
+    docker() { return 1; }
+    USER=alice detect_docker_hub_user _ha
+    USER=bob   detect_docker_hub_user _hb
+    _resolve_project_name '' \"\${_ha}\" myrepo /tmp/whatever _a
+    _resolve_project_name '' \"\${_hb}\" myrepo /tmp/whatever _b
     echo \"\${_a} \${_b}\"
   "
   assert_success
   assert_output "alice-myrepo bob-myrepo"
 }
 
-@test "_resolve_project_name: the hub user still wins over the OS user (#920)" {
-  run bash -c "
-    source ${LIB}
-    _resolve_project_name '' alice tester myrepo /tmp/whatever _out
-    echo \"\${_out}\"
-  "
-  assert_success
-  assert_output "alice-myrepo"
-}
-
 @test "_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)" {
   run bash -c "
     source ${LIB}
-    _resolve_project_name '' '' '' '' /tmp/some-checkout _out
+    _resolve_project_name '' '' '' /tmp/some-checkout _out
     echo \"\${_out}\"
   "
   assert_success

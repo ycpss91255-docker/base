@@ -1202,26 +1202,27 @@ the same and move on.
 | Name | Format | Namespace | User prefix |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
-| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **Host daemon** (scopes containers / default network / volume labels) | `DOCKER_HUB_USER`, else `USER_NAME` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (scopes containers / default network / volume labels) | `DOCKER_HUB_USER` (detected as the OS user when there is no login) |
 | container name | `<project>-<service>-<n>`, derived by compose | **Host daemon** (flat global) | inherited from the project |
 
 - `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
   images on the registry side. Image tags are addressable as
   `<DOCKER_HUB_USER>/<repo>:<tag>` whether or not you actually push.
-- `USER_NAME` — the OS user (from `id -un`). It is the project-name
-  prefix whenever there is no Docker Hub account to use, which keeps
-  two OS users on the same host out of each other's containers,
-  networks and volumes with nothing configured.
+  On a machine with no Docker Hub login, `setup.sh` detects it as your
+  **OS user** (`${USER}`, else `id -un`) rather than leaving it empty.
+- `USER_NAME` — the OS user (from `id -un`), passed in as a build arg so
+  the container user and its home directory match yours. It prefixes no
+  name in the table above.
 
 The two identities are deliberately separate. Image names use the
 Docker Hub identity because images are addressable on the registry,
 and forcing per-OS-user image tags would shatter buildx cache reuse
-and Docker Hub layer sharing. The project name prefers that same
-identity so the two line up on a single-user machine, and falls back to
-the OS one because the conflict it fixes (two users on the same host
-running the same repo) is a host-daemon problem with no registry
-component — and because a machine with no Docker Hub account has no
-registry identity to fall back to at all.
+and Docker Hub layer sharing. The project name uses that same identity,
+so on a single-user machine the two line up — and on a shared host it
+differs per OS user with nothing configured and no second rule, because
+the detection above already falls back to the OS user. The one thing
+that identity cannot separate is two OS users sharing a single Docker
+Hub login; see the worked example below.
 
 **base emits no `container_name:`.** A container name is namespaced by
 the daemon rather than by the project, so a fixed one pins the service
@@ -1265,8 +1266,8 @@ A second OS user `bob` on the same host, with no Docker Hub account
 configured:
 
 ```
-image:          local/claude_code:devel
-project name:   bob-claude_code                 (OS user, no configuration)
+image:          bob/claude_code:devel           (hub user detected as the OS user)
+project name:   bob-claude_code                 (same prefix, no configuration)
 container:      bob-claude_code-devel-1         (derived by compose)
 ```
 

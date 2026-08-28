@@ -835,7 +835,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 9bf1068e7979 2ed447e8aa60 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 467f98bc67e8 1e055a691547 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
@@ -849,27 +849,28 @@ fi
 | 名前 | 形式 | Namespace | User プレフィックス |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| compose project name | `${DOCKER_HUB_USER:-${USER_NAME}}-<repo>` | **ローカル daemon**（container / デフォルト network / volume label のスコープ） | `DOCKER_HUB_USER`、無ければ `USER_NAME` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（container / デフォルト network / volume label のスコープ） | `DOCKER_HUB_USER`（ログインが無い場合は OS user として検出） |
 | container 名 | `<project>-<service>-<n>`、compose が導出 | **ローカル daemon**（フラットなグローバル） | project から継承 |
 
 - `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
   に名前空間を付けるために使います。実際に push しない場合でも、
   image tag は `<DOCKER_HUB_USER>/<repo>:<tag>` という形で
-  この identity を含みます。
-- `USER_NAME` — ホストの OS user（`id -un`）。Docker Hub アカウント
-  が無いときは、これが project name のプレフィックスになります。
-  設定なしで、同じマシン上の 2 人の OS user の container /
-  network / volume が互いに分離されます。
+  この identity を含みます。Docker Hub にログインしていないマシン
+  では、`setup.sh` はこれを空のままにせず、あなたの **OS user**
+  （`${USER}`、無ければ `id -un`）として検出します。
+- `USER_NAME` — ホストの OS user（`id -un`）。container 内のユーザー
+  とホームディレクトリをあなたに合わせるための build arg として渡
+  されます。上の表のどの名前のプレフィックスでもありません。
 
 2 つの identity を意図的に分けています。Image は registry 上で
 アドレス可能なオブジェクトなので Docker Hub identity を使う —
 OS user でプレフィックスを付けてしまうと buildx cache や Docker
-Hub の layer 共有が破綻します。Project name は同じ identity を
-優先し（個人開発機で両者が揃うのはそのため）、無ければ OS
-identity にフォールバックします。ここで解決したい衝突（同一ホスト
-上の 2 user が同一 repo を同時実行）は daemon 側の問題で registry
-とは無関係であり、そもそも Docker Hub アカウントの無いマシンには
-フォールバックできる registry identity が存在しないからです。
+Hub の layer 共有が破綻します。Project name も同じ identity を使い
+ます。個人開発機で両者が揃うのはそのためで、共用ホストでは上の
+検出が既に OS user にフォールバックするため、2 つ目の規則も設定も
+無しに project name が人ごとに変わります。この identity で唯一
+分けられないのは、2 人の OS user が 1 つの Docker Hub ログインを
+共有している場合です。下の具体例を参照してください。
 
 **base は `container_name:` を emit しません。** container 名は
 project ではなく daemon の namespace に属するため、固定名を書くと
@@ -914,8 +915,8 @@ container:      alice-hub-claude_code-devel-1   (compose が導出)
 同じホスト上の別の OS user `bob`（Docker Hub アカウント未設定）:
 
 ```
-image:          local/claude_code:devel
-project name:   bob-claude_code                 (OS user、設定不要)
+image:          bob/claude_code:devel           (hub user を OS user として検出)
+project name:   bob-claude_code                 (同じプレフィックス、設定不要)
 container:      bob-claude_code-devel-1         (compose が導出)
 ```
 

@@ -114,21 +114,34 @@ any container_name is present. No value of the field can be per-instance
 safe, so the guard now asserts its ABSENCE rather than its shape.
 
 Per-host isolation moved entirely into the project name as a consequence,
-which required the second half of that change: `_resolve_project_name`'s
-prefix falls back to the OS user (`${DOCKER_HUB_USER:-${USER_NAME}}-<image>`)
-rather than to the literal `local`. `DOCKER_HUB_USER` is frequently unset,
-and `local` is the same string for every OS user on a host -- with the
-container name gone, deriving `local-<image>` would have put two users in
-ONE project, promoting the collision from a container to a whole stack. A
-configured `[project] name` still wins.
+and it holds there with NO second mechanism. The derivation is unchanged --
+`${DOCKER_HUB_USER}-<image>` -- and that prefix is already per-OS-user with
+nothing configured, because `detect_docker_hub_user` falls back to
+`${USER:-$(id -un)}` when `docker info` reports no login and is the only
+writer of the key. A configured `[project] name` still wins, and remains
+the answer for the one case the derivation cannot separate: two OS users
+sharing ONE Docker Hub login, which hands both the same prefix.
 
-A derived project name can therefore change under a deployed consumer,
-and nobody asks for it. The trigger is `just upgrade`: `upgrade.sh` runs
-`init.sh`, which runs `setup apply` during the upgrade itself. (Not the
-drift re-apply on the next `build` / `run`: `_check_setup_drift` hashes
-`setup.conf`, the Dockerfile stage list, GPU/GUI detection and `USER_UID`
--- nothing about the `.base` version or `DOCKER_HUB_USER` -- so a subtree
-upgrade alone leaves check-drift green.) That apply re-detects
+*Correction (same amendment).* A first cut of this change added an OS-user
+rung to `_resolve_project_name` itself, on the belief that
+`DOCKER_HUB_USER` is frequently unset and that such consumers were deriving
+`local-<image>`. Both halves were wrong: detection cannot yield an empty
+key, so no recorded `.env.generated` was ever in that state, and the rung
+was unreachable regardless -- `detect_user_info` ends in the same
+`${USER:-$(id -un)}`, so a host that leaves the hub user empty leaves
+`USER_NAME` empty too. The rung was removed rather than documented, and
+this paragraph stays so that a reader chasing a changed project name is not
+sent to a condition that cannot occur.
+
+A derived project name can nevertheless change under a deployed consumer,
+without anyone asking for it -- and dropping `container_name` is what makes
+that dangerous rather than untidy, since the second stack used to die
+loudly on the baked name and now starts alongside the first. The trigger is
+`just upgrade`: `upgrade.sh` runs `init.sh`, which runs `setup apply` during
+the upgrade itself. (Not the drift re-apply on the next `build` / `run`:
+`_check_setup_drift` hashes `setup.conf`, the Dockerfile stage list,
+GPU/GUI detection and `USER_UID` -- nothing about the `.base` version or
+`DOCKER_HUB_USER` -- so a subtree upgrade alone leaves check-drift green.) That apply re-detects
 `DOCKER_HUB_USER` from `docker info`, so any repo whose recorded prefix no
 longer matches what detection now yields -- a `docker logout`, a login as
 a different account, CI versus a workstation -- resolves a different name

@@ -27,12 +27,12 @@ source "${_compose_dir}/log.sh"
 # shellcheck source=dist/script/docker/lib/env.sh
 source "${_compose_dir}/env.sh"
 
-# _resolve_project_name <configured> <hub_user> <os_user> <image_name> <path> <outvar>
+# _resolve_project_name <configured> <hub_user> <image_name> <path> <outvar>
 #
 # The ONE producer of a compose project name. Given the configured
 # `[project] name` (empty = "derive as before"), it yields the project
-# name; with nothing configured it derives `<hub>-<image>`, falling back to
-# the OS user for the prefix and to the directory basename for the suffix.
+# name; with nothing configured it derives `<hub>-<image>`, and with
+# neither of those it falls back to `local-<directory basename>`.
 #
 # One producer is the point. Both consumers -- the wrapper's `-p` and the
 # emitted compose.yaml's `name:` -- read the SAME resolved value out of
@@ -42,19 +42,29 @@ source "${_compose_dir}/env.sh"
 # wrapper calls it only when there is no `.env.generated` to read at all
 # (base self-use, pre-bootstrap).
 #
-# Why the prefix falls back to the OS USER and not to a literal: the
-# emitted compose names no container (see compose_emit.sh's header), so
-# compose derives `<project>-<service>-<n>` and the project name is the ONLY
-# thing keeping two OS users on one host out of each other's containers,
-# networks and volumes. `DOCKER_HUB_USER` is frequently unset -- it is a
-# registry identity, and a host with no Docker Hub account has none -- and
-# the literal `local` it used to fall back to is the SAME string for every
-# user on that host. Deriving `local-<image>` would have put both users in
-# one project: the collision promoted from one container to a whole stack.
-# The OS user is the identity that is always present and always differs,
-# which is why the container name used it. Order of preference is unchanged
-# where it was already right: a configured `[project] name` wins, then the
-# hub user, then the OS user.
+# This prefix now carries the WHOLE of per-host isolation: the emitted
+# compose names no container (see compose_emit.sh's header), so compose
+# derives `<project>-<service>-<n>` and the project name is the only thing
+# keeping two OS users on one host out of each other's containers,
+# networks and volumes. It carries it with no second mechanism here,
+# because `<hub>` is already per-OS-user with nothing configured:
+# `detect_docker_hub_user` (setup_detect.sh) falls back to
+# `${USER:-$(id -un)}` when `docker info` reports no login, and that
+# detection is the ONLY writer of DOCKER_HUB_USER -- so no recorded
+# `.env.generated` carries an empty one, and no consumer derives the
+# shared literal `local`.
+#
+# Deriving the prefix a second time HERE, from the OS user, would be
+# unreachable rather than defensive: `detect_user_info` ends in that same
+# `${USER:-$(id -un)}`, so a host that leaves the hub user empty leaves
+# USER_NAME empty too and the lower rung could never differ from the one
+# above it. An earlier draft of this change carried such a rung; it is
+# gone (ADR-00000022 amendment).
+#
+# What the derivation genuinely cannot separate is two OS users sharing
+# ONE Docker Hub login -- a shared service account hands both the same
+# prefix. `[project] name` is the answer there, which is why a configured
+# name WINS over the derivation rather than merely seeding it.
 #
 # base stays single-instance: `[project] name` is CONFIGURATION -- one name
 # for this checkout, recorded in a file -- not multi-instance orchestration,
@@ -62,19 +72,19 @@ source "${_compose_dir}/env.sh"
 _resolve_project_name() {
   local _configured="${1-}"
   local _hub="${2-}"
-  local _user="${3-}"
-  local _image="${4-}"
-  local _path="${5-}"
-  local -n _rpn_out="${6:?"${FUNCNAME[0]}: missing outvar"}"
+  local _image="${3-}"
+  local _path="${4-}"
+  local -n _rpn_out="${5:?"${FUNCNAME[0]}: missing outvar"}"
 
   if [[ -n "${_configured}" ]]; then
     _rpn_out="${_configured}"
     return 0
   fi
   # `local` and the directory basename are the LAST resorts, not a naming
-  # policy: they apply only when there is no identity / no resolved config
-  # to read at all.
-  _rpn_out="${_hub:-${_user:-local}}-${_image:-$(basename -- "${_path:-${PWD}}")}"
+  # policy: they apply only where nothing has been detected or resolved at
+  # all -- base self-use before bootstrap, which has no `.env.generated` to
+  # read a hub user or an image name out of.
+  _rpn_out="${_hub:-local}-${_image:-$(basename -- "${_path:-${PWD}}")}"
 }
 
 # _recorded_project_name <env_file> <outvar>
@@ -195,8 +205,8 @@ _compute_project_name() {
   fi
 
   # shellcheck disable=SC2034  # PROJECT_NAME is consumed by callers, not _lib.sh
-  _resolve_project_name "" "${DOCKER_HUB_USER:-}" "${USER_NAME:-}" \
-    "${IMAGE_NAME:-}" "${FILE_PATH:-${PWD}}" PROJECT_NAME
+  _resolve_project_name "" "${DOCKER_HUB_USER:-}" "${IMAGE_NAME:-}" \
+    "${FILE_PATH:-${PWD}}" PROJECT_NAME
 }
 
 # _compose runs `docker compose` with the given args, or prints what it would
