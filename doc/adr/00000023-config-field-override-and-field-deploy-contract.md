@@ -55,8 +55,15 @@ file committed to the repo?**
   in the field. It is mounted over the baked default at launch.
 
 This is the general axis ADR-00000003 made concrete only for env vars (committed
-`[environment]` default vs gitignored `.env` overlay); this ADR names it as the
+`[environment]` default vs gitignored user overlay); this ADR names it as the
 axis for **structured config files** too.
+
+**Amendment (#868): which file is the env overlay changed name, the axis did
+not.** The overlay is `.env.local`, not `.env` -- ADR-00000003's A2 was
+reversed so one rule (the standard name is ours, a suffix marks a local
+variant) covers `Dockerfile` / `compose.yaml` / `.setup.conf` and the env
+family alike. The axis this section states is untouched: `.env.local` is
+gitignored, so it is still "not in the repo = the operator's".
 
 ### 2. Baked default + optional mount-override (mount-wins)
 
@@ -93,6 +100,13 @@ generation inputs), so it runs on a field host that never had base's
 detection / render toolchain. "Compose does not travel" was true of the
 *generated, interpolation-dependent* compose; a resolved compose is a distinct,
 self-contained artifact and is the field launcher.
+
+**Amendment (#868):** that compose does carry an `env_file:` naming `.env` +
+`.env.local`, and both travel INSIDE the bundle. Self-containment is about
+not depending on the BUILD host; a file shipped in the folder is part of the
+artifact. It is what gives the operator an env channel at all -- the old raw
+`docker run` launcher had `deploy.sh -e` and nothing replaced it when the
+resolved compose took over.
 
 ### 4. `deployable = not devel and not *-test`
 
@@ -138,10 +152,11 @@ Stated explicitly so the two `-v` uses do not read as a conflict.
 - **Keep structured config bake-only (status quo).** Rejected: it is the exact
   asymmetry that forces a rebuild to change one field value in the field, and it
   leaves the env row and the config row inconsistent for no principled reason.
-- **Route field config through the `.env` overlay too.** Rejected: the `.env`
-  overlay (ADR-00000003) carries flat `KEY=VALUE` env vars only; a structured
-  config file (topics, pipeline lists, YAML) is not a flat scalar and belongs in
-  its own file with its own mount-override, not smuggled through env.
+- **Route field config through the env overlay too.** Rejected: the env
+  overlay (ADR-00000003; `.env.local` since #868) carries flat `KEY=VALUE`
+  entries only; a structured config file (topics, pipeline lists, YAML) is not
+  a flat scalar and belongs in its own file with its own mount-override, not
+  smuggled through env.
 - **Ship the generated, interpolation-dependent compose to the field.**
   Rejected: it depends on `setup.conf` / `.env.generated` being present on the
   field host, which is exactly what a field host does not have. A resolved,
