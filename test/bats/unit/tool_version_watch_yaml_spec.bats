@@ -93,6 +93,50 @@ _job() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# The proposal must arrive WITH CI -- the run is the output
+# ════════════════════════════════════════════════════════════════════
+
+@test "tool-version-watch: the proposal is opened with a credential that is NOT GITHUB_TOKEN" {
+  # GitHub creates no workflow run from an event GITHUB_TOKEN triggered
+  # (workflow_dispatch and repository_dispatch are the only exceptions).
+  # A proposal opened with it therefore arrives with ZERO checks -- and a
+  # PR with no checks reads as nothing-is-wrong, which is the same
+  # silence-as-green defect the watch exists to end. This is asserted
+  # rather than reviewed because no local run can observe it: the branch
+  # pushes, the PR opens, and the only symptom is a checks list that is
+  # empty.
+  run _job bump
+  assert_success
+  assert_output --partial 'GH_TOKEN: ${{ secrets.'
+  refute_output --partial 'GH_TOKEN: ${{ github.token }}'
+  refute_output --partial 'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}'
+}
+
+@test "tool-version-watch: it verifies that credential BEFORE it pushes anything" {
+  # Ordering is the whole assertion. A run that discovers the missing
+  # secret after the push leaves a branch on the remote with no proposal
+  # pointing at it -- the one state a reader of the pull-request list
+  # cannot see, and the state that then wedges the pin.
+  run awk '/needs a credential that is not GITHUB_TOKEN/{print "token-check"}
+           /git push --set-upstream/{print "push"}' "${WF}"
+  assert_success
+  assert_equal "${lines[0]}" 'token-check'
+  assert_equal "${lines[1]}" 'push'
+}
+
+@test "tool-version-watch: an abandoned branch is replaced, not left to wedge the pin" {
+  # The remote branch exists and no OPEN proposal points at it, so an
+  # earlier run pushed and stopped short. Every later run rebuilds the
+  # commit from a fresh checkout, gets a different SHA and is rejected as
+  # a non-fast-forward -- that pin failing every week until a human
+  # deletes the branch by hand.
+  run _job bump
+  assert_success
+  assert_output --partial 'git ls-remote --exit-code --heads origin'
+  assert_output --partial 'git push --delete origin'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # One proposal per tool
 # ════════════════════════════════════════════════════════════════════
 

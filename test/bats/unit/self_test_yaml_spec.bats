@@ -651,6 +651,21 @@ _render_run_names() {
   assert_output --partial '- self-hosted-guard'
 }
 
+@test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
+  # The upstream-release watch opens its proposals on `watch/<tool>-<ver>`
+  # branches, and the CI run this trigger starts on them IS the answer to
+  # "does this version break us" -- the workflow's entire output. A
+  # `branches:` list added here would leave every proposal with zero
+  # checks, which reads as nothing-is-wrong.
+  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'pull_request:'
+  run awk '/^  pull_request:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  refute_output --partial 'branches:'
+  refute_output --partial 'branches-ignore:'
+}
+
 @test "self-test.yaml: the pin-coverage lint has a lint-static CI join" {
   # Same belt-and-braces as the self-hosted guard above. This one carries
   # more than usual: pin-coverage is what stops a third-party version from

@@ -34,6 +34,19 @@ name: Upstream release watch
 # scan job read only, and the bump job exactly `contents: write` +
 # `pull-requests: write` -- enough to push a branch and propose a change,
 # and nothing that can land one.
+#
+# One honest caveat on that last sentence. The proposal has to be opened
+# with a credential that is NOT GITHUB_TOKEN, because GitHub starts no
+# workflow run for an event GITHUB_TOKEN triggered -- and a proposal with
+# no CI attached is worth nothing here, since the CI run IS the output.
+# That credential is not bounded by the `permissions:` block above, so
+# "it cannot merge" stops being a grant and becomes a property of the
+# code: no merge subcommand, no auto-merge flag and no auto-merge API call
+# appears anywhere in this file, and a unit spec fails the build the day
+# one does. (Spelled around rather than quoted, because that spec greps
+# this file for those very strings.)
+# The token needs exactly `contents: write` + `pull-requests: write` on
+# this repository; anything more is scope this workflow does not use.
 
 on:
   schedule:
@@ -154,7 +167,27 @@ jobs:
 
       - name: Bump ${{ matrix.pin.name }} and propose it
         env:
-          GH_TOKEN: ${{ github.token }}
+          # NOT `github.token`. GitHub does not create a workflow run from
+          # an event triggered by GITHUB_TOKEN -- `workflow_dispatch` and
+          # `repository_dispatch` are the only exceptions -- so a proposal
+          # opened with it raises a `pull_request` event that starts NO
+          # CI. Every PR this job opens would arrive with zero checks,
+          # and a PR with no checks reads as nothing-is-wrong: the same
+          # silence-as-green this whole mechanism was built to end. (With
+          # required checks on main it is worse: the PR waits for a status
+          # that will never arrive and no bump can ever land.)
+          #
+          # Pushing the branch under a `watch/**` push trigger does NOT
+          # fix it either -- the restriction is on the EVENT's actor, not
+          # on the trigger, so a GITHUB_TOKEN push creates no run for any
+          # trigger that would match it.
+          #
+          # So the PR is opened by a real credential. `pull_request` in
+          # self-test.yaml is unfiltered, so the resulting proposal picks
+          # up the full gate; tool_version_watch_yaml_spec.bats and
+          # self_test_yaml_spec.bats assert both halves of that, because
+          # this is a property no local test can observe.
+          GH_TOKEN: ${{ secrets.ORG_FANOUT_TOKEN }}
           PIN_NAME: ${{ matrix.pin.name }}
           PIN_FROM: ${{ matrix.pin.from }}
           PIN_TO: ${{ matrix.pin.to }}
@@ -163,6 +196,15 @@ jobs:
         run: |
           set -euo pipefail
           branch="watch/${PIN_NAME}-${PIN_TO}"
+
+          # Checked BEFORE anything is pushed. Without the credential the
+          # PR cannot be opened, and a run that discovers that after the
+          # push leaves a branch behind with no proposal pointing at it --
+          # the one state a reader of the pull-request list cannot see.
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::the upstream-release watch needs a credential that is not GITHUB_TOKEN to open a proposal that CI will actually run (see the comment on this step). Set the ORG_FANOUT_TOKEN repository secret."
+            exit 1
+          fi
 
           # An OPEN proposal for this exact version pair already exists:
           # nothing to add. A CLOSED one is deliberately NOT treated that
@@ -176,6 +218,18 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # The branch exists on the remote and no OPEN proposal points at
+          # it (checked above), so an earlier run pushed it and did not get
+          # as far as opening one. Left alone it wedges this pin FOREVER:
+          # every later run rebuilds the commit from a fresh checkout, gets
+          # a different SHA, and its push is rejected as a non-fast-forward
+          # against the abandoned branch. Clearing it is not discarding
+          # anyone's work -- nothing has ever pointed at it.
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            echo "::warning::${branch} exists on the remote with no open proposal; an earlier run pushed it and stopped before creating one. Replacing it."
+            git push --delete origin "${branch}"
+          fi
+
           git switch -c "${branch}"
           ./script/watch/pins.sh --set "${PIN_NAME}" "${PIN_TO}"
           git add -A

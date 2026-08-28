@@ -1,5 +1,12 @@
 name: CI
 
+# `pull_request:` carries no branch filter, and that is load-bearing
+# rather than incidental: the upstream-release watch opens its proposals
+# on `watch/<tool>-<version>` branches, and the CI run this trigger starts
+# on them is the entire answer to "does this version break us". Adding a
+# `branches:` list here would leave every one of those proposals with zero
+# checks -- which reads as nothing-is-wrong, the exact silence the watch
+# exists to end. self_test_yaml_spec.bats asserts the absence.
 on:
   push:
     branches: [main, master]
