@@ -731,11 +731,17 @@ thirteen cumulative invariants:
     from `dockerfile/Dockerfile.test-tools`. This makes the Obtain path
     self-correcting against a stale / old / racing `:main` regardless of
     cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3
-    (pull failed -> build) intact. Applied to all five `build_local`-pattern
+    (pull failed -> build) intact. Applied to the five `build_local`-pattern
     obtain steps (`hadolint`, `bats-fragile`, `bats-integration`,
     `coverage`, `system`) since they pull the same tag and race
-    identically; `bats-fragile` + `coverage` (the kcov-racing shards) are
-    asserted per-job, plus a count assertion that all five carry the guard.
+    identically, and asserted per job. The sixth `:main`-pulling step,
+    `acceptance`, carries no probe and needs none: `REQUIRED_TOOLS` is about
+    the tools a job EXECUTES, and acceptance runs none of them -- it
+    consumes the image only as the `FROM` base of the scaffolded consumer's
+    test stage. The guard used to be a `grep -c 'REQUIRED_TOOLS=' == 5` over
+    the whole workflow under the name "every `:main`-pulling Obtain step",
+    which named an invariant that did not hold (there are six such steps)
+    and was satisfied by any five occurrences wherever they sat.
 
 13. **#677 CI double-run restructure (coverage = primary unit gate,
     weight-balanced shards, single `bats-fragile` job)** — after #686
@@ -1819,7 +1825,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (157)
+### test/bats/unit/template_spec.bats (158)
 
 | Test | Description |
 |------|-------------|
@@ -1898,10 +1904,11 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.test-tools branches case for amd64 and arm64` | - |
 | `Dockerfile.test-tools fails loud on unsupported TARGETARCH` | - |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
-| `build.sh sources _lib.sh` | build.sh uses shared lib |
-| `run.sh sources _lib.sh` | run.sh uses shared lib |
-| `exec.sh sources _lib.sh` | exec.sh uses shared lib |
-| `stop.sh sources _lib.sh` | stop.sh uses shared lib |
+| `build.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `run.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `exec.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `stop.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)` | the _lib.sh claim asserted where it is true |
 | `_lib.sh sources i18n.sh (delegates language detection)` | _lib delegates i18n |
 | `setup.sh sources i18n.sh` | setup.sh uses shared i18n |
 | `build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)` | - |
@@ -2001,7 +2008,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (113)
+### test/bats/unit/ci_spec.bats (114)
 
 | Test | Description |
 |------|-------------|
@@ -2080,6 +2087,7 @@ builds the env block only for the knobs the conf sets.
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
 | `main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)` | - |
+| `main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)` | The CI join is host-direct, like its siblings |
 | `main --readme-sync-only: runs the localized README sync lint on the host, no compose (#866)` | - |
 | `main: _LINT_TOOLS is the one table every lint-phase caller dispatches through (#866)` | - |
 | `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
@@ -3342,6 +3350,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/init_installed_paths_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-installed-paths prints a non-empty manifest and exits 0` | - |
+| `init.sh --list-installed-paths lists the base version monitor workflow` | - |
+| `init.sh --list-installed-paths lists the wrapper symlinks and hook stubs` | - |
+| `init.sh --list-installed-paths emits repo-relative paths only` | - |
+| `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
+| `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 ### test/bats/unit/arch_literal_lint_spec.bats (20)
 
 | Test | Description |
@@ -3395,6 +3413,77 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
+### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
+
+| Test | Description |
+|------|-------------|
+| `workflows: every action is used at exactly one ref (#949)` | The real tree, read independently of the lint |
+| `_run_action_ref_agreement: FAILS when two workflows disagree on an action's ref (#949)` | The v6/v7 split, as a fixture |
+| `_run_action_ref_agreement: names the action, both refs and every call site (#949)` | A finding you can act on without grepping |
+| `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
+| `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
+| `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
+| `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
+| `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
+| `_run_action_ref_agreement: an allow marker with NO reason is itself a failure (#949)` | A bare mute rebuilds the hazard inside the repo |
+| `_run_action_ref_agreement: an allow marker two comment lines above still applies (#949)` | The whole comment block carries the exception |
+| `_run_action_ref_agreement: an allow marker does NOT leak to the next call site (#949)` | One recorded divergence licenses no others |
+| `_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)` | Nothing scanned is an error, not a pass |
+| `_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)` | Same, one level in |
+| `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
+| `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
+| `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
+| `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
+| `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
+### test/bats/unit/code_lines_spec.bats (22)
+
+The comment-stripped file views in `test/bats/unit/test_helper.bash`
+(`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
+template structural specs assert against instead of the raw file.
+
+They exist because a spec that greps a WHOLE file lets a string appearing
+only in a COMMENT satisfy an assertion about CODE, and this repo's comments
+name in prose exactly what its specs pin. Measured, not theorised: deleting
+both real `_transcript_begin` / `_transcript_detach` calls from
+`setup_tui.sh`, the active `logging.sh` COPY from the template Dockerfile,
+and `hook.sh`'s `DRY_RUN` early return each left the guard named for it
+green, matching a comment instead.
+
+The conversion has a mirror-image failure mode, and it is the more dangerous
+one: a stripper that also eats a line which is genuinely code turns a
+working guard into one that cannot match its subject -- and the natural
+"fix" for the resulting red is to weaken the assertion. Both directions are
+therefore pinned here, against one fixture carrying every shape that can be
+got wrong.
+
+| Test | Description |
+|------|-------------|
+| `code_lines: drops an unindented comment-only line` | The base case: a file-header paragraph naming the action the workflow must never use |
+| `code_lines: drops an INDENTED comment-only line` | The form that matters most -- a workflow's explanatory prose sits at the indentation of the block it explains |
+| `code_lines: drops a shell comment inside a run: block scalar` | A `#` line inside a `run:` block scalar is a shell comment: prose, in the exact place a workflow explains the command it is about to run |
+| `code_lines: drops blank lines` | Blank lines are neither code nor documentation and would pad any count assertion |
+| `code_lines: drops a Dockerfile comment, including a commented-out directive` | The live hazard in this repo's template Dockerfile: the same COPY appears twice, once active and once as a worked example |
+| `code_lines: keeps a trailing comment on a code line, verbatim` | Over-strict direction. The `# v1.2.2` after a pinned action SHA is code's, not prose's -- a spec asserts the pin and its version comment together |
+| `code_lines: keeps a # inside a double-quoted string` | Over-strict direction. A naive `s/#.*//` would silently shorten the line into something no assertion matches |
+| `code_lines: keeps a # inside a single-quoted string` | Same, for the other quoting style |
+| `code_lines: keeps a block-scalar line whose STRING starts with #` | `echo "# heading"` is code whose payload opens with a hash; the line's first non-blank character is `e`, so it stays |
+| `code_lines: keeps a # that is part of a value, not a comment` | A colour literal, a fragment, an anchor -- a `#` mid-value never begins a comment |
+| `code_grep: a string present only in a comment does not match` | The defect itself, at the call site every converted spec uses |
+| `code_grep: a string present in code does match` | Non-vacuity: the filter must still find what is really there |
+| `code_grep: passes its flags through and takes the file last` | The signature mirrors grep's own, so a conversion is a one-word edit; `-c` counts over code lines only |
+| `only_comments: keeps the comment-only lines and nothing else` | The mirror view, for the rare assertion genuinely about what a file SAYS |
+| `only_comments: is the exact complement of strip_comments` | No line may be dropped by both filters or counted by both -- the invariant that makes "code" and "documentation" an exhaustive split |
+| `only_comments: keeps a trailing-comment line out of the comment view` | A trailing-comment line belongs to the code view alone; counting it as documentation would let a pin's version comment satisfy a prose assertion |
+| `yaml_job_lines: returns the job's code and drops its comment paragraph` | The workflow specs' main entry point, replacing the awk block extractor each file used to carry |
+| `yaml_job_lines: stops at the next job` | Block scoping: an assertion about one job must not be satisfied by the next |
+| `yaml_job_text: keeps the job's comment paragraph verbatim` | The escape hatch. Keeping it a separate call makes "asserted against a comment" a visible choice |
+| `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
+| `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
+| `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
 ### test/bats/unit/spec_subject_guard_spec.bats (6)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
