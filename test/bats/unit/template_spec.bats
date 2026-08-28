@@ -593,37 +593,75 @@ EOF
   assert_success
 }
 
-@test "build.sh sources _lib.sh" {
-  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+@test "build.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # The wrapper does not source _lib.sh itself. It searches the
+  # candidate paths for lib/bootstrap.sh and sources THAT; bootstrap.sh
+  # is what sources _lib.sh (pinned by its own spec below). Both
+  # assertions name an expansion no comment and no error string in this
+  # file carries -- greping the whole file for `source.*_lib.sh` matched
+  # only the header comment and the not-found message, so the specs
+  # stayed green with the dispatch deleted.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/build.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
     /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
-@test "run.sh sources _lib.sh" {
-  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+@test "run.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/run.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
     /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "exec.sh sources _lib.sh" {
-  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+@test "exec.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/exec.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
     /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
-@test "stop.sh sources _lib.sh" {
-  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+@test "stop.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
+  # See build.sh above for why the dispatch is what is pinned.
+  run code_grep -F 'for _bootstrap_cand in' \
+    /source/dist/script/docker/wrapper/stop.sh
+  assert_success
+  run code_grep -F 'source "${_bootstrap_cand}"' \
     /source/dist/script/docker/wrapper/stop.sh
   assert_success
 }
 
+@test "lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)" {
+  # The wrapper-side half of this claim lives in the four specs above,
+  # which pin the bootstrap dispatch. This is the other half, asserted
+  # against the file where it is true, and anchored to a leading
+  # `source` / `.` so the prose that names _lib.sh cannot satisfy it.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*_lib\.sh' \
+    /source/dist/script/docker/lib/bootstrap.sh
+  assert_success
+}
+
 @test "_lib.sh sources i18n.sh (delegates language detection)" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/lib/_lib.sh
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/lib/_lib.sh
   assert_success
 }
 
 @test "setup.sh sources i18n.sh" {
-  run grep -E 'source.*i18n\.sh' /source/dist/script/docker/wrapper/setup.sh
+  # Anchored for the same reason as the bootstrap specs above: the
+  # unanchored whole-file grep was also satisfied by the header comment
+  # ("so sibling sources (i18n.sh / _tui_conf.sh) are located in the"),
+  # so deleting the real source line left the spec green.
+  run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
+    /source/dist/script/docker/wrapper/setup.sh
   assert_success
 }
 

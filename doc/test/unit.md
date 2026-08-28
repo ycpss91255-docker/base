@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2966 tests**.
+Unit specs under `test/bats/unit/`: **2967 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1829,7 +1829,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (155)
+### test/bats/unit/template_spec.bats (156)
 
 | Test | Description |
 |------|-------------|
@@ -1906,10 +1906,11 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.test-tools branches case for amd64 and arm64` | - |
 | `Dockerfile.test-tools fails loud on unsupported TARGETARCH` | - |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
-| `build.sh sources _lib.sh` | build.sh uses shared lib |
-| `run.sh sources _lib.sh` | run.sh uses shared lib |
-| `exec.sh sources _lib.sh` | exec.sh uses shared lib |
-| `stop.sh sources _lib.sh` | stop.sh uses shared lib |
+| `build.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `run.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `exec.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `stop.sh sources lib/bootstrap.sh (which sources _lib.sh)` | bootstrap dispatch, not the comment naming _lib.sh |
+| `lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)` | the _lib.sh claim asserted where it is true |
 | `_lib.sh sources i18n.sh (delegates language detection)` | _lib delegates i18n |
 | `setup.sh sources i18n.sh` | setup.sh uses shared i18n |
 | `build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)` | - |
