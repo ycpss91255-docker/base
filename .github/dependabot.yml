@@ -10,12 +10,23 @@
 # exactly the pins the watch already reads out of their ARGs.
 #
 # The watch owns what dependabot provably cannot see or advance: a
-# Dockerfile ARG, a `FROM` tag, an image named inside a `run:` step, a
-# release-download URL, and a `uses:` ref pinned to a BRANCH (it bumps a
-# version ref to the next VERSION, and `main` is not one). Every one of
-# those carries a `tool-pin:` marker at its declaration site, and the
-# `pin-coverage` lint fails a PR that adds one without a marker -- so the
-# boundary cannot silently move by someone adding a pin on either side.
+# Dockerfile ARG, a `FROM` tag, an image named inside a `run:` step (with
+# or without a namespace), a release-download URL, a `git clone -b <tag>`,
+# a `uses:` ref pinned to a BRANCH (it bumps a version ref to the next
+# VERSION, and `main` is not one), and any of those written inside a SHELL
+# SCRIPT that generates a file -- dependabot reads workflow files, and a
+# `uses:` ref inside a heredoc is not one.
+#
+# The list above is a claim about the DETECTOR, not an aspiration: every
+# shape named here is a case in script/watch/lib.sh with a unit spec
+# behind it, because the earlier version of this comment claimed the
+# release-download URL while the detector was blind to it -- and that was
+# the shape three of the four staleness cases were actually written in.
+#
+# Every one of those carries a `tool-pin:` marker at its declaration site,
+# and the `pin-coverage` lint fails a PR that adds one without a marker --
+# so the boundary cannot silently move by someone adding a pin on either
+# side.
 #
 # One thing dependabot does that nothing else here can: it also stops. A
 # CLOSED dependabot PR is never re-raised for that version pair, and no

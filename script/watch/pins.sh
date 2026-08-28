@@ -109,12 +109,20 @@ _pins_set() {
   local _abs="${PIN_REPO_ROOT}/${_file}"
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
-  if [[ "${_old_line}" =~ ^([[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=)(.*)$ ]]; then
-    local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[2]}"
-    local _quote=""
-    [[ "${_rhs}" == \"*\" ]] && _quote='"'
-    [[ "${_rhs}" == \'*\' ]] && _quote="'"
-    _new_line="${_head}${_quote}${_new}${_quote}"
+  if [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+    local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}"
+    local _quote="" _value _tail
+    _value="$(_pin_rhs_value "${_rhs}")"
+    # Everything after the version -- the spacing and any trailing comment
+    # -- is carried across verbatim. Rebuilding the line from the `NAME=`
+    # prefix alone deletes it, and on a pin line that comment is normally
+    # the reason the version is what it is ("held: 2.13 rejects our DL3059
+    # usage"): exactly the sentence a reviewer of a bump proposal needs to
+    # read, deleted by the bump itself.
+    _tail="$(_pin_rhs_tail "${_rhs}")"
+    [[ "${_value}" == \"*\" ]] && _quote='"'
+    [[ "${_value}" == \'*\' ]] && _quote="'"
+    _new_line="${_head}${_quote}${_new}${_quote}${_tail}"
   else
     _new_line="${_old_line/${_coord}:${_current}/${_coord}:${_new}}"
     if [[ "${_new_line}" == "${_old_line}" ]]; then
@@ -127,11 +135,18 @@ _pins_set() {
     return 1
   fi
 
+  # Write THROUGH the target rather than replacing it. `mktemp` creates
+  # 0600 and `mv` carries that mode onto the file it lands on, so a
+  # rewrite would leave the Dockerfile unreadable to the lint container's
+  # user -- invisible in the bump job (a fresh checkout, and git records
+  # 100644) and a "permission denied" on the next `just test` for anyone
+  # who runs `just watch bump` on their own machine.
   local _tmp
   _tmp="$(mktemp)"
   awk -v n="${_line}" -v repl="${_new_line}" \
     'NR == n { print repl; next } { print }' "${_abs}" > "${_tmp}"
-  mv -- "${_tmp}" "${_abs}"
+  cat -- "${_tmp}" > "${_abs}"
+  rm -f -- "${_tmp}"
 
   local _check
   _check="$(_pins_value "${_name}")"

@@ -24,9 +24,10 @@ setup() {
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/dockerfile" "${SCRATCH}/dist/dockerfile" \
            "${SCRATCH}/.github/workflows"
-  # A scan root that holds no file at all is a separate (vacuity) case;
-  # every other case needs all three roots populated, because the reader
-  # refuses a missing root by design.
+  # The reader walks the whole tree by shape, so these paths are a
+  # convenience that mirrors the real repo rather than a requirement. The
+  # one thing that IS required is that the tree yield at least one file of
+  # a scanned shape; a tree that yields none is the vacuity case below.
   printf 'FROM scratch\n' > "${SCRATCH}/dist/dockerfile/Dockerfile"
   printf 'name: x\non:\n  push:\n' > "${SCRATCH}/.github/workflows/x.yaml"
 }
@@ -277,26 +278,123 @@ _pins() {
   assert_output --partial 'there is no version to set'
 }
 
+@test "pins: --set keeps the trailing comment on the line it rewrites" {
+  # That comment is where a "held at this version because ..." rationale
+  # lives, and it is the one sentence a reviewer of a bump proposal most
+  # needs to still be able to read. Rebuilding the line from the `NAME=`
+  # prefix alone deletes it silently.
+  _dockerfile \
+    '# tool-pin: hadolint github-release hadolint/hadolint' \
+    'ARG HADOLINT_VERSION=v2.12.0  # held: 2.13 rejects our DL3059 usage'
+  _pins --set hadolint v2.15.1
+  assert_success
+  run grep -F \
+    'ARG HADOLINT_VERSION=v2.15.1  # held: 2.13 rejects our DL3059 usage' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+@test "pins: a trailing comment does not leak whitespace into the version" {
+  # The stray space does not stay local: it flows into the reported
+  # `from`, into the branch name a bump builds, and into whatever CI feeds
+  # from `--value`.
+  _dockerfile \
+    '# tool-pin: hadolint github-release hadolint/hadolint' \
+    'ARG HADOLINT_VERSION=v2.12.0  # held for now'
+  _pins --value hadolint
+  assert_success
+  assert_output 'v2.12.0'
+}
+
+@test "pins: --set leaves the file's mode alone" {
+  # `mktemp` creates 0600 and `mv` carries that mode onto whatever it
+  # lands on. Invisible in the bump job (fresh checkout, git records
+  # 100644) and a "permission denied" on the next `just test` for anyone
+  # who runs the bump on their own machine.
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.2.3'
+  chmod 664 "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --set foo 1.3.0
+  assert_success
+  run stat -c '%a' "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output '664'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
 
-@test "pins: a missing scan root FAILS rather than contributing nothing" {
-  # A renamed tree would otherwise shrink the table in silence and every
-  # watch run would come back clean.
-  rm -rf "${SCRATCH}/dist/dockerfile"
+@test "pins: a tree yielding no scannable file at all FAILS" {
+  # An empty table read as "this repo declares no pins" is the one answer
+  # the watch must never give by accident: it is indistinguishable from a
+  # clean week.
+  rm -rf "${SCRATCH:?}"
+  mkdir -p "${SCRATCH}/doc"
+  printf 'hello\n' > "${SCRATCH}/doc/a.md"
   _pins --list
   assert_failure
-  assert_output --partial 'scan root dist/dockerfile/ does not exist'
+  assert_output --partial 'no Dockerfile, workflow or script'
 }
 
-@test "pins: --files lists every Dockerfile and workflow under the roots" {
+@test "pins: --files lists every Dockerfile, workflow and script it walks" {
   _dockerfile 'FROM scratch'
   _pins --files
   assert_success
   assert_output --partial 'dockerfile/Dockerfile.test-tools'
   assert_output --partial 'dist/dockerfile/Dockerfile'
   assert_output --partial '.github/workflows/x.yaml'
+}
+
+@test "pins: a Dockerfile at a path nothing anticipated is still scanned" {
+  # The scan surface is NOT a roster of directories. A hand-kept list of
+  # places to look decays exactly the way a hand-kept list of tools does,
+  # and it decayed here: two live third-party versions sat outside the
+  # original three roots, one of them two minors behind this repo's own
+  # pin, written into every downstream repo, with nothing reporting it.
+  mkdir -p "${SCRATCH}/somewhere/new/deep"
+  printf '%s\n' \
+    '# tool-pin: newthing github-release owner/newthing' \
+    'ARG NEWTHING_VERSION=1.0.0' \
+    > "${SCRATCH}/somewhere/new/deep/Dockerfile.other"
+  _pins --value newthing
+  assert_success
+  assert_output '1.0.0'
+}
+
+@test "pins: a shell script that generates a file is a declaration site" {
+  # dist/script/base/init.sh writes a workflow and dockerfile_migrate.sh
+  # seds a downstream Dockerfile. dependabot reads workflow files, and a
+  # `uses:` ref inside a heredoc is not one -- so nothing but this watch
+  # can ever see those versions.
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    '# tool-pin: gen-bats dockerhub bats/bats pattern=.' \
+    "local _bats_tag='1.13.0'" \
+    > "${SCRATCH}/dist/script/gen.sh"
+  _pins --value gen-bats
+  assert_success
+  assert_output '1.13.0'
+  _pins --set gen-bats 1.14.0
+  assert_success
+  run grep -F "local _bats_tag='1.14.0'" "${SCRATCH}/dist/script/gen.sh"
+  assert_success
+}
+
+@test "pins: a pruned tree contributes nothing" {
+  # `.prev-release/` is `git archive` of PAST releases, materialised for a
+  # spec. Every version in it is supposed to be stale, and a bump inside
+  # it would be meaningless.
+  mkdir -p "${SCRATCH}/.prev-release/v0.1.0/dockerfile"
+  printf '%s\n' \
+    '# tool-pin: ancient github-release owner/ancient' \
+    'ARG ANCIENT_VERSION=0.0.1' \
+    > "${SCRATCH}/.prev-release/v0.1.0/dockerfile/Dockerfile"
+  _pins --files
+  assert_success
+  refute_output --partial '.prev-release'
+  _pins --value ancient
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════

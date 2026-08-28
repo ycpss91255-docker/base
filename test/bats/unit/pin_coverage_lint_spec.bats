@@ -111,6 +111,77 @@ _one_good_pin() {
   assert_output --partial 'rhysd/actionlint:1.7.7'
 }
 
+@test "_run_pin_coverage: FAILS on a release-download URL naming the version" {
+  # Not a shape at the margin. This is the form hadolint v2.12.0 and
+  # shellcheck v0.10.0 were ACTUALLY pinned in for three years, and the
+  # guard meant to stop them coming back could not see it -- so the guard
+  # was blind to the shape of the defect it exists to prevent.
+  _one_good_pin
+  _dockerfile \
+    'RUN curl -fsSL -o /usr/local/bin/hadolint \\' \
+    '  "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64"'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'releases/download/v2.12.0'
+}
+
+@test "_run_pin_coverage: FAILS on a git clone pinned to a literal tag" {
+  # The form the three bats helper libraries were pinned in. Same story.
+  _one_good_pin
+  _dockerfile \
+    'RUN git clone --depth 1 -b v2.1.0 \\' \
+    '      https://github.com/bats-core/bats-assert.git /x'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial '-b v2.1.0'
+}
+
+@test "_run_pin_coverage: FAILS on an OFFICIAL image, which has no namespace" {
+  # `alpine:3.21` carries no slash, so the registry-reference shape cannot
+  # anchor on it. The `docker run` context is what keeps a `<host>:<port>`
+  # example and a `sha256:` digest out.
+  _one_good_pin
+  _workflow \
+    'jobs:' \
+    '  a:' \
+    '    steps:' \
+    '      - run: docker run --rm alpine:3.21 true'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'alpine:3.21'
+}
+
+@test "_run_pin_coverage: FAILS on a uses: ref written inside a SHELL SCRIPT" {
+  # The `uses:` exemption is dependabot's job, and dependabot reads
+  # WORKFLOW FILES. A ref inside a heredoc a generator writes is not one,
+  # and the repos it is written into have no updater at all -- so here
+  # even a version-shaped ref is nobody's job but the watch's.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    'cat > "${_wf}" <<YAML' \
+    '      - uses: actions/checkout@v7' \
+    'YAML' \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'actions/checkout@v7'
+}
+
+@test "_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile" {
+  # The live instance: dockerfile_migrate.sh wrote `bats/bats:1.11.0` into
+  # every downstream Dockerfile it migrated, two minors behind this repo's
+  # own bats pin, with nothing reporting it.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    "sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|' \"\${_f}\"" \
+    > "${SCRATCH}/dist/script/gen.sh"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'bats/bats:1.11.0'
+}
+
 @test "_run_pin_coverage: FAILS on a uses: ref pinned to a BRANCH" {
   # dependabot bumps a version ref to the next version. `main` is not one,
   # so it can never advance it and never says so.
@@ -186,6 +257,47 @@ _one_good_pin() {
     'ARG ALPINE_VERSION=3.21' \
     'FROM alpine:${ALPINE_VERSION} AS builder' \
     'FROM builder AS final'
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: an INTERPOLATED release URL needs no marker" {
+  # `releases/download/${FOO_VERSION}/` names no version -- it references
+  # the ARG, which carries the marker. Flagging it would demand a second
+  # marker for one pin, and a detector that asks for redundant markers is
+  # a detector people mute.
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: sc github-release koalaman/shellcheck' \
+    'ARG SHELLCHECK_VERSION=v0.10.0' \
+    'RUN curl -fsSL \\' \
+    '  "https://example.invalid/releases/download/${SHELLCHECK_VERSION}/sc.tar.xz"'
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: an INTERPOLATED clone ref needs no marker" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: ba github-release bats-core/bats-assert' \
+    'ARG BATS_ASSERT_VERSION=v2.1.0' \
+    'RUN git clone --depth 1 -b "${BATS_ASSERT_VERSION}" https://x/y /z'
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: an INTERPOLATED uses: ref in a script needs no marker" {
+  # The fix for the live instance: the ref is hoisted onto a line of its
+  # own where a marker can address it, and the heredoc references that.
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dist/script"
+  printf '%s\n' \
+    '# tool-pin: unpinned checkout-action -- a MAJOR ref on purpose' \
+    "readonly _REF='actions/checkout@v7'" \
+    'cat > "${_wf}" <<YAML' \
+    '      - uses: ${_REF}' \
+    'YAML' \
+    > "${SCRATCH}/dist/script/gen.sh"
   run _run_pin_coverage
   assert_success
 }
@@ -297,11 +409,38 @@ _one_good_pin() {
   assert_output --partial 'yielded no PINNED entry'
 }
 
-@test "_run_pin_coverage: DIES when a scan root is missing" {
-  rm -rf "${SCRATCH}/dist/dockerfile"
+@test "_run_pin_coverage: DIES when the walk yields no file at all" {
+  rm -rf "${SCRATCH:?}"
+  mkdir -p "${SCRATCH}/doc"
+  printf 'hello\n' > "${SCRATCH}/doc/a.md"
   run _run_pin_coverage
   assert_failure
   assert_output --partial 'did not parse'
+}
+
+@test "_run_pin_coverage: FAILS when a pruned tree is one git does NOT ignore" {
+  # The prune list is the only remaining way to remove a whole tree from
+  # every check in this lint, so it is checked rather than trusted:
+  # "prune the directory the awkward pin lives in" has to fail here,
+  # because nothing else would report it.
+  _one_good_pin
+  git -C "${SCRATCH}" init -q
+  mkdir -p "${SCRATCH}/log"
+  printf 'x\n' > "${SCRATCH}/log/x.txt"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'prunes a tree that git does NOT ignore'
+  assert_output --partial 'log'
+}
+
+@test "_run_pin_coverage: a pruned tree that git ignores is fine" {
+  _one_good_pin
+  git -C "${SCRATCH}" init -q
+  printf 'log/\n' > "${SCRATCH}/.gitignore"
+  mkdir -p "${SCRATCH}/log"
+  printf 'x\n' > "${SCRATCH}/log/x.txt"
+  run _run_pin_coverage
+  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

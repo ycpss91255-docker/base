@@ -34,14 +34,22 @@
 # ── What counts as a declaration, and why the boundary sits there ───────────
 #
 # The scope is "a third-party version this repo names THAT DEPENDABOT
-# CANNOT BUMP". Dependabot reads `uses:` version refs and does that job
-# well -- its open login-action PR is the evidence -- so covering them here
-# would produce two mechanisms with opinions about one dependency, which is
-# worse than one. What it provably cannot see is a Dockerfile ARG, a FROM
-# tag, an image named inside a `run:` step, and a `uses:` ref pinned to a
-# BRANCH. Those four shapes are the detector, and they live in
+# CANNOT BUMP". Dependabot reads `uses:` version refs IN WORKFLOW FILES
+# and does that job well -- its open login-action PR is the evidence -- so
+# covering them here would produce two mechanisms with opinions about one
+# dependency, which is worse than one. What it provably cannot see is a
+# Dockerfile ARG, a FROM tag, an image named inside a `run:` step, a
+# release-download URL, a `git clone -b <tag>`, a `uses:` ref pinned to a
+# BRANCH, and any of those written inside a shell script that GENERATES a
+# file. Those shapes are the detector, and they live in
 # script/watch/lib.sh alongside the grammar so the lint and the watch can
 # never disagree about what a pin is.
+#
+# The release-URL and `clone -b` shapes are worth naming separately,
+# because leaving them out was not a gap at the margin: they are the forms
+# hadolint, shellcheck and the three bats helpers were pinned in before
+# this change hoisted them into ARGs. A guard that cannot see the shape of
+# the defect it exists to prevent only appears to work.
 #
 # ── What it checks ──────────────────────────────────────────────────────────
 #
@@ -52,9 +60,13 @@
 #   3. Names are unique. Two markers sharing a name make `pins.sh --value`
 #      and `--set` ambiguous, and the ambiguity resolves silently.
 #   4. No declaration in the scanned trees lacks a marker.
-#   5. It is not vacuous: the trees yielded files, and the table yielded
+#   5. It is not vacuous: the walk yielded files, and the table yielded
 #      pinned entries. A reader regression that matched nothing would
 #      otherwise report a clean tree forever.
+#   6. Every pruned tree is one git ignores. The walk covers the whole
+#      repository, so the prune list is the only way to remove something
+#      from all of the above -- and it must not become the quiet place to
+#      put an awkward pin.
 
 # The pin registry: grammar, reader and detector. Sourced rather than
 # re-implemented so the lint and the watch cannot drift apart about what a
@@ -80,7 +92,7 @@ _run_pin_coverage() {
   done <<< "${_file_list}"
   if [[ "${#_files[@]}" -eq 0 ]]; then
     _die ci_pin_coverage \
-      "the scan roots yielded no Dockerfile and no workflow -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's scan roots, not the tree, are what to look at."
+      "the walk yielded no Dockerfile, workflow or script at all -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's scanned shapes and prune list, not the tree, are what to look at."
     return 1
   fi
 
@@ -134,21 +146,50 @@ Known resolvers: $(printf '%s ' "${_PIN_RESOLVERS[@]}"). An unknown one is not a
     return 1
   fi
 
+  # The prune list is the one hand-kept thing left in the registry, and an
+  # entry added to it silently removes a whole tree from every check
+  # above. So it is checked rather than trusted: every entry must be a
+  # tree git already ignores (i.e. generated), which makes "prune the
+  # directory the awkward pin lives in" fail here instead of passing
+  # quietly. Skipped when REPO_ROOT is not a readable git repository --
+  # the container mounts the worktree without its git dir, and a guard
+  # that cannot run must not invent a verdict.
+  local _entry
+  local -a _tracked_prune=()
+  if git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
+    for _entry in "${_PIN_SCAN_PRUNE[@]}"; do
+      [[ "${_entry}" == '.git' ]] && continue
+      [[ -e "${REPO_ROOT}/${_entry}" ]] || continue
+      git -C "${REPO_ROOT}" check-ignore -q "${_entry}" \
+        || _tracked_prune+=("${_entry}")
+    done
+  fi
+  if [[ "${#_tracked_prune[@]}" -gt 0 ]]; then
+    _die ci_pin_coverage \
+      "script/watch/lib.sh prunes a tree that git does NOT ignore:
+$(printf '  %s\n' "${_tracked_prune[@]}")
+The prune list exists for generated trees. Pruning a tree the repo ships removes every version in it from the watch AND from this lint, and nothing else would report that."
+    return 1
+  fi
+
   local _uncovered
   _uncovered="$(_pin_uncovered "${REPO_ROOT}")"
   if [[ -n "${_uncovered}" ]]; then
     _die ci_pin_coverage \
       "a third-party version is declared with no tool-pin marker:
 ${_uncovered}
-Nothing watches these. Add the marker on the line ABOVE each one:
-  # tool-pin: <name> github-release <owner>/<repo>
-  # tool-pin: <name> dockerhub <namespace>/<repo> pattern=<ERE>
+Nothing watches these. Add a comment line ABOVE each one -- a \`#\` followed
+by one of these bodies. (Written without the leading \`#\` on purpose: this
+file is one of the files the reader scans, and a line-leading marker in it
+would be read as a real pin.)
+  ${_PIN_MARKER} <name> github-release <owner>/<repo>
+  ${_PIN_MARKER} <name> dockerhub <namespace>/<repo> pattern=<ERE>
 or, when the dependency genuinely cannot name a version here (an apt/apk
 package, a moving base tag, a branch ref), declare it so the watch keeps
 reporting it:
-  # tool-pin: unpinned <name> -- <why>
-\`# tool-pin: ignore -- <why>\` is for a line whose shape matched but which
-is not a third-party version. See script/watch/lib.sh."
+  ${_PIN_MARKER} unpinned <name> -- <why>
+\`${_PIN_MARKER} ignore -- <why>\` is for a line whose shape matched but
+which is not a third-party version. See script/watch/lib.sh."
     return 1
   fi
 

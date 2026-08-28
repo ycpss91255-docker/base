@@ -103,21 +103,60 @@ readonly _PIN_RESOLVERS=(
   dockerhub
 )
 
-# The trees the reader and the detector both scan. Directories, not a file
-# list: a Dockerfile or a workflow added tomorrow is scanned without
-# touching this file.
-readonly _PIN_SCAN_ROOTS=('dockerfile' 'dist/dockerfile' '.github/workflows')
+# What is NOT walked -- and nothing else. There is deliberately no list of
+# trees to look in.
+#
+# A roster of scan roots is the same artefact as a roster of tools, one
+# level up: it is hand-kept, it is edited by different people on different
+# days from the trees it describes, and when it falls behind, the thing it
+# stops covering goes silent rather than red. This repo had exactly that
+# defect while the roots were `dockerfile`, `dist/dockerfile` and
+# `.github/workflows` -- two live third-party versions sat outside them,
+# both of them versions this repo BAKES INTO FILES IT SHIPS DOWNSTREAM,
+# and one had drifted two minors behind base's own pin with nothing
+# reporting it.
+#
+# So the walk is the whole repository and this is a PRUNE list. The
+# failure mode inverts with it: forgetting to touch this file when a tree
+# is added means the new tree IS scanned and the lint fires, rather than
+# the new tree being quietly exempt.
+#
+# Every entry is a generated tree that is gitignored, and the lint asserts
+# exactly that -- so this list cannot quietly grow to cover something the
+# repo actually ships. `.prev-release/` earns its place twice over: it is
+# `git archive` of PAST releases, and the versions in it are supposed to
+# be stale.
+readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release')
+
+# The file shapes a version declaration can live in. `.sh` is here because
+# of the two escapes above: a script that writes a `uses:` ref into a
+# generated workflow, or seds an image tag into a downstream Dockerfile,
+# is a declaration site exactly like the Dockerfile that spells it out --
+# and it is one dependabot has no way to read at all.
+readonly _PIN_SCAN_SHAPES=(
+  -name 'Dockerfile' -o -name 'Dockerfile.*' -o -name '*.Dockerfile'
+  -o -name '*.yaml' -o -name '*.yml' -o -name '*.sh'
+)
 
 # ── Declaration shapes the detector recognises ──────────────────────────────
 #
 # Deliberately NOT "every version-shaped token anywhere". The boundary is
 # a third-party version THIS REPO NAMES THAT DEPENDABOT CANNOT BUMP:
-# dependabot reads `uses:` version refs and does that job well (its
-# login-action PR is open and current), so duplicating it would produce two
-# mechanisms disagreeing about one dependency. What it provably cannot see
-# is a Dockerfile ARG, a FROM tag, an image named inside a `run:` step, and
-# a `uses:` ref that is a BRANCH rather than a version. Those four shapes
-# are this detector.
+# dependabot reads `uses:` version refs in WORKFLOW FILES and does that job
+# well (its login-action PR is open and current), so duplicating it would
+# produce two mechanisms disagreeing about one dependency. What it provably
+# cannot see is a Dockerfile ARG, a FROM tag, an image named inside a
+# `run:` step, a release-download URL, a `git clone -b <tag>`, a `uses:`
+# ref that is a BRANCH rather than a version, and ANY of those written
+# inside a shell script that generates a file.
+#
+# The three shapes after the original four were not additions of scope.
+# They were the forms the staleness this whole mechanism was built for was
+# ACTUALLY written in: hadolint and shellcheck were release-download URLs
+# and the three bats helpers were `clone -b` tags, all of which this change
+# hoisted into ARGs -- while the guard meant to stop them coming back could
+# not see any of them. A guard blind to the shape of the defect it exists
+# to prevent is worth very little.
 
 # An `ARG <NAME>=<value>` whose value is a version number (`1.2.3`,
 # `v0.10.0`, `3.21`) -- at least one dot, so `ARG USER_UID=1000` is not a
@@ -139,33 +178,63 @@ readonly _PIN_RUN_IMAGE_RE='(^|[[:space:]"'"'"'])[a-z0-9][a-z0-9._-]*/[a-z0-9][a
 readonly _PIN_USES_RE='uses:[[:space:]]*[A-Za-z0-9][A-Za-z0-9._-]*/[^[:space:]@]+@([^[:space:]#]+)'
 readonly _PIN_USES_VERSION_RE='^(v?[0-9]+([._][0-9A-Za-z.-]*)?|[0-9a-f]{40})$'
 
+# A release asset URL that names the version in its PATH:
+# `.../releases/download/v2.12.0/hadolint-Linux-x86_64`. This is not a
+# fifth shape bolted on -- it is the shape three of this repo's four
+# staleness cases were actually written in before they were hoisted into
+# ARGs, and the guard that is supposed to stop them coming back could not
+# see it. Only a LITERAL counts: `releases/download/${FOO_VERSION}/` is
+# the ARG's version, already covered by the ARG's own marker.
+readonly _PIN_RELEASE_URL_RE='releases/download/v?[0-9][A-Za-z0-9._-]*/'
+
+# `git clone --depth 1 -b v2.1.0 ...` -- the other pre-hoist shape, and
+# the one the three bats helper libraries were pinned in. Anchored on the
+# word `clone` by the caller so a `-b` flag to some other command cannot
+# masquerade as a tag.
+readonly _PIN_CLONE_REF_RE='(^|[[:space:]])(-b|--branch)[[:space:]]+["'"'"']?v?[0-9][A-Za-z0-9._-]*'
+
+# An OFFICIAL image, which has no namespace and therefore no slash for the
+# registry-reference shape above to anchor on (`alpine:3.21`, not
+# `bats/bats:1.13.0`). The `docker run|pull|create|build` context is what
+# keeps `sha256:1234...`, a `<host>:<port>` example and a `key: 3.11`
+# mapping out of it.
+readonly _PIN_DOCKER_CMD_RE='docker[[:space:]]+(run|pull|create|build)'
+readonly _PIN_BARE_IMAGE_RE='(^|[[:space:]])[a-z0-9][a-z0-9._-]*:[0-9][A-Za-z0-9._-]*'
+
+# The assignment shapes whose version is the WHOLE right-hand side: a
+# Dockerfile `ARG`, and a shell assignment with or without a declaration
+# keyword. Both DECOUPLE the version from the marker's coordinate, which
+# is what lets a marker name `library/alpine` upstream while the line
+# spells `3.21`. That decoupling is why hoisting a literal onto a line of
+# its own is the standard fix for a version the reader cannot address.
+readonly _PIN_ASSIGN_RE='^([[:space:]]*(ARG|local|readonly|declare|export)?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=)(.*)$'
+
 # ── Reader ──────────────────────────────────────────────────────────────────
 
 # _pin_files <repo-root>
 #
-# Print every scanned file, repo-root-relative, one per line, sorted. A
-# scan root that does not exist is an error rather than an empty
-# contribution: a renamed tree would otherwise silently shrink the table
-# to nothing and every check would pass.
+# Print every scanned file, repo-root-relative, one per line, sorted.
+# Every file of a scanned SHAPE anywhere under <repo-root>, minus the
+# pruned trees -- so a Dockerfile, workflow or script added tomorrow, at
+# any depth, is scanned without touching this file.
+#
+# A tree that yields nothing at all is an error rather than an empty
+# table: every caller would read "no pins declared" as a clean repo, which
+# is the one answer this mechanism must never give by accident.
 _pin_files() {
   local _root="${1}"
-  local _rel _dir _abs
-  local -a _found=()
-  for _rel in "${_PIN_SCAN_ROOTS[@]}"; do
-    _dir="${_root}/${_rel}"
-    if [[ ! -d "${_dir}" ]]; then
-      printf 'pin registry: scan root %s/ does not exist under %s\n' \
-        "${_rel}" "${_root}" >&2
-      return 1
-    fi
-    while IFS= read -r -d '' _abs; do
-      _found+=("${_abs#"${_root}/"}")
-    done < <(find "${_dir}" -maxdepth 1 -type f \
-      \( -name 'Dockerfile' -o -name 'Dockerfile.*' -o -name '*.Dockerfile' \
-         -o -name '*.yaml' -o -name '*.yml' \) -print0)
+  local _abs _p
+  local -a _found=() _prune=()
+  for _p in "${_PIN_SCAN_PRUNE[@]}"; do
+    _prune+=(-name "${_p}" -prune -o)
   done
+  while IFS= read -r -d '' _abs; do
+    _found+=("${_abs#"${_root}/"}")
+  done < <(find "${_root}" "${_prune[@]}" -type f \
+    \( "${_PIN_SCAN_SHAPES[@]}" \) -print0)
   if [[ "${#_found[@]}" -eq 0 ]]; then
-    printf 'pin registry: no Dockerfile or workflow under %s\n' "${_root}" >&2
+    printf 'pin registry: no Dockerfile, workflow or script under %s\n' \
+      "${_root}" >&2
     return 1
   fi
   printf '%s\n' "${_found[@]}" | LC_ALL=C sort
@@ -180,11 +249,35 @@ _pin_unquote() {
   printf '%s' "${_v}"
 }
 
+# _pin_rhs_value <rhs> -- the value on an assignment's right-hand side,
+# with any trailing comment AND the whitespace in front of it removed.
+# Dropping the comment alone leaves that whitespace attached to the
+# version, and it does not stay local: it flows into the reported
+# `from` field, into the branch name a bump builds and into whatever CI
+# feeds from `pins.sh --value`.
+_pin_rhs_value() {
+  local _v="${1%%[[:space:]]#*}"
+  _v="${_v%"${_v##*[![:space:]]}"}"
+  printf '%s' "${_v}"
+}
+
+# _pin_rhs_tail <rhs> -- everything _pin_rhs_value dropped: the spacing
+# and the trailing comment. `--set` puts it back verbatim, because the
+# comment on a pin's line is where a "held at this version because ..."
+# rationale lives -- the one line a reviewer of a bump proposal most needs
+# to still be there.
+_pin_rhs_tail() {
+  local _v
+  _v="$(_pin_rhs_value "${1}")"
+  printf '%s' "${1#"${_v}"}"
+}
+
 # _pin_extract_value <target-line> <coordinate>
 #
 # The version the target line currently carries.
 #
-#   ARG <NAME>=<value>   ->  <value>, unquoted
+#   ARG <NAME>=<value>   ->  <value>, unquoted, comment stripped
+#   <NAME>=<value>       ->  the same, for a shell declaration site
 #   anything else        ->  the token following <coordinate>, separated by
 #                            `:` (an image tag) or `@` (a ref)
 #
@@ -192,8 +285,8 @@ _pin_unquote() {
 # precise on a line that also carries flags, paths and other colons.
 _pin_extract_value() {
   local _line="${1}" _coord="${2}"
-  if [[ "${_line}" =~ ^[[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=(.*)$ ]]; then
-    _pin_unquote "${BASH_REMATCH[1]%%[[:space:]]#*}"
+  if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+    _pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[3]}")"
     return 0
   fi
   local _re="${_coord}[:@]([A-Za-z0-9][A-Za-z0-9._-]*)"
@@ -329,15 +422,28 @@ _pin_read() {
 # _pin_is_declaration <file> <line>
 #
 # True when the line declares a third-party version this repo names and
-# dependabot cannot bump. See the shape table above for the four forms and
-# why the boundary sits there.
+# dependabot cannot bump. See the shape table above for the forms and why
+# the boundary sits where it does.
 _pin_is_declaration() {
   local _file="${1}" _line="${2}"
   local _value _ref
 
+  # Two shapes mean the same thing wherever they are written -- a release
+  # asset URL and a `git clone -b <tag>` NAME a version in a Dockerfile
+  # RUN and in a shell script alike -- so they are tested before the
+  # per-file-kind split rather than duplicated into each arm.
+  [[ "${_line}" =~ ${_PIN_RELEASE_URL_RE} ]] && return 0
+  if [[ "${_line}" == *clone* && "${_line}" =~ ${_PIN_CLONE_REF_RE} ]]; then
+    return 0
+  fi
+  if [[ "${_line}" =~ ${_PIN_DOCKER_CMD_RE} \
+     && "${_line}" =~ ${_PIN_BARE_IMAGE_RE} ]]; then
+    return 0
+  fi
+
   if [[ "${_file}" == *Dockerfile* ]]; then
     if [[ "${_line}" =~ ^[[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=(.+)$ ]]; then
-      _value="$(_pin_unquote "${BASH_REMATCH[1]%%[[:space:]]#*}")"
+      _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[1]}")")"
       [[ "${_value}" =~ ${_PIN_ARG_VERSION_RE} ]] && return 0
       [[ "${_value}" =~ ${_PIN_ARG_IMAGE_RE} ]] && return 0
       return 1
@@ -345,6 +451,25 @@ _pin_is_declaration() {
     # shellcheck disable=SC2016 # the literal expression opener, not an expansion.
     if [[ "${_line}" =~ ^[[:space:]]*FROM[[:space:]] && "${_line}" != *'${'* ]]; then
       [[ "${_line}" =~ ^[[:space:]]*FROM[[:space:]]+[^[:space:]]+:[^[:space:]]+ ]] && return 0
+    fi
+    return 1
+  fi
+
+  if [[ "${_file}" == *.sh ]]; then
+    # A script that WRITES a version into a file it generates declares
+    # that version as surely as the generated file would. Both live
+    # instances were of this kind, and the `uses:` exemption below does
+    # NOT carry over to them: dependabot reads workflow files, and a
+    # `uses:` ref inside a shell heredoc is not one -- neither this repo's
+    # updater nor the generated repo's (there is none) can advance it. So
+    # here every `uses:` ref counts, version-shaped or not.
+    [[ "${_line}" =~ ${_PIN_RUN_IMAGE_RE} ]] && return 0
+    if [[ "${_line}" =~ ${_PIN_USES_RE} ]]; then
+      _ref="${BASH_REMATCH[1]}"
+      # shellcheck disable=SC2016 # the literal expression opener, not an expansion.
+      [[ "${_ref}" == *'${'* ]] && return 1
+      [[ "${_ref}" == './'* ]] && return 1
+      return 0
     fi
     return 1
   fi
