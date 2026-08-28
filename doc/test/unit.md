@@ -1,12 +1,6 @@
 # Unit Tests
 
-<<<<<<< HEAD
-Unit specs under `test/bats/unit/`: **3062 tests**.
-||||||| 5f4dbf50
-Unit specs under `test/bats/unit/`: **3052 tests**.
-=======
-Unit specs under `test/bats/unit/`: **3080 tests**.
->>>>>>> origin/main
+Unit specs under `test/bats/unit/`: **3090 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3296,13 +3290,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-<<<<<<< HEAD
-### test/bats/unit/changelog_entry_lint_spec.bats (42)
-||||||| 5f4dbf50
-### test/bats/unit/changelog_entry_lint_spec.bats (32)
-=======
-### test/bats/unit/changelog_entry_lint_spec.bats (43)
->>>>>>> origin/main
+### test/bats/unit/changelog_entry_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
