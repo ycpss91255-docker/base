@@ -1,5 +1,6 @@
 coverage/
 .env
+.env.local
 /deploy/
 multi_run/
 # The per-worktree setup.conf override. base self-uses the docker

@@ -135,7 +135,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 68cb068c2b9f de3d03adc7b5 -->
+<!-- sync: whats-included 0ce60532434f abd91fab30bb -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -146,7 +146,7 @@ flowchart LR
 | `stop.sh` | 停止並移除容器 |
 | `prune.sh` | 清理容器 / image / build cache |
 | `setup_tui.sh` | 互動式 setup.conf 編輯器（dialog / whiptail 前端） |
-| `dist/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` + `compose.yaml` |
+| `dist/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper 共用初始化與參數解析 |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML 產生與處理 |
@@ -391,16 +391,22 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
-<!-- sync: per-repo-runtime-configuration b02fd5d770dc 4b475751dbdc -->
+<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b bbe85ad3be6a -->
 ## 各 repo runtime 配置
 
 每個下游 repo 透過一個 `setup.conf` INI 檔驅動自己的 runtime 配置
 （GPU 保留、GUI env/volumes、network mode、額外 volume mounts）。
-`setup.sh` 讀它 + 系統偵測後重新產生 `.env.generated` 跟 `compose.yaml`，
-這兩個衍生檔使用者不用動手編輯。手寫的 `.env` overlay 是另一個檔：
-setup 只在第一次 scaffold，之後永不覆寫。
+`setup.sh` 讀它 + 系統偵測後重新產生 `.env`、`.env.generated` 與
+`compose.yaml`，這些衍生檔使用者不用動手編輯。`.env.local` 才是另一個檔：
+setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那裡。
 
-<!-- sync: one-conf-15-sections 825dbace1f47 cecd57d45ac6 -->
+所有檔名共用一條規則：**標準名是我們的，加後綴才是本機變體。**
+`Dockerfile`、`compose.yaml`、`.setup.conf`、`.env` 都是產生或出貨的，
+更新時會被取代;`.setup.conf.local` 與 `.env.local` 是你的，永遠不會被動。
+`.env.generated` 保留後綴的理由不同 —— 它只餵 compose 的 `${VAR}` 插值、
+從不進容器，後綴標的是類別而非歸屬。
+
+<!-- sync: one-conf-15-sections 6f932c1347bc 3d803b815fe6 -->
 ### 單一 conf、15 個 section
 
 下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
@@ -428,8 +434,9 @@ setup 只在第一次 scaffold，之後永不覆寫。
 [security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
            （以及對應的 *_inherit 開關;預設精簡，要用才開）
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once 預設值，會 bake 成 deployable
-           stage 的 ENV;每次任務都會變的變數請放 .env
+[environment] env_N = KEY=VALUE — set-once 預設值，寫進產生的 .env
+           並 bake 成 deployable stage 的 ENV;每次任務都會變的變數請放
+           .env.local
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed 掛載點
 [devices]  device_N = host:container，以及 cgroup rule（要用才開）
 [volumes]  mount_1（workspace，首次執行時自動填入）
@@ -593,18 +600,20 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的編輯器
 （如 `./setup_tui.sh volumes`），不必走主選單。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef 30955bffa90f -->
+<!-- sync: when-setupsh-runs ecdbadb6a9f1 0c6021fce51a -->
 ### setup.sh 什麼時候跑
 
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自動跑一次
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 後透過 init.sh
-  再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
+  再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` /
+  `.env.generated` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
-- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env` 尚未存在，
-  例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶 `--setup`
+- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env.generated`
+  尚未存在，例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶
+  `--setup`
 
 > **Fresh-clone lint 覆蓋率（#216）**：`./run.sh` 在本機沒 image
 > cached 時會走 Compose auto-build — 但 auto-build **只 build
@@ -620,15 +629,16 @@ Main
 > just docker run                          # 預設 — 快速路徑，跳過 lint/smoke
 > ```
 
-`setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
-中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手動調過
-的 workspace 路徑或 apt mirror 升級時不會被蓋掉。
+`setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有
+`.env.generated` 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` /
+`APT_MIRROR_DEBIAN`，所以手動調過的 workspace 路徑或 apt mirror 升級時
+不會被蓋掉。
 
-<!-- sync: drift-detection 25d3585b5c5f 0cd42faea2ed -->
+<!-- sync: drift-detection 423fc5dbfe75 e1b3a2d04210 -->
 ### Drift 偵測
 
 `setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
-寫到 `.env`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
+寫到 `.env.generated`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
 當前 hash + 系統偵測值，以下任一項改變時印 `[WARNING]`（但不阻擋執行）：
 
 - `setup.conf` 內容（conf hash）
@@ -698,21 +708,21 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 **持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
-<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 55cd1d0f2f63 -->
+<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 8b157218b0db -->
 ### setup.sh 子指令（v0.11.0+）
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
 
 | 子指令 | 用途 |
 |---|---|
-| `apply` | 從 setup.conf + 系統偵測重新產生 `.env.generated` + `compose.yaml`（不會動手寫的 `.env` overlay） |
+| `apply` | 從 setup.conf + 系統偵測重新產生 `.env` + `.env.generated` + `compose.yaml`（不會動 `.env.local`） |
 | `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
 | `set <section>.<key> <value>` | 寫單一鍵值。`--local` 改寫 gitignored 的 `.setup.conf.local` 而非已 commit 的 `.setup.conf`；不加時，若寫的 section 已被 `.setup.conf.local` 定義會指名警告 |
 | `show <section>[.<key>]` | 讀單鍵或整 section |
 | `list [<section>]` | INI 風格 dump |
 | `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1`。可加 `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除。可加 `--local` |
-| `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env.generated` → `.env.bak`。不會動 `.env.local` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。`.setup.conf.local` 存在時會拒絕，除非加 `--allow-local-override`。見 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env.generated` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
@@ -730,19 +740,27 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored 9135501a7168 6ff308e6a65d -->
+<!-- sync: derived-artifacts-gitignored 1a208545a257 18cc2c7e9295 -->
 ### 衍生檔（gitignored）
 
-- `.env.generated` — runtime 變數（含解析後的 `PROJECT_NAME`）+ `SETUP_*` drift metadata
+- `.env.generated` — compose 插值用的變數（含解析後的 `PROJECT_NAME`）
+  + `SETUP_*` drift metadata;從不進容器
+- `.env` — 進容器的預設值：`[environment]` 清單與 `[lifecycle] watchdog_*`
+  區塊，以填好的清單呈現
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
-`just base upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
+`just base upgrade` 都會重生這三個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
-`.env` 一樣被 gitignore，但**不是**衍生檔：它是手寫的 workload overlay，
-第一次 apply 時 scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也
-不會蓋掉。
+`.env.local` 一樣被 gitignore，但**不是**衍生檔：它是你的，第一次 apply 時
+scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也不會蓋掉。compose 在
+`.env` 之後才載入它，所以同名 key 以你的值為準。
+
+> **從 v0.43.0 之前升級**：`.env` 以前是手寫檔。`just base upgrade` 會在任何
+> 東西重生它之前，先幫你把手寫的 `.env` 改名成 `.env.local`。若你略過那條
+> 升級路徑而先跑了 `setup`，只有當該檔是舊的插值 cache 時值才會留在
+> `.env.bak`，否則請從自己的備份還原。
 
 `.setup.conf.local` 在上一層是同樣的形狀：gitignored、屬於你、工具永不改寫。
 它是設定的*輸入*而不是產出 —— 見
@@ -1070,14 +1088,14 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 9f38b2b745d2 85420e5388bd -->
+<!-- sync: build-workeryaml-inputs 56e79469bb9e 20e4d316406d -->
 ### build-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
 |------|------|------|--------|------|
 | `image_name` | string | 是 | - | 容器映像名稱 |
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 建置參數 |
-| `build_runtime` | boolean | 否 | `true` | 是否建置 runtime stage |
+| `build_runtime` | boolean | 否 | `true` | 退出 runtime 建置(`false`)。stage 是否存在改由 Dockerfile 決定:有宣告 `runtime` / `runtime-test` 才建置,沒有就跳過,所以沒有 runtime stage 的 repo 不必改這一項 |
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
@@ -1227,3 +1245,4 @@ just --list  # 顯示 CI 指令
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

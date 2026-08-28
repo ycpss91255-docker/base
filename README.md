@@ -141,7 +141,7 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `prune.sh` | Prune dangling images / build cache for the repo |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
-| `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `dist/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
@@ -457,9 +457,16 @@ diagnostics pointing at the missing artifact.
 Each downstream repo drives its runtime config — GPU reservation, GUI
 env/volumes, network mode, extra volume mounts — through a single
 `setup.conf` INI file. `setup.sh` reads it (plus system detection) and
-regenerates both `.env.generated` and `compose.yaml`; users never hand-edit
-those two derived artifacts. The hand-authored `.env` overlay is a different
-file: setup scaffolds it once and never rewrites it.
+regenerates `.env`, `.env.generated` and `compose.yaml`; users never
+hand-edit those derived artifacts. `.env.local` is the different file: setup
+scaffolds it once and never rewrites it, and it is where your own values go.
+
+One naming rule covers all of them: **the standard name is ours, a suffix
+marks a local variant.** `Dockerfile`, `compose.yaml`, `.setup.conf` and
+`.env` are generated or shipped and get replaced on update; `.setup.conf.local`
+and `.env.local` are yours and are never touched. `.env.generated` keeps its
+suffix for a different reason -- it feeds compose's `${VAR}` interpolation and
+never enters a container, so the suffix marks a category, not ownership.
 
 ### One conf, 15 sections
 
@@ -486,8 +493,9 @@ or its count drifts from it.
 [security] privileged (false), cap_add_N, cap_drop_N, security_opt_N
            (+ the matching *_inherit toggles; opt-in, lean by default)
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once defaults, baked as ENV into a
-           deployable stage; volatile per-task vars go in .env instead
+[environment] env_N = KEY=VALUE — set-once defaults, written to the
+           generated .env and baked as ENV into a deployable stage;
+           volatile per-task vars go in .env.local instead
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed mount points
 [devices]  device_N = host:container, plus cgroup rules (opt-in)
 [volumes]  mount_1 (workspace, auto-populated on first run)
@@ -777,16 +785,21 @@ into a field deployment that ships just the image:
 | Parameter kind | Examples | Where it lives | Dev host | Field |
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
-| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | **not carried** -- nothing copies `.env` into a bundle; a value the field needs belongs in `[environment]` (row 1), which bakes as `ENV` |
+| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
 | structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
-machine-bound env defaults that get baked into the runtime image as
-`ENV`. Put per-task env vars in the `.env` overlay instead, so a tweak
-needs only `just docker run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
-drift, no git churn).
+machine-bound env defaults. They are written into the generated `.env` and
+baked into the runtime image as `ENV`. Put per-task env vars in `.env.local`
+instead, so a tweak needs only `just docker run` (no `compose.yaml`
+regenerate, no `SETUP_CONF_HASH` drift, no git churn).
 
-> The `.env` overlay, the runtime-stage `ENV` bake, and the self-contained
+Nothing in either file is emitted into a service's compose `environment:`
+list, and that is deliberate: compose ranks `environment:` above `env_file`,
+so a default left there would silently outrank your `.env.local` entry and
+nothing would report it.
+
+> The env-file pair, the runtime-stage `ENV` bake, and the self-contained
 > field-deploy bundle land through the
 > [#497](https://github.com/ycpss91255-docker/base/issues/497) epic; this
 > section documents the routing model they implement.
@@ -1038,11 +1051,11 @@ every build or launch:
 - **`just base init` / `./.base/dist/script/base/init.sh`** runs it once after the skeleton lands
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
-  `compose.yaml` regenerated against the new baseline
+  `.env.generated` / `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
-  the very first time (when `.env` is missing, e.g. after a fresh CI
-  clone) — no manual `--setup` needed
+  the very first time (when `.env.generated` is missing, e.g. after a
+  fresh CI clone) — no manual `--setup` needed
 
 > **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
 > image cached locally triggers Compose's auto-build, which only walks
@@ -1061,13 +1074,13 @@ every build or launch:
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
 preserves `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` from any
-existing `.env`, so a hand-tuned workspace path or apt mirror survives
-upgrades.
+existing `.env.generated`, so a hand-tuned workspace path or apt mirror
+survives upgrades.
 
 ### Drift detection
 
 `setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
-`SETUP_TIMESTAMP` in `.env`. On every `./build.sh` / `./run.sh`,
+`SETUP_TIMESTAMP` in `.env.generated`. On every `./build.sh` / `./run.sh`,
 stored values are compared against the current setup.conf hash + system
 detection; a `[WARNING]` is printed (non-blocking) when any of the
 following changed since last setup:
@@ -1108,14 +1121,14 @@ These are first-class operator knobs, not test-only hooks. See
 
 | Subcommand | Use |
 |---|---|
-| `apply` | Regenerate `.env.generated` + `compose.yaml` from setup.conf + system detection (never the hand-authored `.env` overlay) |
+| `apply` | Regenerate `.env` + `.env.generated` + `compose.yaml` from setup.conf + system detection (never `.env.local`) |
 | `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
 | `set <section>.<key> <value>` | Write a single key. `--local` targets the gitignored `.setup.conf.local` instead of the committed `.setup.conf`; without it, writing a section `.setup.conf.local` already defines warns by name |
 | `show <section>[.<key>]` | Read single key or whole section |
 | `list [<section>]` | INI-style dump |
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1`. Takes `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match. Takes `--local` |
-| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env.generated` → `.env.bak`. Leaves `.env.local` alone |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. Refuses while `.setup.conf.local` exists unless `--allow-local-override` is passed. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env.generated` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
@@ -1134,18 +1147,28 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 
 ### Derived artifacts (gitignored)
 
-- `.env.generated` — runtime variable values (incl. the resolved
-  `PROJECT_NAME`) + `SETUP_*` drift metadata
+- `.env.generated` — compose interpolation values (incl. the resolved
+  `PROJECT_NAME`) + `SETUP_*` drift metadata; never enters a container
+- `.env` — the container-bound defaults: the `[environment]` list and the
+  `[lifecycle] watchdog_*` block, as a filled-in list
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
-configuration. Both files are regenerated on every `just base upgrade`
+configuration. All three are regenerated on every `just base upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
-`.env` is gitignored too but is **not** derived: it is the hand-authored
-workload overlay, scaffolded once on first apply and never rewritten
-afterwards. Editing it is safe, and running `setup` will not destroy it.
+`.env.local` is gitignored too but is **not** derived: it is yours,
+scaffolded once on first apply and never rewritten afterwards. Editing it is
+safe, and running `setup` will not destroy it. compose loads it after `.env`,
+so a key named in both resolves to your value.
+
+> **Upgrading from before v0.43.0:** `.env` used to be the hand-authored
+> file. `just base upgrade` renames an existing hand-written `.env` to
+> `.env.local` for you, before anything can regenerate over it. If you
+> skipped that upgrade path and ran `setup` first, your values are in
+> `.env.bak` only if the file was the old interpolation cache -- otherwise
+> restore them from your own backup.
 
 `.setup.conf.local` is the same shape one layer up: gitignored, yours,
 never rewritten by tooling. It is a config *input*, not an artifact -- see
@@ -1496,7 +1519,7 @@ jobs:
 |-------|------|----------|---------|-------------|
 | `image_name` | string | yes | - | Container image name |
 | `build_args` | string | no | `""` | Multi-line KEY=VALUE build args |
-| `build_runtime` | boolean | no | `true` | Whether to build runtime stage |
+| `build_runtime` | boolean | no | `true` | Opt OUT of the runtime build (`false`). Whether the stages exist is read from your Dockerfile: the worker builds `runtime` / `runtime-test` when it declares them and skips them when it does not, so a repo with no runtime stage needs no change here |
 | `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; each runs as a parallel native-runner shard (`linux/amd64` → ubuntu-latest, `linux/arm64` → ubuntu-24.04-arm) |
 | `test_tools_version` | string | no | `"latest"` | Tag for `ghcr.io/ycpss91255-docker/test-tools:<tag>` build-arg; pin to the template release you upgraded from for reproducibility |
 
@@ -1563,6 +1586,25 @@ ghcr.io/<org>/my_image:v0.1.0-minimal
 ```
 
 Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
+
+### Source archives on a base release
+
+A **base** release carries GitHub's own auto-generated source archives
+(`tarball_url` / `zipball_url`) and no other asset. Those archives hold the
+full tracked tree -- `.version`, the repo-root `init.sh`, `CONTEXT.md` and
+the dotfiles included -- so there is nothing for the release job to
+assemble.
+
+Do not re-add a hand-built `.tar.gz` / `.zip` pair beside them. The one that
+used to be there was a hardcoded `cp` operand list: a tracked file nobody
+remembered to add to the list was simply missing from the archive with no
+error to notice, and a listed path that went away failed the whole release
+at tag push.
+
+A **downstream** release is a different case: `release-worker.yaml`
+assembles `<archive_name_prefix>-vX.Y.Z.tar.gz` / `.zip` from a declared
+payload (`script/ci/release/archive.manifest`), because a consumer's archive
+is a curated deliverable rather than a snapshot of the source.
 
 ## Running Template Tests
 

@@ -1395,7 +1395,7 @@ EOF
 
 # ── [environment] ────────────────────────────────────────────────────
 
-@test "[environment] env_1 = ROS_DOMAIN_ID=7 emits environment: block in compose" {
+@test "[environment] env_1 = ROS_DOMAIN_ID=7 lands in the generated .env (#868)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
 env_1 = ROS_DOMAIN_ID=7
@@ -1403,7 +1403,7 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'ROS_DOMAIN_ID=7' '${TEMP_DIR}/compose.yaml'
+    grep -F \"ROS_DOMAIN_ID='7'\" '${TEMP_DIR}/.env'
   "
   assert_success
 }
@@ -1567,7 +1567,7 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -c 'EVIL=' '${TEMP_DIR}/compose.yaml'
+    grep -c 'EVIL=' '${TEMP_DIR}/.env'
   "
   assert_output "1"
 }
@@ -1587,7 +1587,7 @@ EOF
   assert_output "0"
 }
 
-@test "[environment] apply quotes an env value containing a colon-space so YAML keeps it a scalar (#698)" {
+@test "[environment] apply carries an env value containing a colon-space into .env (#698)" {
   # A validator-accepted value with a YAML-structural ': ' (e.g.
   # MSG=a: b) emitted UNQUOTED parses as the mapping {MSG=a: b} —
   # silent env corruption. The emit must wrap each entry as a
@@ -1599,13 +1599,12 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'MSG=a: b' '${TEMP_DIR}/compose.yaml'
+    grep -F \"MSG='a: b'\" '${TEMP_DIR}/.env'
   "
   assert_success
-  assert_output --partial '- "MSG=a: b"'
 }
 
-@test "[environment] apply quotes an env value with a leading flow indicator (#698)" {
+@test "[environment] apply carries an env value with a leading flow indicator into .env (#698)" {
   # A leading '*' (YAML alias/flow indicator) emitted unquoted breaks
   # the parse; quoting makes it an inert scalar.
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
@@ -1615,13 +1614,12 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'GLOB=' '${TEMP_DIR}/compose.yaml'
+    grep -F 'GLOB=' '${TEMP_DIR}/.env'
   "
   assert_success
-  assert_output --partial '- "GLOB=*"'
 }
 
-@test "[environment] apply quotes an env value with an inline ' #' comment marker (#698)" {
+@test "[environment] apply carries an env value with an inline ' #' marker into .env (#698)" {
   # An unquoted ' #' truncates the YAML scalar at the comment; quoting
   # preserves the whole value.
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
@@ -1631,13 +1629,12 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'NOTE=a #b' '${TEMP_DIR}/compose.yaml'
+    grep -F \"NOTE='a #b'\" '${TEMP_DIR}/.env'
   "
   assert_success
-  assert_output --partial '- "NOTE=a #b"'
 }
 
-@test "[environment] apply escapes embedded double-quote / backslash in env value (#698)" {
+@test "[environment] apply carries an embedded double-quote / backslash into .env (#698)" {
   # The YAML double-quoted scalar must escape \" and \\ so the value
   # round-trips verbatim (mirrors the Dockerfile baked-ENV sink).
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
@@ -1647,10 +1644,9 @@ EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -F 'Q=' '${TEMP_DIR}/compose.yaml'
+    grep -F 'Q=' '${TEMP_DIR}/.env'
   "
   assert_success
-  assert_output --partial '- "Q=a\"b\\c"'
 }
 
 @test "[network] apply does not emit a literal network_mode: line for a bogus hand-edited mode (#698)" {

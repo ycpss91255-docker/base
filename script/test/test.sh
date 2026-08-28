@@ -19,6 +19,7 @@
 #                             # / --adr-numbering-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
+#                             # --arch-literal-only /
 #                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
@@ -102,6 +103,8 @@ source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 # shellcheck source=script/test/drivers/home_literal.sh
 source "${SCRIPT_DIR}/drivers/home_literal.sh"
+# shellcheck source=script/test/drivers/arch_literal.sh
+source "${SCRIPT_DIR}/drivers/arch_literal.sh"
 # shellcheck source=script/test/drivers/bash_source_guard.sh
 source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 # shellcheck source=script/test/drivers/early_close_reader.sh
@@ -138,6 +141,7 @@ readonly _LINT_TOOLS=(
   readme-sync
   doc-counts
   home-literal
+  arch-literal
   bash-source-guard
   early-close-reader
   derived-figures
@@ -206,6 +210,7 @@ _run_lint_tool() {
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
     home-literal)     _run_home_literal ;;
+    arch-literal)     _run_arch_literal ;;
     bash-source-guard) _run_bash_source_guard ;;
     early-close-reader) _run_early_close_reader ;;
     derived-figures)  _run_derived_figures ;;
@@ -279,6 +284,14 @@ Options:
                           dist/ or dockerfile/ -- the container user is a
                           BUILD arg, so a literal breaks under a different
                           USER_NAME; bake artifacts at /opt, ADR-00000024)
+  --arch-literal          With --lint: run only the bare architecture literal
+                          lint (a shipped Dockerfile under dist/ or
+                          dockerfile/ may not write an architecture into a
+                          string -- buildx builds one file per --platform, so
+                          the literal ships the wrong artifact inside every
+                          other platform's image. Express it via
+                          ARG TARGETARCH; a mapping onto an upstream asset
+                          spelling opts out with a reason)
   --bash-source-guard     With --lint: run only the unguarded BASH_SOURCE
                           read lint (a self-locating read under dist/ or
                           script/ must default to $0; undefaulted it aborts
@@ -336,6 +349,7 @@ Options:
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
                             --home-literal-only      pure bash
+                            --arch-literal-only      pure bash
                             --bash-source-guard-only pure bash
                             --early-close-reader-only pure bash
                             --derived-figures-only   pure bash
@@ -418,12 +432,14 @@ Examples:
   just test lint --readme-sync    # Localized README sync lint only
   just test lint --doc-counts     # doc/test count drift gate only
   just test lint --home-literal   # hardcoded home path lint only
+  just test lint --arch-literal   # bare architecture literal lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   just test lint --early-close-reader # early-closing-reader pipeline lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
+  ./test.sh --arch-literal-only   # Direct bare architecture literal lint, no compose
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
@@ -916,6 +932,7 @@ main() {
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --home-literal) lint_tool="home-literal"; shift ;;
+      --arch-literal) lint_tool="arch-literal"; shift ;;
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
@@ -929,6 +946,7 @@ main() {
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
       --home-literal-only) host_lint="home-literal"; shift ;;
+      --arch-literal-only) host_lint="arch-literal"; shift ;;
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
@@ -968,7 +986,7 @@ main() {
   # The host-direct lint primitives (`--shellcheck-only`,
   # `--issueref-only`, `--adr-numbering-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
-  # `--doc-counts-only`, `--home-literal-only`,
+  # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
   # `--self-hosted-guard-only`) short-circuit

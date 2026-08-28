@@ -155,7 +155,7 @@ _Avoid_: config search path, override cascade, merge order.
 The per-worktree layer of the chain: gitignored, never touched by tooling,
 visible on one machine. Where `[project] name` belongs so two worktrees of
 one repo can run at once. Written with `setup.sh set --local`. Distinct
-from ADR-00000022's per-instance `.env` overlay, which acts AFTER
+from ADR-00000022's per-instance `.env.local` overlay, which acts AFTER
 `compose.yaml` is generated.
 _Avoid_: local config, instance config, per-instance override.
 
@@ -207,9 +207,10 @@ replaces (#220).
 _Avoid_: stage config, per-stage section.
 
 **Env vs workload parameter boundary**:
-The split between set-once `[environment]` defaults (baked into the image
-as `ENV`) and volatile per-task variables in the gitignored `.env`
-workload overlay (ADR-00000003).
+The split between set-once `[environment]` defaults (written to the
+generated `.env` and baked into the image as `ENV`) and volatile per-task
+variables in the gitignored `.env.local` (ADR-00000003, A2 reversed in
+#868: the standard name is ours, a suffix marks the local variant).
 _Avoid_: env split, config layering.
 
 **Field deploy**:
@@ -242,7 +243,8 @@ _Avoid_: tunable list, override manifest, config manifest.
 
 **Managed `.gitignore` block**:
 The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
-(re)syncs to ignore derived artifacts (`.env`, `compose.yaml`).
+(re)syncs to ignore derived artifacts (`.env`, `compose.yaml`) and the
+untracked local layers (`.env.local`, `.setup.conf.local`).
 _Avoid_: ignore block, generated gitignore.
 
 ### Logging and observability
@@ -360,9 +362,10 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 > **Dev:** "And if I `setup.sh deploy --stage probe`?"
 > **Maintainer:** "That produces a **deploy bundle** for `probe`, if
 > `probe` is a **deployable stage**.
-> Its `[environment]` defaults are baked as image `ENV`, but your `.env`
-> workload overlay and the `~/work` bind stay behind — that is the **env
-> vs workload parameter boundary**."
+> Its `[environment]` defaults ride the bundle's own `.env` and are baked
+> as image `ENV`, but your `.env.local` and the `~/work` bind stay behind
+> — that is the **env vs workload parameter boundary**. The bundle ships
+> its own empty `.env.local` for you to fill in on the field host."
 
 ## Flagged ambiguities
 

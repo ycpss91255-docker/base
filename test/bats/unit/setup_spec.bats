@@ -806,23 +806,23 @@ EOF
   assert_success
 }
 
-@test "apply scaffolds a .env workload overlay when absent" {
+@test "apply scaffolds .env.local when absent (#868)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  refute [ -f "${TEMP_DIR}/.env" ]
+  refute [ -f "${TEMP_DIR}/.env.local" ]
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/.env.local" ]
   # Scaffold carries guidance, not derived values (no SETUP_* metadata).
-  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env"
+  run grep -E '^SETUP_CONF_HASH=' "${TEMP_DIR}/.env.local"
   assert_failure
 }
 
-@test "apply does NOT overwrite an existing hand-authored .env overlay" {
+@test "apply does NOT overwrite an existing .env.local (#868)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env"
+  printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env.local"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  run cat "${TEMP_DIR}/.env"
+  run cat "${TEMP_DIR}/.env.local"
   assert_output "ROS_DOMAIN_ID=42"
 }
 
@@ -846,13 +846,49 @@ EOF
   assert_failure
 }
 
-@test "apply emits env_file: - .env on the devel service (#502 overlay)" {
+@test "apply emits env_file: .env then .env.local on the devel service (#868)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  run grep -A1 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
+  run grep -A2 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
   assert_success
   assert_output --partial "- .env"
+  assert_output --partial "- .env.local"
+}
+
+@test "apply generates .env and scaffolds .env.local (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.env" ]
+  assert [ -f "${TEMP_DIR}/.env.local" ]
+  run grep -F 'Auto-generated' "${TEMP_DIR}/.env"
+  assert_success
+}
+
+@test "apply rewrites .env but never rewrites .env.local (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  printf 'OPERATOR=mine\n' > "${TEMP_DIR}/.env.local"
+  printf 'HAND_EDIT=lost\n' > "${TEMP_DIR}/.env"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run cat "${TEMP_DIR}/.env.local"
+  assert_output "OPERATOR=mine"
+  run grep -qxF 'HAND_EDIT=lost' "${TEMP_DIR}/.env"
+  assert_failure
+}
+
+@test "apply routes [environment] env_N into .env, not the compose environment: block (#868)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[environment]\nenv_1 = ROS_DOMAIN_ID=42\n' >> "${TEMP_DIR}/.setup.conf"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -xF "ROS_DOMAIN_ID='42'" "${TEMP_DIR}/.env"
+  assert_success
+  run grep -F 'ROS_DOMAIN_ID' "${TEMP_DIR}/compose.yaml"
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1555,7 +1591,7 @@ EOC
 # S7: runtime.env retired. apply no longer emits it; [environment]
 # still reaches compose.yaml (and is baked as ENV for the field via S3).
 # ════════════════════════════════════════════════════════════════════
-@test "apply no longer emits runtime.env; [environment] still lands in compose.yaml (#507)" {
+@test "apply no longer emits runtime.env; [environment] still reaches the container (#868)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
 [environment]
 env_1 = FOO=bar
@@ -1568,8 +1604,9 @@ EOC
   assert_success
   # runtime.env is retired -- it must NOT be created.
   assert [ ! -f "${TEMP_DIR}/runtime.env" ]
-  # The resolved (cross-ref expanded) values still reach compose.yaml.
-  run grep -F 'BAR=bar_x' "${TEMP_DIR}/compose.yaml"
+  # The resolved (cross-ref expanded) values still reach the container --
+  # through the generated .env now, not the compose environment: list.
+  run grep -xF "BAR='bar_x'" "${TEMP_DIR}/.env"
   assert_success
 }
 

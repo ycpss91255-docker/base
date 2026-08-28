@@ -233,9 +233,10 @@ _compose() {
 #   PROJECT_NAME : set by _compute_project_name
 #   FILE_PATH    : the repo root (where compose.yaml + .env.generated live)
 #
-# --env-file points at .env.generated (the derived interpolation cache,
-# ). The hand-authored .env workload overlay reaches containers via
-# each service's `env_file: - .env` directive, not this CLI flag.
+# --env-file points at .env.generated (the derived interpolation cache).
+# The container's own env -- the generated `.env` plus the operator's
+# `.env.local` -- reaches it through each service's `env_file:` list, not
+# through this CLI flag.
 _compose_project() {
   # .env.generated is absent in a self-managed repo (base self-use);
   # only pass --env-file when it exists so docker compose does not error on

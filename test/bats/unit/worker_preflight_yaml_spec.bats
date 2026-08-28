@@ -19,8 +19,10 @@ RELEASE_WF="/source/.github/workflows/release-worker.yaml"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  [[ -f "${BUILD_WF}" ]] || skip "build-worker.yaml not at expected path"
-  [[ -f "${RELEASE_WF}" ]] || skip "release-worker.yaml not at expected path"
+  assert_spec_subject "${BUILD_WF}" \
+      "the reusable build worker this spec pins"
+  assert_spec_subject "${RELEASE_WF}" \
+      "the reusable release worker this spec pins"
 }
 
 # ── build-worker.yaml ─────────────────────────────────────────────────
