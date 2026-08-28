@@ -661,13 +661,50 @@ _jobs_without_permissions() {
   ' "${WF}"
 }
 
-# Print one job's block (everything from its key up to the next job key).
+# Print one job's block (everything from its key up to the next job key),
+# comments included. ONLY the comment scan at the bottom of this file reads
+# it: a rationale comment that QUOTES a permission ("`contents: read`
+# rather than `{}`") is indistinguishable from the grant itself once the
+# block is one flat string, so every permission assertion goes through
+# _job_permission_entries instead.
 _job_block() {
   awk -v want="  ${1}:" '
     $0 == want        { flag = 1; next }
     flag && /^  [^ ]/ { flag = 0 }
     flag              { print }
   ' "${WF}"
+}
+
+# Print one job's permission ENTRIES: the `<scope>: <level>` lines inside
+# its own `permissions:` block, with comments, blank lines and indentation
+# dropped. Entries -- not the block -- are what make an EXACT-set assertion
+# possible: `assert_output 'contents: read'` then fails on a missing grant,
+# on prose that merely mentions one, AND on an extra scope, none of which a
+# `--partial` presence check plus one `refute` of a single known-bad scope
+# can catch. Exclusivity is the property this issue is about: any extra
+# scope here is an elevation the caller did not grant, which fails the run.
+# An inline `permissions: read-all` prints nothing and fails the same way.
+_job_permission_entries() {
+  _job_block "${1}" | awk '
+    /^    permissions:[ \t]*$/ { in_perms = 1; next }
+    !in_perms                  { next }
+    /^[[:space:]]*#/           { next }
+    /^[[:space:]]*$/           { next }
+    /^      [A-Za-z][A-Za-z0-9_-]*:[ \t]*[A-Za-z][A-Za-z0-9_-]*[ \t]*$/ {
+      sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; next
+    }
+    { in_perms = 0 }
+  '
+}
+
+# Print `<job>: <scope>: <level>` for every job in the worker, in file
+# order, so one assertion pins the WHOLE permission surface -- including a
+# job added later that quietly asks for more.
+_worker_permission_surface() {
+  local _job
+  for _job in preflight path-filter compute-matrix build docker-build; do
+    _job_permission_entries "${_job}" | sed "s/^/${_job}: /"
+  done
 }
 
 @test "build-worker.yaml: every job declares its own permissions block (#957)" {
@@ -722,24 +759,34 @@ _jobs_requesting_packages_write() {
   # needs. `permissions:` accepts no expression, so one static set has to
   # serve both backends, and the only set every caller can satisfy is the
   # read-only one (see the elevation test above).
-  run _job_block build
+  #
+  # "alone" is asserted as an EXACT entry set, not as presence: `packages:
+  # write` is only the scope this issue happened to find, and any other
+  # scope the caller did not grant (`id-token: write`, `attestations:
+  # write`, ...) fails a caller's run in exactly the same way.
+  run _job_permission_entries build
   assert_success
-  assert_output --partial 'permissions:'
-  assert_output --partial 'contents: read'
-  refute_output --partial 'packages: write'
+  assert_output 'contents: read'
 }
 
-@test "build-worker.yaml: the read-only jobs ask for contents: read alone (#957)" {
-  # path-filter checks out and diffs; docker-build only reads the matrix
-  # result off `needs`. Neither touches a package, so neither may inherit
-  # a caller's `packages: write`.
-  local _job
-  for _job in path-filter docker-build; do
-    run _job_block "${_job}"
-    assert_success
-    assert_output --partial 'contents: read'
-    refute_output --partial 'packages: write'
-  done
+@test "build-worker.yaml: no job in the worker grants more than contents: read (#957)" {
+  # The whole permission surface in one assertion: every job, every entry,
+  # in file order. path-filter checks out and diffs; compute-matrix and
+  # docker-build only read `needs` / the repo; preflight probes with a
+  # token it deliberately keeps read-only. None touches a package, so none
+  # may inherit a caller's `packages: write`.
+  #
+  # Pinning the whole listing, rather than looping per known job, also
+  # covers the job added LATER: a new job either asks for `contents: read`
+  # like its siblings or this test names it, and a job whose grant a caller
+  # cannot satisfy fails that caller's run before it starts.
+  run _worker_permission_surface
+  assert_success
+  assert_output 'preflight: contents: read
+path-filter: contents: read
+compute-matrix: contents: read
+build: contents: read
+docker-build: contents: read'
 }
 
 # Print every comment PARAGRAPH inside the build job (a run of adjacent
