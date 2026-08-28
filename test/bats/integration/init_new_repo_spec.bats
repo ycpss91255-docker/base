@@ -147,22 +147,42 @@ teardown() {
   assert_success
 }
 
-@test "new repo: main.yaml grants permissions: contents: write" {
-  # Regression forsoftprops/action-gh-release@v2 (used by
-  # release-worker.yaml) needs `contents: write` to create a Release.
-  # Reusable workflow permissions intersect with the caller's, and
-  # GitHub's default GITHUB_TOKEN is read-only, so this grant must
-  # live in the caller's (i.e. new repo's) main.yaml. Without it,
-  # the first downstream tag push fails with HTTP 403 from the
-  # action-gh-release step (ros1_bridge v1.5.0 release surfaced this).
+@test "new repo: main.yaml grants contents: write on the release job only (#957)" {
+  # softprops/action-gh-release@v2 (used by release-worker.yaml) needs
+  # `contents: write` to create a Release. Reusable workflow permissions
+  # intersect with the caller's, and GitHub's default GITHUB_TOKEN is
+  # read-only, so this grant must live in the caller's (i.e. new repo's)
+  # main.yaml. Without it, the first downstream tag push fails with HTTP
+  # 403 from the action-gh-release step (ros1_bridge v1.5.0 release
+  # surfaced this).
+  #
+  # At the WORKFLOW scope it also reached call-docker-build, which only
+  # ever reads the tree -- so the grant is scoped to the one job that
+  # needs it. Job-level permissions on a `uses:` job are the caller half
+  # of the intersection, so this is still the caller's grant.
   bash .base/dist/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   assert [ -f "${_yaml}" ]
-  # Must have a top-level `permissions:` block declaring contents: write.
+  # No workflow-scope permissions block: the seed grants per job.
   run grep -E '^permissions:$' "${_yaml}"
+  assert_failure
+  run awk '/^  call-release:/{flag=1; next} /^  [^ ]/{flag=0} flag' "${_yaml}"
   assert_success
-  run grep -E '^[[:space:]]+contents: write$' "${_yaml}"
+  assert_output --partial 'permissions:'
+  assert_output --partial 'contents: write'
+}
+
+@test "new repo: main.yaml leaves the build call at contents: read (#957)" {
+  # The build worker checks out and builds; it pushes no image and, on the
+  # seeded default `cache_backend: gha`, touches no package. A write grant
+  # here would be inherited straight into the reusable worker.
+  bash .base/dist/script/base/init.sh
+  local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
+  run awk '/^  call-docker-build:/{flag=1; next} /^  [^ ]/{flag=0} flag' "${_yaml}"
   assert_success
+  assert_output --partial 'permissions:'
+  assert_output --partial 'contents: read'
+  refute_output --partial 'contents: write'
 }
 
 @test "new repo: .gitignore exists" {

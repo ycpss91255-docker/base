@@ -639,3 +639,73 @@ setup() {
   # The negated form would invert the meaning: only fork PRs would run.
   refute_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
 }
+
+# ── Per-job least privilege ────────────────────────────────────
+
+# Print the name of every job in the worker that declares no job-level
+# `permissions:` block. Job keys sit at two spaces under `jobs:`; a job's
+# own properties sit at four, so the two indents separate cleanly without
+# a YAML parser (the ci container ships none).
+_jobs_without_permissions() {
+  awk '
+    /^jobs:$/          { in_jobs = 1; next }
+    in_jobs && /^[^ ]/ { in_jobs = 0 }
+    !in_jobs           { next }
+    /^  [A-Za-z0-9_-]+:[ \t]*$/ {
+      if (job != "" && !seen) { print job }
+      job = $1; sub(/:$/, "", job); seen = 0; next
+    }
+    /^    permissions:[ \t]*$/ { seen = 1 }
+    END { if (job != "" && !seen) { print job } }
+  ' "${WF}"
+}
+
+# Print one job's block (everything from its key up to the next job key).
+_job_block() {
+  awk -v want="  ${1}:" '
+    $0 == want        { flag = 1; next }
+    flag && /^  [^ ]/ { flag = 0 }
+    flag              { print }
+  ' "${WF}"
+}
+
+@test "build-worker.yaml: every job declares its own permissions block (#957)" {
+  # This is a REUSABLE workflow. A job with no `permissions:` inherits the
+  # CALLER's grant -- a downstream repo's token, not base's -- so a caller
+  # that legitimately grants `packages: write` workflow-wide hands that
+  # write to jobs which only ever read. Declaring the block makes the
+  # effective set the INTERSECTION of the caller's grant and the job's
+  # need, which is the only place base can enforce least privilege on a
+  # permission it does not own.
+  run _jobs_without_permissions
+  assert_success
+  assert_output ''
+}
+
+@test "build-worker.yaml: the build job asks for contents: read + packages: write (#957)" {
+  # The build job never pushes an image (`push: false`, no `tags:`), but
+  # under `cache_backend: registry` it writes the buildx cache to
+  # ghcr.io/<repo>/buildcache, which needs `packages: write`.
+  # `permissions:` takes no expression, so the block cannot be gated on
+  # the input the way the login step is; the static superset is safe
+  # because the caller's grant still intersects it -- a `gha` caller that
+  # grants only `contents: read` gets read, not write.
+  run _job_block build
+  assert_success
+  assert_output --partial 'permissions:'
+  assert_output --partial 'contents: read'
+  assert_output --partial 'packages: write'
+}
+
+@test "build-worker.yaml: the read-only jobs ask for contents: read alone (#957)" {
+  # path-filter checks out and diffs; docker-build only reads the matrix
+  # result off `needs`. Neither touches a package, so neither may inherit
+  # a caller's `packages: write`.
+  local _job
+  for _job in path-filter docker-build; do
+    run _job_block "${_job}"
+    assert_success
+    assert_output --partial 'contents: read'
+    refute_output --partial 'packages: write'
+  done
+}
