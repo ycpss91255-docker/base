@@ -7,6 +7,8 @@
 # setup.sh
 env_regenerated
 env_drift_detected
+env_migrated_to_local
+env_local_migration_conflict
 conf_parsed
 conf_set
 conf_added
@@ -165,12 +167,14 @@ ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
 ci_home_literal
+ci_arch_literal
 ci_bash_source_guard
 ci_early_close_reader
 ci_derived_figures
 ci_i18n_orphan
 ci_self_hosted_guard
 ci_changelog_entry
+ci_action_ref_agreement
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

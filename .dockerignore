@@ -29,6 +29,7 @@ LICENSE
 # ── Derived / generated artifacts (see script/docker/lib/gitignore.sh
 #    _canonical_gitignore_entries) ──────────────────────────────────
 .env
+.env.local
 .env.bak
 runtime.env
 compose.yaml

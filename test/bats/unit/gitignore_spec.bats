@@ -42,11 +42,12 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 11 canonical lines (#502, #507, #606, #832, #879, #893)" {
+@test "_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
 .env
+.env.local
 .env.generated
 .env.bak
 compose.yaml
@@ -228,6 +229,7 @@ EOF
   run cat "${_f}"
   assert_line --partial "managed by template"
   assert_line ".env"
+  assert_line ".env.local"
   assert_line ".env.bak"
   assert_line "compose.yaml"
   assert_line ".setup.conf.bak"
@@ -250,6 +252,7 @@ EOF
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
 .env
+.env.local
 .env.generated
 .env.bak
 compose.yaml

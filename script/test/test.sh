@@ -19,11 +19,13 @@
 #                             # / --adr-numbering-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
+#                             # --arch-literal-only /
 #                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
-#                             # --self-hosted-guard-only.
-#                             # --changelog-entry-only.
+#                             # --self-hosted-guard-only /
+#                             # --changelog-entry-only /
+#                             # --action-ref-agreement-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -102,6 +104,8 @@ source "${SCRIPT_DIR}/drivers/readme_sync.sh"
 source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 # shellcheck source=script/test/drivers/home_literal.sh
 source "${SCRIPT_DIR}/drivers/home_literal.sh"
+# shellcheck source=script/test/drivers/arch_literal.sh
+source "${SCRIPT_DIR}/drivers/arch_literal.sh"
 # shellcheck source=script/test/drivers/bash_source_guard.sh
 source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 # shellcheck source=script/test/drivers/early_close_reader.sh
@@ -114,6 +118,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/action_ref_agreement.sh
+source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -138,12 +144,14 @@ readonly _LINT_TOOLS=(
   readme-sync
   doc-counts
   home-literal
+  arch-literal
   bash-source-guard
   early-close-reader
   derived-figures
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  action-ref-agreement
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -206,12 +214,14 @@ _run_lint_tool() {
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
     home-literal)     _run_home_literal ;;
+    arch-literal)     _run_arch_literal ;;
     bash-source-guard) _run_bash_source_guard ;;
     early-close-reader) _run_early_close_reader ;;
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    action-ref-agreement) _run_action_ref_agreement ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -279,6 +289,14 @@ Options:
                           dist/ or dockerfile/ -- the container user is a
                           BUILD arg, so a literal breaks under a different
                           USER_NAME; bake artifacts at /opt, ADR-00000024)
+  --arch-literal          With --lint: run only the bare architecture literal
+                          lint (a shipped Dockerfile under dist/ or
+                          dockerfile/ may not write an architecture into a
+                          string -- buildx builds one file per --platform, so
+                          the literal ships the wrong artifact inside every
+                          other platform's image. Express it via
+                          ARG TARGETARCH; a mapping onto an upstream asset
+                          spelling opts out with a reason)
   --bash-source-guard     With --lint: run only the unguarded BASH_SOURCE
                           read lint (a self-locating read under dist/ or
                           script/ must default to $0; undefaulted it aborts
@@ -318,6 +336,14 @@ Options:
                           sub-bullets buys no budget. Released sections are
                           never checked -- rewriting a shipped entry
                           falsifies it)
+  --action-ref-agreement  With --lint: run only the action ref agreement
+                          lint (every call site of one action's REPOSITORY
+                          across .github/workflows/ must name the same ref;
+                          a partial bump is invisible to actionlint, which
+                          reads each `uses:` in isolation, and dependabot
+                          never re-raises a version pair whose PR was
+                          closed. One call site may hold back behind an
+                          `action-ref-agreement: allow -- <why>` comment)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -336,12 +362,14 @@ Options:
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
                             --home-literal-only      pure bash
+                            --arch-literal-only      pure bash
                             --bash-source-guard-only pure bash
                             --early-close-reader-only pure bash
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --action-ref-agreement-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -418,18 +446,21 @@ Examples:
   just test lint --readme-sync    # Localized README sync lint only
   just test lint --doc-counts     # doc/test count drift gate only
   just test lint --home-literal   # hardcoded home path lint only
+  just test lint --arch-literal   # bare architecture literal lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   just test lint --early-close-reader # early-closing-reader pipeline lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
+  ./test.sh --arch-literal-only   # Direct bare architecture literal lint, no compose
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry length lint, no compose
+  ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -945,12 +976,14 @@ main() {
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --home-literal) lint_tool="home-literal"; shift ;;
+      --arch-literal) lint_tool="arch-literal"; shift ;;
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -958,12 +991,14 @@ main() {
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
       --home-literal-only) host_lint="home-literal"; shift ;;
+      --arch-literal-only) host_lint="arch-literal"; shift ;;
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -997,11 +1032,11 @@ main() {
   # The host-direct lint primitives (`--shellcheck-only`,
   # `--issueref-only`, `--adr-numbering-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
-  # `--doc-counts-only`, `--home-literal-only`,
+  # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
-  # `--self-hosted-guard-only`) short-circuit
-  # `--changelog-entry-only`) short-circuit
+  # `--self-hosted-guard-only`, `--changelog-entry-only`,
+  # `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

@@ -1,3 +1,30 @@
+# Dependabot configuration.
+#
+# ── Read this before closing a dependabot pull request ──────────────────
+#
+# Closing one is not deferring the bump. It is opting out of that version
+# pair PERMANENTLY: dependabot never re-proposes a pair whose pull request
+# was closed, for any call site the bump covered -- including call sites
+# written long afterwards, which were never part of the decision.
+#
+# Nothing in this file records that. It stays correct and says nothing
+# about which pairs have been dismissed, so the resulting blind spot is
+# not discoverable by reading it; the only other way to see one is to go
+# trawling the closed-pull-request history.
+#
+# That happened here. The docker/build-push-action v6 -> v7 pull request
+# was closed, and five self-test.yaml call sites then sat on v6 while six
+# elsewhere ran v7 -- two major versions of one action building images in
+# one repository, green the whole time.
+#
+# So: to postpone a bump, leave the pull request OPEN, or re-raise it by
+# hand later. To decline one, say so where the pin is, not by closing a
+# pull request that leaves no trace in the tree.
+#
+# The `action-ref-agreement` lint (script/test/drivers/action_ref_agreement.sh,
+# run per-PR by the lint-static CI job) is the backstop: it fails when one
+# action is called at two refs across .github/workflows/, whatever
+# dependabot does or does not remember.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
