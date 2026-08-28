@@ -323,95 +323,12 @@ teardown() {
   assert_failure
 }
 
-@test "generate_compose_yaml emits environment block from env_ list" {
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "ROS_DOMAIN_ID=7" "LOG_LEVEL=debug"
-  # positional args: ... extras net_name devices env tmpfs ports shm_size net_mode ipc_mode
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -E '^    environment:$' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "ROS_DOMAIN_ID=7"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "LOG_LEVEL=debug"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N expands \${VAR} cross-reference to earlier sibling (refs #236)" {
-  # When a later env_N value references an earlier sibling KEY via
-  # `\${KEY}`, the emitted compose.yaml line should contain the earlier
-  # sibling's value, not a literal `\${KEY}` (which compose's own var
-  # substitution does NOT resolve from sibling environment entries).
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "BUILD_TARGET=production" "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "LD_LIBRARY_PATH=/foo/production/lib"' "${COMPOSE_OUT}"
-  assert_success
-  refute grep -F -- '${BUILD_TARGET}' "${COMPOSE_OUT}"
-}
-
-@test "environment env_N forward reference is left literal (refs #236)" {
-  # Order-sensitive: a value that references a LATER sibling cannot be
-  # expanded (the sibling hasn't been parsed yet). The literal `\${VAR}`
-  # survives so compose.yaml's own substitution gets a chance from
-  # `.env` / shell env, and an unintended footgun surfaces visibly.
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib" "BUILD_TARGET=production"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "BUILD_TARGET=production"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N unknown \${VAR} is left literal (refs #236)" {
-  # When `\${VAR}` references a name with no matching sibling, leave it
-  # as a literal in compose.yaml. compose's own substitution (from
-  # `.env` / shell env) gets a chance at file-load; if that also fails
-  # the user sees an explicit error, not a silent empty replacement.
-  local _extras=()
-  local _env
-  printf -v _env '%s' "PATH_PREFIX=/foo/\${UNDEFINED_VAR}/bar"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N supports multiple cross-references in one value (refs #236)" {
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s\n%s' \
-    "BUILD_TARGET=production" \
-    "ARCH=aarch64" \
-    "PLUGIN_PATH=/opt/\${BUILD_TARGET}/lib/\${ARCH}"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "PLUGIN_PATH=/opt/production/lib/aarch64"' "${COMPOSE_OUT}"
-  assert_success
-}
-
-@test "environment env_N transitive cross-reference resolves through chain (refs #236)" {
-  # If env_2 references env_1, and env_3 references env_2, env_3 should
-  # see the FULLY expanded env_2 (not a chain that needs more expansion).
-  local _extras=()
-  local _env
-  printf -v _env '%s\n%s\n%s' \
-    "ROOT=/opt" \
-    "BASE=\${ROOT}/lib" \
-    "INCLUDE=\${BASE}/include"
-  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- "BASE=/opt/lib"' "${COMPOSE_OUT}"
-  assert_success
-  run grep -F -- '- "INCLUDE=/opt/lib/include"' "${COMPOSE_OUT}"
-  assert_success
-}
+# NOTE: the `[environment]` env_N block moved out of the compose
+# `environment:` list and into the generated `.env` (compose ranks
+# `environment:` above `env_file`, so a default left there outranks the
+# operator's `.env.local`). Its emission and its `${VAR}` cross-reference
+# expansion are covered where the code now lives, in env_emit_spec.bats
+# against write_container_env (ADR-00000015: tests mirror source).
 
 @test "generate_compose_yaml emits tmpfs block from tmpfs_ list" {
   local _extras=()
@@ -1321,6 +1238,7 @@ services:
     tty: true
     env_file:
       - .env
+      - .env.local
     runtime: nvidia
     init: true
     networks:
@@ -1331,7 +1249,6 @@ services:
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
-      - "TOP_ENV=1"
     ports:
       - "${PORT_1:-9000:9000}"
     volumes:
@@ -1383,7 +1300,7 @@ services:
     profiles:
       - headless
     env_file:
-      - .env
+      - .env.local
     privileged: true
     ipc: private
     runtime: nvidia
