@@ -1460,7 +1460,8 @@ _hadolint_ignore_rationale() {
 
 @test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # A downstream author meets this trade in the file they edit, not in
   # base's docs, so the file has to name the drift, the compensating
   # record, and the escape hatch.
@@ -1488,7 +1489,8 @@ _hadolint_ignore_rationale() {
 
 @test "Dockerfile.example states what the UNPINNED default does not record (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The half of the reproducibility question the shipped default does NOT
   # answer. With `ubuntu:24.04` and no BASE_IMAGE_DIGEST the manifest
   # records the reference as given and `base_image_pin=none` -- it cannot
@@ -1518,7 +1520,8 @@ _hadolint_ignore_rationale() {
 
 @test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # Read the LIVE sys stage's own window, not the file. Every line below
   # also exists, commented, in the runtime-base scaffold, so a whole-file
   # grep is satisfied by the comment: the primary deliverable of this
@@ -1560,7 +1563,8 @@ _hadolint_ignore_rationale() {
 
 @test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # The property is a RELATION over the apt layers, not a tally of
   # refreshes. A hand-kept count ("2 live, 3 commented") is green for a
   # template that grew a fourth apt layer and no fourth refresh -- the
@@ -1598,7 +1602,8 @@ _hadolint_ignore_rationale() {
 
 @test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
   # runtime-base is a FRESH ${BASE_IMAGE}, so it inherits nothing the sys
   # stage wrote. Uncommenting the optional builder/runtime split must not
   # produce the one image in the graph that cannot say what built it.
@@ -1626,7 +1631,8 @@ _hadolint_ignore_rationale() {
 
 @test ".hadolint.yaml DL3008 ignore names its compensating control (#951)" {
   local _cfg="/source/dist/.hadolint.yaml"
-  [[ -f "${_cfg}" ]] || skip ".hadolint.yaml not present in /source"
+  assert_spec_subject "${_cfg}" \
+      "the shipped hadolint config this spec pins"
   # DL3008 is the one rule that exists for the unpinned apt lines this
   # template ships. Ignoring it with no compensating control is what
   # makes the template lint clean while being non-reproducible, so the
