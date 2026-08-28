@@ -96,6 +96,23 @@
 # the case is not hypothetical: the convention note's ```markdown block is
 # one edit away from showing the surrounding heading.
 #
+# A second defect the same walk can see for free: an ORPHANED WRAP LINE.
+# An entry re-wrapped by hand (a phrase edited, the paragraph not re-flowed)
+# leaves a single word alone on its own line above the rest of the same
+# paragraph. Markdown collapses it, so nothing renders wrong and the length
+# measure -- which collapses whitespace on purpose -- cannot see it either;
+# it is visible only in the source, which is where the file is read while it
+# is being written. The rule is deliberately narrow: the line must hold
+# exactly one word, the SOURCE line immediately below it must be more prose
+# of the same paragraph, and the two must FIT on one line -- an orphan is a
+# word that could have been joined downward and was not. That last clause
+# is what keeps an unbreakable token (a long URL, a 60-character code span)
+# off the report: it is alone on its line because nothing else fits there,
+# which is wrapping working, not wrapping skipped. A one-word final line, a
+# table row, an HTML comment and anything a fence made inert are left alone
+# too, because none of them is a paragraph that failed to re-flow. Scope is
+# [Unreleased] with everything else here: a shipped entry is history.
+#
 # Allowlist: an explicit, region-delimited opt-out, the same shape
 # home_literal.sh uses. Bracket the entry with
 #   <!-- changelog-entry-lint: allow-begin -- <why> -->
@@ -130,6 +147,12 @@ readonly _CHANGELOG_ENTRY_HEADING='## [Unreleased]'
 # override, so local and CI cannot disagree and nobody can raise it without
 # the change showing up in a diff.
 readonly _CHANGELOG_ENTRY_MAX=700
+
+# The column the file wraps at, used ONLY to decide whether an orphaned
+# word could have been joined to the line below it. It is not a line-length
+# cap -- a per-line cap was rejected outright (see the header) -- and no
+# line is ever failed for being long.
+readonly _CHANGELOG_ENTRY_WRAP=79
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _CHANGELOG_ENTRY_ALLOW_BEGIN='changelog-entry-lint: allow-begin'
@@ -174,6 +197,20 @@ _changelog_entry_trim() {
   _line="${_line#"${_line%%[![:space:]]*}"}"
   _line="${_line%"${_line##*[![:space:]]}"}"
   printf '%s' "${_line}"
+}
+
+# _changelog_entry_wrappable <line> -- is the line ordinary wrapped prose,
+# i.e. the kind of line an orphaned word can be stranded on? A blank line
+# is not; nor is a table row (`|---|---|` is one "word" and always will be)
+# nor an HTML comment (the allow markers are single-purpose lines). Fenced
+# lines are excluded by the caller, which is the only place that knows.
+_changelog_entry_wrappable() {
+  local _trimmed
+  _trimmed="$(_changelog_entry_trim "${1}")"
+  [[ -n "${_trimmed}" ]] || return 1
+  [[ "${_trimmed}" == '|'* ]] && return 1
+  [[ "${_trimmed}" == '<!--'* ]] && return 1
+  return 0
 }
 
 # _changelog_entry_marker <line> -- 'begin', 'end', 'both' or nothing:
@@ -373,12 +410,14 @@ _run_changelog_entry() {
   local _entries=0 _j _k _len _label
   local -A _seen=()
   local -a _body=()
+  local -a _body_idx=()
   for (( _i = _start; _i < _end; _i++ )); do
     [[ -n "${_skip[${_i}]:-}" ]] && continue
     [[ -n "${_fenced[${_i}]:-}" ]] && continue
     [[ "${_lines[_i]}" =~ ^-\  ]] || continue
 
     _body=("${_lines[_i]}")
+    _body_idx=("${_i}")
     _seen["${_i}"]=1
     for (( _j = _i + 1; _j < _end; _j++ )); do
       [[ -n "${_skip[${_j}]:-}" ]] && continue
@@ -404,6 +443,7 @@ _run_changelog_entry() {
         fi
       fi
       _body+=("${_lines[_j]}")
+      _body_idx+=("${_j}")
       _seen["${_j}"]=1
     done
 
@@ -416,6 +456,37 @@ _run_changelog_entry() {
         "${_len}" "${_CHANGELOG_ENTRY_MAX}" "${_label}"
       _violations=$(( _violations + 1 ))
     fi
+
+    # Orphaned wrap lines within this entry. A word is orphaned when it is
+    # alone on its line, the very next SOURCE line carries more of the same
+    # paragraph, and the two would fit on one line. Contiguity separates
+    # "the paragraph was not re-flowed" from "the paragraph ended on a short
+    # line"; the fit separates it from "nothing else fits on that line".
+    # See the header note.
+    local _b _next _orphan _joined
+    local -a _words=()
+    for (( _b = 1; _b < ${#_body[@]}; _b++ )); do
+      [[ -n "${_fenced[${_body_idx[_b]}]:-}" ]] && continue
+      _changelog_entry_wrappable "${_body[_b]}" || continue
+      # read -r -a, not a pipeline: nothing here may own an exit status
+      # that depends on how two processes were scheduled.
+      read -r -a _words <<< "${_body[_b]}"
+      [[ "${#_words[@]}" -eq 1 ]] || continue
+      _next=$(( _b + 1 ))
+      [[ "${_next}" -lt "${#_body[@]}" ]] || continue
+      [[ "${_body_idx[_next]}" -eq $(( _body_idx[_b] + 1 )) ]] || continue
+      [[ -n "${_fenced[${_body_idx[_next]}]:-}" ]] && continue
+      _changelog_entry_wrappable "${_body[_next]}" || continue
+      # Could the word have moved down onto the next line? Indentation is
+      # counted (it is what the wrapped line really costs), the next line
+      # is measured trimmed (its own indent does not double up).
+      _joined="$(_changelog_entry_trim "${_body[_next]}")"
+      (( ${#_body[_b]} + 1 + ${#_joined} <= _CHANGELOG_ENTRY_WRAP )) || continue
+      _orphan="${_words[0]}"
+      printf "%s:%d: orphaned wrap line -- '%s' sits alone above the rest of its paragraph; re-wrap the entry\n" \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _body_idx[_b] + 1 ))" "${_orphan}"
+      _violations=$(( _violations + 1 ))
+    done
     _i=$(( _j - 1 ))
   done
 
@@ -439,7 +510,7 @@ _run_changelog_entry() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_changelog_entry \
-      "${_violations} over-long entry / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
+      "${_violations} over-long entry / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
     return 1
   fi
 
