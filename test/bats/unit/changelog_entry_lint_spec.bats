@@ -518,6 +518,31 @@ _long_prose() {
   assert_success
 }
 
+@test "_run_changelog_entry: an unbreakable token alone on its line is not an orphan (#927)" {
+  # A long URL or code span is alone on its line because nothing else fits
+  # there -- that is wrapping working, not wrapping skipped. Caught by the
+  # re-indentation case, which builds its fixture out of 60-character
+  # spaceless chunks and would otherwise report four orphans in an entry
+  # the lint is asserting PASSES.
+  _write_changelog '### Documentation' \
+    '- **an entry with a long span** -- see' \
+    "  \`$(_chars 60)\`" \
+    '  for the details.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan is one that could have joined the line below (#927)" {
+  # The pair has to FIT: 79 columns is the file's wrap, and a word that
+  # cannot go anywhere is not a word left behind.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    "  $(_chars 74)"
+  run _run_changelog_entry
+  assert_success
+}
+
 @test "_run_changelog_entry: a table separator row is not an orphaned word (#927)" {
   # '|---|---|' is one whitespace-delimited word and always will be; a
   # table is not a paragraph that failed to re-flow.

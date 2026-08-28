@@ -103,11 +103,15 @@
 # measure -- which collapses whitespace on purpose -- cannot see it either;
 # it is visible only in the source, which is where the file is read while it
 # is being written. The rule is deliberately narrow: the line must hold
-# exactly one word, and the SOURCE line immediately below it must be more
-# prose of the same paragraph. A one-word final line, a table row, an HTML
-# comment and anything a fence made inert are all left alone, because none
-# of them is a paragraph that failed to re-flow. Scope is [Unreleased] with
-# everything else here, for the same reason: a shipped entry is history.
+# exactly one word, the SOURCE line immediately below it must be more prose
+# of the same paragraph, and the two must FIT on one line -- an orphan is a
+# word that could have been joined downward and was not. That last clause
+# is what keeps an unbreakable token (a long URL, a 60-character code span)
+# off the report: it is alone on its line because nothing else fits there,
+# which is wrapping working, not wrapping skipped. A one-word final line, a
+# table row, an HTML comment and anything a fence made inert are left alone
+# too, because none of them is a paragraph that failed to re-flow. Scope is
+# [Unreleased] with everything else here: a shipped entry is history.
 #
 # Allowlist: an explicit, region-delimited opt-out, the same shape
 # home_literal.sh uses. Bracket the entry with
@@ -143,6 +147,12 @@ readonly _CHANGELOG_ENTRY_HEADING='## [Unreleased]'
 # override, so local and CI cannot disagree and nobody can raise it without
 # the change showing up in a diff.
 readonly _CHANGELOG_ENTRY_MAX=700
+
+# The column the file wraps at, used ONLY to decide whether an orphaned
+# word could have been joined to the line below it. It is not a line-length
+# cap -- a per-line cap was rejected outright (see the header) -- and no
+# line is ever failed for being long.
+readonly _CHANGELOG_ENTRY_WRAP=79
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _CHANGELOG_ENTRY_ALLOW_BEGIN='changelog-entry-lint: allow-begin'
@@ -448,11 +458,12 @@ _run_changelog_entry() {
     fi
 
     # Orphaned wrap lines within this entry. A word is orphaned when it is
-    # alone on its line AND the very next SOURCE line carries more of the
-    # same paragraph -- contiguity is what separates "the paragraph was not
-    # re-flowed" from "the paragraph ended on a short line", which is not a
-    # defect. See the header note.
-    local _b _next _orphan
+    # alone on its line, the very next SOURCE line carries more of the same
+    # paragraph, and the two would fit on one line. Contiguity separates
+    # "the paragraph was not re-flowed" from "the paragraph ended on a short
+    # line"; the fit separates it from "nothing else fits on that line".
+    # See the header note.
+    local _b _next _orphan _joined
     local -a _words=()
     for (( _b = 1; _b < ${#_body[@]}; _b++ )); do
       [[ -n "${_fenced[${_body_idx[_b]}]:-}" ]] && continue
@@ -466,6 +477,11 @@ _run_changelog_entry() {
       [[ "${_body_idx[_next]}" -eq $(( _body_idx[_b] + 1 )) ]] || continue
       [[ -n "${_fenced[${_body_idx[_next]}]:-}" ]] && continue
       _changelog_entry_wrappable "${_body[_next]}" || continue
+      # Could the word have moved down onto the next line? Indentation is
+      # counted (it is what the wrapped line really costs), the next line
+      # is measured trimmed (its own indent does not double up).
+      _joined="$(_changelog_entry_trim "${_body[_next]}")"
+      (( ${#_body[_b]} + 1 + ${#_joined} <= _CHANGELOG_ENTRY_WRAP )) || continue
       _orphan="${_words[0]}"
       printf "%s:%d: orphaned wrap line -- '%s' sits alone above the rest of its paragraph; re-wrap the entry\n" \
         "${_CHANGELOG_ENTRY_FILE}" "$(( _body_idx[_b] + 1 ))" "${_orphan}"

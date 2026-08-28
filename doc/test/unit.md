@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **2969 tests**.
+Unit specs under `test/bats/unit/`: **2971 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3278,7 +3278,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (41)
+### test/bats/unit/changelog_entry_lint_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -3313,6 +3313,8 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: names the orphan's real line number in the file (#927)` | - |
 | `_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)` | - |
 | `_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)` | - |
+| `_run_changelog_entry: an unbreakable token alone on its line is not an orphan (#927)` | - |
+| `_run_changelog_entry: an orphan is one that could have joined the line below (#927)` | - |
 | `_run_changelog_entry: a table separator row is not an orphaned word (#927)` | - |
 | `_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)` | - |
 | `_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)` | - |
