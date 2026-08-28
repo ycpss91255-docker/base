@@ -682,19 +682,50 @@ _job_block() {
   assert_output ''
 }
 
-@test "build-worker.yaml: the build job asks for contents: read + packages: write (#957)" {
-  # The build job never pushes an image (`push: false`, no `tags:`), but
-  # under `cache_backend: registry` it writes the buildx cache to
-  # ghcr.io/<repo>/buildcache, which needs `packages: write`.
-  # `permissions:` takes no expression, so the block cannot be gated on
-  # the input the way the login step is; the static superset is safe
-  # because the caller's grant still intersects it -- a `gha` caller that
-  # grants only `contents: read` gets read, not write.
+# Print the name of every job that names `packages: write` in its own
+# permissions block. Scoped to the `jobs:` section and to the six-space
+# indent of a permission entry, so the caller-facing example inside the
+# `cache_backend` input description -- which is instructing the CALLER to
+# grant it, and is correct -- is not mistaken for a declaration here.
+_jobs_requesting_packages_write() {
+  awk '
+    /^jobs:$/          { in_jobs = 1; next }
+    in_jobs && /^[^ ]/ { in_jobs = 0 }
+    !in_jobs           { next }
+    /^  [A-Za-z0-9_-]+:[ \t]*$/ { job = $1; sub(/:$/, "", job); next }
+    /^      packages:[ \t]*write[ \t]*$/ { print job }
+  ' "${WF}"
+}
+
+@test "build-worker.yaml: no job requests packages: write (#957)" {
+  # A job in a CALLED workflow may only NARROW the calling job's grant,
+  # never widen it. Declaring any `permissions:` key sets every unnamed
+  # scope to `none`, so every current caller -- base's own worker-selftest,
+  # the seeded main.yaml, ros_distro / ros2_distro, and the ROS repos
+  # routed through multi-distro-build-worker.yaml -- reaches this workflow
+  # with `packages: none`. A job here naming `packages: write` is an
+  # ELEVATION, and GitHub rejects the whole run before it starts:
+  #   The nested job 'build' is requesting 'contents: read, packages:
+  #   write', but is only allowed 'contents: read, packages: none'.
+  # The `cache_backend: registry` write therefore stays a CALLER-side
+  # grant, which is what the input description already asks callers for;
+  # the worker may not declare it on their behalf.
+  run _jobs_requesting_packages_write
+  assert_success
+  assert_output ''
+}
+
+@test "build-worker.yaml: the build job asks for contents: read alone (#957)" {
+  # The job builds but never pushes an image (`push: false`, no `tags:`),
+  # so on the default `cache_backend: gha` a checkout grant is all it
+  # needs. `permissions:` accepts no expression, so one static set has to
+  # serve both backends, and the only set every caller can satisfy is the
+  # read-only one (see the elevation test above).
   run _job_block build
   assert_success
   assert_output --partial 'permissions:'
   assert_output --partial 'contents: read'
-  assert_output --partial 'packages: write'
+  refute_output --partial 'packages: write'
 }
 
 @test "build-worker.yaml: the read-only jobs ask for contents: read alone (#957)" {
@@ -708,4 +739,33 @@ _job_block() {
     assert_output --partial 'contents: read'
     refute_output --partial 'packages: write'
   done
+}
+
+# Print every comment PARAGRAPH inside the build job (a run of adjacent
+# `#` lines, joined) that cites the preflight while talking about a
+# package permission. Paragraph granularity matters: the claim is a
+# sentence, and a sentence wraps across comment lines.
+_build_comments_citing_preflight_for_a_grant() {
+  _job_block build | awk '
+    /^[[:space:]]*#/ {
+      line = $0
+      sub(/^[[:space:]]*#[[:space:]]?/, "", line)
+      para = para " " line
+      next
+    }
+    { if (para != "") { print para; para = "" } }
+    END { if (para != "") { print para } }
+  ' | grep -i 'preflight' | grep -Ei 'packages|permission|grant' || true
+}
+
+@test "build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)" {
+  # The preflight job declares `permissions: contents: read`, so its own
+  # token carries `packages: none` no matter what the caller granted, and
+  # its write-scope probe cannot come back 202. Nothing in the build job
+  # may reason from that probe about a caller holding `packages: write`
+  # -- the probe is the thing that is broken, not the evidence that
+  # anything works. Tracked separately from this issue.
+  run _build_comments_citing_preflight_for_a_grant
+  assert_success
+  assert_output ''
 }
