@@ -175,6 +175,12 @@ EOF
 # re-adds an explicit pip step if they have a real requirements file.
 
 @test "migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)" {
+  # The exact v0.41.0 breakage this migration exists for: the repo ships a
+  # config/ overlay (so the migration can resolve what ${CONFIG_DIR} is
+  # populated from) but no pip/requirements.txt inside it, which is what
+  # makes the build hard-fail on the `-r` argument. An absent file is the
+  # strongest possible proof the install is inert, so the line goes.
+  mkdir -p "${TEMP_DIR}/config"
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
 # Setup pip packages
