@@ -61,12 +61,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
-  instead of the thing. Deleting both real `_transcript_begin` /
-  `_transcript_detach` calls from `setup_tui.sh`, the active `logging.sh` COPY
-  from the template Dockerfile, `hook.sh`'s DRY_RUN guard, or ci-rollup's
-  skipped-tolerance each left the guard named for it green. The specs read one
-  shared comment-stripped view now, and three assertions that were already
-  false assert something true. No test was deleted.
+  instead of the thing. Deleting `setup_tui.sh`'s transcript calls, the
+  template Dockerfile's `logging.sh` COPY, `hook.sh`'s DRY_RUN guard,
+  ci-rollup's skipped-tolerance, the wrappers' `lib/bootstrap.sh` dispatch or
+  `run.sh`'s already-running refusal each left the spec named for it green.
+  The specs read one shared comment-stripped view now, and claims that were
+  false assert something true: `_lib.sh` is pinned on `bootstrap.sh`, which
+  sources it. No test was deleted.
 - **a repo created from the template is no longer born with a red build job (closes #925)** -- the shipped Dockerfile keeps its `runtime` / `runtime-test` blocks commented out while `build_runtime` defaulted to true, so the first push asked buildx for a target nothing declared; the template's own CI had been red on it since June. `build-worker.yaml` now RESOLVES the gate from the caller's Dockerfile -- it builds the runtime pair when the file declares it, skips it when not -- so uncommenting the blocks is the whole action and no main.yaml edit can disagree. `build_runtime: false` survives as an opt-out; half a declared pair fails naming the missing stage.
 - **`ci-rollup` no longer reports a fork PR as a green required check when the guard skipped work (closes #766)** -- the guard's effect is a SKIP, and the rollup treats SKIPPED as pass-equivalent for conditionally-gated jobs, as it must for doc-only PRs. So on a fork PR `worker-selftest` would come back `success` having built nothing, collapsing a build that never ran into a green **required** check -- for precisely the untrusted PR. The rollup now fails a fork PR explicitly and says why: a required check claims the commit was fully tested, and on a fork PR that claim is false.
 - **the release archive no longer fails a consumer's tag push over a path base moved (refs #914)** -- the archive step named seven standard paths as operands of one `cp -r` under `bash -e`, so a consumer legitimately lacking ONE of them lost its whole release, at tag push. That shipped twice, on a different path each time, and both fixes re-pinned the list to base's own layout. The payload is now declared in `script/ci/release/archive.manifest`: an optional path missing is reported by name and the release still cuts, and only `Dockerfile` and `.base/` are required. One item may list several candidate paths, so both smoke layouts serve one workflow.
