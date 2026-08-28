@@ -592,13 +592,18 @@ _setup_add() {
     return 1
   fi
 
-  if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage add >&2
-    return 1
-  fi
-  local _section="${_spec%%.*}"
-  local _list="${_spec#*.}"
-  if [[ -z "${_section}" || -z "${_list}" ]]; then
+  # Same split rule as `set` / `show` / `remove`: conf.sh's
+  # _conf_split_nskey is the one owner (first dot, except the
+  # per-service [logging.<svc>] sub-section, which splits at the
+  # rightmost). `add` names <section>.<list> rather than
+  # <section>.<key>, but the question -- which section does this spec
+  # name? -- is the same one, so it is asked in the same place.
+  # Re-deriving it here is what sent `add logging.web.<list>` to the
+  # parent [logging] block as a dotted `web.<list>_N` key. A dotless
+  # spec names no list, which `add` cannot act on.
+  local _section _list
+  if ! _conf_split_nskey "${_spec}" _section _list \
+     || [[ -z "${_section}" || -z "${_list}" ]]; then
     _setup_msg usage add >&2
     return 1
   fi
