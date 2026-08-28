@@ -133,10 +133,11 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   a second stack of a repo died on `name ... is already in use` and compose
   refused `--scale`. Compose derives `<project>-<service>-<n>`, so per-host
   isolation rests on the project name -- per-OS-user already, since
-  `DOCKER_HUB_USER` detection falls back to the OS user; `[project] name` still
+  `DOCKER_HUB_USER` falls back to the OS user; `[project] name` still
   wins. A re-detected rename DEFERS as `PROJECT_NAME_PENDING` until the old
-  project holds no container and no named volume. `docker exec <fixed-name>`
-  is gone; ask `just exec`. The field-deploy bundle still bakes one.
+  project holds no container or named volume. `docker exec <fixed-name>`
+  is gone; ask `just exec`. The field-deploy bundle still bakes one; the
+  shipped Dockerfile no longer lists the field.
 ### Documentation
 - **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
   the maintainer's, and only X/Y fans out** -- policy behind `semver-bump` /
