@@ -615,6 +615,26 @@ EOF
     "the harness ran ${_elapsed}s past a 5s ceiling: it took the ceiling's SIGTERM and nothing followed it, so the number in the harness call is a suggestion"
 }
 
+@test "_kill_case_groups: never signals a bare pid, only a process GROUP (#965)" {
+  # The hazard in a teardown that runs for every case. By the time it runs,
+  # the product has usually already reaped the service, so the recorded id
+  # names nothing -- and a container running 32 jobs forks hard enough that
+  # the id can by then belong to a stranger in another job. A group id can
+  # only be reused by a process that called setsid, and every case that
+  # records one skips without setsid, so the bare-pid fallback covered
+  # nothing and could hit anything.
+  #
+  # The fixture is a plain background child: alive, in THIS shell's process
+  # group, not a group leader. Nothing may happen to it.
+  sleep 30 &
+  local _victim=$!
+  printf '%s\n' "${_victim}" > "${TMP_DIR}/stale.pgid"
+  _kill_case_groups
+  kill -0 "${_victim}" 2>/dev/null || fail \
+    "_kill_case_groups killed a pid that leads no process group; after a case whose service was already reaped, that pid can belong to another job in the same container"
+  kill "${_victim}" 2>/dev/null || true
+}
+
 @test "_within_case_bound: answers no exactly when a case outran its own ceiling (#965)" {
   # The teardown bound guard applies this to EVERY case in the file, which
   # is what makes the property survive the fourth sibling written next
