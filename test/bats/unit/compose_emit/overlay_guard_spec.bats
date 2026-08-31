@@ -139,6 +139,26 @@ _assert_emitted_without() {
     "grep exited ${_rc} scanning ${COMPOSE_OUT} for ${_what}: nothing was scanned, so absence was never observed"
 }
 
+# _exemption_stated_with_claim <file>
+#   True iff some paragraph of <file> that mentions the compose field
+#   `container_name:` names the field-deploy emitter -- in that paragraph or
+#   in the one immediately after it. Proximity, not co-occurrence: a
+#   document may name the deploy recipe for unrelated reasons elsewhere.
+_exemption_stated_with_claim() {
+  awk '
+    BEGIN { RS = "" }
+    { _para[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (index(_para[i], "container_name:") == 0) continue
+        _win = _para[i] "\n" (i < NR ? _para[i + 1] : "")
+        if (index(_win, "just docker setup deploy") > 0 ||
+            index(_win, "_generate_resolved_compose") > 0) _found = 1
+      }
+      exit(_found ? 0 : 1)
+    }' "${1:?}"
+}
+
 # Emit a compose that exercises the interpolation-channel per-instance
 # fields on both the devel service and a per-stage standalone block:
 # bridge network (-> network_mode: line + ports honoured), devel ports,
@@ -212,45 +232,58 @@ CONF
   run grep -F "printf '    container_name: %s" "${_deploy}"
   assert_success
 
-  # The prose population is DERIVED, not listed. A predecessor named two
-  # files, README.md and ADR-00000022, while its comment claimed "every
-  # document" -- and the commit that wrote it had already added a third
-  # statement, in CONTEXT.md, that the guard did not read. So the roster is
-  # computed: every document under the doc roots that spells the compose
-  # field `container_name:` is a document that talks about what base emits,
-  # and must name the deploy bundle too.
+  # The prose population is DERIVED FROM THE REPOSITORY, not listed at any
+  # granularity. A predecessor listed two FILES and missed a third
+  # (CONTEXT.md). Its successor listed four ROOTS -- README.md, CONTEXT.md,
+  # doc/readme, doc/adr -- and silently exempted everything outside them:
+  # an unqualified statement of the invariant appended to doc/PRD.md, false
+  # for the deploy bundle, left the guard green. So the scan starts at the
+  # repository root and states its boundary by subtraction instead:
   #
-  # doc/changelog/ is deliberately out of scope and stays out: it is a
-  # historical record whose released sections describe emitters that no
-  # longer exist, and rewriting a shipped entry to satisfy a present-tense
-  # invariant would falsify it.
-  local -a _roots=(
-    /source/README.md
-    /source/CONTEXT.md
-    /source/doc/readme
-    /source/doc/adr
-  )
-  local _r
-  for _r in "${_roots[@]}"; do
-    [[ -e "${_r}" ]] || fail \
-      "missing ${_r} -- a doc root this guard derives its prose population from"
-  done
-
+  #   doc/changelog/  a historical record. Its released sections describe
+  #                   emitters that no longer exist, and rewriting a shipped
+  #                   entry to satisfy a present-tense invariant would
+  #                   falsify it.
+  #   doc/test/       generated count tables, no prose.
+  #   .prev-release/  vendored copies of shipped tags; the same argument as
+  #                   the changelog, one directory up.
+  #   .git/ coverage/ not documents.
+  #
+  # Everything else in the tree is in scope, so a new document anywhere --
+  # doc/PRD.md, doc/deprecations.md, one not written yet -- is caught the
+  # day it states the invariant.
   local -a _docs=()
   local _d
   while IFS= read -r _d; do
     _docs+=("${_d}")
-  done < <(grep -rlF --include='*.md' 'container_name:' "${_roots[@]}" | sort)
+  done < <(find /source -name '*.md' \
+                -not -path '/source/.git/*' \
+                -not -path '/source/doc/changelog/*' \
+                -not -path '/source/doc/test/*' \
+                -not -path '/source/.prev-release/*' \
+                -not -path '/source/coverage/*' \
+                -print0 \
+             | xargs -0 grep -lF 'container_name:' | sort)
 
   # A derived roster that came back empty would certify every document at
-  # once. The floor: the two documents whose wording this branch wrote, the
-  # English README and ADR-00000022, must both be in it.
+  # once. The floor is derived too: the English README, CONTEXT.md and
+  # ADR-00000022 state the invariant, and so does every localized README --
+  # each is a translation of the English section, so the set is read off
+  # doc/readme/ rather than spelled out.
   local _readme="/source/README.md" _adr
   _adr="/source/doc/adr/00000022-compose-multirun-overlay-contract.md"
+  local -a _floors=("${_readme}" "/source/CONTEXT.md" "${_adr}")
+  local _l
+  while IFS= read -r _l; do
+    _floors+=("${_l}")
+  done < <(find /source/doc/readme -maxdepth 1 -name 'README.*.md' | sort)
+  (( ${#_floors[@]} > 3 )) || fail \
+    "doc/readme/ yielded no localized README: the floor derived nothing and cannot bound the roster"
+
   local _joined
   _joined="$(printf '%s\n' "${_docs[@]}")"
   local _floor
-  for _floor in "${_readme}" "${_adr}"; do
+  for _floor in "${_floors[@]}"; do
     grep -qxF -- "${_floor}" <<< "${_joined}" || fail \
       "${_floor} states the container_name invariant but the derived roster missed it: the scan found ${#_docs[@]} document(s) and cannot be trusted"
   done
@@ -267,9 +300,15 @@ CONF
   # matched the bare `just setup deploy`, which base has no recipe for --
   # so the guard's power came from the prose being WRONG, and correcting
   # the six sentences to the namespaced form falsified it.
+  #
+  # The token is required NEXT TO the claim, not anywhere in the file.
+  # README.md names `just docker setup deploy` nine times in its own
+  # field-deployment section, so a file-wide match would stay green with
+  # the exemption paragraph deleted. `_exemption_stated_with_claim` asks
+  # the narrower question the guard's name promises.
   for _d in "${_docs[@]}"; do
-    grep -qE -- 'just docker setup deploy|_generate_resolved_compose' "${_d}" || fail \
-      "${_d} states the container_name invariant without naming the deploy bundle it does not hold for"
+    _exemption_stated_with_claim "${_d}" || fail \
+      "${_d} states the container_name invariant without naming the deploy bundle it does not hold for, in the same paragraph or the one after it"
   done
 
   # The two English statements carry the exemption's PREDICATE as well: the
