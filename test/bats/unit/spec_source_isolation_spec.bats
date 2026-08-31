@@ -65,15 +65,29 @@
 # identical afterwards. There is nothing for an executed residue check to
 # find, and the failure is not residue at all -- it is a verdict half of
 # which someone else wrote. A static scan is the only shape that can see it
-# before it costs a gate run, and unlike the write roster it has ONE shape
-# to match (a live path as an operand of diff / cmp), which is why it did
-# not need widening in three rounds.
+# before it costs a gate run.
+#
+# What separates it from the write roster is not that it needs no widening
+# -- it DID need widening, and the claim that it did not was false: a review
+# planted six positions it named and could not see (`if`, `elif`, `while`,
+# `until`, a leading `!`, `run` with a flag), one of which is a live idiom
+# in this repo. What separates it is that its set is CLOSED and derivable.
+# The write roster enumerated commands that can write, which is every binary
+# that exists; this enumerates the places a shell can begin a command, which
+# is the shell's finite grammar. The positions are now taken from that
+# grammar and every one of them is planted in a case.
 #
 # It is an over-approximation on purpose -- `diff /source/a /source/b`
-# compares two live paths and is flagged as well -- and it is line-wise, so
-# a comparison whose operand is an alias, or is pushed onto a continuation
-# line, goes unseen. Being incomplete is acceptable HERE in a way it was not
-# for the write scan: nothing else was standing behind that one.
+# compares two live paths and is flagged as well.
+#
+# What it CANNOT see, measured rather than asserted, in the case named "the
+# comparison scan's disclosed blind spots really are blind": it is line-wise
+# and it matches a literal path, so a comparison split across a continuation
+# line, one whose command name arrives through a variable or an alias, and
+# one whose live operand is built out of a variable all go unseen. Being
+# incomplete is acceptable HERE in a way it was not for the write scan --
+# nothing else was standing behind that one -- but only while the disclosure
+# is the true one, which is why the blind spots have a case of their own.
 #
 # Why a spec and not a lint driver: test.sh's _LINT_TOOLS table is asserted
 # by self_test_yaml_spec to have a CI job per entry, so a driver costs a
@@ -102,12 +116,26 @@ setup() {
   SPEC_TREE="${LIVE_TREE}/test/bats"
   SPEC_TREE_FLOOR=100
 
-  # A command POSITION: start of line, or after a separator that opens one.
-  # Requiring it is what keeps a verb quoted inside somebody else's grep
-  # pattern out of the scan -- four such lines matched before this was
+  # A command POSITION, derived from the shell grammar rather than listed by
+  # taste. Requiring one is what keeps a verb quoted inside somebody else's
+  # grep pattern out of the scan -- four such lines matched before this was
   # added, and an invariant that cries wolf four times is one that gets
-  # deleted.
-  CMD_POS='(^|[;&|(){]|&&|\|\||\brun[[:space:]]+|\bthen[[:space:]]+|\bdo[[:space:]]+)[[:space:]]*'
+  # deleted. Listing them by taste is what made the scan blind to six
+  # spellings it named, so the set is now the grammar's:
+  #
+  #   - the start of a line;
+  #   - after a separator or opener: `;` `&` `|` `&&` `||` `(` `{`;
+  #   - after a reserved word that is FOLLOWED BY A COMMAND: `if` `elif`
+  #     `while` `until` `then` `else` `do` `time`. The other reserved words
+  #     either take a word rather than a command (`case` `for` `in`
+  #     `select` `function`) or close a construct (`fi` `done` `esac` `}`);
+  #   - after a negating `!`, which may follow any of the above;
+  #   - after bats' own `run`, with any run of its flags.
+  #
+  # That is what makes this set CLOSED where the deleted write roster's was
+  # open: the shell has a finite grammar, while the set of commands that can
+  # write a file is every binary that exists.
+  CMD_POS='(^|[;&|(){]|&&|\|\||\b(if|elif|while|until|then|else|do|time)[[:space:]]|\brun([[:space:]]+-[^[:space:]]+)*[[:space:]])[[:space:]]*(![[:space:]]*)?'
 
   # An OPERAND position: the live path as the first or the second argument,
   # after any run of option flags. `cmp "${SCRATCH}/x" /source/x` settles
