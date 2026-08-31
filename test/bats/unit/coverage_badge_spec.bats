@@ -67,6 +67,26 @@ _stamp_head() {
   } > "${_root}/coverage/.head-sha"
 }
 
+# A stand-in for the real `./script/test/test.sh <flag>` entry: a SCRIPT, so
+# it runs under the strict mode test.sh turns on only when executed directly
+# (and so ${BASH_SOURCE} is defined, which `bash -c` cannot offer). The
+# container run and both halves of the provenance stamp are stubbed to
+# markers, so what the test reads back is the ORDER the dispatch called them
+# in and nothing about kcov.
+#   $1 path  $2 body of the stubbed container run  $3 main invocation
+_dispatch_script() {
+  local _path="${1}" _run_body="${2}" _invocation="${3}"
+  cat > "${_path}" <<EOS
+#!/usr/bin/env bash
+source /source/script/test/test.sh
+set -euo pipefail
+_invalidate_coverage_head() { printf 'INVALIDATE %s\\n' "\${1:-}"; }
+_run_via_compose() { printf 'RUN\\n'; ${_run_body}; }
+_stamp_coverage_head() { printf 'STAMP %s\\n' "\${2:-}"; }
+${_invocation}
+EOS
+}
+
 # Minimal kcov-style cobertura.xml at $1 with $2 covered of $3 valid
 # per-line <line> elements (the gate merges by per-line union, so the
 # elements -- not the root counters -- are what it reads).
@@ -303,6 +323,69 @@ _make_cobertura() {
   assert_output --partial "scope=shard 2/4"
 }
 
+@test "coverage_badge: the coverage run drops the old certificate before it starts" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  _stamp_head "${_root}" "full"
+
+  # The eraser half of the pair. The reports in coverage/ are rewritten by
+  # every run; the certificate next to them is not, so it has to be
+  # removed at the start of a run rather than merely overwritten at the
+  # end of one.
+  run bash -c 'source /source/script/test/test.sh; _invalidate_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  [ ! -f "${_root}/coverage/.head-sha" ]
+
+  # A tree that never carried a stamp is not an error: the writer is
+  # best-effort by design and the eraser has to match it, or a repo with
+  # no previous coverage run could not run one.
+  run bash -c 'source /source/script/test/test.sh; _invalidate_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  [ ! -f "${_root}/coverage/.head-sha" ]
+}
+
+@test "coverage_badge: a failed coverage run leaves no certificate behind" {
+  # The stamp is written only AFTER the container run returns 0, and a
+  # coverage run fails for the most ordinary reason there is: a red spec.
+  # kcov has already written its report by then (the driver preserves
+  # bats' exit code on purpose), so coverage/ holds fresh, partial numbers
+  # while the writer is never reached. If the previous run's certificate
+  # were still sitting there, those numbers would inherit it -- matching
+  # sha, clean worktree, `scope=full` -- and the badge would publish a
+  # shard's rate under the release's name. Ctrl-C has the same shape.
+  #
+  # So the dispatch erases the certificate BEFORE the run and writes it
+  # only on success: the failure mode becomes "no evidence", which the
+  # generator refuses on, instead of "stale evidence", which it trusts.
+  _dispatch_script "${SCRATCH}/failing.sh" 'return 1' 'main --coverage-shard 1/4'
+  run bash "${SCRATCH}/failing.sh"
+  [ "${status}" -ne 0 ]
+  assert_output --partial "INVALIDATE /source"
+
+  # Presence, order and absence in one reading: the erase precedes the
+  # run (erasing after it would be no erasure at all) and no certificate
+  # is written for a run that failed.
+  local _order
+  _order="$(printf '%s\n' "${output}" \
+    | grep -E '^(INVALIDATE|RUN|STAMP)' | cut -d' ' -f1 | tr '\n' ',')"
+  [ "${_order}" = "INVALIDATE,RUN," ]
+}
+
+@test "coverage_badge: a coverage run that succeeds still writes its certificate" {
+  # The other side of the same rule: invalidation must not cost the
+  # successful path its stamp, or every release would refuse.
+  _dispatch_script "${SCRATCH}/passing.sh" 'return 0' 'main --coverage'
+  run bash "${SCRATCH}/passing.sh"
+  [ "${status}" -eq 0 ]
+
+  local _order
+  _order="$(printf '%s\n' "${output}" \
+    | grep -E '^(INVALIDATE|RUN|STAMP)' | cut -d' ' -f1 | tr '\n' ',')"
+  [ "${_order}" = "INVALIDATE,RUN,STAMP," ]
+}
+
 @test "coverage_badge: --coverage-shard tells the stamp which partition ran" {
   # The joint between the two halves: the writer can only record a
   # partition if the dispatch passes it one. Stub the container run and
@@ -310,6 +393,7 @@ _make_cobertura() {
   run bash -c '
     source /source/script/test/test.sh
     _run_via_compose() { :; }
+    _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { printf "root=[%s] shard=[%s]\n" "${1:-}" "${2:-}"; }
     main --coverage-shard 1/4
   '
@@ -324,6 +408,7 @@ _make_cobertura() {
   run bash -c '
     source /source/script/test/test.sh
     _run_via_compose() { :; }
+    _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { printf "root=[%s] shard=[%s]\n" "${1:-}" "${2:-}"; }
     main --coverage
   '
@@ -545,4 +630,31 @@ _make_cobertura() {
   _version="$(cat "${REPO}/.version")"
   run grep -F "${_version}" "${REPO}/doc/badge/coverage.svg"
   [ "${status}" -eq 0 ]
+}
+
+@test "coverage_badge: every README records the release step as hand-run, not the bump's" {
+  # The directory tree in README.md and its three translations carries a
+  # doc/badge/ line, and it said the badge is regenerated by the release
+  # bump. There is no such caller: `release-bump.sh` lives in
+  # `docker_harness` and the wiring is docker_harness#289. The ADR, the
+  # recipe and the generator header were corrected for exactly that; the
+  # four documents a reader opens FIRST were not.
+  #
+  # Anchor on the claim, not on a blacklist of phrasings: the line has to
+  # say the step is hand-run and name the issue that will change that, so
+  # a rewrite back to a shipped-fact reading goes red in any language.
+  local _f
+  for _f in "${REPO}/README.md" "${REPO}"/doc/readme/README.*.md; do
+    run grep -c -- '── badge/' "${_f}"
+    [ "${output}" -eq 1 ]
+
+    run grep -- '── badge/' "${_f}"
+    [ "${status}" -eq 0 ]
+    assert_output --partial 'hand-run'
+    assert_output --partial 'docker_harness#289'
+
+    run grep -nEi 'regenerated by the release bump|the release bump regenerates' \
+      "${_f}"
+    [ "${status}" -ne 0 ]
+  done
 }
