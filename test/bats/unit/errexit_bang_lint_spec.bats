@@ -235,6 +235,25 @@ _write() {
   [[ "${output}" == *"test"* ]]
 }
 
+@test "_run_errexit_bang: FAILS on a body the parser opened and never closed (#956)" {
+  # Pending `!` statements are judged only when a `}` in the first column
+  # arrives. A body that never produces one -- an indented closing brace, a
+  # `}` eaten by an untracked heredoc, a truncated file -- reaches the end
+  # of the read loop still open, and its pending statements are discarded
+  # in silence. The header cross-check cannot see it: the header WAS
+  # opened, so both counts agree. An unparseable file must be a failure,
+  # never a quiet skip.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "the closing brace is indented" {' \
+    '  ! test -e /definitely/not/here' \
+    '  true' \
+    '  }'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:1"* ]]
+  [[ "${output}" == *"unclosed"* ]]
+}
+
 @test "_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)" {
   # The population cross-check: every `@test` line in the tree must
   # correspond to a body the parser actually walked. A header whose brace
