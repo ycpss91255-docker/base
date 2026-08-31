@@ -438,6 +438,15 @@ Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
 kcov. Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
+Every compose dispatch snapshots the checkout either side of the run and
+fails naming any path the suite changed: a spec may READ the live tree,
+but a write there makes every other spec's read racy under the 32-way
+parallel suite. An edit you already had in flight appears in both
+snapshots and cancels, so a dirty working tree is fine; an edit made
+WHILE the suite runs cannot be told apart from a spec's write, and
+TEST_RESIDUE_GUARD=0 switches the guard off for that one invocation. It
+is inert outside a git checkout (a released tarball).
+
 Examples:
   ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
@@ -831,6 +840,143 @@ _resolve_compose_project_name() {
   return 0
 }
 
+# ── Live-tree residue guard ──────────────────────────────────────────────────
+#
+# The authoritative answer to "did the suite write into the checkout it does
+# not own". A spec that writes there makes every OTHER spec's read of the
+# live tree racy: the suite runs 32-way parallel, often beside a sibling
+# checkout's gate, so a write in the window flips a verdict on correct code.
+# Two specs lost that race and cost two or three full gate runs per landed
+# branch.
+#
+# Why this shape and not a scan of the specs. The scan that came first
+# enumerated the commands a write could be spelled with, and every review of
+# it found another spelling it claimed and could not see -- a third operand
+# of `mv`, `dd`'s `of=`, `rsync` named in no pattern at all -- plus
+# `install` flagged for READING the tree. A roster of spellings is never
+# finished. This asks the filesystem instead: whatever wrote, however it was
+# spelled, through an alias or a subshell or a tool this repo has never
+# heard of, the bytes moved and the snapshot moved with them. It also cannot
+# fire on the suite's own setup, which is what made the scan's cp / ln rule
+# delicate -- reading the live tree leaves nothing behind.
+#
+# THE COST, and the reason for two snapshots rather than one. A bare "is the
+# tree clean afterwards" check needs a clean tree to start from and would
+# red every developer with work in flight -- and a gate that cries wolf on a
+# dirty working tree is switched off within the week. Comparing the
+# snapshots taken either side of the run makes an in-flight edit appear in
+# BOTH and cancel, so the guard speaks only about what changed DURING the
+# run. What it cannot cancel is an edit made WHILE the suite runs; that one
+# has the TEST_RESIDUE_GUARD=0 escape hatch, and the failure message names
+# it at the moment a developer needs it.
+#
+# What it deliberately does not cover: a spec that writes into the checkout
+# and removes its own traces before the phase ends. The race window is real
+# and invisible here. Closing it means snapshotting per SPEC rather than per
+# run, which costs a `git status` per spec instead of one per phase, and it
+# is a change to the in-container bats driver rather than to this host-side
+# wrapper. Second: this names PATHS, not the spec that wrote them -- with 32
+# jobs in flight there is no attribution to be had at the phase boundary,
+# and a `grep -rn` over test/bats/ turns a path into a spec in one step.
+
+# _residue_guard_available <repo>
+#   Whether the guard can speak about <repo> at all. A released tarball is
+#   not a checkout, and a suite that refuses to run where git is not is a
+#   worse outcome than an unguarded run, so absence costs nothing.
+_residue_guard_available() {
+  local _repo="${1:?BUG: _residue_guard_available expects <repo>}"
+  [[ "${TEST_RESIDUE_GUARD:-1}" != "0" ]] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "${_repo}" rev-parse --git-dir >/dev/null 2>&1
+}
+
+# _residue_snapshot <repo>
+#   One sorted TAB-separated record per path git reports as changed:
+#   `<xy>\t<hash>\t<path>`. Ignored paths are absent, which is how the
+#   trees the suite legitimately writes -- coverage/, log/, .prev-release/
+#   -- stay out of it: the list is .gitignore's, not a second allowlist
+#   here that would have to be remembered separately.
+#
+#   The CONTENT HASH is what makes a record more than git's status code. A
+#   spec overwriting a file the developer had already modified leaves the
+#   status line ` M <path>` identical in both snapshots; only the hash
+#   moves. The path is the LAST field and is read NUL-separated, so a name
+#   containing a space -- which porcelain output would otherwise quote --
+#   survives whole.
+#
+#   Failing to read the tree is a FAILURE, never an empty snapshot: two
+#   empty snapshots agree, and agreeing is exactly what this guard reports
+#   as "nothing happened".
+_residue_snapshot() {
+  local _repo="${1:?BUG: _residue_snapshot expects <repo>}"
+  local _raw _rc=0
+  _raw="$(mktemp)"
+  if ! git -C "${_repo}" status --porcelain --untracked-files=all -z > "${_raw}"; then
+    rm -f "${_raw}"
+    return 1
+  fi
+  local _entry _code _path _hash
+  while IFS= read -r -d '' _entry; do
+    _code="${_entry:0:2}"
+    _path="${_entry:3}"
+    # A rename / copy record is followed by its ORIGIN path in a field of
+    # its own. Consume it here, or every later record reads one field out
+    # of step -- and a scan that silently loses its place names the wrong
+    # paths, which is worse than naming none.
+    case "${_code}" in
+      R?|C?|?R|?C) IFS= read -r -d '' _ || true ;;
+    esac
+    # Directories, symlinks and deleted paths have no blob to hash; their
+    # status code already carries the whole change.
+    if [[ -f "${_repo}/${_path}" && ! -L "${_repo}/${_path}" ]]; then
+      _hash="$(git -C "${_repo}" hash-object -- "${_path}" 2>/dev/null)" \
+        || _hash="unreadable"
+    else
+      _hash="-"
+    fi
+    printf '%s\t%s\t%s\n' "${_code}" "${_hash}" "${_path}"
+  done < "${_raw}" | LC_ALL=C sort || _rc=$?
+  rm -f "${_raw}"
+  return "${_rc}"
+}
+
+# _residue_paths <before> <after>
+#   The paths whose record differs between the two snapshots, one per line.
+#   Both directions: a record that APPEARED is a write, and one that
+#   DISAPPEARED is the suite putting back something the developer had
+#   changed. `comm -3` prefixes its second column with a tab, so that is
+#   stripped before the path (field 3 to end of line, tabs and all) is cut.
+_residue_paths() {
+  local _before="${1:?BUG: _residue_paths expects <before>}"
+  local _after="${2:?BUG: _residue_paths expects <after>}"
+  LC_ALL=C comm -3 "${_before}" "${_after}" \
+    | sed 's/^\t//' \
+    | cut -f3- \
+    | LC_ALL=C sort -u
+}
+
+# _residue_check <before-snapshot> <repo>
+#   Take the AFTER snapshot and report. Returns 1 and names every path when
+#   the run changed the checkout.
+_residue_check() {
+  local _before="${1:?BUG: _residue_check expects <before-snapshot>}"
+  local _repo="${2:?BUG: _residue_check expects <repo>}"
+  local _after _paths
+  _after="$(mktemp)"
+  if ! _residue_snapshot "${_repo}" > "${_after}"; then
+    rm -f "${_after}"
+    _log_err ci ci_live_tree_residue \
+      "display=Could not read the checkout after the test run, so whether it was left unchanged is unknown; treating that as a failure rather than as a clean tree."
+    return 1
+  fi
+  _paths="$(_residue_paths "${_before}" "${_after}")"
+  rm -f "${_after}"
+  [[ -n "${_paths}" ]] || return 0
+  _log_err ci ci_live_tree_residue \
+    "display=The test run changed the checkout it does not own: $(printf '%s' "${_paths}" | tr '\n' ' '). A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. An edit you already had in flight before the run cancels and is never listed, so these paths changed WHILE the suite ran; if that edit was YOURS, re-run this one invocation with TEST_RESIDUE_GUARD=0."
+  return 1
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -899,6 +1045,26 @@ _run_via_compose() {
   _image="$(_resolve_test_tools_image)"
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
+  # The BEFORE half of the residue guard, taken here and not in main: this
+  # is the ONE host-side point every bats dispatch passes through -- the
+  # local gate, each CI shard, the fragile set, a single --bats-path run --
+  # and it is host-side, which the guard needs. A worktree checkout's `.git`
+  # is a FILE naming a gitdir outside the bind mount, so no in-container git
+  # command can read this tree at all.
+  #
+  # It goes AFTER the image build and the fixture preparation on purpose:
+  # `.prev-release/` is ignored, but the snapshot should describe the tree
+  # the CONTAINER is handed, not the one this function was entered with.
+  local _residue_before=""
+  if _residue_guard_available "${REPO_ROOT}"; then
+    _residue_before="$(mktemp)"
+    _residue_snapshot "${REPO_ROOT}" > "${_residue_before}"
+  fi
+  # The compose status is captured rather than left to errexit so the
+  # residue check still runs after a FAILING suite -- a run that both failed
+  # and wrote into the checkout has two things to say, and the second one
+  # explains re-runs that disagree with each other.
+  local _rc=0
   docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
@@ -912,7 +1078,12 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
-    "${_service}"
+    "${_service}" || _rc=$?
+  if [[ -n "${_residue_before}" ]]; then
+    _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
+    rm -f "${_residue_before}"
+  fi
+  return "${_rc}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
