@@ -267,6 +267,12 @@ _replay_harness_log() {
   # that crashed on its first line also never prints ACTED. So the window
   # ends by asking whether the monitor is still there, which separates "it
   # deferred" from "it was never running to defer".
+  #
+  # That question goes through _proc_gone, not through a bare `kill -0`.
+  # This is the direction where the unsound glance costs a FALSE GREEN: a
+  # monitor that crashed and has not been reaped still answers the glance,
+  # so the vacuity check the window ends with would report the crash as
+  # "still deferring" and the case would pass having observed nothing.
   _run_bounded 30 "
     . '${WD}'
     export WATCHDOG_CHECK='false'
@@ -275,7 +281,7 @@ _replay_harness_log() {
     ( _watchdog_monitor ) &
     _pid=\$!
     sleep 2
-    if kill -0 \${_pid} 2>/dev/null; then echo STILL_DEFERRING; else echo MONITOR_GONE; fi
+    if _proc_gone \${_pid}; then echo MONITOR_GONE; else echo STILL_DEFERRING; fi
     kill \${_pid} 2>/dev/null || true
     echo DONE
   "
@@ -730,6 +736,19 @@ EOF
   # The helpers are defined inside the harness text because that is where
   # they run; evaluated here so the case can ask one directly.
   eval "${_SYNC_FN}"
+  # The predicate first, in both directions: an unreaped pid is gone, and a
+  # process that is genuinely running is not. Without the second half this
+  # would pass against a predicate that calls everything gone -- which in
+  # the deferral case above, where the question is asked the other way
+  # round, is a FALSE GREEN rather than a false red.
+  _proc_gone "${_zombie}" || fail \
+    "_proc_gone calls an exited, unreaped process alive"
+  sleep 30 &
+  local _live=$!
+  ! _proc_gone "${_live}" || fail \
+    "_proc_gone calls a running process gone, which turns the vacuity check in the deferral case into a green that observed nothing"
+  kill "${_live}" 2>/dev/null || true
+  _reap_child "${_live}"
   _await_gone "${_zombie}" 1 || fail \
     "_await_gone calls an exited, unreaped process alive: every subtree case in this file then reports ORPHAN_ALIVE whenever the reap happens to be late, which is a verdict about the machine's load and not about the product"
 }
