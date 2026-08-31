@@ -128,18 +128,25 @@ _await_gone() {
 # ${TMP_DIR}/<name>.pgid, and setsid made it the group leader, so its pid IS
 # the group. Reading them from the directory rather than being handed one is
 # what lets this cover whatever a case happened to start, without the case
-# restating it. The single-pid fallback covers a userland with no setsid,
-# where there is no group to signal. Signalling a pid the supervisor already
-# reaped is a no-op: pids are handed out in increasing order and a container
-# would have to fork through the whole pid space between the reap and this
-# line to hand it to a stranger.
+# restating it.
+#
+# ONLY ever a group, never a bare pid. By the time this runs the product has
+# usually already reaped the service, so "the id names nothing" is the
+# common path -- and a container running 32 jobs forks hard enough that the
+# id can by then belong to a stranger in another job. Requiring the target
+# to be a GROUP is what makes that safe: only a process that called setsid
+# leads one, and every case that records an id skips where there is no
+# setsid, so a single-pid fallback would have covered nothing and could have
+# hit anything. The `kill -0` first narrows it further, from "the id was
+# recorded at some point during this case" to the instant of the signal.
 _kill_case_groups() {
   local _f _p
   for _f in "${TMP_DIR}"/*.pgid; do
     [[ -e "${_f}" ]] || continue
     _p="$(cat "${_f}" 2>/dev/null || true)"
     [[ -n "${_p}" ]] || continue
-    kill -KILL "-${_p}" 2>/dev/null || kill -KILL "${_p}" 2>/dev/null || true
+    kill -0 "-${_p}" 2>/dev/null || continue
+    kill -KILL "-${_p}" 2>/dev/null || true
   done
 }
 
