@@ -346,6 +346,47 @@ _make_cobertura() {
   [ ! -f "${_root}/coverage/.head-sha" ]
 }
 
+@test "coverage_badge: a certificate that outlives its erasure fails the run" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+
+  # The eraser used to be best-effort, justified as "a checkout with no
+  # coverage/ has nothing to invalidate". But `rm -f` on a missing path
+  # already succeeds, so the swallow bought nothing for the case it
+  # named. The only statuses it could swallow -- EACCES, EISDIR, EIO --
+  # are precisely the ones where the certificate SURVIVES, and best-effort
+  # points the wrong way here: a missing stamp makes the generator refuse
+  # (safe), a surviving one makes it publish (not).
+  #
+  # The state is reachable through the workflow the generator header
+  # documents: CI shard artifacts unpacked locally as root, a `scope=full`
+  # stamp written alongside them by hand, then `just test coverage`. An
+  # occupied stamp path stands in for it, and stands in for the
+  # write-protected coverage/ too -- both are a stamp that is still there
+  # when the run starts.
+  rm -f "${_root}/coverage/.head-sha"
+  mkdir -p "${_root}/coverage/.head-sha/occupied"
+
+  run bash -c 'source /source/script/test/test.sh; _invalidate_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -ne 0 ]
+  [ -e "${_root}/coverage/.head-sha" ]
+
+  # And the dispatch stops there. Running on would produce exactly the
+  # state the erasure exists to prevent: fresh partial reports under a
+  # certificate written before them.
+  run bash -c '
+    source /source/script/test/test.sh
+    REPO_ROOT="'"${_root}"'"
+    _run_via_compose() { printf "RUN\n"; }
+    _stamp_coverage_head() { printf "STAMP\n"; }
+    main --coverage
+  '
+  [ "${status}" -ne 0 ]
+  refute_output --partial "RUN"
+  refute_output --partial "STAMP"
+}
+
 @test "coverage_badge: a failed coverage run leaves no certificate behind" {
   # The stamp is written only AFTER the container run returns 0, and a
   # coverage run fails for the most ordinary reason there is: a red spec.
