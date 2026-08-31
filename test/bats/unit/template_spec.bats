@@ -459,29 +459,37 @@ setup() {
   # answerer to "what is this container called". Compose owns that name now;
   # nothing in the wrappers may assemble one to compare against.
   #
-  # This asserts a ROSTER, not a spelling. The predecessor grepped for the
-  # single literal `${USER_NAME}-${IMAGE_NAME}`, which any other spelling
-  # of the same reconstruction walked straight past -- `$USER_NAME-$IMAGE_NAME`,
-  # or a two-step `_name="${USER_NAME}"; _name+="-${IMAGE_NAME}"`. What the
-  # reconstruction actually needs is to READ USER_NAME inside a wrapper, and
-  # in these three files exactly one line legitimately does (run.sh's xhost
-  # grant, where the OS user is an X11 identity, not a container to look up).
-  # So the guard pins that roster: a new USER_NAME read here fails, and
-  # whoever adds it says which kind it is. The three files are the ones that
-  # carried the precheck / guard; the wrapper tree's other USER_NAME readers
-  # (setup_tui's prompt strings) are message text, not lookups.
-  local -a _files=(
-    /source/dist/script/docker/wrapper/exec.sh
-    /source/dist/script/docker/wrapper/run.sh
-    /source/dist/script/docker/lib/wrapper.sh
-  )
+  # The population is DERIVED, never listed. A predecessor of this guard
+  # named three files -- exec.sh, run.sh, lib/wrapper.sh -- while calling
+  # itself "no wrapper", so the other four shipped wrappers were exempt,
+  # stop.sh among them: the most natural place for a stop-by-name lookup to
+  # reappear. The guard's job is to notice TOMORROW's wrapper, so it reads
+  # the wrapper directory at run time and adds the shared library the
+  # wrappers dispatch through.
+  local _wrapper_dir="/source/dist/script/docker/wrapper"
+  [[ -d "${_wrapper_dir}" ]] \
+    || fail "missing ${_wrapper_dir} -- the wrapper tree this guard derives its population from"
+
+  local -a _files=()
   local _f
+  while IFS= read -r _f; do
+    _files+=("${_f}")
+  done < <(find "${_wrapper_dir}" -maxdepth 1 -type f -name '*.sh' | sort)
+  _files+=("/source/dist/script/docker/lib/wrapper.sh")
+
+  # A derived population that came back empty is the vacuous pass this guard
+  # exists to refuse, so the roster asserts a floor before it is scanned: at
+  # least one wrapper found, and every entry a real file. The positive
+  # control further down is the second floor -- it names reads that live in
+  # two DIFFERENT wrappers, so a roster that shrank to one file fails there.
+  (( ${#_files[@]} > 1 )) \
+    || fail "${_wrapper_dir} holds no *.sh: the roster derived nothing to scan"
   for _f in "${_files[@]}"; do
     assert_spec_subject "${_f}" \
         "a wrapper this guard scans for a rebuilt container name"
   done
 
-  # grep exit 2 (unreadable path) must never read as "no match". The
+  # grep exit 2 (unreadable path) must never read as "no match". A
   # predecessor captured stdout with `|| true`, so a renamed scan root --
   # nothing scanned -- passed as clean.
   local _out _rc=0
@@ -494,21 +502,34 @@ setup() {
     | awk '{ _l = $0; sub(/^[^:]*:[0-9]+:/, "", _l)
              if (_l !~ /^[[:space:]]*#/ && _l != "") print }')"
 
-  local _unexpected
-  _unexpected="$(printf '%s\n' "${_code}" \
-    | grep -v '^[[:space:]]*$' \
-    | grep -vF 'xhost "+SI:localuser:${USER_NAME}"' || true)"
-  [[ -z "${_unexpected}" ]] || {
+  # The two reviewed reads, each a use of the OS user that is not a
+  # container lookup: run.sh's xhost grant (an X11 identity) and
+  # setup_tui's mount-spec prompt (message text, one per locale). They are
+  # allowlisted by STRIPPING THE TOKEN, not by dropping the line: dropping
+  # the line exempts anything that shares it, and appending
+  # `; _legacy="${USER_NAME}-${IMAGE_NAME}"` to the xhost line walked past
+  # the predecessor untouched.
+  local -a _allowed=(
+    'xhost "+SI:localuser:${USER_NAME}"'
+    '/home/${USER_NAME}/data:rw'
+  )
+  local _a
+  for _a in "${_allowed[@]}"; do
+    grep -qF -- "${_a}" <<< "${_code}" \
+      || fail "allowlisted USER_NAME read is gone: ${_a} -- the roster scanned nothing, or the allowlist went stale"
+  done
+
+  local _residue _rc2=0
+  _residue="$(printf '%s\n' "${_code}" \
+    | sed -e 's|xhost "+SI:localuser:${USER_NAME}"||g' \
+          -e 's|/home/${USER_NAME}/data:rw||g' \
+    | grep -n 'USER_NAME')" || _rc2=$?
+  (( _rc2 <= 1 )) || fail "grep exited ${_rc2} filtering the allowlisted reads"
+  [[ -z "${_residue}" ]] || {
     echo "unreviewed USER_NAME read in a wrapper (name reconstruction?):"
-    echo "${_unexpected}"
+    echo "${_residue}"
     return 1
   }
-
-  # The allowlisted line must still be found. Without this, an allowlist
-  # whose entry stopped matching would silently widen into "nothing is
-  # checked" -- the same vacuous pass this guard was rewritten to close.
-  [[ "${_code}" == *xhost* ]] \
-    || fail "the allowlisted xhost line is gone: the roster scanned nothing"
 }
 
 @test "exec.sh precheck error mentions run.sh hint" {
