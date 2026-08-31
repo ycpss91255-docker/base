@@ -12,7 +12,8 @@
 # (sourced lib, uses ${REPO_ROOT}, _log_* / _die, no main).
 #
 # Why the column is required. The catalogs under doc/test/ carry a
-# Description column that 40% of rows filled with the `-` placeholder
+# Description column that 41% of rows -- 714 of the 1736 then in scope,
+# measured 2026-08-26 -- filled with the `-` placeholder
 # sync-doc-counts.sh writes when it has nothing. That was not a decision
 # anybody made -- two specs landing the same week, same generator and same
 # review bar, came out opposite ways because nothing said which was
@@ -60,11 +61,15 @@
 # rows the catalogue had never listed and the rule had therefore never
 # reached.
 #
-# Every other figure in this header is a measurement of a past tree and
-# carries its date, because no checkout can re-measure one. The live ones
-# -- that count, and the section count in the exemptions paragraph below
-# -- are pinned by catalog_description_lint_spec.bats against the files
-# that declare them.
+# Every figure in this header is one of two things. Either it is LIVE and
+# read back from the file that declares it by
+# catalog_description_lint_spec.bats -- that count, the section count in
+# the exemptions paragraph below, and the sections and tests
+# doc/test/system.md accounts for in the reach paragraph -- or it is a
+# measurement of a past tree and carries the date it was taken, because no
+# checkout can re-measure one. That division is not a convention anybody
+# has to remember: the spec reads this header paragraph by paragraph and a
+# figure that is neither dated nor pinned is a failing test.
 #
 # Failing all of them at once turns CI red until every one has a sentence,
 # which blocks everyone on a backfill nobody asked for -- and a rushed
@@ -78,8 +83,9 @@
 # it is the property the whole design turns on: renaming or moving a test
 # drops it out of the baseline and forces a description. Touch it, describe
 # it; leave it alone, leave it alone. Keying by name alone was rejected --
-# three test names in this tree already live in two specs at once, so one
-# baseline line would excuse a row nobody ever looked at.
+# test names in this tree already live in two specs at once, so one
+# baseline line would excuse a row nobody ever looked at. The spec holds
+# that reason to the tree rather than to the day it was written.
 #
 # ── What keeps the baseline shrink-only ─────────────────────────────────
 #
@@ -101,8 +107,8 @@
 #      is "this much description debt is left". Raising that number is one
 #      reviewable line in the diff, and it is the entire ask: the number
 #      may only ever go DOWN.
-#   3. The entries must be sorted (LC_ALL=C) and unique. A 1500-line file is
-#      only reviewable while its diff is one line per change; unsorted, an
+#   3. The entries must be sorted (LC_ALL=C) and unique. A baseline this
+#      size is only reviewable while its diff is one line per change; unsorted, an
 #      insertion hides anywhere, and a duplicate overstates the debt so
 #      that deleting one copy looks like progress.
 #
@@ -170,9 +176,9 @@
 # those sections account for.
 #
 # That much is a statement about the documents that are THERE, which is
-# the reach a `find` can bound. Deleting doc/test/system.md took its 3
-# sections and 12 tests out of the rule with this lint and the doc-counts
-# drift gate both green -- the drift gate maps doc name to spec glob
+# the reach a `find` can bound. Deleting doc/test/system.md would take its
+# 3 sections and the 13 tests the index credits it with out of the rule
+# with this lint and the doc-counts drift gate both green -- the drift gate maps doc name to spec glob
 # through a hand-kept case, so it never misses a document that is absent,
 # and a clean line with no denominator cannot notice either. So the SET of
 # catalogues is declared rather than discovered: doc/test/TEST.md's index

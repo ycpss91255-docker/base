@@ -201,6 +201,14 @@ _bats_sections_in() {
   printf '%s' "${_n}"
 }
 
+# _driver_header_text <file> -- the file's leading comment block as one
+# line, comment markers stripped. Assertions over prose read this rather
+# than the raw file: where a sentence wraps is a formatting choice, and a
+# pin that a re-wrap can break is a pin people delete.
+_driver_header_text() {
+  awk 'NR > 1 && !/^#/ { exit } { sub(/^# ?/, ""); printf "%s ", $0 }' "${1}"
+}
+
 # _index_credit <doc> -- how many tests doc/test/TEST.md's index credits
 # doc/test/<doc> with. The index is regenerated from the spec files and
 # drift-gated, so it is the tree's own answer rather than this spec's
@@ -423,10 +431,12 @@ refute_finding() {
   # The same silence spelled with letters. The rows are DERIVED from
   # _CATALOG_DESC_NON_ANSWERS_RE rather than retyped, so a token added
   # tomorrow is exercised the day it is added rather than the day
-  # somebody remembers this case -- three of the seven were unexercised
-  # under the hand-written fixture this replaces, and cutting the list to
+  # somebody remembers this case -- four of the seven were unexercised
+  # under the hand-written fixture this replaces (it fed `n/a`, `TBD` and
+  # `TODO`, leaving `na`, `nil`, `none` and `unknown`), and cutting the
+  # list to
   # `n/a|tbd|todo` left the spec green while `nil`, `none` and `unknown`
-  # went back to passing.
+  # went back to passing -- `na` stays caught by the word rule either way.
   local -a _tokens=()
   mapfile -t _tokens < <(_non_answer_tokens)
   # Deriving the fixture from the rule means SHRINKING the rule would
@@ -1226,9 +1236,15 @@ refute_finding() {
   [[ "${_exempt_n}" =~ ^[0-9]+$ ]] \
     || fail "the exemptions file declares no single '# entries: <n>': ${_exempt_n}"
   local _driver='/source/script/test/drivers/catalog_description.sh'
-  grep -qF "The baseline parks ${_baseline_n} rows" "${_driver}" \
+  local _header
+  _header="$(_driver_header_text "${_driver}")"
+  [[ -n "${_header}" ]] \
+    || { fail "the driver header is empty -- nothing was read to check"; return 1; }
+  printf '%s\n' "${_header}" \
+    | grep -qF "The baseline parks ${_baseline_n} rows" \
     || fail "the driver header does not say the baseline parks ${_baseline_n} rows"
-  grep -qF "${_exempt_n} sections declared outside the per-test rule" "${_driver}" \
+  printf '%s\n' "${_header}" \
+    | grep -qF "${_exempt_n} sections declared outside the per-test rule" \
     || fail "the driver header does not say ${_exempt_n} sections are declared out"
   # The illustration the reach paragraph turns on. Both halves come from
   # the tree: the sections from the document itself, the tests from the
@@ -1238,8 +1254,8 @@ refute_finding() {
   local _system_sections _system_tests
   _system_sections="$(_bats_sections_in 'system.md')"
   _system_tests="$(_index_credit 'system.md')"
-  grep -qF "its ${_system_sections} sections and the ${_system_tests} tests" \
-    "${_driver}" \
+  printf '%s\n' "${_header}" \
+    | grep -qF "its ${_system_sections} sections and the ${_system_tests} tests" \
     || fail "the driver header does not say doc/test/system.md accounts for ${_system_sections} sections and ${_system_tests} tests"
 }
 
