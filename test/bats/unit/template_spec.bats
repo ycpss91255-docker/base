@@ -448,9 +448,18 @@ setup() {
   # The question is asked of the PROJECT now, not of the daemon's global
   # container-name namespace: with no container_name emitted, a derived name
   # is compose's to compute, and `compose ps` is where it is already known.
-  run grep -F '_wrapper_service_running' /source/dist/script/docker/wrapper/exec.sh
+  #
+  # Over CODE lines, not the whole file. A plain grep for the identifier
+  # passed with the precheck deleted outright, so long as the name survived
+  # in a comment -- and exec.sh carries several comment paragraphs
+  # discussing the probe it replaced, which makes a leftover mention the
+  # likely shape of a real deletion rather than a contrived one. The
+  # assertion is the CALL, in the refusal's own condition, not the bare
+  # identifier.
+  run code_grep -F '&& ! _wrapper_service_running "${TARGET}"; then' \
+    /source/dist/script/docker/wrapper/exec.sh
   assert_success
-  run grep -E '_compose_project ps' /source/dist/script/docker/lib/wrapper.sh
+  run code_grep -E '_compose_project ps' /source/dist/script/docker/lib/wrapper.sh
   assert_success
 }
 
