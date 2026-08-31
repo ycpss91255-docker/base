@@ -62,13 +62,18 @@
 # Known limitation, stated rather than papered over: a heredoc body
 # inside a test is not tracked. A fixture line beginning with `! ` inside
 # one reads as a statement (a false alarm the allow region answers), and
-# a `}` at column 0 inside one closes the body early, taking the rest of
-# it out of the rule's reach (a MISSED violation, which nothing here
-# would tell you about). The tree has neither today, and a heredoc
-# tracker would be a second bash parser.
+# a `}` at column 0 inside one closes the body early, taking the REST of
+# that body out of the rule's reach (a MISSED violation). The tree has
+# neither today, and a heredoc tracker would be a second bash parser.
+# The converse shape -- a heredoc that swallows the body's real closing
+# brace -- is no longer silent: it leaves the body open at EOF, which the
+# population check below reports.
 #
-# Population: the find must SUCCEED (its status is captured, not thrown
-# away by a pipeline) and must yield at least one spec, and every `@test`
+# Population: every body opened must also CLOSE (a body still open at EOF
+# is reported, never discarded -- the pending statements of an unclosed
+# body are exactly the ones the rule is about), the find must SUCCEED
+# (its status is captured, not thrown away by a pipeline) and must yield
+# at least one spec, and every `@test`
 # header found by a plain text scan must correspond to a body this parser
 # actually opened. Without that cross-check a header whose `{` sits on the
 # next line would make its whole body invisible and the lint would pass by
@@ -131,7 +136,7 @@ _errexit_bang_scan_file() {
   local -n _ebsf_rows="${3}"
   local -n _ebsf_headers="${4}"
 
-  local _line _lineno=0 _in_body=0 _prev_cont=0 _cont=0
+  local _line _lineno=0 _in_body=0 _prev_cont=0 _cont=0 _body_open=0
   local _last_stmt=0 _in_allow=0 _begin_line=0 _bang_open=-1
   local -a _pending_line=() _pending_end=() _pending_text=()
   local _i
@@ -162,6 +167,7 @@ _errexit_bang_scan_file() {
     if [[ "${_in_body}" -eq 0 ]]; then
       if [[ "${_line}" =~ ${_ERREXIT_BANG_TEST_OPEN_RE} ]]; then
         _in_body=1
+        _body_open="${_lineno}"
         _last_stmt=0
         _bang_open=-1
         _pending_line=()
@@ -213,6 +219,14 @@ _errexit_bang_scan_file() {
 
   if [[ "${_in_allow}" -eq 1 ]]; then
     _ebsf_rows+=("${_rel}:${_begin_line}: unterminated allow-begin (no closing allow-end)")
+  fi
+  # A body still open at EOF was never judged: "is this the last
+  # statement" is answered by the closing `}`, so every pending `!` in it
+  # was discarded. That is a file this parser cannot read, and an
+  # unreadable file is a failure, not a skip -- the same rule the grep
+  # statuses below follow.
+  if [[ "${_in_body}" -eq 1 ]]; then
+    _ebsf_rows+=("${_rel}:${_body_open}: unclosed test body (no '}' in the first column before EOF) -- its statements were never judged; put the closing brace at column 0")
   fi
 }
 
