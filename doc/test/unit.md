@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3127 tests**.
+Unit specs under `test/bats/unit/`: **3134 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (63)
+### test/bats/unit/dockerfile_migrate_spec.bats (65)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1002,6 +1002,8 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
 | `migration 2 (pip-helper): keeps a pip line whose requirements file carries real requirements (#956)` | - |
 | `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the requirements file cannot be READ (#956)` | - |
+| `migration 2 (pip-helper): an unreadable requirements file answers 2, not 1 (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
@@ -3300,7 +3302,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (53)
+### test/bats/unit/changelog_entry_lint_spec.bats (54)
 
 | Test | Description |
 |------|-------------|
@@ -3357,6 +3359,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
 | `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
+| `TEST.md's changelog-entry row names all three rules this lint enforces (#956)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
@@ -3547,7 +3550,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (17)
+### test/bats/unit/errexit_bang_lint_spec.bats (21)
 
 | Test | Description |
 |------|-------------|
@@ -3561,9 +3564,13 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: does not flag a bang that continues the previous line (#956)` | - |
 | `_run_errexit_bang: does not flag a bang outside any test body (#956)` | - |
 | `_run_errexit_bang: does not flag a commented-out bang (#956)` | - |
-| `_run_errexit_bang: FAILS when the scan root is absent (#956)` | - |
-| `_run_errexit_bang: FAILS when the scan root holds no spec files (#956)` | - |
+| `_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)` | - |
+| `_run_errexit_bang: FAILS when the spec directories are all empty (#956)` | - |
+| `_run_errexit_bang: does NOT scan the released-tree archives (#956)` | - |
+| `_run_errexit_bang: the clean line names every root it derived (#956)` | - |
+| `_run_errexit_bang: FAILS on a body the parser opened and never closed (#956)` | - |
 | `_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)` | - |
+| `_run_errexit_bang: FAILS on a violation in a bats tree outside test/bats (#956)` | - |
 | `_run_errexit_bang: an allow region suppresses the finding (#956)` | - |
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |

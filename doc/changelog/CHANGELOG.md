@@ -84,10 +84,10 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   test body `! <cmd>` asserts something only as the body's LAST statement;
   anywhere else the command runs, the negation is computed and the answer is
   discarded while the case name still claims the property. Two live instances
-  (`compose_watchdog_spec`'s `WATCHDOG_INTERVAL` half, `tui_flow_spec`'s
-  cleared override) were found by hand-auditing the whole tree, twice in one
-  review round. The lint parses every `@test` body under `test/bats/`, and
-  cross-checks that it opened every header it found.
+  were found by hand-auditing the tree, twice in one review round. The lint
+  parses every `@test` body in every `*.bats` in the repo -- the population is
+  WALKED, not listed, so the shipped `dist/test/bats/smoke/` tree counts too --
+  and refuses a header it never opened or a body that never closed.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
@@ -110,13 +110,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but
-  that line is byte-identical whether the overlaid file holds the placeholder
-  or a real dependency list. It now resolves the config source first -- a
-  `CONFIG_SRC` redirected by the Dockerfile, or by ANY layer of the
-  `.setup.conf` chain (derived from `_setup_conf_layers`, template layer
-  included), points the install somewhere it cannot read -- and the line goes
-  only where the resolved file is absent or holds nothing but comments.
-  Unreadable or unproven is kept.
+  that line is byte-identical whether the overlay holds the placeholder or a
+  real list. It resolves the config source first -- a `CONFIG_SRC` redirected
+  by the Dockerfile or by ANY `.setup.conf` layer points the install somewhere
+  else -- and deletes only where the resolved file is PROVED inert: absent, or
+  read end to end and nothing but blanks and comments. A file `grep` could not
+  read answers "unknown", not "empty", and is kept.
 - **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
 - **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
 - **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.

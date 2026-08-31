@@ -861,9 +861,9 @@ _long_prose() {
 
 # doc/test/TEST.md's lint table is where a reader learns what this lint
 # refuses, and it has already drifted once: an origin/main merge resolved
-# the row wholly to the branch's older side and dropped the two rules #959
-# had just added, leaving the driver enforcing more than the doc claims
-# and nothing to notice.
+# the row wholly to the branch's older side and dropped the two rules the
+# duplicate-entry work had just added, leaving the driver enforcing more
+# than the doc claims and nothing to notice.
 #
 # The name of this case is deliberately narrow. It guards ONE row and the
 # three rules that row must name -- not the whole table, and not "the docs
@@ -880,8 +880,8 @@ _long_prose() {
     fail "no readable '| \`changelog-entry\` |' row in ${_doc} (grep exit ${_st})"
   fi
   assert_equal "$(printf '%s\n' "${_row}" | wc -l)" 1
-  # The over-length rule (#917), the duplicate-entry rule and the
-  # repeated-category-heading rule (#959) -- one clause each.
+  # The over-length rule, the duplicate-entry rule and the
+  # repeated-category-heading rule -- one clause each.
   [[ "${_row}" == *"700 chars"* ]]
   [[ "${_row}" == *"lead bullet"* ]]
   [[ "${_row}" == *"heading opening twice"* ]]
