@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3129 tests**.
+Unit specs under `test/bats/unit/`: **3130 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3424,7 +3424,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/coverage_badge_spec.bats (39)
+### test/bats/unit/coverage_badge_spec.bats (40)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -3475,6 +3475,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: the un-wired release step is recorded as pending, with its issue` | The ADR and the recipe doc name docker_harness#289 instead of claiming a caller that does not exist |
 | `coverage_badge: the generator header records the bump wiring as pending` | The property list is where the round-2 reword did not reach |
 | `coverage_badge: the dirty check covers every source kcov instruments` | - |
+| `coverage_badge: the roster's drift note promises only the guard it has` | - |
 | `coverage_badge: the README shows the committed badge, not a static one` | The `Coverage-Kcov` badge is gone and the SVG is referenced |
 | `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
 | `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |

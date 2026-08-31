@@ -798,6 +798,38 @@ _make_cobertura() {
   [ "${_scanned}" -gt 50 ]
 }
 
+@test "coverage_badge: the roster's drift note promises only the guard it has" {
+  # The guard above defines "instrumented" operationally, and narrowly: a
+  # file counts when its SHEBANG says bash runs it. That is the right
+  # definition -- kcov picks its engine from the executable the suite
+  # launches (bats, bash) and traces that process's bash children -- but
+  # it means a helper written in another language is skipped before it is
+  # ever compared against SOURCE_PATHSPEC.
+  #
+  # The roster's header used to list such helpers among the drift cases
+  # "the dirty check covers every source kcov instruments" catches. It
+  # cannot: those files are `continue`d, so the header promised a guard
+  # that does not exist and a reader checking the roster against it would
+  # have been told a divergence was already covered.
+  #
+  # Read flattened, so re-wrapping the block is not a way to lose an
+  # anchor. Comment lines only -- the roster literal names extensions of
+  # its own.
+  local _flat
+  _flat="$(sed -n '/^# Paths whose content the coverage run measures/,/^readonly SOURCE_PATHSPEC=/p' \
+    "${REPO}/script/release/coverage_badge.sh" \
+    | grep '^#' | sed 's/^#[[:space:]]*//' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "${_flat}" ]
+
+  # No drift case named in a language the shebang scan skips.
+  run grep -nEi '[.](py|awk|rb|pl|js|ts|go|lua)\b' <<< "${_flat}"
+  [ "${status}" -ne 0 ]
+
+  # And the reach the guard does have, stated where the promise is made.
+  run grep -F 'what bash executes' <<< "${_flat}"
+  [ "${status}" -eq 0 ]
+}
+
 # ── The repo's own published figure ──────────────────────────────────────────
 
 @test "coverage_badge: the README shows the committed badge, not a static one" {
