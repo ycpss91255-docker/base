@@ -569,6 +569,35 @@ EOF
     "the case returned after ${_elapsed}s though it printed its verdict in about one: the service it started outlived it and is still holding the descriptor bats reads this case's output from"
 }
 
+@test "a harness that swallows its own ceiling's signal is still bounded (#965)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  # The other half of "the ceiling means what it says", and the half a log
+  # file cannot supply. A ceiling enforced with SIGTERM alone is a REQUEST:
+  # `timeout` signals and then waits for the child, so a harness that takes
+  # the signal and keeps going runs for as long as it likes. Every case
+  # driving _watchdog_supervise is such a harness -- the product installs
+  # its own TERM handler the moment supervision starts -- and against a
+  # service that ignores signals that handler unwinds into an unbounded
+  # `wait`. The case that stated `timeout 45` was measured at 300s.
+  #
+  # Modelled here without breaking the product, in its exact shape: a child
+  # that ignores the signal, and a handler that waits for it. Nothing the
+  # body starts can hold the case open (the log file settles that), so what
+  # this measures is the ceiling alone.
+  local _t0 _elapsed
+  _t0="$(date +%s)"
+  _run_bounded 5 "
+    ( trap '' TERM; sleep 120 ) &
+    _child=\$!
+    trap 'echo SWALLOWED; wait \${_child}' TERM
+    wait \${_child}
+  "
+  _elapsed=$(( $(date +%s) - _t0 ))
+  assert_failure
+  [[ "${_elapsed}" -lt 30 ]] || fail \
+    "the harness ran ${_elapsed}s past a 5s ceiling: it took the ceiling's SIGTERM and nothing followed it, so the number in the harness call is a suggestion"
+}
+
 @test "_within_case_bound: answers no exactly when a case outran its own ceiling (#965)" {
   # The teardown bound guard applies this to EVERY case in the file, which
   # is what makes the property survive the fourth sibling written next
