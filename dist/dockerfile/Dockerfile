@@ -108,6 +108,16 @@
 #
 #   BASE_IMAGE_DIGEST="$(docker image inspect \
 #     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
+#   BASE_IMAGE_DIGEST="${BASE_IMAGE_DIGEST##*@}"
+#
+# The second line is not tidiness. `.RepoDigests` holds REFERENCES
+# (`ubuntu@sha256:<hex>`), and this value is recorded verbatim as
+# `base_image_digest` and as the OCI
+# `org.opencontainers.image.base.digest` annotation, where OCI defines a
+# digest and not a reference. Unstripped, the same image records one
+# shape here and another when BASE_IMAGE itself carries the digest --
+# and a field that is not comparable across the two routes this note
+# offers cannot answer "are these two images built from the same base".
 #
 # passed alongside BASE_IMAGE. Three routes, in the order to reach for
 # them:
@@ -580,7 +590,8 @@ RUN bats /smoke_test/
 # RUN apt-get update && \
 #     rosdep install --from-paths ./src --ignore-src -y && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 # RUN colcon build --install-base /build_ws/install
 # # IMPORTANT: do NOT rm -rf source/build trees here. devel needs them
 # # for the rebuild workflow; runtime only pulls /build_ws/install via
