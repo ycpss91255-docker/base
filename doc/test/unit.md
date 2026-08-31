@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3111 tests**.
+Unit specs under `test/bats/unit/`: **3126 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3290,7 +3290,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (43)
+### test/bats/unit/changelog_entry_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
@@ -3336,6 +3336,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
+| `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
+| `_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)` | - |
+| `_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)` | - |
+| `_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)` | - |
+| `_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)` | - |
+| `_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)` | - |
+| `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | - |
+| `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
+| `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
@@ -3414,7 +3424,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/coverage_badge_spec.bats (31)
+### test/bats/unit/coverage_badge_spec.bats (36)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -3444,6 +3454,9 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: the coverage run records the sha its reports describe` | The producer half: without a writer the reader refuses every real release |
 | `coverage_badge: a shard run records the partition, not a whole-suite scope` | A sha proves WHICH tree; the scope proves WHETHER the whole suite ran |
 | `coverage_badge: a shard run overwrites an earlier full run's scope` | Shards write into the same coverage/ tree, so a stale full-suite stamp must not survive |
+| `coverage_badge: the coverage run drops the old certificate before it starts` | - |
+| `coverage_badge: a failed coverage run leaves no certificate behind` | - |
+| `coverage_badge: a coverage run that succeeds still writes its certificate` | - |
 | `coverage_badge: --coverage-shard tells the stamp which partition ran` | The joint: the writer can only record a partition the dispatch hands it |
 | `coverage_badge: a full --coverage run hands the stamp no partition` | The release path still stamps a whole-suite measurement |
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
@@ -3458,9 +3471,11 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: --help states the once-per-release cadence` | The claim itself, not the incidental word "release" |
 | `coverage_badge: the un-wired release step is recorded as pending, with its issue` | The ADR and the recipe doc name docker_harness#289 instead of claiming a caller that does not exist |
 | `coverage_badge: the generator header records the bump wiring as pending` | The property list is where the round-2 reword did not reach |
+| `coverage_badge: the dirty check covers every source kcov instruments` | - |
 | `coverage_badge: the README shows the committed badge, not a static one` | The `Coverage-Kcov` badge is gone and the SVG is referenced |
 | `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
 | `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |
+| `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 
 ### test/bats/unit/adr_doc_claims_spec.bats (17)
 
