@@ -275,6 +275,46 @@ EOF
   refute grep -q '# Setup pip packages' "${DF}"
 }
 
+@test "migration 2 (pip-helper): keeps the line when the requirements file cannot be READ (#956)" {
+  # grep exits 2 when it could not read what it was pointed at, and 1 only
+  # when it read the file end to end and matched nothing. A caller that
+  # folds the two together turns an unreadable requirements file into
+  # permission to delete a working install -- the destructive direction,
+  # and the one that reaches every consumer repo through `just upgrade`.
+  # The two sibling guards in this lib (_dfm_conf_declares_redirect, the
+  # ARG CONFIG_SRC scan) already refuse anything but 0/1; this is the third.
+  #
+  # The unreadable file is injected at the seam rather than with a
+  # mode-000 fixture: this suite's container reads as root, where mode 000
+  # is still readable, so a permission fixture would prove nothing here.
+  # The sibling case below pins the status the real function returns when
+  # its own grep cannot read the file.
+  _seed_requirements "numpy==1.26.4"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); \
+    _dfm_pip_requirements_populated() { return 2; }; \
+    _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): an unreadable requirements file answers 2, not 1 (#956)" {
+  # The function's own contract, with grep's read failure injected: 0 is
+  # populated, 1 is PROVABLY empty, and anything else is unprovable. An
+  # absent file stays 1 -- that is the state the migration is repairing.
+  _seed_requirements "numpy==1.26.4"
+  run bash -c "$(_src); grep() { return 2; }; \
+    _dfm_pip_requirements_populated '${TEMP_DIR}/config'"
+  assert_equal "${status}" 2
+}
+
 @test "migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)" {
   # Deleting this physical line leaves `RUN apt-get update && \` dangling,
   # which swallows the next instruction into the same shell command.
