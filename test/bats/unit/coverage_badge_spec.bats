@@ -67,6 +67,34 @@ _stamp_head() {
   } > "${_root}/coverage/.head-sha"
 }
 
+# The run manifest a real coverage run leaves next to its reports:
+# `<seconds> <basename>`, one line per spec FILE bats actually ran
+# (_junit_to_timings, drivers/bats.sh). It is the only local record of
+# WHAT was measured, and the certificate's scope is derived from it rather
+# than from the flag the operator typed.
+#   $1 root  $2... spec basenames
+_write_manifest() {
+  local _root="${1}"; shift
+  mkdir -p "${_root}/coverage"
+  : > "${_root}/coverage/timings.tsv"
+  local _b
+  for _b in "$@"; do
+    printf '1 %s\n' "${_b}" >> "${_root}/coverage/timings.tsv"
+  done
+}
+
+# Give the scratch tree the spec inventory a manifest is measured against:
+# the suite the run was supposed to cover.
+#   $1 root  $2... paths relative to test/bats/
+_make_specs() {
+  local _root="${1}"; shift
+  local _rel
+  for _rel in "$@"; do
+    mkdir -p "${_root}/test/bats/${_rel%/*}"
+    printf '@test "t" { true; }\n' > "${_root}/test/bats/${_rel}"
+  done
+}
+
 # A stand-in for the real `./script/test/test.sh <flag>` entry: a SCRIPT, so
 # it runs under the strict mode test.sh turns on only when executed directly
 # (and so ${BASH_SOURCE} is defined, which `bash -c` cannot offer). The
@@ -82,7 +110,7 @@ source /source/script/test/test.sh
 set -euo pipefail
 _invalidate_coverage_head() { printf 'INVALIDATE %s\\n' "\${1:-}"; }
 _run_via_compose() { printf 'RUN\\n'; ${_run_body}; }
-_stamp_coverage_head() { printf 'STAMP %s\\n' "\${2:-}"; }
+_stamp_coverage_head() { printf 'STAMP argc=%s\\n' "\$#"; }
 ${_invocation}
 EOS
 }
@@ -273,6 +301,8 @@ _make_cobertura() {
   local _root
   _root="$(_make_release_tree 84 100)"
   rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats integration/c_spec.bats
+  _write_manifest "${_root}" a_spec.bats b_spec.bats c_spec.bats
 
   # The producer half of the provenance pair: without a writer in the
   # coverage path the reader above would refuse every real release.
@@ -283,44 +313,100 @@ _make_cobertura() {
   [ "$(head -n 1 "${_root}/coverage/.head-sha")" = "$(git -C "${_root}" rev-parse HEAD)" ]
 
   # A sha alone says which TREE the reports describe and nothing about
-  # WHETHER the whole suite produced them, so the scope is stamped too.
+  # WHETHER the whole suite produced them, so the scope is stamped too --
+  # and it reads `full` because the run manifest names every spec in the
+  # tree, not because the caller passed no shard flag.
   run cat "${_root}/coverage/.head-sha"
   assert_output --partial "scope=full"
 }
 
-@test "coverage_badge: a shard run records the partition, not a whole-suite scope" {
+@test "coverage_badge: a partial measurement is not certified whole, whatever the invocation said" {
   local _root
   _root="$(_make_release_tree 13 100)"
   rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats integration/c_spec.bats
 
-  # `just test coverage <n>/<total>` writes its slice into the SAME
-  # coverage/ tree a full run uses. If it stamped the way a full run does,
-  # the reports and the certificate would agree on the commit and disagree
-  # with nothing, and the badge would publish a quarter of the suite as
-  # the release rate.
-  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
-    _ "${_root}" "1/4"
+  # One spec of three measured -- and the writer is called EXACTLY as a
+  # bare `just test coverage` calls it: no shard argument, nothing in the
+  # invocation that says "partition". A scope derived from the FLAG stamps
+  # `full` here, and that combination is reachable rather than theoretical:
+  # anything that narrows the CONTAINER's run without touching the flag
+  # (an inherited COVERAGE_SHARD, an inherited COVERAGE_PATH, the next
+  # selector nobody has thought of) produces exactly this pair of inputs.
+  # Derived from the measurement, the scope cannot be fooled by an input
+  # the writer never sees.
+  _write_manifest "${_root}" a_spec.bats
+
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
   [ "${status}" -eq 0 ]
 
   run cat "${_root}/coverage/.head-sha"
-  assert_output --partial "scope=shard 1/4"
+  assert_output --partial "scope=partial 1/3 specs"
   refute_output --partial "scope=full"
 }
 
-@test "coverage_badge: a shard run overwrites an earlier full run's scope" {
+@test "coverage_badge: a run that recorded no measurement is certified as nothing" {
   local _root
   _root="$(_make_release_tree 13 100)"
+  rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats
+  rm -f "${_root}/coverage/timings.tsv"
+
+  # No manifest is no evidence, and no evidence must not become a
+  # certificate. `--coverage-path` writes nothing into coverage/, and a
+  # run that dies before bats' report is converted writes nothing either.
+  # The generator refuses on a MISSING stamp, so writing none is the safe
+  # direction; inventing `full` is the failure this whole line of defence
+  # exists for.
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  [ ! -f "${_root}/coverage/.head-sha" ]
+}
+
+@test "coverage_badge: a later partial measurement overwrites an earlier full one" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats
 
   # The tree already carries a full-suite stamp from an earlier run at the
-  # same commit. Leaving it in place would let the shard's partial reports
-  # inherit a certificate that says "whole suite".
-  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
-    _ "${_root}" "2/4"
+  # same commit. Leaving it in place would let the next run's partial
+  # reports inherit a certificate that says "whole suite".
+  _write_manifest "${_root}" a_spec.bats b_spec.bats
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  run cat "${_root}/coverage/.head-sha"
+  assert_output --partial "scope=full"
+
+  _write_manifest "${_root}" b_spec.bats
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
   [ "${status}" -eq 0 ]
 
   run cat "${_root}/coverage/.head-sha"
   refute_output --partial "scope=full"
-  assert_output --partial "scope=shard 2/4"
+  assert_output --partial "scope=partial 1/2 specs"
+}
+
+@test "coverage_badge: the measured-scope inventory is this repo's real spec tree" {
+  # The derivation is only as good as the inventory it compares the
+  # manifest against. An inventory that enumerated NOTHING would make
+  # every manifest look complete -- nothing missing -- which is the
+  # vacuous-scan failure the instrumented-source guard below also has to
+  # defend against. So it is anchored on THIS tree, and read the way the
+  # full coverage run reads it: both pools, recursively, so the
+  # test/bats/unit/<lib>/ subfolders (ADR-00000015) count.
+  run bash -c 'source /source/script/test/test.sh; _coverage_spec_inventory /source'
+  [ "${status}" -eq 0 ]
+
+  local _n _expected
+  _n="$(printf '%s\n' "${output}" | grep -c .)"
+  _expected="$(find /source/test/bats/unit /source/test/bats/integration \
+    -name '*_spec.bats' | sed 's#.*/##' | sort -u | grep -c .)"
+  [ "${_n}" -eq "${_expected}" ]
+  [ "${_n}" -gt 100 ]
 }
 
 @test "coverage_badge: the coverage run drops the old certificate before it starts" {
@@ -344,6 +430,43 @@ _make_cobertura() {
     _ "${_root}"
   [ "${status}" -eq 0 ]
   [ ! -f "${_root}/coverage/.head-sha" ]
+}
+
+@test "coverage_badge: the eraser drops the manifest the scope is derived from" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  _stamp_head "${_root}" "full"
+  _write_manifest "${_root}" a_spec.bats
+
+  # The certificate is DERIVED from the run manifest, so the manifest is
+  # part of the certificate and inherits its rule: it must never outlive
+  # the run it describes. Erasing one and leaving the other is how a run
+  # that measures nothing -- or dies before its report is converted --
+  # gets certified by the PREVIOUS run's record of what was measured.
+  run bash -c 'source /source/script/test/test.sh; _invalidate_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+  [ ! -f "${_root}/coverage/.head-sha" ]
+  [ ! -f "${_root}/coverage/timings.tsv" ]
+}
+
+@test "coverage_badge: a manifest that outlives its erasure fails the run" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+
+  # Same asymmetry as the stamp, for the same reason: a MISSING manifest
+  # makes the writer stamp nothing and the generator refuse (safe), while
+  # a SURVIVING one is a complete record of somebody else's run sitting
+  # where this run's record belongs. An occupied path stands in for the
+  # root-owned coverage/ that CI shard artifacts leave behind.
+  rm -f "${_root}/coverage/timings.tsv"
+  mkdir -p "${_root}/coverage/timings.tsv/occupied"
+
+  run bash -c 'source /source/script/test/test.sh; _invalidate_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -ne 0 ]
+  assert_output --partial "timings.tsv"
+  [ -e "${_root}/coverage/timings.tsv" ]
 }
 
 @test "coverage_badge: a certificate that outlives its erasure fails the run" {
@@ -455,42 +578,41 @@ _make_cobertura() {
   refute_output --partial "STAMP"
 }
 
-@test "coverage_badge: --coverage-shard tells the stamp which partition ran" {
-  # The joint between the two halves: the writer can only record a
-  # partition if the dispatch passes it one. Stub the container run and
-  # the writer, and read back what the dispatch handed over.
+@test "coverage_badge: --coverage-shard partitions the CONTAINER, and tells the writer nothing" {
+  # The partition is an instruction to the CONTAINER and to nobody else.
+  # The writer used to be handed it as well, and that second copy is what
+  # made the certificate a statement about the INVOCATION: a run narrowed
+  # by anything the writer could not see was certified by the flag it
+  # could. So the writer is handed the root and NOTHING else -- argc is
+  # read, not just the values -- and derives the scope from the reports.
   #
-  # BOTH halves are read, and from where each of them really gets its
-  # value: the writer from its argument, the container from the
-  # environment _run_via_compose forwards (`-e COVERAGE_SHARD`). A
-  # DIFFERENT partition is in the ambient environment here, so the reading
-  # cannot be satisfied by an inherited value -- which is the other half
-  # of the rule the full-run case below states.
+  # A DIFFERENT partition sits in the ambient environment here, so the
+  # container-side reading cannot be satisfied by an inherited value.
   run env COVERAGE_SHARD=3/4 bash -c '
     source /source/script/test/test.sh
     _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
     _invalidate_coverage_head() { :; }
-    _stamp_coverage_head() { printf "root=[%s] shard=[%s]\n" "${1:-}" "${2:-}"; }
+    _stamp_coverage_head() { printf "STAMP root=[%s] argc=[%s]\n" "${1:-}" "$#"; }
     main --coverage-shard 1/4
   '
   [ "${status}" -eq 0 ]
-  assert_output --partial "root=[/source] shard=[1/4]"
+  assert_output --partial "STAMP root=[/source] argc=[1]"
   assert_output --partial "CONTAINER shard=[1/4]"
 }
 
-@test "coverage_badge: a full --coverage run hands the stamp no partition" {
-  # The dispatch passes the spec on BOTH branches -- empty here -- rather
-  # than branching twice; an empty partition is what makes the stamp read
-  # `full`.
+@test "coverage_badge: a full --coverage run hands the writer only the root" {
+  # Same rule on the branch that reports the release figure. There is no
+  # argument here that could say "full", and that is the point: `full` has
+  # to be earned from the manifest the run left behind.
   run bash -c '
     source /source/script/test/test.sh
     _run_via_compose() { :; }
     _invalidate_coverage_head() { :; }
-    _stamp_coverage_head() { printf "root=[%s] shard=[%s]\n" "${1:-}" "${2:-}"; }
+    _stamp_coverage_head() { printf "STAMP root=[%s] argc=[%s]\n" "${1:-}" "$#"; }
     main --coverage
   '
   [ "${status}" -eq 0 ]
-  assert_output --partial "root=[/source] shard=[]"
+  assert_output --partial "STAMP root=[/source] argc=[1]"
 }
 
 @test "coverage_badge: a full --coverage run tells the CONTAINER no partition" {
@@ -513,12 +635,12 @@ _make_cobertura() {
     source /source/script/test/test.sh
     _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
     _invalidate_coverage_head() { :; }
-    _stamp_coverage_head() { printf "STAMP shard=[%s]\n" "${2:-}"; }
+    _stamp_coverage_head() { printf "STAMP argc=[%s]\n" "$#"; }
     main --coverage
   '
   [ "${status}" -eq 0 ]
   assert_output --partial "CONTAINER shard=[]"
-  assert_output --partial "STAMP shard=[]"
+  assert_output --partial "STAMP argc=[1]"
 }
 
 @test "coverage_badge: refuses when the reports cover one shard, not the suite" {
