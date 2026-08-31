@@ -25,7 +25,9 @@
 #
 # What these scans deliberately do NOT cover, and why. They match the live
 # path where it is WRITTEN, so a spec that names it once and then writes
-# through the name -- REPO=/source, then cat > "${_wf}" -- goes unseen. The
+# through the name -- REPO=/source, then cat > "${_wf}" -- goes unseen, and
+# so does a cp or ln whose destination is pushed onto a continuation line,
+# because the destination rule is anchored at the end of the command. The
 # obvious extension is to follow the aliases, and it was measured before it
 # was rejected: collecting every variable assigned the live tree, plus one
 # more hop, and scanning writes through those names flags three sites on
@@ -85,11 +87,30 @@ setup() {
   # spelling that matters most.
   OPERAND="([[:space:]]+-[^[:space:]]+)*([[:space:]]+[^[:space:]]+)?[[:space:]]+\"?${LIVE_TREE}"
 
-  # Commands whose named operands it MUTATES. cp and ln are absent on
-  # purpose: `ln -s /source/dist/script/... "${SANDBOX}/build.sh"` is how
-  # most of this suite gets its subject under test, and there the live path
-  # is the source, not the destination.
+  # THE RULE, for every command in this file: scan the live path in the
+  # positions that command MUTATES. Not "the first operand", and not "any
+  # operand" -- either of those is right for some commands and wrong for
+  # the rest, and picking per command is how a scan ends up arguing with
+  # itself.
+  #
+  # These mutate every path they name (`sed` only with -i, which is an
+  # over-approximation this tree stays clean under), so for them the live
+  # path is a write in EITHER operand position -- including the second,
+  # which is where `mv "${SCRATCH}/x" /source/x` writes it.
   WRITE_CMD_RE="${CMD_POS}(rm|rmdir|mv|mkdir|touch|truncate|chmod|chown|install|tee|dd|sed)\\b${OPERAND}"
+
+  # cp and ln mutate only their LAST operand, so the same rule gives them a
+  # different pattern rather than a place in the list above. Both halves
+  # matter: `ln -s /source/dist/script/... "${SANDBOX}/build.sh"` is how
+  # most of this suite gets its subject under test and must stay silent,
+  # while `cp "${SCRATCH}/x" /source/doc/readme/x` is one command name away
+  # from the fixture this branch had to stop seeding into the checkout and
+  # must not. So the live path is required at the END of the command --
+  # end of line, or a separator that closes it -- rather than after the
+  # flags. The operand may carry quotes; a path containing a space, or a
+  # destination pushed onto a continuation line, is past what a line-wise
+  # scan can see.
+  WRITE_DEST_RE="${CMD_POS}(cp|ln)\\b.*[[:space:]]\"?${LIVE_TREE}[^[:space:]\"]*\"?([[:space:]]*$|[[:space:]]*[;)&|])"
 
   # Output redirection into the live tree. No command position needed -- the
   # redirection operator IS the write.
@@ -129,6 +150,7 @@ _assert_clean_scan() {
 # naming. It answers 0 for "seen", like the grep it wraps.
 _write_scan_sees() {
   grep -qE "${WRITE_CMD_RE}" "${1:?BUG: _write_scan_sees expects a file}" ||
+    grep -qE "${WRITE_DEST_RE}" "${1}" ||
     grep -qE "${WRITE_REDIR_RE}" "${1}"
 }
 
@@ -138,6 +160,7 @@ _write_scan_sees() {
   # One writer would make the whole population racy at once.
   _assert_population
   _assert_clean_scan "${WRITE_CMD_RE}"
+  _assert_clean_scan "${WRITE_DEST_RE}"
   _assert_clean_scan "${WRITE_REDIR_RE}"
 }
 
