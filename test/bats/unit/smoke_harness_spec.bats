@@ -290,13 +290,18 @@ _HARNESS_EXEMPT_SRCS=(
   # sys stage labels the image with. Mirrored here so
   # test/bats/system/smoke_harness_spec.bats can build this file and read
   # both sinks off one image -- a label is invisible to any spec running
-  # INSIDE the image, which is how the two came to disagree unnoticed. The
-  # refusal that keeps them from disagreeing is mirrored with it.
+  # INSIDE the image, which is how the two came to disagree unnoticed.
+  # ONE expression feeds both, here as in the template.
   run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' \
     "${HARNESS_DOCKERFILE}"
   assert_success
-  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' "${HARNESS_DOCKERFILE}"
-  assert_success
+  # ... and the harness does not stop a build the template no longer
+  # stops. It carried a copy of a refusal over a digest-carrying
+  # BASE_IMAGE whose arg did not repeat it; with the template's gone, a
+  # surviving copy here would make the harness reject the very
+  # configuration the system spec builds to prove it is accepted.
+  run grep -c 'exit 1' "${HARNESS_DOCKERFILE}"
+  assert_output "0"
   # ... and written before the specs read it.
   local _manifest_line _bats_line
   _manifest_line="$(grep -n '> /usr/local/share/base/base-image\.env' \

@@ -1533,6 +1533,117 @@ _hadolint_ignore_rationale() {
   ' "${1:?_hadolint_ignore_rationale: missing file}"
 }
 
+# Every claim about a LABEL that this template, its harness, its shipped
+# specs and its READMEs are allowed to make. A LABEL CAN read a digest out
+# of a reference: build this repo's smoke harness with
+# `--build-arg BASE_IMAGE=ubuntu@sha256:<hex>` and a
+# `LABEL probe="${BASE_IMAGE##*@}"` comes back from `docker inspect` as
+# `sha256:<hex>`. What a LABEL cannot do is BRANCH -- the same expression
+# comes back as `ubuntu:24.04` for an unpinned reference -- which is a
+# narrower constraint with a different consequence: it rules out deriving
+# the annotation, it does not rule out reading the digest. The categorical
+# version was once the sole stated reason for REFUSING a build, so it is
+# swept for by pattern across every file that carried it, including the
+# error text an operator would have been handed.
+_DF_DISPROVEN_CLAIMS=(
+  'cannot read the digest out of'
+  'cannot read a digest out of'
+  'LABEL cannot run a case statement'
+  'a LABEL cannot run that stage'
+  'only value a label can carry'
+  'two routes this note offers'
+)
+
+@test "no shipped text repeats the claim a build disproves (#951)" {
+  local _f _claim
+  for _f in \
+      /source/dist/dockerfile/Dockerfile \
+      /source/dockerfile/Dockerfile.smoke \
+      /source/dist/test/bats/smoke/shared/reproducibility.bats \
+      /source/README.md \
+      /source/doc/changelog/CHANGELOG.md; do
+    assert_spec_subject "${_f}" "a file this spec sweeps for disproven claims"
+    for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
+      if grep -qiF -- "${_claim}" "${_f}"; then
+        fail "${_f} states '${_claim}', which building this repo disproves"
+      fi
+    done
+  done
+  # ... and the narrower constraint that survives has to be STATED where
+  # the decision rests on it, or the next reader re-derives the wide one.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  run grep -F 'cannot BRANCH' "${_df}"
+  assert_success
+}
+
+@test "the note gives one [build] arg slot per key (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # The note spells its routes as `arg_N = KEY=value` lines a reader
+  # pastes into `.setup.conf`. Two paragraphs handing the same N to
+  # different keys is not a typo a reader can absorb: a `[build]` section
+  # written in `.setup.conf.local` REPLACES the section (the note says so
+  # itself), so the second paste silently displaces the first. Derived
+  # from the note rather than spelled as literals -- a literal pair goes
+  # green the moment either paragraph is renumbered.
+  local _note _line _n _key
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+  local -A _by_slot=() _by_key=()
+  while IFS= read -r _line; do
+    _n="${_line%%|*}"
+    _key="${_line#*|}"
+    if [[ -n "${_by_slot[${_n}]:-}" && "${_by_slot[${_n}]}" != "${_key}" ]]; then
+      fail "arg_${_n} is given to both ${_by_slot[${_n}]} and ${_key}"
+    fi
+    if [[ -n "${_by_key[${_key}]:-}" && "${_by_key[${_key}]}" != "${_n}" ]]; then
+      fail "${_key} is given both arg_${_by_key[${_key}]} and arg_${_n}"
+    fi
+    _by_slot["${_n}"]="${_key}"
+    _by_key["${_key}"]="${_n}"
+  done < <(sed -n 's/.*arg_\([0-9][0-9]*\)[[:space:]]*=[[:space:]]*\([A-Z_][A-Z_0-9]*\)=.*/\1|\2/p' <<< "${_note}")
+  # A note that stopped spelling any slot would satisfy the relation
+  # vacuously, and the local route is the one this repo drives builds
+  # through.
+  (( ${#_by_slot[@]} >= 2 )) \
+    || fail "expected the note to spell >= 2 '[build] arg_N = KEY=' routes, found ${#_by_slot[@]}"
+}
+
+@test "the apt-layer guard sees the install shapes this template writes (#951)" {
+  # The guard's REACH is the property "every apt layer refreshes the
+  # manifest": a shape _DF_APT_INSTALL_RE does not match is a layer the
+  # relation is never asked about, while the block still counts toward
+  # the `>= 2` floor -- so the suite stays green over exactly the drift
+  # this spec is named for. The template already writes
+  # `-o Dpkg::Options::="--force-confdef"` (devel-base); positioned
+  # BEFORE the subcommand, which apt-get accepts, an option that takes a
+  # separate argument is what a glued-token-only pattern cannot cross.
+  local _shape
+  for _shape in \
+      'apt-get install -y foo' \
+      'apt-get -y install foo' \
+      'apt install --no-install-recommends foo' \
+      'rosdep install --from-paths src' \
+      'apt-get -o Dpkg::Options::="--force-confdef" install cowsay' \
+      'apt-get -y -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" install cowsay'; do
+    [[ "${_shape}" =~ ${_DF_APT_INSTALL_RE} ]] \
+      || fail "apt-layer guard cannot see this install layer: ${_shape}"
+  done
+  # ... and reach is only half of it. Widened until it matches a block
+  # that installs nothing, the same guard demands a manifest refresh from
+  # `apt-get clean` and reports "installs AFTER its last refresh" for a
+  # tail that installs nothing.
+  for _shape in \
+      'apt-get update && apt-get clean && rm -rf /var/lib/apt/lists/*' \
+      'apt-get -y update && echo install' \
+      'pip install foo'; do
+    if [[ "${_shape}" =~ ${_DF_APT_INSTALL_RE} ]]; then
+      fail "apt-layer guard reads a non-install layer as one: ${_shape}"
+    fi
+  done
+}
+
 @test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -1666,14 +1777,17 @@ _hadolint_ignore_rationale() {
   assert [ -n "${_label_digest}" ]
   assert_equal "${_file_digest}" "${_label_digest}"
 
-  # ... and the route the label cannot read cannot fill the file behind
-  # its back either: a BASE_IMAGE that carries its own digest has to be
-  # accompanied by the build arg that repeats it, and the build REFUSES
-  # rather than write a record whose two halves disagree.
-  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' <<< "${_block}"
-  assert_success
-  run grep -F 'exit 1' <<< "${_block}"
-  assert_success
+  # ... and the stage does not STOP over the half a label cannot derive.
+  # A digest-carrying BASE_IMAGE with no build arg is a configuration
+  # this same file documents; refusing it makes every consumer who
+  # digest-pins re-pass a value they already gave, to fill a field whose
+  # emptiness was already truthful. The record answers it instead:
+  # `base_image_pin=digest` next to an empty digest is "pinned, digest
+  # not separately recorded". Asserted as the ABSENCE of a build-stopping
+  # exit in the recording window, because that is the shape a refusal
+  # takes here and the one a reader of this stage would meet.
+  run grep -c 'exit 1' <<< "${_block}"
+  assert_output "0"
 }
 
 @test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
@@ -1814,6 +1928,15 @@ _hadolint_ignore_rationale() {
   # OCI base.digest annotation as well, so a reference pasted into it
   # lands in both sinks at once.
   run grep -F 'base_image_digest=(sha256:[0-9a-f]' "${_spec}"
+  assert_success
+  # ... and where the record states the digest TWICE -- once inside
+  # `base_image_ref`, once in `base_image_digest` -- the two have to
+  # agree. That check lives here, in the spec that runs inside the built
+  # image, and not in a build refusal: refusing was indiscriminate (it
+  # stopped the honest digest-pinned build that simply omits the arg),
+  # while a record answering one field two ways is false whoever built
+  # it. It is the `-test` stage's job to say so.
+  run grep -F 'does not contradict' "${_spec}"
   assert_success
   # The skip is narrow by construction: it fires only when NEITHER file
   # exists, so a repo that writes one and not the other, or writes an

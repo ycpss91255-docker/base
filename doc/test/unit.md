@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3098 tests**.
+Unit specs under `test/bats/unit/`: **3101 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1825,7 +1825,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (165)
+### test/bats/unit/template_spec.bats (168)
 
 | Test | Description |
 |------|-------------|
@@ -1954,6 +1954,9 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
+| `no shipped text repeats the claim a build disproves (#951)` | - |
+| `the note gives one [build] arg slot per key (#951)` | - |
+| `the apt-layer guard sees the install shapes this template writes (#951)` | - |
 | `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | read from the note's own comment window above `ARG BASE_IMAGE=`, since every path it names is also spelled in the code that implements it: the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
 | `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
 | `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |

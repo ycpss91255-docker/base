@@ -221,14 +221,60 @@ PINNED_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789
   [ "${output}" = "${PINNED_DIGEST}" ]
 }
 
-@test "the build REFUSES a reference-carried digest the build arg does not repeat (#951)" {
+# A second value of the same shape, for the one case the record cannot
+# hold: two different answers to the one field it exists to make
+# comparable.
+OTHER_DIGEST="sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+@test "a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)" {
   _make_context CONTEXT_DIR
-  # The half-pinned call: the reference carries the digest, nothing carries
-  # it into the annotation. Recording it in the file alone is what gave one
-  # image two answers, so the build stops instead -- and says which arg
-  # closes it.
+  # The configuration the note documents -- an immutable reference, no
+  # second argument -- which this harness once REFUSED to build. Nothing
+  # about a LABEL makes that refusal necessary: a LABEL reads a digest
+  # out of a reference perfectly well (`${BASE_IMAGE##*@}` in a label
+  # comes back as `sha256:<hex>`), it just cannot BRANCH, so the same
+  # expression comes back as `ubuntu:24.04` for an unpinned reference and
+  # cannot be the annotation's value. The annotation therefore carries
+  # the build arg, and an unsupplied arg is an empty annotation -- which
+  # is the SAME answer the file gives. Empty in both sinks is "not
+  # separately recorded"; it is not two answers, and it is not a reason
+  # to stop a build.
+  _add_fixture_spec "${CONTEXT_DIR}" zz_pin_only \
+    '@test "the manifest records the pin and leaves the digest field empty" {' \
+    "  run grep -x 'base_image_pin=digest' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    "  run grep -x 'base_image_digest=' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    '}'
+  IMAGE_TAG="base-smoke-pin-only:test"
   run _build_harness "${CONTEXT_DIR}" \
+    -t "${IMAGE_TAG}" \
     --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}"
+  [ "${status}" -eq 0 ]
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+  # ... and nothing was lost by not filling it: the digest is still on the
+  # image, in the reference sink, where the caller put it.
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "ubuntu@${PINNED_DIGEST}" ]
+}
+
+@test "the shipped spec FAILS a build whose digest arg contradicts the reference (#951)" {
+  _make_context CONTEXT_DIR
+  # The one combination that IS false: both halves stated, naming
+  # different digests. No reading of that record is true, so it fails --
+  # in the `-test` stage, from the shipped spec that reads the record,
+  # rather than from a refusal in `sys` that also stopped the honest
+  # build above.
+  run _build_harness "${CONTEXT_DIR}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}" \
+    --build-arg "BASE_IMAGE_DIGEST=${OTHER_DIGEST}"
   [ "${status}" -ne 0 ]
-  echo "${output}" | grep -q 'BASE_IMAGE_DIGEST'
+  echo "${output}" | grep -q 'does not contradict'
 }

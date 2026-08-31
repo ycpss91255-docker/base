@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **15 tests**.
+System specs under `test/bats/system/`: **16 tests**.
 
 > **Not** part of the `just test` self-test grand total -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -123,7 +123,7 @@ concurrent `deploy.sh up` calls would race for that name.
 | `field-deploy e2e: an operator .env.local override reaches the RUNNING container` | - |
 | `field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host` | read-only default proven by a real write |
 
-### test/bats/system/smoke_harness_spec.bats (5)
+### test/bats/system/smoke_harness_spec.bats (6)
 
 The behavioural half of the `just test smoke` harness (see
 [smoke.md](smoke.md) for what the harness is and how to run it); the
@@ -148,4 +148,5 @@ at all.
 | `the smoke harness runs the specs as a non-root user` | Fixture specs reading `id -u` and attempting a write into `/lint` prove the runtime identity, not just the Dockerfile's `USER` line |
 | `the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)` | Negative case: a deliberately failing spec fails the build, so a future `\|\| true` cannot turn the entry point into a report that always says green |
 | `a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)` | Builds the harness with a digest-bearing `BASE_IMAGE`; a fixture spec reads `base-image.env` from inside the build and `docker inspect` reads the OCI annotation from outside, so the two sinks are compared on one real image |
-| `the build REFUSES a reference-carried digest the build arg does not repeat (#951)` | Negative case: a half-pinned build (digest in the reference, nothing in `BASE_IMAGE_DIGEST`) fails instead of recording one answer in the file and another in the annotation |
+| `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | - |
+| `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | - |
