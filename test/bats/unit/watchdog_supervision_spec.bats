@@ -425,3 +425,94 @@ EOF
   [[ "${_elapsed}" -lt 30 ]] || fail \
     "the readiness failure path returned after ${_elapsed}s, long past its own 2s ceiling: something the harness started outlived it and is still holding the output open"
 }
+
+# ── the file's own bound: nothing a case starts may outlive it ───────────
+
+@test "a service the case gives up on cannot hold the case open past its bound (#965)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  # Optional on purpose, for the same reason as every other case here:
+  # without setsid the service is not in its own process group, which is
+  # the whole mechanism under test.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group teardown under test cannot be set up without it"
+  # The shape every give-up path in this file has, reduced to its bones: a
+  # service is started, something goes wrong, the harness prints its
+  # verdict and leaves. _watchdog_start_service setsids the service into
+  # its own process group, so it survives the `bash -c` -- and it inherited
+  # the descriptor bats reads this case's output from, so `run` sits there
+  # waiting for EOF long after the verdict was printed. The case is then
+  # bounded by the FIXTURE's lifetime, not by its own `timeout`, and a
+  # reader takes that for a hung suite rather than a failed test.
+  #
+  # Three cases in this file gave up that way (the two _watchdog_stop_service
+  # cases on their NO_PID branch, and the wedged give-up case whenever its
+  # own timeout fires): 301s measured against a stated bound of 45.
+  cat > "${TMP_DIR}/lingering.sh" <<'EOF'
+#!/usr/bin/env bash
+# Records its process group and then outlives anything that waits for it.
+echo "$$" > "$1"
+sleep 45
+EOF
+  local _t0 _elapsed
+  _t0="$(date +%s)"
+  run timeout 30 bash -c "
+    ${_SYNC_FN}
+    . '${WD}'
+    export _WATCHDOG_TIMEOUT=1
+    _watchdog_start_service bash '${TMP_DIR}/lingering.sh' '${TMP_DIR}/service.pgid'
+    if ! _await_file '${TMP_DIR}/service.pgid' 150; then echo NO_PID; exit 0; fi
+    echo GAVE_UP
+  "
+  _elapsed=$(( $(date +%s) - _t0 ))
+  assert_success
+  assert_output --partial "GAVE_UP"
+  refute_output --partial "NO_PID"
+  [[ "${_elapsed}" -lt 20 ]] || fail \
+    "the case returned after ${_elapsed}s though it printed its verdict in about one: the service it started outlived it and is still holding the descriptor bats reads this case's output from"
+}
+
+@test "_within_case_bound: answers no exactly when a case outran its own ceiling (#965)" {
+  # The teardown bound guard applies this to EVERY case in the file, which
+  # is what makes the property survive the fourth sibling written next
+  # year. A guard nothing ever exercises is a net with the bottom out, so
+  # its arithmetic is pinned here rather than trusted.
+  run _within_case_bound 3 30 30
+  assert_success
+  # The margin is inclusive: a case that legitimately runs to its own
+  # timeout on a loaded machine is not a hang.
+  run _within_case_bound 60 30 30
+  assert_success
+  run _within_case_bound 61 30 30
+  assert_failure
+  # The measurement that opened this: a stated bound of 45s, 301s observed.
+  run _within_case_bound 301 45 30
+  assert_failure
+  # A case that declared no ceiling still may not run away.
+  run _within_case_bound 29 0 30
+  assert_success
+  run _within_case_bound 31 0 30
+  assert_failure
+}
+
+@test "every process this file starts goes through the one bounded harness (#965)" {
+  # Why a structural check here after deleting one in spec_source_isolation:
+  # that one enumerated the spellings a WRITE could take, which is an open
+  # set and was wrong every round. This is the closed complement -- ONE
+  # permitted spelling, in one named place -- so a sibling written next
+  # year cannot start a process outside the harness that bounds it, which
+  # is exactly how the three siblings below the fix drifted apart from it.
+  local _spec="${BATS_TEST_FILENAME}"
+  # Assembled from pieces so that this line cannot match the scan it runs.
+  local _pat="bash[[:space:]]+-c"
+  local _door _door_end _hits _hit_line
+  _door="$(grep -n '^_run_bounded() {$' "${_spec}" | cut -d: -f1)"
+  [[ -n "${_door}" ]] || fail \
+    "this file defines no _run_bounded, so there is no single door for a case to start a process through"
+  _door_end="$(awk -v s="${_door}" 'NR>=s && /^}$/ {print NR; exit}' "${_spec}")"
+  _hits="$(grep -cE "${_pat}" "${_spec}" || true)"
+  [[ "${_hits}" -eq 1 ]] || fail \
+    "${_hits} places in this file start a shell, not 1: every case must go through _run_bounded, which is what hands the process a log file instead of the descriptor bats reads the case's output from, and what kills its process group afterwards"
+  _hit_line="$(grep -nE "${_pat}" "${_spec}" | cut -d: -f1)"
+  [[ "${_hit_line}" -gt "${_door}" && "${_hit_line}" -lt "${_door_end}" ]] || fail \
+    "the one place that starts a shell is at line ${_hit_line}, outside _run_bounded (lines ${_door}-${_door_end})"
+}
