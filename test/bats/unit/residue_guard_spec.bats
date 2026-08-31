@@ -148,6 +148,38 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "a file with spaces.txt"
 }
 
+@test "_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)" {
+  # The blind spot, measured rather than assumed. `git status` never reports
+  # a path under .git/, so a spec planting a hook, a config or an
+  # alternates entry in the live checkout is invisible here -- and that is
+  # the most damaging write there is, because git then executes or obeys it
+  # in every later job.
+  #
+  # It is EXCLUDED, with a reason, rather than closed. Snapshotting .git/
+  # wholesale reports noise on every run: git rewrites its own dir on
+  # essentially any command, and the guard's own `git status` refreshes the
+  # index. Narrowing that to "the parts that matter" means enumerating what
+  # git reads to change its behaviour -- hooks, config keys, alternates,
+  # modules, filters -- which is an OPEN set that grows with git, and an
+  # open-set roster is exactly what this round deleted from the spec side
+  # for being wrong in every review.
+  #
+  # So the check is: the exclusion is real, and it is NARROW -- one
+  # directory up, the same write is named. A case that only asserted the
+  # silence would also pass against a guard that had gone blind entirely.
+  _snapshot_before
+  printf 'a hook, as far as the guard can tell\n' > "${REPO}/.git/planted-under-git-dir"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output ""
+  printf 'planted\n' > "${REPO}/planted.md"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output "planted.md"
+}
+
 @test "_residue_check: fails naming the path, and says what to do about it (#965)" {
   _snapshot_before
   printf 'planted\n' > "${REPO}/planted.md"
