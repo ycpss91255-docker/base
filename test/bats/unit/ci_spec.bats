@@ -1128,9 +1128,21 @@ SH
 
   run bash -c '
     source /source/script/test/test.sh
-    COVERAGE=1 COVERAGE_SHARD=1/4 main --ci
+    # The kcov runner is a MARKER, not a real run. REPO_ROOT here is the
+    # mounted checkout, and _run_coverage writes coverage/timings.tsv into
+    # it -- truncating the run manifest of whatever `just test coverage`
+    # is in flight, since bats runs this alongside 31 other jobs. The
+    # marker still proves the coverage branch was the one taken.
+    _run_coverage() { printf "COVERAGE-RAN shard=[%s]\n" "${1:-}"; }
+    _fix_permissions() { :; }
+    # COVERAGE_PATH is cleared explicitly: the in-container dispatch
+    # reads it BEFORE the shard, and this spec inherits whatever the
+    # container was started with -- `just test coverage-path` sets it,
+    # so the branch under test would silently not be the branch taken.
+    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= main --ci
   '
   assert_success
+  assert_output --partial "COVERAGE-RAN shard=[1/4]"
   assert [ ! -f "${_sc_log}" ]
   assert [ ! -f "${_hd_log}" ]
 }
@@ -1637,9 +1649,15 @@ AWK
 
   run bash -c '
     source /source/script/test/test.sh
+    # A marker on the runner this branch must NOT reach. Refuting it is a
+    # stronger reading than refuting the report line, and it also keeps
+    # the day the branch regresses from writing coverage/timings.tsv into
+    # the mounted checkout while the assertion is still red.
+    _run_coverage() { printf "REACHED-FULL-RUNNER\n"; }
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats main --ci
   '
   assert_success
+  refute_output --partial "REACHED-FULL-RUNNER"
   refute_output --partial "Coverage report:"
   refute_output --partial "full suite"
 
