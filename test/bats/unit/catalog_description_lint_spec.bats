@@ -1092,6 +1092,36 @@ refute_finding() {
   [[ -z "${_dupes}" ]] || fail "two sections for one spec: ${_dupes}"
 }
 
+@test "_run_catalog_description: the live figures in the driver header are the ones the files declare (#922)" {
+  # This driver's subject is a document silently disagreeing with the
+  # code, and its own header had been doing exactly that: "747 of 1711
+  # when the rule was first written" against a measured 714 of 1736, and
+  # a sentence carrying one quantity at two different times.
+  #
+  # Two figures in that header are LIVE -- how many rows the baseline
+  # parks, and how many sections are declared outside the per-test rule.
+  # Both are declared by a sidecar file this lint already holds exact, so
+  # they are read from there rather than retyped here, and a header that
+  # falls behind either one is red. Every other figure in the header is a
+  # measurement of a past tree and carries its date: no checkout can
+  # re-measure those, and pinning a figure that moves with every added
+  # test would buy drift-detection with a treadmill.
+  local _baseline_n _exempt_n
+  _baseline_n="$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
+    "/source/${_CATALOG_DESC_BASELINE_FILE}")"
+  _exempt_n="$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
+    "/source/${_CATALOG_DESC_EXEMPT_FILE}")"
+  [[ "${_baseline_n}" =~ ^[0-9]+$ ]] \
+    || fail "the baseline declares no single '# entries: <n>': ${_baseline_n}"
+  [[ "${_exempt_n}" =~ ^[0-9]+$ ]] \
+    || fail "the exemptions file declares no single '# entries: <n>': ${_exempt_n}"
+  local _driver='/source/script/test/drivers/catalog_description.sh'
+  grep -qF "The baseline parks ${_baseline_n} rows" "${_driver}" \
+    || fail "the driver header does not say the baseline parks ${_baseline_n} rows"
+  grep -qF "the ${_exempt_n} sections the exemptions file declares" "${_driver}" \
+    || fail "the driver header does not say ${_exempt_n} sections are declared out"
+}
+
 @test "_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)" {
   # The rows that prompted the rule. They landed the same week, so the
   # author's intent was still recoverable, which is why they were written
