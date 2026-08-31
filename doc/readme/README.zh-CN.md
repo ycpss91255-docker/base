@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention fbb905dae767 1f358acd6dfd -->
+<!-- sync: dockerfile-stages-convention 2ea4238560a9 b1ec829bbe03 -->
 ### Dockerfile 分层（约定）
 
 下游 repo 遵循标准多阶段配置，定义于 `dist/dockerfile/Dockerfile`。
@@ -215,16 +215,19 @@ flowchart LR
   所以同一个 template 版本在不同时间并不会重现同一个 image。这个漂移是刻意的
   （consumer 本来就会覆写 `BASE_IMAGE`，而 dev image 必须能在不发 template
   release 的情况下拿到安全性更新），但它会被「记录」下来：`sys` 会写出
-  `/usr/local/share/base/base-image.env`（base reference、其 digest、该 digest
-  是否来自 reference 本身、base OS）与 `/usr/local/share/base/packages.txt`
+  `/usr/local/share/base/base-image.env`（base reference、该 reference 是否
+  digest-pinned、build 被告知要记录的 digest、base OS）与 `/usr/local/share/base/packages.txt`
   （每个套件与其确切版本，每个 apt layer 之后重写一次），并标上
   `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
   因为是全新的 `${BASE_IMAGE}`、什么都不继承，所以会再写一次。
 - 出货默认「没有」记录到的部分：照默认 build 出来的 manifest 会是
   `base_image_pin=none`、`base_image_digest` 留空——build 内部无法向 daemon
   询问某个 tag 解析到哪个 image。要补上就在 `BASE_IMAGE` 之外再传
-  `BASE_IMAGE_DIGEST`（那是「记录」不是 pin）；或把 `BASE_IMAGE` pin 成 digest
-  以取得 bit-for-bit 复现，同样的字段就能单靠 reference 本身填满。
+  `BASE_IMAGE_DIGEST`（那是「记录」不是 pin）。把 `BASE_IMAGE` pin 成 digest
+  以取得 bit-for-bit 复现时，同一个 digest 仍要用该 arg 再传一次：`LABEL`
+  没办法从 reference 里读出 digest，所以 `BASE_IMAGE_DIGEST` 是 `.base.digest`
+  唯一能带的值，`sys` 宁可让「只 pin 一半」的 build 失败，也不会在文件里写一个
+  答案、在 annotation 里写另一个。
 - 只出货 developer image 的 repo（`env/*`）会跳过 `runtime-base` /
   `runtime`——该 section 在 `Dockerfile` 保持注释状态。
 - `devel-test` 总是从 `devel` 继承，所以 `test/bats/smoke/<repo>_env.bats` 中的

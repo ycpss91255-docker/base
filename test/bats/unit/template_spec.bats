@@ -1770,10 +1770,10 @@ _hadolint_ignore_rationale() {
   run grep -F 'base_image_ref=[^[:space:]]+' "${_spec}"
   assert_success
   # ... and the digest, when the record carries one, has to be a DIGEST.
-  # The two routes that can supply it (a digest-bearing BASE_IMAGE, and
-  # the BASE_IMAGE_DIGEST build arg the note tells a reader how to
-  # compute) are only comparable if both land as `sha256:<hex>`, and this
-  # value is copied verbatim into the OCI base.digest annotation.
+  # The one expression that supplies it (the BASE_IMAGE_DIGEST build arg
+  # the note tells a reader how to compute) is copied verbatim into the
+  # OCI base.digest annotation as well, so a reference pasted into it
+  # lands in both sinks at once.
   run grep -F 'base_image_digest=(sha256:[0-9a-f]' "${_spec}"
   assert_success
   # The skip is narrow by construction: it fires only when NEITHER file

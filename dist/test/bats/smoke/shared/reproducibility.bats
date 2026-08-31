@@ -64,16 +64,19 @@ _skip_unless_manifest_adopted() {
   # unpinned reference names an image that may already have moved.
   run grep -E '^base_image_pin=(digest|none)$' "${REPRO_ENV}"
   assert_success
-  # The digest field has to hold a DIGEST when it holds anything. Two
-  # routes can fill it -- a BASE_IMAGE that carries its own digest, and
-  # the BASE_IMAGE_DIGEST build arg -- and they are only comparable
-  # across images if both land as `sha256:<hex>`. The build arg is
-  # emitted verbatim, so a caller who pastes a `docker image inspect
-  # --format '{{index .RepoDigests 0}}' out (`ubuntu@sha256:...`, a
-  # REFERENCE) records a different shape than the pin route records for
-  # the identical image, and the same value reaches the OCI
-  # `base.digest` annotation, where OCI defines a digest. Empty stays
-  # legal: that is the shipped default's truthful "not recorded".
+  # The digest field has to hold a DIGEST when it holds anything. ONE
+  # expression fills it -- the BASE_IMAGE_DIGEST build arg -- and the
+  # same value is what the sys stage puts in the OCI `base.digest`
+  # annotation, where OCI defines a digest and not a reference. A
+  # BASE_IMAGE that carries its own digest does not fill it by a second
+  # route: a LABEL cannot read a digest out of a reference, so the build
+  # refuses unless the arg repeats that digest, and the two records
+  # cannot disagree for one image. The arg is emitted verbatim, so a
+  # caller who pastes a `docker image inspect --format
+  # '{{index .RepoDigests 0}}' out (`ubuntu@sha256:...`, a REFERENCE)
+  # records a reference where a digest belongs -- in both sinks at once,
+  # which is what this assertion catches. Empty stays legal: that is the
+  # shipped default's truthful "not recorded".
   run grep -E '^base_image_digest=(sha256:[0-9a-f]{64})?$' "${REPRO_ENV}"
   assert_success
 }

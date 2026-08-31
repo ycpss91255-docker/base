@@ -89,7 +89,10 @@ RUN addgroup -g "${SMOKE_GID}" "${SMOKE_USER}" && \
 # manifest records nothing -- exactly the failure the specs below exist
 # to catch, which is worth reproducing faithfully in the file that
 # exercises them. BASE_IMAGE_DIGEST is defaulted for the same reason the
-# template defaults it.
+# template defaults it, and carries the same refusal: it is the only
+# expression the LABEL below and the file here can share, so a
+# reference-carried digest it does not repeat stops the build instead of
+# writing a record whose two halves disagree.
 #
 # The package half cannot be verbatim: the tooling image is Alpine and
 # has no dpkg, so the apk database is read out in the same
@@ -98,18 +101,38 @@ RUN addgroup -g "${SMOKE_GID}" "${SMOKE_USER}" && \
 ARG BASE_IMAGE
 ARG BASE_IMAGE_DIGEST=""
 RUN mkdir -p /usr/local/share/base && \
+    _ref_digest=""; \
+    case "${BASE_IMAGE}" in \
+      *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+    esac; \
+    if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
+      echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
+      echo "Pass BASE_IMAGE_DIGEST=${_ref_digest} alongside it. A LABEL cannot read the" >&2; \
+      echo "digest out of the reference, so that arg is the only value" >&2; \
+      echo "org.opencontainers.image.base.digest can carry -- recording the reference's" >&2; \
+      echo "digest in the file alone would give one image two answers." >&2; \
+      exit 1; \
+    fi && \
     { \
       echo "base_image_ref=${BASE_IMAGE}"; \
-      case "${BASE_IMAGE}" in \
-        *@sha256:*) echo "base_image_pin=digest"; \
-                    echo "base_image_digest=sha256:${BASE_IMAGE##*@sha256:}" ;; \
-        *)          echo "base_image_pin=none"; \
-                    echo "base_image_digest=${BASE_IMAGE_DIGEST}" ;; \
-      esac; \
+      if [ -n "${_ref_digest}" ]; then \
+        echo "base_image_pin=digest"; \
+      else \
+        echo "base_image_pin=none"; \
+      fi; \
+      echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
     } > /usr/local/share/base/base-image.env && \
     awk -F: '/^P:/ { name = $2 } /^V:/ { printf "%s\t%s\n", name, $2 }' \
       /lib/apk/db/installed > /usr/local/share/base/packages.txt
+
+# The record's second sink, mirrored for the same reason the first one is.
+# A label is invisible to any spec running INSIDE the image, so the only
+# place the two can be compared for one image is a build plus a
+# `docker inspect` from outside -- which is what
+# test/bats/system/smoke_harness_spec.bats does with this file.
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
 # ── mirrors `devel` ─────────────────────────────────────────────────────
 # smoke/shared/entrypoint.bats asserts /entrypoint.sh is present and

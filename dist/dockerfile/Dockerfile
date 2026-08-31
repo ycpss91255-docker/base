@@ -77,9 +77,10 @@
 # What compensates is that the drift is RECORDED rather than silent. Every
 # image built from this file carries, from the image alone:
 #
-#   /usr/local/share/base/base-image.env  the base reference as given, its
-#                                         digest, whether that digest came
-#                                         from the reference itself, and
+#   /usr/local/share/base/base-image.env  the base reference as given,
+#                                         whether that reference is
+#                                         digest-pinned, the digest the
+#                                         build was told to record, and
 #                                         the base OS identity
 #   /usr/local/share/base/packages.txt    every installed package and its
 #                                         exact version, rewritten after
@@ -100,11 +101,12 @@
 #   base_image_pin=none
 #   base_image_digest=
 #
-# i.e. it does NOT record which digest that tag resolved to. The record is
-# complete for a reference that carries its own digest and empty for the
-# case the moving tag is a problem in, because nothing INSIDE a build can
-# ask the daemon what it pulled. Closing that costs one build arg, from
-# whoever runs the build and can ask:
+# i.e. it does NOT record which digest that tag resolved to, because
+# nothing INSIDE a build can ask the daemon what it pulled. Pinning the
+# reference to a digest does not close it on its own either: a LABEL
+# cannot run a case statement, so the digest has to arrive as the build
+# arg below to reach the OCI annotation at all. Closing it costs that one
+# build arg, from whoever runs the build and can ask:
 #
 #   BASE_IMAGE_DIGEST="$(docker image inspect \
 #     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
@@ -145,12 +147,19 @@
 # digest lands in base-image.env and in the OCI base.digest label.
 #
 # Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
-# reference and the manifest fills the same fields from the reference
-# alone, with no second argument:
+# reference AND repeat the digest in the same build arg:
 #
 #   BASE_IMAGE=ubuntu@sha256:<digest>
+#   BASE_IMAGE_DIGEST=sha256:<digest>
 #
+# Both, not either. The record has two sinks -- base-image.env and the
+# OCI `base.digest` annotation -- and only the file half can be written
+# by a command that reads the reference. Filling it from the reference
+# alone gives one image two answers on the one field the record exists to
+# make comparable, so the sys stage REFUSES a reference-carried digest
+# this arg does not repeat, naming the value to add. The pair is
 # supplied by the same three routes -- `arg_4 = BASE_IMAGE=ubuntu@sha256:`
+# plus `arg_5 = BASE_IMAGE_DIGEST=sha256:`
 # under `[build]` is the one that costs no hand-edit of this file and
 # survives the next `just upgrade`, whereas changing the `ARG BASE_IMAGE=`
 # default below edits a template-owned line a later migration may rewrite.
@@ -180,10 +189,13 @@ ARG DEBIAN_FRONTEND=noninteractive
 # FROM-scope only, and without this line ${BASE_IMAGE} expands to the
 # empty string inside the stage and the manifest records nothing.
 ARG BASE_IMAGE
-# The digest BASE_IMAGE resolved to, when the caller can supply it (see
-# the note above `ARG BASE_IMAGE`). Defaulted rather than left bare: this
-# stage's SHELL runs with `-u`, and an unsupplied bare ARG is what turns
-# a missing optional record into a failed build.
+# The digest BASE_IMAGE resolved to, as the caller supplies it (see the
+# note above `ARG BASE_IMAGE`). This is the ONLY expression both sinks of
+# the record can read -- the file below and the OCI annotation further
+# down -- so a reference that carries its own digest has to repeat it
+# here, and the RUN refuses the build when it does not. Defaulted rather
+# than left bare: this stage's SHELL runs with `-u`, and an unsupplied
+# bare ARG is what turns a missing optional record into a failed build.
 ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
@@ -201,23 +213,37 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
     update-locale LANG="en_US.UTF-8" && \
     ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone && \
     mkdir -p /usr/local/share/base && \
+    _ref_digest=""; \
+    case "${BASE_IMAGE}" in \
+      *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+    esac; \
+    if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
+      echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
+      echo "Pass BASE_IMAGE_DIGEST=${_ref_digest} alongside it. A LABEL cannot read the" >&2; \
+      echo "digest out of the reference, so that arg is the only value" >&2; \
+      echo "org.opencontainers.image.base.digest can carry -- recording the reference's" >&2; \
+      echo "digest in the file alone would give one image two answers." >&2; \
+      exit 1; \
+    fi && \
     { \
       echo "base_image_ref=${BASE_IMAGE}"; \
-      case "${BASE_IMAGE}" in \
-        *@sha256:*) echo "base_image_pin=digest"; \
-                    echo "base_image_digest=sha256:${BASE_IMAGE##*@sha256:}" ;; \
-        *)          echo "base_image_pin=none"; \
-                    echo "base_image_digest=${BASE_IMAGE_DIGEST}" ;; \
-      esac; \
+      if [ -n "${_ref_digest}" ]; then \
+        echo "base_image_pin=digest"; \
+      else \
+        echo "base_image_pin=none"; \
+      fi; \
+      echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
     } > /usr/local/share/base/base-image.env && \
     dpkg-query -W > /usr/local/share/base/packages.txt
 
 # The reference this image was built FROM, readable via `docker inspect`
 # without unpacking the image. Inherited by every stage below. The digest
-# is empty unless the caller supplied one or the reference carried it --
-# an empty OCI base.digest is a truthful "not recorded", which is what a
-# consumer needs to know before trusting the ref as reproducible.
+# is `${BASE_IMAGE_DIGEST}` and nothing else -- the same expression the
+# file above records, because a LABEL cannot run that stage's case and a
+# second expression here would be a second answer for one image. Empty is
+# a truthful "not recorded", which is what a consumer needs to know
+# before trusting the ref as reproducible.
 LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
@@ -632,14 +658,22 @@ RUN bats /smoke_test/
 #     apt-get clean && \
 #     rm -rf /var/lib/apt/lists/* && \
 #     mkdir -p /usr/local/share/base && \
+#     _ref_digest=""; \
+#     case "${BASE_IMAGE}" in \
+#       *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+#     esac; \
+#     if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
+#       echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
+#       exit 1; \
+#     fi && \
 #     { \
 #       echo "base_image_ref=${BASE_IMAGE}"; \
-#       case "${BASE_IMAGE}" in \
-#         *@sha256:*) echo "base_image_pin=digest"; \
-#                     echo "base_image_digest=sha256:${BASE_IMAGE##*@sha256:}" ;; \
-#         *)          echo "base_image_pin=none"; \
-#                     echo "base_image_digest=${BASE_IMAGE_DIGEST}" ;; \
-#       esac; \
+#       if [ -n "${_ref_digest}" ]; then \
+#         echo "base_image_pin=digest"; \
+#       else \
+#         echo "base_image_pin=none"; \
+#       fi; \
+#       echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
 #       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
 #     } > /usr/local/share/base/base-image.env && \
 #     dpkg-query -W > /usr/local/share/base/packages.txt
