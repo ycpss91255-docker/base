@@ -202,8 +202,13 @@ CONF
   # "deploy" appear somewhere in a 17-line window, which prose that states
   # no exemption at all ("nothing in that deploy path depends on...")
   # satisfies unchanged.
+  #
+  # The entry point is spelled the way the CLI accepts it. A predecessor
+  # matched the bare `just setup deploy`, which base has no recipe for --
+  # so the guard's power came from the prose being WRONG, and correcting
+  # the six sentences to the namespaced form falsified it.
   for _d in "${_docs[@]}"; do
-    grep -qE -- 'just setup deploy|_generate_resolved_compose' "${_d}" || fail \
+    grep -qE -- 'just docker setup deploy|_generate_resolved_compose' "${_d}" || fail \
       "${_d} states the container_name invariant without naming the deploy bundle it does not hold for"
   done
 
