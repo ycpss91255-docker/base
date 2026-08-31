@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3091 tests**.
+Unit specs under `test/bats/unit/`: **3102 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -324,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (125)
+#### test/bats/unit/setup_cmd_spec.bats (126)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
