@@ -463,80 +463,115 @@ setup() {
   assert_success
 }
 
-@test "no wrapper reconstructs a container name from USER_NAME (#920)" {
+@test "no wrapper or wrapper library reconstructs a container name from USER_NAME (#920)" {
   # The derived-name reconstruction is what made the precheck a second
   # answerer to "what is this container called". Compose owns that name now;
-  # nothing in the wrappers may assemble one to compare against.
+  # nothing a wrapper runs may assemble one to compare against.
   #
-  # The population is DERIVED, never listed. A predecessor of this guard
-  # named three files -- exec.sh, run.sh, lib/wrapper.sh -- while calling
-  # itself "no wrapper", so the other four shipped wrappers were exempt,
-  # stop.sh among them: the most natural place for a stop-by-name lookup to
-  # reappear. The guard's job is to notice TOMORROW's wrapper, so it reads
-  # the wrapper directory at run time and adds the shared library the
-  # wrappers dispatch through.
+  # The population is DERIVED, never listed, and it is as wide as the name
+  # claims. A predecessor listed three files. Its successor derived the
+  # wrapper directory but appended `lib/wrapper.sh` as one literal path --
+  # and the reconstruction being removed lived partly in lib/, which makes
+  # lib/ a demonstrated home for it: appending `_legacy_container_name()`
+  # to lib/compose.sh, the file that owns project naming and which every
+  # wrapper sources, left that guard green. So BOTH halves are read off the
+  # tree: the wrappers, and the library they dispatch through. Symlinks are
+  # included -- `-type f` alone exempted any wrapper added as one.
   local _wrapper_dir="/source/dist/script/docker/wrapper"
-  [[ -d "${_wrapper_dir}" ]] \
-    || fail "missing ${_wrapper_dir} -- the wrapper tree this guard derives its population from"
+  local _lib_dir="/source/dist/script/docker/lib"
+  local _dir
+  for _dir in "${_wrapper_dir}" "${_lib_dir}"; do
+    [[ -d "${_dir}" ]] \
+      || fail "missing ${_dir} -- a tree this guard derives its population from"
+  done
 
   local -a _files=()
   local _f
   while IFS= read -r _f; do
     _files+=("${_f}")
-  done < <(find "${_wrapper_dir}" -maxdepth 1 -type f -name '*.sh' | sort)
-  _files+=("/source/dist/script/docker/lib/wrapper.sh")
+  done < <(find "${_wrapper_dir}" "${_lib_dir}" -name '*.sh' \
+                \( -type f -o -type l \) | sort)
 
   # A derived population that came back empty is the vacuous pass this guard
-  # exists to refuse, so the roster asserts a floor before it is scanned: at
-  # least one wrapper found, and every entry a real file. The positive
-  # control further down is the second floor -- it names reads that live in
-  # two DIFFERENT wrappers, so a roster that shrank to one file fails there.
-  (( ${#_files[@]} > 1 )) \
-    || fail "${_wrapper_dir} holds no *.sh: the roster derived nothing to scan"
+  # exists to refuse, so the roster asserts a floor before it is scanned:
+  # both halves non-empty, and every entry a real file. The allowlist below
+  # is the second, much harder floor -- it names reads in six different
+  # files, so a roster that lost any one of them fails there.
+  local _n_wrappers=0 _n_libs=0
   for _f in "${_files[@]}"; do
+    case "${_f}" in
+      "${_wrapper_dir}"/*) (( ++_n_wrappers )) ;;
+      "${_lib_dir}"/*)     (( ++_n_libs )) ;;
+    esac
     assert_spec_subject "${_f}" \
-        "a wrapper this guard scans for a rebuilt container name"
+        "a wrapper-runtime script this guard scans for a rebuilt container name"
   done
+  (( _n_wrappers > 0 )) \
+    || fail "${_wrapper_dir} holds no *.sh: the roster derived nothing to scan"
+  (( _n_libs > 0 )) \
+    || fail "${_lib_dir} holds no *.sh: the roster derived nothing to scan"
 
   # grep exit 2 (unreadable path) must never read as "no match". A
   # predecessor captured stdout with `|| true`, so a renamed scan root --
   # nothing scanned -- passed as clean.
   local _out _rc=0
   _out="$(grep -Hn 'USER_NAME' "${_files[@]}")" || _rc=$?
-  (( _rc <= 1 )) || fail "grep exited ${_rc} scanning the wrapper roster"
+  (( _rc <= 1 )) || fail "grep exited ${_rc} scanning the wrapper-runtime roster"
 
-  # Comment lines are prose ABOUT the removed reconstruction; keep only code.
+  # Comment lines are prose ABOUT the removed reconstruction; keep only
+  # code, but keep each hit's file:line prefix so a failure names a place.
   local _code
   _code="$(printf '%s\n' "${_out}" \
     | awk '{ _l = $0; sub(/^[^:]*:[0-9]+:/, "", _l)
-             if (_l !~ /^[[:space:]]*#/ && _l != "") print }')"
+             if (_l !~ /^[[:space:]]*#/ && _l != "") print $0 }')"
 
-  # The two reviewed reads, each a use of the OS user that is not a
-  # container lookup: run.sh's xhost grant (an X11 identity) and
-  # setup_tui's mount-spec prompt (message text, one per locale). They are
-  # allowlisted by STRIPPING THE TOKEN, not by dropping the line: dropping
-  # the line exempts anything that shares it, and appending
+  # Every reviewed read of the OS user in the wrapper runtime. None is a
+  # container lookup; each is the user as an identity, a build arg, an
+  # emitted env line, or message text:
+  #
+  #   xhost ...            run.sh, an X11 identity
+  #   /home/.../data:rw    setup_tui mount-spec example, one per locale
+  #   ARG USER=...         dockerfile_migrate, a build arg it patches in
+  #   ${USER_NAME:--} etc  config_summary, a value it prints
+  #   USER_NAME=%s         setup_cmd, an emitted .env line
+  #   /home/.../work       setup_detect, the portable mount form
+  #   USER_NAME: ${...}    compose_emit, a compose build arg
+  #   USER_NAME=${_user..} env_emit, an emitted .env line
+  #
+  # They are allowlisted by STRIPPING THE TOKEN, not by dropping the line:
+  # dropping the line exempts anything that shares it, and appending
   # `; _legacy="${USER_NAME}-${IMAGE_NAME}"` to the xhost line walked past
-  # the predecessor untouched.
+  # an earlier line-dropping version untouched. Each token must still be
+  # FOUND -- an allowlist entry that stopped matching would widen the guard
+  # into "nothing is checked", the same vacuous pass it exists to refuse.
   local -a _allowed=(
     'xhost "+SI:localuser:${USER_NAME}"'
     '/home/${USER_NAME}/data:rw'
+    'ARG USER="${USER_NAME}"'
+    'ARG USER=\${USER_NAME}'
+    '\${USER_NAME} = %s'
+    '${USER_NAME:--}'
+    'USER_NAME=%s'
+    '/home/${USER_NAME}/work'
+    '/home/\${USER_NAME}/work'
+    'USER_NAME: \${USER_NAME}'
+    'USER_NAME=${_user_name}'
   )
-  local _a
+  # Literal substring removal via bash pattern quoting -- no sed escaping,
+  # so a token carrying `\$` strips the text it actually is.
+  local _residue="${_code}" _a
   for _a in "${_allowed[@]}"; do
-    grep -qF -- "${_a}" <<< "${_code}" \
-      || fail "allowlisted USER_NAME read is gone: ${_a} -- the roster scanned nothing, or the allowlist went stale"
+    [[ "${_residue}" == *"${_a}"* ]] || fail \
+      "allowlisted USER_NAME read is gone: ${_a} -- the roster scanned nothing, or the allowlist went stale"
+    _residue="${_residue//"${_a}"/}"
   done
 
-  local _residue _rc2=0
-  _residue="$(printf '%s\n' "${_code}" \
-    | sed -e 's|xhost "+SI:localuser:${USER_NAME}"||g' \
-          -e 's|/home/${USER_NAME}/data:rw||g' \
-    | grep -n 'USER_NAME')" || _rc2=$?
-  (( _rc2 <= 1 )) || fail "grep exited ${_rc2} filtering the allowlisted reads"
-  [[ -z "${_residue}" ]] || {
-    echo "unreviewed USER_NAME read in a wrapper (name reconstruction?):"
-    echo "${_residue}"
+  local _left _rc2=0
+  _left="$(grep 'USER_NAME' <<< "${_residue}")" || _rc2=$?
+  (( _rc2 <= 1 )) || fail "grep exited ${_rc2} over the filtered residue"
+  [[ -z "${_left}" ]] || {
+    echo "unreviewed USER_NAME read in the wrapper runtime (name reconstruction?):"
+    echo "${_left}"
     return 1
   }
 }
