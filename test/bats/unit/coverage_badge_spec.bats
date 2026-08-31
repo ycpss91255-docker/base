@@ -410,15 +410,23 @@ _make_cobertura() {
   # The joint between the two halves: the writer can only record a
   # partition if the dispatch passes it one. Stub the container run and
   # the writer, and read back what the dispatch handed over.
-  run bash -c '
+  #
+  # BOTH halves are read, and from where each of them really gets its
+  # value: the writer from its argument, the container from the
+  # environment _run_via_compose forwards (`-e COVERAGE_SHARD`). A
+  # DIFFERENT partition is in the ambient environment here, so the reading
+  # cannot be satisfied by an inherited value -- which is the other half
+  # of the rule the full-run case below states.
+  run env COVERAGE_SHARD=3/4 bash -c '
     source /source/script/test/test.sh
-    _run_via_compose() { :; }
+    _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
     _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { printf "root=[%s] shard=[%s]\n" "${1:-}" "${2:-}"; }
     main --coverage-shard 1/4
   '
   [ "${status}" -eq 0 ]
   assert_output --partial "root=[/source] shard=[1/4]"
+  assert_output --partial "CONTAINER shard=[1/4]"
 }
 
 @test "coverage_badge: a full --coverage run hands the stamp no partition" {
@@ -434,6 +442,34 @@ _make_cobertura() {
   '
   [ "${status}" -eq 0 ]
   assert_output --partial "root=[/source] shard=[]"
+}
+
+@test "coverage_badge: a full --coverage run tells the CONTAINER no partition" {
+  # The stamp is only half the certificate, and the half above reads the
+  # FLAG. What kcov actually walks is decided by the environment:
+  # _run_via_compose forwards `-e COVERAGE_SHARD="${COVERAGE_SHARD:-}"`
+  # from the AMBIENT environment, not from the flag. So a bare
+  # `--coverage` inheriting a partition -- and the caller that has one is
+  # this suite itself, running inside a coverage shard -- kcovs a QUARTER
+  # of the specs and then stamps the reports `scope=full`. Every check the
+  # badge generator makes passes and it publishes the partition's rate as
+  # the release figure: the exact failure the scope line exists to
+  # prevent, arriving through the one door the scope line does not watch.
+  #
+  # --coverage-path clears it for this reason already; a run that reports
+  # a FIGURE has more need of the clearing, not less. The assertion is on
+  # what the container was handed, because a stub that never reads
+  # COVERAGE_SHARD proves the flag was empty and nothing about the run.
+  run env COVERAGE_SHARD=1/4 bash -c '
+    source /source/script/test/test.sh
+    _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { printf "STAMP shard=[%s]\n" "${2:-}"; }
+    main --coverage
+  '
+  [ "${status}" -eq 0 ]
+  assert_output --partial "CONTAINER shard=[]"
+  assert_output --partial "STAMP shard=[]"
 }
 
 @test "coverage_badge: refuses when the reports cover one shard, not the suite" {
