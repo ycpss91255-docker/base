@@ -3121,7 +3121,7 @@ host so the boundary between them can be asserted at all.
 | `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
 | `every harness COPY exemption is still a real devel-test COPY` | - |
 | `the harness installs the entrypoint the shared smoke baseline asserts` | - |
-| `the harness supplies the manifest, so the shipped repro specs run instead of skipping (#951)` | without it all three shipped reproducibility specs report `ok N # skip` under `just test smoke`, base's only local entry point for them |
+| `the harness Dockerfile writes the manifest before the specs read it (#951)` | The manifest and the OCI annotation the sys stage writes are mirrored here, and written before `RUN bats`; whether the specs then run rather than skip is asserted at system level, which builds this file |
 | `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
 | `the harness runs the specs as a non-root user, after the COPYs` | - |
 | `the harness asserts at BUILD time, exactly like the stage it stands in for` | - |

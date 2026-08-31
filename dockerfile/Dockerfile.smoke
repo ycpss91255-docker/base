@@ -79,8 +79,10 @@ RUN addgroup -g "${SMOKE_GID}" "${SMOKE_USER}" && \
 # not made here either. That guard exists for a CONSUMER image built
 # before the manifest revision, which genuinely has no manifest and must
 # not have an upgrade turned into a broken build; base is not that
-# consumer, and `just test smoke` is the only local entry point those
-# specs have.
+# consumer. Two local entry points build this file -- `just test smoke`,
+# and test/bats/system/smoke_harness_spec.bats under `just test system`,
+# which builds it with --no-cache over a synthesized context -- and both
+# would have reported a green run over three skips.
 #
 # What is reproduced is the sys stage's RECORD, not its commands. The
 # bare `ARG BASE_IMAGE` re-declaration is verbatim and load-bearing for

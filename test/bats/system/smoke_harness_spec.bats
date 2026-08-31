@@ -129,6 +129,14 @@ teardown() {
   # harness that copied an empty /smoke_test and short-circuited cannot pass
   # this by doing nothing.
   echo "${output}" | grep -qE '1\.\.[0-9]+'
+  # ... and no spec may have SKIPPED. A plan counts specs that ran, not
+  # specs that asserted: with the manifest RUN deleted from the harness,
+  # smoke/shared/reproducibility.bats hits its own
+  # `_skip_unless_manifest_adopted` guard and this build still exits 0
+  # printing `1..N` with three `ok N # skip` -- a green case over a run
+  # that observed nothing. Every shipped spec is meant to run HERE; a spec
+  # that legitimately cannot must be given a home, not skipped past.
+  ! echo "${output}" | grep -q '# skip'
 }
 
 # ────────────────────────────────────────────────────────────────────

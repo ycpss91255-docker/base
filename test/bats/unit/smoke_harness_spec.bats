@@ -255,17 +255,21 @@ _HARNESS_EXEMPT_SRCS=(
   assert_success
 }
 
-@test "the harness supplies the manifest, so the shipped repro specs run instead of skipping (#951)" {
+@test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
+  # Named for what a grep of a Dockerfile can establish: the instructions
+  # are there, in that order. Whether the specs then RUN rather than skip
+  # is a runtime outcome no text can see -- the system spec asserts that,
+  # by building this file and refusing any `# skip` in the output.
+  #
   # smoke/shared/reproducibility.bats skips itself when neither
   # /usr/local/share/base/base-image.env nor packages.txt exists, because
   # a consumer image built before that template revision genuinely has
   # no manifest and failing there would turn an upgrade into a broken
-  # build. base is not that consumer: `just test smoke` is the only local
-  # entry point those specs have, and a harness that omits the manifest
-  # turns all three of them into `ok N # skip` -- a green run reporting
-  # that nothing was checked, over the one assertion the whole change
-  # exists for (a manifest that IS written and records nothing, which no
-  # amount of grepping the template can catch).
+  # build. base is not that consumer, and a harness that omits the
+  # manifest turns all three of them into `ok N # skip` -- a green run
+  # reporting that nothing was checked, over the one assertion the whole
+  # change exists for (a manifest that IS written and records nothing,
+  # which no amount of grepping the template can catch).
   #
   # So the harness writes it, and this test is what keeps it written.
   # What is reproduced is the sys stage's RECORD, not its commands: the
