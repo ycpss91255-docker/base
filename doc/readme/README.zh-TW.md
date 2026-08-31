@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention 2ea4238560a9 61abdb96e345 -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a 1281757a60af -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -224,10 +224,12 @@ flowchart LR
   `base_image_pin=none`、`base_image_digest` 留空——build 內部無法向 daemon
   詢問某個 tag 解析到哪個 image。要補上就在 `BASE_IMAGE` 之外再傳
   `BASE_IMAGE_DIGEST`（那是「記錄」不是 pin）。把 `BASE_IMAGE` pin 成 digest
-  以取得 bit-for-bit 重現時，同一個 digest 仍要用該 arg 再傳一次：`LABEL`
-  沒辦法從 reference 裡讀出 digest，所以 `BASE_IMAGE_DIGEST` 是 `.base.digest`
-  唯一能帶的值，`sys` 寧可讓「只 pin 一半」的 build 失敗，也不會在檔案裡寫一個
-  答案、在 annotation 裡寫另一個。
+  本身就 build 得起來，也會記成 `base_image_pin=digest`，但那個欄位仍會留空：
+  annotation 是由 `LABEL` 寫的，而 `LABEL` 無法依「reference 有沒有帶 digest」
+  分支——同一個去頭運算式在沒有 digest 時會回傳整個 reference——所以它只帶
+  build arg。兩個 sink 同時留空是誠實的「未另外記錄」，build 不會因此拒絕；
+  真正會失敗的是 `BASE_IMAGE_DIGEST` 指到與 reference 不同的 digest，由出貨的
+  smoke spec 在 `-test` stage 擋下。
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
 - `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的

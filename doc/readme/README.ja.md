@@ -198,7 +198,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention 2ea4238560a9 5024393f1342 -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a d28560a09120 -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -232,11 +232,14 @@ flowchart LR
   `base_image_pin=none`、`base_image_digest` は空になります——build の内部から
   daemon に「その tag はどの image に解決したか」を尋ねる手段がないためです。
   埋めたい場合は `BASE_IMAGE` と併せて `BASE_IMAGE_DIGEST`（pin ではなく記録）
-  を渡します。bit-for-bit の再現性のために `BASE_IMAGE` を digest に pin する
-  場合も、同じ digest をこの arg で渡す必要があります：`LABEL` は reference
-  から digest を読み出せないため `BASE_IMAGE_DIGEST` だけが `.base.digest` に
-  載る値であり、`sys` は片方だけ pin された build を、ファイルと annotation に
-  別々の答えを記録するくらいなら拒否します。
+  を渡します。`BASE_IMAGE` を digest に pin するだけでも build は通り
+  `base_image_pin=digest` と記録されますが、そのフィールドは空のままです：
+  annotation を書くのは `LABEL` であり、`LABEL` は「reference が digest を
+  持つか」で分岐できません——digest を剥がす式は digest が無ければ reference
+  全体を返します——ので、載るのは build arg だけです。両方の sink が空なのは
+  「別途記録していない」という正直な記録なので build は拒否しません。失敗する
+  のは `BASE_IMAGE_DIGEST` が reference と違う digest を指す場合で、出荷される
+  smoke spec が `-test` stage で止めます。
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
   `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。

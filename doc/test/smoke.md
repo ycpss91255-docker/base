@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Shared smoke specs that ship under `dist/test/bats/smoke/`: **37 tests**.
+Shared smoke specs that ship under `dist/test/bats/smoke/`: **38 tests**.
 
 > **Not** part of the `just test` self-test grand total — these are
 > Dockerfile `-test`-stage build-time assertions, not self-tests. See
@@ -146,7 +146,7 @@ in devel-test).
 | `entrypoint.sh is installed and executable` | Entrypoint present |
 | `bash is available on PATH` | Core shell present |
 
-### dist/test/bats/smoke/shared/reproducibility.bats (3)
+### dist/test/bats/smoke/shared/reproducibility.bats (4)
 
 The reproducibility manifest the template's `sys` stage (and `runtime-base`,
 when the runtime split is enabled) writes: `base-image.env` and
@@ -168,6 +168,7 @@ an empty record, has adopted the manifest and broken it, and fails.
 |------|-------------|
 | `the reproducibility manifest is complete` | Both manifest files land in every `-test` stage |
 | `the manifest names the base image this stage was built from` | Non-empty `base_image_ref` value plus a `base_image_pin` verdict — the empty-expansion failure |
+| `the manifest's digest field does not contradict the reference` | - |
 | `the manifest records package versions, not just package names` | `dpkg-query -W` name/version pairs, not a bare name list |
 
 ### dist/test/bats/smoke/devel-test/script_help.bats (27)

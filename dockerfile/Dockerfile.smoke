@@ -91,10 +91,12 @@ RUN addgroup -g "${SMOKE_GID}" "${SMOKE_USER}" && \
 # manifest records nothing -- exactly the failure the specs below exist
 # to catch, which is worth reproducing faithfully in the file that
 # exercises them. BASE_IMAGE_DIGEST is defaulted for the same reason the
-# template defaults it, and carries the same refusal: it is the only
+# template defaults it, and behaves the same way: it is the only
 # expression the LABEL below and the file here can share, so a
-# reference-carried digest it does not repeat stops the build instead of
-# writing a record whose two halves disagree.
+# reference-carried digest it does not repeat leaves both of them empty
+# and the build carries on. Nothing here stops a build over that, which
+# is the point -- test/bats/system/smoke_harness_spec.bats builds this
+# file with exactly that call and expects an image out of it.
 #
 # The package half cannot be verbatim: the tooling image is Alpine and
 # has no dpkg, so the apk database is read out in the same
@@ -107,14 +109,6 @@ RUN mkdir -p /usr/local/share/base && \
     case "${BASE_IMAGE}" in \
       *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
     esac; \
-    if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
-      echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
-      echo "Pass BASE_IMAGE_DIGEST=${_ref_digest} alongside it. A LABEL cannot read the" >&2; \
-      echo "digest out of the reference, so that arg is the only value" >&2; \
-      echo "org.opencontainers.image.base.digest can carry -- recording the reference's" >&2; \
-      echo "digest in the file alone would give one image two answers." >&2; \
-      exit 1; \
-    fi && \
     { \
       echo "base_image_ref=${BASE_IMAGE}"; \
       if [ -n "${_ref_digest}" ]; then \

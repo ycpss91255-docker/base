@@ -69,16 +69,44 @@ _skip_unless_manifest_adopted() {
   # same value is what the sys stage puts in the OCI `base.digest`
   # annotation, where OCI defines a digest and not a reference. A
   # BASE_IMAGE that carries its own digest does not fill it by a second
-  # route: a LABEL cannot read a digest out of a reference, so the build
-  # refuses unless the arg repeats that digest, and the two records
-  # cannot disagree for one image. The arg is emitted verbatim, so a
-  # caller who pastes a `docker image inspect --format
-  # '{{index .RepoDigests 0}}' out (`ubuntu@sha256:...`, a REFERENCE)
-  # records a reference where a digest belongs -- in both sinks at once,
-  # which is what this assertion catches. Empty stays legal: that is the
-  # shipped default's truthful "not recorded".
+  # route, because the annotation is written by a LABEL and a LABEL
+  # cannot branch on whether the reference carries one: the expression
+  # that strips a digest returns the whole reference when there is none.
+  # So the arg is emitted verbatim, and a caller who pastes a
+  # `docker image inspect --format '{{index .RepoDigests 0}}'` out
+  # (`ubuntu@sha256:...`, a REFERENCE) records a reference where a digest
+  # belongs -- in both sinks at once, which is what this assertion
+  # catches. Empty stays legal: that is the shipped default's truthful
+  # "not recorded", and equally the truthful record of an image pinned by
+  # reference whose builder passed no second argument.
   run grep -E '^base_image_digest=(sha256:[0-9a-f]{64})?$' "${REPRO_ENV}"
   assert_success
+}
+
+@test "the manifest's digest field does not contradict the reference" {
+  _skip_unless_manifest_adopted
+  # The record can state the digest TWICE: once inside `base_image_ref`
+  # when the reference is digest-pinned, once in `base_image_digest`. One
+  # image, one base, so where both are stated they are the same value or
+  # the record is false -- and a false record is worse than the blank one
+  # it was meant to improve on, because it reads as an answer.
+  #
+  # Stating only the reference half is NOT the failure: an empty digest
+  # field beside a pinned reference is "not separately recorded", the
+  # same answer the OCI annotation gives, and the build is right not to
+  # stop over it. Only disagreement fails, which is why this is asserted
+  # HERE, over the record, rather than by refusing to build: it fails the
+  # `-test` stage of the image whose record is actually wrong.
+  local _ref _digest _from_ref
+  _ref="$(sed -n 's/^base_image_ref=//p' "${REPRO_ENV}")"
+  _digest="$(sed -n 's/^base_image_digest=//p' "${REPRO_ENV}")"
+  case "${_ref}" in
+    *@sha256:*) _from_ref="sha256:${_ref##*@sha256:}" ;;
+    *)          _from_ref="" ;;
+  esac
+  if [ -n "${_from_ref}" ] && [ -n "${_digest}" ]; then
+    assert_equal "${_digest}" "${_from_ref}"
+  fi
 }
 
 @test "the manifest records package versions, not just package names" {

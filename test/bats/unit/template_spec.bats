@@ -1435,7 +1435,16 @@ _df_base_image_note() {
 # example stayed exempt from a relation whose name is "every apt layer".
 # Options before the subcommand are part of that shape too:
 # `apt-get -y install foo` is an install layer, and a pattern demanding
-# `apt-get` immediately followed by `install` makes one invisible.
+# `apt-get` immediately followed by `install` makes one invisible. An
+# option that takes a SEPARATE argument counts as one option, not as an
+# option and then something unrecognised: `-o Dpkg::Options::="..."` is
+# the spelling this template itself writes in devel-base, and a pattern
+# that can only cross glued `-x` / `--x=y` tokens stops at its value --
+# so moving those two words ahead of the subcommand, which apt-get
+# accepts, turned the guard off for that layer while the block still
+# counted toward the floor. The argument is matched as one non-option
+# word, which is what keeps the pattern from walking over a `&&` into an
+# `install` belonging to something else.
 #
 # Leading whitespace is tolerated because Docker tolerates it: `  RUN ...`
 # is a RUN, and a guard that only sees column 0 is a guard a consumer's
@@ -1463,7 +1472,7 @@ _df_base_image_note() {
 # to ask the same question about part of a block (see the ordering
 # assertion below) -- two spellings of it is how a relation ends up
 # holding for one of them only.
-_DF_APT_INSTALL_RE='(apt(-get)?|rosdep)([[:space:]]+-[^[:space:]]+)*[[:space:]]+install'
+_DF_APT_INSTALL_RE='(apt(-get)?|rosdep)([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+install'
 
 _df_apt_run_blocks() {
   awk -v mode="${2:?_df_apt_run_blocks: missing mode}" \

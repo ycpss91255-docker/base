@@ -263,11 +263,15 @@ Notes:
   says `base_image_pin=none` and leaves `base_image_digest` empty — nothing
   inside a build can ask the daemon which image a tag resolved to. Pass
   `BASE_IMAGE_DIGEST` (a record, not a pin) alongside `BASE_IMAGE` to fill it
-  in. Pinning `BASE_IMAGE` to a digest for bit-for-bit builds needs the same
-  arg repeating that digest: a `LABEL` cannot read a digest out of a
-  reference, so `BASE_IMAGE_DIGEST` is the only value `.base.digest` can
-  carry, and `sys` refuses a half-pinned build rather than record one answer
-  in the file and another in the annotation.
+  in. Pinning `BASE_IMAGE` to a digest builds on its own and records
+  `base_image_pin=digest`, but still leaves that field empty: the annotation
+  is written by a `LABEL`, and a `LABEL` cannot branch on whether the
+  reference carries a digest — the expression that strips one returns the
+  whole reference when there is none — so it carries the build arg and
+  nothing else. Empty in both sinks is a truthful "not recorded", so the
+  build does not refuse it; what fails is a `BASE_IMAGE_DIGEST` naming a
+  different digest than the reference, caught by the shipped smoke spec in
+  the `-test` stage.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside

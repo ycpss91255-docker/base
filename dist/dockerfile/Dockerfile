@@ -103,10 +103,9 @@
 #
 # i.e. it does NOT record which digest that tag resolved to, because
 # nothing INSIDE a build can ask the daemon what it pulled. Pinning the
-# reference to a digest does not close it on its own either: a LABEL
-# cannot run a case statement, so the digest has to arrive as the build
-# arg below to reach the OCI annotation at all. Closing it costs that one
-# build arg, from whoever runs the build and can ask:
+# reference to a digest does not fill the field on its own either -- the
+# pinning paragraph below says why, and what it costs to fill. Filling it
+# costs one build arg, from whoever runs the build and can ask:
 #
 #   BASE_IMAGE_DIGEST="$(docker image inspect \
 #     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
@@ -116,10 +115,11 @@
 # (`ubuntu@sha256:<hex>`), and this value is recorded verbatim as
 # `base_image_digest` and as the OCI
 # `org.opencontainers.image.base.digest` annotation, where OCI defines a
-# digest and not a reference. Unstripped, the same image records one
-# shape here and another when BASE_IMAGE itself carries the digest --
-# and a field that is not comparable across the two routes this note
-# offers cannot answer "are these two images built from the same base".
+# digest and not a reference. Unstripped it puts a reference in both
+# sinks at once, and every reader of the field expects a digest -- the
+# annotation by the OCI spec, and the shipped smoke spec, which asserts
+# `base_image_digest` is empty or `sha256:` plus 64 hex and fails the
+# `-test` stage when it is neither.
 #
 # passed alongside BASE_IMAGE. Three routes, in the order to reach for
 # them:
@@ -147,22 +147,46 @@
 # digest lands in base-image.env and in the OCI base.digest label.
 #
 # Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
-# reference AND repeat the digest in the same build arg:
+# reference:
+#
+#   BASE_IMAGE=ubuntu@sha256:<digest>
+#
+# That builds, and it is enough on its own: the manifest records
+# `base_image_pin=digest` and a `base_image_ref` that carries the digest.
+# What it does not do is fill `base_image_digest` / the OCI
+# `base.digest` annotation. The reason is narrow and worth stating
+# exactly, because a wider version of it once stopped this build: a LABEL
+# CAN read a digest out of a reference -- `${BASE_IMAGE##*@}` in a LABEL
+# resolves to `sha256:<hex>` for `ubuntu@sha256:<hex>`, which base
+# verifies by building its smoke harness with a probe label and reading
+# it back with `docker inspect`. What a LABEL cannot do is BRANCH. The
+# same expression resolves to `ubuntu:24.04` for an unpinned reference,
+# i.e. a tag in the field OCI reserves for a digest, which the shipped
+# smoke spec rejects; and pattern expansion inside a LABEL is
+# builder-dependent besides (this template pins no `syntax=` directive).
+# One expression cannot be right for both, so the annotation carries the
+# build arg and nothing else -- and the file records that same arg, which
+# is what keeps the two sinks from ever disagreeing.
+#
+# So pass both if you want the field filled:
 #
 #   BASE_IMAGE=ubuntu@sha256:<digest>
 #   BASE_IMAGE_DIGEST=sha256:<digest>
 #
-# Both, not either. The record has two sinks -- base-image.env and the
-# OCI `base.digest` annotation -- and only the file half can be written
-# by a command that reads the reference. Filling it from the reference
-# alone gives one image two answers on the one field the record exists to
-# make comparable, so the sys stage REFUSES a reference-carried digest
-# this arg does not repeat, naming the value to add. The pair is
-# supplied by the same three routes -- `arg_4 = BASE_IMAGE=ubuntu@sha256:`
-# plus `arg_5 = BASE_IMAGE_DIGEST=sha256:`
-# under `[build]` is the one that costs no hand-edit of this file and
-# survives the next `just upgrade`, whereas changing the `ARG BASE_IMAGE=`
-# default below edits a template-owned line a later migration may rewrite.
+# The build does NOT refuse the reference-only form. An empty
+# `base_image_digest` beside `base_image_pin=digest` is a truthful
+# "pinned, digest not separately recorded", identical in both sinks, and
+# refusing it would break a configuration this note recommends. What is
+# rejected is DISAGREEMENT: state both halves naming different digests
+# and the shipped smoke spec fails the `-test` stage, because a record
+# that answers one field two ways is false however it is read.
+#
+# The pair travels the same three routes. Under `[build]` that is
+# `arg_5 = BASE_IMAGE=ubuntu@sha256:<digest>` beside the
+# `arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>` above -- the route that
+# costs no hand-edit of this file and survives the next `just upgrade`,
+# whereas changing the `ARG BASE_IMAGE=` default below edits a
+# template-owned line a later migration may rewrite.
 # Pinning is a per-repo call because the bump maintenance it costs is the
 # repo's to carry -- and one repo pinning does not conscript every other
 # repo under the org.
@@ -192,10 +216,12 @@ ARG BASE_IMAGE
 # The digest BASE_IMAGE resolved to, as the caller supplies it (see the
 # note above `ARG BASE_IMAGE`). This is the ONLY expression both sinks of
 # the record can read -- the file below and the OCI annotation further
-# down -- so a reference that carries its own digest has to repeat it
-# here, and the RUN refuses the build when it does not. Defaulted rather
-# than left bare: this stage's SHELL runs with `-u`, and an unsupplied
-# bare ARG is what turns a missing optional record into a failed build.
+# down -- so a reference that carries its own digest does not fill it by
+# a second route, and unsupplied it leaves both sinks equally empty. That
+# is a record with a blank field, not a broken one, and the build says so
+# by continuing. Defaulted rather than left bare: this stage's SHELL runs
+# with `-u`, and an unsupplied bare ARG is what turns a missing optional
+# record into a failed build.
 ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
@@ -217,14 +243,6 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
     case "${BASE_IMAGE}" in \
       *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
     esac; \
-    if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
-      echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
-      echo "Pass BASE_IMAGE_DIGEST=${_ref_digest} alongside it. A LABEL cannot read the" >&2; \
-      echo "digest out of the reference, so that arg is the only value" >&2; \
-      echo "org.opencontainers.image.base.digest can carry -- recording the reference's" >&2; \
-      echo "digest in the file alone would give one image two answers." >&2; \
-      exit 1; \
-    fi && \
     { \
       echo "base_image_ref=${BASE_IMAGE}"; \
       if [ -n "${_ref_digest}" ]; then \
@@ -240,10 +258,13 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
 # The reference this image was built FROM, readable via `docker inspect`
 # without unpacking the image. Inherited by every stage below. The digest
 # is `${BASE_IMAGE_DIGEST}` and nothing else -- the same expression the
-# file above records, because a LABEL cannot run that stage's case and a
-# second expression here would be a second answer for one image. Empty is
-# a truthful "not recorded", which is what a consumer needs to know
-# before trusting the ref as reproducible.
+# file above records. Not because a LABEL is unable to read a digest out
+# of a reference: it is able to, and a probe label proves it. Because a
+# LABEL cannot BRANCH, so the expression that strips a digest returns the
+# whole reference when there is none to strip, which would put a tag in
+# the field OCI reserves for a digest. One expression, one answer, both
+# sinks. Empty is a truthful "not recorded", which is what a consumer
+# needs to know before trusting the ref as reproducible.
 LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
