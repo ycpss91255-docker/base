@@ -25,9 +25,16 @@
 # What this spec deliberately does NOT assert is WHICH scopes a job may
 # name: publish-worker's jobs legitimately hold `packages: write` and
 # release-worker's release job legitimately holds `contents: write`. The
-# exact-set assertions for one worker's grants live with that worker's
-# spec (build_worker_yaml_spec.bats). The property here is that the grant
-# is DECLARED rather than inherited.
+# property here is that the grant is DECLARED rather than inherited.
+#
+# Which scopes each worker names is pinned as an EXACT per-job set in that
+# worker's own spec -- build_worker_yaml_spec.bats,
+# publish_worker_yaml_spec.bats, release_worker_yaml_spec.bats and
+# multi_distro_build_worker_yaml_spec.bats each assert their file's whole
+# derived permission surface. That division is the reason this sentence is
+# worth reading: while it was a promise rather than a fact, every grant
+# outside build-worker.yaml was pinned by nothing, and widening one of them
+# to `packages: write` passed the entire suite.
 
 bats_require_minimum_version 1.5.0
 

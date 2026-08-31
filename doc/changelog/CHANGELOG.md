@@ -97,6 +97,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the least-privilege guards now query a YAML parser instead of matching
+  indentation (refs #957)** -- four legal workflow shapes made a job or a
+  grant INVISIBLE to them, which is the fail-open direction for a scan whose
+  whole assertion is that it came back empty: a trailing comment on a job
+  key, a trailing comment or a quoted level on a permission entry, a job id
+  not starting lowercase, and `"on":` or flow style. Each kept the guards
+  green over a live `packages: write`. `yq` (Alpine's `yq-go`) joins the
+  tooling image and an unparsable file now fails closed. The publish,
+  release and multi-distro workers gained the exact-set pin their prose
+  already promised.
 - **no job of any reusable worker inherits the caller's whole token grant
   (closes #957)** -- eight jobs across four `workflow_call` workflows
   declared no `permissions:`, so each ran with the CALLING repo's grant.

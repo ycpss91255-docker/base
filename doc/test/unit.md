@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3099 tests**.
+Unit specs under `test/bats/unit/`: **3117 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -828,7 +828,7 @@ which would leave a freshly-pushed `:main` unverified).
 | Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
 | Declares `packages: write` permission | 1 |
 
-### test/bats/unit/release_worker_yaml_spec.bats (7)
+### test/bats/unit/release_worker_yaml_spec.bats (8)
 
 Structural assertions for `.github/workflows/release-worker.yaml`'s
 archive step. The step used to hardcode the payload as operands of one
@@ -847,6 +847,7 @@ behaviour is covered by `release_archive_spec.bats` and
 | Archive step delegates to the assembler + its declared manifest | 2 |
 | Assembler is version-matched to the worker (`job_workflow_sha`, checkout path) | 2 |
 | Caller input reaches the step via `env:`, never run-block interpolation | 2 |
+| Every job's grant pinned as an exact per-job entry set, over the job list derived from the file (`preflight: contents: read`, `release: contents: write`) | 1 |
 
 ### test/bats/unit/publish_worker_yaml_spec.bats (12)
 
@@ -867,9 +868,10 @@ digest, and a `merge` job assembles the tagged manifest list via
 | Native-runner matrix: `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner` | 2 |
 | Push-by-digest per shard (#602): build pushes by digest; no shared same-tag-per-shard push (regression guard); digest exported + uploaded as artifact | 3 |
 | Merge job (#602): downloads digests + creates the manifest via `imagetools`; resolves tags from inputs once; login uses the parameterised registry | 3 |
-| Declares `packages: write` on both push jobs | 1 |
+| Every job's grant pinned as an exact per-job entry set, over the job list derived from the file -- `packages: write` on `publish` + `merge` only, `compute-matrix` read-only. Replaces a `grep -c '^\s+packages:\s+write' >= 2` count, which was blind to WHICH job held the scope, to a third job acquiring it, and to any other scope beside it | 1 |
+| Same-repo guard on the self-hosted-eligible `publish` job (#766) | 1 |
 
-### test/bats/unit/multi_distro_build_worker_yaml_spec.bats (16)
+### test/bats/unit/multi_distro_build_worker_yaml_spec.bats (17)
 
 Structural assertions for `.github/workflows/multi-distro-build-worker.yaml`
 (#325 B-1 dispatcher, extended to N-D matrix-mode via #344 in v0.32.0).
@@ -923,6 +925,7 @@ the 1D inputs are gone).
 | `call-build` `fail-fast: false` | 1 |
 | `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
 | `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
+| Every job's grant pinned as an exact per-job entry set, over the job list derived from the file (all three jobs `contents: read` -- the dispatcher builds nothing and pushes nothing) | 1 |
 
 ### test/bats/unit/wrapper_lib_spec.bats (18)
 
@@ -3561,8 +3564,12 @@ inside the test that produces it, each case writes a one-test spec into
 
 Least privilege across EVERY reusable workflow in `.github/workflows/`,
 rather than the one file #957 was filed against. The population is derived:
-each `*.yaml` whose `on:` mapping declares `workflow_call`, so a reusable
-worker added tomorrow is covered the day it lands. That derivation is what
+each `*.yaml` / `*.yml` whose parsed `on:` mapping declares `workflow_call`,
+so a reusable worker added tomorrow is covered the day it lands however its
+author spelled the trigger key. A second reading over the raw text -- every
+file whose code lines name `workflow_call` at all must be in the derived
+list, and nothing else may be -- fails if the two disagree, so a spelling
+the parser stopped resolving cannot drop a worker out of the scan silently. That derivation is what
 found the rest of the gap -- `multi-distro-build-worker.yaml` had three jobs
 and no `permissions:` line anywhere, and `publish-worker`'s `compute-matrix`
 and `release-worker`'s `release` were two more, all of them running on the
@@ -3570,10 +3577,67 @@ CALLING repo's whole token while build-worker.yaml's own guard was green.
 
 Which scopes a job may name is deliberately NOT asserted here (publish-worker
 holds `packages: write` legitimately, release-worker `contents: write`); the
-exact-set assertions for one worker's grants live with that worker's spec.
-The property is that the grant is DECLARED rather than inherited.
+property here is that the grant is DECLARED rather than inherited. The exact
+per-job sets live with each worker's own spec -- `build_worker_yaml_spec`,
+`publish_worker_yaml_spec`, `release_worker_yaml_spec` and
+`multi_distro_build_worker_yaml_spec` each pin their file's whole derived
+permission surface. While that division was a promise rather than a fact,
+every grant outside build-worker.yaml was pinned by nothing and widening one
+of them to `packages: write` passed the whole suite.
 
 | Test | Description |
 |------|-------------|
 | `reusable workers: every one of them yields at least one job (#957)` | The guard for the guard: every assertion here is "nothing came back wrong", which an extractor returning nothing at all satisfies perfectly. Pairs with the population floor (at least the 4 reusable workers the repo ships, build-worker.yaml among them) that both tests assert before reading a scan |
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
+
+### test/bats/unit/yaml_permission_surface_spec.bats (16)
+
+Unit tests for the DERIVED job and permission surfaces in
+`test/bats/unit/test_helper.bash` (`yaml_job_names` /
+`yaml_job_permission_entries` / `yaml_permission_surface` /
+`reusable_workflow_files`) and for the boundary `yaml_job_text` draws
+between two jobs.
+
+Every least-privilege guard in this repo is a scan over one of those
+derivations, and every one of them asserts the scan came back EMPTY -- so a
+derivation that stops seeing part of the file reports exactly what a clean
+file reports. The derivations therefore need tests whose fixtures CONTAIN
+the elevation and which fail when it is not reported.
+
+The four shapes pinned here are all legal GitHub workflow, and each made a
+whole job or a whole grant invisible to the hand-rolled awk these helpers
+used to be: a trailing comment on a job key (the key pattern was anchored at
+end of line, so the job was not a job); a trailing comment or a quoted level
+on a permission entry (an entry the pattern rejected ENDED the block,
+dropping it and everything after it, so whether an elevation was seen
+depended on where in the block it sat); a job id that does not begin with a
+lowercase letter (`Sign:`, `_pub:` did not terminate the job above them,
+which then reported their grants as its own); and `"on":` or a flow-style
+`on:` mapping (the reusable-worker derivation matched `^on:` as text, so a
+worker written either way was scanned by nothing). The helpers now query a
+YAML parser (`yq`, added to `dockerfile/Dockerfile.test-tools` as Alpine's
+`yq-go`), which also fails CLOSED: a file it cannot parse is a `BUG:` line
+and a non-zero status, where the awk simply produced a shorter answer.
+
+Fixtures are written to a scratch directory, never to the checkout: these
+are tests OF the extractor, so they need shapes the real workflows do not
+have.
+
+| Test | Description |
+|------|-------------|
+| `yaml_job_names: a trailing comment on the job key does not hide the job (#957)` | `sign-artifacts: # signs the images` is a job. The old key pattern was anchored at end of line, so it was not one -- and its `packages: write` was scanned by nothing |
+| `yaml_permission_surface: a job whose key carries a trailing comment reports its grants (#957)` | The same shape end to end: an elevation on a job the derivation cannot see is an elevation no assertion over the surface can fail on |
+| `yaml_job_names: a job id that does not start with a lowercase letter is a job (#957)` | `Sign` and `_pub` are legal GitHub job ids and must appear in the derived list |
+| `yaml_permission_surface: an uppercase-initial job does not lend its grants to the job above it (#957)` | The mis-attribution is worse than a miss: the job with NO block of its own reported the next job's grants, so it looked bounded while it was the one running on the caller's whole token |
+| `yaml_job_text: stops at a job key that does not start with a lowercase letter (#957)` | The boundary underneath that mis-attribution: the terminator is any two-space-indented key, not a lowercase-initial one (a two-space comment line still does not terminate) |
+| `yaml_job_names: a file with no jobs: mapping fails loudly rather than returning nothing (#957)` | An empty derivation satisfies every "the scan came back empty" assertion in the repo, so it may never be a silent success |
+| `yaml_job_permission_entries: a trailing comment on an entry does not truncate the block (#957)` | `packages: write # cache push` is an entry. The old scanner read a line it could not match as the END of the block, dropping that entry and every one after it |
+| `yaml_job_permission_entries: a quoted level is still an entry (#957)` | `packages: "write"` is the same grant written differently; a text match on the level missed it |
+| `yaml_job_permission_entries: an elevation is reported wherever it sits in the block (#957)` | Order-dependence is the tell of a scanner that ends its block on the first line it cannot read: the same entry was reported when it came last and swallowed the whole block when it came first |
+| `yaml_job_permission_entries: an unreadable file fails loudly instead of reporting a short block (#957)` | The fail-open direction as its own property: a file the extractor cannot parse must not reach a caller as a clean, under-reported grant set |
+| `yaml_job_permission_entries: a job that is not in the file fails loudly (#957)` | A spec naming a job that was renamed is a defect, not an absence -- it must not return an empty entry set |
+| `yaml_permission_surface: an inline permissions scalar surfaces as no entries (#957)` | `permissions: read-all` / `permissions: {}` name no scope, so they bound nothing: the job has to be VISIBLE as unbounded rather than absent from the listing |
+| `reusable_workflow_files: a worker spelling the trigger "on": is still a worker (#957)` | Quoting `on` is the standard workaround for YAML 1.1 reading it as a boolean, and what several formatters emit; the old `^on:` text anchor exempted such a worker from every least-privilege scan |
+| `reusable_workflow_files: a flow-style on mapping is still read (#957)` | `on: {workflow_call: null}` is the same declaration in flow style |
+| `reusable_workflow_files: a workflow that is not callable is not listed (#957)` | The other direction: a `push`-only workflow runs on its own repo's token and is not part of this population |
+| `reusable_workflow_files: an unreadable workflow is reported, not skipped (#957)` | A worker the derivation cannot parse is a worker nothing downstream scans, so it joins the listing as a `BUG:` line |
