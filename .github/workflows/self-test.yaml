@@ -278,8 +278,12 @@ jobs:
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
-    #                     splitting it into sub-bullets buys no budget;
-    #                     released sections are never checked
+    #                     splitting it into sub-bullets buys no budget --
+    #                     and no entry repeats another's lead bullet and no
+    #                     category heading opens twice in one release
+    #                     block, the pair a serial append-vs-append merge
+    #                     lands with nothing to review; released sections
+    #                     are never checked
     #   action-ref-agreement
     #                     every call site of one action's REPOSITORY across
     #                     this directory names the same ref. actionlint
