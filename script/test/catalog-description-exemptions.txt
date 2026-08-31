@@ -8,12 +8,14 @@
 # Why the file exists. The description rule is enforced over catalogue
 # ROWS, so a section with no per-test rows was outside it -- and it was
 # outside it by TABLE SHAPE, which nobody had to decide, nobody could see
-# and nothing bounded: 606 tests, 19% of the suite, sat outside a REQUIRED
-# field while both gates reported clean. Summarising is a legitimate
-# answer for a spec whose cases are near-identical assertions; being
-# outside a required rule by accident is not. So the answer is written
-# down here, per section, with the reason, and the lint prints how much of
-# the suite it accounts for on every run.
+# and nothing bounded: on 2026-08-27 that was 606 tests, 19% of the 3162
+# doc/test/TEST.md then declared, sitting outside a REQUIRED field while
+# both gates reported clean. The figure is dated because it moves with the
+# specs; what the lint prints on every run is the current one.
+# Summarising is a legitimate answer for a spec whose cases are
+# near-identical assertions; being outside a required rule by accident is
+# not. So the answer is written down here, per section, with the reason,
+# and the lint prints how much of the suite it accounts for on every run.
 #
 # Format: <spec path> TAB <reason>, sorted LC_ALL=C, no duplicates. The
 # reason is prose for a reader, not a token: it says what makes a row each

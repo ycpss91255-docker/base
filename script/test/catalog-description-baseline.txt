@@ -3,7 +3,7 @@
 # The rows that carried the `-` placeholder when the Description column
 # became REQUIRED (see script/test/drivers/catalog_description.sh and
 # doc/test/TEST.md). They are parked here so the rule applies forward only:
-# nobody is blocked on a backfill of 1517 retrospective sentences, and a
+# nobody is blocked on a backfill of 1602 retrospective sentences, and a
 # rushed backfill would produce filler that restates the test name -- which
 # passes the lint and is worse than the placeholder.
 #
@@ -12,7 +12,7 @@
 # The second was the merge that landed this rule on a main that had moved:
 # 1517 on 2026-08-27, 1602 on 2026-08-28, when 114 rows that arrived on main
 # while the rule was in review were parked and 29 renamed rows fell out.
-# Those 86 predate the rule in the only sense that counts -- the lint does
+# Those 114 predate the rule in the only sense that counts -- the lint does
 # not exist on the branch they were written on, so their authors were never
 # asked for a sentence. A branch that lands after main moves inherits this
 # once; a commit made with the rule in place does not.

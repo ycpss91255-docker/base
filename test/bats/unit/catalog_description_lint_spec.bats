@@ -13,9 +13,11 @@
 #
 # The design decisions this spec pins:
 #
-#   - The guard is RATCHETED, not a wall. 1517 rows carried the
-#     placeholder when the rule landed; failing all of them would hold
-#     everyone hostage to a backfill nobody asked for, and a rushed
+#   - The guard is RATCHETED, not a wall. 714 rows carried the placeholder
+#     when the rule landed, and the baseline has grown twice since --
+#     deliberately, visibly, and recorded with its dates in the file's own
+#     header; failing all of them would hold everyone hostage to a
+#     backfill nobody asked for, and a rushed
 #     backfill produces filler that passes the lint and is worse than `-`.
 #     So a baseline file records those rows and the lint fails only on a
 #     placeholder that is NOT on it.
@@ -1118,7 +1120,7 @@ refute_finding() {
   local _driver='/source/script/test/drivers/catalog_description.sh'
   grep -qF "The baseline parks ${_baseline_n} rows" "${_driver}" \
     || fail "the driver header does not say the baseline parks ${_baseline_n} rows"
-  grep -qF "the ${_exempt_n} sections the exemptions file declares" "${_driver}" \
+  grep -qF "${_exempt_n} sections declared outside the per-test rule" "${_driver}" \
     || fail "the driver header does not say ${_exempt_n} sections are declared out"
 }
 

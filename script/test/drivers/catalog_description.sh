@@ -52,15 +52,26 @@
 #
 # ── The ratchet ─────────────────────────────────────────────────────────
 #
-# 1602 of 2720 rows carry the placeholder (747 of 1711 when the rule was
-# first written, before the 25 sections that had no per-test table at all
-# were given one -- 820 rows the catalogue had never listed and the rule
-# had therefore never reached).
-# Failing all of them turns CI red until 1602 sentences exist, which blocks
-# everyone on a backfill nobody asked for -- and a rushed backfill produces
-# exactly the filler above. So the rows that were already there are
-# recorded in a baseline file and the lint fails only on a placeholder that
-# is NOT on it. Forward-only: write the description while you still have
+# The baseline parks 1602 rows -- the count the file declares in its
+# `# entries:` directive, which this lint holds exact, so the figure here
+# is checkable rather than remembered. It parked 714 of the 1736 rows the
+# catalogues carried when the rule was first written (2026-08-26), before
+# the 25 sections that had no per-test table at all were given one: 820
+# rows the catalogue had never listed and the rule had therefore never
+# reached.
+#
+# Every other figure in this header is a measurement of a past tree and
+# carries its date, because no checkout can re-measure one. The live ones
+# -- that count, and the section count in the exemptions paragraph below
+# -- are pinned by catalog_description_lint_spec.bats against the files
+# that declare them.
+#
+# Failing all of them at once turns CI red until every one has a sentence,
+# which blocks everyone on a backfill nobody asked for -- and a rushed
+# backfill produces exactly the filler above. So the rows that were
+# already there are recorded in a baseline file and the lint fails only on
+# a placeholder that is NOT on it. Forward-only: write the description
+# while you still have
 # the context, and inherit no debt.
 #
 # The baseline is keyed by SPEC PATH plus TEST NAME. That is deliberate and
@@ -135,9 +146,10 @@
 #
 # A rule that does not apply to half of what it governs is close to no rule
 # at all, and the worse half is the silence. Scanning only the sections it
-# recognised, this lint reached 1736 of 3162 tests; the other 1426 sat
-# outside a REQUIRED field because their section answered with a
-# `| Category | Tests |` summary or with prose and no table, which nothing
+# recognised, this lint reached 1736 of the 3145 tests doc/test/TEST.md
+# declared on 2026-08-26; the other 1409 sat outside a REQUIRED field
+# because their section answered with a `| Category | Tests |` summary or
+# with prose and no table, which nothing
 # recorded, nothing reported and nothing bounded. It was also an opt-out:
 # replacing a covered section's rows with a three-line summary took them
 # out of scope with both gates green and nothing in the diff saying why.
@@ -173,18 +185,21 @@
 # declare against the tests the index credits it with. Whether a section's
 # ROWS match its own declared count stays the drift gate's question.
 #
-# Summarising is a legitimate answer -- 13 sections here group 612 tests by
-# concern rather than list 606 near-identical assertion names -- and the
-# exemptions file is not shrink-only for that reason: unlike the baseline
-# it holds decisions, not debt. What it costs is a line, a sentence and a
-# bumped number, in front of a reviewer.
+# Summarising is a legitimate answer, and today there are
+# 13 sections declared outside the per-test rule, each grouping its tests
+# by concern rather than listing a near-identical assertion name each; how
+# many tests that accounts for is printed on every run rather than fixed
+# here, because it moves with the specs. The exemptions file is not
+# shrink-only for that reason: unlike the baseline it holds decisions, not
+# debt. What it costs is a line, a sentence and a bumped number, in front
+# of a reviewer.
 #
 # Non-vacuity: a missing catalog directory, a missing baseline file, a
 # missing exemptions file, a missing or empty index, or a scan that finds
-# no catalog rows at all DIES rather than reporting clean. The clean line states how many rows were
-# checked, how many the baseline still excuses and how much of the suite is
-# declared out, so a green line is never read as a verdict over rows that
-# were never there.
+# no catalog rows at all DIES rather than reporting clean. The clean line
+# states how many rows were checked, how many the baseline still excuses
+# and how much of the suite is declared out, so a green line is never read
+# as a verdict over rows that were never there.
 
 _CATALOG_DESC_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" \
   && pwd -P)"
