@@ -1286,16 +1286,23 @@ main() {
       # one state that lies -- fresh partial reports under an earlier
       # `scope=full` certificate (see _invalidate_coverage_head).
       _invalidate_coverage_head "${REPO_ROOT}"
-      local _coverage_rc=0
+      local _coverage_rc
       if [[ -n "${coverage_shard}" ]]; then
-        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1 \
-          || _coverage_rc=$?
+        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
       else
-        _run_via_compose coverage 1 || _coverage_rc=$?
+        _run_via_compose coverage 1
       fi
-      # Explicit, not left to errexit: main is sourceable (the specs call
-      # it), and a caller without `set -e` must not reach the writer on a
-      # failed run either.
+      # The status is read AFTER the branch, never as `|| rc=$?`: a
+      # command on the left of `||` runs with errexit suspended, and the
+      # suspension reaches inside the function -- a fatal step within
+      # _run_via_compose (an unresolvable prev-release fixture, say) would
+      # stop aborting the run and start being swallowed here.
+      #
+      # So under the real entry (strict mode) a failed run has already
+      # exited by this line, and the writer below is unreachable; this
+      # reading is what gives the SOURCED main -- the specs call it -- the
+      # same guarantee without errexit.
+      _coverage_rc=$?
       (( _coverage_rc == 0 )) || return "${_coverage_rc}"
       _stamp_coverage_head "${REPO_ROOT}" "${coverage_shard}"
       ;;

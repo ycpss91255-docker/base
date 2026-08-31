@@ -1196,7 +1196,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 27053ded9378 d8be11306b02 -->
+<!-- sync: directory-structure 57d0265174f4 0977c0fc7c64 -->
 ## ディレクトリ構造
 
 ```

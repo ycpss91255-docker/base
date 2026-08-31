@@ -1118,7 +1118,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 27053ded9378 4d3a16a85538 -->
+<!-- sync: directory-structure 57d0265174f4 9abcfe808206 -->
 ## 目錄結構
 
 ```

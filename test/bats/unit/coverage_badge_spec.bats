@@ -386,6 +386,26 @@ _make_cobertura() {
   [ "${_order}" = "INVALIDATE,RUN,STAMP," ]
 }
 
+@test "coverage_badge: a sourced dispatch withholds the certificate too" {
+  # main is sourceable, and this suite is the caller that sources it, so
+  # errexit is the caller's business rather than test.sh's. The dispatch
+  # reads the run's status explicitly and returns it, which is what makes
+  # the rule hold with strict mode off as well -- and what stops the
+  # reading from being written as `|| rc=$?`, which suspends errexit
+  # INSIDE _run_via_compose and swallows the fatal steps in it.
+  run bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { printf "INVALIDATE\n"; }
+    _run_via_compose() { printf "RUN\n"; return 1; }
+    _stamp_coverage_head() { printf "STAMP\n"; }
+    main --coverage
+  '
+  [ "${status}" -ne 0 ]
+  assert_output --partial "INVALIDATE"
+  assert_output --partial "RUN"
+  refute_output --partial "STAMP"
+}
+
 @test "coverage_badge: --coverage-shard tells the stamp which partition ran" {
   # The joint between the two halves: the writer can only record a
   # partition if the dispatch passes it one. Stub the container run and

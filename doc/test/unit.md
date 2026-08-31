@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3126 tests**.
+Unit specs under `test/bats/unit/`: **3127 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3424,7 +3424,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/coverage_badge_spec.bats (36)
+### test/bats/unit/coverage_badge_spec.bats (37)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -3457,6 +3457,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: the coverage run drops the old certificate before it starts` | - |
 | `coverage_badge: a failed coverage run leaves no certificate behind` | - |
 | `coverage_badge: a coverage run that succeeds still writes its certificate` | - |
+| `coverage_badge: a sourced dispatch withholds the certificate too` | - |
 | `coverage_badge: --coverage-shard tells the stamp which partition ran` | The joint: the writer can only record a partition the dispatch hands it |
 | `coverage_badge: a full --coverage run hands the stamp no partition` | The release path still stamps a whole-suite measurement |
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
