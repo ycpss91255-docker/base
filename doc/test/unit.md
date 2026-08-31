@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3151 tests**.
+Unit specs under `test/bats/unit/`: **3155 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4273,10 +4273,12 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (58)
+### test/bats/unit/catalog_description_lint_spec.bats (62)
 
 | Test | Description |
 |------|-------------|
+| `assert_finding: the lines every run prints are not findings (#922)` | The banner and the clean line are unconditional, so counting either leaves the helper's population never empty and its floor dead |
+| `refute_finding: a run that reported NOTHING cannot satisfy it (#922)` | The load-bearing one: a refutation is the assertion that goes silently true when the subject stops being scanned at all |
 | `_run_catalog_description: FAILS on a placeholder row that is not on the baseline (#922)` | The rule itself; everything else here is about who it spares |
 | `_run_catalog_description: names the catalog file, the line, the spec and the test (#922)` | A finding nobody can act on is a finding that gets muted |
 | `_run_catalog_description: reports EVERY undescribed row, not just the first (#922)` | One run, one fix list -- stopping at the first costs a CI round per row |
@@ -4334,6 +4336,8 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: the real doc/test catalogs are clean (#922)` | Dogfood: the rule is applied to the catalogues this change's own rows land in |
 | `_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)` | Read off the documents, not through the driver, so a regression in its duplicate check cannot hide |
 | `_run_catalog_description: the live figures in the driver header are the ones the files declare (#922)` | This lint's subject applied to its own header, which had been quoting a figure measured wrong and a quantity at two different times |
+| `_run_catalog_description: every figure in the driver header is dated or pinned (#922)` | Reads the header rather than trusting a review of it; three figures had left the rule the header states |
+| `_run_catalog_description: the header's reason for keying on the spec path still holds (#922)` | Holds the design's justification to today's tree, so it has to be restated rather than left standing if the collisions go |
 | `_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)` | Pins the one backfill this change did make, so a later sweep cannot quietly park those rows instead |
 
 ### test/bats/unit/init_installed_paths_spec.bats (6)

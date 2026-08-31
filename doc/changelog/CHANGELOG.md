@@ -81,13 +81,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **`catalog-description`: a `doc/test/` catalogue row without a description
   fails the lint, over every catalogue section (closes #922)** -- 1602 rows
   carried the `-` placeholder because nobody had decided whether the
-  column was required. It is: the description says why a case matters, which
-  the long test name never carries. `.`, `--` and `n/a` are that placeholder
-  and are refused with it. Rows predating the rule sit in a shrink-only
+  column was required. It is: a description says why a case matters; the
+  long test name already says what it does. `.`, `--` and `n/a` are that
+  placeholder too. Rows predating the rule sit in a shrink-only
   baseline. The unit is the section, not the table, and which catalogues
-  exist at all is declared by `doc/test/TEST.md`, so deleting one is no
-  longer silent. A fenced example is inert, so the convention can be shown
-  where it is written down.
+  exist is declared by `doc/test/TEST.md`, so deleting one is no longer
+  silent. A fenced example is inert. Every figure the driver's own header
+  states is dated or read back from the file that declares it.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
