@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3094 tests**.
+Unit specs under `test/bats/unit/`: **3117 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -307,7 +307,7 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (30)
+#### test/bats/unit/setup_conf_spec.bats (33)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 replace strategy) resolving the per-repo override from the repo-root
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (60)
+### test/bats/unit/dockerfile_migrate_spec.bats (63)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1006,6 +1006,9 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the conf chain comes back truncated (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer cannot be scanned (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
@@ -3533,3 +3536,25 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
+
+### test/bats/unit/errexit_bang_lint_spec.bats (17)
+
+| Test | Description |
+|------|-------------|
+| `_run_errexit_bang: FAILS on a non-final bang statement, naming file and line (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement buried mid-body (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement nested in a block (#956)` | - |
+| `_run_errexit_bang: FAILS on the FIRST line of a continued bang statement that is not last (#956)` | - |
+| `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
+| `_run_errexit_bang: PASSES when only comments and blanks follow the bang (#956)` | - |
+| `_run_errexit_bang: PASSES when the bang statement ends the body across a continuation (#956)` | - |
+| `_run_errexit_bang: does not flag a bang that continues the previous line (#956)` | - |
+| `_run_errexit_bang: does not flag a bang outside any test body (#956)` | - |
+| `_run_errexit_bang: does not flag a commented-out bang (#956)` | - |
+| `_run_errexit_bang: FAILS when the scan root is absent (#956)` | - |
+| `_run_errexit_bang: FAILS when the scan root holds no spec files (#956)` | - |
+| `_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses the finding (#956)` | - |
+| `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
+| `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
+| `_run_errexit_bang: the real bats tree is clean (#956)` | - |

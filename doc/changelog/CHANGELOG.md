@@ -75,6 +75,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 
+- **`errexit-bang`: a bats assertion that cannot fail its test now fails the
+  lint (refs #956)** -- bash exempts a `!` pipeline from errexit, so inside a
+  test body `! <cmd>` asserts something only as the body's LAST statement;
+  anywhere else the command runs, the negation is computed and the answer is
+  discarded while the case name still claims the property. Two live instances
+  (`compose_watchdog_spec`'s `WATCHDOG_INTERVAL` half, `tui_flow_spec`'s
+  cleared override) were found by hand-auditing the whole tree, twice in one
+  review round. The lint parses every `@test` body under `test/bats/`, and
+  cross-checks that it opened every header it found.
+
 - **`action-ref-agreement`: one action called at two refs across the workflows
   now fails the lint (closes #949)** -- `docker/build-push-action` ran at `@v6`
   in five `self-test.yaml` steps and `@v7` in six elsewhere, green for months,
@@ -87,7 +97,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   a bare marker fails.
 
 ### Fixed
-- **`just upgrade` no longer deletes a working pip install from a consumer Dockerfile (refs #956)** -- the migration dropped every `pip install -r ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but that line is byte-identical whether the repo's overlaid requirements file holds the placeholder or a real dependency list. It now resolves the repo's config source first -- a `CONFIG_SRC` redirected by the Dockerfile or by `.setup.conf` points the install somewhere it cannot read -- and drops the line only where the resolved file is absent or holds nothing but blanks and comments. Every other shape is kept with a warning, a continued `RUN` included.
+- **`just upgrade` no longer deletes a working pip install from a consumer
+  Dockerfile (refs #956)** -- the migration dropped every `pip install -r
+  ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but
+  that line is byte-identical whether the overlaid file holds the placeholder
+  or a real dependency list. It now resolves the config source first -- a
+  `CONFIG_SRC` redirected by the Dockerfile, or by ANY layer of the
+  `.setup.conf` chain (derived from `_setup_conf_layers`, template layer
+  included), points the install somewhere it cannot read -- and the line goes
+  only where the resolved file is absent or holds nothing but comments.
+  Unreadable or unproven is kept.
 - **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
 - **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
 - **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.

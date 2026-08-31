@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3245 tests** total (3094 unit + 151 integration).
+Template self-tests: **3268 tests** total (3117 unit + 151 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (13) and smoke (34) tests are tracked here
-> too but are **not** in the 3245 figure: System specs need host docker
+> too but are **not** in the 3268 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3094 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3117 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 151 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 13 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
 
-Self-test grand total (unit + integration): **3245**.
+Self-test grand total (unit + integration): **3268**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -90,6 +90,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `arch-literal` | no bare architecture literal in a shipped Dockerfile under `dist/` or `dockerfile/`; architecture comes from `ARG TARGETARCH`, and a mapping onto an upstream asset spelling opts out with a stated reason | `lint-static (arch-literal)` | ungated |
 | `bash-source-guard` | no undefaulted `BASH_SOURCE` self-location read under `dist/` or `script/` | `lint-static (bash-source-guard)` | ungated |
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
+| `errexit-bang` | no `!` statement in a bats body outside its last line, where bash's errexit exemption makes the assertion inert | `lint-static (errexit-bang)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |

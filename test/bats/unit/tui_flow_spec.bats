@@ -707,8 +707,10 @@ EOF
   _TUI_OVR_VALUES=("force")
   queue "0|__inherit"
   _edit_stage_gui headless
-  ! ovr_get stage:headless.gui.mode
+  # is_removed first: a `!` statement is exempt from errexit anywhere but
+  # the body's last line, so the order is what makes both assert.
   is_removed stage:headless.gui.mode
+  ! ovr_get stage:headless.gui.mode
 }
 
 @test "_edit_stage_scalar: writes the dotted key under stage namespace" {
