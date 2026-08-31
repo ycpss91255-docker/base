@@ -1317,15 +1317,16 @@ main() {
       # finished. Leaving the old one in place through a failed run is the
       # one state that lies -- fresh partial reports under an earlier
       # `scope=full` certificate (see _invalidate_coverage_head).
-      # Its status is read the same way the run's is below, and for the
-      # same reason: a sourced main (this suite) has errexit off, so an
-      # eraser that reported failure without exiting would otherwise be
-      # ignored and the run would proceed under the certificate it could
-      # not remove. Nothing here goes on the left of `||`.
+      #
+      # The eraser's status is read the same way the run's is below, and
+      # for the same reason: a sourced main (this suite) has errexit off,
+      # so an eraser that reported failure without exiting would be
+      # ignored here and the run would go on under the certificate it
+      # could not remove. Neither reading goes on the left of `||`.
+      local _invalidate_rc _coverage_rc
       _invalidate_coverage_head "${REPO_ROOT}"
-      local _invalidate_rc=$?
+      _invalidate_rc=$?
       (( _invalidate_rc == 0 )) || return "${_invalidate_rc}"
-      local _coverage_rc
       if [[ -n "${coverage_shard}" ]]; then
         COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
       else
