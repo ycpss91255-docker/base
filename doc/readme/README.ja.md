@@ -1273,7 +1273,7 @@ just --list  # CI ターゲット表示
 │       ├── release-test-tools.yaml     # base 自身の test-tools image release
 │       └── ghcr-cleanup.yaml           # GHCR 上の test-tools untagged orphan を毎週整理
 ├── doc/
-│   ├── badge/                          # 生成されるリリースカバレッジバッジ（release bump が再生成）
+│   ├── badge/                          # 生成されるリリースカバレッジバッジ（リリース時に hand-run、bump caller は未接続：docker_harness#289）
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

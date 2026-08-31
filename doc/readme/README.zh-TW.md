@@ -1195,7 +1195,7 @@ just --list  # 顯示 CI 指令
 │       ├── release-test-tools.yaml     # base 自身的 test-tools image release
 │       └── ghcr-cleanup.yaml           # 每週清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
-│   ├── badge/                          # 產生的發布覆蓋率徽章（由 release bump 重新產生）
+│   ├── badge/                          # 產生的發布覆蓋率徽章（release 時 hand-run，bump caller 待接：docker_harness#289）
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

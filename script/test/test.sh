@@ -650,6 +650,11 @@ _prepare_prev_release() {
 
 # ── Coverage provenance ──────────────────────────────────────────────────────
 
+# Where the coverage provenance stamp lives, relative to the repo root.
+# One name for the writer, the eraser and script/release/coverage_badge.sh's
+# reader: three places that have to agree on a path is two too many.
+readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
+
 # _stamp_coverage_head [root] [shard] -- record, next to the reports, the
 # sha they were produced from AND how much of the suite produced them.
 #
@@ -694,7 +699,34 @@ _stamp_coverage_head() {
     _scope="full"
   fi
   printf '%s\nscope=%s\n' "${_sha}" "${_scope}" \
-    > "${_root}/coverage/.head-sha" 2>/dev/null || return 0
+    > "${_root}/${_COVERAGE_HEAD_STAMP_REL}" 2>/dev/null || return 0
+}
+
+# _invalidate_coverage_head [root] -- drop the provenance stamp BEFORE a
+# coverage run starts.
+#
+# The certificate must never outlive the reports it certifies, and
+# rewriting it after the run is not enough to guarantee that. The stamp is
+# written only when the run SUCCEEDS, while the reports are written as the
+# run goes: kcov has its cobertura.xml on disk before the driver returns
+# the failing spec's exit code (_run_coverage preserves it on purpose), and
+# Ctrl-C lands in the same place. A run that dies there overwrites the
+# reports and never reaches the writer, so an earlier `scope=full` stamp at
+# the same commit goes on certifying numbers it never measured -- matching
+# sha, clean worktree, whole-suite scope -- and `just release
+# coverage-badge` publishes a partition's rate as the release figure.
+#
+# Erasing up front makes the failure mode NO evidence instead of STALE
+# evidence. The generator refuses on a missing stamp, which is the safe
+# direction; it trusts a present one, which is why a present one may only
+# ever describe the run that just finished.
+#
+# Best-effort, like the writer it pairs with: a checkout with no coverage/
+# has nothing to invalidate, and that is not a reason to fail a test run.
+_invalidate_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}"
+  rm -f "${_root}/${_COVERAGE_HEAD_STAMP_REL}" 2>/dev/null || return 0
+  return 0
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
@@ -1237,17 +1269,31 @@ main() {
       # plumbs COVERAGE_SHARD into the container so _run_coverage kcov's
       # only this matrix slice. The self-test.yaml coverage matrix sets
       # the latter; local `just test coverage` uses the former.
-      if [[ -n "${coverage_shard}" ]]; then
-        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
-      else
-        _run_via_compose coverage 1
-      fi
       # The reports are only usable for a release badge if something
       # records WHICH commit they measured and HOW MUCH of the suite
       # measured it; see _stamp_coverage_head. The shard spec is passed on
       # both branches -- empty on the full run -- because a partition's
       # reports land in the same coverage/ tree and would otherwise wear a
       # whole-suite certificate.
+      #
+      # The certificate is erased BEFORE the run and written only after it
+      # succeeds, so the three states are the three truths: no stamp (no
+      # run, or a run that died), or a stamp describing the run that just
+      # finished. Leaving the old one in place through a failed run is the
+      # one state that lies -- fresh partial reports under an earlier
+      # `scope=full` certificate (see _invalidate_coverage_head).
+      _invalidate_coverage_head "${REPO_ROOT}"
+      local _coverage_rc=0
+      if [[ -n "${coverage_shard}" ]]; then
+        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1 \
+          || _coverage_rc=$?
+      else
+        _run_via_compose coverage 1 || _coverage_rc=$?
+      fi
+      # Explicit, not left to errexit: main is sourceable (the specs call
+      # it), and a caller without `set -e` must not reach the writer on a
+      # failed run either.
+      (( _coverage_rc == 0 )) || return "${_coverage_rc}"
       _stamp_coverage_head "${REPO_ROOT}" "${coverage_shard}"
       ;;
     compose)
