@@ -724,11 +724,31 @@ _stamp_coverage_head() {
 # direction; it trusts a present one, which is why a present one may only
 # ever describe the run that just finished.
 #
-# Best-effort, like the writer it pairs with: a checkout with no coverage/
-# has nothing to invalidate, and that is not a reason to fail a test run.
+# NOT best-effort, unlike the writer it pairs with, and the asymmetry is
+# the point. A stamp the writer fails to write is a MISSING one, and the
+# generator refuses on a missing stamp; a stamp the eraser fails to remove
+# is a SURVIVING one, and the generator trusts a present one. So the
+# writer may shrug and this may not: swallowing the removal's status keeps
+# the run going in exactly the state the erasure exists to prevent.
+#
+# A missing stamp is still not a failure -- `rm -f` succeeds on a path
+# that is not there, which is the whole of what best-effort was buying
+# here. What is left to fail on is the stamp that is still present
+# afterwards: coverage/ owned by another uid (CI shard artifacts unpacked
+# as root, the workflow script/release/coverage_badge.sh's header
+# describes), a read-only checkout, an I/O error. The run stops before it
+# writes a single report under a certificate it could not invalidate.
 _invalidate_coverage_head() {
   local _root="${1:-${REPO_ROOT}}"
-  rm -f "${_root}/${_COVERAGE_HEAD_STAMP_REL}" 2>/dev/null || return 0
+  local _stamp="${_root}/${_COVERAGE_HEAD_STAMP_REL}"
+  rm -f "${_stamp}" 2>/dev/null || true
+  # The status of `rm` is not the question; the file's presence is. They
+  # differ on the case that matters (a partial removal, a racing writer),
+  # and presence is what the badge generator will read.
+  if [[ -e "${_stamp}" ]]; then
+    _die ci_coverage_stamp_not_erased \
+      "cannot remove the stale coverage certificate ${_stamp}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+  fi
   return 0
 }
 
@@ -1297,7 +1317,14 @@ main() {
       # finished. Leaving the old one in place through a failed run is the
       # one state that lies -- fresh partial reports under an earlier
       # `scope=full` certificate (see _invalidate_coverage_head).
+      # Its status is read the same way the run's is below, and for the
+      # same reason: a sourced main (this suite) has errexit off, so an
+      # eraser that reported failure without exiting would otherwise be
+      # ignored and the run would proceed under the certificate it could
+      # not remove. Nothing here goes on the left of `||`.
       _invalidate_coverage_head "${REPO_ROOT}"
+      local _invalidate_rc=$?
+      (( _invalidate_rc == 0 )) || return "${_invalidate_rc}"
       local _coverage_rc
       if [[ -n "${coverage_shard}" ]]; then
         COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
