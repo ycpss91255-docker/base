@@ -165,6 +165,17 @@ _index_render() {
   } > "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/TEST.md"
 }
 
+# _non_answer_tokens -- the written-out non-answers the driver refuses,
+# read out of _CATALOG_DESC_NON_ANSWERS_RE instead of retyped. The
+# population the vocabulary case exercises is derived from the rule it is
+# testing, which is what makes it cover a token added later.
+_non_answer_tokens() {
+  local _re="${_CATALOG_DESC_NON_ANSWERS_RE}"
+  _re="${_re#^(}"
+  _re="${_re%)$}"
+  printf '%s\n' "${_re//|/$'\n'}"
+}
+
 # _index_set <doc> <tests> / _index_add <doc> <tests> -- keep the index in
 # step with the sections a case writes.
 _index_set() {
@@ -280,16 +291,60 @@ refute_finding() {
   assert_output --partial '3 undescribed'
 }
 
-@test "_run_catalog_description: the written-out non-answers are placeholders too (#922)" {
-  # The same silence spelled with letters. These are short enough to be
-  # unambiguous: no honest description of why a case matters is "n/a".
+@test "_run_catalog_description: a one- or two-character cell has no WORD in it (#922)" {
+  # Where the line actually IS. The case above feeds `.`, `--` and `...`,
+  # cells with ZERO alphanumerics, which a rule of "at least one alnum"
+  # would refuse just as happily -- so it says nothing about the three
+  # the rule asks for. `x` and `ab` are the cells that separate a
+  # three-character run from any run at all, and `a b` pins the run as
+  # CONTIGUOUS. The short-honest-description case below is the other
+  # side: "GPU on" has to keep passing, so the threshold cannot climb
+  # either.
   _write_catalog 'test/bats/unit/alpha_spec.bats' \
-    "$(_row 'alpha does a thing' 'n/a')" \
-    "$(_row 'beta does another thing' 'TBD')" \
-    "$(_row 'gamma does a third thing' 'TODO')"
+    "$(_row 'alpha does a thing' 'x')" \
+    "$(_row 'beta does another thing' 'ab')" \
+    "$(_row 'gamma does a third thing' 'a b')"
   run _run_catalog_description
   assert_failure
+  assert_finding 'alpha does a thing'
+  assert_finding 'beta does another thing'
+  assert_finding 'gamma does a third thing'
   assert_output --partial '3 undescribed'
+}
+
+@test "_run_catalog_description: EVERY written-out non-answer is refused (#922)" {
+  # The same silence spelled with letters. The rows are DERIVED from
+  # _CATALOG_DESC_NON_ANSWERS_RE rather than retyped, so a token added
+  # tomorrow is exercised the day it is added rather than the day
+  # somebody remembers this case -- three of the seven were unexercised
+  # under the hand-written fixture this replaces, and cutting the list to
+  # `n/a|tbd|todo` left the spec green while `nil`, `none` and `unknown`
+  # went back to passing.
+  local -a _tokens=()
+  mapfile -t _tokens < <(_non_answer_tokens)
+  # Deriving the fixture from the rule means SHRINKING the rule would
+  # shrink the fixture with it and stay green, so the vocabulary itself
+  # is compared first. It is written out because it is a decision about
+  # English, not a set the tree can be asked for: growing it is a
+  # deliberate edit of this line, and a token deleted or retyped is red
+  # here rather than silently untested.
+  assert_equal \
+    "$(printf '%s\n' "${_tokens[@]}" | LC_ALL=C sort | tr '\n' ' ')" \
+    'n/a na nil none tbd todo unknown '
+  local -a _rows=()
+  local _i
+  for (( _i = 0; _i < ${#_tokens[@]}; _i++ )); do
+    _rows+=("$(_row "case ${_i} matters" "${_tokens[_i]}")")
+  done
+  _write_catalog 'test/bats/unit/alpha_spec.bats' "${_rows[@]}"
+  run _run_catalog_description
+  assert_failure
+  # Each row by name, not just the tally: a count alone is satisfied by
+  # the right NUMBER of the wrong rows.
+  for (( _i = 0; _i < ${#_tokens[@]}; _i++ )); do
+    assert_finding "case ${_i} matters"
+  done
+  assert_output --partial "${#_tokens[@]} undescribed"
 }
 
 @test "_run_catalog_description: a SHORT honest description still passes (#922)" {

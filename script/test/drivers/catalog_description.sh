@@ -223,8 +223,13 @@ readonly _CATALOG_DESC_INDEX_ROW_RE='^\|[[:space:]]*\[([A-Za-z0-9._-]+\.md)\]\([
 readonly _CATALOG_DESC_PLACEHOLDER='-'
 
 # The written-out non-answers, matched case-insensitively on the whole
-# trimmed cell. They carry a word, so the "has a word in it" test below
-# lets them through, and they mean exactly what `-` means.
+# trimmed cell: they mean exactly what `-` means. `nil`, `none`, `tbd`,
+# `todo` and `unknown` carry a three-character run, so the "has a word in
+# it" test below lets them through and this list is the only thing that
+# refuses them. `n/a` and `na` do NOT -- neither has such a run, so the
+# word rule catches them first and their entries here are spare. They are
+# listed anyway, because this is the vocabulary a reader audits and a
+# half-list reads as a decision that `n/a` is acceptable.
 readonly _CATALOG_DESC_NON_ANSWERS_RE='^(n/a|na|nil|none|tbd|todo|unknown)$'
 
 # _catalog_desc_is_placeholder <cell> -- true when the cell says nothing.
