@@ -673,6 +673,51 @@ EOF
     "_kill_case_groups signalled a pid that leads no process group: the child reported ${_CHILD_STATUS} (137 = SIGKILL, 143 = SIGTERM) instead of running to completion. After a case whose service the product already reaped, that id can belong to another job in the same container"
 }
 
+@test "_await_gone: a killed process nobody has reaped is GONE, not still alive (#965)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  # The same unsound oracle as the bare-pid case, in the helper every
+  # subtree case settles its verdict with. `kill -0` answers ALIVE for a
+  # process that has exited and not been reaped, and that is not a corner:
+  # it is precisely what the subtree case produces. The whole group is
+  # SIGKILLed, so the grandchild's parent dies too and nobody is left to
+  # wait for it -- the grandchild holds a pid and nothing else. Whether
+  # anything gets round to reaping it inside ten seconds is a scheduling
+  # accident, which is why that case reported ORPHAN_ALIVE on a full gate
+  # run with a correct product underneath it.
+  #
+  # The fixture makes the state deterministic instead of waiting for it:
+  # `exec` replaces the shell with a `sleep`, so the child it started a
+  # moment earlier stays in state Z for as long as that sleep lives,
+  # because its parent can never call wait.
+  cat > "${TMP_DIR}/zombie_maker.sh" <<'EOF'
+#!/usr/bin/env bash
+# $1 -- where to record the pid that is about to become a zombie.
+sleep 0.1 &
+echo $! > "$1"
+exec sleep 10
+EOF
+  _run_bounded 30 "
+    bash '${TMP_DIR}/zombie_maker.sh' '${TMP_DIR}/zombie.pid' &
+    if ! _await_file '${TMP_DIR}/zombie.pid' 100; then echo NO_PID; exit 0; fi
+    sleep 1
+    echo RECORDED
+  "
+  assert_success
+  assert_output --partial "RECORDED"
+  local _zombie
+  _zombie="$(cat "${TMP_DIR}/zombie.pid")"
+  # The premise, asserted rather than assumed: this pid still answers the
+  # glance. Without that, the case below would pass against a helper that
+  # is right for the wrong reason.
+  kill -0 "${_zombie}" 2>/dev/null || fail \
+    "the fixture pid ${_zombie} was reaped before the case could ask about it, so there is no unreaped process here to test the helper against"
+  # The helpers are defined inside the harness text because that is where
+  # they run; evaluated here so the case can ask one directly.
+  eval "${_SYNC_FN}"
+  _await_gone "${_zombie}" 1 || fail \
+    "_await_gone calls an exited, unreaped process alive: every subtree case in this file then reports ORPHAN_ALIVE whenever the reap happens to be late, which is a verdict about the machine's load and not about the product"
+}
+
 @test "_reap_child: a killed child and a completed one report DIFFERENT statuses (#965)" {
   # The oracle the case above settles its verdict with, exercised in both
   # directions. An oracle that answers the same thing either way witnesses
