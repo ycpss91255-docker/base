@@ -1167,11 +1167,18 @@ SH
   # sibling specs recreate that file from a mocked kcov while this one
   # tries to erase it.
   #
-  # REPO_ROOT is readonly, so there are exactly two ways to comply: source
-  # the DRIVER with REPO_ROOT pointed at a scratch tree, or stub the
-  # provenance pair before calling main. Comment lines are stripped first,
-  # so a block that only NAMES a runner is not accused of calling one, and
-  # a runner name is only counted at the start of a statement.
+  # The IN-CONTAINER entry counts too, and it is the one a name-based
+  # reading misses: `COVERAGE=1 COVERAGE_SHARD=1/4 main --ci` reaches
+  # _run_coverage without the string `_run_coverage` or `--coverage`
+  # appearing anywhere in the block. It is how the second half of this
+  # spill survived the first version of this guard.
+  #
+  # REPO_ROOT is readonly, so there are three ways to comply: source the
+  # DRIVER with REPO_ROOT pointed at a scratch tree, stub the provenance
+  # pair before calling main, or stub the runner itself. Comment lines are
+  # stripped first, so a block that only NAMES a runner is not accused of
+  # calling one, and a runner name is only counted at the start of a
+  # statement.
   local _script="${BATS_TEST_TMPDIR}/scan.awk"
   cat > "${_script}" <<'AWK'
     /^@test / { blk = $0; body = ""; inblk = 1; next }
@@ -1180,10 +1187,12 @@ SH
     inblk && /^}$/ {
       inblk = 0
       if (body !~ /main --coverage([^-]|-shard)/ \
-          && body !~ /\n[[:space:]]*_run_coverage([^_]|$)/) next
+          && body !~ /\n[[:space:]]*_run_coverage([^_]|$)/ \
+          && body !~ /COVERAGE=1[^\n]*main --ci/) next
       total++
       if (body ~ /REPO_ROOT="\$\{BATS_TEST_TMPDIR\}/) next
       if (body ~ /_invalidate_coverage_head\(\)/) next
+      if (body ~ /_run_coverage\(\)/) next
       if (body ~ /_dispatch_script /) next
       print FILENAME ": " blk
     }
