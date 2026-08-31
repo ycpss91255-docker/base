@@ -97,6 +97,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **a `docker stop` could reach a service through its pid alone and kill it
+  instead of stopping it (refs #965)** -- `setsid cmd &` returns at the fork,
+  before the child has called setsid(), so the supervisor sampled the
+  process group too early and a lost race left group-signalling disabled for
+  that service's whole life. A service whose shell sits in a foreground
+  command then never runs its SIGTERM trap, the bounded grace expires, and a
+  service that handles SIGTERM correctly is SIGKILLed. Measured on a loaded
+  machine: 3 of 40 starts fell back. The supervisor now waits, briefly and
+  boundedly, for the service's own group to appear.
 - **`just test` no longer forgets residue it has already reported (refs
   #965)** -- the guard compares the checkout either side of the run so an
   edit already in flight cancels, and that also laundered LAST run's residue

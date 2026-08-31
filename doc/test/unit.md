@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3122 tests**.
+Unit specs under `test/bats/unit/`: **3123 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1801,7 +1801,7 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
-### test/bats/unit/watchdog_supervision_spec.bats (15)
+### test/bats/unit/watchdog_supervision_spec.bats (16)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -1836,6 +1836,20 @@ grandchild's parent too, so nobody is left to wait for it, and the case
 reported ORPHAN_ALIVE against a correct product. It now reads the process
 state, so an exited unreaped pid counts as gone -- the answer the product
 already gives in `_watchdog_child_alive`.
+
+The `docker stop` forward case is the one this issue reported as NO_SIGNAL,
+and the last of it was not a test defect at all. `setsid cmd &` returns at
+the fork, so the supervisor sampled the child's process group before
+setsid() had run and a lost race left it signalling the bare pid -- 3 of 40
+starts on a deliberately loaded machine. A service whose shell sits in a
+foreground command then never runs its SIGTERM trap (bash holds a trap
+until the foreground command returns, and it returns because the group
+signal reached it too), the grace expires, and a correct service is
+SIGKILLed. The product now waits briefly for the group to appear, the
+fixture waits on a BACKGROUNDED sleep so a signal reaches it in one hop
+rather than three, and the harness's two numbers are derived from the
+interval rather than guessed. Measured: 0 failures in 30 loaded runs
+against 3 in 8 before.
 
 The net for the file as a whole is the bound guard in `teardown`, which
 measures every case against the ceiling its own harness declared: it holds
