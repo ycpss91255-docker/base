@@ -430,6 +430,12 @@ _run_catalog_description() {
   # tildes, closed by at least as many of the same character and no info
   # string).
   local _fence_open=''
+  # What the table state was when the fence opened. A fence is not a row,
+  # so it interrupts the table -- but the rows after the closing fence are
+  # still that table's, and leaving _in_table at 0 took them out of the
+  # rule entirely. Saved rather than recomputed because the header that
+  # opened the table is above the fence and is not read again.
+  local _fence_in_table=0
   local _trimmed
   # What the directory turned out to hold, and what the index says it
   # should: `<doc rel path>` -> the tests its sections declare, and the
@@ -463,6 +469,7 @@ _run_catalog_description() {
     _in_table=0
     _lineno=0
     _fence_open=''
+    _fence_in_table=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
 
@@ -473,14 +480,18 @@ _run_catalog_description() {
           && [[ "${BASH_REMATCH[1]:0:1}" == "${_fence_open:0:1}" ]] \
           && [[ "${#BASH_REMATCH[1]}" -ge "${#_fence_open}" ]]; then
           _fence_open=''
+          _in_table="${_fence_in_table}"
         fi
         continue
       fi
       if [[ "${_trimmed}" =~ ^(\`\`\`+|~~~+) ]]; then
         _fence_open="${BASH_REMATCH[1]}"
-        # A fence is not a row, so it ends the table it interrupts -- but
-        # it does NOT end the section, which is what keeps an illustrated
-        # section governed rather than quietly outside the rule.
+        # A fence is not a row, so it suspends the table it interrupts --
+        # and it does NOT end the section either, which is what keeps an
+        # illustrated section governed rather than quietly outside the
+        # rule. Both are restored at the close: an example dropped into a
+        # catalogue must not take the rows below it out of the rule.
+        _fence_in_table="${_in_table}"
         _in_table=0
         continue
       fi
