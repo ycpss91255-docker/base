@@ -431,10 +431,9 @@ refute_finding() {
   # The same silence spelled with letters. The rows are DERIVED from
   # _CATALOG_DESC_NON_ANSWERS_RE rather than retyped, so a token added
   # tomorrow is exercised the day it is added rather than the day
-  # somebody remembers this case -- four of the seven were unexercised
-  # under the hand-written fixture this replaces (it fed `n/a`, `TBD` and
-  # `TODO`, leaving `na`, `nil`, `none` and `unknown`), and cutting the
-  # list to
+  # somebody remembers this case. Four of the seven were unexercised under
+  # the hand-written fixture this replaces: it fed `n/a`, `TBD` and
+  # `TODO`, leaving `na`, `nil`, `none` and `unknown`. Cutting the list to
   # `n/a|tbd|todo` left the spec green while `nil`, `none` and `unknown`
   # went back to passing -- `na` stays caught by the word rule either way.
   local -a _tokens=()
