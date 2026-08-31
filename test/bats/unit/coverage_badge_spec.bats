@@ -630,31 +630,32 @@ _make_cobertura() {
   # instruments is defined in the other file and by subtraction:
   # --include-path=<root> minus _coverage_exclude_path. Two rosters kept
   # by hand drift -- an extensionless entrypoint, a .py or .awk helper, a
-  # dist/ script under a new extension -- and the drift is silent: the
-  # file becomes instrumented AND exempt from the refusal, so a release
-  # publishes a figure for a tree that has since moved.
+  # dist/ script under a new extension -- and the drift is silent in the
+  # dangerous direction: the file becomes instrumented AND exempt from the
+  # refusal, so a release can publish a figure for a tree that has since
+  # moved. This is the test that fails on the day they diverge.
   #
-  # This is the test that fails on the day they diverge. It reads both
-  # lists from their own definitions (no third copy here) and asserts the
-  # containment the name claims.
+  # Both lists are read from their own definitions -- no third copy here.
+  # The enumeration is `find`, not `git ls-files`: /source is a mounted
+  # worktree whose .git is a file pointing at a path the container cannot
+  # see, so git is unusable in here (it exits 128 and prints nothing,
+  # which would make this test pass by scanning nothing).
   run bash -c '
     set -uo pipefail
+    _root=/source
 
-    # Everything kcov is told NOT to instrument, from the driver itself.
-    _excluded_csv="$(source /source/script/test/test.sh; _coverage_exclude_path)"
+    # What kcov is told not to instrument, from the driver that tells it.
+    _excluded_csv="$(source "${_root}/script/test/test.sh"; _coverage_exclude_path)"
     IFS="," read -r -a _excluded <<< "${_excluded_csv}"
 
-    # Everything the badge refuses on, from the generator itself. Each is
-    # sourced in its own subshell: both files own a readonly SCRIPT_DIR.
-    declare -A _guarded=()
-    while IFS= read -r _f; do
-      _guarded["${_f}"]=1
-    done < <(source /source/script/release/coverage_badge.sh
-             git -C /source ls-files -- "${SOURCE_PATHSPEC[@]}")
+    # What the badge refuses on, from the generator that refuses. Each file
+    # is sourced in its own subshell: both own a readonly SCRIPT_DIR.
+    mapfile -t _pathspec < <(source "${_root}/script/release/coverage_badge.sh"
+                             printf "%s\n" "${SOURCE_PATHSPEC[@]}")
 
-    _rc=0
-    while IFS= read -r _f; do
-      _abs="/source/${_f}"
+    _scanned=0
+    _flagged=0
+    while IFS= read -r -d "" _abs; do
       for _e in "${_excluded[@]}"; do
         [[ "${_abs}" == "${_e}"* ]] && continue 2
       done
@@ -665,15 +666,31 @@ _make_cobertura() {
         "#!"*bash*|"#!"*sh|"#!"*sh\ *|"#!"*bats*) ;;
         *) continue ;;
       esac
-      if [[ -z "${_guarded[${_f}]:-}" ]]; then
-        printf "INSTRUMENTED BUT UNGUARDED: %s\n" "${_f}"
-        _rc=1
-      fi
-    done < <(git -C /source ls-files)
-    exit "${_rc}"
+      _scanned=$(( _scanned + 1 ))
+      _rel="${_abs#"${_root}/"}"
+      for _g in "${_pathspec[@]}"; do
+        [[ "${_rel}" == ${_g} ]] && continue 2
+      done
+      printf "UNGUARDED %s\n" "${_rel}"
+      _flagged=$(( _flagged + 1 ))
+    done < <(find "${_root}" \
+      -path "${_root}/.git" -prune -o \
+      -path "${_root}/coverage" -prune -o \
+      -path "${_root}/log" -prune -o \
+      -type f -print0)
+    printf "SCANNED %s\n" "${_scanned}"
+    (( _flagged == 0 ))
   '
   [ "${status}" -eq 0 ]
   refute_output --partial "UNGUARDED"
+
+  # "nothing scanned" must not read as "nothing unguarded". This repo
+  # carries scores of instrumented scripts; an enumeration that returned
+  # none would satisfy every assertion above, which is precisely how the
+  # first draft of this test passed over a tree it never read.
+  local _scanned
+  _scanned="$(printf '%s\n' "${output}" | sed -n 's/^SCANNED //p')"
+  [ "${_scanned}" -gt 50 ]
 }
 
 # ── The repo's own published figure ──────────────────────────────────────────
