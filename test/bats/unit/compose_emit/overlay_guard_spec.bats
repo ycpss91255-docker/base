@@ -62,12 +62,72 @@ _require_emission() {
     "${COMPOSE_OUT} is absent or empty -- the emitter returned without writing it, so nothing below scanned anything"
 }
 
+# _require_emitted_population
+#   A non-empty file is not yet a population. An absence claim is only worth
+#   as much as the emission it scanned, so before ANY such claim this proves
+#   the emission actually CARRIES the thing being judged: the services: map,
+#   and a service block for every stage the fixture Dockerfile declares that
+#   the emitter is contracted to emit.
+#
+#   The expected set is DERIVED from the fixture this file itself wrote, and
+#   derived by an INDEPENDENT parser -- the awk below -- never by the
+#   emitter's own `_parse_dockerfile_stages`. A drift in that parser that
+#   enumerated nothing is precisely the failure this floor exists to catch,
+#   and a floor computed by the subject would go quiet in step with it: with
+#   the parser stubbed to emit no stages AND `container_name:` re-added to
+#   the stage emitter, the absence claims below passed while the shipped
+#   emitter baked the directive.
+_require_emitted_population() {
+  _require_emission
+  grep -qE '^services:' "${COMPOSE_OUT}" || fail \
+    "no services: map in ${COMPOSE_OUT} -- the emitter wrote a header and nothing else, so every absence claim over it is vacuous"
+
+  # Every `FROM <x> AS <name>` in the fixture, by an independent parser.
+  local -a _stages=()
+  local _s
+  while IFS= read -r _s; do
+    _stages+=("${_s}")
+  done < <(awk 'tolower($1) == "from" {
+                  for (i = 2; i < NF; i++)
+                    if (tolower($i) == "as") print $(i + 1)
+                }' "${TEMP_DIR}/Dockerfile")
+
+  # The floor on the floor: the parser above must have found every stage the
+  # fixture declares. Derived by counting the fixture's own AS lines, so
+  # there is no threshold here to fall out of date.
+  local _declared
+  _declared="$(grep -cE '^FROM .+ [Aa][Ss] .+$' "${TEMP_DIR}/Dockerfile")"
+  (( ${#_stages[@]} == _declared && _declared > 0 )) || fail \
+    "the fixture Dockerfile declares ${_declared} named stage(s) but this floor's own parser found ${#_stages[@]}: the floor cannot be trusted"
+
+  # sys and devel-base are build intermediates the emitter contractually
+  # never turns into services; devel-test is emitted under the legacy
+  # service name `test`. That mapping is the emitter's published contract
+  # (ADR-00000022), not a re-derivation of its internals.
+  local -a _expected=()
+  for _s in "${_stages[@]}"; do
+    case "${_s}" in
+      sys|devel-base) continue ;;
+      devel-test) _s="test" ;;
+    esac
+    _expected+=("${_s}")
+  done
+  (( ${#_expected[@]} > 0 )) || fail \
+    "the fixture declares no emittable stage: the exercised emission has no service population to judge"
+
+  for _s in "${_expected[@]}"; do
+    grep -qE "^  ${_s}:\$" "${COMPOSE_OUT}" || fail \
+      "no '  ${_s}:' block in the emitted compose, though the fixture Dockerfile declares that stage -- the emitter enumerated no service for it, so an absence claim over this emission observed nothing"
+  done
+}
+
 # _assert_emitted_without <extended-regex> <what>
-#   Assert the emitted compose carries no line matching the pattern, over a
-#   file proven to exist, with grep's status pinned to 1 (no match).
+#   Assert the emitted compose carries no line matching the pattern, over an
+#   emission proven to carry the service population the claim is about, with
+#   grep's status pinned to 1 (no match).
 _assert_emitted_without() {
   local _pattern="${1:?}" _what="${2:?}"
-  _require_emission
+  _require_emitted_population
   local _found _rc=0
   _found="$(grep -nE "${_pattern}" "${COMPOSE_OUT}")" || _rc=$?
   if (( _rc == 0 )); then
@@ -114,7 +174,7 @@ CONF
 
 @test "overlay guard: project name: is an overlay interpolation" {
   _emit_exercised_compose
-  _require_emission
+  _require_emitted_population
   local _val
   _val="$(grep -E '^name:' "${COMPOSE_OUT}" | head -1 | sed -E 's/^name:[[:space:]]*//')"
   [[ -n "${_val}" ]] || fail "no name: line in ${COMPOSE_OUT} -- nothing was checked"
@@ -226,7 +286,7 @@ CONF
 
 @test "overlay guard: network_mode: is an env interpolation, never a baked literal" {
   _emit_exercised_compose
-  _require_emission
+  _require_emitted_population
   grep -qE '^[[:space:]]*network_mode:' "${COMPOSE_OUT}" \
     || fail "the exercised emission carries no network_mode: line -- the loop below would iterate nothing and pass vacuously"
   local _line _val
