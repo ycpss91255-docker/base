@@ -97,6 +97,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just test` no longer forgets residue it has already reported (refs
+  #965)** -- the guard compares the checkout either side of the run so an
+  edit already in flight cancels, and that also laundered LAST run's residue
+  into this run's "in flight": run 1 named the path and failed, run 2 with
+  nothing fixed was green. It now remembers what it named until the path is
+  gone from the checkout, and `TEST_RESIDUE_GUARD=0` -- the switch the
+  failure message already pointed at -- is what drops the record. A write
+  under `.git/` is still invisible to it and now says so. Affects anyone
+  whose gate reds on residue: re-running is no longer a way past it.
 - **a spec that left an untracked workflow in the checkout after every gate
   run (refs #965, refs #927)** -- the ADR-claims R2 case wrote its fixture
   workflow into `.github/workflows/` of the live tree and removed only its

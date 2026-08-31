@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3112 tests**.
+Unit specs under `test/bats/unit/`: **3121 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1801,7 +1801,7 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
-### test/bats/unit/watchdog_supervision_spec.bats (13)
+### test/bats/unit/watchdog_supervision_spec.bats (14)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -1823,9 +1823,22 @@ own SIGTERM handler and unwinds into an unbounded `wait` against a service
 that ignores signals -- 300s against a stated `timeout 45` (#965). The
 process groups the fixtures record are torn down in `teardown` rather than
 from a trap inside the harness, which is where it was first put and where
-it did not run. A bound guard in `teardown` asserts the property for every
-case in the file, and a structural case pins the single harness, so the
-fourth sibling cannot reintroduce it. These drive real background
+it did not run, and ONLY ever as a process group -- a bare-pid fallback
+could hit a stranger in another job, and the case that says so settles its
+verdict on the child's exit status through `wait` rather than on `kill -0`,
+which answers "alive" both for a process sent SIGKILL and not yet
+scheduled to die and for one dead and not yet reaped (measured: three
+false greens in fifteen full-file runs against a harness that DID signal
+the bare pid; zero in fifteen with the rendezvous).
+
+The net for the file as a whole is the bound guard in `teardown`, which
+measures every case against the ceiling its own harness declared: it holds
+for a sibling written in a spelling nothing anticipated, and a
+continuation-line `bash -c` sibling that walks past the structural scan is
+caught there at 45s against a declared 0. The structural case is the
+narrower claim on top of it -- exactly one place in the file starts a
+shell, inside `_run_bounded` -- and its job is to say WHICH LINE drifted at
+the moment it is written, not to be the thing that catches the drift. These drive real background
 processes / sleeps / signals, so the file is **kcov-fragile** (each test carries the
 `[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
 `bats-fragile`, ADR-00000008 / #613 / #677).
@@ -2244,7 +2257,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/readme_sync_spec.bats (33)
+### test/bats/unit/readme_sync_spec.bats (34)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
 `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
@@ -2299,6 +2312,7 @@ defect in the capture (#965).
 | `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
+| `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | - |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
 | `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
@@ -3560,7 +3574,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/spec_source_isolation_spec.bats (3)
+### test/bats/unit/spec_source_isolation_spec.bats (4)
 
 One repo-wide invariant over `test/bats/`: a spec may READ the live
 checkout -- that is where its subject lives -- but may not settle an
@@ -3586,19 +3600,29 @@ see that reliably either.
 
 The comparison scan stays because the snapshot cannot subsume it: a
 comparison against the live tree leaves NOTHING behind, so there is no
-residue to find, and it has one shape to match rather than a command list
--- which is why it needed no widening in three rounds. Like its sibling
-`spec_subject_guard_spec.bats`, it pins the scan as well as the result: a
-population floor, `find` under `pipefail`, and grep status exactly 1
-(scanned, no match) rather than 2 (could not scan).
+residue to find. It DID need widening -- a review planted six positions it
+named and could not see (`if`, `elif`, `while`, `until`, a leading `!`,
+`run` with a flag), one of which is a live idiom in this repo -- and what
+separates it from the deleted roster is not that it was finished but that
+its set is CLOSED: the write roster enumerated commands that can write,
+which is every binary that exists, while this enumerates the places a shell
+can begin a command, which is the shell's finite grammar. The positions are
+taken from that grammar and all eighteen are planted in a case. What it
+still cannot see is measured too, in a case of its own: a continuation
+line, a command name in a variable or an alias, and a live path built out
+of a variable. Like its sibling `spec_subject_guard_spec.bats`, it pins the
+scan as well as the result: a population floor, `find` under `pipefail`,
+and grep status exactly 1 (scanned, no match) rather than 2 (could not
+scan).
 
 | Test | Description |
 |------|-------------|
 | `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
 | `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
-| `the comparison scan sees the line it was written for, in both operand positions (#965)` | A guard that cannot match the defect that produced it is decoration |
+| `the comparison scan sees a live operand in every position a command can open in (#965)` | - |
+| `the comparison scan's disclosed blind spots really are blind, and they are all of them (#965)` | - |
 
-### test/bats/unit/residue_guard_spec.bats (11)
+### test/bats/unit/residue_guard_spec.bats (17)
 
 The live-tree residue guard in `script/test/test.sh`: the EXECUTED answer
 to "did a spec write into the checkout it does not own". Every compose
@@ -3617,11 +3641,42 @@ developer with work in flight, whereas an edit made BEFORE the run appears
 in both and cancels. Each record is status code + content hash + path, so a
 spec overwriting a file the developer was already editing still moves it.
 Ignored trees (`coverage/`, `log/`, `.prev-release/`) are absent by
-construction -- `.gitignore` is the list. The one false positive it cannot
-cancel is an edit made WHILE the suite runs; `TEST_RESIDUE_GUARD=0`
-switches it off for that one invocation and the failure message says so.
-It is inert outside a git checkout, and it must run host-side: a worktree's
-`.git` is a FILE naming a gitdir the container never mounts.
+construction -- `.gitignore` is the list. It is inert outside a git
+checkout, and it must run host-side: a worktree's `.git` is a FILE naming a
+gitdir the container never mounts.
+
+That same cancelling made the alarm ONE-SHOT, which is a hole in the shape
+rather than a slip: residue left by run N is on disk before run N+1 starts,
+so run N+1 read it as "in flight" and went green with the defect unchanged
+-- measured, run 1 exit 1 naming the path, run 2 exit 0. The guard now
+REMEMBERS what it named, in a record under the git dir (never in the
+working tree, where it would be residue itself, and per-worktree, so two
+checkouts do not inherit each other's). A remembered path is reported again
+on every run while it is still changed in the checkout and drops out the
+moment it is gone: cleaning up is the acknowledgement and nothing has to be
+typed for it. Two other shapes were weighed and rejected -- taking the
+baseline from the index removes the laundering and with it the whole reason
+the guard is usable, and narrowing what BEFORE may cancel is a guess about
+which changes are developer-shaped that is wrong for anyone adding a file.
+
+The cost to the dirty working tree is unchanged: an edit made before a run
+cancels, is never named, and is therefore never remembered. Only a path the
+guard has already reported out loud can become sticky, which is the one
+false positive two snapshots cannot cancel -- an edit made WHILE the suite
+ran. That is what `TEST_RESIDUE_GUARD=0` is for, and it now drops the
+record on its way past, so there is one knob rather than two.
+
+Two blind spots, stated because a guard whose limits are implied gets
+believed past them. A spec that writes and then removes its own traces
+before the phase ends is invisible; closing that means snapshotting per
+SPEC, in the in-container driver, which cannot read a worktree's gitdir at
+all. And `git status` never reports a path under `.git/`, so a planted
+hook, config or alternates entry is unseen -- excluded with a reason rather
+than closed, because git rewrites its own dir on almost any command
+(the guard's own `git status` refreshes the index) and narrowing that to
+"the parts that matter" is an open-set roster, the exact shape this round
+deleted. A case pins both the silence and how narrow it is: one directory
+up, the same write is still named.
 
 | Test | Description |
 |------|-------------|
@@ -3631,8 +3686,14 @@ It is inert outside a git checkout, and it must run host-side: a worktree's
 | `_residue_paths: a tracked file the run DELETED is named (#965)` | Residue is any difference, not only an addition |
 | `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; .gitignore is the allowlist |
 | `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
+| `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
 | `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |
 | `_residue_check: passes on a run that changed nothing (#965)` | The path every green gate takes |
+| `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
+| `_residue_check: the memory clears when the residue is GONE (#965)` | - |
+| `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
+| `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
+| `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
