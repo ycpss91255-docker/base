@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 #
-# Repo-wide invariants over test/bats/: a spec may READ the live checkout
-# (that is where its subject lives), but it may not WRITE there, and it may
-# not settle an assertion by COMPARING against it.
+# One repo-wide invariant over test/bats/: a spec may READ the live
+# checkout -- that is where its subject lives -- but it may not settle an
+# assertion by COMPARING against it.
 #
 # Why the population is drawn that way. Two specs lost a race against their
-# own suite and cost two or three full gate runs per landed branch.
-# The obvious framing -- "audit every spec that touches /source" -- is not
+# own suite and cost two or three full gate runs per landed branch. The
+# obvious framing -- "audit every spec that touches /source" -- is not
 # actionable: all but a handful of the specs reference /source -- 124 of the
 # 128 spec files, measured 2026-08-31 -- because that is where the script
 # under test, the tracked workflow being asserted on, and the real tree the
@@ -27,46 +27,65 @@
 # question and then let a tree the spec does not own supply half the answer;
 # the suite runs 32-way parallel, often beside another checkout's gate, so
 # anything writing there in the window flipped the verdict on correct code.
-# That shape -- a live path as a comparison operand -- had exactly one
-# instance, the one that failed. A write into the live tree had none, and
-# that is worth keeping: it is the shape that would make every OTHER spec's
-# read racy, so the invariant is cheap now and expensive to recover later.
+# Both sides of a comparison have to be bytes the spec captured itself.
 #
-# What these scans deliberately do NOT cover, and why. They match the live
-# path where it is WRITTEN, so a spec that names it once and then writes
-# through the name -- REPO=/source, then cat > "${_wf}" -- goes unseen, and
-# so does a cp or ln whose destination is pushed onto a continuation line,
-# because the destination rule is anchored at the end of the command. The
-# obvious extension is to follow the aliases, and it was measured before it
-# was rejected: collecting every variable assigned the live tree, plus one
-# more hop, and scanning writes through those names flags three sites on
-# this tree, of which two are correct code (a `sed -n` READ of a live file,
-# and a temp-dir write whose variable happens to share its name with a live
-# path in another test). The reason is structural, not a pattern that needs
-# tightening: bash names are scoped per test, grep is scoped per file, so
-# name-based taint cannot tell one `_yaml` from another. Two false alarms
-# per true one is how an invariant gets deleted.
+# ── Why this file no longer scans for WRITES ──────────────────────────────
 #
-# The shape that WOULD cover it is a runtime one -- snapshot the checkout
-# either side of the bats phase and fail on any difference -- which needs no
-# allowlist, no patterns, and catches a write through a name, a subshell or
-# a driver alike. That belongs in the phase runner, not here, and it is a
-# gate-wide behaviour change worth deciding on its own evidence. Until then
-# this file is a tripwire for the shape that has actually bitten, and the
-# aliased write it cannot see is why the entry above says the write scan is
-# cheap now and expensive to recover later.
+# It used to carry a second invariant: no spec writes into the live tree.
+# That one was a roster. It enumerated the commands a write can be spelled
+# with -- rm / mv / cp / ln / tee / dd / sed / a redirection -- and every
+# review of it found another spelling it CLAIMED and could not see: a third
+# operand of `mv` or `install`, `dd`'s `of=PATH` (which the operand rule
+# could never match, so naming `dd` was a claim that could not fire),
+# `rsync` in no pattern at all, a trailing comment defeating the cp / ln end
+# anchor. It also fired on `install` READING out of the live tree. Three
+# rounds, three widenings, another spelling each time.
+#
+# The property has an executed form with no roster: script/test/test.sh
+# snapshots the checkout either side of the bats phase and fails naming any
+# path that differs (`_residue_snapshot` / `_residue_check`, covered by
+# test/bats/unit/residue_guard_spec.bats). Whatever wrote, however it was
+# spelled -- through an alias, a subshell, a driver, a tool this repo has
+# never heard of -- the bytes moved and the snapshot moved with them. It
+# cannot false-positive on the suite's own setup either, which is what made
+# the cp / ln half of the old rule delicate: reading the live tree leaves
+# nothing behind. So the scan was deleted rather than widened a fourth
+# time, and what replaced it is strictly wider on every spelling but one.
+#
+# That one: a spec that writes into the checkout and removes its own traces
+# before the phase ends is invisible to the snapshot. The scan could not see
+# it reliably either -- it missed six spellings outright -- so nothing was
+# traded away, but it is the residual gap, and closing it means snapshotting
+# per SPEC rather than per run.
+#
+# ── Why the COMPARISON scan stays ─────────────────────────────────────────
+#
+# Because the snapshot cannot subsume it. A comparison against the live tree
+# leaves no trace: the spec reads, decides, and the checkout is byte-
+# identical afterwards. There is nothing for an executed residue check to
+# find, and the failure is not residue at all -- it is a verdict half of
+# which someone else wrote. A static scan is the only shape that can see it
+# before it costs a gate run, and unlike the write roster it has ONE shape
+# to match (a live path as an operand of diff / cmp), which is why it did
+# not need widening in three rounds.
+#
+# It is an over-approximation on purpose -- `diff /source/a /source/b`
+# compares two live paths and is flagged as well -- and it is line-wise, so
+# a comparison whose operand is an alias, or is pushed onto a continuation
+# line, goes unseen. Being incomplete is acceptable HERE in a way it was not
+# for the write scan: nothing else was standing behind that one.
 #
 # Why a spec and not a lint driver: test.sh's _LINT_TOOLS table is asserted
 # by self_test_yaml_spec to have a CI job per entry, so a driver costs a
 # workflow edit for a scan that the bats gate already runs everywhere. The
 # sibling spec_subject_guard_spec.bats set that precedent.
 #
-# Both invariants have the failure mode they are looking for, so each pins
-# the scan as well as the result: the spec population may not fall below a
-# floor, and grep's status must be exactly 1 (scanned, matched nothing) --
-# never 2 (could not scan), which `assert_failure` would have accepted. A
-# separate case proves a scan of nothing answers 2, and another proves each
-# spelling the patterns claim to see is actually seen.
+# The invariant has the failure mode it is looking for, so it pins the scan
+# as well as the result: the spec population may not fall below a floor, and
+# grep's status must be exactly 1 (scanned, matched nothing) -- never 2
+# (could not scan), which `assert_failure` would have accepted. A separate
+# case proves a scan of nothing answers 2, and another proves each spelling
+# the pattern claims to see is actually seen.
 
 bats_require_minimum_version 1.5.0
 
@@ -74,56 +93,27 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # The live checkout, as every spec sees it inside the ci container. Held
-  # in a variable rather than written into the patterns below so that no
-  # line of THIS file -- which lives under the tree the scans read -- can
-  # match a scan and fail the invariant on its own source.
+  # in a variable rather than written into the pattern below so that no
+  # line of THIS file -- which lives under the tree the scan reads -- can
+  # match and fail the invariant on its own source.
   LIVE_TREE=/source
 
-  # Where the scans look, and the floor the population may not fall below.
+  # Where the scan looks, and the floor the population may not fall below.
   SPEC_TREE="${LIVE_TREE}/test/bats"
   SPEC_TREE_FLOOR=100
 
   # A command POSITION: start of line, or after a separator that opens one.
   # Requiring it is what keeps a verb quoted inside somebody else's grep
-  # pattern (`grep -E 'sed -i.*main_yaml' /source/...`) out of the scan --
-  # four such lines matched before this was added, and an invariant that
-  # cries wolf four times is an invariant that gets deleted.
+  # pattern out of the scan -- four such lines matched before this was
+  # added, and an invariant that cries wolf four times is one that gets
+  # deleted.
   CMD_POS='(^|[;&|(){]|&&|\|\||\brun[[:space:]]+|\bthen[[:space:]]+|\bdo[[:space:]]+)[[:space:]]*'
 
   # An OPERAND position: the live path as the first or the second argument,
-  # after any run of option flags. `mv "${SCRATCH}/x" /source/x` writes the
-  # live tree from its SECOND operand, so first-operand-only would miss the
-  # spelling that matters most.
+  # after any run of option flags. `cmp "${SCRATCH}/x" /source/x` settles
+  # its verdict from the SECOND operand, so first-operand-only would miss
+  # half of the shape.
   OPERAND="([[:space:]]+-[^[:space:]]+)*([[:space:]]+[^[:space:]]+)?[[:space:]]+\"?${LIVE_TREE}"
-
-  # THE RULE, for every command in this file: scan the live path in the
-  # positions that command MUTATES. Not "the first operand", and not "any
-  # operand" -- either of those is right for some commands and wrong for
-  # the rest, and picking per command is how a scan ends up arguing with
-  # itself.
-  #
-  # These mutate every path they name (`sed` only with -i, which is an
-  # over-approximation this tree stays clean under), so for them the live
-  # path is a write in EITHER operand position -- including the second,
-  # which is where `mv "${SCRATCH}/x" /source/x` writes it.
-  WRITE_CMD_RE="${CMD_POS}(rm|rmdir|mv|mkdir|touch|truncate|chmod|chown|install|tee|dd|sed)\\b${OPERAND}"
-
-  # cp and ln mutate only their LAST operand, so the same rule gives them a
-  # different pattern rather than a place in the list above. Both halves
-  # matter: `ln -s /source/dist/script/... "${SANDBOX}/build.sh"` is how
-  # most of this suite gets its subject under test and must stay silent,
-  # while `cp "${SCRATCH}/x" /source/doc/readme/x` is one command name away
-  # from the fixture this branch had to stop seeding into the checkout and
-  # must not. So the live path is required at the END of the command --
-  # end of line, or a separator that closes it -- rather than after the
-  # flags. The operand may carry quotes; a path containing a space, or a
-  # destination pushed onto a continuation line, is past what a line-wise
-  # scan can see.
-  WRITE_DEST_RE="${CMD_POS}(cp|ln)\\b.*[[:space:]]\"?${LIVE_TREE}[^[:space:]\"]*\"?([[:space:]]*$|[[:space:]]*[;)&|])"
-
-  # Output redirection into the live tree. No command position needed -- the
-  # redirection operator IS the write.
-  WRITE_REDIR_RE=">>?[[:space:]]*\"?${LIVE_TREE}"
 
   # A live path as an operand of a comparison: the shape that made a correct
   # generator fail five gate runs.
@@ -132,7 +122,7 @@ setup() {
 
 # _assert_population -- the spec tree is really there and really populated.
 # A scan of an empty or missing tree reports "no matches" exactly like a
-# clean one, so every invariant below establishes the denominator first.
+# clean one, so the invariant below establishes the denominator first.
 _assert_population() {
   # pipefail so a find that cannot read the tree fails HERE, with find's
   # own message, instead of reaching the comparison below as the count 0
@@ -151,40 +141,17 @@ _assert_clean_scan() {
   assert_output ""
 }
 
-# _write_scan_sees <file> -- does the write invariant, AS A WHOLE, see a
-# line in <file>? The invariant is the union of its patterns, so the
-# fixtures below have to be asked the union rather than a pattern each: a
-# spelling one pattern was written for but another happens to catch is
-# still covered, and a spelling NO pattern catches is the blind spot worth
-# naming. It answers 0 for "seen", like the grep it wraps.
-_write_scan_sees() {
-  grep -qE "${WRITE_CMD_RE}" "${1:?BUG: _write_scan_sees expects a file}" ||
-    grep -qE "${WRITE_DEST_RE}" "${1}" ||
-    grep -qE "${WRITE_REDIR_RE}" "${1}"
-}
-
-@test "no spec writes into the live checkout it does not own (#965)" {
-  # Every spec here reads the live tree -- that is where its subject is --
-  # and every one of those reads is only safe while nothing writes there.
-  # One writer would make the whole population racy at once.
-  _assert_population
-  _assert_clean_scan "${WRITE_CMD_RE}"
-  _assert_clean_scan "${WRITE_DEST_RE}"
-  _assert_clean_scan "${WRITE_REDIR_RE}"
-}
-
 @test "no spec settles an assertion by comparing against the live checkout (#965)" {
   # The defect this file was written for: a spec generated an artifact in
   # its own scratch dir and then diffed it against the live tree, so a
   # concurrent writer -- another job in this 32-way parallel suite, a
-  # sibling checkout's gate, an editor -- supplied half the verdict. Both
-  # sides of a comparison have to be bytes the spec captured itself.
+  # sibling checkout's gate, an editor -- supplied half the verdict.
   _assert_population
   _assert_clean_scan "${COMPARE_RE}"
 }
 
 @test "a scan of a tree that is not there answers 2, not 1 (#965)" {
-  # What keeps the two invariants above from passing vacuously. `grep -rnE`
+  # What keeps the invariant above from passing vacuously. `grep -rnE`
   # over a missing path is the exact shape of a check that found no files,
   # and it is indistinguishable from a clean tree under `assert_failure`.
   # Pinning status 1 is only meaningful while 2 is reachable, so reach it.
@@ -192,68 +159,14 @@ _write_scan_sees() {
   assert_equal "${status}" 2
 }
 
-@test "the write scan sees every spelling of a write it claims to (#965)" {
-  # The other way an invariant goes quietly blind: it holds because its
-  # PATTERN misses the write, not because no write exists.
-  #
-  # Each fixture is written with the live path as a printf ARGUMENT, never
-  # as a literal in this file: a literal would put a matching line into the
-  # tree the invariants above scan, and they would fail on their own
-  # fixtures.
-  local _planted="${BATS_TEST_TMPDIR}/planted"
-  mkdir -p "${_planted}"
-  printf '  rm -rf %s/doc/readme\n'      "${LIVE_TREE}" > "${_planted}/rm_first.bats"
-  printf '  mv "${SCRATCH}/x" %s/x\n'    "${LIVE_TREE}" > "${_planted}/mv_second.bats"
-  printf '  sed -i s/a/b/ %s/x\n'        "${LIVE_TREE}" > "${_planted}/sed_inplace.bats"
-  printf '  touch %s/x\n'                "${LIVE_TREE}" > "${_planted}/touch.bats"
-  printf '  ( cd x && rm %s/y )\n'       "${LIVE_TREE}" > "${_planted}/rm_after_sep.bats"
-  printf '  printf x > %s/x\n'           "${LIVE_TREE}" > "${_planted}/redirect.bats"
-  printf '  printf x >> "%s/x"\n'        "${LIVE_TREE}" > "${_planted}/append.bats"
-  # cp and ln mutate their LAST operand, and a fixture seeded into the live
-  # checkout that way is the accident this branch had to remove -- one
-  # command name away from the `cat >` that produced it.
-  printf '  cp "${SCRATCH}/x" %s/doc/readme/x\n' \
-    "${LIVE_TREE}" > "${_planted}/cp_dest.bats"
-  printf '  ln -sf "${SCRATCH}/x" %s/doc/readme/x\n' \
-    "${LIVE_TREE}" > "${_planted}/ln_dest.bats"
-  printf '  run cp -a "${_src}" "%s/dist" || fail\n' \
-    "${LIVE_TREE}" > "${_planted}/cp_dest_quoted.bats"
-
-  local _spelling
-  for _spelling in rm_first mv_second sed_inplace touch rm_after_sep \
-                   redirect append cp_dest ln_dest cp_dest_quoted; do
-    _write_scan_sees "${_planted}/${_spelling}.bats" || fail \
-      "the write scan does not see the ${_spelling} spelling, so a spec writing the live tree that way would leave the invariant green"
-  done
-}
-
-@test "the write scan stays silent on a live path a spec only READS (#965)" {
-  # The other half of the cp / ln rule, and why they need a pattern of
-  # their own rather than another name in the operand list: symlinking or
-  # copying the SUBJECT out of the live tree is how most of this suite gets
-  # set up. An invariant that reds on the suite's own setup is deleted
-  # within the week, so a rule that cannot stay quiet is not enforceable --
-  # this file already dropped four such false hits from the command scan.
-  local _planted="${BATS_TEST_TMPDIR}/planted_read"
-  mkdir -p "${_planted}"
-  printf '  ln -s %s/dist/script/build.sh "${SANDBOX}/build.sh"\n' \
-    "${LIVE_TREE}" > "${_planted}/ln_source.bats"
-  printf '  cp -a %s/dist "${_dir}/dist"\n' \
-    "${LIVE_TREE}" > "${_planted}/cp_source.bats"
-  printf '  run cp %s/README.md "${SCRATCH}/README.md"\n' \
-    "${LIVE_TREE}" > "${_planted}/cp_source_run.bats"
-
-  local _spelling
-  for _spelling in ln_source cp_source cp_source_run; do
-    ! _write_scan_sees "${_planted}/${_spelling}.bats" || fail \
-      "the write scan fires on the ${_spelling} spelling, which only READS the live tree; an invariant that reds on the suite's own setup does not survive to catch anything"
-  done
-}
-
 @test "the comparison scan sees the line it was written for, in both operand positions (#965)" {
+  # The other way an invariant goes quietly blind: it holds because its
+  # PATTERN misses the line, not because no such line exists.
+  #
   # The first fixture is readme_sync_spec's old assertion, verbatim except
-  # for the live path being a printf argument. A guard that cannot match the
-  # defect that produced it is decoration.
+  # for the live path being a printf ARGUMENT rather than a literal -- a
+  # literal would put a matching line into the tree the invariant above
+  # scans, and it would fail on its own fixture.
   local _planted="${BATS_TEST_TMPDIR}/planted_cmp"
   mkdir -p "${_planted}"
   printf '  run diff -r %s/doc/readme "${SCRATCH}/doc/readme"\n' \
