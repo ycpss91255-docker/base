@@ -672,22 +672,65 @@ EOF
   [[ "${_hits}" == "1" ]]
 }
 
-@test "no setup.conf reader re-derives section membership by dot-prefix (#955)" {
+@test "no setup.conf namespace-key reader re-derives section membership by dot-prefix (#955)" {
   # The CHANGELOG entry and _conf_split_nskey's doc comment both claim
   # one owner for "which section does this key belong to". This is that
-  # claim as an assertion: a `== "${var}."*` glob over namespace keys is
-  # exactly the re-derivation that bound `logging.web.driver` to the
-  # parent [logging]. New readers must call _conf_split_nskey (or
-  # _setup_dump_section, which wraps it) instead.
+  # claim as an assertion: a glob that pastes a literal dot onto a
+  # variable and matches the rest (`== "${var}."*`) is exactly the
+  # re-derivation that bound `logging.web.driver` to the parent
+  # [logging]. Readers must ask _conf_split_nskey (or
+  # _setup_dump_section, which wraps it). The guard is structural
+  # because its subject is the reader that does NOT exist yet: a new
+  # one has no behavioural test to catch it.
   #
-  # Scoped to the two libs that handle USER override keys. schema.sh's
+  # POPULATION IS DERIVED, NEVER LISTED. Every shipped script whose CODE
+  # calls `_load_setup_conf_full` / `_setup_effective_full` -- the two
+  # functions that produce the namespace-key view -- is a reader, so a
+  # lib or wrapper added tomorrow is scanned with no edit here. That
+  # derivation is what brings in setup_conf.sh and the TUI wrapper,
+  # which the previous hand-kept 2-file roster exempted while claiming
+  # to cover every reader. schema.sh is out because it calls neither:
   # `_schema_section_keys` prefix-matches the static SCHEMA_VALIDATOR
-  # registry, whose section names carry no dot, so it cannot be
-  # ambiguous.
-  run grep -nE '== "\$\{_[a-z_]+\}\."\*' \
-    /source/dist/script/docker/lib/setup_cmd.sh \
-    /source/dist/script/docker/lib/conf.sh
-  assert_failure
+  # registry, whose section names carry no dot. The match is over CODE
+  # lines, so _tui_conf.sh -- which names `_load_setup_conf_full` only
+  # in its header prose -- is correctly not a reader.
+  local -a _readers=()
+  local _f
+  while IFS= read -r _f; do
+    if code_grep -qE '_load_setup_conf_full|_setup_effective_full' "${_f}"; then
+      _readers+=("${_f}")
+    fi
+  done < <(find /source/dist/script/docker -type f -name '*.sh' | sort)
+
+  # A scan that found nothing is not a pass. Four readers exist today
+  # (conf.sh, setup_cmd.sh, setup_conf.sh, setup_tui.sh); the floor is
+  # a REGRESSION floor -- the derivation returning fewer than it
+  # already covered means the derivation broke, not that the tree got
+  # clean.
+  (( ${#_readers[@]} >= 4 )) || fail \
+    "derived only ${#_readers[@]} namespace-key readers under /source/dist/script/docker; the derivation broke (renamed helper? moved tree?), so this guard scanned almost nothing: ${_readers[*]}"
+
+  # One spelling is not the property. The glob binds a variable holding
+  # a section name to a literal dot and a wildcard, and bash writes that
+  # several ways: the dot inside the quotes or outside, the variable
+  # braced, subscripted or bare, in `==` or in a `case` pattern. All of
+  # them are the same defect, so all of them match here.
+  local _dot_glob='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\}|\$[A-Za-z_][A-Za-z0-9_]*)"?\."?\*'
+
+  local _view="${TEMP_DIR}/reader-code-view.txt" _status _hits
+  for _f in "${_readers[@]}"; do
+    assert_spec_subject "${_f}" "a shipped setup.conf namespace-key reader"
+    code_lines "${_f}" > "${_view}" || true
+    [[ -s "${_view}" ]] || fail \
+      "${_f} has no code lines -- scanning it would assert nothing"
+    _status=0
+    _hits="$(grep -E "${_dot_glob}" "${_view}")" || _status=$?
+    # Pinned to exactly 1: 0 is a live instance, 2 is a scan that never
+    # read the file, and a bare assert_failure cannot tell them apart.
+    (( _status == 1 )) || fail \
+      "grep exited ${_status} scanning ${_f} (want exactly 1: read it, matched nothing). Offending code lines:
+${_hits}"
+  done
 }
 
 @test "list <section> mirrors show <section>" {
