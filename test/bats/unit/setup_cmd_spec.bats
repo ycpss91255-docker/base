@@ -715,35 +715,65 @@ EOF
     || fail "expected the sub-section value exactly once, saw ${_hits}"
 }
 
-@test "no setup.conf namespace-key reader re-derives section membership by dot-prefix (#955)" {
+@test "no setup.conf namespace-key reader re-derives section membership with a trailing-dot glob on a lone section variable (#955)" {
   # The CHANGELOG entry and _conf_split_nskey's doc comment both claim
   # one owner for "which section does this key belong to". This is that
-  # claim as an assertion: a glob that pastes a literal dot onto a
-  # variable and matches the rest (`== "${var}."*`) is exactly the
-  # re-derivation that bound `logging.web.driver` to the parent
-  # [logging]. Readers must ask _conf_split_nskey (or
+  # claim as an assertion: a glob that pastes a literal dot onto a lone
+  # section-name variable and matches the rest (`== "${sec}."*`) is
+  # exactly the re-derivation that bound `logging.web.driver` to the
+  # parent [logging]. Readers must ask _conf_split_nskey (or
   # _setup_dump_section, which wraps it). The guard is structural
   # because its subject is the reader that does NOT exist yet: a new
   # one has no behavioural test to catch it.
   #
-  # POPULATION IS DERIVED, NEVER LISTED. Every shipped script whose CODE
-  # calls `_load_setup_conf_full` / `_setup_effective_full` -- the two
-  # functions that produce the namespace-key view -- is a reader, so a
-  # lib or wrapper added tomorrow is scanned with no edit here. That
-  # derivation is what brings in setup_conf.sh and the TUI wrapper,
-  # which the previous hand-kept 2-file roster exempted while claiming
-  # to cover every reader. schema.sh is out because it calls neither:
-  # `_schema_section_keys` prefix-matches the static SCHEMA_VALIDATOR
-  # registry, whose section names carry no dot. The match is over CODE
-  # lines, so _tui_conf.sh -- which names `_load_setup_conf_full` only
-  # in its header prose -- is correctly not a reader.
+  # WHAT THE NAME PROMISES IS WHAT THE BODY CHECKS. Two nearby spellings
+  # are deliberately OUT, and the name says "a lone section variable"
+  # rather than "any dot-prefix" so nobody reads coverage into them:
+  #
+  #   (a) `== "${_ns}.${_prefix}"*` -- a dot between TWO variables, live
+  #       in setup_tui.sh (1848/1855/2381/2388). Benign: `_prefix` is a
+  #       list-slot stem (`env_`, `port_`) inside an ALREADY-resolved
+  #       namespace, and every hit is then required to strip to
+  #       `^[0-9]+$`, so `environment.env_1.foo` is rejected by the
+  #       numeric test, not misrouted.
+  #   (b) a prefix assembled on an earlier line (`_prefix="stage:${_s}."`
+  #       then `== "${_prefix}"*`), live at setup_tui.sh:2161-2172.
+  #       Benign for the same reason and for a second one: it counts
+  #       every key under one stage on purpose, so a deeper key SHOULD
+  #       be included.
+  #
+  # Catching (a)/(b) would mean matching two live, correct call sites
+  # and then exempting them by path -- the hand-listed roster this
+  # guard exists to avoid. A narrow name that is true beats a wide one
+  # that is not; if a real membership bug is ever written in those
+  # spellings, this guard will not see it, and that is stated here
+  # rather than implied away.
+  #
+  # POPULATION IS DERIVED, NEVER LISTED -- ROOT INCLUDED. The root is
+  # /source/dist, the whole shipped payload (what init/upgrade copies to
+  # a consumer's .base/dist, cf. init_rollback_spec.bats), not one
+  # subdirectory of it: a reader dropped into dist/script/base/ ships
+  # just as far as one in dist/script/docker/, and the earlier
+  # docker-only root let that one through green. Within the root, every
+  # script whose CODE calls `_load_setup_conf_full` /
+  # `_setup_effective_full` -- the two functions that produce the
+  # namespace-key view -- is a reader, so a lib or wrapper added
+  # tomorrow is scanned with no edit here. schema.sh is out because it
+  # calls neither: `_schema_section_keys` prefix-matches the static
+  # SCHEMA_VALIDATOR registry, whose section names carry no dot. The
+  # match is over CODE lines, so _tui_conf.sh -- which names
+  # `_load_setup_conf_full` only in its header prose -- is correctly
+  # not a reader.
+  local _root=/source/dist
+  [[ -d "${_root}" ]] || fail \
+    "missing ${_root} -- the shipped tree this guard derives its population from"
   local -a _readers=()
   local _f
   while IFS= read -r _f; do
     if code_grep -qE '_load_setup_conf_full|_setup_effective_full' "${_f}"; then
       _readers+=("${_f}")
     fi
-  done < <(find /source/dist/script/docker -type f -name '*.sh' | sort)
+  done < <(find "${_root}" -type f -name '*.sh' | sort)
 
   # A scan that found nothing is not a pass. Four readers exist today
   # (conf.sh, setup_cmd.sh, setup_conf.sh, setup_tui.sh); the floor is
@@ -751,14 +781,17 @@ EOF
   # already covered means the derivation broke, not that the tree got
   # clean.
   (( ${#_readers[@]} >= 4 )) || fail \
-    "derived only ${#_readers[@]} namespace-key readers under /source/dist/script/docker; the derivation broke (renamed helper? moved tree?), so this guard scanned almost nothing: ${_readers[*]}"
+    "derived only ${#_readers[@]} namespace-key readers under ${_root}; the derivation broke (renamed helper? moved tree?), so this guard scanned almost nothing: ${_readers[*]}"
 
   # One spelling is not the property. The glob binds a variable holding
   # a section name to a literal dot and a wildcard, and bash writes that
   # several ways: the dot inside the quotes or outside, the variable
-  # braced, subscripted or bare, in `==` or in a `case` pattern. All of
-  # them are the same defect, so all of them match here.
-  local _dot_glob='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\}|\$[A-Za-z_][A-Za-z0-9_]*)"?\."?\*'
+  # bare, braced, subscripted, or braced with a modifier
+  # (`${_sec:-x}."*`, `${_sec,,}."*`), in `==` or in a `case` pattern.
+  # All of them are the same defect, so all of them match here. The
+  # brace body is "anything but a closing brace", which is what admits
+  # the modifier forms the earlier `[A-Za-z0-9_]`-only body dropped.
+  local _dot_glob='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*)"?\."?\*'
 
   local _view="${TEMP_DIR}/reader-code-view.txt" _status _hits
   for _f in "${_readers[@]}"; do
