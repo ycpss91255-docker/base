@@ -190,6 +190,35 @@ _index_add() {
   _index_render
 }
 
+# The SHAPE of a finding line. Every report the driver prints leads with
+# the repo-relative file it is about -- `<rel>: ...` or `<rel>:<line>: ...`
+# -- and nothing else a run emits does: the banner it opens with
+# (`--- Running ... ---`) and the clean line it ends with (`catalog
+# description lint: clean (...)`) both put a space before their first
+# colon, and the dispatcher's ERROR line leads with an ISO timestamp whose
+# colons are each followed by a digit.
+#
+# Selecting that shape rather than SUBTRACTING today's known non-findings
+# is what makes the floor below real. Subtracting only the ERROR line left
+# the banner in, and the banner is unconditional: the population could
+# never be empty, so the floor was dead code and a refutation could hold
+# over a run that reported nothing at all. It also keeps the next line the
+# driver learns to print from silently counting as a report.
+_CATALOG_DESC_FINDING_RE='^[^[:space:]]+: '
+
+# _finding_lines -- the lint's OWN finding lines from ${output}, one per
+# line, on stdout. grep exit 1 is a legitimately EMPTY population and is
+# handed back as an empty string with status 0; any other non-zero status
+# means the output could not be read, and is returned rather than being
+# rounded down to "no match".
+_finding_lines() {
+  local _out _rc=0
+  _out="$(printf '%s\n' "${output}" | grep -E "${_CATALOG_DESC_FINDING_RE}")" \
+    || _rc=$?
+  (( _rc <= 1 )) || return "${_rc}"
+  printf '%s' "${_out}"
+}
+
 # assert_finding <text> -- <text> appears in one of the lint's OWN finding
 # lines, not merely somewhere in the run's output.
 #
@@ -200,20 +229,26 @@ _index_add() {
 # A --partial over the whole output is satisfied by ANY failing run, so
 # deleting a specific finding's printf left this spec green: the positive
 # and the negative case produced output that satisfied the assertion
-# equally. This drops the ERROR log line the driver dies with and asserts
-# against what is left, so a report that is not emitted is a red test.
+# equally. This asserts against the finding lines alone, so a report that
+# is not emitted is a red test.
 #
-# A run whose only output is that summary FAILS here rather than being
-# skipped: nothing found is not a pass.
+# A run that emitted no finding line FAILS here rather than being skipped:
+# nothing found is not a pass.
+#
+# Every branch RETURNS after `fail`. bats disables errexit inside `run`,
+# so a bare `fail` there prints its message and lets the function fall
+# through to its own exit status -- which is how the floor above could
+# report the right diagnosis and still be read as a pass.
 assert_finding() {
   local _needle="${1}" _lines _rc=0
-  _lines="$(printf '%s\n' "${output}" | grep -v '\] ERROR: ')" || _rc=$?
-  (( _rc <= 1 )) \
-    || fail "assert_finding: could not read the run output (grep exit ${_rc})"
+  _lines="$(_finding_lines)" || _rc=$?
+  (( _rc == 0 )) \
+    || { fail "assert_finding: could not read the run output (grep exit ${_rc})"; return 1; }
   [[ -n "${_lines}" ]] \
-    || fail "assert_finding: the run printed no finding line at all, only the dispatcher summary; wanted '${_needle}'"
+    || { fail "assert_finding: the run printed no finding line at all, only its banner and the dispatcher summary; wanted '${_needle}'"; return 1; }
   printf '%s\n' "${_lines}" | grep -qF -- "${_needle}" \
-    || fail "$(printf 'assert_finding: no finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"
+    || { fail "$(printf 'assert_finding: no finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"; return 1; }
+  return 0
 }
 
 # refute_finding <text> -- the mirror: no finding line mentions <text>.
@@ -221,13 +256,13 @@ assert_finding() {
 # cannot satisfy it by silence.
 refute_finding() {
   local _needle="${1}" _lines _rc=0
-  _lines="$(printf '%s\n' "${output}" | grep -v '\] ERROR: ')" || _rc=$?
-  (( _rc <= 1 )) \
-    || fail "refute_finding: could not read the run output (grep exit ${_rc})"
+  _lines="$(_finding_lines)" || _rc=$?
+  (( _rc == 0 )) \
+    || { fail "refute_finding: could not read the run output (grep exit ${_rc})"; return 1; }
   [[ -n "${_lines}" ]] \
-    || fail "refute_finding: the run printed no finding line at all, so the refutation would hold vacuously; wanted findings that omit '${_needle}'"
+    || { fail "refute_finding: the run printed no finding line at all, so the refutation would hold vacuously; wanted findings that omit '${_needle}'"; return 1; }
   printf '%s\n' "${_lines}" | grep -qF -- "${_needle}" \
-    && fail "$(printf 'refute_finding: a finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"
+    && { fail "$(printf 'refute_finding: a finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"; return 1; }
   return 0
 }
 
