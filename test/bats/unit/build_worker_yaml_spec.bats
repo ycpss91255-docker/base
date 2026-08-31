@@ -642,22 +642,25 @@ setup() {
 
 # ── Per-job least privilege ────────────────────────────────────
 
-# Print the name of every job in the worker that declares no job-level
-# `permissions:` block. Job keys sit at two spaces under `jobs:`; a job's
-# own properties sit at four, so the two indents separate cleanly without
-# a YAML parser (the ci container ships none).
+# Print the name of every job in the worker that declares no permission
+# ENTRY of its own -- no `permissions:` block, or an inline one
+# (`permissions: read-all`, `permissions: {}`) that names no scope. Both
+# leave the job running on a grant base does not control.
+#
+# Read off the shared `yaml_permission_surface`, which asks a YAML parser.
+# This used to be a private awk that matched job keys as
+# `^  [A-Za-z0-9_-]+:[ \t]*$` and permission blocks as text: a job key
+# carrying a trailing comment (`sign-artifacts: # signs the images`) was
+# not a job to it, so the job -- and its grants -- was invisible to a
+# guard whose whole assertion is that nothing came back.
 _jobs_without_permissions() {
-  awk '
-    /^jobs:$/          { in_jobs = 1; next }
-    in_jobs && /^[^ ]/ { in_jobs = 0 }
-    !in_jobs           { next }
-    /^  [A-Za-z0-9_-]+:[ \t]*$/ {
-      if (job != "" && !seen) { print job }
-      job = $1; sub(/:$/, "", job); seen = 0; next
-    }
-    /^    permissions:[ \t]*$/ { seen = 1 }
-    END { if (job != "" && !seen) { print job } }
-  ' "${WF}"
+  local _line
+  while IFS= read -r _line; do
+    case "${_line}" in
+      'BUG:'*)          printf '%s\n' "${_line}" ;;
+      *": <no entries>") printf '%s\n' "${_line%%:*}" ;;
+    esac
+  done < <(yaml_permission_surface "${WF}")
 }
 
 # The jobs this spec's least-privilege assertions run over: derived from the
@@ -673,18 +676,27 @@ _jobs_without_permissions() {
 # `yaml_job_names` returns, so a sixth job is scanned the day it lands
 # without this spec being edited.
 _assert_worker_job_population() {
-  local _derived _count _independent _job
-  _derived="$(yaml_job_names "${WF}")"
+  local _derived _count _job _status=0
+  _derived="$(yaml_job_names "${WF}")" || _status=$?
+  [[ "${_status}" -eq 0 ]] || fail \
+      "the job derivation could not read ${WF}: ${_derived}"
   _count="$(printf '%s\n' "${_derived}" | awk 'NF { n++ } END { print n + 0 }')"
-  # A second, independent extraction of the same set (`jobs:` is the last
-  # top-level key of this file). Two readings that disagree mean one of them
-  # is wrong about the file, which must fail rather than pick a side.
-  _independent="$(code_lines "${WF}" | sed -n '/^jobs:$/,$p' \
-      | awk '/^  [A-Za-z0-9_-]+:[ \t]*$/ { n++ } END { print n + 0 }')"
-  [[ "${_count}" -eq "${_independent}" ]] || fail \
-      "job-list extraction disagrees with itself: yaml_job_names found ${_count}, a direct scan of the jobs: section found ${_independent} in ${WF}"
   [[ "${_count}" -ge 5 ]] || fail \
       "expected at least the 5 jobs build-worker.yaml ships, derived ${_count} from ${WF} -- the scan below would have passed over an empty population"
+  # Every derived name must also appear as a two-space key in the file's own
+  # code lines. This is a CONFIRMATION that the parser read this file, not a
+  # second opinion about how many jobs it holds: a re-implementation of the
+  # same regex over the same input cannot disagree with the derivation about
+  # anything, which is what the previous "independent extraction" here
+  # actually was.
+  local _name _seen
+  while IFS= read -r _name; do
+    [[ -n "${_name}" ]] || continue
+    _seen=0
+    code_grep -E "^  \"?${_name}\"?:" "${WF}" >/dev/null || _seen=$?
+    [[ "${_seen}" -eq 0 ]] || fail \
+        "derived job '${_name}' has no '  ${_name}:' key in the code lines of ${WF} (grep exited ${_seen}) -- the derivation is not reading the file this spec is about"
+  done <<< "${_derived}"
   for _job in preflight path-filter compute-matrix build docker-build; do
     printf '%s\n' "${_derived}" | grep -x -- "${_job}" >/dev/null || fail \
         "job '${_job}' is missing from the derived job list of ${WF}: either it was renamed (update this floor) or the extractor stopped seeing the file"

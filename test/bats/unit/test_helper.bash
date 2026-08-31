@@ -169,9 +169,16 @@ code_grep() {
 #   One top-level `jobs:` entry of <file>, VERBATIM -- from `  <job>:` up to
 #   the next two-space-indented key. Comments included, so pair it with
 #   only_comments where the assertion is about the prose.
+#
+#   The terminator is ANY two-space-indented key, not a lowercase-initial
+#   one. `Sign:` and `_pub:` are legal GitHub job ids, and while the
+#   terminator only recognised `[a-z]` neither of them ended the job above
+#   it -- so that job's text, and every grant read out of it, was really
+#   the NEXT job's. A two-space comment line still does not terminate: a
+#   comment paragraph between two jobs belongs to the job it documents.
 yaml_job_text() {
     awk -v _key="^  ${2}:" \
-        '$0 ~ _key {flag=1; next} /^  [a-z]/{flag=0} flag' "${1}"
+        '$0 ~ _key {flag=1; next} /^  [^ #]/{flag=0} flag' "${1}"
 }
 
 # yaml_job_lines <file> <job>
@@ -210,82 +217,195 @@ yaml_top_lines() {
 # build-worker.yaml stayed green when a sixth job asking `contents: write`
 # was appended to the file. These helpers are the derivation the specs share
 # so that no spec has to keep a roster.
+#
+# They ask a YAML PARSER (`yq`, baked into the tooling image), not a regex.
+# The previous shape built the derivation out of awk over indentation, and
+# every YAML spelling that awk did not model made a job or a grant
+# INVISIBLE rather than loud -- which is the fail-open direction for a
+# guard whose entire assertion is "the scan came back empty":
+#
+#   * `sign-artifacts: # signs the images` -- a job key with a trailing
+#     comment did not match a pattern anchored at end of line, so the job
+#     was not a job and its `packages: write` was scanned by nothing;
+#   * `packages: write # cache push`, `packages: "write"` -- an entry the
+#     pattern rejected was read as the END of the permissions block, so it
+#     and every entry after it disappeared (and whether the elevation was
+#     seen depended on where in the block it sat);
+#   * `Sign:`, `_pub:` -- legal job ids that did not terminate the previous
+#     job, which then reported the NEXT job's grants as its own;
+#   * `"on":`, `on: {workflow_call: null}` -- a reusable worker the `^on:`
+#     text anchor did not recognise as reusable at all.
+#
+# A parser also buys two properties no grep can state: the key is at the
+# RIGHT LEVEL of the document (a `permissions:` under `jobs.x.steps` is not
+# a job's grant), and the value is the WHOLE value rather than a substring
+# of it. And it fails CLOSED: a file yq cannot parse is an error, where the
+# awk simply produced a shorter answer. Every helper below turns such an
+# error into a `BUG:` line on stdout AND a non-zero status, because the
+# scans that consume them read stdout inside a pipeline where a status is
+# invisible.
+#
+# yaml_job_text / yaml_job_lines / yaml_top_text / yaml_top_lines stay
+# textual on purpose: those return a block VERBATIM (comments included) and
+# the specs match raw strings against them, which a re-serialising parser
+# would reformat.
+
+# _yaml_eval <file> <expr>
+#   One yq expression over <file>. On any yq failure -- an unparsable
+#   document, an expression this yq cannot run -- print a single `BUG:`
+#   line carrying yq's own message and return 1. Nothing is printed for an
+#   expression that legitimately selects nothing, so a caller can tell
+#   "no entries" from "could not read".
+_yaml_eval() {
+    local _file="${1}" _expr="${2}" _out _status=0
+    _out="$(yq "${_expr}" "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s on %s: %s\n' "${_status}" "${_file}" \
+            "$(printf '%s' "${_out}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ -n "${_out}" ]]; then
+        printf '%s\n' "${_out}"
+    fi
+}
 
 # yaml_job_names <file>
-#   Every top-level `jobs:` key of <file>, in file order. Job keys sit at two
-#   spaces under `jobs:` and a job's own properties at four, so the indents
-#   separate without a YAML parser (the ci image ships none). Comments are
-#   stripped first: a commented-out job is not a job.
+#   Every top-level `jobs:` key of <file>, in document order. A file whose
+#   `jobs:` is missing or is not a mapping is a `BUG:` line and a non-zero
+#   status, never an empty list: an empty list satisfies every "the scan
+#   came back empty" assertion in the repo.
 yaml_job_names() {
-    code_lines "${1}" | awk '
-        /^jobs:[ \t]*$/  { in_jobs = 1; next }
-        in_jobs && /^[^ ]/ { in_jobs = 0 }
-        !in_jobs         { next }
-        /^  [A-Za-z0-9_-]+:[ \t]*$/ {
-            job = $1; sub(/:$/, "", job); print job
-        }
-    '
+    local _file="${1}" _kind _status=0
+    _kind="$(yq '.jobs | tag' "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading the jobs mapping of %s: %s\n' \
+            "${_status}" "${_file}" "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s has no jobs: mapping (its jobs key reads as %s)\n' \
+            "${_file}" "${_kind}"
+        return 1
+    fi
+    _yaml_eval "${_file}" '.jobs | keys | .[]'
 }
 
 # yaml_job_permission_entries <file> <job>
-#   The `<scope>: <level>` entries inside one job's own `permissions:` block,
-#   indentation dropped. Built on yaml_job_lines, so the job's comment
-#   paragraphs are gone before any matching happens -- a rationale that
-#   QUOTES a grant ("`contents: read` rather than `{}`") is otherwise
-#   indistinguishable from the grant itself.
+#   The `<scope>: <level>` entries of one job's own `permissions:` mapping,
+#   in document order. A job that declares no block, or an inline one
+#   (`permissions: read-all`, `permissions: {}`) that names no scope,
+#   yields nothing. A job that is not in the file yields a `BUG:` line --
+#   the caller named a job that was renamed, which is a defect and not an
+#   absence.
 #
 #   ENTRIES -- not the block -- are what make an EXACT-set assertion
-#   possible: a caller-facing `permissions:` may only NARROW the grant it was
-#   handed, so any extra scope is an elevation that fails the caller's run,
-#   and a presence check plus one `refute` of a known-bad scope cannot see it.
+#   possible: a caller-facing `permissions:` may only NARROW the grant it
+#   was handed, so any extra scope is an elevation that fails the caller's
+#   run, and a presence check plus one `refute` of a known-bad scope cannot
+#   see it.
 yaml_job_permission_entries() {
-    yaml_job_lines "${1}" "${2}" | awk '
-        /^    permissions:[ \t]*$/ { in_perms = 1; next }
-        !in_perms                  { next }
-        /^      [A-Za-z][A-Za-z0-9_-]*:[ \t]*[A-Za-z][A-Za-z0-9_-]*[ \t]*$/ {
-            sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; next
-        }
-        { in_perms = 0 }
-    '
+    local _file="${1}" _job="${2}" _kind _status=0
+    _kind="$(YAML_JOB="${_job}" yq '.jobs[strenv(YAML_JOB)] | tag' \
+        "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading job %s of %s: %s\n' \
+            "${_status}" "${_job}" "${_file}" \
+            "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s declares no job %s (that key reads as %s)\n' \
+            "${_file}" "${_job}" "${_kind}"
+        return 1
+    fi
+    YAML_JOB="${_job}" _yaml_eval "${_file}" \
+        '.jobs[strenv(YAML_JOB)].permissions
+           | select(tag == "!!map")
+           | to_entries | .[]
+           | (.key | tostring) + ": " + (.value | tostring)'
 }
 
 # yaml_permission_surface <file>
-#   `<job>: <scope>: <level>` for every job DERIVED from <file>, in file
-#   order -- and `<job>: <no entries>` for a job that declares no block at
-#   all, or an inline one (`permissions: read-all`) that yields no entry.
-#   The placeholder is load-bearing: without it a job with no grants would
-#   drop out of the listing, and an assertion over the listing would read
-#   "unbounded" as "nothing to see".
+#   `<job>: <scope>: <level>` for every job DERIVED from <file>, in
+#   document order -- and `<job>: <no entries>` for a job that declares no
+#   block at all, or an inline one that yields no entry. The placeholder is
+#   load-bearing: without it a job with no grants would drop out of the
+#   listing, and an assertion over the listing would read "unbounded" as
+#   "nothing to see".
+#
+#   A read that fails anywhere aborts the whole surface with the `BUG:`
+#   line that caused it, rather than returning the jobs it managed to read
+#   -- a partial surface is exactly the under-reported grant set every
+#   assertion here exists to catch.
 yaml_permission_surface() {
-    local _job _entries
+    local _file="${1}" _names _job _entries _status=0
+    _names="$(yaml_job_names "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf '%s\n' "${_names}"
+        return 1
+    fi
     while IFS= read -r _job; do
         [[ -n "${_job}" ]] || continue
-        _entries="$(yaml_job_permission_entries "${1}" "${_job}")"
+        _status=0
+        _entries="$(yaml_job_permission_entries "${_file}" "${_job}")" \
+            || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_entries}"
+            return 1
+        fi
         if [[ -z "${_entries}" ]]; then
             printf '%s: <no entries>\n' "${_job}"
         else
-            printf '%s\n' "${_entries}" | sed "s/^/${_job}: /"
+            printf '%s\n' "${_entries}" | sed "s|^|${_job}: |"
         fi
-    done < <(yaml_job_names "${1}")
+    done <<< "${_names}"
+}
+
+# yaml_trigger_keys <file>
+#   The keys of <file>'s `on:` mapping. Read as a KEY at the top level of
+#   the document, which is what makes every legal spelling of it one case:
+#   bare `on:`, `"on":` (the standard quoting workaround for YAML 1.1
+#   reading a bare `on` as a boolean, and what several formatters emit),
+#   and a flow-style mapping. The boolean spelling is matched too, for a
+#   parser that resolves the bare key to `true`.
+yaml_trigger_keys() {
+    _yaml_eval "${1}" '
+        to_entries
+          | map(select((.key | tostring) == "on"
+                       or (.key | tostring) == "true"))
+          | .[0].value
+          | select(tag == "!!map")
+          | keys | .[]'
 }
 
 # reusable_workflow_files [dir]
 #   Every workflow file under <dir> (default: this checkout's workflow
 #   directory) that declares `on: workflow_call`, i.e. every workflow whose
-#   jobs run under a CALLING repo's token unless they say otherwise. Derived
-#   by reading each file's `on:` mapping, so a reusable worker added to the
-#   directory is covered the day it lands.
+#   jobs run under a CALLING repo's token unless they say otherwise.
+#   Derived from each file's parsed trigger keys, so a reusable worker
+#   added to the directory is covered the day it lands however its author
+#   spelled `on`.
+#
+#   A file that cannot be read contributes a `BUG:` line to the listing
+#   instead of being skipped: a worker the derivation cannot parse is a
+#   worker nothing downstream scans.
 reusable_workflow_files() {
-    local _dir="${1:-/source/.github/workflows}" _f _status
+    local _dir="${1:-/source/.github/workflows}" _f _keys _status
     for _f in "${_dir}"/*.yaml "${_dir}"/*.yml; do
         [[ -f "${_f}" ]] || continue
         _status=0
+        _keys="$(yaml_trigger_keys "${_f}")" || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_keys}"
+            continue
+        fi
+        _status=0
         # `grep -E ... >/dev/null` rather than `grep -q`: -q exits at the
-        # first match, and the SIGPIPE that gives the awk upstream of it
+        # first match, and the SIGPIPE that gives the writer upstream of it
         # becomes the pipeline's status under `pipefail` (141), which no
         # `case` arm below should have to know about.
-        yaml_top_lines "${_f}" on \
-            | grep -E '^  workflow_call:[ \t]*$' >/dev/null || _status=$?
+        printf '%s\n' "${_keys}" \
+            | grep -Fx -- 'workflow_call' >/dev/null || _status=$?
         case "${_status}" in
             0) printf '%s\n' "${_f}" ;;
             1) ;;

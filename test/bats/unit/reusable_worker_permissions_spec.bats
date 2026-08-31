@@ -50,15 +50,37 @@ setup() {
 _assert_reusable_worker_population() {
   local _files _count
   _files="$(reusable_workflow_files "${WORKFLOW_DIR}")"
+  if printf '%s\n' "${_files}" | grep 'BUG:' >/dev/null; then
+    fail "reusable_workflow_files reported a failed scan: ${_files}"
+  fi
   _count="$(printf '%s\n' "${_files}" | awk 'NF { n++ } END { print n + 0 }')"
   [[ "${_count}" -ge 4 ]] || fail \
       "expected at least the 4 reusable workers this repo ships, derived ${_count} from ${WORKFLOW_DIR} -- a scan over an empty population passes by saying nothing"
   printf '%s\n' "${_files}" \
       | grep -x -- "${WORKFLOW_DIR}/build-worker.yaml" >/dev/null || fail \
       "build-worker.yaml is missing from the derived reusable-worker list: either it stopped declaring on: workflow_call, or the derivation stopped seeing the directory"
-  if printf '%s\n' "${_files}" | grep 'BUG:' >/dev/null; then
-    fail "reusable_workflow_files reported a failed scan: ${_files}"
-  fi
+  # A second reading, over the raw text rather than the parse: every
+  # workflow whose CODE lines mention `workflow_call` at all must be in the
+  # derived list, and nothing else may be. The derivation reads `on` as a
+  # KEY, so it is blind in a way this is not -- an `on:` spelling it stopped
+  # resolving would drop a worker out of the list silently, and the file
+  # would still be sitting there with the word in it.
+  local _f _mentions _derived
+  for _f in "${WORKFLOW_DIR}"/*.yaml "${WORKFLOW_DIR}"/*.yml; do
+    [[ -f "${_f}" ]] || continue
+    _mentions=0
+    code_grep -F -- 'workflow_call' "${_f}" >/dev/null || _mentions=$?
+    [[ "${_mentions}" -eq 0 || "${_mentions}" -eq 1 ]] || fail \
+        "grep exited ${_mentions} reading ${_f} -- a scan that could not read its input is not a scan that found nothing"
+    _derived=1
+    printf '%s\n' "${_files}" | grep -x -- "${_f}" >/dev/null || _derived=0
+    if [[ "${_mentions}" -eq 0 && "${_derived}" -eq 0 ]]; then
+      fail "${_f} names workflow_call in its code but is not in the derived reusable-worker list: the trigger derivation cannot see how this file spells 'on:', so every least-privilege scan below skips it"
+    fi
+    if [[ "${_mentions}" -eq 1 && "${_derived}" -eq 1 ]]; then
+      fail "${_f} is in the derived reusable-worker list but its code lines never name workflow_call: the two readings disagree, and neither may be picked over the other"
+    fi
+  done
 }
 
 # Print `<workflow>: <job>` for every job of every reusable worker that
@@ -71,6 +93,9 @@ _jobs_inheriting_the_callers_grant() {
     [[ -n "${_file}" ]] || continue
     while IFS= read -r _line; do
       case "${_line}" in
+        # A surface the parser could not produce is reported, never
+        # skipped: an unreadable worker is a worker nothing scanned.
+        'BUG:'*)           printf '%s: %s\n' "${_file##*/}" "${_line}" ;;
         *": <no entries>") printf '%s: %s\n' "${_file##*/}" "${_line%%:*}" ;;
       esac
     done < <(yaml_permission_surface "${_file}")
@@ -82,10 +107,16 @@ _jobs_inheriting_the_callers_grant() {
 # the extractor could not read -- and it would otherwise contribute
 # silently nothing to the scan above.
 _reusable_workers_with_no_jobs() {
-  local _file _count
+  local _file _names _count _status
   while IFS= read -r _file; do
     [[ -n "${_file}" ]] || continue
-    _count="$(yaml_job_names "${_file}" | awk 'END { print NR }')"
+    _status=0
+    _names="$(yaml_job_names "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+      printf '%s: %s\n' "${_file##*/}" "${_names}"
+      continue
+    fi
+    _count="$(printf '%s\n' "${_names}" | awk 'NF { n++ } END { print n + 0 }')"
     [[ "${_count}" -gt 0 ]] || printf '%s\n' "${_file##*/}"
   done < <(reusable_workflow_files "${WORKFLOW_DIR}")
 }
