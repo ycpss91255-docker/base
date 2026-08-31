@@ -375,14 +375,22 @@ _make_cobertura() {
   # And the dispatch stops there. Running on would produce exactly the
   # state the erasure exists to prevent: fresh partial reports under a
   # certificate written before them.
+  #
+  # The eraser is stubbed rather than pointed at the tree above, because
+  # REPO_ROOT is readonly -- a caller cannot redirect the dispatch at
+  # another checkout, and a test that assigned it would have proved
+  # nothing while appearing to. Stubbing also states the stronger rule:
+  # the dispatch stops on a NON-ZERO RETURN, not merely on the `_die`
+  # that today's eraser happens to use, so it holds for a sourced main
+  # (this suite) with errexit off as much as for the strict-mode entry.
   run bash -c '
     source /source/script/test/test.sh
-    REPO_ROOT="'"${_root}"'"
+    _invalidate_coverage_head() { return 3; }
     _run_via_compose() { printf "RUN\n"; }
     _stamp_coverage_head() { printf "STAMP\n"; }
     main --coverage
   '
-  [ "${status}" -ne 0 ]
+  [ "${status}" -eq 3 ]
   refute_output --partial "RUN"
   refute_output --partial "STAMP"
 }
