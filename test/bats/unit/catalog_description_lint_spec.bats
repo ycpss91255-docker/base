@@ -177,6 +177,47 @@ _index_add() {
   _index_render
 }
 
+# assert_finding <text> -- <text> appears in one of the lint's OWN finding
+# lines, not merely somewhere in the run's output.
+#
+# Why not `assert_output --partial`. Every failing run ends with the
+# dispatcher's catch-all _die message, which restates the whole rule and
+# therefore carries the words 'reason', 'stale', 'entries', 'duplicate',
+# 'described', 'malformed', 'TEST.md', 'doc/test' and both sidecar paths.
+# A --partial over the whole output is satisfied by ANY failing run, so
+# deleting a specific finding's printf left this spec green: the positive
+# and the negative case produced output that satisfied the assertion
+# equally. This drops the ERROR log line the driver dies with and asserts
+# against what is left, so a report that is not emitted is a red test.
+#
+# A run whose only output is that summary FAILS here rather than being
+# skipped: nothing found is not a pass.
+assert_finding() {
+  local _needle="${1}" _lines _rc=0
+  _lines="$(printf '%s\n' "${output}" | grep -v '\] ERROR: ')" || _rc=$?
+  (( _rc <= 1 )) \
+    || fail "assert_finding: could not read the run output (grep exit ${_rc})"
+  [[ -n "${_lines}" ]] \
+    || fail "assert_finding: the run printed no finding line at all, only the dispatcher summary; wanted '${_needle}'"
+  printf '%s\n' "${_lines}" | grep -qF -- "${_needle}" \
+    || fail "$(printf 'assert_finding: no finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"
+}
+
+# refute_finding <text> -- the mirror: no finding line mentions <text>.
+# The same population floor applies, so a run that reported nothing at all
+# cannot satisfy it by silence.
+refute_finding() {
+  local _needle="${1}" _lines _rc=0
+  _lines="$(printf '%s\n' "${output}" | grep -v '\] ERROR: ')" || _rc=$?
+  (( _rc <= 1 )) \
+    || fail "refute_finding: could not read the run output (grep exit ${_rc})"
+  [[ -n "${_lines}" ]] \
+    || fail "refute_finding: the run printed no finding line at all, so the refutation would hold vacuously; wanted findings that omit '${_needle}'"
+  printf '%s\n' "${_lines}" | grep -qF -- "${_needle}" \
+    && fail "$(printf 'refute_finding: a finding line contains %s\n--- findings ---\n%s' "'${_needle}'" "${_lines}")"
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # The rule: a placeholder row fails
 # ════════════════════════════════════════════════════════════════════
@@ -185,7 +226,7 @@ _index_add() {
   _write_catalog 'test/bats/unit/alpha_spec.bats' "$(_row 'alpha does a thing' '-')"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'alpha does a thing'
+  assert_finding 'alpha does a thing'
 }
 
 @test "_run_catalog_description: names the catalog file, the line, the spec and the test (#922)" {
@@ -197,8 +238,8 @@ _index_add() {
   _line="$(grep -n 'alpha does a thing' "${CATALOG}" | cut -d: -f1)"
   run _run_catalog_description
   assert_failure
-  assert_output --partial "${_CATALOG_DESC_DOC_DIR}/unit.md:${_line}:"
-  assert_output --partial 'test/bats/unit/alpha_spec.bats'
+  assert_finding "${_CATALOG_DESC_DOC_DIR}/unit.md:${_line}:"
+  assert_finding 'test/bats/unit/alpha_spec.bats'
 }
 
 @test "_run_catalog_description: reports EVERY undescribed row, not just the first (#922)" {
@@ -207,8 +248,8 @@ _index_add() {
     "$(_row 'beta does another thing' '-')"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'alpha does a thing'
-  assert_output --partial 'beta does another thing'
+  assert_finding 'alpha does a thing'
+  assert_finding 'beta does another thing'
 }
 
 @test "_run_catalog_description: an EMPTY description cell counts as a placeholder (#922)" {
@@ -217,7 +258,7 @@ _index_add() {
   _write_catalog 'test/bats/unit/alpha_spec.bats' "$(_row 'alpha does a thing' '')"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'alpha does a thing'
+  assert_finding 'alpha does a thing'
 }
 
 @test "_run_catalog_description: a description with no WORD in it is a placeholder (#922)" {
@@ -233,9 +274,9 @@ _index_add() {
     "$(_row 'gamma does a third thing' '...')"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'alpha does a thing'
-  assert_output --partial 'beta does another thing'
-  assert_output --partial 'gamma does a third thing'
+  assert_finding 'alpha does a thing'
+  assert_finding 'beta does another thing'
+  assert_finding 'gamma does a third thing'
   assert_output --partial '3 undescribed'
 }
 
@@ -274,7 +315,7 @@ _index_add() {
   _write_exempt 'test/bats/unit/beta_spec.bats|.'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'reason'
+  assert_finding 'no reason given for the exemption'
 }
 
 @test "_run_catalog_description: PASSES a described row (#922)" {
@@ -303,7 +344,7 @@ _index_add() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'alpha does a thing, renamed'
+  assert_finding 'alpha does a thing, renamed'
 }
 
 @test "_run_catalog_description: MOVING a baselined test to another spec forces a description (#922)" {
@@ -314,7 +355,7 @@ _index_add() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'beta_spec.bats'
+  assert_finding 'beta_spec.bats'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -330,7 +371,7 @@ _index_add() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'stale'
+  assert_finding 'stale entry, no longer an undescribed row'
 }
 
 @test "_run_catalog_description: FAILS on a baseline entry whose row is GONE (#922)" {
@@ -339,7 +380,7 @@ _index_add() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'stale'
+  assert_finding 'stale entry, no longer an undescribed row'
 }
 
 @test "_run_catalog_description: FAILS when the declared entry count is too LOW (#922)" {
@@ -354,7 +395,7 @@ _index_add() {
   } > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'entries'
+  assert_finding 'declares "# entries:'
 }
 
 @test "_run_catalog_description: FAILS when the declared entry count is too HIGH (#922)" {
@@ -367,7 +408,7 @@ _index_add() {
   } > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'entries'
+  assert_finding 'declares "# entries:'
 }
 
 @test "_run_catalog_description: DIES when the baseline declares no count at all (#922)" {
@@ -377,7 +418,7 @@ _index_add() {
   printf 'test/bats/unit/alpha_spec.bats\talpha does a thing\n' > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'entries:'
+  assert_finding 'no "# entries: <n>" directive'
 }
 
 @test "_run_catalog_description: FAILS on an unsorted baseline (#922)" {
@@ -392,7 +433,7 @@ _index_add() {
   } > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'sorted'
+  assert_finding 'not sorted (LC_ALL=C)'
 }
 
 @test "_run_catalog_description: FAILS on a duplicated baseline entry (#922)" {
@@ -406,7 +447,7 @@ _index_add() {
   } > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'duplicate'
+  assert_finding 'duplicate entry'
 }
 
 @test "_run_catalog_description: FAILS on a baseline line with no TAB separator (#922)" {
@@ -417,7 +458,7 @@ _index_add() {
   } > "${BASELINE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'malformed'
+  assert_finding 'malformed entry'
 }
 
 @test "_run_catalog_description: 256 findings in a sidecar file are not read as zero (#922)" {
@@ -461,8 +502,8 @@ _index_add() {
   _write_baseline 'test/bats/unit/alpha_spec.bats|alpha does a thing'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'described'
-  assert_output --partial 'alpha does a thing'
+  assert_finding 'excuses a row that is DESCRIBED'
+  assert_finding 'alpha does a thing'
 }
 
 @test "_run_catalog_description: FAILS when one spec carries TWO generated sections (#922)" {
@@ -481,8 +522,8 @@ _index_add() {
   } >> "${CATALOG}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'duplicate section'
-  assert_output --partial 'test/bats/unit/alpha_spec.bats'
+  assert_finding 'duplicate section -- already opened at'
+  assert_finding 'test/bats/unit/alpha_spec.bats'
 }
 
 @test "_run_catalog_description: the SECOND copy of a section is not scanned as rows (#922)" {
@@ -536,8 +577,8 @@ _index_add() {
   _write_summary_section 'test/bats/unit/beta_spec.bats' 40
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'test/bats/unit/beta_spec.bats'
-  assert_output --partial "${_CATALOG_DESC_EXEMPT_FILE}"
+  assert_finding 'no per-test catalogue and no declared exemption'
+  assert_finding "test/bats/unit/beta_spec.bats"
 }
 
 @test "_run_catalog_description: a section with NO table at all must be declared too (#922)" {
@@ -551,7 +592,7 @@ _index_add() {
   _index_add 'unit.md' 12
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'test/bats/unit/beta_spec.bats'
+  assert_finding 'no per-test catalogue and no declared exemption'
 }
 
 @test "_run_catalog_description: converting a per-test table to a summary is not a silent opt-out (#922)" {
@@ -581,7 +622,7 @@ _index_add() {
   _write_exempt 'test/bats/unit/beta_spec.bats|-'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'reason'
+  assert_finding 'no reason given for the exemption'
 }
 
 @test "_run_catalog_description: FAILS a stale exemption whose section now has a per-test table (#922)" {
@@ -593,7 +634,7 @@ _index_add() {
   _write_exempt 'test/bats/unit/alpha_spec.bats|summarised'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'stale'
+  assert_finding 'stale entry, no longer a section outside the per-test rule'
 }
 
 @test "_run_catalog_description: FAILS a stale exemption whose section is GONE (#922)" {
@@ -602,7 +643,7 @@ _index_add() {
   _write_exempt 'test/bats/unit/gone_spec.bats|summarised'
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'stale'
+  assert_finding 'stale entry, no longer a section outside the per-test rule'
 }
 
 @test "_run_catalog_description: FAILS when the exemptions file miscounts its own entries (#922)" {
@@ -617,7 +658,7 @@ _index_add() {
   } > "${SCRATCH}/${_CATALOG_DESC_EXEMPT_FILE}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'entries'
+  assert_finding 'declares "# entries:'
 }
 
 @test "_run_catalog_description: DIES when the exemptions file is missing (#922)" {
@@ -736,7 +777,7 @@ _index_add() {
   _index_set 'unit.md' 1
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'test/bats/unit/alpha_spec.bats: no description'
+  assert_finding 'test/bats/unit/alpha_spec.bats: no description'
   refute_output --partial 'not_a_real_spec.bats'
 }
 
@@ -767,7 +808,7 @@ _index_add() {
   _index_set 'integration.md' 1
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'gamma does a thing'
+  assert_finding 'gamma does a thing'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -787,7 +828,7 @@ _index_add() {
   _index_set 'system.md' 12
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'system.md'
+  assert_finding "declares 'system.md' (12 test(s)), which is not a catalogue under"
 }
 
 @test "_run_catalog_description: a catalogue the index does NOT name is a finding (#922)" {
@@ -805,7 +846,7 @@ _index_add() {
   } > "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/integration.md"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'integration.md'
+  assert_finding 'integration.md: not named by'
 }
 
 @test "_run_catalog_description: a catalogue must declare the tests the index credits it with (#922)" {
@@ -817,8 +858,8 @@ _index_add() {
   _index_set 'unit.md' 13
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'unit.md'
-  assert_output --partial '13'
+  assert_finding 'unit.md: its sections declare 1 test(s)'
+  assert_finding 'the index credits it with 13'
 }
 
 @test "_run_catalog_description: the clean line states the reach the index declares (#922)" {
@@ -843,7 +884,7 @@ _index_add() {
   _index_render
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'TEST.md'
+  assert_output --partial 'declares no catalogue'
 }
 
 @test "_run_catalog_description: DIES when the index file is missing (#922)" {
@@ -852,7 +893,7 @@ _index_add() {
   rm -f "${SCRATCH}/${_CATALOG_DESC_DOC_DIR}/TEST.md"
   run _run_catalog_description
   assert_failure
-  assert_output --partial 'TEST.md'
+  assert_output --partial 'a deleted catalogue is a catalogue with no rows to report'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -863,7 +904,7 @@ _index_add() {
   rm -rf "${SCRATCH:?}/${_CATALOG_DESC_DOC_DIR}"
   run _run_catalog_description
   assert_failure
-  assert_output --partial "${_CATALOG_DESC_DOC_DIR}"
+  assert_output --partial 'Point it at the generated test catalogues'
 }
 
 @test "_run_catalog_description: DIES when the baseline file is missing (#922)" {
