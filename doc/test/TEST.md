@@ -93,7 +93,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `errexit-bang` | no `!` statement outside its last line in ANY `*.bats` body in the repo (the population is derived by walking the tree, not listed: `test/bats/` and the shipped `dist/test/bats/smoke/` both count), where bash's errexit exemption makes the assertion inert | `lint-static (errexit-bang)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
-| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |
+| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are
