@@ -259,6 +259,42 @@ EOF
 # ── docker stop: supervisor forwards SIGTERM PROMPTLY (not deferred until
 #    the interval) to the service group ───────────────────────────────
 
+# _run_forward_harness <service-script> <ready-ceiling-tenths> -- start the
+# supervisor on <service-script>, wait for its READY marker, SIGTERM it, and
+# report the verdict as words: GRACEFUL / NO_SIGNAL for the forward,
+# PROMPT_<n>s / DEFERRED_<n>s for the promptness, NOT_READY when the service
+# never got as far as installing its trap.
+#
+# One body, two cases: the case below drives it with a service that DOES
+# become ready, and the case after that drives it with one that never does,
+# so the harness's own failure path is exercised by the same code the
+# passing path uses rather than by a copy that can drift away from it.
+_run_forward_harness() {
+  local _svc="${1:?BUG: _run_forward_harness expects a service script}"
+  local _ready_tenths="${2:?BUG: _run_forward_harness expects a ceiling}"
+  run timeout 60 bash -c "
+    ${_SYNC_FN}
+    . '${WD}'
+    export WATCHDOG_CHECK='true'
+    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
+    _watchdog_supervise bash '${_svc}' \
+      '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' \
+      '${TMP_DIR}/service.pgid' &
+    _sup=\$!
+    if ! _await_file '${TMP_DIR}/graceful.ready' ${_ready_tenths}; then
+      kill -KILL \${_sup} 2>/dev/null || true
+      echo NOT_READY
+      exit 0
+    fi
+    _t0=\$(date +%s)
+    kill -TERM \${_sup}
+    wait \${_sup} 2>/dev/null || true
+    _elapsed=\$(( \$(date +%s) - _t0 ))
+    if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
+    if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
+  "
+}
+
 @test "restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose: setsid comes from the base distro userland
@@ -275,6 +311,11 @@ EOF
 #       what makes the harness's wait an EVENT rather than a guess: until
 #       this file exists a SIGTERM would be taken by the DEFAULT handler and
 #       kill the service silently, which says nothing about forwarding.
+# $3 -- this process's group id, written FIRST and unconditionally, so the
+#       harness can tear the group down on a path where it never gets a
+#       ready marker to wait for. setsid made this process its own group
+#       leader, so its pid IS the group.
+echo "$$" > "$3"
 trap 'echo forwarded > "$1"; exit 0' TERM
 echo ready > "$2"
 sleep 300
@@ -298,30 +339,47 @@ EOF
   # trap, so the signal arrived first, no marker was written, and the case
   # reported NO_SIGNAL -- the harness's own failure wearing the product's
   # failure word, five times across four branches.
-  run timeout 60 bash -c "
-    ${_SYNC_FN}
-    . '${WD}'
-    export WATCHDOG_CHECK='true'
-    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
-    _watchdog_supervise bash '${TMP_DIR}/graceful.sh' \
-      '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' &
-    _sup=\$!
-    if ! _await_file '${TMP_DIR}/graceful.ready' 200; then
-      kill -KILL \${_sup} 2>/dev/null || true
-      echo NOT_READY
-      exit 0
-    fi
-    _t0=\$(date +%s)
-    kill -TERM \${_sup}
-    wait \${_sup} 2>/dev/null || true
-    _elapsed=\$(( \$(date +%s) - _t0 ))
-    if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
-    if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
-  "
+  _run_forward_harness "${TMP_DIR}/graceful.sh" 200
   assert_success
   assert_output --partial "GRACEFUL"
   assert_output --partial "PROMPT_"
   refute_output --partial "NO_SIGNAL"
   refute_output --partial "NOT_READY"
   refute_output --partial "DEFERRED_"
+}
+
+@test "the readiness wait's own failure path returns within its bound, it does not hang (#965)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  # Optional on purpose, for the same reason as the case above: without
+  # setsid the service is not in its own process group, which is the whole
+  # subject here.
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; the process-group teardown under test cannot be set up without it"
+  # A harness failure has to COST what its ceiling says it costs. NOT_READY
+  # used to kill the supervisor only: the service, setsid into its own
+  # process group, survived holding the descriptor bats reads this case's
+  # output from, so the case printed NOT_READY in about two seconds and then
+  # sat there until the service exited on its own -- 326s observed, past its
+  # own `timeout 60`, which a reader takes for a hung suite rather than a
+  # failed test. The ceilings elsewhere in this file are documented as
+  # bounding a HANG; on this path they bounded nothing.
+  cat > "${TMP_DIR}/never_ready.sh" <<'EOF'
+#!/usr/bin/env bash
+# Records its process group ($3) and then never writes the READY marker
+# ($2): a service that dies or wedges before installing its trap.
+echo "$$" > "$3"
+sleep 60
+EOF
+  local _t0 _elapsed
+  _t0="$(date +%s)"
+  # 20 tenths = a 2s ceiling, deliberately far below the fixture's lifetime,
+  # so the readiness wait is guaranteed to give up and this case is about
+  # what happens next rather than about the wait itself.
+  _run_forward_harness "${TMP_DIR}/never_ready.sh" 20
+  _elapsed=$(( $(date +%s) - _t0 ))
+  assert_success
+  assert_output --partial "NOT_READY"
+  refute_output --partial "GRACEFUL"
+  [[ "${_elapsed}" -lt 30 ]] || fail \
+    "the readiness failure path returned after ${_elapsed}s, long past its own 2s ceiling: something the harness started outlived it and is still holding the output open"
 }
