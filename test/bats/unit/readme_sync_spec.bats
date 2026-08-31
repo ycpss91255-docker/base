@@ -714,8 +714,7 @@ _assert_generator_is_a_noop_on() {
   done
 
   _sync_readme_hashes "${SCRATCH}" >/dev/null
-  run diff -r "${_baseline}/doc/readme" "${SCRATCH}/doc/readme"
-  [ "${status}" -eq 0 ]
+  _assert_same_tree "${_baseline}/doc/readme" "${SCRATCH}/doc/readme"
 }
 
 # _plant_readme_source <dir> -- a four-file stand-in for the tracked set.
@@ -729,6 +728,28 @@ _plant_readme_source() {
   for _lang in zh-TW zh-CN ja; do
     printf 'translation v1\n' > "${_dir}/doc/readme/README.${_lang}.md"
   done
+}
+
+@test "_assert_same_tree: a failure names WHAT differed, not just that something did (#965)" {
+  # The oracle the no-op assertion below settles its verdict with. Its
+  # earlier spelling captured the diff and discarded it, so the failure read
+  # `[ "${status}" -eq 0 ]' failed and nothing else -- the exact line issue
+  # #965 quotes from the run that sent its reader down the flake path.
+  #
+  # Both directions, because a helper that always fails would satisfy the
+  # first half on its own.
+  local _a="${BATS_TEST_TMPDIR}/same_a" _b="${BATS_TEST_TMPDIR}/same_b"
+  mkdir -p "${_a}" "${_b}"
+  printf '<!-- sync: directory-structure aaaaaaa -->\n' > "${_a}/README.zh-TW.md"
+  printf '<!-- sync: directory-structure bbbbbbb -->\n' > "${_b}/README.zh-TW.md"
+  run _assert_same_tree "${_a}" "${_b}"
+  assert_failure
+  assert_output --partial "README.zh-TW.md"
+  assert_output --partial "aaaaaaa"
+  assert_output --partial "bbbbbbb"
+  cp "${_a}/README.zh-TW.md" "${_b}/README.zh-TW.md"
+  run _assert_same_tree "${_a}" "${_b}"
+  assert_success
 }
 
 @test "_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)" {
