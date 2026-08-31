@@ -1555,16 +1555,30 @@ _hadolint_ignore_rationale() {
 # swept for by pattern across every file that carried it, including the
 # error text an operator would have been handed.
 _DF_DISPROVEN_CLAIMS=(
-  'cannot read the digest out of'
-  'cannot read a digest out of'
+  'LABEL cannot read'
   'LABEL cannot run a case statement'
   'a LABEL cannot run that stage'
   'only value a label can carry'
+  'only value .base.digest can carry'
   'two routes this note offers'
 )
 
+# _df_flatten <file> -- the file as ONE line of prose: comment markers,
+# quotes, backticks and line continuations blanked, whitespace squeezed.
+#
+# Searching line by line is why a sweep like this would have found one of
+# the nine occurrences and reported the other eight as clean. Every claim
+# below is WRAPPED where it ships -- across two comment lines in the
+# note, across two `echo` arguments in the RUN that printed it, across a
+# markdown wrap in the README -- so the string a reader sees exists on no
+# single line of any of these files.
+_df_flatten() {
+  sed 's/[#\\"`]/ /g' "${1:?_df_flatten: missing file}" \
+    | tr '\n' ' ' | tr -s '[:space:]' ' '
+}
+
 @test "no shipped text repeats the claim a build disproves (#951)" {
-  local _f _claim
+  local _f _claim _flat
   for _f in \
       /source/dist/dockerfile/Dockerfile \
       /source/dockerfile/Dockerfile.smoke \
@@ -1572,12 +1586,18 @@ _DF_DISPROVEN_CLAIMS=(
       /source/README.md \
       /source/doc/changelog/CHANGELOG.md; do
     assert_spec_subject "${_f}" "a file this spec sweeps for disproven claims"
+    _flat="$(_df_flatten "${_f}")"
     for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
-      if grep -qiF -- "${_claim}" "${_f}"; then
+      if grep -qiF -- "${_claim}" <<< "${_flat}"; then
         fail "${_f} states '${_claim}', which building this repo disproves"
       fi
     done
   done
+  # The localized READMEs carry the same paragraph in zh-TW / zh-CN / ja.
+  # They are not swept in their own languages: drivers/readme_sync.sh
+  # stamps each translated section with the hash of the English section
+  # it was translated against, so an English fix that leaves a
+  # translation stating the old claim fails that lint instead.
   # ... and the narrower constraint that survives has to be STATED where
   # the decision rests on it, or the next reader re-derives the wide one.
   local _df="/source/dist/dockerfile/Dockerfile"
