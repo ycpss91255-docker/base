@@ -1433,30 +1433,51 @@ _df_base_image_note() {
 # and so does `rosdep install`, which resolves its dependencies straight
 # into apt. Keying on a single literal is how the template's own rosdep
 # example stayed exempt from a relation whose name is "every apt layer".
+# Options before the subcommand are part of that shape too:
+# `apt-get -y install foo` is an install layer, and a pattern demanding
+# `apt-get` immediately followed by `install` makes one invisible.
 #
 # Leading whitespace is tolerated because Docker tolerates it: `  RUN ...`
 # is a RUN, and a guard that only sees column 0 is a guard a consumer's
-# indentation turns off.
+# indentation turns off. The same goes for a comment marker: `  # RUN ...`
+# is a legal Docker comment, so `commented` anchors on the first non-blank
+# character, not on column 0.
+#
+# Comment lines INSIDE a block are dropped rather than folded in, in both
+# modes, because that is what Docker does with them -- a continuation line
+# the parser removes cannot run. Folding them in is how a refresh that had
+# been commented out ("#    dpkg-query -W > ... && \\") still read as
+# present: the broken layer and the correct one produced the same text for
+# an assertion to search.
 #
 # `commented` strips one leading comment marker first and reads the result
 # as the RUN it becomes when a consumer uncomments it. A doubly-commented
-# illustration nested inside such a block (`# #   RUN ...`) still starts
-# with `#` after that strip and is correctly NOT a block: the only one the
+# illustration nested inside such a block (`# #   RUN ...`) is still a
+# comment after that strip and so is dropped by the rule above, which is
+# also what makes it correctly NOT a block of its own: the only one the
 # template ships sits in `runtime-test`, an ephemeral stage whose image is
 # discarded after the build, so nothing it installs is ever shipped for a
 # manifest to describe.
+#
+# One definition of the install shape, shared with the callers that have
+# to ask the same question about part of a block (see the ordering
+# assertion below) -- two spellings of it is how a relation ends up
+# holding for one of them only.
+_DF_APT_INSTALL_RE='(apt(-get)?|rosdep)([[:space:]]+-[^[:space:]]+)*[[:space:]]+install'
+
 _df_apt_run_blocks() {
-  awk -v mode="${2:?_df_apt_run_blocks: missing mode}" '
-    function installs_apt(t) {
-      return t ~ /apt(-get)?[[:space:]]+install/ || t ~ /rosdep[[:space:]]+install/
-    }
-    function flush() { if (installs_apt(buf)) print buf; buf = ""; in_r = 0 }
+  awk -v mode="${2:?_df_apt_run_blocks: missing mode}" \
+      -v install_re="${_DF_APT_INSTALL_RE}" '
+    function flush() { if (buf ~ install_re) print buf; buf = ""; in_r = 0 }
     {
       line = $0
       if (mode == "commented") {
-        if (line !~ /^#/) { if (in_r) flush(); next }
-        sub(/^#[[:space:]]?/, "", line)
+        if (line !~ /^[[:space:]]*#/) { if (in_r) flush(); next }
+        sub(/^[[:space:]]*#[[:space:]]?/, "", line)
       }
+      # A comment line neither joins the block nor ends it: the parser
+      # removes it, and the continuation it sits inside carries on.
+      if (line ~ /^[[:space:]]*#/) next
       if (!in_r) {
         if (line !~ /^[[:space:]]*RUN[[:space:]]/) next
         in_r = 1
@@ -1468,6 +1489,27 @@ _df_apt_run_blocks() {
     }
     END { if (in_r) flush() }
   ' "${1:?_df_apt_run_blocks: missing file}"
+}
+
+# The one line that rewrites the manifest. Spelled once, next to the shape
+# it has to follow.
+_DF_APT_REFRESH='dpkg-query -W > /usr/local/share/base/packages.txt'
+
+# _df_assert_refresh_last <block> <what> -- <block> rewrites the manifest,
+# and rewrites it AFTER everything it installs. The ORDER is half the
+# property: a refresh that runs before the install records the pre-install
+# package set and leaves the added packages out, which is the very defect
+# this relation is named for, and which reads identically to any assertion
+# that only asks whether the literal appears somewhere in the block.
+_df_assert_refresh_last() {
+  local _blk="${1}" _what="${2}" _tail
+  [[ "${_blk}" == *"${_DF_APT_REFRESH}"* ]] \
+    || fail "${_what} installs without refreshing the manifest: ${_blk}"
+  _tail="${_blk##*"${_DF_APT_REFRESH}"}"
+  if [[ "${_tail}" =~ ${_DF_APT_INSTALL_RE} ]]; then
+    fail "${_what} installs AFTER its last manifest refresh: ${_blk}"
+  fi
+  return 0
 }
 
 _df_runtime_base_block() {
@@ -1643,7 +1685,6 @@ _hadolint_ignore_rationale() {
   # template that grew a fourth apt layer and no fourth refresh -- the
   # exact defect this test is named for -- because the number it checks
   # is not derived from the thing it is about.
-  local _refresh='dpkg-query -W > /usr/local/share/base/packages.txt'
   local _blk _n
 
   # sys and devel-base each install packages. A manifest written only in
@@ -1652,8 +1693,7 @@ _hadolint_ignore_rationale() {
   _n=0
   while IFS= read -r _blk; do
     _n=$(( _n + 1 ))
-    [[ "${_blk}" == *"${_refresh}"* ]] \
-      || fail "live apt RUN block installs without refreshing the manifest: ${_blk}"
+    _df_assert_refresh_last "${_blk}" "live apt RUN block"
   done < <(_df_apt_run_blocks "${_df}" live)
   # ... and a template that lost its apt layers would satisfy the
   # relation vacuously, so the two known live installers are a floor.
@@ -1667,8 +1707,7 @@ _hadolint_ignore_rationale() {
   _n=0
   while IFS= read -r _blk; do
     _n=$(( _n + 1 ))
-    [[ "${_blk}" == *"${_refresh}"* ]] \
-      || fail "commented apt RUN example omits the manifest refresh: ${_blk}"
+    _df_assert_refresh_last "${_blk}" "commented apt RUN example"
   done < <(_df_apt_run_blocks "${_df}" commented)
   (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
 }
