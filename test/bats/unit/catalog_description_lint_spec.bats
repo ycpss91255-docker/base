@@ -808,6 +808,58 @@ refute_finding() {
   refute_finding 'an example row'
 }
 
+@test "_run_catalog_description: a backtick fence is not closed by a tilde one (#922)" {
+  # CommonMark: a fence closes on at least as many of the SAME character.
+  # The driver header states that as its contract, and the check is one
+  # `[[ ]]` away from being dropped -- at which point the `~~~` line below
+  # ends the block early and the row it holds becomes a finding invented
+  # by the reader. The section documents its own format, so the example
+  # deliberately shows the other fence character.
+  {
+    printf '# Unit Tests\n\n'
+    printf '### test/bats/unit/alpha_spec.bats (2)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `alpha does a thing` | Why alpha matters |\n'
+    printf '```markdown\n'
+    printf '~~~\n'
+    printf '| `an example row` | - |\n'
+    printf '```\n'
+    printf '| `beta does another thing` | - |\n'
+  } > "${CATALOG}"
+  _index_set 'unit.md' 2
+  run _run_catalog_description
+  assert_failure
+  # The table resumes at the ``` that really closes it, so beta is still
+  # reached -- which is what makes the refutation below mean something:
+  # the scan did not simply stop.
+  assert_finding 'beta does another thing'
+  refute_finding 'an example row'
+}
+
+@test "_run_catalog_description: a longer fence is not closed by a shorter one (#922)" {
+  # The other half of the same CommonMark rule: a four-backtick fence
+  # needs four to close, which is exactly how a markdown example that
+  # itself contains a fence is written. Drop the length check and the
+  # inner ``` closes the outer one.
+  {
+    printf '# Unit Tests\n\n'
+    printf '### test/bats/unit/alpha_spec.bats (2)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `alpha does a thing` | Why alpha matters |\n'
+    printf '````markdown\n'
+    printf '```\n'
+    printf '| `an example row` | - |\n'
+    printf '```\n'
+    printf '````\n'
+    printf '| `beta does another thing` | - |\n'
+  } > "${CATALOG}"
+  _index_set 'unit.md' 2
+  run _run_catalog_description
+  assert_failure
+  assert_finding 'beta does another thing'
+  refute_finding 'an example row'
+}
+
 @test "_run_catalog_description: a table under no spec section is not scanned (#922)" {
   # TEST.md's own index tables are `| Lint | ... |` shaped and belong to
   # no spec; only a table under a generated `### <path> (N)` heading is a
