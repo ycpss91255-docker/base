@@ -302,6 +302,13 @@ teardown() {
 
   run bash -c '
     source /source/script/test/test.sh
+    # The provenance pair is STUBBED, not exercised: it reads and writes
+    # ${REPO_ROOT}/coverage, which here is the mounted checkout, so running
+    # it for real erases the certificate and the run manifest of whatever
+    # `just test coverage` is in flight (bats runs 32 jobs). This test is
+    # about the compose call.
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
     export PATH="'"${MOCK_DIR}"'"
     main --coverage
   '
@@ -973,7 +980,25 @@ SH
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
-    source /source/script/test/test.sh
+    # REPO_ROOT points at a scratch tree, and the DRIVER is sourced rather
+    # than test.sh, because test.sh makes REPO_ROOT readonly. _run_coverage
+    # writes ${REPO_ROOT}/coverage/timings.tsv as its last act, so run
+    # against the real root it truncates the run manifest in the mounted
+    # checkout -- the file a concurrent `just test coverage` derives its
+    # certificate from, under 32 parallel bats jobs.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    for _n in i j; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/integration/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
     _run_coverage 1/4
   '
   assert_success
@@ -995,7 +1020,25 @@ SH
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
-    source /source/script/test/test.sh
+    # REPO_ROOT points at a scratch tree, and the DRIVER is sourced rather
+    # than test.sh, because test.sh makes REPO_ROOT readonly. _run_coverage
+    # writes ${REPO_ROOT}/coverage/timings.tsv as its last act, so run
+    # against the real root it truncates the run manifest in the mounted
+    # checkout -- the file a concurrent `just test coverage` derives its
+    # certificate from, under 32 parallel bats jobs.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    for _n in i j; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/integration/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
     _run_coverage 2/2
   '
   assert_success
@@ -1012,7 +1055,25 @@ SH
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
-    source /source/script/test/test.sh
+    # REPO_ROOT points at a scratch tree, and the DRIVER is sourced rather
+    # than test.sh, because test.sh makes REPO_ROOT readonly. _run_coverage
+    # writes ${REPO_ROOT}/coverage/timings.tsv as its last act, so run
+    # against the real root it truncates the run manifest in the mounted
+    # checkout -- the file a concurrent `just test coverage` derives its
+    # certificate from, under 32 parallel bats jobs.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    for _n in i j; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/integration/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
     _run_coverage
   '
   assert_success
@@ -1033,6 +1094,13 @@ SH
 
   run bash -c '
     source /source/script/test/test.sh
+    # The provenance pair is STUBBED, not exercised: it reads and writes
+    # ${REPO_ROOT}/coverage, which here is the mounted checkout, so running
+    # it for real erases the certificate and the run manifest of whatever
+    # `just test coverage` is in flight (bats runs 32 jobs). This test is
+    # about the compose call.
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
     export PATH="'"${MOCK_DIR}"'"
     main --coverage-shard 2/4
   '
@@ -1072,6 +1140,12 @@ SH
   # rejects (single-path is the fast no-kcov loop).
   run bash -c '
     source /source/script/test/test.sh
+    # Stubbed for the same reason as the dispatch tests above, and as a
+    # statement: a REFUSED invocation must never reach the provenance
+    # pair, so a day when it does is a failure here rather than a
+    # deleted certificate.
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
     main --coverage-shard 1/4 --bats-path test/bats/unit/ci_spec.bats
   '
   assert_failure

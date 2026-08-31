@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3135 tests**.
+Unit specs under `test/bats/unit/`: **3136 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2008,7 +2008,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (114)
+### test/bats/unit/ci_spec.bats (115)
 
 | Test | Description |
 |------|-------------|
@@ -2052,6 +2052,7 @@ builds the env block only for the knobs the conf sets.
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `no spec drives a coverage run against the mounted checkout (#952)` | - |
 | `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
 | `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
 | `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
