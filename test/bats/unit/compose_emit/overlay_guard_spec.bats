@@ -52,6 +52,33 @@ _is_overlay_overridable() {
   [[ "$1" == *'${'*'}'* ]]
 }
 
+# A scan that found nothing is not a pass. Every absence claim below runs
+# through this: the emission must exist and be non-empty (an emitter that
+# returned 0 having written no file is a failure, not a clean scan), and
+# grep's status is pinned to exactly 1. `|| true` and `assert_failure` both
+# let exit 2 -- "no such file, nothing scanned" -- read as "no match".
+_require_emission() {
+  [[ -s "${COMPOSE_OUT}" ]] || fail \
+    "${COMPOSE_OUT} is absent or empty -- the emitter returned without writing it, so nothing below scanned anything"
+}
+
+# _assert_emitted_without <extended-regex> <what>
+#   Assert the emitted compose carries no line matching the pattern, over a
+#   file proven to exist, with grep's status pinned to 1 (no match).
+_assert_emitted_without() {
+  local _pattern="${1:?}" _what="${2:?}"
+  _require_emission
+  local _found _rc=0
+  _found="$(grep -nE "${_pattern}" "${COMPOSE_OUT}")" || _rc=$?
+  if (( _rc == 0 )); then
+    echo "${_what} present in the emitted compose:"
+    echo "${_found}"
+    return 1
+  fi
+  (( _rc == 1 )) || fail \
+    "grep exited ${_rc} scanning ${COMPOSE_OUT} for ${_what}: nothing was scanned, so absence was never observed"
+}
+
 # Emit a compose that exercises the interpolation-channel per-instance
 # fields on both the devel service and a per-stage standalone block:
 # bridge network (-> network_mode: line + ports honoured), devel ports,
@@ -87,8 +114,10 @@ CONF
 
 @test "overlay guard: project name: is an overlay interpolation" {
   _emit_exercised_compose
+  _require_emission
   local _val
   _val="$(grep -E '^name:' "${COMPOSE_OUT}" | head -1 | sed -E 's/^name:[[:space:]]*//')"
+  [[ -n "${_val}" ]] || fail "no name: line in ${COMPOSE_OUT} -- nothing was checked"
   _is_overlay_overridable "${_val}"
 }
 
@@ -101,9 +130,7 @@ CONF
   # the only overlay-compatible container_name is an absent one, which lets
   # compose derive <project>-<service>-<n>.
   _emit_exercised_compose
-  local _found
-  _found="$(grep -nE '^[[:space:]]*container_name:' "${COMPOSE_OUT}" || true)"
-  [[ -z "${_found}" ]] || { echo "container_name emitted: ${_found}"; return 1; }
+  _assert_emitted_without '^[[:space:]]*container_name:' 'a container_name: key'
 }
 
 @test "the field-deploy emitter's baked container_name is a STATED exemption (#920)" {
@@ -125,33 +152,78 @@ CONF
   run grep -F "printf '    container_name: %s" "${_deploy}"
   assert_success
 
-  # README.md's claim and ADR-00000022's amendment are the two places that
-  # state the invariant in prose. Each must name the deploy bundle within
-  # the paragraph that states it -- an unqualified "base emits no
-  # container_name" is false for a `just setup deploy` bundle.
+  # The prose population is DERIVED, not listed. A predecessor named two
+  # files, README.md and ADR-00000022, while its comment claimed "every
+  # document" -- and the commit that wrote it had already added a third
+  # statement, in CONTEXT.md, that the guard did not read. So the roster is
+  # computed: every document under the doc roots that spells the compose
+  # field `container_name:` is a document that talks about what base emits,
+  # and must name the deploy bundle too.
+  #
+  # doc/changelog/ is deliberately out of scope and stays out: it is a
+  # historical record whose released sections describe emitters that no
+  # longer exist, and rewriting a shipped entry to satisfy a present-tense
+  # invariant would falsify it.
+  local -a _roots=(
+    /source/README.md
+    /source/CONTEXT.md
+    /source/doc/readme
+    /source/doc/adr
+  )
+  local _r
+  for _r in "${_roots[@]}"; do
+    [[ -e "${_r}" ]] || fail \
+      "missing ${_r} -- a doc root this guard derives its prose population from"
+  done
+
+  local -a _docs=()
+  local _d
+  while IFS= read -r _d; do
+    _docs+=("${_d}")
+  done < <(grep -rlF --include='*.md' 'container_name:' "${_roots[@]}" | sort)
+
+  # A derived roster that came back empty would certify every document at
+  # once. The floor: the two documents whose wording this branch wrote, the
+  # English README and ADR-00000022, must both be in it.
   local _readme="/source/README.md" _adr
   _adr="/source/doc/adr/00000022-compose-multirun-overlay-contract.md"
-  assert_spec_subject "${_readme}" "the English README stating the invariant"
-  assert_spec_subject "${_adr}" "ADR-00000022, which records the contract"
+  local _joined
+  _joined="$(printf '%s\n' "${_docs[@]}")"
+  local _floor
+  for _floor in "${_readme}" "${_adr}"; do
+    grep -qxF -- "${_floor}" <<< "${_joined}" || fail \
+      "${_floor} states the container_name invariant but the derived roster missed it: the scan found ${#_docs[@]} document(s) and cannot be trusted"
+  done
 
-  local _claim
-  _claim="$(grep -A16 -F 'emits no `container_name:`' "${_readme}")" \
-    || fail "README.md no longer states the container_name invariant at all"
-  [[ "${_claim}" == *deploy* ]] \
-    || { echo "README states the invariant unqualified:"; echo "${_claim}"
-         fail "the deploy-bundle exemption is not stated with the claim"; }
+  # Every document in the roster must name the deploy emitter -- by its
+  # user-facing entry point or by the function that writes the bundle. The
+  # token is the SUBJECT of the exemption, so deleting the exemption
+  # sentence deletes it; a predecessor asked only that the 6-letter string
+  # "deploy" appear somewhere in a 17-line window, which prose that states
+  # no exemption at all ("nothing in that deploy path depends on...")
+  # satisfies unchanged.
+  for _d in "${_docs[@]}"; do
+    grep -qE -- 'just setup deploy|_generate_resolved_compose' "${_d}" || fail \
+      "${_d} states the container_name invariant without naming the deploy bundle it does not hold for"
+  done
 
-  local _amendment
-  _amendment="$(grep -A20 -F 'Amendment (2026-08-26, issue #920)' "${_adr}")" \
-    || fail "ADR-00000022 no longer carries the #920 amendment"
-  [[ "${_amendment}" == *deploy* ]] \
-    || { echo "ADR amendment states the invariant unqualified:"
-         echo "${_amendment}"
-         fail "the deploy-bundle exemption is not stated with the amendment"; }
+  # The two English statements carry the exemption's PREDICATE as well: the
+  # deploy bundle still BAKES a name. Naming the emitter is not the same
+  # claim as saying what it does, and the translations phrase the predicate
+  # in their own language (the readme-sync lint is what keeps those in step
+  # with the English section they were translated from).
+  local _s
+  for _s in "${_readme}" "${_adr}"; do
+    grep -qE -- '(does|still) bakes? (a |one)' "${_s}" || fail \
+      "${_s} names the deploy bundle but no longer says it bakes a container_name: the exemption is not stated, only alluded to"
+  done
 }
 
 @test "overlay guard: network_mode: is an env interpolation, never a baked literal" {
   _emit_exercised_compose
+  _require_emission
+  grep -qE '^[[:space:]]*network_mode:' "${COMPOSE_OUT}" \
+    || fail "the exercised emission carries no network_mode: line -- the loop below would iterate nothing and pass vacuously"
   local _line _val
   while IFS= read -r _line; do
     [[ -z "${_line}" ]] && continue
@@ -167,8 +239,7 @@ CONF
   # ports: block (host:container[/proto], optionally IP-prefixed). After the
   # fix every port is emitted as ${PORT_N:-<default>}, so a numeric-leading
   # quoted entry means a per-instance literal leaked back in.
-  run grep -nE '^[[:space:]]+- "[0-9][0-9.]*:' "${COMPOSE_OUT}"
-  assert_failure
+  _assert_emitted_without '^[[:space:]]+- "[0-9][0-9.]*:' 'a baked published-port literal'
 }
 
 @test "overlay guard: published ports are emitted as \${PORT_N:-default} on devel and stages" {
