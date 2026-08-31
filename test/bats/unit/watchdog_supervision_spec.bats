@@ -738,7 +738,10 @@ EOF
   # Assembled from pieces, and every fixture below builds its shell name
   # from a printf ARGUMENT, so that no line of this file can match the scan
   # it runs and fail the invariant on its own source.
-  local _pat="bash[[:space:]]+-c"
+  # `\b(ba)?sh`: the word boundary is what keeps this off `dash` and off
+  # any other name ending in sh, while covering the two spellings that
+  # actually start a shell here.
+  local _pat="\\b(ba)?sh[[:space:]]+-c"
   local _door _door_end _hits _hit_line
   _door="$(grep -n '^_run_bounded() {$' "${_spec}" | cut -d: -f1)"
   [[ -n "${_door}" ]] || fail \
@@ -752,8 +755,10 @@ EOF
     "the one place that starts a shell is at line ${_hit_line}, outside _run_bounded (lines ${_door}-${_door_end})"
 
   # The scan has to see both spellings of "start a shell" it claims to
-  # cover. `sh -c` starts one just as well, and against the busybox
-  # userland this suite runs on it is the SHORTER thing to type.
+  # cover: plain `sh` with the same flag starts one just as well, and
+  # against the busybox userland this suite runs on it is the shorter thing
+  # to type. Spelled around the pattern here, like the pattern itself, so
+  # this comment is not a second hit.
   local _shell _fixture
   for _shell in bash sh; do
     _fixture="${BATS_TEST_TMPDIR}/starts_a_${_shell}"
