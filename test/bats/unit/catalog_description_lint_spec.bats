@@ -190,6 +190,30 @@ _index_add() {
   _index_render
 }
 
+# _bats_sections_in <doc> -- how many generated `### <spec> (N)` sections
+# doc/test/<doc> carries, read off the document itself.
+_bats_sections_in() {
+  local _doc="${1}" _n
+  _n="$(grep -cE '^#{3,6} [^ ]+\.bats \([0-9]+\)$' "/source/doc/test/${_doc}")" \
+    || true
+  [[ "${_n}" =~ ^[0-9]+$ ]] && (( _n > 0 )) \
+    || { fail "doc/test/${_doc} carries no generated spec section: '${_n}'"; return 1; }
+  printf '%s' "${_n}"
+}
+
+# _index_credit <doc> -- how many tests doc/test/TEST.md's index credits
+# doc/test/<doc> with. The index is regenerated from the spec files and
+# drift-gated, so it is the tree's own answer rather than this spec's
+# arithmetic.
+_index_credit() {
+  local _doc="${1}" _n
+  _n="$(sed -n "s/^| \[${_doc}\](${_doc}) |.*| \([0-9]\{1,\}\) |\$/\1/p" \
+    /source/doc/test/TEST.md)"
+  [[ "${_n}" =~ ^[0-9]+$ ]] \
+    || { fail "doc/test/TEST.md credits no test count to ${_doc}: '${_n}'"; return 1; }
+  printf '%s' "${_n}"
+}
+
 # The SHAPE of a finding line. Every report the driver prints leads with
 # the repo-relative file it is about -- `<rel>: ...` or `<rel>:<line>: ...`
 # -- and nothing else a run emits does: the banner it opens with
@@ -1181,14 +1205,17 @@ refute_finding() {
   # when the rule was first written" against a measured 714 of 1736, and
   # a sentence carrying one quantity at two different times.
   #
-  # Two figures in that header are LIVE -- how many rows the baseline
-  # parks, and how many sections are declared outside the per-test rule.
-  # Both are declared by a sidecar file this lint already holds exact, so
-  # they are read from there rather than retyped here, and a header that
-  # falls behind either one is red. Every other figure in the header is a
-  # measurement of a past tree and carries its date: no checkout can
-  # re-measure those, and pinning a figure that moves with every added
-  # test would buy drift-detection with a treadmill.
+  # Three figures in that header are LIVE -- how many rows the baseline
+  # parks, how many sections are declared outside the per-test rule, and
+  # what deleting one catalogue would take out of the rule, which the
+  # header names doc/test/system.md to make concrete. Each is declared by
+  # a file this lint already holds exact, so they are read from there
+  # rather than retyped here, and a header that falls behind any of them
+  # is red. Every other figure in the header is a measurement of a past
+  # tree and carries its date: no checkout can re-measure those, and
+  # pinning a figure that moves with every added test would buy
+  # drift-detection with a treadmill. The case below holds the header to
+  # exactly that division.
   local _baseline_n _exempt_n
   _baseline_n="$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
     "/source/${_CATALOG_DESC_BASELINE_FILE}")"
@@ -1203,6 +1230,101 @@ refute_finding() {
     || fail "the driver header does not say the baseline parks ${_baseline_n} rows"
   grep -qF "${_exempt_n} sections declared outside the per-test rule" "${_driver}" \
     || fail "the driver header does not say ${_exempt_n} sections are declared out"
+  # The illustration the reach paragraph turns on. Both halves come from
+  # the tree: the sections from the document itself, the tests from the
+  # index row that credits it -- the same index the driver reads, so a
+  # catalogue that grows a section or a test moves this figure the day it
+  # lands rather than the day somebody remembers the header.
+  local _system_sections _system_tests
+  _system_sections="$(_bats_sections_in 'system.md')"
+  _system_tests="$(_index_credit 'system.md')"
+  grep -qF "its ${_system_sections} sections and the ${_system_tests} tests" \
+    "${_driver}" \
+    || fail "the driver header does not say doc/test/system.md accounts for ${_system_sections} sections and ${_system_tests} tests"
+}
+
+@test "_run_catalog_description: every figure in the driver header is dated or pinned (#922)" {
+  # The header states the rule the case above enforces figure by figure:
+  # a figure is either LIVE and read back from the file that declares it,
+  # or a measurement of a past tree carrying the date it was taken. What
+  # nothing checked was the rule itself, and three figures had quietly
+  # left it -- an undated "40% of rows" that was 41% when written and 59%
+  # by the time it was read, an undated "1500-line file", and an undated
+  # "12 tests" against a document that holds 13.
+  #
+  # So the header is READ rather than reviewed. Every paragraph of it is
+  # scanned, every figure it states is collected, and a figure is a
+  # finding unless its paragraph carries an ISO date or the figure is one
+  # of the live values derived below. Deriving the paragraphs from the
+  # file means a paragraph added tomorrow is scanned the day it lands.
+  local _driver='/source/script/test/drivers/catalog_description.sh'
+  local -a _pinned=()
+  _pinned+=("$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
+    "/source/${_CATALOG_DESC_BASELINE_FILE}")")
+  _pinned+=("$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
+    "/source/${_CATALOG_DESC_EXEMPT_FILE}")")
+  _pinned+=("$(_bats_sections_in 'system.md')")
+  _pinned+=("$(_index_credit 'system.md')")
+  local -a _paras=()
+  mapfile -t _paras < <(awk '
+    NR > 1 && !/^#/ { exit }
+    /^#$/ { if (_p != "") { print _p }; _p = ""; next }
+    { sub(/^# ?/, ""); _p = _p " " $0 }
+    END { if (_p != "") { print _p } }' "${_driver}")
+  (( ${#_paras[@]} > 0 )) \
+    || { fail "the driver header has no paragraphs -- the scan read nothing"; return 1; }
+  # A figure is two digits or more, or a percentage: a lone digit in this
+  # header is a list marker ("1.", "2.") or a depth, never a measurement.
+  local _para _figs _fig _p _ok _with_figures=0
+  local -a _bad=() _seen=()
+  for _para in "${_paras[@]}"; do
+    _figs="$(printf '%s\n' "${_para}" \
+      | grep -oE '[0-9]+%|[0-9]{2,}' | LC_ALL=C sort -u | tr '\n' ' ')" || true
+    [[ -n "${_figs}" ]] || continue
+    _with_figures=$(( _with_figures + 1 ))
+    for _fig in ${_figs}; do
+      _seen+=("${_fig}")
+    done
+    # A dated paragraph is a measurement of a tree this checkout does not
+    # have, and every figure in it is that measurement.
+    [[ "${_para}" =~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] ]] && continue
+    for _fig in ${_figs}; do
+      _ok=0
+      for _p in "${_pinned[@]}"; do
+        [[ "${_fig}" == "${_p}" ]] && _ok=1
+      done
+      (( _ok )) \
+        || _bad+=("${_fig} -- in: ${_para:0:120}")
+    done
+  done
+  # The population floor. The scan must have found figures at all, and it
+  # must have found the live baseline count -- which sits in the ratchet
+  # paragraph near the top -- so a scan that silently read an empty or
+  # truncated header is a failure here rather than a clean sweep.
+  (( _with_figures > 0 )) \
+    || { fail "no paragraph in the driver header states a figure -- the scan found nothing to check"; return 1; }
+  [[ " ${_seen[*]} " == *" ${_pinned[0]} "* ]] \
+    || { fail "the scan never saw the live baseline figure ${_pinned[0]}; it is not reading the header it claims to (${_with_figures} paragraph(s) with figures)"; return 1; }
+  (( ${#_bad[@]} == 0 )) \
+    || { fail "$(printf 'figures in the driver header that are neither dated nor pinned:\n%s\n' "$(printf '  %s\n' "${_bad[@]}")")"; return 1; }
+}
+
+@test "_run_catalog_description: the header's reason for keying on the spec path still holds (#922)" {
+  # The header rejects keying the baseline by test NAME because names in
+  # this tree already collide across specs, so one baseline line would
+  # excuse a row nobody looked at. That is a claim about the tree, not
+  # about a past one: if the collisions ever go away the justification
+  # has to be restated rather than left standing. Counted, not listed --
+  # the pairs come from the spec files themselves.
+  local _names _dupes
+  _names="$(grep -rhE '^@test "' /source/test/bats --include='*.bats' | wc -l)"
+  (( _names > 0 )) \
+    || { fail "no @test lines found under test/bats -- the scan read nothing"; return 1; }
+  _dupes="$(grep -rE '^@test "' /source/test/bats --include='*.bats' \
+    | sed -E 's/^([^:]+):@test "(.*)" *\{ *$/\2\t\1/' \
+    | LC_ALL=C sort -u | cut -f1 | LC_ALL=C uniq -d)"
+  [[ -n "${_dupes}" ]] \
+    || { fail "no test name lives in two specs at once (${_names} tests scanned), so the driver header's reason for keying the baseline by spec path plus name no longer holds -- restate it"; return 1; }
 }
 
 @test "_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)" {
