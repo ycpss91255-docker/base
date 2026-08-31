@@ -734,8 +734,8 @@ _make_cobertura() {
   # and it names its scope "instrumented sources". What kcov actually
   # instruments is defined in the other file and by subtraction:
   # --include-path=<root> minus _coverage_exclude_path. Two rosters kept
-  # by hand drift -- an extensionless entrypoint, a .py or .awk helper, a
-  # dist/ script under a new extension -- and the drift is silent in the
+  # by hand drift -- an extensionless entrypoint, a dist/ script under a
+  # new extension -- and the drift is silent in the
   # dangerous direction: the file becomes instrumented AND exempt from the
   # refusal, so a release can publish a figure for a tree that has since
   # moved. This is the test that fails on the day they diverge.

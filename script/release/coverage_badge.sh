@@ -123,14 +123,24 @@ readonly HEAD_STAMP_REL="coverage/.head-sha"
 # script/test/drivers/bats.sh by subtraction (--include-path=<root> minus
 # `_coverage_exclude_path`). Two lists kept by hand drift, and the drift is
 # silent in the dangerous direction: a file that becomes instrumented
-# without matching a glob here -- an extensionless entrypoint, a .py or
-# .awk helper, a dist/ script under a new extension -- is exempt from the
-# refusal below while its edits change the figure. coverage_badge_spec's
-# "the dirty check covers every source kcov instruments" reads both lists
-# from their own definitions and fails on the day they diverge; widen this
-# roster when it does. The build inputs (justfile, Dockerfile) are here for
-# a second reason and kcov never instruments them: they decide the
-# container the suite ran in.
+# without matching a glob here -- an extensionless entrypoint, a dist/
+# script under a new extension, a shipped helper under none of these
+# names -- is exempt from the refusal below while its edits change the
+# figure. coverage_badge_spec's "the dirty check covers every source kcov
+# instruments" reads both lists from their own definitions and fails on
+# the day they diverge; widen this roster when it does. The build inputs
+# (justfile, Dockerfile) are here for a second reason and kcov never
+# instruments them: they decide the container the suite ran in.
+#
+# That guard reaches exactly as far as what bash executes: it decides a
+# file is instrumented by reading its SHEBANG, so a helper in another
+# language is skipped before it is compared against this roster. The
+# narrowness is deliberate rather than a gap -- kcov selects its engine
+# from the executable the suite launches (bats, bash) and traces that
+# process's bash children, so a helper nothing bash-side runs is not
+# instrumented and its edits do not move the figure. What the guard would
+# NOT notice is the suite gaining a second interpreter kcov instruments;
+# that is a roster change no test will ask for.
 readonly SOURCE_PATHSPEC=('*.sh' '*.bats' '*.bash' '*justfile*' '*Dockerfile*')
 
 # The header block from `# Usage:` to the first non-comment line is the
