@@ -121,8 +121,8 @@
 # `base_image_digest` is empty or `sha256:` plus 64 hex and fails the
 # `-test` stage when it is neither.
 #
-# passed alongside BASE_IMAGE. Three routes, in the order to reach for
-# them:
+# The value reaches the build alongside BASE_IMAGE, by one of three
+# routes, in the order to reach for them:
 #
 #   1. LOCAL, and the one this repo actually drives builds through: add
 #      it to the `[build]` arg list in the repo-root `.setup.conf`, next
