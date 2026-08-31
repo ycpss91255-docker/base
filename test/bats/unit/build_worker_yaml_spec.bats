@@ -660,39 +660,55 @@ _jobs_without_permissions() {
   ' "${WF}"
 }
 
-# Print one job's permission ENTRIES: the `<scope>: <level>` lines inside
-# its own `permissions:` block, indentation dropped. Built on the shared
-# `yaml_job_lines` helper, so the job's comment paragraphs are gone before
-# any matching happens -- a rationale comment that QUOTES a permission
-# ("`contents: read` rather than `{}`") is otherwise indistinguishable
-# from the grant itself.
+# The jobs this spec's #957 assertions run over: derived from the workflow
+# file by the shared `yaml_job_names`, never listed here. `_assert_worker_
+# job_population` is what every one of those assertions calls FIRST, because
+# an empty scan and a clean scan are the same output otherwise -- an
+# extractor that stopped matching, or a file that moved, would report "no
+# job grants too much" from zero jobs.
 #
-# Entries -- not the block -- are what make an EXACT-set assertion
-# possible: `assert_output 'contents: read'` then fails on a missing grant,
-# on prose that merely mentions one, AND on an extra scope, none of which a
-# `--partial` presence check plus one `refute` of a single known-bad scope
-# can catch. Exclusivity is the property this issue is about: any extra
-# scope here is an elevation the caller did not grant, which fails the run.
-# An inline `permissions: read-all` prints nothing and fails the same way.
-_job_permission_entries() {
-  yaml_job_lines "${WF}" "${1}" | awk '
-    /^    permissions:[ \t]*$/ { in_perms = 1; next }
-    !in_perms                  { next }
-    /^      [A-Za-z][A-Za-z0-9_-]*:[ \t]*[A-Za-z][A-Za-z0-9_-]*[ \t]*$/ {
-      sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; next
-    }
-    { in_perms = 0 }
-  '
+# The five names below are a FLOOR, not a roster: they are the jobs the
+# worker ships today, and the assertions themselves run over whatever
+# `yaml_job_names` returns, so a sixth job is scanned the day it lands
+# without this spec being edited.
+_assert_worker_job_population() {
+  local _derived _count _independent _job
+  _derived="$(yaml_job_names "${WF}")"
+  _count="$(printf '%s\n' "${_derived}" | awk 'NF { n++ } END { print n + 0 }')"
+  # A second, independent extraction of the same set (`jobs:` is the last
+  # top-level key of this file). Two readings that disagree mean one of them
+  # is wrong about the file, which must fail rather than pick a side.
+  _independent="$(code_lines "${WF}" | sed -n '/^jobs:$/,$p' \
+      | awk '/^  [A-Za-z0-9_-]+:[ \t]*$/ { n++ } END { print n + 0 }')"
+  [[ "${_count}" -eq "${_independent}" ]] || fail \
+      "job-list extraction disagrees with itself: yaml_job_names found ${_count}, a direct scan of the jobs: section found ${_independent} in ${WF}"
+  [[ "${_count}" -ge 5 ]] || fail \
+      "expected at least the 5 jobs build-worker.yaml ships, derived ${_count} from ${WF} -- the scan below would have passed over an empty population"
+  for _job in preflight path-filter compute-matrix build docker-build; do
+    printf '%s\n' "${_derived}" | grep -x -- "${_job}" >/dev/null || fail \
+        "job '${_job}' is missing from the derived job list of ${WF}: either it was renamed (update this floor) or the extractor stopped seeing the file"
+  done
 }
 
-# Print `<job>: <scope>: <level>` for every job in the worker, in file
-# order, so one assertion pins the WHOLE permission surface -- including a
-# job added later that quietly asks for more.
-_worker_permission_surface() {
-  local _job
-  for _job in preflight path-filter compute-matrix build docker-build; do
-    _job_permission_entries "${_job}" | sed "s/^/${_job}: /"
-  done
+# Print every `<job>: <entry>` in the worker whose grant is not exactly
+# `contents: read` -- which includes the `<no entries>` placeholder
+# `yaml_permission_surface` emits for a job with no block at all. The job
+# list comes from the FILE, so this names the job added tomorrow.
+#
+# grep's status is pinned: 0 means it found elevations and prints them, 1
+# means every line was `<job>: contents: read`, and anything else is a
+# grep that could not read its input -- reported as a BUG line so it fails
+# the caller's `assert_output ''` instead of passing as "no match".
+_worker_jobs_granting_more_than_contents_read() {
+  local _out _status=0
+  _out="$(yaml_permission_surface "${WF}" \
+      | grep -vxE '[A-Za-z0-9_-]+: contents: read')" || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the permission surface\n' \
+           "${_status}" ;;
+  esac
 }
 
 @test "build-worker.yaml: every job declares its own permissions block (#957)" {
@@ -703,24 +719,30 @@ _worker_permission_surface() {
   # that declares a block gets exactly that block instead (capped by the
   # caller, which it may narrow but never widen), which is the only place
   # base can bound a permission it does not own.
+  _assert_worker_job_population
   run _jobs_without_permissions
   assert_success
   assert_output ''
 }
 
-# Print the name of every job that names `packages: write` in its own
-# permissions block. Scoped to the `jobs:` section and to the six-space
-# indent of a permission entry, so the caller-facing example inside the
-# `cache_backend` input description -- which is instructing the CALLER to
-# grant it, and is correct -- is not mistaken for a declaration here.
+# Print `<job>: packages: write` for every job that names that scope in its
+# own permissions block. Read off the DERIVED permission surface, so the
+# caller-facing example inside the `cache_backend` input description --
+# which is instructing the CALLER to grant it, and is correct -- is outside
+# the jobs section and never reaches this, and a rationale comment quoting
+# the scope is stripped before matching. grep's status is pinned: 1 is "no
+# job asks for it", anything above that is a scan that failed and is
+# reported rather than read as a pass.
 _jobs_requesting_packages_write() {
-  awk '
-    /^jobs:$/          { in_jobs = 1; next }
-    in_jobs && /^[^ ]/ { in_jobs = 0 }
-    !in_jobs           { next }
-    /^  [A-Za-z0-9_-]+:[ \t]*$/ { job = $1; sub(/:$/, "", job); next }
-    /^      packages:[ \t]*write[ \t]*$/ { print job }
-  ' "${WF}"
+  local _out _status=0
+  _out="$(yaml_permission_surface "${WF}" \
+      | grep -E ': packages:[ \t]*write$')" || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the permission surface\n' \
+           "${_status}" ;;
+  esac
 }
 
 @test "build-worker.yaml: no job requests packages: write (#957)" {
@@ -736,6 +758,7 @@ _jobs_requesting_packages_write() {
   # The `cache_backend: registry` write therefore stays a CALLER-side
   # grant, which is what the input description already asks callers for;
   # the worker may not declare it on their behalf.
+  _assert_worker_job_population
   run _jobs_requesting_packages_write
   assert_success
   assert_output ''
@@ -752,36 +775,58 @@ _jobs_requesting_packages_write() {
   # write` is only the scope this issue happened to find, and any other
   # scope the caller did not grant (`id-token: write`, `attestations:
   # write`, ...) fails a caller's run in exactly the same way.
-  run _job_permission_entries build
+  run yaml_job_permission_entries "${WF}" build
   assert_success
   assert_output 'contents: read'
 }
 
 @test "build-worker.yaml: no job in the worker grants more than contents: read (#957)" {
-  # The whole permission surface in one assertion: every job, every entry,
-  # in file order. path-filter checks out and diffs; compute-matrix and
-  # docker-build only read `needs` / the repo; preflight probes with a
-  # token it deliberately keeps read-only. None touches a package, so none
-  # may inherit a caller's `packages: write`.
+  # The whole permission surface, job list DERIVED from the file. Nothing
+  # here loops over known job names: the previous shape did, and a
+  # `sign-artifacts` job appended to the workflow with `contents: write`,
+  # `id-token: write` and `packages: read` left all 61 specs green.
+  # path-filter checks out and diffs; compute-matrix and docker-build only
+  # read `needs` / the repo; preflight probes with a token it deliberately
+  # keeps read-only. None touches a package, so none may inherit a caller's
+  # `packages: write`.
   #
-  # Pinning the whole listing, rather than looping per known job, also
-  # covers the job added LATER: a new job either asks for `contents: read`
-  # like its siblings or this test names it, and a job whose grant a caller
-  # cannot satisfy fails that caller's run before it starts.
-  run _worker_permission_surface
+  # The assertion is a PROPERTY over the derived set, not a pin of today's
+  # listing: a sixth job asking `contents: read` like its siblings passes
+  # untouched, and a sixth job asking anything else is named here on the
+  # day it lands. A job that declares no block at all surfaces as
+  # `<job>: <no entries>` and fails the same way.
+  _assert_worker_job_population
+  run _worker_jobs_granting_more_than_contents_read
   assert_success
-  assert_output 'preflight: contents: read
-path-filter: contents: read
-compute-matrix: contents: read
-build: contents: read
-docker-build: contents: read'
+  assert_output ''
 }
 
 # Print every comment PARAGRAPH inside the build job (a run of adjacent
 # `#` lines, joined) that cites the preflight while talking about a
 # package permission. Paragraph granularity matters: the claim is a
 # sentence, and a sentence wraps across comment lines.
+#
+# Both greps have their status pinned rather than `|| true`-ed: 1 is "no
+# paragraph says that", and 2 -- a grep that could not read its input, or a
+# build job that vanished -- must not arrive at the caller as an empty,
+# passing scan.
 _build_comments_citing_preflight_for_a_grant() {
+  local _out _status=0
+  _out="$(_build_comment_paragraphs \
+      | grep -i 'preflight' | grep -Ei 'packages|permission|grant')" \
+      || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the build job comments\n' \
+           "${_status}" ;;
+  esac
+}
+
+# Every comment paragraph of the build job, one per line. Split out so the
+# test can assert the POPULATION it is scanning before reading anything
+# into an empty result.
+_build_comment_paragraphs() {
   yaml_job_text "${WF}" build | awk '
     /^[[:space:]]*#/ {
       line = $0
@@ -791,7 +836,7 @@ _build_comments_citing_preflight_for_a_grant() {
     }
     { if (para != "") { print para; para = "" } }
     END { if (para != "") { print para } }
-  ' | grep -i 'preflight' | grep -Ei 'packages|permission|grant' || true
+  '
 }
 
 @test "build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)" {
@@ -801,6 +846,10 @@ _build_comments_citing_preflight_for_a_grant() {
   # may reason from that probe about a caller holding `packages: write`
   # -- the probe is the thing that is broken, not the evidence that
   # anything works. Tracked separately from this issue.
+  local _paragraphs
+  _paragraphs="$(_build_comment_paragraphs | awk 'END { print NR }')"
+  [[ "${_paragraphs}" -ge 10 ]] || fail \
+      "expected the build job to carry its explanatory comment paragraphs, extracted ${_paragraphs} -- the scan below would have read an empty job as a clean one"
   run _build_comments_citing_preflight_for_a_grant
   assert_success
   assert_output ''

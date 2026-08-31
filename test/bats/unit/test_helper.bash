@@ -201,6 +201,99 @@ yaml_top_lines() {
     yaml_top_text "${1}" "${2}" | strip_comments
 }
 
+# ── derived job / permission surfaces ────────────────────────────────────────
+#
+# A guard named for a SET ("every job", "every reusable worker") has to
+# compute that set from the tree at run time. A literal roster inside the
+# spec is the defect even while today's roster is complete, because the job
+# the guard exists for is tomorrow's addition: a five-name loop over
+# build-worker.yaml stayed green when a sixth job asking `contents: write`
+# was appended to the file. These helpers are the derivation the specs share
+# so that no spec has to keep a roster.
+
+# yaml_job_names <file>
+#   Every top-level `jobs:` key of <file>, in file order. Job keys sit at two
+#   spaces under `jobs:` and a job's own properties at four, so the indents
+#   separate without a YAML parser (the ci image ships none). Comments are
+#   stripped first: a commented-out job is not a job.
+yaml_job_names() {
+    code_lines "${1}" | awk '
+        /^jobs:[ \t]*$/  { in_jobs = 1; next }
+        in_jobs && /^[^ ]/ { in_jobs = 0 }
+        !in_jobs         { next }
+        /^  [A-Za-z0-9_-]+:[ \t]*$/ {
+            job = $1; sub(/:$/, "", job); print job
+        }
+    '
+}
+
+# yaml_job_permission_entries <file> <job>
+#   The `<scope>: <level>` entries inside one job's own `permissions:` block,
+#   indentation dropped. Built on yaml_job_lines, so the job's comment
+#   paragraphs are gone before any matching happens -- a rationale that
+#   QUOTES a grant ("`contents: read` rather than `{}`") is otherwise
+#   indistinguishable from the grant itself.
+#
+#   ENTRIES -- not the block -- are what make an EXACT-set assertion
+#   possible: a caller-facing `permissions:` may only NARROW the grant it was
+#   handed, so any extra scope is an elevation that fails the caller's run,
+#   and a presence check plus one `refute` of a known-bad scope cannot see it.
+yaml_job_permission_entries() {
+    yaml_job_lines "${1}" "${2}" | awk '
+        /^    permissions:[ \t]*$/ { in_perms = 1; next }
+        !in_perms                  { next }
+        /^      [A-Za-z][A-Za-z0-9_-]*:[ \t]*[A-Za-z][A-Za-z0-9_-]*[ \t]*$/ {
+            sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; next
+        }
+        { in_perms = 0 }
+    '
+}
+
+# yaml_permission_surface <file>
+#   `<job>: <scope>: <level>` for every job DERIVED from <file>, in file
+#   order -- and `<job>: <no entries>` for a job that declares no block at
+#   all, or an inline one (`permissions: read-all`) that yields no entry.
+#   The placeholder is load-bearing: without it a job with no grants would
+#   drop out of the listing, and an assertion over the listing would read
+#   "unbounded" as "nothing to see".
+yaml_permission_surface() {
+    local _job _entries
+    while IFS= read -r _job; do
+        [[ -n "${_job}" ]] || continue
+        _entries="$(yaml_job_permission_entries "${1}" "${_job}")"
+        if [[ -z "${_entries}" ]]; then
+            printf '%s: <no entries>\n' "${_job}"
+        else
+            printf '%s\n' "${_entries}" | sed "s/^/${_job}: /"
+        fi
+    done < <(yaml_job_names "${1}")
+}
+
+# reusable_workflow_files [dir]
+#   Every workflow file under <dir> (default: this checkout's workflow
+#   directory) that declares `on: workflow_call`, i.e. every workflow whose
+#   jobs run under a CALLING repo's token unless they say otherwise. Derived
+#   by reading each file's `on:` mapping, so a reusable worker added to the
+#   directory is covered the day it lands.
+reusable_workflow_files() {
+    local _dir="${1:-/source/.github/workflows}" _f _status
+    for _f in "${_dir}"/*.yaml "${_dir}"/*.yml; do
+        [[ -f "${_f}" ]] || continue
+        _status=0
+        # `grep -E ... >/dev/null` rather than `grep -q`: -q exits at the
+        # first match, and the SIGPIPE that gives the awk upstream of it
+        # becomes the pipeline's status under `pipefail` (141), which no
+        # `case` arm below should have to know about.
+        yaml_top_lines "${_f}" on \
+            | grep -E '^  workflow_call:[ \t]*$' >/dev/null || _status=$?
+        case "${_status}" in
+            0) printf '%s\n' "${_f}" ;;
+            1) ;;
+            *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_f}" ;;
+        esac
+    done
+}
+
 # ── spec subject presence ─────────────────────────────────────────────────────
 #
 # Many specs assert on the CONTENT of one tracked artifact -- a workflow

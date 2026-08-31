@@ -147,6 +147,27 @@ teardown() {
   assert_success
 }
 
+# The jobs the seeded main.yaml actually declares, derived from the emitted
+# file. Asserted before either assertion below reads a scan of it: the seed
+# is a heredoc, and a heredoc that stopped emitting jobs would satisfy
+# every "nothing grants too much" assertion by emitting nothing.
+#
+# Two is a FLOOR, and the two names are the jobs the seed writes today.
+# The surface assertion itself runs over whatever is derived, so a third
+# seeded job is named by it rather than waved through.
+_assert_seed_job_population() {
+  local _yaml="${1}" _derived _count
+  _derived="$(yaml_job_names "${_yaml}")"
+  _count="$(printf '%s\n' "${_derived}" | awk 'NF { n++ } END { print n + 0 }')"
+  [[ "${_count}" -ge 2 ]] || fail \
+      "expected at least the 2 jobs init.sh seeds into main.yaml, derived ${_count} from ${_yaml}"
+  local _job
+  for _job in call-docker-build call-release; do
+    printf '%s\n' "${_derived}" | grep -x -- "${_job}" >/dev/null || fail \
+        "job '${_job}' is missing from the seeded main.yaml: either the seed was renamed (update this floor) or the derivation stopped seeing the file"
+  done
+}
+
 @test "new repo: main.yaml grants contents: write on the release job only (#957)" {
   # softprops/action-gh-release@v2 (used by release-worker.yaml) needs
   # `contents: write` to create a Release. A called workflow can only
@@ -160,29 +181,40 @@ teardown() {
   # ever reads the tree -- so the grant is scoped to the one job that
   # needs it. Job-level permissions on a `uses:` job ARE the caller's
   # grant: they set the ceiling the called workflow's own jobs run under.
+  #
+  # "only" is asserted over the file's OWN job list, as an exact per-job
+  # entry set. Inspecting the two known job blocks left the word unbacked:
+  # a third seeded job carrying `contents: write` + `packages: write` kept
+  # all 62 integration specs green.
   bash .base/dist/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   assert [ -f "${_yaml}" ]
-  # No workflow-scope permissions block: the seed grants per job.
-  run grep -E '^permissions:$' "${_yaml}"
-  assert_failure
-  run awk '/^  call-release:/{flag=1; next} /^  [^ ]/{flag=0} flag' "${_yaml}"
+  _assert_seed_job_population "${_yaml}"
+  # No workflow-scope permissions block: the seed grants per job. grep's
+  # status is pinned to exactly 1 (searched the file, matched nothing);
+  # 2 would mean it never read the file, which is a failure and not an
+  # absence.
+  local _status=0
+  grep -qE '^permissions:' "${_yaml}" || _status=$?
+  [[ "${_status}" -eq 1 ]] || fail \
+      "expected no workflow-scope permissions: block in ${_yaml}, grep exited ${_status}"
+  run yaml_permission_surface "${_yaml}"
   assert_success
-  assert_output --partial 'permissions:'
-  assert_output --partial 'contents: write'
+  assert_output 'call-docker-build: contents: read
+call-release: contents: write'
 }
 
 @test "new repo: main.yaml leaves the build call at contents: read (#957)" {
   # The build worker checks out and builds; it pushes no image and touches
   # no package. A write grant here would raise the ceiling every job of
-  # the reusable worker runs under, for no job that needs it.
+  # the reusable worker runs under, for no job that needs it. Asserted as
+  # an exact entry set, so an added scope fails as loudly as a widened one.
   bash .base/dist/script/base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
-  run awk '/^  call-docker-build:/{flag=1; next} /^  [^ ]/{flag=0} flag' "${_yaml}"
+  _assert_seed_job_population "${_yaml}"
+  run yaml_job_permission_entries "${_yaml}" call-docker-build
   assert_success
-  assert_output --partial 'permissions:'
-  assert_output --partial 'contents: read'
-  refute_output --partial 'contents: write'
+  assert_output 'contents: read'
 }
 
 @test "new repo: .gitignore exists" {
