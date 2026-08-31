@@ -38,6 +38,29 @@ _src() {
   printf 'source %s/_lib.sh; source %s/dockerfile_migrate.sh' "${LIB}" "${LIB}"
 }
 
+# _src_from <libdir>
+#   As _src, but sourcing a COPY of the lib tree rather than the shipped
+#   one. The template conf layer is located from the lib's OWN directory
+#   (init.sh / upgrade.sh source the migration list with no
+#   _SETUP_SCRIPT_DIR to point at it), so the only way a test can put a
+#   template layer under the migration's nose is to run a copy that sits
+#   inside a template root the test owns.
+_src_from() {
+  printf 'source %s/_lib.sh; source %s/dockerfile_migrate.sh' "${1}" "${1}"
+}
+
+# _stage_template_tree
+#   Lay out the production shape around ${TEMP_DIR} (the repo root): a
+#   vendored subtree at <repo>/.base whose dist/ carries both the template
+#   .setup.conf and the lib the migration runs from. Echoes the copied lib
+#   dir for _src_from.
+_stage_template_tree() {
+  local _tpl="${TEMP_DIR}/.base"
+  mkdir -p "${_tpl}/dist/script/docker"
+  cp -r "${LIB}" "${_tpl}/dist/script/docker/lib"
+  printf '%s' "${_tpl}/dist/script/docker/lib"
+}
+
 # ── dispatcher contract: apply_migrations ───────────────────────────────────
 
 @test "apply_migrations is the public dispatcher entry (#567)" {
@@ -340,6 +363,89 @@ RUN echo done
 EOF
   cp "${DF}" "${DF}.orig"
   run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+# The redirect can also arrive from the layer NOBODY in the repo wrote: the
+# conf chain is three files, not two (lib/setup_conf.sh's
+# _setup_conf_layers -- template, per-repo, per-worktree), and the build
+# args are read through the whole chain (setup_cmd.sh -> _setup_conf_handle
+# -> _setup_conf_layers). A guard that hand-listed the two per-repo files
+# would report "no redirect" for a repo running on template defaults --
+# `_gen_setup_conf` is opt-in, so those repos exist -- and delete a working
+# install the moment base ships a CONFIG_SRC of its own. The chain is
+# therefore DERIVED from the one function that owns it, never re-listed
+# here, and the guard refuses to authorise a delete when it did not get the
+# whole chain back or could not read a layer.
+
+@test "migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)" {
+  local _lib
+  _lib="$(_stage_template_tree)"
+  cat > "${TEMP_DIR}/.base/dist/.setup.conf" <<'EOF'
+[build]
+arg_1 = TZ=Asia/Taipei
+arg_2 = CONFIG_SRC=myconfig
+EOF
+  # The repo writes no .setup.conf at all -- template defaults for every
+  # section, which is the state `setup.sh` warns about rather than forbids.
+  _seed_requirements "# install python dep"
+  mkdir -p "${TEMP_DIR}/myconfig/pip"
+  printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG CONFIG_SRC="config"
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src_from "${_lib}"); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps the line when the conf chain comes back truncated (#956)" {
+  # A chain shorter than the three layers _setup_conf_layers documents
+  # means a layer dropped out of the resolution. Scanning what is left and
+  # calling it "no redirect" is the failure this guard exists to refuse:
+  # a scan that did not see the whole population is not a pass.
+  _seed_requirements "# install python dep"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); \
+    _setup_conf_layers() { local -n _o=\"\${2}\"; _o=(\"\${1}/.setup.conf\"); }; \
+    _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps the line when a conf layer cannot be scanned (#956)" {
+  # grep exits 2 when it could not read what it was pointed at. Reading
+  # that as "no match" turns an unreadable layer into permission to delete.
+  _seed_requirements "# install python dep"
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_1 = TZ=Asia/Taipei
+EOF
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); \
+    grep() { if [[ \"\$*\" == *CONFIG_SRC=* ]]; then return 2; fi; command grep \"\$@\"; }; \
+    _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
   assert_success
   assert_output --partial "kept"
   diff "${DF}.orig" "${DF}"
