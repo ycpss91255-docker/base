@@ -637,7 +637,7 @@ _marker() {
 # wrote under doc/readme/ in the window changed the answer on a generator
 # that had done nothing wrong -- one of the two races that produced #965.
 #
-# Copying fixed the diff but not the capture. Four sequential reads
+# Copying first fixed the diff but not the capture. Four sequential reads
 # of a tree nobody here owns can return a README.md the translations beside
 # it were never stamped against, and the generator does exactly the right
 # thing with that input: it REFUSES to re-stamp an English section whose
@@ -664,11 +664,37 @@ _copy_readme_set() {
 }
 
 # _capture_readme_baseline <dst-root> [src-root] -- capture the live README
-# set into a directory the spec owns.
+# set as a CONSISTENT snapshot the spec owns.
+#
+# Two passes, and the capture is only accepted when they agree. A writer
+# landing inside the first pass leaves it holding some files from before
+# the write and some from after; the second pass, made entirely after that
+# write, cannot reproduce the same mixture, so the two disagree and the
+# capture is retried. Agreement is therefore evidence that nothing wrote
+# across either pass, which is what makes the accepted set a snapshot.
+#
+# Both operands of that comparison are the spec's own copies -- never the
+# live tree -- which is the invariant spec_source_isolation_spec.bats pins
+# repo-wide, and it holds here for the same reason it exists: a check that
+# consults the live tree cannot tell a torn read from a real change.
+#
+# A source that never settles is a loud failure, not a skip and not a
+# guess: three disagreeing pairs means something is actively rewriting the
+# checkout, and the honest answer is that this spec has nothing to assert
+# on today.
 _capture_readme_baseline() {
   local _dst="${1:?BUG: _capture_readme_baseline expects a destination root}"
   local _src="${2:-${LIVE_README_ROOT}}"
-  _copy_readme_set "${_src}" "${_dst}"
+  local _probe="${_dst}.probe"
+  local _attempt
+  for _attempt in 1 2 3; do
+    _copy_readme_set "${_src}" "${_dst}"
+    _copy_readme_set "${_src}" "${_probe}"
+    if diff -r "${_dst}" "${_probe}" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  fail "the README set under ${_src} changed across three consecutive captures; there is no snapshot to assert on, and guessing which read was the real one is how a correct generator gets reported as broken"
 }
 
 # _assert_generator_is_a_noop_on <baseline-dir> -- give the generator bytes
@@ -747,7 +773,10 @@ _plant_readme_source() {
   local _src="${BATS_TEST_TMPDIR}/src"
   _plant_readme_source "${_src}"
 
-  local _n=0
+  # Starts at 1, not 0: the planted source already says v1, so a counter
+  # starting there would "rewrite" it with its own contents and the two
+  # passes would agree on a tree that never actually settled.
+  local _n=1
   cp() {
     command cp "$@"
     if [[ "${1}" == "${_src}/README.md" ]]; then
