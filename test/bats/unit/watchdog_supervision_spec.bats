@@ -309,6 +309,57 @@ _replay_harness_log() {
   assert_output --partial "ACTED-1"
 }
 
+# ── the group-signalling invariant the graceful stop depends on ──────
+
+@test "_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  command -v setsid >/dev/null 2>&1 \
+    || skip "no setsid in this userland; there is no separate process group to detect"
+  # A load-sensitive PRODUCT race, and the mechanism behind the NO_SIGNAL
+  # sighting this issue was opened for. `setsid cmd &` returns as soon as
+  # the fork happens; the child has not necessarily called setsid() yet, so
+  # its process group is still the SUPERVISOR's at that instant. The pgid
+  # was sampled once, right there, and when the sample lost the race the
+  # supervisor silently fell back to signalling the bare child pid for the
+  # rest of that service's life.
+  #
+  # That fallback is not a small degradation. A service whose shell is
+  # sitting in a foreground command does not run its SIGTERM trap until
+  # that command returns, and the command only returns because the GROUP
+  # signal reached it too. Signal the pid alone and the trap is deferred,
+  # the stop grace expires, and a service that handles SIGTERM correctly is
+  # SIGKILLed instead -- reported by the case below as NO_SIGNAL, i.e. as a
+  # supervisor that did not forward the signal.
+  #
+  # Measured on a deliberately loaded machine before the fix: 3 of 40
+  # starts fell back, and the forward case failed 3 runs in 8.
+  #
+  # The race is modelled deterministically instead of being waited for: the
+  # first pgid read answers with the SUPERVISOR's group, exactly as it does
+  # when the child has not called setsid() yet, and every read after it
+  # tells the truth. The "first" is marked with a FILE rather than a
+  # counter: each read happens inside a command substitution, so a variable
+  # would be incremented in a subshell and every read would be the first.
+  _run_bounded 30 "
+    . '${WD}'
+    eval \"_watchdog_pgid_of_real() \$(declare -f _watchdog_pgid_of | tail -n +2)\"
+    _watchdog_pgid_of() {
+      if [ -e '${TMP_DIR}/pgid_read_once' ]; then
+        _watchdog_pgid_of_real \"\$1\"
+      else
+        : > '${TMP_DIR}/pgid_read_once'
+        _watchdog_pgid_of_real \$\$
+      fi
+    }
+    _watchdog_start_service sleep 5
+    echo PGKILL=\${_WATCHDOG_USE_PGKILL}
+    kill -KILL \${_WATCHDOG_CHILD_PID} 2>/dev/null || true
+  "
+  assert_success
+  assert_output --partial "PGKILL=1"
+  refute_output --partial "PGKILL=0"
+}
+
 # ── restart-service supervisor: restart-in-place + give-up (stubbed
 #    child seams so the loop logic is exercised without real processes) ─
 
