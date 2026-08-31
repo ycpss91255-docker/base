@@ -1279,6 +1279,18 @@ main() {
       # reports land in the same coverage/ tree and would otherwise wear a
       # whole-suite certificate.
       #
+      # It is passed to the CONTAINER on both branches for the same
+      # reason, and the full run has to say the empty value OUT LOUD:
+      # _run_via_compose forwards COVERAGE_SHARD from the AMBIENT
+      # environment, so a bare `--coverage` under an inherited partition
+      # -- this suite's own specs, run inside a coverage shard, are the
+      # caller that has one -- would kcov a quarter of the specs while the
+      # stamp, which reads the FLAG, certified `scope=full`. The two
+      # halves would then disagree about the same run, and the badge
+      # believes the stamp. --coverage-path clears it for the same reason
+      # (see the comment there); a mode that reports a FIGURE has more
+      # need of the clearing, not less.
+      #
       # The certificate is erased BEFORE the run and written only after it
       # succeeds, so the three states are the three truths: no stamp (no
       # run, or a run that died), or a stamp describing the run that just
@@ -1290,7 +1302,7 @@ main() {
       if [[ -n "${coverage_shard}" ]]; then
         COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
       else
-        _run_via_compose coverage 1
+        COVERAGE_SHARD="" _run_via_compose coverage 1
       fi
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the
