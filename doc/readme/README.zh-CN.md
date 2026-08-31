@@ -805,7 +805,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 6342fd8fd107 4e3bc5f07915 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 37216896ac3f e3b871552720 -->
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生两个名称，第三个由

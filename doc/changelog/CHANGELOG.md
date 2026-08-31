@@ -63,12 +63,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   -- a baked `container_name` is namespaced by the daemon, not the project, so
   a second stack of a repo died on `name ... is already in use` and compose
   refused `--scale`. Compose derives `<project>-<service>-<n>`, so per-host
-  isolation rests on the project name -- per-OS-user already, since
+  isolation rests on the project name -- per-OS-user, since
   `DOCKER_HUB_USER` falls back to the OS user; `[project] name` still
   wins. A re-detected rename DEFERS as `PROJECT_NAME_PENDING` until the old
-  project holds no container or named volume. `docker exec <fixed-name>`
-  is gone; ask `just exec`. The field-deploy bundle still bakes one; the
-  shipped Dockerfile no longer lists the field.
+  project is empty. `docker exec <fixed-name>` is gone; ask `just exec`.
+  The field-deploy bundle (`just docker setup deploy`) still bakes one;
+  the shipped Dockerfile no longer lists the field.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.

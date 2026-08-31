@@ -1904,7 +1904,7 @@ builds the env block only for the knobs the conf sets.
 | `exec.sh -h shows --dry-run in help` | --dry-run help |
 | `stop.sh -h shows --dry-run in help` | --dry-run help |
 | `exec.sh checks the service is running before exec (#920)` | precheck asks compose |
-| `no wrapper reconstructs a container name from USER_NAME (#920)` | compose owns the derived name |
+| `no wrapper or wrapper library reconstructs a container name from USER_NAME (#920)` | compose owns the derived name |
 | `exec.sh precheck error mentions run.sh hint` | friendly hint |
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |

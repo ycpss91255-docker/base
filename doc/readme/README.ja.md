@@ -854,7 +854,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 6342fd8fd107 06ebca3032c0 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 37216896ac3f 0103e645e167 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
