@@ -528,6 +528,21 @@ EOF
 # PROMPT_<n>s / DEFERRED_<n>s for the promptness, NOT_READY when the service
 # never got as far as installing its trap.
 #
+# The two numbers are DERIVED from the interval, not guessed. The interval
+# is 30s, and the defect this case exists to catch defers the forward until
+# it elapses, so:
+#
+#   - the stop grace (_WATCHDOG_TIMEOUT) is 10s. It is a CAP, not a wait:
+#     the supervisor returns the moment the service exits, so a generous
+#     value costs a correct run nothing and buys a loaded one the time to
+#     be scheduled. At 2s it did not: under 64 busy loops on 32 cores the
+#     service was SIGKILLed before it ran its trap in 2 runs of 10, and the
+#     case reported NO_SIGNAL -- the product word for a defect that was not
+#     there. That is the same symptom this issue was opened with.
+#   - the promptness threshold is 20s, between the grace and the interval,
+#     so a forward that really was deferred still reports DEFERRED_30s and
+#     a merely slow one does not.
+#
 # One body, two cases: the case below drives it with a service that DOES
 # become ready, and the case after that drives it with one that never does,
 # so the harness's own failure path is exercised by the same code the
@@ -538,7 +553,7 @@ _run_forward_harness() {
   _run_bounded 60 "
     . '${WD}'
     export WATCHDOG_CHECK='true'
-    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
+    _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=10 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
     _watchdog_supervise bash '${_svc}' \
       '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' \
       '${TMP_DIR}/service.pgid' &
@@ -553,7 +568,7 @@ _run_forward_harness() {
     wait \${_sup} 2>/dev/null || true
     _elapsed=\$(( \$(date +%s) - _t0 ))
     if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
-    if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
+    if [ \${_elapsed} -lt 20 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
   "
 }
 
@@ -580,7 +595,16 @@ _run_forward_harness() {
 echo "$$" > "$3"
 trap 'echo forwarded > "$1"; exit 0' TERM
 echo ready > "$2"
-sleep 300
+# Backgrounded then waited, never a foreground `sleep`. Bash does not run a
+# trap while it is waiting for a FOREGROUND command: the signal is held
+# until that command returns, and it returns only because the group signal
+# reached it too -- so the marker depends on two more scheduling hops, and
+# under load those hops outran the stop grace and the service was SIGKILLed
+# before it could record that it had been asked. `wait` is a builtin a
+# signal interrupts at once. It is the same shape, and the same reason, as
+# the product's own _watchdog_sleep.
+sleep 300 &
+wait $!
 EOF
   # Two separate properties, asserted separately.
   #
