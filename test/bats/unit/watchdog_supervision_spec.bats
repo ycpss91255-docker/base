@@ -715,16 +715,29 @@ EOF
   assert_failure
 }
 
-@test "every process this file starts goes through the one bounded harness (#965)" {
-  # Why a structural check here after deleting one from
-  # spec_source_isolation_spec: that one enumerated the spellings a WRITE
-  # could take, which is an open set and was wrong every round. This is the
-  # closed complement -- ONE permitted spelling, in one named place -- so a
-  # sibling written next year cannot start a process outside the harness
-  # that bounds it, which is exactly how three siblings drifted away from
-  # the harness the previous round fixed.
+@test "every SHELL this file starts is started inside the one bounded harness (#965)" {
+  # Narrowed on purpose, and the narrowing is the point. This does NOT say
+  # "every process this file starts": two cases above start a plain
+  # background `sleep` deliberately, and a line-wise scan cannot see a
+  # `bash` split across a continuation line, a command name held in a
+  # variable, or an alias -- the same three holes the comparison scan next
+  # door discloses. Measured: a sibling spelled `bash \` + newline + `-c`
+  # walks straight past this case.
+  #
+  # THE REAL NET IS NOT THIS CASE. It is the bound guard in teardown, which
+  # measures every case against the ceiling its own harness declared and so
+  # holds for a sibling written in a spelling nothing here anticipated --
+  # the same continuation-line sibling that evades the scan is caught there,
+  # at 45s against a declared 0.
+  #
+  # What this case adds on top of that net is WHERE: the bound guard says a
+  # case ran too long, this says which line drifted, at the moment it is
+  # written rather than the first time it hangs. It is a closed claim about
+  # ONE spelling in ONE named place, not an open claim about processes.
   local _spec="${BATS_TEST_FILENAME}"
-  # Assembled from pieces so that this line cannot match the scan it runs.
+  # Assembled from pieces, and every fixture below builds its shell name
+  # from a printf ARGUMENT, so that no line of this file can match the scan
+  # it runs and fail the invariant on its own source.
   local _pat="bash[[:space:]]+-c"
   local _door _door_end _hits _hit_line
   _door="$(grep -n '^_run_bounded() {$' "${_spec}" | cut -d: -f1)"
@@ -737,4 +750,15 @@ EOF
   _hit_line="$(grep -nE "${_pat}" "${_spec}" | cut -d: -f1)"
   [[ "${_hit_line}" -gt "${_door}" && "${_hit_line}" -lt "${_door_end}" ]] || fail \
     "the one place that starts a shell is at line ${_hit_line}, outside _run_bounded (lines ${_door}-${_door_end})"
+
+  # The scan has to see both spellings of "start a shell" it claims to
+  # cover. `sh -c` starts one just as well, and against the busybox
+  # userland this suite runs on it is the SHORTER thing to type.
+  local _shell _fixture
+  for _shell in bash sh; do
+    _fixture="${BATS_TEST_TMPDIR}/starts_a_${_shell}"
+    printf '  run timeout 5 %s -c "true"\n' "${_shell}" > "${_fixture}"
+    grep -qE "${_pat}" "${_fixture}" || fail \
+      "the scan does not see \`${_shell} -c\`, so a case starting one outside _run_bounded would leave this invariant green while its process holds the case open for its fixture's lifetime"
+  done
 }
