@@ -35,6 +35,28 @@ if [[ -n "${_DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED=1
 
+# Self-source the conf-chain resolver. The pip-helper migration has to
+# know whether anything redirects the CONFIG_SRC build arg, and the set of
+# files that can say so is lib/setup_conf.sh's _setup_conf_layers -- the
+# one place the chain's membership and precedence are defined. Pulled in
+# directly (idempotent via its own double-source guard) so the load order
+# of _lib.sh is not load-bearing: init.sh and upgrade.sh source this file
+# on its own, without setup.sh.
+#
+# _DFM_TEMPLATE_DIST_DIR is the other half of that. _setup_conf_layers
+# places the template layer from _SETUP_SCRIPT_DIR, which ONLY setup.sh
+# sets; init.sh / upgrade.sh have no such global, and a chain that
+# silently loses its lowest layer would let a template-level redirect go
+# unseen. This file ships at <template>/dist/script/docker/lib/, so its
+# own directory locates dist/ in both callers -- the subtree root
+# upgrade.sh sources from and the template dir init.sh sources from --
+# without either having to pass anything.
+_dfm_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=dist/script/docker/lib/setup_conf.sh
+source "${_dfm_lib_dir}/setup_conf.sh"
+readonly _DFM_TEMPLATE_DIST_DIR="${_dfm_lib_dir}/../../.."
+unset _dfm_lib_dir
+
 # ── Internal helpers ────────────────────────────────────────────────────────
 
 # _dfm_entrypoint_path <dockerfile>
@@ -195,35 +217,91 @@ readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
 readonly _DFM_CONFIG_SRC_DEFAULT='config'
 
+# The conf keys that redirect the overlay, as one pattern. A build arg is
+# `arg_N = CONFIG_SRC=<dir>` under [build]; the section is not matched
+# because a key of this shape means nothing outside it.
+readonly _DFM_CONF_REDIRECT_RE='^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC='
+readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
+
+# The floor the conf chain must clear. _setup_conf_layers documents three
+# layers -- template, per-repo, per-worktree -- and this guard authorises a
+# DELETE, so a chain that came back shorter means a layer dropped out of
+# the resolution and the scan did not see the population it is answering
+# for. That is a refusal, not a pass.
+readonly _DFM_CONF_LAYER_FLOOR=3
+
+# _dfm_conf_declares_redirect <conf_file>
+#   Exit 0 when this layer redirects CONFIG_SRC, 1 when it provably does
+#   not, 2 when the question could not be answered (grep could not read
+#   what it was pointed at). The third status is the point: `grep -q`
+#   exits 2 when it scanned nothing, and a caller that folds 2 into "no
+#   match" turns an unreadable layer into permission to delete.
+_dfm_conf_declares_redirect() {
+  local _conf="$1" _st=0
+  grep -qE "${_DFM_CONF_REDIRECT_RE}" "${_conf}" || _st=$?
+  case "${_st}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 # _dfm_pip_config_dir <dockerfile>
 #   Print the repo directory ${CONFIG_DIR} is overlaid from, or exit
 #   non-zero when this migration cannot know it. Non-zero on either of the
 #   two ways the answer stops being <repo>/config: something redirects
 #   CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the Dockerfile itself,
-#   or a `[build] arg_N = CONFIG_SRC=...` in .setup.conf / .setup.conf.local,
-#   which reaches the build as a compose build arg), or the default
+#   or a `[build] arg_N = CONFIG_SRC=...` in ANY layer of the setup.conf
+#   chain, which reaches the build as a compose build arg), or the default
 #   directory is not next to the Dockerfile at all. A bare `ARG CONFIG_SRC`
 #   with no `=` is a per-stage re-scope, not a redirect, and is ignored.
+#
+#   The conf layers are DERIVED from _setup_conf_layers rather than listed
+#   here. The chain is three files, not the two per-repo ones: the lowest
+#   is the template's own .setup.conf inside .base/dist, and the build
+#   reads all three (setup_cmd.sh -> _setup_conf_handle ->
+#   _setup_conf_layers). A repo that never ran `init.sh --gen-conf` has no
+#   per-repo conf at all and runs on template defaults, so a hand-listed
+#   roster would answer "no redirect" for exactly the repos whose answer
+#   comes from the layer it omitted -- and delete their pip install.
 _dfm_pip_config_dir() {
   local _file="$1"
   local _dir
   _dir="$(dirname -- "${_file}")"
 
+  # The Dockerfile's own ARG. Read through a variable rather than a
+  # process substitution so grep's status is not thrown away: exit 2 here
+  # would present an unscanned file as "no ARG CONFIG_SRC", i.e. as the
+  # default.
+  local _args _st=0
+  _args="$(grep -E "${_DFM_ARG_REDIRECT_RE}" "${_file}")" || _st=$?
+  case "${_st}" in
+    0|1) ;;
+    *) return 1 ;;
+  esac
+
   local _line _val
-  while IFS= read -r _line; do
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    [[ -n "${_line}" ]] || continue
     _val="${_line#*=}"
     _val="${_val%\"}"; _val="${_val#\"}"
     _val="${_val%\'}"; _val="${_val#\'}"
     [[ "${_val}" == "${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
-  done < <(grep -E '^[[:space:]]*ARG[[:space:]]+CONFIG_SRC=' "${_file}" 2>/dev/null)
+  done <<< "${_args}"
 
-  local _conf
-  for _conf in "${_dir}/.setup.conf" "${_dir}/.setup.conf.local"; do
+  local -a _layers=()
+  _setup_conf_layers "${_dir}" _layers "${_DFM_TEMPLATE_DIST_DIR}"
+  (( ${#_layers[@]} >= _DFM_CONF_LAYER_FLOOR )) || return 1
+
+  local _conf _cst
+  for _conf in "${_layers[@]}"; do
     [[ -f "${_conf}" ]] || continue
-    if grep -qE '^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC=' \
-        "${_conf}"; then
-      return 1
-    fi
+    _cst=0
+    _dfm_conf_declares_redirect "${_conf}" || _cst=$?
+    # 1 -- and only 1 -- is "this layer provably declares no redirect".
+    # 0 is a redirect and 2 is an unanswered question; both mean the
+    # overlay source is not <repo>/config as far as this guard can prove.
+    (( _cst == 1 )) || return 1
   done
 
   [[ -d "${_dir}/${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
