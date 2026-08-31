@@ -79,7 +79,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 - **`catalog-description`: a `doc/test/` catalogue row without a description
-  fails the lint, over every catalogue section (closes #922)** -- 1602 of 2720
+  fails the lint, over every catalogue section (closes #922)** -- 1602 of 2730
   rows carried the `-` placeholder because nobody had decided whether the
   column was required. It is: the description says why a case matters, which
   the long test name never carries. `.`, `--` and `n/a` are that placeholder
@@ -113,6 +113,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   findings came back 0 and the caller's `||` never fired; every total above
   256 was miscounted the same way. Both now pass the count back through a
   nameref. Affects anyone whose gate went green on a bulk regeneration.
+- **a fenced example took the REST of its catalogue table out of the
+  description rule (refs #922)** -- the fence cleared the in-table flag and
+  nothing put it back, so every row after the closing fence belonged to no
+  table and went unscanned: an undescribed row hidden behind a three-line
+  example passed with both gates green. A fence now suspends the table and
+  the close resumes it, and the two CommonMark close rules the driver
+  documents -- same character, at least as long -- are pinned rather than
+  only described. Affects anyone illustrating the convention in a
+  catalogue.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation

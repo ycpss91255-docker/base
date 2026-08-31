@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3146 tests**.
+Unit specs under `test/bats/unit/`: **3151 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4273,7 +4273,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (53)
+### test/bats/unit/catalog_description_lint_spec.bats (58)
 
 | Test | Description |
 |------|-------------|
@@ -4282,7 +4282,8 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: reports EVERY undescribed row, not just the first (#922)` | One run, one fix list -- stopping at the first costs a CI round per row |
 | `_run_catalog_description: an EMPTY description cell counts as a placeholder (#922)` | A hand-edited blank is the same missing sentence wearing less ink, and only `-` is generated |
 | `_run_catalog_description: a description with no WORD in it is a placeholder (#922)` | The placeholder has more than one spelling, and the ratchet makes the cheapest one attractive |
-| `_run_catalog_description: the written-out non-answers are placeholders too (#922)` | The same silence spelled with letters, which the has-a-word test alone would let through |
+| `_run_catalog_description: a one- or two-character cell has no WORD in it (#922)` | Where the threshold IS: the no-word case above feeds only cells with zero alphanumerics, so it says nothing about the three-character run the rule asks for |
+| `_run_catalog_description: EVERY written-out non-answer is refused (#922)` | Derived from the rule's own token list, so a token added later is exercised the day it is added; four of the seven were unexercised before |
 | `_run_catalog_description: a SHORT honest description still passes (#922)` | The false-positive guard: the real catalogues carry honest six-character descriptions, and a rule that fires on the good rows teaches people to write around it |
 | `_run_catalog_description: an exemption reason with no WORD in it is refused (#922)` | One reading of "says nothing", so the exemptions file cannot be answered with a cell the rows may not use |
 | `_run_catalog_description: PASSES a described row (#922)` | Non-vacuity from the other end: a lint that fails everything proves nothing |
@@ -4316,6 +4317,9 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: a PIPE inside a description does not truncate it (#922)` | Splitting from the right would empty a short description and invent a finding the row does not have |
 | `_run_catalog_description: a FENCED example is not structure (#922)` | The convention is documented in doc/test/TEST.md, so the rule has to survive being illustrated where it is written down |
 | `_run_catalog_description: a fenced heading does not close the section it sits in (#922)` | The direction that would be a hole rather than a false positive: orphaned rows belong to no spec, and rows under no section are not scanned at all |
+| `_run_catalog_description: a fenced example does not take the REST of its table out of the rule (#922)` | The hole it closed: a three-line example took every row below it out of a REQUIRED field with both gates green |
+| `_run_catalog_description: a backtick fence is not closed by a tilde one (#922)` | Half of the CommonMark close rule the header states as its contract; without it the fenced example's own rows become findings |
+| `_run_catalog_description: a longer fence is not closed by a shorter one (#922)` | The other half, and the shape a markdown example containing a fence actually takes |
 | `_run_catalog_description: a table under no spec section is not scanned (#922)` | TEST.md's own index tables belong to no spec, and this file's convention section shows an example row |
 | `_run_catalog_description: scans EVERY catalog in the directory, not just one (#922)` | unit.md holds 94% of the suite's tests, so a scan that quietly stopped there would still look busy |
 | `_run_catalog_description: a catalogue the index declares but that is GONE is a finding (#922)` | Load-bearing: deleting a whole catalogue took 12 tests out of the rule with this lint and the drift gate both green |
@@ -4329,6 +4333,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: the clean line says how many rows it checked and excused (#922)` | A green line standing for zero inspected rows is this repo's recurring vacuous pass, and a parked row is not a passing one |
 | `_run_catalog_description: the real doc/test catalogs are clean (#922)` | Dogfood: the rule is applied to the catalogues this change's own rows land in |
 | `_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)` | Read off the documents, not through the driver, so a regression in its duplicate check cannot hide |
+| `_run_catalog_description: the live figures in the driver header are the ones the files declare (#922)` | This lint's subject applied to its own header, which had been quoting a figure measured wrong and a quantity at two different times |
 | `_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)` | Pins the one backfill this change did make, so a later sweep cannot quietly park those rows instead |
 
 ### test/bats/unit/init_installed_paths_spec.bats (6)
