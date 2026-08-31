@@ -544,6 +544,13 @@ EOF
   assert_success
   assert_line "driver = json-file"
   refute_output --partial "web.driver"
+  # `web.driver` is only the SYMPTOM spelling. The property is that the
+  # per-service VALUE is not in the parent dump at all, whatever key it
+  # arrives under: a splitter that resolved `logging.web.driver` to
+  # section `logging` + key `driver` would print `driver = local` here
+  # -- no `web.driver` token, same defect. `show <section>` prints keys
+  # without headers, so the value's absence is the positional claim.
+  refute_line "driver = local"
 }
 
 @test "show logging.<svc> dumps the sub-section it accepts as a valid section (#955)" {
@@ -666,10 +673,36 @@ EOF
   assert_success
   assert_output --partial "[logging.web]"
   refute_output --partial "web.driver"
-  # The sub-section value appears exactly once in the whole dump.
+  # A bare token count cannot separate the negative case from the
+  # positive one: a splitter resolving `logging.web.driver` to section
+  # `logging` + key `driver` prints ONE `driver = local`, spelled
+  # identically, under the WRONG header. So parse the dump into its
+  # blocks and assert WHICH header each value sits under -- that is the
+  # claim in this test's name, and the round-trip property `list` owes
+  # its documented consumers.
+  local _line _cur="" _parent="" _sub=""
+  while IFS= read -r _line; do
+    if [[ "${_line}" == \[*\] ]]; then
+      _cur="${_line#[}"
+      _cur="${_cur%]}"
+    elif [[ "${_cur}" == "logging" ]]; then
+      _parent+="${_line}"$'\n'
+    elif [[ "${_cur}" == "logging.web" ]]; then
+      _sub+="${_line}"$'\n'
+    fi
+  done <<< "${output}"
+  [[ "${_parent}" == *"driver = json-file"* ]] \
+    || fail "[logging] block lost its own key. Block was: ${_parent}"
+  [[ "${_parent}" != *"driver = local"* ]] \
+    || fail "the [logging.web] value was dumped under [logging]. Block was: ${_parent}"
+  [[ "${_sub}" == *"driver = local"* ]] \
+    || fail "[logging.web] block is missing its own key. Block was: ${_sub}"
+  # ... and exactly once in the whole dump, so it is not ALSO restated
+  # somewhere the block parse above does not look.
   local _hits
   _hits="$(printf '%s\n' "${output}" | grep -c '^driver = local$' || true)"
-  [[ "${_hits}" == "1" ]]
+  [[ "${_hits}" == "1" ]] \
+    || fail "expected the sub-section value exactly once, saw ${_hits}"
 }
 
 @test "no setup.conf namespace-key reader re-derives section membership by dot-prefix (#955)" {
