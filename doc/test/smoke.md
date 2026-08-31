@@ -168,7 +168,7 @@ an empty record, has adopted the manifest and broken it, and fails.
 |------|-------------|
 | `the reproducibility manifest is complete` | Both manifest files land in every `-test` stage |
 | `the manifest names the base image this stage was built from` | Non-empty `base_image_ref` value plus a `base_image_pin` verdict — the empty-expansion failure |
-| `the manifest's digest field does not contradict the reference` | - |
+| `the manifest's digest field does not contradict the reference` | Where the record states the digest twice -- inside `base_image_ref` and in `base_image_digest` -- the two must agree; stating only the reference half is a blank field, not a contradiction, and passes |
 | `the manifest records package versions, not just package names` | `dpkg-query -W` name/version pairs, not a bare name list |
 
 ### dist/test/bats/smoke/devel-test/script_help.bats (27)

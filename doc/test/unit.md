@@ -1954,9 +1954,9 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
-| `no shipped text repeats the claim a build disproves (#951)` | - |
-| `the note gives one [build] arg slot per key (#951)` | - |
-| `the apt-layer guard sees the install shapes this template writes (#951)` | - |
+| `no shipped text repeats the claim a build disproves (#951)` | A LABEL does read a digest out of a reference (probed by build); it only cannot BRANCH. Sweeps template, harness, shipped spec, README and CHANGELOG for the categorical claim, and demands the narrow one where the design rests on it |
+| `the note gives one [build] arg slot per key (#951)` | Derived from the note's own `arg_N = KEY=` lines: two paragraphs handing one slot to different keys is silent, because a `[build]` section in `.setup.conf.local` replaces the whole section |
+| `the apt-layer guard sees the install shapes this template writes (#951)` | Reach and restraint of `_DF_APT_INSTALL_RE`: an option taking a separate argument (`-o Dpkg::Options::=` before the subcommand) is an install layer, while `apt-get clean` chains and `pip install` are not |
 | `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | read from the note's own comment window above `ARG BASE_IMAGE=`, since every path it names is also spelled in the code that implements it: the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
 | `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
 | `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |

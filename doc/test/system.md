@@ -148,5 +148,5 @@ at all.
 | `the smoke harness runs the specs as a non-root user` | Fixture specs reading `id -u` and attempting a write into `/lint` prove the runtime identity, not just the Dockerfile's `USER` line |
 | `the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)` | Negative case: a deliberately failing spec fails the build, so a future `\|\| true` cannot turn the entry point into a report that always says green |
 | `a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)` | Builds the harness with a digest-bearing `BASE_IMAGE`; a fixture spec reads `base-image.env` from inside the build and `docker inspect` reads the OCI annotation from outside, so the two sinks are compared on one real image |
-| `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | - |
-| `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | - |
+| `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | The documented pin-by-reference call, with no second argument, must produce an image: `base_image_pin=digest`, an empty digest field, an empty OCI `base.digest` and the digest still on `base.name` |
+| `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | Negative case: the one combination that is false -- both halves stated, naming different digests -- fails in the `-test` stage from the shipped smoke spec, not from a refusal in `sys` |
