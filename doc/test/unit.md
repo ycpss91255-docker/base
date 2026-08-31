@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3087 tests**.
+Unit specs under `test/bats/unit/`: **3097 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3310,7 +3310,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (43)
+### test/bats/unit/changelog_entry_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
@@ -3356,6 +3356,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
+| `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
+| `_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)` | - |
+| `_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)` | - |
+| `_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)` | - |
+| `_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)` | - |
+| `_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)` | - |
+| `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | - |
+| `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
+| `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)

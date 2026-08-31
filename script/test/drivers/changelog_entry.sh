@@ -135,6 +135,42 @@
 # the dangling marker and the entries it was hiding, not trade one for the
 # other.
 
+# Two more shapes this lint refuses, neither of them about length. Both
+# come out of one mechanism. Landing branches serially against `strict`
+# protection means every branch merges origin/main into itself, and when
+# two branches each APPEND to the [Unreleased] section git resolves the
+# append by keeping BOTH sides. That is not a conflict, so nothing prompts
+# a human: the section quietly grows a second verbatim copy of an entry,
+# or a second '### <category>' heading. Both had shipped on main by the
+# time this was written, and the same shape had produced a duplicated
+# entry four times in one cycle, caught by eye every time.
+#
+#   - A DUPLICATE ENTRY: a lead bullet whose whitespace-collapsed text is
+#     byte-identical to a lead bullet already opened in the same release
+#     block. The unit is the LEAD bullet, not the whole entry: a copy that
+#     one side later edits -- a typo fixed in the body, a sentence added
+#     -- still opens with the same sentence, so a rule demanding the whole
+#     entry match is a rule the first edit mutes. The whole collapsed
+#     entry is compared too, as a fallback: that is what still catches a
+#     copy someone re-wrapped at a different column, where the lead LINE
+#     is no longer the same string. Comparing collapsed text rather than
+#     raw lines is what makes indentation and a stripped trailing space
+#     irrelevant to both.
+#   - A REPEATED CATEGORY HEADING: '### <category>' opening twice inside
+#     one '## [...]' block. The block stops reading as one grouped list --
+#     a reader scanning '### Added' finds half the additions and no sign
+#     the other half exists.
+#
+# Both report BOTH line numbers, the offending line and the line it
+# duplicates. The fix is a comparison of two places, and a message naming
+# one of them leaves the reader to find the other by eye, which is the
+# manual step this check exists to remove.
+#
+# Both are scoped to [Unreleased] for the reason the cap is: a released
+# section is a historical record, and a duplicate that shipped is a fact
+# about what shipped. Rewriting it falsifies the record, so a duplicate
+# planted in a released section is deliberately NOT a finding.
+
 # ── Changelog entry length lint ──────────────────────────────────────────────
 
 # The scanned file and the section, repo-root-relative. Both must exist: a
@@ -181,13 +217,24 @@ readonly _CHANGELOG_ENTRY_ALLOW_END='changelog-entry-lint: allow-end'
 # shell's own expansion would not. Pinning LC_ALL for the two filters keeps
 # them byte-oriented too, which is what makes dropping the range safe.
 _changelog_entry_measure() {
-  local _joined _chars
+  local _chars
+  _chars="$(_changelog_entry_collapse "$@" | LC_ALL=C tr -d '\200-\277' | wc -c)"
+  printf '%s' "$(( _chars ))"
+}
+
+# _changelog_entry_collapse <line>... -- the lines stripped, joined with
+# single spaces and with internal whitespace runs collapsed. The one
+# definition of "the same text" in this driver: the length cap counts what
+# this returns, and the duplicate checks compare what it returns. They have
+# to agree, because an author who re-wraps a line must neither buy budget
+# nor turn a duplicate into two distinct entries.
+_changelog_entry_collapse() {
+  local _joined
   _joined="$(printf '%s\n' "$@" | LC_ALL=C tr -s '[:space:]' ' ')"
   # tr leaves one leading / trailing space where the input had any.
   _joined="${_joined# }"
   _joined="${_joined% }"
-  _chars="$(printf '%s' "${_joined}" | LC_ALL=C tr -d '\200-\277' | wc -c)"
-  printf '%s' "$(( _chars ))"
+  printf '%s' "${_joined}"
 }
 
 # _changelog_entry_trim <line> -- the line with leading and trailing
@@ -280,7 +327,7 @@ _changelog_entry_fences() {
 }
 
 _run_changelog_entry() {
-  echo "--- Running changelog entry length lint ---"
+  echo "--- Running changelog entry lint (length / duplicates) ---"
   local _abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
 
   if [[ ! -f "${_abs}" ]]; then
@@ -407,8 +454,13 @@ _run_changelog_entry() {
   # a fenced block. Inside one the same characters are an example of
   # markdown, so they neither start nor stop anything, while the text still
   # joins the entry it sits under.
-  local _entries=0 _j _k _len _label
+  local _entries=0 _j _k _len _label _lead _full
   local -A _seen=()
+  # <collapsed text> -> the 1-based line the entry first opened on, so a
+  # repeat can name the line it repeats rather than just itself. Keyed on
+  # the lead bullet and, as a fallback, on the whole entry.
+  local -A _lead_first=()
+  local -A _full_first=()
   local -a _body=()
   local -a _body_idx=()
   for (( _i = _start; _i < _end; _i++ )); do
@@ -457,6 +509,30 @@ _run_changelog_entry() {
       _violations=$(( _violations + 1 ))
     fi
 
+    # The same lead bullet twice in one release block is a duplicated
+    # entry, not two entries: an append-vs-append merge keeps both sides
+    # without conflicting, so this arrives with nothing for a reviewer to
+    # resolve. The whole-entry key behind it catches the copy that was
+    # re-wrapped, where the lead LINE stopped being the same string. Both
+    # compare collapsed text, so indentation never decides the answer.
+    _lead="$(_changelog_entry_collapse "${_lines[_i]}")"
+    _full="$(_changelog_entry_collapse "${_body[@]}")"
+    if [[ -n "${_lead_first["${_lead}"]:-}" ]]; then
+      printf '%s:%d: duplicate entry -- this lead bullet already opened at %s:%s -- %s\n' \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" \
+        "${_CHANGELOG_ENTRY_FILE}" "${_lead_first["${_lead}"]}" \
+        "${_body[0]:0:72}"
+      _violations=$(( _violations + 1 ))
+    elif [[ -n "${_full_first["${_full}"]:-}" ]]; then
+      printf '%s:%d: duplicate entry -- the same text, re-wrapped, already opened at %s:%s -- %s\n' \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" \
+        "${_CHANGELOG_ENTRY_FILE}" "${_full_first["${_full}"]}" \
+        "${_body[0]:0:72}"
+      _violations=$(( _violations + 1 ))
+    else
+      _lead_first["${_lead}"]=$(( _i + 1 ))
+      _full_first["${_full}"]=$(( _i + 1 ))
+    fi
     # Orphaned wrap lines within this entry. A word is orphaned when it is
     # alone on its line, the very next SOURCE line carries more of the same
     # paragraph, and the two would fit on one line. Contiguity separates
@@ -505,12 +581,35 @@ _run_changelog_entry() {
     _violations=$(( _violations + 1 ))
   done
 
+  # Pass 4: a category opens at most once per release block. The second
+  # '### Added' splits one grouped list into two that read as unrelated,
+  # and it arrives by the same silent append-vs-append merge. Headings
+  # inside a fenced example are inert here as everywhere else, and a
+  # heading inside an allow region is suppressed like the entries are.
+  local -A _heading_first=()
+  local _headings=0 _heading
+  for (( _i = _start; _i < _end; _i++ )); do
+    [[ -n "${_fenced[${_i}]:-}" ]] && continue
+    [[ -n "${_skip[${_i}]:-}" ]] && continue
+    [[ "${_lines[_i]}" == '### '* ]] || continue
+    _heading="$(_changelog_entry_collapse "${_lines[_i]}")"
+    _headings=$(( _headings + 1 ))
+    if [[ -n "${_heading_first["${_heading}"]:-}" ]]; then
+      printf '%s:%d: repeated category heading -- %s already opened at %s:%s\n' \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" "${_heading}" \
+        "${_CHANGELOG_ENTRY_FILE}" "${_heading_first["${_heading}"]}"
+      _violations=$(( _violations + 1 ))
+    else
+      _heading_first["${_heading}"]=$(( _i + 1 ))
+    fi
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_changelog_entry \
-      "${_violations} over-long entry / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
+      "${_violations} over-long entry / duplicate entry / repeated category heading / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A lead bullet repeating another word for word, and a '### <category>' heading opening twice in one release block, are refused naming BOTH lines: merging origin/main into a branch that appended to '${_CHANGELOG_ENTRY_HEADING}' keeps both sides without conflicting, so a duplicate lands with nothing to review -- fold the second copy into the first. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
     return 1
   fi
 
@@ -520,11 +619,11 @@ _run_changelog_entry() {
     # and an empty section and a fully suppressed one are different facts,
     # so they get different sentences.
     if [[ "${_suppressed}" -gt 0 ]]; then
-      echo "changelog entry lint: no entries checked -- all ${_suppressed} in '${_CHANGELOG_ENTRY_HEADING}' sit inside an allow region"
+      echo "changelog entry lint: no entries checked -- all ${_suppressed} in '${_CHANGELOG_ENTRY_HEADING}' sit inside an allow region (${_headings} category headings compared)"
     else
-      echo "changelog entry lint: '${_CHANGELOG_ENTRY_HEADING}' holds no entries -- nothing to check"
+      echo "changelog entry lint: '${_CHANGELOG_ENTRY_HEADING}' holds no entries -- nothing to check (${_headings} category headings compared)"
     fi
     return 0
   fi
-  echo "changelog entry lint: clean (${_entries} entries checked, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
+  echo "changelog entry lint: clean (${_entries} entries checked for length and for duplication, ${_headings} category headings compared, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
 }
