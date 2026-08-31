@@ -184,16 +184,55 @@ _write() {
 # Population: a scan that found nothing is not a pass
 # ════════════════════════════════════════════════════════════════════
 
-@test "_run_errexit_bang: FAILS when the scan root is absent (#956)" {
+@test "_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)" {
   rm -rf "${SCRATCH}/test/bats"
   run _run_errexit_bang
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"test/bats"* ]]
+  [[ "${output}" == *"no *.bats"* ]]
 }
 
-@test "_run_errexit_bang: FAILS when the scan root holds no spec files (#956)" {
+@test "_run_errexit_bang: FAILS when the spec directories are all empty (#956)" {
+  # The directories exist, the specs do not. Same verdict: the population
+  # is the FILES, and a walk that found none is not a clean tree.
   run _run_errexit_bang
   [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no *.bats"* ]]
+}
+
+@test "_run_errexit_bang: does NOT scan the released-tree archives (#956)" {
+  # .prev-release/ is gitignored and materialised by `git archive <tag>`:
+  # already-shipped history this branch cannot fix. It is one of the two
+  # pruned names, and the prune is what keeps a released tree from failing
+  # today's gate.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "clean" {' \
+    '  true' \
+    '}'
+  _write ".prev-release/v0.9.5/test/bats/unit/old_spec.bats" \
+    '@test "shipped inert assertion" {' \
+    '  ! grep -q A "${_f}"' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: the clean line names every root it derived (#956)" {
+  # The population is reported, not assumed: a tree that quietly stops
+  # being scanned shows up as a missing root in this line.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "clean" {' \
+    '  true' \
+    '}'
+  _write "dist/test/bats/smoke/shared/entrypoint.bats" \
+    '@test "also clean" {' \
+    '  true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"2 spec file(s)"* ]]
+  [[ "${output}" == *"dist"* ]]
+  [[ "${output}" == *"test"* ]]
 }
 
 @test "_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)" {

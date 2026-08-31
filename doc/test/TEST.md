@@ -90,7 +90,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `arch-literal` | no bare architecture literal in a shipped Dockerfile under `dist/` or `dockerfile/`; architecture comes from `ARG TARGETARCH`, and a mapping onto an upstream asset spelling opts out with a stated reason | `lint-static (arch-literal)` | ungated |
 | `bash-source-guard` | no undefaulted `BASH_SOURCE` self-location read under `dist/` or `script/` | `lint-static (bash-source-guard)` | ungated |
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
-| `errexit-bang` | no `!` statement in a bats body outside its last line, where bash's errexit exemption makes the assertion inert | `lint-static (errexit-bang)` | ungated |
+| `errexit-bang` | no `!` statement outside its last line in ANY `*.bats` body in the repo (the population is derived by walking the tree, not listed: `test/bats/` and the shipped `dist/test/bats/smoke/` both count), where bash's errexit exemption makes the assertion inert | `lint-static (errexit-bang)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |

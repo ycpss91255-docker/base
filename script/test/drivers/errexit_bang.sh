@@ -27,10 +27,24 @@
 # found by auditing the whole tree by hand -- for the second time in one
 # review round. The rule is mechanical, so it stops being an audit.
 #
-# Scope: *.bats under test/bats/ -- the tree where a test body's return
-# status is the verdict. NOT dist/ or script/: a `!` in ordinary shell is
-# usually an `if` condition or a deliberate errexit escape, both of which
-# are correct.
+# Scope: EVERY *.bats file in the repo, wherever it sits -- the files
+# where a test body's return status is the verdict. The population is
+# DERIVED at run time (one `find` over ${REPO_ROOT}), never listed: the
+# repo has two live bats trees today (test/bats/ and the shipped
+# dist/test/bats/smoke/, which `just test smoke` runs and the .base
+# subtree vendors into every downstream repo), and a hand-listed roster
+# would exempt the third one the day it is added -- which is the whole
+# job of a guard named for a set.
+#
+# Ordinary *.sh under dist/ or script/ is NOT in scope and needs no
+# exclusion to stay out: a `!` there is usually an `if` condition or a
+# deliberate errexit escape, both correct, and only *.bats is collected.
+#
+# Two directories ARE pruned, and both are non-source: `.git` (VCS
+# internals) and `.prev-release/` (gitignored copies of ALREADY-RELEASED
+# trees that script/test/prepare-prev-release.sh materialises with `git
+# archive`, so a finding there is unfixable history, not a defect on this
+# branch). Nothing else is skipped.
 #
 # What is a violation: inside a `@test ... {` body, a STATEMENT whose
 # first token is `!`, when the statement does not end on the body's last
@@ -53,11 +67,15 @@
 # would tell you about). The tree has neither today, and a heredoc
 # tracker would be a second bash parser.
 #
-# Population: the scan root must exist and must yield at least one spec,
-# and every `@test` header found by a plain text scan must correspond to
-# a body this parser actually opened. Without that cross-check a header
-# whose `{` sits on the next line would make its whole body invisible and
-# the lint would pass by not looking.
+# Population: the find must SUCCEED (its status is captured, not thrown
+# away by a pipeline) and must yield at least one spec, and every `@test`
+# header found by a plain text scan must correspond to a body this parser
+# actually opened. Without that cross-check a header whose `{` sits on the
+# next line would make its whole body invisible and the lint would pass by
+# not looking. Each scanned root is populated by construction -- a root
+# exists in the roster only because a spec was found inside it -- and the
+# clean line prints the file and root counts so a shrinking population is
+# visible rather than silent.
 #
 # Allowlist: an explicit, region-delimited opt-out rather than a per-file
 # exclusion, so a NEW inert assertion elsewhere in an allowlisted file is
@@ -71,9 +89,11 @@
 
 # ── Non-final `!` statement lint ─────────────────────────────────────────────
 
-# The scanned tree, repo-root-relative. It must exist and must hold
-# specs: a missing or empty root would make the scan pass vacuously.
-readonly _ERREXIT_BANG_SCAN_ROOT='test/bats'
+# Directory NAMES pruned from the walk. Both are non-source (see the
+# header): VCS internals, and the gitignored released-tree archives. This
+# is not a roster of what is scanned -- what is scanned is every *.bats
+# the walk finds.
+readonly _ERREXIT_BANG_PRUNE_DIRS=('.git' '.prev-release')
 
 # The test-body opener. The `{` must close the line -- a header that does
 # not match is not skipped quietly, it is counted and reported by the
@@ -196,27 +216,69 @@ _errexit_bang_scan_file() {
   fi
 }
 
-_run_errexit_bang() {
-  echo "--- Running non-final bang-statement lint ---"
-  local _abs_root="${REPO_ROOT}/${_ERREXIT_BANG_SCAN_ROOT}"
-  if [[ ! -d "${_abs_root}" ]]; then
-    _die ci_errexit_bang \
-      "scan root '${_ERREXIT_BANG_SCAN_ROOT}/' not found under ${REPO_ROOT} -- the lint would pass vacuously. Point it at the bats tree, where a test body's return status is the verdict."
-    return 1
+# _errexit_bang_collect <files_outvar>
+#   Fill <files_outvar> with every *.bats in the repo, sorted, pruning the
+#   non-source directories. find's status is CAPTURED (the walk writes to a
+#   temp file rather than into a pipeline, whose status belongs to `sort`),
+#   because a walk that died half way through would otherwise hand the lint
+#   a short list and read as "there is less to check".
+_errexit_bang_collect() {
+  local -n _ebc_files="${1}"
+  local -a _prune=()
+  local _d
+  for _d in "${_ERREXIT_BANG_PRUNE_DIRS[@]}"; do
+    [[ "${#_prune[@]}" -eq 0 ]] || _prune+=('-o')
+    _prune+=('-name' "${_d}")
+  done
+
+  local _tmp _st=0
+  _tmp="$(mktemp)" || return 1
+  find "${REPO_ROOT}" \( "${_prune[@]}" \) -prune -o \
+    -name '*.bats' -type f -print0 > "${_tmp}" || _st=$?
+  if [[ "${_st}" -ne 0 ]]; then
+    rm -f "${_tmp}"
+    return "${_st}"
   fi
 
-  local -a _files=()
   local _file
   while IFS= read -r -d '' _file; do
-    _files+=("${_file}")
-  done < <(find "${_abs_root}" -name '*.bats' -type f -print0 2>/dev/null \
-    | sort -z)
+    _ebc_files+=("${_file}")
+  done < <(sort -z < "${_tmp}")
+  rm -f "${_tmp}"
+}
 
-  if [[ "${#_files[@]}" -eq 0 ]]; then
+_run_errexit_bang() {
+  echo "--- Running non-final bang-statement lint ---"
+
+  local -a _files=()
+  local _find_st=0
+  _errexit_bang_collect _files || _find_st=$?
+  if [[ "${_find_st}" -ne 0 ]]; then
     _die ci_errexit_bang \
-      "no *.bats under ${_ERREXIT_BANG_SCAN_ROOT}/ -- a scan with no population is not a pass."
+      "the walk for *.bats under ${REPO_ROOT} failed (exit ${_find_st}) -- a scan that could not finish is not a scan that found nothing."
     return 1
   fi
+
+  local _file
+  if [[ "${#_files[@]}" -eq 0 ]]; then
+    _die ci_errexit_bang \
+      "no *.bats anywhere under ${REPO_ROOT} (pruning ${_ERREXIT_BANG_PRUNE_DIRS[*]}) -- a scan with no population is not a pass. This lint derives its population from the tree; an empty one means the specs moved, not that they are clean."
+    return 1
+  fi
+
+  # The roots are derived FROM the files, so each is populated by
+  # construction; they are collected only to report what was covered.
+  local -a _roots=()
+  local _rel_dir _root _seen
+  for _file in "${_files[@]}"; do
+    _rel_dir="${_file#"${REPO_ROOT}"/}"
+    _rel_dir="${_rel_dir%%/*}"
+    _seen=0
+    for _root in ${_roots[@]+"${_roots[@]}"}; do
+      [[ "${_root}" == "${_rel_dir}" ]] && _seen=1 && break
+    done
+    [[ "${_seen}" -eq 1 ]] || _roots+=("${_rel_dir}")
+  done
 
   local _headers=0 _bodies=0 _rel _row _cnt _cst
   local -a _rows=()
@@ -247,7 +309,7 @@ _run_errexit_bang() {
   done
   if [[ "${_headers}" -ne "${_bodies}" ]]; then
     _die ci_errexit_bang \
-      "${_headers} '@test' header(s) under ${_ERREXIT_BANG_SCAN_ROOT}/ but only ${_bodies} body/bodies the parser could open. A header whose '{' is not the last character of its line hides its whole body from this lint. Put the opening brace at the end of the '@test' line."
+      "${_headers} '@test' header(s) across ${#_files[@]} spec file(s) but only ${_bodies} body/bodies the parser could open. A header whose '{' is not the last character of its line hides its whole body from this lint. Put the opening brace at the end of the '@test' line."
     return 1
   fi
 
@@ -256,8 +318,8 @@ _run_errexit_bang() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_errexit_bang \
-      "${_violations} non-final '!' statement(s) / unbalanced allow marker(s) under ${_ERREXIT_BANG_SCAN_ROOT}/. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as a test body's last statement -- anywhere else the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
+      "${_violations} non-final '!' statement(s) / unclosed body/bodies / unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as a test body's last statement -- anywhere else the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
     return 1
   fi
-  echo "non-final bang-statement lint: clean"
+  echo "non-final bang-statement lint: clean (${#_files[@]} spec file(s) under ${_roots[*]}, ${_headers} test bodies)"
 }
