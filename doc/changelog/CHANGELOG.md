@@ -97,15 +97,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
-- **the reusable build worker's jobs no longer inherit the caller's whole
-  token grant (closes #957)** -- `path-filter`, `build` and `docker-build`
-  declared no `permissions:`, so each ran with the CALLING repo's grant. All
-  three now declare `contents: read`, asserted as an exact entry set so an
-  added scope fails too. No job names `packages: write` -- a called job
+- **no job of any reusable worker inherits the caller's whole token grant
+  (closes #957)** -- eight jobs across four `workflow_call` workflows
+  declared no `permissions:`, so each ran with the CALLING repo's grant.
+  Every job now declares its own, asserted as an exact entry set over a job
+  list DERIVED from each file, so a job added later is scanned rather than
+  exempted. No build-worker job names `packages: write` -- a called job
   asking for a scope its caller did not grant fails the run outright -- so
-  `cache_backend: registry` is unreachable, and the preflight hint a failing
-  caller reads says that instead of asking for a grant that cannot help. The
-  seeded `main.yaml` moves `contents: write` onto `call-release`, which
+  `cache_backend: registry` is unreachable, and the preflight hint says so.
+  The seeded `main.yaml` moves `contents: write` onto `call-release`, which
   reaches newly created repos only.
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in

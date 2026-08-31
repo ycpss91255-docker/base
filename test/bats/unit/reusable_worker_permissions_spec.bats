@@ -12,9 +12,10 @@
 # caps the job at what it names (the caller may cap it lower, never the
 # other way).
 #
-# #957 was filed against build-worker.yaml and fixed there. This spec
-# exists because the guard that proved it was written as a loop over that
-# file's five job names, which exempted the sibling worker next door:
+# The originating issue was filed against build-worker.yaml and fixed
+# there. This spec exists because the guard that proved it was written as a
+# loop over that file's five job names, which exempted the sibling worker
+# next door:
 # multi-distro-build-worker.yaml had three jobs and no `permissions:` line
 # anywhere, and nothing was red. The population here is DERIVED -- every
 # `*.yaml` under the workflow directory whose `on:` mapping declares
@@ -43,8 +44,8 @@ setup() {
 # output otherwise.
 #
 # The floor is four -- the reusable workers the repo ships today -- and
-# build-worker.yaml is named because it is the file #957 was filed
-# against; both are a floor, never a roster. Every assertion below runs
+# build-worker.yaml is named because it is the file the originating issue
+# was filed against; both are a floor, never a roster. Every assertion runs
 # over whatever the derivation returns.
 _assert_reusable_worker_population() {
   local _files _count
@@ -100,8 +101,8 @@ _reusable_workers_with_no_jobs() {
 }
 
 @test "reusable workers: no job inherits the caller's grant (#957)" {
-  # The property #957 is about, over every reusable worker rather than the
-  # one the issue happened to name. A job listed here runs under the
+  # The property the originating issue is about, over every reusable worker
+  # rather than the one it happened to name. A job listed here runs under the
   # CALLING repo's whole token: whatever that repo granted its calling job
   # -- `contents: write` to cut a release, `packages: write` to publish --
   # reaches a job of base's that never asked for it.

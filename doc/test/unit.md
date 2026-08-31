@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3097 tests**.
+Unit specs under `test/bats/unit/`: **3099 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -491,7 +491,7 @@ on doc-only PRs).
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 | #925 runtime gate read from the Dockerfile: a `Resolve runtime stages` step delegates to `runtime_stages.sh`, exports `build_runtime` to `GITHUB_OUTPUT`, both runtime build steps gate on `steps.runtime.outputs.build_runtime`, and no build step gates on `inputs.build_runtime` directly | 4 |
 | #802 push worker logic down: `compute-matrix` delegates to `compute_matrix.sh` (no inline platform fan-out) and version-matches it via `job_workflow_sha` into `.worker-base`, `Compute cache scope` delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT / HARDWARE, no inline derivation), build job checks out base worker source into `.worker-base` | 4 |
-| #957 per-job least privilege: every job in the worker declares its own `permissions:` block (a bare job inherits the CALLER's grant), no job names `packages: write` (a called job that asks for a scope its caller did not grant fails the run instead of intersecting down), every job's permission ENTRIES are pinned as an exact set (`contents: read` and nothing else, comments stripped so a rationale quoting a grant cannot stand in for one), and the `build` job's rationale never cites the preflight probe as proof of a caller's package grant (the preflight is capped at `contents: read` itself) | 5 |
+| #957 per-job least privilege, over a job list DERIVED from the workflow (never a roster in the spec -- the five-name loop this replaced stayed green when a sixth job asking `contents: write` was appended): every job declares its own `permissions:` block (a bare job inherits the CALLER's grant), no job names `packages: write` (a called job that asks for a scope its caller did not grant fails the run instead of intersecting down), no job's entry set is anything but `contents: read` (comments stripped so a rationale quoting a grant cannot stand in for one; a job with no block surfaces as `<no entries>` and fails the same way), and the `build` job's rationale never cites the preflight probe as proof of a caller's package grant (the preflight is capped at `contents: read` itself). Each of the four asserts its own population first -- a floor on the derived job count, cross-checked against a second reading of the file -- so an extractor that stopped matching fails instead of reporting a clean scan | 5 |
 
 ### test/bats/unit/build_worker_compute_matrix_spec.bats (8)
 
@@ -3556,3 +3556,24 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
+
+### test/bats/unit/reusable_worker_permissions_spec.bats (2)
+
+Least privilege across EVERY reusable workflow in `.github/workflows/`,
+rather than the one file #957 was filed against. The population is derived:
+each `*.yaml` whose `on:` mapping declares `workflow_call`, so a reusable
+worker added tomorrow is covered the day it lands. That derivation is what
+found the rest of the gap -- `multi-distro-build-worker.yaml` had three jobs
+and no `permissions:` line anywhere, and `publish-worker`'s `compute-matrix`
+and `release-worker`'s `release` were two more, all of them running on the
+CALLING repo's whole token while build-worker.yaml's own guard was green.
+
+Which scopes a job may name is deliberately NOT asserted here (publish-worker
+holds `packages: write` legitimately, release-worker `contents: write`); the
+exact-set assertions for one worker's grants live with that worker's spec.
+The property is that the grant is DECLARED rather than inherited.
+
+| Test | Description |
+|------|-------------|
+| `reusable workers: every one of them yields at least one job (#957)` | The guard for the guard: every assertion here is "nothing came back wrong", which an extractor returning nothing at all satisfies perfectly. Pairs with the population floor (at least the 4 reusable workers the repo ships, build-worker.yaml among them) that both tests assert before reading a scan |
+| `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |

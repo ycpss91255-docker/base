@@ -36,8 +36,8 @@ the unit `tui_spec`.
 | `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
 | `new repo: .github/workflows/base-version-monitor.yaml exists (#777)` | - |
-| `new repo: main.yaml grants contents: write on the release job only (#957)` | #62 release perms, job-scoped |
-| `new repo: main.yaml leaves the build call at contents: read (#957)` | #957 build call read-only |
+| `new repo: main.yaml grants contents: write on the release job only (#957)` | "only" asserted over the emitted file's OWN job list as an exact per-job entry set, plus a pinned grep status for the absent workflow-scope block. Inspecting the two known job blocks left the word unbacked: a third seeded job carrying two write grants kept all 62 specs green |
+| `new repo: main.yaml leaves the build call at contents: read (#957)` | The build call's entry set is exactly `contents: read`, so an added scope fails as loudly as a widened one; both tests assert the derived job population first |
 | `new repo: .gitignore exists` | gitignore |
 | `new repo: .dockerignore exists (#604)` | - |
 | `new repo: .dockerignore contains compose.yaml (derived artifact) (#604)` | - |

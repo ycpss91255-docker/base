@@ -660,9 +660,10 @@ _jobs_without_permissions() {
   ' "${WF}"
 }
 
-# The jobs this spec's #957 assertions run over: derived from the workflow
-# file by the shared `yaml_job_names`, never listed here. `_assert_worker_
-# job_population` is what every one of those assertions calls FIRST, because
+# The jobs this spec's least-privilege assertions run over: derived from the
+# workflow file by the shared `yaml_job_names`, never listed here.
+# `_assert_worker_job_population` is what every one of them calls FIRST,
+# because
 # an empty scan and a clean scan are the same output otherwise -- an
 # extractor that stopped matching, or a file that moved, would report "no
 # job grants too much" from zero jobs.
