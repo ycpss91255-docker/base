@@ -717,6 +717,26 @@ _assert_generator_is_a_noop_on() {
   _assert_same_tree "${_baseline}/doc/readme" "${SCRATCH}/doc/readme"
 }
 
+# _assert_same_tree <expected> <actual> -- equal, and SAY WHAT DIFFERED.
+#
+# The comparison used to be `run diff ...` followed by `[ "${status}" -eq 0
+# ]`, which threw ${output} away. When it failed, bats printed
+# `[ "${status}" -eq 0 ]' failed and nothing else -- which is verbatim the
+# symptom quoted in issue #965, and the reason its reader concluded "flake"
+# and re-ran rather than read. The diff itself named a sync stamp whose
+# second hash differed, i.e. a verdict about the generator.
+#
+# A failure that does not carry its evidence teaches re-running. That is the
+# habit this whole issue exists to break, so it costs one line to close.
+_assert_same_tree() {
+  local _expected="${1:?BUG: _assert_same_tree expects an expected tree}"
+  local _actual="${2:?BUG: _assert_same_tree expects an actual tree}"
+  local _diff
+  _diff="$(diff -r "${_expected}" "${_actual}" 2>&1)" && return 0
+  fail "the generator did not return the bytes it was given:
+${_diff}"
+}
+
 # _plant_readme_source <dir> -- a four-file stand-in for the tracked set.
 # The capture helper does not read the CONTENT, so the cases that drive it
 # do not need the real READMEs and do not pay for copying them.
