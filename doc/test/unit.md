@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3090 tests**.
+Unit specs under `test/bats/unit/`: **3099 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1801,7 +1801,7 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
-### test/bats/unit/watchdog_supervision_spec.bats (7)
+### test/bats/unit/watchdog_supervision_spec.bats (8)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -1810,7 +1810,13 @@ SIGTERM → grace → SIGKILL (a SIGTERM-ignoring service is killed within the
 grace, no unbounded-`wait` hang), whole-subtree kill via `setsid` (no
 orphaned grandchild leaks per restart), give-up against a wedged service
 still reaching container-exit, and the `docker stop` SIGTERM forward to
-the service group. These drive real background processes / sleeps /
+the service group. Every wait is event-driven (poll for the pid file, the
+ready marker, the process going away) rather than a fixed `sleep`, and the
+forward harness hands the supervisor a log file instead of the case's own
+output descriptor, so a failure costs what its ceiling says it costs: a
+service that never becomes ready used to report NOT_READY in two seconds
+and then hold the case open for another five minutes, past its own
+`timeout 60` (#965). These drive real background processes / sleeps /
 signals, so the file is **kcov-fragile** (each test carries the
 `[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
 `bats-fragile`, ADR-00000008 / #613 / #677).
@@ -2229,7 +2235,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/readme_sync_spec.bats (31)
+### test/bats/unit/readme_sync_spec.bats (33)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
 `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
@@ -2244,7 +2250,13 @@ silencing case (refs #873) -- edit the English, run the generator, expect a
 green tree -- and asserts it does not work, because recording only the
 English hash made a bare re-stamp indistinguishable from a re-translation.
 Driven over throwaway fixture trees, plus a real-tree pair proving
-`doc/readme/` is stamped and clean today.
+`doc/readme/` is stamped and clean today. That pair asserts on a CAPTURE of
+the tracked files, never on the tree itself: the capture is taken twice and
+accepted only when both passes agree, because four sequential reads of a
+tree this spec does not own can return a `README.md` the translations
+beside it were never stamped against, and the generator then correctly
+refuses to re-stamp -- reporting a defect in the subject that was really a
+defect in the capture (#965).
 
 | Test | Description |
 |------|-------------|
@@ -2279,6 +2291,8 @@ Driven over throwaway fixture trees, plus a real-tree pair proving
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
+| `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
+| `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
@@ -3536,3 +3550,35 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
+
+### test/bats/unit/spec_source_isolation_spec.bats (6)
+
+Two repo-wide invariants over `test/bats/`: a spec may READ the live
+checkout -- that is where its subject lives -- but may not WRITE there, and
+may not settle an assertion by COMPARING against it. "Every spec that
+touches `/source`" is not the population: 124 of the 128 spec files
+reference it (measured 2026-08-31; the same figures are stated in the
+spec's own header, and a drift between them is drift, not a rounding).
+What separates the defect is who owns the answer, and by that measure a
+live path as a comparison operand had exactly one instance (the
+`readme_sync` case that failed five gate runs) and a write into the live
+tree had none. Zero is worth pinning, because every other spec's read is
+safe only while nothing writes there.
+
+The scans follow one rule -- match the live path in the positions a command
+MUTATES. `rm` / `mv` / `touch` / `sed -i` mutate every path they name, so
+either operand counts; `cp` and `ln` mutate only their last, so they are
+matched at the END of the command, which is what lets `ln -s /source/... "${SANDBOX}/x"`
+(how most of this suite gets its subject) stay silent. Like its sibling
+`spec_subject_guard_spec.bats`, each invariant pins the scan as well as the
+result: a population floor, `find` under `pipefail`, and grep status
+exactly 1 (scanned, no match) rather than 2 (could not scan).
+
+| Test | Description |
+|------|-------------|
+| `no spec writes into the live checkout it does not own (#965)` | One writer would make every other spec's read of the live tree racy at once |
+| `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
+| `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
+| `the write scan sees every spelling of a write it claims to (#965)` | Redirect, in-place sed, both operand positions, and a cp / ln destination |
+| `the write scan stays silent on a live path a spec only READS (#965)` | A rule that cannot stay quiet on the suite's own setup does not survive to catch anything |
+| `the comparison scan sees the line it was written for, in both operand positions (#965)` | A guard that cannot match the defect that produced it is decoration |

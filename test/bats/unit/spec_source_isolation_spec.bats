@@ -8,10 +8,19 @@
 # own suite and cost two or three full gate runs per landed branch.
 # The obvious framing -- "audit every spec that touches /source" -- is not
 # actionable: all but a handful of the specs reference /source -- 124 of the
-# 128 spec files when this was written -- because that is where the script
+# 128 spec files, measured 2026-08-31 -- because that is where the script
 # under test, the tracked workflow being asserted on, and the real tree the
 # "clean today" guards lint all live. A read of the subject is the point of
 # a unit test, not a defect.
+#
+# That pair of figures is stated twice, here and in doc/test/unit.md, and
+# nothing derives one from the other: the derived-figures lint pins two
+# named constants read back out of the code that defines them, over the
+# prose surfaces a maintainer navigates by (README.md, CONTEXT.md, the
+# localized READMEs, dist/**/*.sh), and doc/test/ is not one of them. Both
+# copies carry the date so a difference reads as drift rather than as a
+# rounding; teaching the lint a third figure is a change to that lint, not
+# to this file.
 #
 # What separates the defect from the population is OWNERSHIP of the answer.
 # `diff -r /source/doc/readme "${SCRATCH}/doc/readme"` asked the generator a
