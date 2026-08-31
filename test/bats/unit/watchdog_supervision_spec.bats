@@ -15,13 +15,49 @@ bats_require_minimum_version 1.5.0
 
 WD="/source/dist/script/docker/runtime/watchdog.sh"
 
+# How far past its own declared ceiling a case may run before the bound
+# guard in teardown calls it a hang rather than a slow machine. Generous on
+# purpose: the thing it separates is a case legitimately running to its own
+# timeout on a 32-way parallel machine from one held open by a survivor for
+# the whole lifetime of its fixture -- 45s against 301s, measured. A tight
+# margin here would buy nothing and would make this guard the next flake.
+readonly _CASE_BOUND_MARGIN=30
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   TMP_DIR="$(mktemp -d)"
+  # The two halves of the bound guard in teardown: when this case started,
+  # and the ceiling its own harness declared (0 until it declares one).
+  _CASE_T0="${SECONDS}"
+  _CASE_CEILING=0
 }
 
+# teardown -- the file-wide bound. Every case here starts real processes,
+# and the way that goes wrong is not a wrong answer but NO answer: bats
+# reads a case's output from one descriptor, so anything the case started
+# that outlives it and inherited that descriptor keeps `run` waiting for
+# EOF long after the verdict was printed. The case then costs its FIXTURE's
+# lifetime rather than its own timeout -- 301s against a stated 45 -- and a
+# reader takes that for a hung suite rather than for a failed test.
+#
+# Asserting it here rather than case by case is the point: it holds for the
+# fourth sibling written next year without that sibling having to remember,
+# and it is a measurement rather than a rule about how a case is spelled.
 teardown() {
+  local _elapsed=$(( SECONDS - _CASE_T0 ))
   rm -rf "${TMP_DIR}"
+  _within_case_bound "${_elapsed}" "${_CASE_CEILING}" "${_CASE_BOUND_MARGIN}" || fail \
+    "this case returned after ${_elapsed}s, past the ${_CASE_CEILING}s ceiling its own harness declared (+${_CASE_BOUND_MARGIN}s margin): something it started outlived it and is still holding the descriptor bats reads its output from"
+}
+
+# _within_case_bound <elapsed> <ceiling> <margin> -- the arithmetic above,
+# split out so it can be exercised. A bound guard that is never asked a
+# question it should answer NO to is a net with the bottom out.
+_within_case_bound() {
+  local _elapsed="${1:?BUG: _within_case_bound expects <elapsed>}"
+  local _ceiling="${2:?BUG: _within_case_bound expects <ceiling>}"
+  local _margin="${3:?BUG: _within_case_bound expects <margin>}"
+  (( _elapsed <= _ceiling + _margin ))
 }
 
 # ── event-driven synchronisation, never a fixed sleep ───────────────
@@ -42,7 +78,7 @@ teardown() {
 # failure word, so "the test never set the experiment up" can never again be
 # read as "the supervisor did not forward the signal".
 #
-# The helper text is injected into each `bash -c` body because those run in
+# The helper text is injected into each harness body because those run in
 # their own process, not in the bats shell. The ceilings are in units of
 # 0.1s and are deliberately far larger than any plausible scheduling delay;
 # they exist to bound a HANG, not to time a correct run.
@@ -71,18 +107,18 @@ _await_gone() {
 # has to take down what it STARTED. Killing the supervisor does not --
 # _watchdog_start_service setsids the service into its own process group,
 # so it outlives the supervisor and, in a 32-way parallel suite, goes on
-# occupying a slot for the rest of its fixture's lifetime. (What it can no
-# longer do is hold the case itself open: the harness hands the supervisor
-# a log file rather than the case's own descriptor. Both are wanted --
-# one bounds the case, the other bounds the leak.)
+# occupying a slot for the rest of its fixture's lifetime.
 #
-# The group id comes from the fixture itself (it records `$$`, and setsid
-# made it the group leader) rather than from the supervisor, which is dead
-# by the time this runs. The single-pid fallback covers a userland with no
-# setsid, where there is no group to signal. Signalling a pid the
-# supervisor already reaped is a no-op here: pids are handed out in
-# increasing order and a container would have to fork through the whole
-# pid space between the reap and this line to hand it to a stranger.
+# A group id comes from the FIXTURE itself: each one records `$$` into
+# ${_PGID_DIR}/<name>.pgid, and setsid made it the group leader, so its pid
+# IS the group. Reading them from the directory rather than being handed one
+# is what lets the single harness door below tear down whatever a case
+# happened to start, without the case restating it. The single-pid fallback
+# covers a userland with no setsid, where there is no group to signal.
+# Signalling a pid the supervisor already reaped is a no-op here: pids are
+# handed out in increasing order and a container would have to fork through
+# the whole pid space between the reap and this line to hand it to a
+# stranger.
 _CLEANUP_FN='
 _kill_group() {
   local _f="${1}" _p=""
@@ -91,7 +127,73 @@ _kill_group() {
   [ -n "${_p}" ] || return 0
   kill -KILL "-${_p}" 2>/dev/null || kill -KILL "${_p}" 2>/dev/null || true
 }
+_kill_all_groups() {
+  local _f
+  for _f in "${_PGID_DIR}"/*.pgid; do
+    [ -e "${_f}" ] || continue
+    _kill_group "${_f}"
+  done
+}
 '
+
+# ── the one door every case starts a process through ─────────────────
+#
+# _run_bounded <ceiling-seconds> <body> -- run <body> as a shell of its own
+# under `timeout <ceiling>`, and make that ceiling mean what it says.
+#
+# TWO mechanisms, because the earlier fix used one of them and three cases
+# in this file went on costing their fixtures' lifetimes anyway.
+#
+#   1. The body's output goes to a LOG FILE, not to the descriptor bats
+#      reads this case's output from. Everything the body spawns inherits
+#      that file, so no survivor -- the setsid'd service, the product's own
+#      interruptible-sleep child, a grandchild the case never knew about --
+#      can hold the case open after the verdict is printed. The log is
+#      replayed into `${output}` afterwards, so the supervisor's own lines
+#      stay in the failure report, where they are the diagnosis.
+#
+#   2. Whatever the body started is KILLED BY GROUP on the way out, on the
+#      normal path and on the timeout path alike. This does not bound the
+#      case (1 does); it bounds the LEAK, a given-up-on service occupying a
+#      slot in a 32-way parallel suite for the rest of its fixture's life.
+#
+# Making it the ONE spelling, rather than a pattern each case repeats, is
+# what a structural case at the bottom of this file enforces -- the three
+# siblings that drifted away from the fixed harness drifted because there
+# was nothing to drift from.
+#
+# It also records the ceiling for the bound guard in teardown, so a case
+# cannot declare a bound and then be measured against a different one.
+_run_bounded() {
+  local _ceiling="${1:?BUG: _run_bounded expects a ceiling in seconds}"
+  local _body="${2:?BUG: _run_bounded expects a body}"
+  local _log="${TMP_DIR}/harness.log"
+  : > "${_log}"
+  _CASE_CEILING="${_ceiling}"
+  run timeout "${_ceiling}" bash -c "{
+    _PGID_DIR='${TMP_DIR}'
+    ${_SYNC_FN}
+    ${_CLEANUP_FN}
+    trap '_kill_all_groups' EXIT
+    trap '_kill_all_groups; exit 143' TERM INT
+    ${_body}
+  } > '${_log}' 2>&1"
+  _replay_harness_log "${_log}"
+}
+
+# _replay_harness_log <log> -- put the harness's own words back into the
+# bats globals the assertions read. `run` captured an empty stream (that is
+# the point: nothing wrote to it), so ${output} / ${lines} come from the
+# file instead -- including on the timeout path, where the body never got
+# to replay them itself and the log IS the diagnosis.
+_replay_harness_log() {
+  local _log="${1:?BUG: _replay_harness_log expects a log path}"
+  output="$(cat "${_log}" 2>/dev/null || true)"
+  lines=()
+  if [[ -n "${output}" ]]; then
+    mapfile -t lines <<< "${output}"
+  fi
+}
 
 # ── restart-container monitor loop ───────────────────────────────────
 
@@ -106,7 +208,7 @@ _kill_group() {
   # that crashed on its first line also never prints ACTED. So the window
   # ends by asking whether the monitor is still there, which separates "it
   # deferred" from "it was never running to defer".
-  run timeout 30 bash -c "
+  _run_bounded 30 "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=30 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1
@@ -126,17 +228,17 @@ _kill_group() {
 
 @test "restart-container monitor EXITS the container after consecutive failures (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  # timeout 30, not 8: the loop needs two 1s intervals plus two bounded
+  # Ceiling 30, not 8: the loop needs two 1s intervals plus two bounded
   # checks, so a value sized to the EXPECTED wall clock turns a loaded
-  # machine into a red gate. The timeout is here to catch a loop that never
+  # machine into a red gate. The ceiling is here to catch a loop that never
   # terminates, and 30s catches that just as well.
-  run timeout 30 bash -c "
+  _run_bounded 30 "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=2
     _watchdog_exit_container() { echo ACTED-\$1; exit 0; }
     _watchdog_monitor
-  " 2>&1
+  "
   assert_success
   assert_output --partial "restart-container"
   assert_output --partial "ACTED-1"
@@ -147,9 +249,9 @@ _kill_group() {
 
 @test "restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
-  # timeout 30 for the reason given on the monitor case above: it bounds a
+  # Ceiling 30 for the reason given on the monitor case above: it bounds a
   # non-terminating loop, it does not schedule a correct one.
-  run timeout 30 bash -c "
+  _run_bounded 30 "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1 _WATCHDOG_MAX_RESTARTS=2
@@ -160,7 +262,7 @@ _kill_group() {
     _watchdog_stop_service()    { :; }
     _watchdog_exit_container()  { echo EXITED; exit 0; }
     _watchdog_supervise sleep 100
-  " 2>&1
+  "
   assert_success
   assert_output --partial "restart 1/2"
   assert_output --partial "restart 2/2"
@@ -182,21 +284,23 @@ _kill_group() {
   cat > "${TMP_DIR}/ignore_term.sh" <<'EOF'
 #!/usr/bin/env bash
 trap '' TERM
+# setsid made this process its own group leader, so `$$` is both the pid the
+# case awaits and the group the harness tears down.
 echo $$ > "$1"
 sleep 60
 EOF
-  # timeout 30: an unbounded wait (the pre-fix bug) hangs here -> status 124.
-  # The two waits inside are event-driven: a `sleep 0.5` before
-  # reading the pid file is a guess, and when the guess lost the read
-  # produced an EMPTY pid, `kill -0 ""` failed, and the case reported KILLED
-  # -- a green run that had killed nothing. NO_PID is now its own outcome.
-  run timeout 30 bash -c "
-    ${_SYNC_FN}
+  # Ceiling 30: an unbounded wait (the pre-fix bug) hangs here. The two
+  # waits inside are event-driven: a `sleep 0.5` before reading the pid
+  # file is a guess, and when the guess lost the read produced an EMPTY
+  # pid, `kill -0 ""` failed, and the case reported KILLED -- a green run
+  # that had killed nothing. NO_PID is now its own outcome, and it is a
+  # give-up path, so it goes out through the same door as the rest.
+  _run_bounded 30 "
     . '${WD}'
     export _WATCHDOG_TIMEOUT=1
-    _watchdog_start_service bash '${TMP_DIR}/ignore_term.sh' '${TMP_DIR}/svc.pid'
-    if ! _await_file '${TMP_DIR}/svc.pid' 150; then echo NO_PID; exit 0; fi
-    _pid=\"\$(cat '${TMP_DIR}/svc.pid')\"
+    _watchdog_start_service bash '${TMP_DIR}/ignore_term.sh' '${TMP_DIR}/service.pgid'
+    if ! _await_file '${TMP_DIR}/service.pgid' 150; then echo NO_PID; exit 0; fi
+    _pid=\"\$(cat '${TMP_DIR}/service.pgid')\"
     _watchdog_stop_service
     if _await_gone \"\${_pid}\" 100; then echo KILLED; else echo STILL_ALIVE; fi
   "
@@ -219,6 +323,10 @@ EOF
     || skip "no setsid in this userland; the process-group escalation under test cannot be set up without it"
   cat > "${TMP_DIR}/spawner.sh" <<'EOF'
 #!/usr/bin/env bash
+# $1 -- the GRANDCHILD's pid, what this case observes.
+# $2 -- this process's group id, so the harness can tear the whole subtree
+#       down on a path where the product never got to.
+#
 # A grandchild that ignores SIGTERM and records its own pid, then the
 # service itself sleeps. Both share the setsid process group.
 #
@@ -227,17 +335,17 @@ EOF
 # below re-checked the process it had already stopped -- it never observed
 # a grandchild at all, and stayed green with the process-group kill
 # disabled. BASHPID is the subshell's own pid.
+echo "$$" > "$2"
 ( trap '' TERM; echo "${BASHPID}" > "$1"; sleep 60 ) &
 sleep 60
 EOF
   # Event-driven for the same reason as the case above: losing the
   # `sleep 0.7` race read an empty grandchild pid and reported SUBTREE_DEAD
   # without having observed any subtree.
-  run timeout 30 bash -c "
-    ${_SYNC_FN}
+  _run_bounded 30 "
     . '${WD}'
     export _WATCHDOG_TIMEOUT=1
-    _watchdog_start_service bash '${TMP_DIR}/spawner.sh' '${TMP_DIR}/grand.pid'
+    _watchdog_start_service bash '${TMP_DIR}/spawner.sh' '${TMP_DIR}/grand.pid' '${TMP_DIR}/service.pgid'
     if ! _await_file '${TMP_DIR}/grand.pid' 150; then echo NO_PID; exit 0; fi
     _gpid=\"\$(cat '${TMP_DIR}/grand.pid')\"
     _watchdog_stop_service
@@ -263,20 +371,32 @@ EOF
   cat > "${TMP_DIR}/wedged.sh" <<'EOF'
 #!/usr/bin/env bash
 trap '' TERM
+# $1 -- this process's group id. Recorded FIRST and unconditionally: this
+# fixture outlives its own case by five minutes if nothing tears it down,
+# and this case's whole subject is a path where the product might not.
+echo "$$" > "$1"
 sleep 300
 EOF
   # Real (bounded) stop_service against a wedged child; only exit_container
   # is overridden to observe that give-up REACHES it (the pre-fix unbounded
-  # wait would hang stop_service so give-up never exits -> the timeout
-  # fires). 45, not 15: the timeout bounds that hang, it does not schedule
+  # wait would hang stop_service so give-up never exits -> the ceiling
+  # fires). 45, not 15: the ceiling bounds that hang, it does not schedule
   # the several bounded stop cycles a correct run performs.
-  run timeout 45 bash -c "
+  #
+  # This is the case that measured 301s against that stated 45 with the
+  # product's SIGKILL escalation disabled: `timeout` cut the harness at 45,
+  # and the wedged fixture -- setsid into its own group, holding the
+  # descriptor bats reads this case from -- kept it open until its own
+  # `sleep 300` ended. Both halves of the door answer that: the fixture
+  # never had the case's descriptor, and it is killed by group on the
+  # timeout path too.
+  _run_bounded 45 "
     . '${WD}'
     export WATCHDOG_CHECK='false'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=1 _WATCHDOG_TIMEOUT=1 _WATCHDOG_FAILURES=1 _WATCHDOG_MAX_RESTARTS=1
     _watchdog_exit_container() { echo EXITED; exit 0; }
-    _watchdog_supervise bash '${TMP_DIR}/wedged.sh'
-  " 2>&1
+    _watchdog_supervise bash '${TMP_DIR}/wedged.sh' '${TMP_DIR}/service.pgid'
+  "
   assert_success
   assert_output --partial "GIVING UP"
   assert_output --partial "EXITED"
@@ -295,34 +415,19 @@ EOF
 # become ready, and the case after that drives it with one that never does,
 # so the harness's own failure path is exercised by the same code the
 # passing path uses rather than by a copy that can drift away from it.
-#
-# The supervisor's own output goes to a FILE and is replayed at the end,
-# which is what makes the failure paths cost what their ceilings say. bats
-# reads a case's output from one descriptor; everything the supervisor
-# spawns used to inherit it, so ANY survivor held the case open long after
-# it had printed its verdict -- the service (setsid into its own group,
-# 326s observed) and then, once that was being killed, the product's own
-# interruptible-sleep child, for the full 30s interval. Handing the
-# supervisor a file instead means no descendant can hold the case open,
-# whichever one outlives it. Replaying the file keeps the supervisor's log
-# lines in the failure report, where they are the diagnosis.
 _run_forward_harness() {
   local _svc="${1:?BUG: _run_forward_harness expects a service script}"
   local _ready_tenths="${2:?BUG: _run_forward_harness expects a ceiling}"
-  run timeout 60 bash -c "
-    ${_SYNC_FN}
-    ${_CLEANUP_FN}
+  _run_bounded 60 "
     . '${WD}'
     export WATCHDOG_CHECK='true'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
     _watchdog_supervise bash '${_svc}' \
       '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' \
-      '${TMP_DIR}/service.pgid' > '${TMP_DIR}/sup.log' 2>&1 &
+      '${TMP_DIR}/service.pgid' &
     _sup=\$!
     if ! _await_file '${TMP_DIR}/graceful.ready' ${_ready_tenths}; then
       kill -KILL \${_sup} 2>/dev/null || true
-      _kill_group '${TMP_DIR}/service.pgid'
-      cat '${TMP_DIR}/sup.log' 2>/dev/null || true
       echo NOT_READY
       exit 0
     fi
@@ -330,8 +435,6 @@ _run_forward_harness() {
     kill -TERM \${_sup}
     wait \${_sup} 2>/dev/null || true
     _elapsed=\$(( \$(date +%s) - _t0 ))
-    _kill_group '${TMP_DIR}/service.pgid'
-    cat '${TMP_DIR}/sup.log' 2>/dev/null || true
     if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
     if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
   "
@@ -367,8 +470,8 @@ EOF
   # FORWARDING: with INTERVAL=30 a bare foreground `sleep 30` in the
   # supervisor would DEFER the trapped SIGTERM until the interval elapsed,
   # so the marker would never be written; the interruptible sleep handles it
-  # at once. This used to be measured by the harness's own `timeout 12`
-  # cutting a deferred run short -- i.e. by wall clock.
+  # at once. This used to be measured by the harness's own ceiling cutting a
+  # deferred run short -- i.e. by wall clock.
   #
   # PROMPTNESS: measured directly instead, as the seconds between the signal
   # and the supervisor's exit, and required to be well under the 30s
@@ -402,9 +505,8 @@ EOF
   # process group, survived holding the descriptor bats reads this case's
   # output from, so the case printed NOT_READY in about two seconds and then
   # sat there until the service exited on its own -- 326s observed, past its
-  # own `timeout 60`, which a reader takes for a hung suite rather than a
-  # failed test. The ceilings elsewhere in this file are documented as
-  # bounding a HANG; on this path they bounded nothing.
+  # own 60s ceiling, which a reader takes for a hung suite rather than a
+  # failed test.
   cat > "${TMP_DIR}/never_ready.sh" <<'EOF'
 #!/usr/bin/env bash
 # Records its process group ($3) and then never writes the READY marker
@@ -438,15 +540,12 @@ EOF
   # The shape every give-up path in this file has, reduced to its bones: a
   # service is started, something goes wrong, the harness prints its
   # verdict and leaves. _watchdog_start_service setsids the service into
-  # its own process group, so it survives the `bash -c` -- and it inherited
-  # the descriptor bats reads this case's output from, so `run` sits there
-  # waiting for EOF long after the verdict was printed. The case is then
-  # bounded by the FIXTURE's lifetime, not by its own `timeout`, and a
-  # reader takes that for a hung suite rather than a failed test.
-  #
-  # Three cases in this file gave up that way (the two _watchdog_stop_service
-  # cases on their NO_PID branch, and the wedged give-up case whenever its
-  # own timeout fires): 301s measured against a stated bound of 45.
+  # its own process group, so it survives the harness -- and before the
+  # door it also inherited the descriptor bats reads this case's output
+  # from, so `run` sat there waiting for EOF long after the verdict was
+  # printed. The case was then bounded by the FIXTURE's lifetime rather
+  # than by its own ceiling: 45s measured here, and 301s on the wedged
+  # give-up case against a stated bound of 45.
   cat > "${TMP_DIR}/lingering.sh" <<'EOF'
 #!/usr/bin/env bash
 # Records its process group and then outlives anything that waits for it.
@@ -455,8 +554,7 @@ sleep 45
 EOF
   local _t0 _elapsed
   _t0="$(date +%s)"
-  run timeout 30 bash -c "
-    ${_SYNC_FN}
+  _run_bounded 30 "
     . '${WD}'
     export _WATCHDOG_TIMEOUT=1
     _watchdog_start_service bash '${TMP_DIR}/lingering.sh' '${TMP_DIR}/service.pgid'
@@ -479,7 +577,7 @@ EOF
   run _within_case_bound 3 30 30
   assert_success
   # The margin is inclusive: a case that legitimately runs to its own
-  # timeout on a loaded machine is not a hang.
+  # ceiling on a loaded machine is not a hang.
   run _within_case_bound 60 30 30
   assert_success
   run _within_case_bound 61 30 30
@@ -495,12 +593,13 @@ EOF
 }
 
 @test "every process this file starts goes through the one bounded harness (#965)" {
-  # Why a structural check here after deleting one in spec_source_isolation:
-  # that one enumerated the spellings a WRITE could take, which is an open
-  # set and was wrong every round. This is the closed complement -- ONE
-  # permitted spelling, in one named place -- so a sibling written next
-  # year cannot start a process outside the harness that bounds it, which
-  # is exactly how the three siblings below the fix drifted apart from it.
+  # Why a structural check here after deleting one from
+  # spec_source_isolation_spec: that one enumerated the spellings a WRITE
+  # could take, which is an open set and was wrong every round. This is the
+  # closed complement -- ONE permitted spelling, in one named place -- so a
+  # sibling written next year cannot start a process outside the harness
+  # that bounds it, which is exactly how three siblings drifted away from
+  # the harness the previous round fixed.
   local _spec="${BATS_TEST_FILENAME}"
   # Assembled from pieces so that this line cannot match the scan it runs.
   local _pat="bash[[:space:]]+-c"
