@@ -122,10 +122,26 @@ _await_file() {
   done
   return 1
 }
+_proc_gone() {
+  local _pid="${1}" _stat _rest
+  kill -0 "${_pid}" 2>/dev/null || return 0
+  # An exited process nobody has reaped still answers the glance above. It
+  # is not running: it holds a pid and nothing else, and whether its parent
+  # ever calls wait is a scheduling accident. The product says the same
+  # thing in _watchdog_child_alive for the same reason.
+  #
+  # The state is the field after the command name, which is parenthesised
+  # and may itself contain spaces, so the parse strips through the closing
+  # bracket rather than counting fields. Double quotes throughout: this
+  # whole helper is injected as a single-quoted string.
+  _stat="$(cat "/proc/${_pid}/stat" 2>/dev/null)" || return 0
+  _rest="${_stat##*") "}"
+  [ "${_rest%% *}" = "Z" ]
+}
 _await_gone() {
   local _pid="${1}" _n="${2:-100}" _i=0
   while [ "${_i}" -lt "${_n}" ]; do
-    kill -0 "${_pid}" 2>/dev/null || return 0
+    _proc_gone "${_pid}" && return 0
     sleep 0.1
     _i=$(( _i + 1 ))
   done
