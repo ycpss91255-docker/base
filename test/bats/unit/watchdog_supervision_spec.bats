@@ -633,13 +633,42 @@ EOF
   #
   # The fixture is a plain background child: alive, in THIS shell's process
   # group, not a group leader. Nothing may happen to it.
-  sleep 30 &
+  #
+  # The oracle is the child's EXIT STATUS, not `kill -0`, and that is the
+  # whole soundness of this case. `kill -0` answers a question about an
+  # INSTANT, and both ways this fixture can be dead answer "alive" for a
+  # while: a process that has been sent SIGKILL but not yet scheduled to
+  # die, and one that has died and not yet been reaped. Against a harness
+  # that DID signal the bare pid, that spelling was green three runs in
+  # eight -- a coin, not a witness. `wait` is a rendezvous: it returns the
+  # status once, whenever the child gets there, so the verdict does not
+  # depend on how loaded the machine is.
+  sleep 2 &
   local _victim=$!
   printf '%s\n' "${_victim}" > "${TMP_DIR}/stale.pgid"
   _kill_case_groups
-  kill -0 "${_victim}" 2>/dev/null || fail \
-    "_kill_case_groups killed a pid that leads no process group; after a case whose service was already reaped, that pid can belong to another job in the same container"
-  kill "${_victim}" 2>/dev/null || true
+  _reap_child "${_victim}"
+  [[ "${_CHILD_STATUS}" -eq 0 ]] || fail \
+    "_kill_case_groups signalled a pid that leads no process group: the child reported ${_CHILD_STATUS} (137 = SIGKILL, 143 = SIGTERM) instead of running to completion. After a case whose service the product already reaped, that id can belong to another job in the same container"
+}
+
+@test "_reap_child: a killed child and a completed one report DIFFERENT statuses (#965)" {
+  # The oracle the case above settles its verdict with, exercised in both
+  # directions. An oracle that answers the same thing either way witnesses
+  # nothing, which is exactly what `kill -0` did here: it said ALIVE for a
+  # child that had just been SIGKILLed, so the case passed while the
+  # property it names was broken.
+  sleep 30 &
+  local _doomed=$!
+  kill -KILL "${_doomed}" 2>/dev/null || true
+  _reap_child "${_doomed}"
+  [[ "${_CHILD_STATUS}" -eq 137 ]] || fail \
+    "a SIGKILLed child reported ${_CHILD_STATUS}, not 137: this oracle cannot see the outcome the case above exists to rule out"
+  sleep 0.2 &
+  local _fine=$!
+  _reap_child "${_fine}"
+  [[ "${_CHILD_STATUS}" -eq 0 ]] || fail \
+    "a child that ran to completion reported ${_CHILD_STATUS}, not 0: this oracle would call every untouched fixture killed"
 }
 
 @test "_within_case_bound: answers no exactly when a case outran its own ceiling (#965)" {
