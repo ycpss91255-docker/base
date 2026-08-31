@@ -722,8 +722,8 @@ _assert_generator_is_a_noop_on() {
 # The comparison used to be `run diff ...` followed by `[ "${status}" -eq 0
 # ]`, which threw ${output} away. When it failed, bats printed
 # `[ "${status}" -eq 0 ]' failed and nothing else -- which is verbatim the
-# symptom quoted in issue #965, and the reason its reader concluded "flake"
-# and re-ran rather than read. The diff itself named a sync stamp whose
+# symptom the parallel-race report quoted, and the reason its reader
+# concluded "flake" and re-ran rather than read. The diff itself named a sync stamp whose
 # second hash differed, i.e. a verdict about the generator.
 #
 # A failure that does not carry its evidence teaches re-running. That is the
@@ -753,8 +753,9 @@ _plant_readme_source() {
 @test "_assert_same_tree: a failure names WHAT differed, not just that something did (#965)" {
   # The oracle the no-op assertion below settles its verdict with. Its
   # earlier spelling captured the diff and discarded it, so the failure read
-  # `[ "${status}" -eq 0 ]' failed and nothing else -- the exact line issue
-  # #965 quotes from the run that sent its reader down the flake path.
+  # `[ "${status}" -eq 0 ]' failed and nothing else -- the exact line the
+  # parallel-race report quotes from the run that sent its reader down the
+  # flake path.
   #
   # Both directions, because a helper that always fails would satisfy the
   # first half on its own.
