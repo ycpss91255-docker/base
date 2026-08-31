@@ -566,6 +566,33 @@ EOF
   assert_line --index 1 "max_size = 1m"
 }
 
+@test "show reports a typo under [logging] as a missing KEY, not an empty section (#955)" {
+  # The sub-section fallback is two conjuncts and only the SECOND one
+  # separates a legitimate dump from swallowing a typo:
+  # `_setup_known_section` accepts `logging.?*` for ANY non-empty
+  # suffix, so every mistyped key under [logging] reaches the fallback
+  # and passes the first conjunct. Drop `&& _setup_dump_section` and
+  # `show logging.drivr` returns 0 having printed nothing -- a silent
+  # success for a typo.
+  #
+  # The sibling "missing key" case uses `network.nope`, which fails the
+  # FIRST conjunct and never reaches the guard, so it cannot stand in
+  # for this one.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main show logging.drivr --base-path "${TEMP_DIR}"
+  assert_failure
+  # Names the KEY the user typed, not the parent section: the error has
+  # to point at the typo.
+  assert_output --partial "logging.drivr"
+  refute_output --partial "driver = json-file"
+}
+
 @test "show returns non-zero on a missing key" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
