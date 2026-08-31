@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3087 tests**.
+Unit specs under `test/bats/unit/`: **3088 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1954,13 +1954,13 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)` | generalized -test toolchain (style (b) Bats smoke) |
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
-| `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
-| `Dockerfile.example states what the UNPINNED default does not record (#951)` | the digest half AC1 asks for is empty in the shipped default, and the file says so plus how to fill it |
+| `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | read from the note's own comment window above `ARG BASE_IMAGE=`, since every path it names is also spelled in the code that implements it: the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
+| `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
 | `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |
-| `Dockerfile.example rewrites the package manifest after every apt layer (#951)` | `packages.txt` written twice (sys + devel-base), so the devel-base install set is not silently omitted |
+| `Dockerfile.example rewrites the package manifest after every apt layer (#951)` | a relation over the apt layers, not a tally: every RUN block that installs apt packages (`apt-get install`, `apt install` or `rosdep install`, indented or not, live or commented-for-uncommenting) must refresh `packages.txt` |
 | `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
 | `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
-| `the shared smoke tree asserts the manifest at RUNTIME, not only in the template text (#951)` | the shipped smoke spec exists and asserts a non-empty `base_image_ref`, the one check text greps cannot make |
+| `the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)` | the shipped spec asserts a non-empty `base_image_ref` and a `sha256:<hex>`-shaped digest, and its skip fires only when NEITHER manifest file exists |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
 | `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |
@@ -3109,7 +3109,7 @@ host so the boundary between them can be asserted at all.
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
 
-### test/bats/unit/smoke_harness_spec.bats (13)
+### test/bats/unit/smoke_harness_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
@@ -3121,6 +3121,7 @@ host so the boundary between them can be asserted at all.
 | `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
 | `every harness COPY exemption is still a real devel-test COPY` | - |
 | `the harness installs the entrypoint the shared smoke baseline asserts` | - |
+| `the harness supplies the manifest, so the shipped repro specs run instead of skipping (#951)` | without it all three shipped reproducibility specs report `ok N # skip` under `just test smoke`, base's only local entry point for them |
 | `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
 | `the harness runs the specs as a non-root user, after the COPYs` | - |
 | `the harness asserts at BUILD time, exactly like the stage it stands in for` | - |

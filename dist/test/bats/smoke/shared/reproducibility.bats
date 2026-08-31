@@ -64,6 +64,18 @@ _skip_unless_manifest_adopted() {
   # unpinned reference names an image that may already have moved.
   run grep -E '^base_image_pin=(digest|none)$' "${REPRO_ENV}"
   assert_success
+  # The digest field has to hold a DIGEST when it holds anything. Two
+  # routes can fill it -- a BASE_IMAGE that carries its own digest, and
+  # the BASE_IMAGE_DIGEST build arg -- and they are only comparable
+  # across images if both land as `sha256:<hex>`. The build arg is
+  # emitted verbatim, so a caller who pastes a `docker image inspect
+  # --format '{{index .RepoDigests 0}}' out (`ubuntu@sha256:...`, a
+  # REFERENCE) records a different shape than the pin route records for
+  # the identical image, and the same value reaches the OCI
+  # `base.digest` annotation, where OCI defines a digest. Empty stays
+  # legal: that is the shipped default's truthful "not recorded".
+  run grep -E '^base_image_digest=(sha256:[0-9a-f]{64})?$' "${REPRO_ENV}"
+  assert_success
 }
 
 @test "the manifest records package versions, not just package names" {

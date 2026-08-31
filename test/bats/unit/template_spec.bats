@@ -1406,18 +1406,51 @@ _df_sys_block() {
   ' "${1:?_df_sys_block: missing file}"
 }
 
+# _df_base_image_note <file> -- the contiguous run of comment lines
+# immediately above `ARG BASE_IMAGE=`, i.e. the note a downstream author
+# reads before deciding whether to pin. Scoped rather than whole-file for
+# the same reason _df_sys_block is: every path, key and flag the note
+# names is ALSO spelled somewhere in the RUN that implements it (the live
+# sys stage) and again in the commented runtime-base scaffold, so a
+# whole-file grep for them stays green with the entire note deleted --
+# which is the one thing these tests exist to prevent.
+_df_base_image_note() {
+  awk '
+    /^ARG BASE_IMAGE=/ { print buf; found = 1; exit }
+    /^#/               { buf = buf $0 "\n"; next }
+                       { buf = "" }
+    END { if (!found) exit 1 }
+  ' "${1:?_df_base_image_note: missing file}"
+}
+
 # _df_apt_run_blocks <file> <live|commented> -- every logical RUN block of
 # the template that installs apt packages, one per output line with
 # backslash continuations folded, so a caller can ask what a single block
 # does rather than what the file contains somewhere.
 #
+# "Installs apt packages" is the SHAPE, not one literal. `apt-get install`
+# and the `apt install` a consumer writes from muscle memory both count,
+# and so does `rosdep install`, which resolves its dependencies straight
+# into apt. Keying on a single literal is how the template's own rosdep
+# example stayed exempt from a relation whose name is "every apt layer".
+#
+# Leading whitespace is tolerated because Docker tolerates it: `  RUN ...`
+# is a RUN, and a guard that only sees column 0 is a guard a consumer's
+# indentation turns off.
+#
 # `commented` strips one leading comment marker first and reads the result
 # as the RUN it becomes when a consumer uncomments it. A doubly-commented
 # illustration nested inside such a block (`# #   RUN ...`) still starts
-# with `#` after that strip and is correctly NOT a block.
+# with `#` after that strip and is correctly NOT a block: the only one the
+# template ships sits in `runtime-test`, an ephemeral stage whose image is
+# discarded after the build, so nothing it installs is ever shipped for a
+# manifest to describe.
 _df_apt_run_blocks() {
   awk -v mode="${2:?_df_apt_run_blocks: missing mode}" '
-    function flush() { if (buf ~ /apt-get install/) print buf; buf = ""; in_r = 0 }
+    function installs_apt(t) {
+      return t ~ /apt(-get)?[[:space:]]+install/ || t ~ /rosdep[[:space:]]+install/
+    }
+    function flush() { if (installs_apt(buf)) print buf; buf = ""; in_r = 0 }
     {
       line = $0
       if (mode == "commented") {
@@ -1425,7 +1458,7 @@ _df_apt_run_blocks() {
         sub(/^#[[:space:]]?/, "", line)
       }
       if (!in_r) {
-        if (line !~ /^RUN[[:space:]]/) next
+        if (line !~ /^[[:space:]]*RUN[[:space:]]/) next
         in_r = 1
         buf = line
       } else {
@@ -1464,16 +1497,24 @@ _hadolint_ignore_rationale() {
       "the shipped template Dockerfile this spec pins"
   # A downstream author meets this trade in the file they edit, not in
   # base's docs, so the file has to name the drift, the compensating
-  # record, and the escape hatch.
-  run grep -F 'MOVING tag' "${_df}"
+  # record, and the escape hatch -- in the NOTE, which is where that
+  # author reads it. Read from the note's own window, not the file: both
+  # manifest paths below are also spelled in the live sys RUN and again
+  # in the commented runtime-base scaffold, so a whole-file grep is
+  # satisfied by the implementation with the explanation deleted.
+  local _note
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+
+  run grep -F 'MOVING tag' <<< "${_note}"
   assert_success
-  run grep -F '/usr/local/share/base/base-image.env' "${_df}"
+  run grep -F '/usr/local/share/base/base-image.env' <<< "${_note}"
   assert_success
-  run grep -F '/usr/local/share/base/packages.txt' "${_df}"
+  run grep -F '/usr/local/share/base/packages.txt' <<< "${_note}"
   assert_success
   # The escape hatch is a build arg, so pinning costs a consumer no edit
   # to this file and no divergence from the template.
-  run grep -F 'BASE_IMAGE=ubuntu@sha256:' "${_df}"
+  run grep -F 'BASE_IMAGE=ubuntu@sha256:' <<< "${_note}"
   assert_success
   # ... and the route it names first has to be the one this repo actually
   # drives builds through. `[build] arg_N` in .setup.conf reaches the
@@ -1481,9 +1522,9 @@ _hadolint_ignore_rationale() {
   # `--build-arg` sends a local reader to the one surface the repo's
   # convention refuses, and offering only an `ARG` default edit sends
   # them to a template-owned line a later migration may rewrite.
-  run grep -F '.setup.conf' "${_df}"
+  run grep -F '.setup.conf' <<< "${_note}"
   assert_success
-  run grep -F 'just setup' "${_df}"
+  run grep -F 'just setup' <<< "${_note}"
   assert_success
 }
 
@@ -1498,23 +1539,42 @@ _hadolint_ignore_rationale() {
   # moving tag is a problem in. A note that describes only the record and
   # not its blind spot reads as a stronger guarantee than the file gives,
   # so the limitation is asserted, not left to the reader.
-  run grep -F 'base_image_digest' "${_df}"
+  # Read from the note's own window for the same reason as the test
+  # above: `base_image_digest` and `BASE_IMAGE_DIGEST` are both spelled
+  # in the live sys stage that emits them, so a whole-file grep passes
+  # with the note's statement of the blind spot deleted.
+  local _note
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+
+  run grep -F 'base_image_digest' <<< "${_note}"
   assert_success
-  run grep -F 'does NOT record which digest' "${_df}"
+  run grep -F 'does NOT record which digest' <<< "${_note}"
   assert_success
   # ... and the one-argument way out of it, for a consumer who wants the
   # digest recorded without pinning to it.
-  run grep -F 'BASE_IMAGE_DIGEST' "${_df}"
+  run grep -F 'BASE_IMAGE_DIGEST' <<< "${_note}"
   assert_success
   # Spelled as the config entry a reader can paste, not as prose about a
   # config file: the `[build] arg_N` list is the local control surface,
   # and `arg_4` is the next free slot after the three the template ships.
-  run grep -F 'arg_4 = BASE_IMAGE_DIGEST=sha256:' "${_df}"
+  run grep -F 'arg_4 = BASE_IMAGE_DIGEST=sha256:' <<< "${_note}"
+  assert_success
+  # The recipe the note gives for OBTAINING that value has to produce
+  # that shape. `docker image inspect --format '{{index .RepoDigests 0}}'`
+  # prints a REFERENCE (`ubuntu@sha256:<hex>`), not a digest, and the
+  # value is emitted verbatim into base_image_digest and into the OCI
+  # `base.digest` annotation -- where OCI defines a digest, not a
+  # reference. Following the note as written therefore produced a record
+  # of a different shape than the pin route produces for the same image.
+  # The strip is what makes the two routes comparable, so it is asserted
+  # next to the storage line it has to agree with.
+  run grep -F '${BASE_IMAGE_DIGEST##*@}' <<< "${_note}"
   assert_success
   # The layering caveat travels with it. `.setup.conf.local` merges
   # section-REPLACE, so adding one arg there silently drops the
   # APT_MIRROR_* / TZ args the repo already had.
-  run grep -F 'replaces the whole' "${_df}"
+  run grep -F 'replaces the whole' <<< "${_note}"
   assert_success
 }
 
@@ -1657,8 +1717,9 @@ _hadolint_ignore_rationale() {
   assert_success
   # And it has to say WHY the upgrade does not close the gap on its own.
   # `just upgrade` can rewrite a consumer Dockerfile (init.sh and
-  # upgrade.sh both call apply_migrations over a 15-entry migration
-  # list), so "the upgrade does not rewrite it" is not the reason; "no
+  # upgrade.sh both call apply_migrations over the `_MIGRATIONS` list in
+  # dist/script/docker/lib/dockerfile_migrate.sh), so "the upgrade does
+  # not rewrite it" is not the reason; "no
   # migration was written for this record, because it splices into the
   # middle of a hand-shaped RUN chain" is. Naming the mechanism is what
   # stops the false reason coming back.
@@ -1666,18 +1727,39 @@ _hadolint_ignore_rationale() {
   assert_success
 }
 
-@test "the shared smoke tree asserts the manifest at RUNTIME, not only in the template text (#951)" {
+@test "the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)" {
   local _spec="/source/dist/test/bats/smoke/shared/reproducibility.bats"
-  # Every other spec in this block reads the template as TEXT, and text
-  # cannot catch a manifest that IS written and records nothing -- the
-  # exact failure an out-of-scope ${BASE_IMAGE} produces. That assertion
-  # has to run inside a built image, which is what the shared smoke tree
-  # is: COPYed into every `-test` stage and executed by `RUN bats`, in
-  # base's own harness and in all 17 consumer repos.
+  # This test is TEXT about a spec, and it is named for what text can
+  # actually establish. Whether that spec RUNS rather than skipping where
+  # base itself runs it is a property of base's harness, asserted in
+  # test/bats/unit/smoke_harness_spec.bats against
+  # dockerfile/Dockerfile.smoke -- a grep of this file cannot tell a spec
+  # that ran from one that skipped, and a name claiming otherwise is a
+  # guarantee nothing checks.
+  #
+  # What the shipped spec is for: text cannot catch a manifest that IS
+  # written and records nothing -- the exact failure an out-of-scope
+  # ${BASE_IMAGE} produces. That assertion has to run inside a built
+  # image, which is what the shared smoke tree is: COPYed into every
+  # `-test` stage and executed by `RUN bats`.
   assert [ -f "${_spec}" ]
   # The load-bearing half is the non-empty VALUE. A spec that only checks
   # the file exists passes on the empty record.
   run grep -F 'base_image_ref=[^[:space:]]+' "${_spec}"
+  assert_success
+  # ... and the digest, when the record carries one, has to be a DIGEST.
+  # The two routes that can supply it (a digest-bearing BASE_IMAGE, and
+  # the BASE_IMAGE_DIGEST build arg the note tells a reader how to
+  # compute) are only comparable if both land as `sha256:<hex>`, and this
+  # value is copied verbatim into the OCI base.digest annotation.
+  run grep -F 'base_image_digest=(sha256:[0-9a-f]' "${_spec}"
+  assert_success
+  # The skip is narrow by construction: it fires only when NEITHER file
+  # exists, so a repo that writes one and not the other, or writes an
+  # empty record, has adopted the manifest and broken it -- and that
+  # fails. A guard widened to "either is missing" would turn every real
+  # regression this file exists for into a green skip.
+  run grep -F '[[ ! -e "${REPRO_ENV}" && ! -e "${REPRO_PKGS}" ]]' "${_spec}"
   assert_success
   # The skip's stated REASON has to match the wiring. `just upgrade` does
   # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call
