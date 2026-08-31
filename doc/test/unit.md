@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3085 tests**.
+Unit specs under `test/bats/unit/`: **3090 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3290,7 +3290,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (43)
+### test/bats/unit/changelog_entry_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
@@ -3336,6 +3336,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
+| `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
+| `_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)` | - |
+| `_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)` | - |
+| `_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)` | - |
+| `_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)` | - |
+| `_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)` | - |
+| `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | - |
+| `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
+| `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
@@ -3526,26 +3536,3 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
-
-### test/bats/unit/spec_source_isolation_spec.bats (5)
-
-Two repo-wide invariants over `test/bats/`: a spec may READ the live
-checkout -- that is where its subject lives -- but may not WRITE there, and
-may not settle an assertion by COMPARING against it. "Every spec that
-touches `/source`" is not the population: 119 of 122 spec files reference
-it. What separates the defect is who owns the answer, and by that measure a
-live path as a comparison operand had exactly one instance (the
-`readme_sync` case that failed five gate runs) and a write into the live
-tree had none. Zero is worth pinning, because every other spec's read is
-safe only while nothing writes there. Like its sibling
-`spec_subject_guard_spec.bats`, each invariant pins the scan as well as the
-result: a population floor, `find` under `pipefail`, and grep status
-exactly 1 (scanned, no match) rather than 2 (could not scan).
-
-| Test | Description |
-|------|-------------|
-| `no spec writes into the live checkout it does not own (#965)` | One writer would make every other spec's read of the live tree racy at once |
-| `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
-| `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
-| `the write scan sees every spelling of a write it claims to (#965)` | Redirect, in-place sed, and both operand positions, so the pattern cannot go blind |
-| `the comparison scan sees the line it was written for, in both operand positions (#965)` | A guard that cannot match the defect that produced it is decoration |
