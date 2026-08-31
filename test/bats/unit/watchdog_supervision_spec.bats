@@ -67,6 +67,32 @@ _await_gone() {
 }
 '
 
+# The teardown counterpart, injected the same way: a harness that gives up
+# has to take down what it STARTED. Killing the supervisor does not --
+# _watchdog_start_service setsids the service into its own process group,
+# so it outlives the supervisor and, in a 32-way parallel suite, goes on
+# occupying a slot for the rest of its fixture's lifetime. (What it can no
+# longer do is hold the case itself open: the harness hands the supervisor
+# a log file rather than the case's own descriptor. Both are wanted --
+# one bounds the case, the other bounds the leak.)
+#
+# The group id comes from the fixture itself (it records `$$`, and setsid
+# made it the group leader) rather than from the supervisor, which is dead
+# by the time this runs. The single-pid fallback covers a userland with no
+# setsid, where there is no group to signal. Signalling a pid the
+# supervisor already reaped is a no-op here: pids are handed out in
+# increasing order and a container would have to fork through the whole
+# pid space between the reap and this line to hand it to a stranger.
+_CLEANUP_FN='
+_kill_group() {
+  local _f="${1}" _p=""
+  [ -s "${_f}" ] || return 0
+  _p="$(cat "${_f}")"
+  [ -n "${_p}" ] || return 0
+  kill -KILL "-${_p}" 2>/dev/null || kill -KILL "${_p}" 2>/dev/null || true
+}
+'
+
 # ── restart-container monitor loop ───────────────────────────────────
 
 @test "restart-container monitor DEFERS checks during the start period (#797)" {
@@ -269,20 +295,34 @@ EOF
 # become ready, and the case after that drives it with one that never does,
 # so the harness's own failure path is exercised by the same code the
 # passing path uses rather than by a copy that can drift away from it.
+#
+# The supervisor's own output goes to a FILE and is replayed at the end,
+# which is what makes the failure paths cost what their ceilings say. bats
+# reads a case's output from one descriptor; everything the supervisor
+# spawns used to inherit it, so ANY survivor held the case open long after
+# it had printed its verdict -- the service (setsid into its own group,
+# 326s observed) and then, once that was being killed, the product's own
+# interruptible-sleep child, for the full 30s interval. Handing the
+# supervisor a file instead means no descendant can hold the case open,
+# whichever one outlives it. Replaying the file keeps the supervisor's log
+# lines in the failure report, where they are the diagnosis.
 _run_forward_harness() {
   local _svc="${1:?BUG: _run_forward_harness expects a service script}"
   local _ready_tenths="${2:?BUG: _run_forward_harness expects a ceiling}"
   run timeout 60 bash -c "
     ${_SYNC_FN}
+    ${_CLEANUP_FN}
     . '${WD}'
     export WATCHDOG_CHECK='true'
     _WATCHDOG_START_PERIOD=0 _WATCHDOG_INTERVAL=30 _WATCHDOG_TIMEOUT=2 _WATCHDOG_FAILURES=3 _WATCHDOG_MAX_RESTARTS=5
     _watchdog_supervise bash '${_svc}' \
       '${TMP_DIR}/graceful.marker' '${TMP_DIR}/graceful.ready' \
-      '${TMP_DIR}/service.pgid' &
+      '${TMP_DIR}/service.pgid' > '${TMP_DIR}/sup.log' 2>&1 &
     _sup=\$!
     if ! _await_file '${TMP_DIR}/graceful.ready' ${_ready_tenths}; then
       kill -KILL \${_sup} 2>/dev/null || true
+      _kill_group '${TMP_DIR}/service.pgid'
+      cat '${TMP_DIR}/sup.log' 2>/dev/null || true
       echo NOT_READY
       exit 0
     fi
@@ -290,6 +330,8 @@ _run_forward_harness() {
     kill -TERM \${_sup}
     wait \${_sup} 2>/dev/null || true
     _elapsed=\$(( \$(date +%s) - _t0 ))
+    _kill_group '${TMP_DIR}/service.pgid'
+    cat '${TMP_DIR}/sup.log' 2>/dev/null || true
     if [ -s '${TMP_DIR}/graceful.marker' ]; then echo GRACEFUL; else echo NO_SIGNAL; fi
     if [ \${_elapsed} -lt 10 ]; then echo PROMPT_\${_elapsed}s; else echo DEFERRED_\${_elapsed}s; fi
   "
