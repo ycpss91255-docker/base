@@ -1078,6 +1078,62 @@ SH
   assert_output --partial "cannot combine with --coverage"
 }
 
+@test "no spec drives a coverage run against the mounted checkout (#952)" {
+  # The coverage dispatch ERASES /source/coverage/.head-sha and
+  # /source/coverage/timings.tsv before the run and rewrites the stamp
+  # after it; _run_coverage WRITES timings.tsv there. A spec that calls
+  # either against the real REPO_ROOT therefore mutates the checkout it is
+  # running in -- and under bats' parallel jobs it does so WHILE a real
+  # `just test coverage` is mid-run, truncating the manifest that run's
+  # certificate is derived from and re-creating it under the eraser's feet.
+  #
+  # That is not a hypothetical. It is how this guard was found: a full
+  # kcov run died two thirds of the way through with "cannot remove the
+  # stale coverage evidence /source/coverage/timings.tsv", because three
+  # sibling specs recreate that file from a mocked kcov while this one
+  # tries to erase it.
+  #
+  # REPO_ROOT is readonly, so there are exactly two ways to comply: source
+  # the DRIVER with REPO_ROOT pointed at a scratch tree, or stub the
+  # provenance pair before calling main. Comment lines are stripped first,
+  # so a block that only NAMES a runner is not accused of calling one, and
+  # a runner name is only counted at the start of a statement.
+  local _script="${BATS_TEST_TMPDIR}/scan.awk"
+  cat > "${_script}" <<'AWK'
+    /^@test / { blk = $0; body = ""; inblk = 1; next }
+    inblk && /^[[:space:]]*#/ { next }
+    inblk { body = body "\n" $0 }
+    inblk && /^}$/ {
+      inblk = 0
+      if (body !~ /main --coverage([^-]|-shard)/ \
+          && body !~ /\n[[:space:]]*_run_coverage([^_]|$)/) next
+      total++
+      if (body ~ /REPO_ROOT="\$\{BATS_TEST_TMPDIR\}/) next
+      if (body ~ /_invalidate_coverage_head\(\)/) next
+      if (body ~ /_dispatch_script /) next
+      print FILENAME ": " blk
+    }
+    END { print "TOTAL=" total }
+AWK
+
+  run awk -f "${_script}" /source/test/bats/unit/*.bats \
+    /source/test/bats/integration/*.bats
+  assert_success
+
+  # A scan that enumerated nothing would report every spec compliant.
+  local _total
+  _total="$(printf '%s\n' "${output}" | sed -n 's/^TOTAL=//p')"
+  [ -n "${_total}" ]
+  [ "${_total}" -ge 8 ]
+
+  local _offenders
+  _offenders="$(printf '%s\n' "${output}" | grep -v '^TOTAL=' || true)"
+  if [[ -n "${_offenders}" ]]; then
+    printf 'specs mutating the checkout coverage evidence:\n%s\n' "${_offenders}"
+    false
+  fi
+}
+
 # ════════════════════════════════════════════════════════════════════
 # --bats-fragile: the kcov-fragile unit specs run in plain mode
 #
