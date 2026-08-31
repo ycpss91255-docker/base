@@ -635,7 +635,8 @@ _marker() {
 # `diff -r /source/doc/readme "${SCRATCH}/doc/readme"`. This suite runs
 # 32-way parallel, often beside another checkout's gate, so anything that
 # wrote under doc/readme/ in the window changed the answer on a generator
-# that had done nothing wrong -- one of the two races that produced #965.
+# that had done nothing wrong -- one of the two races this file was changed
+# for.
 #
 # Copying first fixed the diff but not the capture. Four sequential reads
 # of a tree nobody here owns can return a README.md the translations beside
