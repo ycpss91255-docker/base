@@ -668,8 +668,17 @@ _make_cobertura() {
   # third selector added to the forwarder and consulted by the container
   # arrives with its clearing already demanded. Four review rounds found
   # the members of this set one at a time; this test enumerates it.
+  #
+  # COMMENT LINES ARE STRIPPED from both sides. This file explains in prose
+  # exactly what it pins -- the dispatch comment names both selectors --
+  # so a whole-block match is satisfied by the explanation instead of the
+  # assignment -- the failure the structural specs were fixed for.
+  # Deleting `COVERAGE_PATH=""` from the command prefix must fail this
+  # test even though the paragraph above it still says the words.
   local _forwarded _container _pinned _name _n=0
+  local _strip='/^[[:space:]]*#/d' 
   _forwarded="$(sed -n '/docker compose -p/,/^}/p' "${REPO}/script/test/test.sh" \
+    | sed "${_strip}" \
     | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-}".*/\1/p' | sort -u)"
   [ -n "${_forwarded}" ]
 
@@ -679,11 +688,12 @@ _make_cobertura() {
   # would enrol the whole if/elif chain's variables in a guard about one
   # branch.
   _container="$(sed -n '/if \[\[ "\${COVERAGE:-0}" == "1" \]\]; then/,/^      elif/p' \
-    "${REPO}/script/test/test.sh" | sed '$d')"
+    "${REPO}/script/test/test.sh" | sed '$d' | sed "${_strip}")"
   [ -n "${_container}" ]
 
   # The host-side dispatch that has to pin them.
-  _pinned="$(sed -n '/^    coverage)/,/^    compose)/p' "${REPO}/script/test/test.sh")"
+  _pinned="$(sed -n '/^    coverage)/,/^    compose)/p' "${REPO}/script/test/test.sh" \
+    | sed "${_strip}")"
   [ -n "${_pinned}" ]
 
   for _name in ${_forwarded}; do
