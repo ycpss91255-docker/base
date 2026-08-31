@@ -310,15 +310,29 @@ _dfm_pip_config_dir() {
 
 # _dfm_pip_requirements_populated <config_dir>
 #   Exit 0 when the repo ships a requirements file with at least one real
-#   requirement: any line that is neither blank nor a `#` comment. An
-#   absent file is NOT populated -- that is the case whose build the
-#   migration is repairing. Takes the RESOLVED config source dir, so it is
-#   never the one that decides where to look.
+#   requirement (any line that is neither blank nor a `#` comment), 1 when
+#   it PROVABLY ships none -- the file is absent, which is the case whose
+#   build the migration is repairing, or it was read end to end and holds
+#   nothing but blanks and comments -- and 2 when the question could not be
+#   answered because grep could not read what it was pointed at.
+#
+#   The third status is the point, and it is the same one
+#   _dfm_conf_declares_redirect carries: `grep -q` exits 2 when it scanned
+#   nothing, and a caller that folds 2 into "no requirements" turns an
+#   unreadable file into permission to delete a working install. Takes the
+#   RESOLVED config source dir, so it is never the one that decides where
+#   to look.
 _dfm_pip_requirements_populated() {
   local _config_dir="$1"
   local _req="${_config_dir}/pip/requirements.txt"
   [[ -f "${_req}" ]] || return 1
-  grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}"
+  local _st=0
+  grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}" || _st=$?
+  case "${_st}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 # _dfm_pip_line_is_standalone <dockerfile>
@@ -357,10 +371,22 @@ _migrate_pip_helper_apply() {
     return 0
   fi
 
-  if _dfm_pip_requirements_populated "${_config_dir}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
-    return 0
-  fi
+  # 1 -- and only 1 -- is "this repo provably installs nothing here", the
+  # single status that may reach the delete below. 0 is a real requirement
+  # list and 2 is an unanswered question; both keep the line.
+  local _rst=0
+  _dfm_pip_requirements_populated "${_config_dir}" || _rst=$?
+  case "${_rst}" in
+    0)
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
+      return 0
+      ;;
+    1) ;;
+    *)
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt could not be read, so what the line installs is unknown; a file this migration never read is not a file with nothing in it (#567 m2)"
+      return 0
+      ;;
+  esac
 
   if ! _dfm_pip_line_is_standalone "${_file}"; then
     _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — it is part of a backslash-continued RUN a line delete would break; drop it by hand (#567 m2)"
