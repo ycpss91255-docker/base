@@ -282,6 +282,17 @@ _HARNESS_EXEMPT_SRCS=(
   # is green on exactly the record the specs exist to reject.
   run grep -nE '^ARG BASE_IMAGE$' "${HARNESS_DOCKERFILE}"
   assert_success
+  # The record's SECOND sink: the OCI base.digest annotation the template's
+  # sys stage labels the image with. Mirrored here so
+  # test/bats/system/smoke_harness_spec.bats can build this file and read
+  # both sinks off one image -- a label is invisible to any spec running
+  # INSIDE the image, which is how the two came to disagree unnoticed. The
+  # refusal that keeps them from disagreeing is mirrored with it.
+  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' \
+    "${HARNESS_DOCKERFILE}"
+  assert_success
+  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' "${HARNESS_DOCKERFILE}"
+  assert_success
   # ... and written before the specs read it.
   local _manifest_line _bats_line
   _manifest_line="$(grep -n '> /usr/local/share/base/base-image\.env' \

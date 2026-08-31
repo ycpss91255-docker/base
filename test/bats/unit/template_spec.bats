@@ -1604,20 +1604,33 @@ _hadolint_ignore_rationale() {
   # unpinned reference names an image that may already have moved.
   run grep -F 'base_image_pin=digest' <<< "${_block}"
   assert_success
-  # The digest itself, on both routes it can be known: taken from the
-  # reference when that reference carries one, and from the build arg
-  # otherwise. A record that reports the digest only when the reference
-  # already spelled it out records it exactly when it was never in doubt.
   run grep -cE '^ARG BASE_IMAGE_DIGEST=' <<< "${_block}"
   assert_output "1"
-  run grep -F 'base_image_digest=sha256:${BASE_IMAGE##*@sha256:}' <<< "${_block}"
-  assert_success
-  run grep -F 'base_image_digest=${BASE_IMAGE_DIGEST}' <<< "${_block}"
-  assert_success
   # OCI annotations too, so `docker inspect` answers without unpacking.
   run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
   assert_success
-  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' <<< "${_block}"
+
+  # The digest is recorded ONCE, by one expression, into both sinks. A
+  # LABEL cannot run a case statement, so any expression the file can
+  # evaluate and the label cannot is a field that answers differently for
+  # the same image -- which is the one field this record exists to make
+  # comparable. Read out of the stage and COMPARED rather than spelled as
+  # two literals: a pair of literals goes green the moment either side
+  # moves, which is exactly how the two answers got there.
+  local _file_digest _label_digest
+  _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
+  _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
+  assert [ -n "${_file_digest}" ]
+  assert [ -n "${_label_digest}" ]
+  assert_equal "${_file_digest}" "${_label_digest}"
+
+  # ... and the route the label cannot read cannot fill the file behind
+  # its back either: a BASE_IMAGE that carries its own digest has to be
+  # accompanied by the build arg that repeats it, and the build REFUSES
+  # rather than write a record whose two halves disagree.
+  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' <<< "${_block}"
+  assert_success
+  run grep -F 'exit 1' <<< "${_block}"
   assert_success
 }
 
@@ -1685,7 +1698,16 @@ _hadolint_ignore_rationale() {
   assert_success
   run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
   assert_success
-  run grep -F '#       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' <<< "${_block}"
+  # One expression into both sinks here too, and the same refusal behind
+  # it. runtime-base is the copy a consumer uncomments, so a divergence
+  # left in it ships to every repo that turns the runtime split on.
+  local _file_digest _label_digest
+  _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
+  _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
+  assert [ -n "${_file_digest}" ]
+  assert [ -n "${_label_digest}" ]
+  assert_equal "${_file_digest}" "${_label_digest}"
+  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' <<< "${_block}"
   assert_success
 }
 

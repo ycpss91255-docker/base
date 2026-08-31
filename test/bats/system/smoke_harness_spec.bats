@@ -94,18 +94,27 @@ _add_fixture_spec() {
 # identical to the previous run's, so without it the second invocation
 # reports success having executed no specs at all -- and the assertion that
 # bats reported a plan is precisely what caught that.
+# Extra arguments after the context are passed to `docker build` before the
+# `-f`, so a case can tag the result or override a build arg.
 _build_harness() {
-  local _ctx="${1}"
+  local _ctx="${1}"; shift
   docker build \
     --no-cache \
     --progress=plain \
     --build-arg "TEST_TOOLS_IMAGE=${TEST_TOOLS_IMAGE}" \
+    "$@" \
     -f /source/dockerfile/Dockerfile.smoke \
     "${_ctx}" 2>&1
 }
 
 teardown() {
   [[ -n "${CONTEXT_DIR:-}" && -d "${CONTEXT_DIR}" ]] && rm -rf "${CONTEXT_DIR}"
+  # A case that tagged its build sets IMAGE_TAG; the image is this file's
+  # litter and nothing else reads it.
+  if [[ -n "${IMAGE_TAG:-}" ]]; then
+    docker rmi -f "${IMAGE_TAG}" >/dev/null 2>&1 || true
+  fi
+  return 0
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -161,4 +170,57 @@ teardown() {
   run _build_harness "${CONTEXT_DIR}"
   [ "${status}" -ne 0 ]
   echo "${output}" | grep -q 'failing on purpose'
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Reproducibility record: the sys stage writes the base digest into TWO
+# sinks -- /usr/local/share/base/base-image.env and the OCI
+# org.opencontainers.image.base.digest annotation -- and one image must
+# not get two answers. base's unit spec compares the two EXPRESSIONS in
+# the template text; only a build resolves them, and only from outside
+# the image can the annotation be read at all. The harness mirrors the
+# stage's record, so this is where that resolution happens.
+# ────────────────────────────────────────────────────────────────────
+
+# Not a real digest: nothing here pulls the reference (the harness is FROM
+# the tooling image), and the shipped spec asserts the SHAPE
+# `sha256:<64 hex>`, which is what a route that drops or reshapes the value
+# stops producing.
+PINNED_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+@test "a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)" {
+  _make_context CONTEXT_DIR
+  # The file half is asserted from INSIDE the build, by a spec running in
+  # the stage that wrote it -- the same place the shipped repro specs run.
+  _add_fixture_spec "${CONTEXT_DIR}" zz_pinned_digest \
+    '@test "the manifest records the pinned digest" {' \
+    "  run grep -x 'base_image_digest=${PINNED_DIGEST}' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    '}'
+  IMAGE_TAG="base-smoke-pinned-digest:test"
+  run _build_harness "${CONTEXT_DIR}" \
+    -t "${IMAGE_TAG}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}" \
+    --build-arg "BASE_IMAGE_DIGEST=${PINNED_DIGEST}"
+  [ "${status}" -eq 0 ]
+  # The annotation half, read off the built image: no spec running inside
+  # the image can see a label, which is why this sink went unchecked while
+  # it disagreed with the file.
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "${PINNED_DIGEST}" ]
+}
+
+@test "the build REFUSES a reference-carried digest the build arg does not repeat (#951)" {
+  _make_context CONTEXT_DIR
+  # The half-pinned call: the reference carries the digest, nothing carries
+  # it into the annotation. Recording it in the file alone is what gave one
+  # image two answers, so the build stops instead -- and says which arg
+  # closes it.
+  run _build_harness "${CONTEXT_DIR}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}"
+  [ "${status}" -ne 0 ]
+  echo "${output}" | grep -q 'BASE_IMAGE_DIGEST'
 }
