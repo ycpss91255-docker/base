@@ -46,10 +46,12 @@
 #   - a comment. Prose about the shape must not violate it.
 #
 # Known limitation, stated rather than papered over: a heredoc body
-# inside a test is not tracked, so a fixture line beginning with `! `
-# inside one would be read as a statement. The tree has no such line
-# today, and a heredoc tracker would be a second bash parser; the allow
-# region below is the answer if one ever appears.
+# inside a test is not tracked. A fixture line beginning with `! ` inside
+# one reads as a statement (a false alarm the allow region answers), and
+# a `}` at column 0 inside one closes the body early, taking the rest of
+# it out of the rule's reach (a MISSED violation, which nothing here
+# would tell you about). The tree has neither today, and a heredoc
+# tracker would be a second bash parser.
 #
 # Population: the scan root must exist and must yield at least one spec,
 # and every `@test` header found by a plain text scan must correspond to
