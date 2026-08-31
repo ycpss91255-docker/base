@@ -300,6 +300,49 @@ _watchdog_pgid_of() {
   printf '%s' "${_pid}"
 }
 
+# How long to give a freshly forked child to become its own process-group
+# leader before concluding it never will: tries x poll seconds. Two seconds
+# is far longer than the syscall needs and far shorter than any timeout that
+# depends on the answer, and the wait ends the moment the group appears, so
+# a healthy start pays one read.
+_WATCHDOG_GROUP_TRIES=20
+_WATCHDOG_GROUP_POLL=0.1
+
+# _watchdog_await_child_group <pid> -- the child's process-group id, once it
+# has had the chance to become its own group leader.
+#
+# Why a wait and not a read. `setsid cmd &` returns at the FORK: the child
+# has not necessarily called setsid() yet, so for a moment its process group
+# is still this supervisor's. Reading once, right there, meant a lost race
+# left group-signalling disabled for the whole life of that service -- and
+# that is not a small degradation. A service whose shell is sitting in a
+# foreground command does not run its SIGTERM trap until the command
+# returns, and the command returns because the GROUP signal reached it too.
+# Signal the pid alone and the trap is deferred, the bounded grace expires,
+# and a service that handles SIGTERM correctly is SIGKILLed instead. On a
+# loaded machine 3 of 40 starts lost that race (issue 965).
+#
+# The loop ends on any of three answers, so it never becomes a wait of its
+# own: the group appeared, the child is gone (nothing left to signal), or
+# the budget is spent, in which case the last value read is returned and the
+# caller falls back to single-pid signalling exactly as before.
+_watchdog_await_child_group() {
+  local _pid="${1:?BUG: _watchdog_await_child_group expects a pid}"
+  local _pgid _i=0
+  while :; do
+    _pgid="$(_watchdog_pgid_of "${_pid}")"
+    [[ "${_pgid}" == "${_pid}" ]] && break
+    (( _i < _WATCHDOG_GROUP_TRIES )) || break
+    kill -0 "${_pid}" 2>/dev/null || break
+    # Fractional sleep where the userland has one (busybox and coreutils
+    # both do); a whole second otherwise, which is still bounded by the
+    # try budget.
+    sleep "${_WATCHDOG_GROUP_POLL}" 2>/dev/null || sleep 1
+    _i=$(( _i + 1 ))
+  done
+  printf '%s' "${_pgid}"
+}
+
 # _watchdog_start_service <cmd...> -- launch the supervised service as its
 # own PROCESS-GROUP LEADER (via setsid) and record its PID + PGID. A fresh
 # process group lets stop/restart signal the WHOLE group -- the service AND
@@ -312,7 +355,7 @@ _watchdog_start_service() {
   if command -v setsid >/dev/null 2>&1; then
     setsid "$@" &
     _WATCHDOG_CHILD_PID=$!
-    _WATCHDOG_CHILD_PGID="$(_watchdog_pgid_of "${_WATCHDOG_CHILD_PID}")"
+    _WATCHDOG_CHILD_PGID="$(_watchdog_await_child_group "${_WATCHDOG_CHILD_PID}")"
     [[ "${_WATCHDOG_CHILD_PGID}" == "${_WATCHDOG_CHILD_PID}" ]] && _WATCHDOG_USE_PGKILL=1
   else
     "$@" &
