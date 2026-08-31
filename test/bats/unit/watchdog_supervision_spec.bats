@@ -69,6 +69,27 @@ _within_case_bound() {
   (( _elapsed <= _ceiling + _margin ))
 }
 
+# _reap_child <pid> -- the outcome of a child THIS case started, into
+# _CHILD_STATUS: 0 when it ran to completion, 128+N when a signal ended it.
+#
+# It is a rendezvous, not a glance, and that is the point. `kill -0` was
+# here and it is not an oracle: it answers "alive" for a process that has
+# been sent SIGKILL and has not yet been scheduled to die, and again for one
+# that has died and has not yet been reaped. Either way a case asking it
+# immediately after the signal reads ALIVE and passes while the property it
+# names is broken -- measured at three greens in eight runs. `wait` returns
+# the status ONCE, whenever the child gets there, so a loaded machine costs
+# latency and never a verdict.
+#
+# The status goes into a global rather than onto stdout because `wait` only
+# works on children of the CALLING shell: a command substitution or bats'
+# own `run` would ask a subshell about a child it does not have.
+_reap_child() {
+  local _pid="${1:?BUG: _reap_child expects a pid}"
+  _CHILD_STATUS=0
+  wait "${_pid}" || _CHILD_STATUS=$?
+}
+
 # ── event-driven synchronisation, never a fixed sleep ───────────────
 #
 # Every case below drives REAL processes, so the harness has to wait for
