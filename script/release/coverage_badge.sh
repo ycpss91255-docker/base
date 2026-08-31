@@ -65,10 +65,24 @@
 # certified a partition as HEAD's measurement -- clean worktree, matching
 # sha, fresh mtimes -- and the badge published a figure off by a factor of
 # N. The stamp therefore carries a second line, `scope=full` or
-# `scope=shard <n>/<total>`, and only `full` may be published. A stamp with
-# no scope line is refused as well: unscoped is unknown, and unknown is not
-# evidence. A hand-assembled set of every CI shard is a whole-suite
-# measurement and writes `scope=full` alongside the sha.
+# `scope=partial <m>/<n> specs`, and only `full` may be published. A stamp
+# with no scope line is refused as well: unscoped is unknown, and unknown
+# is not evidence.
+#
+# WHERE THE SCOPE COMES FROM, and why it is not the flag: `test.sh`
+# derives it from `coverage/timings.tsv`, the manifest kcov's bats writes
+# naming every spec FILE that actually ran, compared against the tree's
+# spec inventory. It was read off the INVOCATION once, and that made the
+# certificate a claim about the arguments rather than about the reports:
+# every input that narrows the run without passing through the shard flag
+# -- an inherited COVERAGE_SHARD, an inherited COVERAGE_PATH, whatever
+# selector is added next -- stamped `scope=full` over a partial
+# measurement, and the set of such inputs is not enumerable. What was
+# measured is. A hand-assembled set of every CI shard is a whole-suite
+# measurement: concatenate the shards' `timings.tsv` into
+# `coverage/timings.tsv` (`coverage_gate.sh --merge-timings`) and re-run
+# the stamper, and the `full` it writes is earned the same way a local
+# run earns it.
 #
 # Usage:
 #   coverage_badge.sh [options]

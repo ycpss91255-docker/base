@@ -434,12 +434,33 @@ says so rather than describing the end state as if it were built.
    tree the full run uses. A stamp that recorded only the sha then
    certified a partition as `HEAD`'s measurement: matching sha, clean
    worktree, fresh mtimes, and a badge off by a factor of N. So the stamp
-   records the SCOPE as well -- `scope=full` or `scope=shard <n>/<total>`
-   on a second line, truncating any earlier stamp -- and the generator
-   publishes only `full`. A stamp carrying no scope is refused too:
-   unscoped is unknown, and unknown is not evidence. The sha answers
-   WHICH tree; the scope answers WHETHER the whole suite ran, and the
-   promise of this amendment needs both. `--unmeasured` renders
+   records the SCOPE as well -- `scope=full` or
+   `scope=partial <m>/<n> specs` on a second line, truncating any earlier
+   stamp -- and the generator publishes only `full`. A stamp carrying no
+   scope is refused too: unscoped is unknown, and unknown is not
+   evidence. The sha answers WHICH tree; the scope answers WHETHER the
+   whole suite ran, and the promise of this amendment needs both.
+
+   **The scope is derived from the measurement, not from the
+   invocation**, and that correction came after four attempts to fix it
+   the other way. Read off the shard FLAG, the scope described the
+   arguments rather than the reports, so every input that narrows the run
+   without passing through that flag certified a partition as whole: an
+   inherited `COVERAGE_SHARD`, an inherited `COVERAGE_PATH` (which the
+   in-container dispatch reads first, and which makes the run write no
+   report at all), and whichever selector `_run_via_compose` forwards
+   next. Each round closed one door and the next round found another,
+   because the inputs to an invocation are not an enumerable set. What
+   was MEASURED is: `_measured_coverage_scope` compares
+   `coverage/timings.tsv` -- the manifest kcov's bats writes, one line
+   per spec file that ran -- against the tree's spec inventory, and a run
+   narrowed by anything at all leaves fewer specs in it. The manifest is
+   erased with the certificate before every run, so a run that writes no
+   manifest ends with no stamp rather than with the previous run's. What
+   remains enumerable is bounded and mechanically checked: the kcov
+   selectors are the `-e NAME="${NAME:-}"` lines of `_run_via_compose`,
+   read out of the source by a spec that fails until the coverage
+   dispatch assigns each of them. `--unmeasured` renders
    `coverage vX.Y.Z | not measured` in grey: an explicit statement of
    absence, which is what the badge carried for `v0.42.0`, the last
    release cut before this mechanism existed.
@@ -487,10 +508,10 @@ Recording it as done here would be worse than the gap.
   released, or the generator refuses. That is the intended trade: the
   alternative to paying minutes is publishing a figure nobody measured.
 - `just test coverage` now leaves `coverage/.head-sha` behind, carrying
-  the sha and the scope (`full`, or `shard <n>/<total>`). It is the only
-  local evidence of which tree the reports describe and how much of the
-  suite produced them; `just test clean` removes it with the rest of
-  `coverage/`.
+  the sha and the scope (`full`, or `partial <m>/<n> specs`, derived from
+  the run manifest `coverage/timings.tsv`). It is the only local evidence
+  of which tree the reports describe and how much of the suite produced
+  them; `just test clean` removes it with the rest of `coverage/`.
 - A local shard run (`just test coverage 1/4`) can no longer be published
   as a release figure, at any commit. That is a refusal an operator can
   hit while doing nothing wrong -- checking the sharded path and then

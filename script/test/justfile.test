@@ -52,9 +52,14 @@ lint *args:
 #
 # Both write into the same coverage/ tree, so the run stamps
 # coverage/.head-sha with the sha it measured AND its scope (`full`, or
-# `shard <n>/<total>`). `just release coverage-badge` publishes only a
+# `partial <m>/<n> specs`). `just release coverage-badge` publishes only a
 # `full` one -- a shard's rate is a partition's, not the project's, and
 # without the scope the badge would publish it as the release figure.
+#
+# The scope is DERIVED from coverage/timings.tsv, the manifest naming
+# every spec the run actually walked, not from the argument above: an
+# invocation cannot be trusted to describe a run that anything else --
+# an inherited COVERAGE_SHARD or COVERAGE_PATH, say -- has narrowed.
 coverage shard='':
     #!/usr/bin/env bash
     set -euo pipefail
