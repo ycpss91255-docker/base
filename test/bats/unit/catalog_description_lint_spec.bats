@@ -781,6 +781,33 @@ refute_finding() {
   refute_output --partial 'not_a_real_spec.bats'
 }
 
+@test "_run_catalog_description: a fenced example does not take the REST of its table out of the rule (#922)" {
+  # The hole this closes: the fence cleared _in_table and nothing put it
+  # back, so every row AFTER the closing fence belonged to no table and
+  # was never scanned. A three-line example dropped into a catalogue took
+  # the remainder of that section's rows out of a REQUIRED field with both
+  # gates green and nothing in the diff saying so -- the same silent
+  # opt-out the "Reach" section exists to refuse, one level down. A fence
+  # INTERRUPTS the table; it does not end it.
+  {
+    printf '# Unit Tests\n\n'
+    printf '### test/bats/unit/alpha_spec.bats (2)\n\n'
+    printf '| Test | Description |\n|------|-------------|\n'
+    printf '| `alpha does a thing` | Why alpha matters |\n'
+    printf '```markdown\n'
+    printf '| `an example row` | - |\n'
+    printf '```\n'
+    printf '| `beta does another thing` | - |\n'
+  } > "${CATALOG}"
+  _index_set 'unit.md' 2
+  run _run_catalog_description
+  assert_failure
+  assert_finding 'beta does another thing'
+  # And the fenced row is still an example, not a row: resuming the table
+  # must not also start scanning what the fence held.
+  refute_finding 'an example row'
+}
+
 @test "_run_catalog_description: a table under no spec section is not scanned (#922)" {
   # TEST.md's own index tables are `| Lint | ... |` shaped and belong to
   # no spec; only a table under a generated `### <path> (N)` heading is a
