@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3090 tests**.
+Unit specs under `test/bats/unit/`: **3146 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4248,16 +4248,16 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | The same defect from the author's side -- an entry quoting the ja / zh guides charged three times over for it |
 | `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | Non-vacuity: a lint that scanned nothing must not report clean |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | Distinct from an empty-but-present section, which is legitimate; the file's shape changing is not |
-| `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
-| `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
-| `_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)` | - |
-| `_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)` | - |
-| `_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)` | - |
-| `_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)` | - |
-| `_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)` | - |
-| `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | - |
-| `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
-| `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
+| `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | The base case for the defect that shipped four times in one cycle: two branches appending to [Unreleased] merge with both copies kept and nothing conflicts |
+| `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | Naming only the copy leaves the reader hunting the original by eye, which is the manual step the check exists to remove |
+| `_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)` | Load-bearing for the whole-entry key: a re-wrap changes the lead line, so a lead-bullet key alone would go quiet on the commonest merge shape |
+| `_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)` | The other direction -- a check that fires on entries which merely look alike is a check people mute |
+| `_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)` | A released section is a record of what shipped; rewriting it to satisfy a lint falsifies that record |
+| `_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)` | Without it the file's own format example is a byte-identical second copy of the entry introducing it -- a failure on a clean file |
+| `_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)` | The opt-out has to reach the duplicate rule too, or a deliberate second copy has no way to stay |
+| `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | The heading half of the same merge defect: two '### Added' blocks in one release split the entries a reader has to compare |
+| `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | Scopes the rule to the release block -- every release adds things, so one '### Added' per block is the normal shape |
+| `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | Non-vacuity: without the count, a run that compared nothing prints the same green line as one that compared the file |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | Dogfood: the rule is applied to the file carrying this change's own entry |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
