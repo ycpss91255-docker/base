@@ -900,7 +900,7 @@ compose は `--scale` を拒否します。compose に
 `<project>-<service>-<n>` を導出させれば名前は構造上一意になり、
 ホスト内の分離は完全に project name の担当になります。
 
-唯一の例外は field deploy bundle (`just setup deploy`) で、これは
+唯一の例外は field deploy bundle (`just docker setup deploy`) で、これは
 `container_name:` を実際に焼き込みます。この bundle は完全に解決済み
 の自己完結した単一デバイス向け artifact -- 1 台に 1 stack、同一ホスト
 に並置されることはなく、展開する overlay も存在しません -- で、運用者

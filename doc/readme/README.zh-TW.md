@@ -844,7 +844,7 @@ project name，都會以 `name ... is already in use` 起不來，而且只要
 `<project>-<service>-<n>`，名字就天生唯一 — 於是 host 層的隔離完全
 落在 project name 上。
 
-唯一的例外是 field deploy bundle（`just setup deploy`），它確實會
+唯一的例外是 field deploy bundle（`just docker setup deploy`），它確實會
 寫死一個 `container_name:`。那份 bundle 是完全 resolve 過、自帶所有
 內容的單機 artifact — 一台裝置一份 stack、不會和別人同機共存、也沒有
 任何 overlay 會展開它 — 操作者要的就是一個固定名字可以 `docker

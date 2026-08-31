@@ -114,7 +114,7 @@ removable and that `multi_run` *may* drop it;
 `container_name:` line in the `compose.yaml` a repo runs for an overlay to
 override or remove. Scope: this is the dev stack, the only emission an
 overlay ever expands. The field-deploy bundle (`_generate_resolved_compose`,
-`just setup deploy`) still bakes one, deliberately -- it is a fully
+`just docker setup deploy`) still bakes one, deliberately -- it is a fully
 resolved single-device artifact, one stack per device, never co-located,
 and its operator wants a stable name to `docker logs`. Two emitters, two
 rules; the co-location argument below is the dev stack's.

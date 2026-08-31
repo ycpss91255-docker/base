@@ -168,7 +168,7 @@ because detection already falls back to the OS user) into
 `name:` read that one value. It is also the ONLY per-host isolation the
 stack has: no `container_name:` is emitted, so compose derives
 `<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment). That is
-the DEV stack; the field-deploy bundle (`just setup deploy`) still bakes a
+the DEV stack; the field-deploy bundle (`just docker setup deploy`) still bakes a
 `container_name:`, deliberately -- one stack per device, never co-located.
 Not the image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.

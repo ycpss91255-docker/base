@@ -1256,7 +1256,7 @@ Letting compose derive `<project>-<service>-<n>` makes the name unique
 by construction, which is what puts per-host isolation entirely in the
 project name.
 
-The one exemption is the field-deploy bundle (`just setup deploy`),
+The one exemption is the field-deploy bundle (`just docker setup deploy`),
 which does bake a `container_name:`. That bundle is a fully resolved,
 self-contained single-device artifact -- one stack per device, never
 co-located, no overlay expanding it -- and the operator running it wants
