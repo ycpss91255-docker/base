@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3130 tests**.
+Unit specs under `test/bats/unit/`: **3135 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3424,7 +3424,7 @@ untested) and uncommented.
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/coverage_badge_spec.bats (40)
+### test/bats/unit/coverage_badge_spec.bats (45)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -3452,16 +3452,21 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: refuses when the reports were produced from a different commit` | Measure one tree, check an older commit out: every timestamp check passes and the sha does not |
 | `coverage_badge: refuses when the reports carry no provenance` | Reports with no recorded sha describe no particular tree |
 | `coverage_badge: the coverage run records the sha its reports describe` | The producer half: without a writer the reader refuses every real release |
-| `coverage_badge: a shard run records the partition, not a whole-suite scope` | A sha proves WHICH tree; the scope proves WHETHER the whole suite ran |
-| `coverage_badge: a shard run overwrites an earlier full run's scope` | Shards write into the same coverage/ tree, so a stale full-suite stamp must not survive |
+| `coverage_badge: a partial measurement is not certified whole, whatever the invocation said` | - |
+| `coverage_badge: a run that recorded no measurement is certified as nothing` | - |
+| `coverage_badge: a later partial measurement overwrites an earlier full one` | - |
+| `coverage_badge: the measured-scope inventory is this repo's real spec tree` | - |
 | `coverage_badge: the coverage run drops the old certificate before it starts` | - |
+| `coverage_badge: the eraser drops the manifest the scope is derived from` | - |
+| `coverage_badge: a manifest that outlives its erasure fails the run` | - |
 | `coverage_badge: a certificate that outlives its erasure fails the run` | - |
 | `coverage_badge: a failed coverage run leaves no certificate behind` | - |
 | `coverage_badge: a coverage run that succeeds still writes its certificate` | - |
 | `coverage_badge: a sourced dispatch withholds the certificate too` | - |
-| `coverage_badge: --coverage-shard tells the stamp which partition ran` | The joint: the writer can only record a partition the dispatch hands it |
-| `coverage_badge: a full --coverage run hands the stamp no partition` | The release path still stamps a whole-suite measurement |
-| `coverage_badge: a full --coverage run tells the CONTAINER no partition` | - |
+| `coverage_badge: --coverage-shard partitions the CONTAINER, and tells the writer nothing` | - |
+| `coverage_badge: a full --coverage run hands the writer only the root` | - |
+| `coverage_badge: a full --coverage run tells the CONTAINER no selector at all` | - |
+| `coverage_badge: the coverage dispatch pins every selector the container reads` | - |
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
 | `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
 | `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |
