@@ -587,17 +587,24 @@ _make_cobertura() {
   # read, not just the values -- and derives the scope from the reports.
   #
   # A DIFFERENT partition sits in the ambient environment here, so the
-  # container-side reading cannot be satisfied by an inherited value.
-  run env COVERAGE_SHARD=3/4 bash -c '
+  # container-side reading cannot be satisfied by an inherited value --
+  # and an ambient COVERAGE_PATH sits beside it, because the in-container
+  # dispatch reads THAT one first: a shard run under an inherited path
+  # instruments one spec and writes no report, whatever the shard flag
+  # said. Both halves of the selector pair are read, not just the one
+  # this branch names.
+  run env COVERAGE_SHARD=3/4 COVERAGE_PATH=test/bats/unit/lib_spec.bats bash -c '
     source /source/script/test/test.sh
-    _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
+    _run_via_compose() {
+      printf "CONTAINER path=[%s] shard=[%s]\n" "${COVERAGE_PATH:-}" "${COVERAGE_SHARD:-}"
+    }
     _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { printf "STAMP root=[%s] argc=[%s]\n" "${1:-}" "$#"; }
     main --coverage-shard 1/4
   '
   [ "${status}" -eq 0 ]
   assert_output --partial "STAMP root=[/source] argc=[1]"
-  assert_output --partial "CONTAINER shard=[1/4]"
+  assert_output --partial "CONTAINER path=[] shard=[1/4]"
 }
 
 @test "coverage_badge: a full --coverage run hands the writer only the root" {
@@ -615,32 +622,83 @@ _make_cobertura() {
   assert_output --partial "STAMP root=[/source] argc=[1]"
 }
 
-@test "coverage_badge: a full --coverage run tells the CONTAINER no partition" {
-  # The stamp is only half the certificate, and the half above reads the
-  # FLAG. What kcov actually walks is decided by the environment:
-  # _run_via_compose forwards `-e COVERAGE_SHARD="${COVERAGE_SHARD:-}"`
-  # from the AMBIENT environment, not from the flag. So a bare
-  # `--coverage` inheriting a partition -- and the caller that has one is
-  # this suite itself, running inside a coverage shard -- kcovs a QUARTER
-  # of the specs and then stamps the reports `scope=full`. Every check the
-  # badge generator makes passes and it publishes the partition's rate as
-  # the release figure: the exact failure the scope line exists to
-  # prevent, arriving through the one door the scope line does not watch.
+@test "coverage_badge: a full --coverage run tells the CONTAINER no selector at all" {
+  # The certificate can no longer be fooled -- it is derived from what the
+  # run measured -- but a run narrowed by an inherited selector is still
+  # the WRONG RUN: `just test coverage` before a release would silently
+  # instrument a quarter of the suite, or one spec, and then refuse to
+  # publish, which is a confusing way to spend twelve minutes.
   #
-  # --coverage-path clears it for this reason already; a run that reports
-  # a FIGURE has more need of the clearing, not less. The assertion is on
-  # what the container was handed, because a stub that never reads
-  # COVERAGE_SHARD proves the flag was empty and nothing about the run.
-  run env COVERAGE_SHARD=1/4 bash -c '
+  # What kcov walks is decided by the environment, not by the flag:
+  # _run_via_compose forwards `-e COVERAGE_SHARD="${COVERAGE_SHARD:-}"`
+  # and `-e COVERAGE_PATH="${COVERAGE_PATH:-}"` from the AMBIENT
+  # environment, and the in-container dispatch reads COVERAGE_PATH FIRST,
+  # so the path out-ranks the partition. The caller that carries either is
+  # this suite itself, run under `just test coverage` / `just test
+  # coverage-path`. Both are cleared, and both are read here.
+  run env COVERAGE_SHARD=1/4 COVERAGE_PATH=test/bats/unit/lib_spec.bats bash -c '
     source /source/script/test/test.sh
-    _run_via_compose() { printf "CONTAINER shard=[%s]\n" "${COVERAGE_SHARD:-}"; }
+    _run_via_compose() {
+      printf "CONTAINER path=[%s] shard=[%s]\n" "${COVERAGE_PATH:-}" "${COVERAGE_SHARD:-}"
+    }
     _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { printf "STAMP argc=[%s]\n" "$#"; }
     main --coverage
   '
   [ "${status}" -eq 0 ]
-  assert_output --partial "CONTAINER shard=[]"
+  assert_output --partial "CONTAINER path=[] shard=[]"
   assert_output --partial "STAMP argc=[1]"
+}
+
+@test "coverage_badge: the coverage dispatch pins every selector the container reads" {
+  # This is the part that stays enumerable, and the reason it is bounded.
+  # The scope on the certificate is derived from the measurement, so no
+  # forgotten variable can make a partial run look whole; what a forgotten
+  # variable can still do is make the run itself wrong. That set is not
+  # "every environment variable" -- it is the intersection of two lists
+  # that both live in this repo's source:
+  #
+  #   - what _run_via_compose forwards FROM THE AMBIENT ENVIRONMENT, which
+  #     is exactly its `-e NAME="${NAME:-}"` lines (the same-named
+  #     ambient read is the giveaway; `-e COVERAGE="${_coverage}"` is a
+  #     positional and is not in this set), and
+  #   - what the in-container COVERAGE branch actually reads.
+  #
+  # Both are read out of the source here rather than transcribed, so a
+  # third selector added to the forwarder and consulted by the container
+  # arrives with its clearing already demanded. Four review rounds found
+  # the members of this set one at a time; this test enumerates it.
+  local _forwarded _container _pinned _name _n=0
+  _forwarded="$(sed -n '/docker compose -p/,/^}/p' "${REPO}/script/test/test.sh" \
+    | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-}".*/\1/p' | sort -u)"
+  [ -n "${_forwarded}" ]
+
+  # The in-container coverage branch: from the COVERAGE guard to the arm
+  # that ends it. `sed -n` ranges include their closing line, and that
+  # line is the NEXT branch's condition, so it is dropped -- keeping it
+  # would enrol the whole if/elif chain's variables in a guard about one
+  # branch.
+  _container="$(sed -n '/if \[\[ "\${COVERAGE:-0}" == "1" \]\]; then/,/^      elif/p' \
+    "${REPO}/script/test/test.sh" | sed '$d')"
+  [ -n "${_container}" ]
+
+  # The host-side dispatch that has to pin them.
+  _pinned="$(sed -n '/^    coverage)/,/^    compose)/p' "${REPO}/script/test/test.sh")"
+  [ -n "${_pinned}" ]
+
+  for _name in ${_forwarded}; do
+    [[ "${_container}" == *"${_name}"* ]] || continue
+    _n=$(( _n + 1 ))
+    printf 'SELECTOR %s\n' "${_name}"
+    # Assigned by the dispatch, at any value: `NAME=` on a command
+    # prefix. Inheriting it is what the four rounds were about.
+    [[ "${_pinned}" =~ (^|[[:space:]])"${_name}"= ]]
+  done
+
+  # An intersection that came out empty would satisfy the loop above
+  # without checking anything, which is how a guard over a list becomes a
+  # guard over nothing. Both known selectors must be in it.
+  [ "${_n}" -ge 2 ]
 }
 
 @test "coverage_badge: refuses when the reports cover one shard, not the suite" {
