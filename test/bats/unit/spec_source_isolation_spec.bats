@@ -159,26 +159,91 @@ _assert_clean_scan() {
   assert_equal "${status}" 2
 }
 
-@test "the comparison scan sees the line it was written for, in both operand positions (#965)" {
+@test "the comparison scan sees a live operand in every position a command can open in (#965)" {
   # The other way an invariant goes quietly blind: it holds because its
-  # PATTERN misses the line, not because no such line exists.
+  # PATTERN misses the line, not because no such line exists. A review
+  # planted six spellings this scan NAMED and could not see -- `if`,
+  # `elif`, `while`, `until`, a leading `!`, and `run` with a flag -- while
+  # the header disclosed two. A wide claim with a narrow body is the defect
+  # this repo keeps producing, so the positions are now derived and every
+  # one of them is planted here.
   #
-  # The first fixture is readme_sync_spec's old assertion, verbatim except
-  # for the live path being a printf ARGUMENT rather than a literal -- a
-  # literal would put a matching line into the tree the invariant above
-  # scans, and it would fail on its own fixture.
+  # Derived from the shell grammar, which is what makes this a CLOSED set
+  # rather than the open roster the write scan was: a command can begin at
+  # the start of a line, after a separator or opener (`;` `&` `|` `&&`
+  # `||` `(` `{`), after one of the reserved words that is followed by a
+  # command (`if` `elif` `while` `until` `then` `else` `do` `time`), after
+  # a negating `!`, or after bats' own `run` and its flags. Reserved words
+  # that are followed by a WORD rather than a command (`case`, `for`,
+  # `in`, `select`, `function`) cannot open one, and the rest close a
+  # construct.
+  #
+  # Every fixture keeps the live path as a printf ARGUMENT, never a
+  # literal: a literal would put a matching line into the tree the
+  # invariant above scans and it would fail on its own fixture.
   local _planted="${BATS_TEST_TMPDIR}/planted_cmp"
   mkdir -p "${_planted}"
-  printf '  run diff -r %s/doc/readme "${SCRATCH}/doc/readme"\n' \
-    "${LIVE_TREE}" > "${_planted}/historical.bats"
-  printf '  run cmp "${SCRATCH}/x" %s/x\n' "${LIVE_TREE}" > "${_planted}/second_operand.bats"
-  printf '  diff %s/README.md "${SCRATCH}/README.md"\n' \
-    "${LIVE_TREE}" > "${_planted}/bare_diff.bats"
-
-  local _spelling
-  for _spelling in historical second_operand bare_diff; do
+  # name|printf-format, so one loop covers the whole set. A quoted heredoc,
+  # so ${SCRATCH} reaches the fixture as text; the live path arrives as the
+  # printf argument.
+  local _spelling _fmt
+  while IFS='|' read -r _spelling _fmt; do
+    [[ -n "${_spelling}" ]] || continue
+    # shellcheck disable=SC2059
+    printf "${_fmt}\n" "${LIVE_TREE}" > "${_planted}/${_spelling}.bats"
     run grep -nE "${COMPARE_RE}" "${_planted}/${_spelling}.bats"
     [[ "${status}" -eq 0 ]] || fail \
-      "the comparison scan does not match the ${_spelling} spelling, so a spec letting the live tree settle its verdict that way would leave the invariant green"
-  done
+      "the comparison scan does not match the ${_spelling} spelling, so a spec letting the live tree settle its verdict that way would leave the invariant green while the race it names is wide open"
+  done <<'SPELLINGS'
+historical|  run diff -r %s/doc/readme "${SCRATCH}/doc/readme"
+second_operand|  run cmp "${SCRATCH}/x" %s/x
+bare_diff|  diff %s/README.md "${SCRATCH}/README.md"
+subshell|  _out="$(diff %s/README.md "${SCRATCH}/README.md")"
+if_condition|  if diff -r %s/doc/readme "${SCRATCH}/doc/readme"; then :; fi
+elif_condition|  elif cmp -s %s/x "${SCRATCH}/x"; then :
+while_negated|  while ! diff -q %s/a "${SCRATCH}/a"; do :; done
+until_condition|  until cmp %s/a "${SCRATCH}/a"; do :; done
+bang_leading|  ! diff %s/a "${SCRATCH}/a"
+run_with_status_flag|  run -0 diff -r %s/doc "${SCRATCH}/doc"
+run_with_long_flag|  run --separate-stderr diff %s/a "${SCRATCH}/a"
+then_clause|  if true; then diff %s/a "${SCRATCH}/a"; fi
+else_clause|  if false; then :; else diff %s/a "${SCRATCH}/a"; fi
+do_clause|  for _i in 1; do cmp %s/a "${SCRATCH}/a"; done
+after_and|  true && diff %s/a "${SCRATCH}/a"
+after_or|  false || cmp %s/a "${SCRATCH}/a"
+semicolon|  :; diff %s/a "${SCRATCH}/a"
+time_keyword|  time diff %s/a "${SCRATCH}/a"
+SPELLINGS
+}
+
+@test "the comparison scan's disclosed blind spots really are blind, and they are all of them (#965)" {
+  # The disclosure, made executable. What the scan cannot see is a
+  # property of being LINE-WISE and of matching a literal path: a
+  # comparison split across a continuation line, one whose command name
+  # arrives through a variable or an alias, and one whose live operand is
+  # built out of a variable. Those three are what the header says, and a
+  # case that measures them is what keeps the header from drifting back
+  # into a wider claim than the body.
+  local _planted="${BATS_TEST_TMPDIR}/planted_blind"
+  mkdir -p "${_planted}"
+  local _spelling _fmt
+  while IFS='|' read -r _spelling _fmt; do
+    [[ -n "${_spelling}" ]] || continue
+    # shellcheck disable=SC2059
+    printf "${_fmt}\n" "${LIVE_TREE}" > "${_planted}/${_spelling}.bats"
+    run grep -nE "${COMPARE_RE}" "${_planted}/${_spelling}.bats"
+    [[ "${status}" -eq 1 ]] || fail \
+      "the ${_spelling} spelling IS matched, so the header understates what this scan sees; an accurate narrow claim is the whole point of the disclosure"
+  done <<'BLIND'
+command_in_a_variable|  _cmp=diff; "${_cmp}" %s/a "${SCRATCH}/a"
+path_in_a_variable|  _live=%s; diff "${_live}/a" "${SCRATCH}/a"
+BLIND
+  # The continuation line, which cannot be written as one line by
+  # definition: the operand is on the NEXT line, so a line-wise scan
+  # cannot see it whatever its command positions are.
+  printf '  diff -r \\\n    %s/doc "${SCRATCH}/doc"\n' "${LIVE_TREE}" \
+    > "${_planted}/continuation_line.bats"
+  run grep -nE "${COMPARE_RE}" "${_planted}/continuation_line.bats"
+  [[ "${status}" -eq 1 ]] || fail \
+    "the continuation-line spelling IS matched, so the header understates what this scan sees"
 }
