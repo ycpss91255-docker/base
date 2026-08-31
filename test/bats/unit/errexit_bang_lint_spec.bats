@@ -212,6 +212,27 @@ _write() {
   [[ "${output}" == *"@test"* ]]
 }
 
+@test "_run_errexit_bang: FAILS on a violation in a bats tree outside test/bats (#956)" {
+  # dist/test/bats/smoke/ is a SECOND live bats tree: `just test smoke`
+  # runs it and the .base subtree ships it into every downstream repo. A
+  # test body's return status is the verdict there exactly as it is under
+  # test/bats, so a hand-listed scan root exempts it while the rule -- and
+  # this lint's own name -- claim every bats body. The population is
+  # DERIVED from the tree, not listed here.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "clean" {' \
+    '  true' \
+    '}'
+  _write "dist/test/bats/smoke/shared/entrypoint.bats" \
+    '@test "the entrypoint is installed" {' \
+    '  ! test -e /entrypoint.sh' \
+    '  true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/test/bats/smoke/shared/entrypoint.bats:2"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Allow region
 # ════════════════════════════════════════════════════════════════════
