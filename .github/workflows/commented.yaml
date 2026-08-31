@@ -1,8 +1,0 @@
-on: push
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      # The downstream archive is a different artifact (a curated payload,
-      # declared in script/ci/release/archive.manifest), not this one.
-      - run: echo no payload assembly here
