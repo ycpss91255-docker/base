@@ -278,8 +278,10 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   _body="$(awk '/^_run_via_compose\(\) \{/{f=1} f{print} f && /^\}$/{exit}' \
     /source/script/test/test.sh | strip_comments)"
   [[ -n "${_body}" ]] || fail "could not extract _run_via_compose from script/test/test.sh"
-  grep -q '_residue_snapshot' <<< "${_body}" || fail \
+  grep -q '_residue_before_snapshot' <<< "${_body}" || fail \
     "_run_via_compose does not take a BEFORE snapshot, so nothing establishes what the run inherited"
   grep -q '_residue_check' <<< "${_body}" || fail \
     "_run_via_compose does not check for residue, so the snapshot is taken and thrown away"
+  grep -q '_residue_forget' <<< "${_body}" || fail \
+    "_run_via_compose never drops the pending record, so an invocation with TEST_RESIDUE_GUARD=0 -- the acknowledgement the failure message points at -- leaves the path named on every run afterwards"
 }

@@ -955,13 +955,114 @@ _residue_paths() {
     | LC_ALL=C sort -u
 }
 
+# ── the guard's memory ───────────────────────────────────────────────────────
+#
+# Why there is one at all. The two-snapshot form is what makes the guard
+# usable -- an edit already in flight appears in both snapshots and cancels,
+# so a developer mid-change can run the gate -- and it is exactly that which
+# made the alarm ONE-SHOT: residue left by run N is on disk before run N+1
+# starts, so run N+1 reads it as "in flight" and goes green with the defect
+# unchanged. Measured: run 1 named the path and exited 1, run 2 with nothing
+# fixed exited 0.
+#
+# Three shapes were weighed. Taking the baseline from the INDEX instead of
+# the working tree removes the laundering, and with it the whole reason the
+# guard is usable: every in-flight edit becomes residue and the guard is
+# switched off within the week. Narrowing what BEFORE may cancel -- say, only
+# tracked modifications, never a new untracked file -- is a guess about which
+# changes are developer-shaped, and it is wrong for anyone adding a file.
+# What is left is to REMEMBER, which is precise: the un-cancellable set is
+# exactly the paths this guard has already named out loud.
+#
+# What it costs the dirty working tree, stated. An edit made BEFORE a run
+# cancels, is never named, and is therefore never remembered -- unchanged.
+# The one edit that becomes sticky is one made WHILE the suite ran, which is
+# the single false positive this guard already documents; it now costs one
+# acknowledged invocation instead of evaporating on the next run. That is
+# the trade: an alarm that persists until somebody answers it, against a
+# second knob nobody would remember. There is no second knob --
+# TEST_RESIDUE_GUARD=0, which the failure message already names, drops the
+# record on its way past.
+
+# _residue_state_file <repo>
+#   Where the pending record lives: inside the GIT DIR, never in the working
+#   tree. `git status` does not report it, nothing ships it, and
+#   `--absolute-git-dir` resolves a worktree to its own gitdir, so two
+#   worktrees of one repo do not inherit each other's residue. A record kept
+#   in the tree would be residue on the next run and the guard would report
+#   itself for ever.
+_residue_state_file() {
+  local _repo="${1:?BUG: _residue_state_file expects <repo>}"
+  local _gitdir
+  _gitdir="$(git -C "${_repo}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  printf '%s\n' "${_gitdir}/test-residue-pending"
+}
+
+# _residue_forget <repo>
+#   Drop the record. Called when the run is clean and the remembered paths
+#   are gone, and on any invocation that switched the guard off -- which is
+#   how a developer says "that one was mine".
+_residue_forget() {
+  local _repo="${1:?BUG: _residue_forget expects <repo>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  rm -f "${_record}"
+}
+
+# _residue_remember <repo> <paths>
+#   Persist the paths just named, one per line, replacing whatever was
+#   there: the report is always the whole pending set, so the record is too.
+_residue_remember() {
+  local _repo="${1:?BUG: _residue_remember expects <repo>}"
+  local _paths="${2-}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  printf '%s\n' "${_paths}" > "${_record}"
+}
+
+# _residue_carried <repo> <after-snapshot>
+#   The remembered paths that are STILL changed in the checkout. A path the
+#   developer removed, reverted or committed has left the AFTER snapshot and
+#   is dropped here -- cleaning up is the acknowledgement, and nothing has to
+#   be typed for it.
+_residue_carried() {
+  local _repo="${1:?BUG: _residue_carried expects <repo>}"
+  local _after="${2:?BUG: _residue_carried expects <after-snapshot>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  [[ -s "${_record}" ]] || return 0
+  local _still
+  _still="$(cut -f3- < "${_after}" | LC_ALL=C sort -u)"
+  LC_ALL=C comm -12 \
+    <(LC_ALL=C sort -u "${_record}") \
+    <(printf '%s\n' "${_still}")
+}
+
+# _residue_before_snapshot <repo> <out>
+#   The BEFORE half, with the same treatment the AFTER half already had: a
+#   snapshot that could not be taken is a FAILURE, never an empty baseline.
+#   Left unchecked it aborts the whole dispatch under errexit with no event
+#   line to read, and without errexit it hands the comparison an empty
+#   baseline -- which names every edit in the developer's tree as residue,
+#   the exact cry-wolf outcome the two-snapshot design exists to avoid.
+_residue_before_snapshot() {
+  local _repo="${1:?BUG: _residue_before_snapshot expects <repo>}"
+  local _out="${2:?BUG: _residue_before_snapshot expects <out>}"
+  _residue_snapshot "${_repo}" > "${_out}" && return 0
+  _log_err ci ci_live_tree_residue \
+    "display=Could not read the checkout BEFORE the test run, so there is no baseline to say what it looked like going in. Running unguarded would report every edit already in flight as residue, so this is reported as a failure instead."
+  return 1
+}
+
 # _residue_check <before-snapshot> <repo>
 #   Take the AFTER snapshot and report. Returns 1 and names every path when
-#   the run changed the checkout.
+#   the run changed the checkout -- and every path an earlier run named that
+#   is still there, because residue nobody has answered for is still
+#   residue however many runs ago it appeared.
 _residue_check() {
   local _before="${1:?BUG: _residue_check expects <before-snapshot>}"
   local _repo="${2:?BUG: _residue_check expects <repo>}"
-  local _after _paths
+  local _after _new _carried _paths
   _after="$(mktemp)"
   if ! _residue_snapshot "${_repo}" > "${_after}"; then
     rm -f "${_after}"
@@ -969,11 +1070,26 @@ _residue_check() {
       "display=Could not read the checkout after the test run, so whether it was left unchanged is unknown; treating that as a failure rather than as a clean tree."
     return 1
   fi
-  _paths="$(_residue_paths "${_before}" "${_after}")"
+  _new="$(_residue_paths "${_before}" "${_after}")"
+  _carried="$(_residue_carried "${_repo}" "${_after}")"
   rm -f "${_after}"
-  [[ -n "${_paths}" ]] || return 0
+  # `sed`, not `grep -v`: this file runs under pipefail, and grep answers 1
+  # when it filters everything away -- which is exactly the clean run -- so a
+  # grep here would abort the whole dispatch on the path that has nothing to
+  # report.
+  _paths="$(printf '%s\n%s\n' "${_new}" "${_carried}" \
+    | sed '/^$/d' | LC_ALL=C sort -u)"
+  if [[ -z "${_paths}" ]]; then
+    _residue_forget "${_repo}"
+    return 0
+  fi
+  _residue_remember "${_repo}" "${_paths}"
+  local _carried_note=""
+  # printf with a trailing newline, so `tr` leaves a trailing SPACE whether
+  # the set has one path or ten.
+  [[ -z "${_carried}" ]] || _carried_note="Already reported by an earlier run and still there: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
   _log_err ci ci_live_tree_residue \
-    "display=The test run changed the checkout it does not own: $(printf '%s' "${_paths}" | tr '\n' ' '). A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. An edit you already had in flight before the run cancels and is never listed, so these paths changed WHILE the suite ran; if that edit was YOURS, re-run this one invocation with TEST_RESIDUE_GUARD=0."
+    "display=The test run changed the checkout it does not own: $(printf '%s' "${_paths}" | tr '\n' ' '). ${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record."
   return 1
 }
 
@@ -1055,10 +1171,20 @@ _run_via_compose() {
   # It goes AFTER the image build and the fixture preparation on purpose:
   # `.prev-release/` is ignored, but the snapshot should describe the tree
   # the CONTAINER is handed, not the one this function was entered with.
-  local _residue_before=""
+  local _residue_before="" _residue_blind=0
   if _residue_guard_available "${REPO_ROOT}"; then
     _residue_before="$(mktemp)"
-    _residue_snapshot "${REPO_ROOT}" > "${_residue_before}"
+    if ! _residue_before_snapshot "${REPO_ROOT}" "${_residue_before}"; then
+      rm -f "${_residue_before}"
+      _residue_before=""
+      _residue_blind=1
+    fi
+  else
+    # An invocation that switched the guard off is the acknowledgement: it
+    # is how a developer says the path it keeps naming is their own edit,
+    # so the pending record goes with it. Outside a checkout there is no
+    # record and this is a no-op.
+    _residue_forget "${REPO_ROOT}" || true
   fi
   # The compose status is captured rather than left to errexit so the
   # residue check still runs after a FAILING suite -- a run that both failed
@@ -1083,6 +1209,11 @@ _run_via_compose() {
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
     rm -f "${_residue_before}"
   fi
+  # A baseline that could not be taken fails the dispatch AFTER the suite has
+  # run and said its own piece: the run is still worth having, but a gate
+  # that could not answer "was the checkout left as it was found" must not
+  # answer it with silence.
+  [[ "${_residue_blind}" -eq 0 ]] || _rc=1
   return "${_rc}"
 }
 
