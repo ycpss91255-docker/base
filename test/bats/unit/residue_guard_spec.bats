@@ -275,6 +275,23 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "planted.md"
 }
 
+@test "_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)" {
+  # The BEFORE half used to run with no status check at all while the AFTER
+  # half treated the same condition as fatal. Both ways that goes wrong are
+  # silent: under errexit the whole dispatch aborts with no event line to
+  # read, and with errexit off the comparison is handed an EMPTY baseline,
+  # which names every edit already in the developer's tree as residue --
+  # the cry-wolf outcome the two-snapshot form exists to avoid.
+  mkdir -p "${SCRATCH}/tarball"
+  run _residue_before_snapshot "${SCRATCH}/tarball" "${BEFORE}"
+  assert_failure
+  assert_output --partial "ci_live_tree_residue"
+  # The same call on a real checkout must still produce a usable baseline,
+  # or this case would pass against a half that always refuses.
+  run _residue_before_snapshot "${REPO}" "${BEFORE}"
+  assert_success
+}
+
 @test "_residue_guard_available: answers no outside a git checkout (#965)" {
   # A released tarball is not a checkout. The guard is a developer-tree
   # invariant, so its absence must cost nothing -- a suite that refuses to
