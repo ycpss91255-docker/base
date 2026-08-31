@@ -232,6 +232,52 @@ refute_finding() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# The helpers' own floor
+# ════════════════════════════════════════════════════════════════════
+#
+# The two cases below are the reason the helpers exist. Every other case
+# in this file leans on them to tell "the lint reported X" apart from
+# "the run mentioned X somewhere", and a helper that counts a line the
+# driver prints on EVERY run -- pass or fail -- cannot do that: its
+# population is never empty, so the floor it advertises is unreachable
+# and a refutation holds by silence.
+
+@test "assert_finding: the lines every run prints are not findings (#922)" {
+  # A clean run emits exactly two lines, the banner it opens with and the
+  # summary it ends with, and neither is a report about a row. If either
+  # counts, a needle drawn from it passes over a run that found nothing.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'The load-bearing case: nothing else holds without it')"
+  run _run_catalog_description
+  assert_success
+  # ${output} is only overwritten once the call returns, so the helper
+  # under test still reads the clean run above. The probes restore it
+  # between attempts because the first one leaves its own failure message
+  # -- which quotes the findings dump -- in ${output}.
+  local _clean="${output}"
+  run assert_finding 'Running catalog description lint'
+  assert_failure
+  assert_output --partial 'no finding line at all'
+  output="${_clean}"
+  run assert_finding 'rows checked'
+  assert_failure
+  assert_output --partial 'no finding line at all'
+}
+
+@test "refute_finding: a run that reported NOTHING cannot satisfy it (#922)" {
+  # The mirror, and the one that matters: a refutation is the assertion
+  # that silently becomes true when the subject stops being scanned at
+  # all. Nothing found is a failure here, never a pass.
+  _write_catalog 'test/bats/unit/alpha_spec.bats' \
+    "$(_row 'alpha does a thing' 'The load-bearing case: nothing else holds without it')"
+  run _run_catalog_description
+  assert_success
+  run refute_finding 'alpha does a thing'
+  assert_failure
+  assert_output --partial 'no finding line at all'
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The rule: a placeholder row fails
 # ════════════════════════════════════════════════════════════════════
 
