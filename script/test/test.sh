@@ -1412,14 +1412,16 @@ main() {
       # coverage/, so no input to this dispatch can make a partial
       # measurement wear a whole-suite certificate.
       #
-      # The partition is still passed to the CONTAINER on both branches,
-      # and the full run says the empty value OUT LOUD, because
-      # _run_via_compose forwards the kcov selectors from the AMBIENT
-      # environment: a bare `--coverage` under an inherited COVERAGE_SHARD
-      # -- this suite's own specs, run inside a coverage shard, are the
-      # caller that has one -- would kcov a quarter of the specs. It can
-      # no longer lie about itself, but it is still the WRONG RUN, so the
-      # partition is cleared here.
+      # The selectors are still passed to the CONTAINER on both branches,
+      # and the full run says the empty values OUT LOUD, because
+      # _run_via_compose forwards them from the AMBIENT environment: a
+      # bare `--coverage` under an inherited COVERAGE_SHARD would kcov a
+      # quarter of the specs, and under an inherited COVERAGE_PATH -- read
+      # FIRST by the in-container dispatch, so it out-ranks the partition
+      # -- would kcov ONE spec and write no report at all. The caller that
+      # carries either is this suite itself, run under `just test
+      # coverage` / `just test coverage-path`. Neither can lie about
+      # itself now, but both are still the WRONG RUN, so both are cleared.
       #
       # The certificate is erased BEFORE the run and written only after it
       # succeeds, so the three states are the three truths: no stamp (no
@@ -1439,7 +1441,15 @@ main() {
       (( _invalidate_rc == 0 )) || return "${_invalidate_rc}"
       # One call for both branches: the shard spec is empty on the full
       # run, which is the value that has to be said out loud.
-      COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
+      #
+      # The roster is not a memory exercise. coverage_badge_spec's "the
+      # coverage dispatch pins every selector the container reads"
+      # intersects the `-e NAME="${NAME:-}"` lines of _run_via_compose
+      # with the names the in-container COVERAGE branch reads, and fails
+      # until each member is assigned here -- so a third selector added to
+      # that forwarder arrives with its clearing already demanded.
+      COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
+        _run_via_compose coverage 1
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the
       # suspension reaches inside the function -- a fatal step within
