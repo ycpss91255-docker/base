@@ -162,6 +162,87 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_success
 }
 
+@test "_residue_check: a residue it already named is named AGAIN on the next run (#965)" {
+  # The alarm was ONE-SHOT, and that is a hole in the SHAPE, not a slip.
+  # The BEFORE snapshot exists so a developer's in-flight edit cancels --
+  # and it therefore launders LAST RUN'S RESIDUE into this run's "in
+  # flight". Measured before this case existed: run 1 failed naming the
+  # path, run 2 with nothing fixed and nothing cleaned was green. The
+  # second run is the one people believe, and re-running until green is the
+  # habit this whole issue exists to break.
+  #
+  # "The suite left something behind" is not a statement about one run. It
+  # is a statement about a path that appeared and nobody claimed, so the
+  # guard has to REMEMBER what it named until the path is gone or somebody
+  # says it is theirs.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  # The second run: the residue is on disk before it starts, so it appears
+  # in BOTH snapshots and the comparison cancels it exactly as it cancels a
+  # developer's edit. Only the memory can tell those two apart.
+  _snapshot_before
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  assert_output --partial "planted.md"
+}
+
+@test "_residue_check: the memory clears when the residue is GONE (#965)" {
+  # The other direction, and the one that keeps the memory from being a
+  # permanent red. Nothing has to be acknowledged for a path that is no
+  # longer there: cleaning up IS the acknowledgement.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  rm -f "${REPO}/planted.md"
+  _snapshot_before
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_success
+}
+
+@test "_residue_forget: an acknowledged path goes quiet with the file still there (#965)" {
+  # The escape hatch's second job. `TEST_RESIDUE_GUARD=0` already switched
+  # the guard off for one invocation, for the one false positive the two
+  # snapshots cannot cancel -- an edit made WHILE the suite ran. With a
+  # memory in place that edit would otherwise be named on every run
+  # afterwards, so the same switch drops the record: one knob, and it is
+  # the one the failure message already names.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  _residue_forget "${REPO}"
+  # The path is still there and still uncommitted. What changed is that
+  # somebody claimed it, so it is an edit in flight like any other.
+  _snapshot_before
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_success
+}
+
+@test "the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)" {
+  # A guard whose own state file shows up in the next snapshot reports
+  # itself for ever. The git dir is where this belongs: `git status` never
+  # reports it, nothing ships it, and `--absolute-git-dir` resolves a
+  # worktree to its OWN gitdir, so two worktrees of one repo do not share a
+  # memory of each other's residue.
+  local _record _gitdir
+  _record="$(_residue_state_file "${REPO}")"
+  _gitdir="$(git -C "${REPO}" rev-parse --absolute-git-dir)"
+  [[ "${_record}" == "${_gitdir}/"* ]] || fail \
+    "the pending record is at ${_record}, outside the git dir ${_gitdir}: anywhere in the working tree it becomes residue on the next run and the guard reports itself for ever"
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  [[ -s "${_record}" ]] || fail \
+    "the guard named a path and remembered nothing, so the next run inherits it as an edit in flight and goes green"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_output "planted.md"
+}
+
 @test "_residue_guard_available: answers no outside a git checkout (#965)" {
   # A released tarball is not a checkout. The guard is a developer-tree
   # invariant, so its absence must cost nothing -- a suite that refuses to
