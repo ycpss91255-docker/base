@@ -1002,12 +1002,29 @@ _make_cobertura() {
   [ -n "${_flat}" ]
 
   # No drift case named in a language the shebang scan skips.
-  run grep -nEi '[.](py|awk|rb|pl|js|ts|go|lua)\b' <<< "${_flat}"
-  [ "${status}" -ne 0 ]
+  #
+  # BARE language names, not only dotted extensions. The rejected claim
+  # reads "a Python helper" or "an awk script" as readily as "a .py
+  # helper", so a roster of eight extensions each requiring a leading dot
+  # exempted every obvious rewording of the very sentence it was written
+  # to keep out -- the same hand-kept-roster shape the note it polices is
+  # about. The list is deliberately eager and carries no word boundary:
+  # bash's regex engine is musl's inside this container and `\b` is a GNU
+  # extension there, and a false positive costs a reword while a false
+  # negative costs the guard.
+  #
+  # Matched with bash's own [[ =~ ]] rather than `run grep`: grep exits 2
+  # on an error and 1 on no-match, so a status test reading "not 0" as
+  # "clean" would pass on a pattern that never ran.
+  local _re='(python|ruby|perl|awk|node|javascript|typescript|rust|golang|lua|php|\.(py|rb|pl|js|ts|go|rs|lua|php|awk))'
+  local _hit=0
+  shopt -s nocasematch
+  [[ "${_flat}" =~ ${_re} ]] && _hit=1
+  shopt -u nocasematch
+  [ "${_hit}" -eq 0 ]
 
   # And the reach the guard does have, stated where the promise is made.
-  run grep -F 'what bash executes' <<< "${_flat}"
-  [ "${status}" -eq 0 ]
+  [[ "${_flat}" == *"what bash executes"* ]]
 }
 
 # ── The repo's own published figure ──────────────────────────────────────────
