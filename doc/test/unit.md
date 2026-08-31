@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3121 tests**.
+Unit specs under `test/bats/unit/`: **3122 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1801,7 +1801,7 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
-### test/bats/unit/watchdog_supervision_spec.bats (14)
+### test/bats/unit/watchdog_supervision_spec.bats (15)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -1829,7 +1829,13 @@ verdict on the child's exit status through `wait` rather than on `kill -0`,
 which answers "alive" both for a process sent SIGKILL and not yet
 scheduled to die and for one dead and not yet reaped (measured: three
 false greens in fifteen full-file runs against a harness that DID signal
-the bare pid; zero in fifteen with the rendezvous).
+the bare pid; zero in fifteen with the rendezvous). The same glance was
+in `_await_gone`, which every subtree case settles its verdict with, and
+it cost a full gate run on this branch: the group SIGKILL takes the
+grandchild's parent too, so nobody is left to wait for it, and the case
+reported ORPHAN_ALIVE against a correct product. It now reads the process
+state, so an exited unreaped pid counts as gone -- the answer the product
+already gives in `_watchdog_child_alive`.
 
 The net for the file as a whole is the bound guard in `teardown`, which
 measures every case against the ceiling its own harness declared: it holds
