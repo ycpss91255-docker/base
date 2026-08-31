@@ -597,6 +597,16 @@ EOF
   # Names the KEY the user typed, not the parent section: the error has
   # to point at the typo.
   assert_output --partial "logging.drivr"
+  # ... and reports it as the KEY kind. The spec `logging.drivr` is
+  # embedded verbatim in BOTH candidate messages, so that token alone
+  # cannot tell `conf_key_not_found` from a `conf_section_not_found`
+  # that calls the typo an unknown SECTION -- the very swap the case
+  # name forbids. The error-kind display string is what separates them,
+  # so pin it, and refute both section-flavoured strings the tree can
+  # emit here (`section_not_found` and `unknown_section`).
+  assert_output --partial "Key not found"
+  refute_output --partial "Section not found"
+  refute_output --partial "Unknown section"
   refute_output --partial "driver = json-file"
 }
 
