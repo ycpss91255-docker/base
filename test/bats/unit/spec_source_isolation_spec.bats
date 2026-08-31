@@ -7,8 +7,8 @@
 # Why the population is drawn that way. Two specs lost a race against their
 # own suite and cost two or three full gate runs per landed branch. The
 # obvious framing -- "audit every spec that touches /source" -- is not
-# actionable: all but a handful of the specs reference /source -- 124 of the
-# 128 spec files, measured 2026-08-31 -- because that is where the script
+# actionable: all but a handful of the specs reference /source -- 125 of the
+# 129 spec files, measured 2026-08-31 -- because that is where the script
 # under test, the tracked workflow being asserted on, and the real tree the
 # "clean today" guards lint all live. A read of the subject is the point of
 # a unit test, not a defect.

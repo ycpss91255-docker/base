@@ -107,13 +107,22 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   is built under a scratch root now.
 - **two specs that raced their own suite, a watchdog defect one was hiding,
   and the invariant that keeps the rest honest (closes #965)** -- the SIGTERM
-  case signalled after a fixed `sleep 1`, so under 32-way parallel load a
-  correct watchdog read NO_SIGNAL; the README no-op case let the live tree
-  supply half its diff. Waits are event-driven now, the README baseline is a
-  capture accepted only when two passes agree, and a repo-wide guard refuses
-  any spec that writes into the checkout or settles an assertion against it.
-  Runtime-visible: `_watchdog_stop_service` sent SIGKILL only while the CHILD
+  case signalled after a fixed `sleep 1`, so under load a correct watchdog
+  read NO_SIGNAL; the README no-op case let the live tree supply half its
+  diff. Waits are event-driven, the baseline is accepted only when two passes
+  agree, and `just test` now snapshots the checkout either side of the bats
+  phase and names any path the suite changed -- an in-flight edit cancels, so
+  a dirty tree still runs. Runtime-visible: `_watchdog_stop_service` sent SIGKILL only while the CHILD
   was alive, leaking the orphaned subtree `setsid` exists to prevent.
+- **a failing watchdog case now costs its own ceiling, not its fixture's
+  lifetime (refs #965)** -- every case in `watchdog_supervision_spec.bats`
+  starts its processes through one harness that hands them a log file instead
+  of the case's output descriptor and ends its ceiling in SIGKILL. Without the
+  first a setsid'd service held the case open 45s past a 30s ceiling; without
+  the second the product's own SIGTERM handler blocked in an unbounded `wait`
+  for 300s past a stated 45. A bound guard in teardown asserts it for every
+  case in the file. Affects anyone reading a red gate: a failed test no longer
+  looks like a hung suite.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
