@@ -118,6 +118,19 @@ readonly HEAD_STAMP_REL="coverage/.head-sha"
 # any of them makes an existing report a measurement of a DIFFERENT tree.
 # Everything else (`.version`, the CHANGELOG, the badge itself) is a release
 # edit and must NOT count: the bump makes those edits before this step runs.
+#
+# It is a roster of file SHAPES, while what kcov instruments is defined in
+# script/test/drivers/bats.sh by subtraction (--include-path=<root> minus
+# `_coverage_exclude_path`). Two lists kept by hand drift, and the drift is
+# silent in the dangerous direction: a file that becomes instrumented
+# without matching a glob here -- an extensionless entrypoint, a .py or
+# .awk helper, a dist/ script under a new extension -- is exempt from the
+# refusal below while its edits change the figure. coverage_badge_spec's
+# "the dirty check covers every source kcov instruments" reads both lists
+# from their own definitions and fails on the day they diverge; widen this
+# roster when it does. The build inputs (justfile, Dockerfile) are here for
+# a second reason and kcov never instruments them: they decide the
+# container the suite ran in.
 readonly SOURCE_PATHSPEC=('*.sh' '*.bats' '*.bash' '*justfile*' '*Dockerfile*')
 
 # The header block from `# Usage:` to the first non-comment line is the
