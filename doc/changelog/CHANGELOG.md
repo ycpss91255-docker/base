@@ -79,8 +79,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 - **`catalog-description`: a `doc/test/` catalogue row without a description
-  fails the lint, over every catalogue section (closes #922)** -- 1602 of 2730
-  rows carried the `-` placeholder because nobody had decided whether the
+  fails the lint, over every catalogue section (closes #922)** -- 1602 rows
+  carried the `-` placeholder because nobody had decided whether the
   column was required. It is: the description says why a case matters, which
   the long test name never carries. `.`, `--` and `n/a` are that placeholder
   and are refused with it. Rows predating the rule sit in a shrink-only
