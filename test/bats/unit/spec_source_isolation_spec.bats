@@ -121,6 +121,17 @@ _assert_clean_scan() {
   assert_output ""
 }
 
+# _write_scan_sees <file> -- does the write invariant, AS A WHOLE, see a
+# line in <file>? The invariant is the union of its patterns, so the
+# fixtures below have to be asked the union rather than a pattern each: a
+# spelling one pattern was written for but another happens to catch is
+# still covered, and a spelling NO pattern catches is the blind spot worth
+# naming. It answers 0 for "seen", like the grep it wraps.
+_write_scan_sees() {
+  grep -qE "${WRITE_CMD_RE}" "${1:?BUG: _write_scan_sees expects a file}" ||
+    grep -qE "${WRITE_REDIR_RE}" "${1}"
+}
+
 @test "no spec writes into the live checkout it does not own (#965)" {
   # Every spec here reads the live tree -- that is where its subject is --
   # and every one of those reads is only safe while nothing writes there.
@@ -164,20 +175,46 @@ _assert_clean_scan() {
   printf '  sed -i s/a/b/ %s/x\n'        "${LIVE_TREE}" > "${_planted}/sed_inplace.bats"
   printf '  touch %s/x\n'                "${LIVE_TREE}" > "${_planted}/touch.bats"
   printf '  ( cd x && rm %s/y )\n'       "${LIVE_TREE}" > "${_planted}/rm_after_sep.bats"
+  printf '  printf x > %s/x\n'           "${LIVE_TREE}" > "${_planted}/redirect.bats"
+  printf '  printf x >> "%s/x"\n'        "${LIVE_TREE}" > "${_planted}/append.bats"
+  # cp and ln mutate their LAST operand, and a fixture seeded into the live
+  # checkout that way is the accident this branch had to remove -- one
+  # command name away from the `cat >` that produced it.
+  printf '  cp "${SCRATCH}/x" %s/doc/readme/x\n' \
+    "${LIVE_TREE}" > "${_planted}/cp_dest.bats"
+  printf '  ln -sf "${SCRATCH}/x" %s/doc/readme/x\n' \
+    "${LIVE_TREE}" > "${_planted}/ln_dest.bats"
+  printf '  run cp -a "${_src}" "%s/dist" || fail\n' \
+    "${LIVE_TREE}" > "${_planted}/cp_dest_quoted.bats"
 
   local _spelling
-  for _spelling in rm_first mv_second sed_inplace touch rm_after_sep; do
-    run grep -nE "${WRITE_CMD_RE}" "${_planted}/${_spelling}.bats"
-    [[ "${status}" -eq 0 ]] || fail \
-      "the write scan does not match the ${_spelling} spelling, so a spec writing the live tree that way would leave the invariant green"
+  for _spelling in rm_first mv_second sed_inplace touch rm_after_sep \
+                   redirect append cp_dest ln_dest cp_dest_quoted; do
+    _write_scan_sees "${_planted}/${_spelling}.bats" || fail \
+      "the write scan does not see the ${_spelling} spelling, so a spec writing the live tree that way would leave the invariant green"
   done
+}
 
-  printf '  printf x > %s/x\n'   "${LIVE_TREE}" > "${_planted}/redirect.bats"
-  printf '  printf x >> "%s/x"\n' "${LIVE_TREE}" > "${_planted}/append.bats"
-  for _spelling in redirect append; do
-    run grep -nE "${WRITE_REDIR_RE}" "${_planted}/${_spelling}.bats"
-    [[ "${status}" -eq 0 ]] || fail \
-      "the redirection scan does not match the ${_spelling} spelling, so a spec writing the live tree that way would leave the invariant green"
+@test "the write scan stays silent on a live path a spec only READS (#965)" {
+  # The other half of the cp / ln rule, and why they need a pattern of
+  # their own rather than another name in the operand list: symlinking or
+  # copying the SUBJECT out of the live tree is how most of this suite gets
+  # set up. An invariant that reds on the suite's own setup is deleted
+  # within the week, so a rule that cannot stay quiet is not enforceable --
+  # this file already dropped four such false hits from the command scan.
+  local _planted="${BATS_TEST_TMPDIR}/planted_read"
+  mkdir -p "${_planted}"
+  printf '  ln -s %s/dist/script/build.sh "${SANDBOX}/build.sh"\n' \
+    "${LIVE_TREE}" > "${_planted}/ln_source.bats"
+  printf '  cp -a %s/dist "${_dir}/dist"\n' \
+    "${LIVE_TREE}" > "${_planted}/cp_source.bats"
+  printf '  run cp %s/README.md "${SCRATCH}/README.md"\n' \
+    "${LIVE_TREE}" > "${_planted}/cp_source_run.bats"
+
+  local _spelling
+  for _spelling in ln_source cp_source cp_source_run; do
+    ! _write_scan_sees "${_planted}/${_spelling}.bats" || fail \
+      "the write scan fires on the ${_spelling} spelling, which only READS the live tree; an invariant that reds on the suite's own setup does not survive to catch anything"
   done
 }
 
