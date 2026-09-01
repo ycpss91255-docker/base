@@ -1349,6 +1349,34 @@ refute_finding() {
     || { fail "$(printf 'figures in the driver header that are neither dated nor pinned:\n%s\n' "$(printf '  %s\n' "${_bad[@]}")")"; return 1; }
 }
 
+@test "_run_catalog_description: the driver's own comment lines wrap at 80 columns (#922)" {
+  # Narrow on purpose. This case is about THIS driver's prose and says so
+  # in its name; it makes no claim about any other file. Within that file
+  # the population is derived rather than listed -- every comment line
+  # the file holds, header and body alike, read off the file itself -- so
+  # a comment added or re-wrapped tomorrow is measured the day it lands.
+  #
+  # Comments only. A CODE line over the limit here is a single-string
+  # failure message, and breaking one would either change the text or
+  # make it ungreppable; that is a different argument and this case does
+  # not take it. Prose has no such excuse: it re-wraps for free, and a
+  # 100-column paragraph in a file that wraps at about 72 everywhere else
+  # is what an edit that never reflowed leaves behind. Nothing else in
+  # the gate measures comment width, so a re-wrap that misses a line is
+  # otherwise found only by a reader who happens to look.
+  local _driver='/source/script/test/drivers/catalog_description.sh'
+  local _scanned _over _status
+  _scanned="$(grep -cE '^[[:space:]]*#' "${_driver}")" && _status=0 || _status=$?
+  (( _status == 0 )) \
+    || { fail "reading the comment lines of ${_driver} failed (grep exit ${_status}) -- the scan found no file to measure"; return 1; }
+  (( _scanned > 100 )) \
+    || { fail "only ${_scanned} comment line(s) read from ${_driver}; it is not the file this case claims to measure"; return 1; }
+  _over="$(awk 'length($0) > 80 && /^[[:space:]]*#/ {
+    printf "  %d (%d cols): %s\n", NR, length($0), $0 }' "${_driver}")"
+  [[ -z "${_over}" ]] \
+    || fail "$(printf 'comment lines over 80 columns (%d scanned):\n%s\n' "${_scanned}" "${_over}")"
+}
+
 @test "_run_catalog_description: the header's reason for keying on the spec path still holds (#922)" {
   # The header rejects keying the baseline by test NAME because names in
   # this tree already collide across specs, so one baseline line would
