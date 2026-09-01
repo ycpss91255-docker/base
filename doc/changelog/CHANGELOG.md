@@ -78,16 +78,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   per-line allow opts out, and either must state a reason.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
-- **`catalog-description`: a `doc/test/` catalogue row without a description
-  fails the lint, over every catalogue section (closes #922)** -- 1602 rows
-  carried the `-` placeholder because nobody had decided whether the
-  column was required. It is: a description says why a case matters; the
-  long test name already says what it does. `.`, `--` and `n/a` are that
-  placeholder too. Rows predating the rule sit in a shrink-only
+- **`catalog-description`: a `doc/test/` catalogue row without a
+  description fails the lint, over every catalogue section (closes #922)**
+  -- 1602 rows carried the `-` placeholder because nobody had decided
+  whether the column was required. It is: a description says why a case
+  matters; the long test name already says what it does. `.`, `--` and `n/a`
+  are that placeholder too. Rows predating the rule sit in a shrink-only
   baseline. The unit is the section, not the table, and which catalogues
   exist is declared by `doc/test/TEST.md`, so deleting one is no longer
-  silent. A fenced example is inert. Every figure the driver's own header
-  states is dated or read back from the file that declares it.
+  silent. A fenced example is inert. Every figure the header states, one
+  digit included, is dated or read back from the file declaring it.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 

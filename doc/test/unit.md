@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3155 tests**.
+Unit specs under `test/bats/unit/`: **3156 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4273,7 +4273,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (62)
+### test/bats/unit/catalog_description_lint_spec.bats (63)
 
 | Test | Description |
 |------|-------------|
@@ -4337,6 +4337,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_catalog_description: every spec has exactly ONE section in the real catalogues (#922)` | Read off the documents, not through the driver, so a regression in its duplicate check cannot hide |
 | `_run_catalog_description: the live figures in the driver header are the ones the files declare (#922)` | This lint's subject applied to its own header, which had been quoting a figure measured wrong and a quantity at two different times |
 | `_run_catalog_description: every figure in the driver header is dated or pinned (#922)` | Reads the header rather than trusting a review of it; three figures had left the rule the header states |
+| `_run_catalog_description: the driver's own comment lines wrap at 80 columns (#922)` | The gate's only measurement of comment width: without it a re-wrap that misses a line is found by nobody, which is how two lines survived a re-wrap commit |
 | `_run_catalog_description: the header's reason for keying on the spec path still holds (#922)` | Holds the design's justification to today's tree, so it has to be restated rather than left standing if the collisions go |
 | `_run_catalog_description: the rows the changelog-entry lint added are described, not baselined (#922)` | Pins the one backfill this change did make, so a later sweep cannot quietly park those rows instead |
 
