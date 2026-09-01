@@ -446,6 +446,110 @@ reusable_workflow_files() {
     done
 }
 
+# _spec_path_word <code> <word>
+#   Resolve one call-site ARGUMENT to the path it names, reading only
+#   <code> (the calling spec's own code lines). Prints the literal path, or
+#   `UNRESOLVED: <word>` when the text cannot decide it. Never guesses: a
+#   guess here certifies a workflow on the strength of a coin flip.
+_spec_path_word() {
+    local _code="${1}" _word="${2}" _var _hits _count
+    case "${_word}" in
+        '${'*'}') _var="${_word#'${'}"; _var="${_var%\}}" ;;
+        '$'*'$'*) printf 'UNRESOLVED: %s\n' "${_word}"; return 0 ;;
+        '$'*)     _var="${_word#\$}" ;;
+        *'$'*)    printf 'UNRESOLVED: %s\n' "${_word}"; return 0 ;;
+        *)        printf '%s\n' "${_word}"; return 0 ;;
+    esac
+    if [[ ! "${_var}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        printf 'UNRESOLVED: %s\n' "${_word}"
+        return 0
+    fi
+    # Every assignment of that name to a bare or singly-quoted literal, with
+    # duplicates collapsed. Two DIFFERENT literals leave the call site
+    # undecidable, and so does a value that is itself an expansion.
+    _hits="$(printf '%s\n' "${_code}" | sed -nE \
+        "s/^[[:space:]]*(local[[:space:]]+|declare[[:space:]]+|export[[:space:]]+)?${_var}=[\"']?([^\"'[:space:]]*)[\"']?[[:space:]]*\$/\2/p" \
+        | sort -u)"
+    _count="$(printf '%s\n' "${_hits}" | awk 'NF { n++ } END { print n + 0 }')"
+    if [[ "${_count}" -ne 1 || "${_hits}" == *'$'* ]]; then
+        printf 'UNRESOLVED: %s\n' "${_word}"
+        return 0
+    fi
+    printf '%s\n' "${_hits}"
+}
+
+# spec_permission_surface_subjects <spec>
+#   The workflow file each `yaml_permission_surface` call in <spec> is
+#   applied TO -- one line per CALL SITE, in file order, resolved from the
+#   call's own argument.
+#
+#   This exists because "does this spec pin that worker's grants" was asked
+#   as two independent substring questions of the same file: does its text
+#   contain `yaml_permission_surface`, and does its text contain the
+#   worker's path. A spec answering both certifies the worker even when the
+#   surface call is applied to a different workflow -- and a spec that names
+#   two workers while pinning one answers both for the one it does not pin.
+#   Binding the subject to the ARGUMENT is what makes the question single.
+#
+#   The resolution is textual and deliberately timid. A call whose argument
+#   is a literal path resolves to it; one whose argument is `${VAR}` (or
+#   `$VAR`) resolves only when the file assigns that name exactly one
+#   literal; anything else is `UNRESOLVED: <argument>`. Timid is the safe
+#   direction here: an unresolved call pins nothing, so a worker whose only
+#   pin is written in a shape this cannot read reads as UNPINNED and fails
+#   loudly, which is fixed by naming the path. It can never pass a worker
+#   that nothing pins.
+#
+#   Status: 0 at least one call site; 1 the spec was READ and calls it
+#   nowhere; 2 the spec could not be read, or it names the function more
+#   times than this could find arguments for -- both `BUG:` lines, because
+#   a call site that goes unseen is exactly how a spec that pins a worker
+#   stops counting as its pin.
+spec_permission_surface_subjects() {
+    local _spec="${1}" _code _calls _call _arg
+    local _status=0 _mentions _found
+    _code="$(code_lines "${_spec}")" || _status=$?
+    if [[ "${_status}" -gt 1 ]]; then
+        printf '%s\n' "${_code}"
+        return 2
+    fi
+    # A CALL-shaped mention: the name, as a whole word, with whitespace or
+    # end of line after it. `yaml_permission_surface:` opening a @test's
+    # own name is a mention and not a call, and counting it would make
+    # every spec that documents the helper report a missing argument.
+    _mentions="$(printf '%s\n' "${_code}" | grep -oE \
+        '(^|[^A-Za-z0-9_])yaml_permission_surface([[:space:]]|$)' | wc -l)"
+    _status=0
+    _calls="$(printf '%s\n' "${_code}" | grep -oE \
+        '(^|[^A-Za-z0-9_])yaml_permission_surface[[:space:]]+[^[:space:]]+')" \
+        || _status=$?
+    if [[ "${_status}" -gt 1 ]]; then
+        printf 'BUG: grep exited %s scanning %s for call sites\n' \
+            "${_status}" "${_spec}"
+        return 2
+    fi
+    _found="$(printf '%s\n' "${_calls}" | awk 'NF { n++ } END { print n + 0 }')"
+    if [[ "${_mentions}" -ne "${_found}" ]]; then
+        printf 'BUG: %s names yaml_permission_surface %s time(s) but %s carry an argument this can read\n' \
+            "${_spec}" "${_mentions}" "${_found}"
+        return 2
+    fi
+    [[ "${_found}" -gt 0 ]] || return 1
+    while IFS= read -r _call; do
+        [[ -n "${_call}" ]] || continue
+        _arg="${_call##*yaml_permission_surface}"
+        _arg="${_arg#"${_arg%%[![:space:]]*}"}"
+        # A call site carries the punctuation that follows it -- a process
+        # substitution's `)`, a `;`, a line continuation.
+        while [[ "${_arg}" == *[\)\;\\] ]]; do
+            _arg="${_arg%?}"
+        done
+        _arg="${_arg#[\"\']}"
+        _arg="${_arg%[\"\']}"
+        _spec_path_word "${_code}" "${_arg}"
+    done <<< "${_calls}"
+}
+
 # ── spec subject presence ─────────────────────────────────────────────────────
 #
 # Many specs assert on the CONTENT of one tracked artifact -- a workflow

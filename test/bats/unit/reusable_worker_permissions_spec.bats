@@ -30,15 +30,21 @@
 # Which scopes each worker names is pinned as an EXACT per-job set in that
 # worker's OWN spec, and the last test here is what holds that division to
 # its word: for every DERIVED reusable worker it requires some other spec
-# in the tree that reads `yaml_permission_surface` for that very file, and
-# names the worker that has none. The division was written here as a
-# sentence twice already. The first time it was a promise about jobs and
-# every grant outside build-worker.yaml was pinned by nothing -- widening
-# one of them to `packages: write` passed the entire suite. The second time
-# it was a promise about FILES, backed by an enumeration of the four specs
-# that happened to exist, and a fifth worker landing with an unpinned
-# `contents: write` still passed. A sentence cannot be the guard; the
-# sentence names what the guard derives.
+# in the tree that APPLIES `yaml_permission_surface` to that very file --
+# resolved from the call's own argument -- and names the worker that has
+# none. The division was written here as a sentence three times before it
+# was a guard. First as a promise about jobs: every grant outside
+# build-worker.yaml was pinned by nothing, and widening one of them to
+# `packages: write` passed the entire suite. Then as a promise about FILES
+# backed by an enumeration of the four specs that happened to exist, where
+# a fifth worker landing with an unpinned `contents: write` still passed.
+# Then as two independent substring questions of one file -- does its text
+# name the function, does its text name the worker -- which certified a
+# worker whose surface the spec never reads: appending one call about
+# build-worker.yaml to a spec that merely MENTIONS release-worker.yaml
+# certified release-worker.yaml, and two of today's four workers sit one
+# such line away. A sentence cannot be the guard, and neither can a pair of
+# questions that never meet; the sentence names what the guard derives.
 
 bats_require_minimum_version 1.5.0
 
@@ -157,97 +163,109 @@ _reusable_workers_with_no_jobs() {
   assert_output ''
 }
 
-# Every spec file in the tree -- other than this one -- whose code lines
-# call `yaml_permission_surface`, i.e. every spec that pins what a
-# workflow's jobs may name rather than merely that they name something.
-# DERIVED with `find` over the spec tree, so a per-worker spec written
-# tomorrow counts the day it lands.
+# Every `yaml_permission_surface` call site in the spec tree -- other than
+# this file's own -- resolved to the workflow file it is applied TO.
+# DERIVED twice over: `find` over the spec tree, so a per-worker spec
+# written tomorrow counts the day it lands, and `spec_permission_surface_subjects`
+# over each call's own ARGUMENT, so a spec that merely NAMES a worker
+# somewhere in its text is not mistaken for one that pins it.
 #
-# This file EXCLUDES ITSELF on purpose, and the exclusion is what makes the
-# check honest: this spec reads `yaml_permission_surface` for every worker
-# and names build-worker.yaml in its own population floor, so counting
-# itself would let it certify every worker as pinned -- by itself, which
-# asserts the opposite property (that a grant is declared, never which
-# grant).
+# The pair this replaces asked two independent substring questions of the
+# same file -- does its text contain `yaml_permission_surface`, does its
+# text contain the worker's path -- and certified the worker when both
+# answered yes, whatever file the call was applied to. Two of today's four
+# workers are named by a spec that reads no surface at all, so appending
+# one call about worker A to that spec certified worker B.
 #
-# grep's status is pinned: 0 is a match, 1 is a spec that does not read a
-# surface, and anything else is a scan that could not read its input --
-# emitted as a `BUG:` line so it fails the caller's assertion instead of
-# being counted as "this spec pins nothing".
-_specs_reading_a_permission_surface() {
+# This file EXCLUDES ITSELF, and the reason is structural rather than
+# textual. This spec reads the surface of EVERY derived worker, in a loop,
+# to assert the COMPLEMENTARY property: that a job declares a grant, never
+# which grant. Letting it answer "some spec reads this worker's surface"
+# would answer the question with the one scan that deliberately pins no
+# scope. On today's tree the exclusion changes no verdict -- the loop's
+# argument is a loop variable, which resolves to `UNRESOLVED:` and pins
+# nothing either way -- and that is exactly why it is written down: it is
+# what keeps the property true if the loop is ever rewritten around a
+# literal path.
+#
+# Statuses are pinned, never `|| true`: 0 is a spec with call sites, 1 is a
+# spec that calls the surface nowhere, and anything else is a spec that
+# could not be read -- emitted as a `BUG:` line so it fails the caller's
+# assertion instead of quietly shrinking the certified population.
+_pinned_surface_subjects() {
   local _spec _status
   while IFS= read -r _spec; do
     [[ -n "${_spec}" ]] || continue
     [[ "${_spec##*/}" != "${BATS_TEST_FILENAME##*/}" ]] || continue
     _status=0
-    code_grep -F -- 'yaml_permission_surface' "${_spec}" >/dev/null \
-        || _status=$?
+    spec_permission_surface_subjects "${_spec}" || _status=$?
     case "${_status}" in
-      0) printf '%s\n' "${_spec}" ;;
-      1) ;;
-      *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_spec}" ;;
+      0|1) ;;
+      *) printf 'BUG: spec_permission_surface_subjects exited %s reading %s\n' \
+             "${_status}" "${_spec}" ;;
     esac
   done < <(find "${SPEC_DIR}" -type f -name '*.bats' | sort)
 }
 
 # The population the per-worker-pin scan reads, asserted before it is read.
-# The floor is DERIVED, not guessed: one spec per reusable worker is the
-# minimum that can satisfy the property at all, so fewer surface-reading
-# specs than derived workers is already a failure -- and zero of them,
+# The floor is DERIVED, not guessed: one surface CALL SITE per reusable
+# worker is the minimum that can satisfy the property at all, so fewer call
+# sites than derived workers is already a failure -- and zero of them,
 # which is what a moved spec tree or a `find` that matched nothing would
 # produce, would otherwise report "every worker is pinned".
 _assert_surface_spec_population() {
-  local _specs _spec_count _workers _worker_count
-  _specs="$(_specs_reading_a_permission_surface)"
-  if printf '%s\n' "${_specs}" | grep 'BUG:' >/dev/null; then
-    fail "the spec scan could not read part of ${SPEC_DIR}: ${_specs}"
+  local _subjects _site_count _workers _worker_count
+  _subjects="$(_pinned_surface_subjects)"
+  if printf '%s\n' "${_subjects}" | grep 'BUG:' >/dev/null; then
+    fail "the spec scan could not read part of ${SPEC_DIR}: ${_subjects}"
   fi
-  _spec_count="$(printf '%s\n' "${_specs}" \
+  _site_count="$(printf '%s\n' "${_subjects}" \
       | awk 'NF { n++ } END { print n + 0 }')"
   _workers="$(reusable_workflow_files "${WORKFLOW_DIR}")"
   _worker_count="$(printf '%s\n' "${_workers}" \
       | awk 'NF { n++ } END { print n + 0 }')"
-  [[ "${_spec_count}" -ge "${_worker_count}" ]] || fail \
-      "found ${_spec_count} spec(s) reading a permission surface under ${SPEC_DIR} for ${_worker_count} derived reusable worker(s) -- at most ${_spec_count} of them can be pinned, and a scan over an empty spec list would have reported all of them clean"
+  [[ "${_site_count}" -ge "${_worker_count}" ]] || fail \
+      "found ${_site_count} yaml_permission_surface call site(s) under ${SPEC_DIR} for ${_worker_count} derived reusable worker(s) -- at most ${_site_count} of them can be pinned, and a scan over an empty spec list would have reported all of them clean"
 }
 
-# Print `<workflow>: <reason>` for every DERIVED reusable worker whose
-# permission surface no other spec reads -- the worker whose grants are
-# bounded by nothing but the sentence at the top of this file.
+# Print `<workflow>: <reason>` for every DERIVED reusable worker that no
+# other spec applies `yaml_permission_surface` to -- the worker whose
+# grants are bounded by nothing but the sentence at the top of this file.
 #
-# The match is on the worker's FULL path rather than its basename: every
-# per-worker spec addresses its subject as
-# `/source/.github/workflows/<name>.yaml`, and a basename match would let
-# multi_distro_build_worker_yaml_spec.bats -- whose subject's name ENDS
-# with `build-worker.yaml` -- stand in as build-worker.yaml's pin. A spec
-# that addresses its subject some other way reads here as "unpinned",
-# which fails loudly and is fixed by naming the path; it cannot pass a
-# worker nothing pins.
+# The match is on the worker's FULL path, and it is an EXACT line match on
+# a RESOLVED subject rather than a substring of the spec's text: a
+# substring match would let multi_distro_build_worker_yaml_spec.bats --
+# whose subject's name ENDS with `build-worker.yaml` -- stand in as
+# build-worker.yaml's pin. A spec whose call this cannot resolve reads here
+# as "unpinned", which fails loudly and is fixed by naming the path; it
+# cannot pass a worker nothing pins.
 _reusable_workers_with_no_surface_spec() {
-  local _file _specs _spec _pinned _status
-  _specs="$(_specs_reading_a_permission_surface)"
+  local _file _subjects _status
+  _subjects="$(_pinned_surface_subjects)"
+  # Any BUG line the spec scan produced is reported HERE too, not only in
+  # the population assertion: this function is what the test reads, and a
+  # BUG line that reached only the assertion would leave the scan itself
+  # answering over a population it knows is short.
+  _status=0
+  printf '%s\n' "${_subjects}" | grep 'BUG:' || _status=$?
+  if [[ "${_status}" -gt 1 ]]; then
+    printf 'BUG: grep exited %s scanning the resolved subjects\n' "${_status}"
+  fi
   while IFS= read -r _file; do
     [[ -n "${_file}" ]] || continue
     case "${_file}" in
       'BUG:'*) printf '%s\n' "${_file}"; continue ;;
     esac
-    _pinned=''
-    while IFS= read -r _spec; do
-      [[ -n "${_spec}" ]] || continue
-      case "${_spec}" in
-        'BUG:'*) printf '%s\n' "${_spec}"; continue ;;
-      esac
-      _status=0
-      code_grep -F -- "${_file}" "${_spec}" >/dev/null || _status=$?
-      case "${_status}" in
-        0) _pinned="${_spec}"; break ;;
-        1) ;;
-        *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_spec}" ;;
-      esac
-    done <<< "${_specs}"
-    [[ -n "${_pinned}" ]] || printf \
-        '%s: no spec reads yaml_permission_surface for this file, so which scopes its jobs name is pinned by nothing\n' \
-        "${_file##*/}"
+    _status=0
+    printf '%s\n' "${_subjects}" | grep -Fx -- "${_file}" >/dev/null \
+        || _status=$?
+    case "${_status}" in
+      0) ;;
+      1) printf '%s: no spec applies yaml_permission_surface to this file, so which scopes its jobs name is pinned by nothing\n' \
+             "${_file##*/}" ;;
+      *) printf 'BUG: grep exited %s matching %s against the resolved subjects\n' \
+             "${_status}" "${_file}" ;;
+    esac
   done < <(reusable_workflow_files "${WORKFLOW_DIR}")
 }
 
@@ -258,7 +276,7 @@ _reusable_workers_with_no_surface_spec() {
   # is what makes that delegation checkable rather than a claim in a
   # comment. A reusable worker added tomorrow with `contents: write` on
   # every job satisfies both tests above -- it declared, after all -- and
-  # is named here until a spec pins its surface.
+  # is named here until a spec reads ITS permission surface.
   _assert_reusable_worker_population
   _assert_surface_spec_population
   run _reusable_workers_with_no_surface_spec

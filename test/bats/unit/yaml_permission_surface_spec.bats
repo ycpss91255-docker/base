@@ -478,14 +478,16 @@ SPEC
 @test "spec_permission_surface_subjects: a call with no argument is a BUG line (#957)" {
   # A call this cannot see the argument of must not be dropped: dropping it
   # is exactly how a spec that pins a worker stops counting as its pin.
-  local _spec
-  _spec="$(_fixture 'noarg_spec.bats' << 'SPEC'
- @test "piped" {
-  printf '%s\n' /fixture/workflows/kappa.yaml \
-    | xargs yaml_permission_surface
-}
-SPEC
-)"
+  # Written with printf rather than a heredoc, and deliberately: a heredoc
+  # would put the argument-less call at the end of a CODE line of THIS
+  # spec, where the same derivation would read it as this file's own
+  # unreadable call site. Ending the line with the closing quote keeps the
+  # shape inside the fixture and out of the fixture's author.
+  local _spec="${SCRATCH}/noarg_spec.bats"
+  printf '%s\n' \
+    ' @test "piped" {' \
+    "  printf '%s' /fixture/workflows/kappa.yaml | xargs yaml_permission_surface" \
+    '}' > "${_spec}"
   run spec_permission_surface_subjects "${_spec}"
   assert_failure
   assert_output --partial 'BUG:'
