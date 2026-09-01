@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3118 tests**.
+Unit specs under `test/bats/unit/`: **3122 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3493,7 +3493,7 @@ untested) and uncommented.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (22)
+### test/bats/unit/code_lines_spec.bats (26)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -3515,6 +3515,13 @@ working guard into one that cannot match its subject -- and the natural
 therefore pinned here, against one fixture carrying every shape that can be
 got wrong.
 
+A third direction is pinned alongside them: the STATUS these views hand
+back. `grep` prints the same nothing for "this file has no such line" and
+for "there was no file", and the guards in this tree branch on that status
+to tell the two apart -- so a subject that was renamed away must arrive as
+2 (not read) rather than as 1 (read, no match), and an all-comment file
+must still arrive as 1.
+
 | Test | Description |
 |------|-------------|
 | `code_lines: drops an unindented comment-only line` | The base case: a file-header paragraph naming the action the workflow must never use |
@@ -3530,6 +3537,10 @@ got wrong.
 | `code_grep: a string present only in a comment does not match` | The defect itself, at the call site every converted spec uses |
 | `code_grep: a string present in code does match` | Non-vacuity: the filter must still find what is really there |
 | `code_grep: passes its flags through and takes the file last` | The signature mirrors grep's own, so a conversion is a one-word edit; `-c` counts over code lines only |
+| `code_grep: a subject it cannot read exits 2, not grep's no-match status` | grep prints the same nothing for "no match" and for "no file", so the status has to split them: 1 is a readable subject without the string, 2 is a subject that was never read |
+| `code_grep: a directory named as the subject exits 2, not 1` | The sibling shape: the redirection fails rather than the file being absent, and bash's own status for that is 1 as well |
+| `code_lines: a subject it cannot read exits 2, not 1` | The other emitter of the same status; code_grep reads this one's, so both draw the line in the same place |
+| `code_lines: a readable file with no code line exits 1, not 2` | The complement, so the fix cannot be "return 2 whenever nothing came back": an all-comment file HAS been read |
 | `only_comments: keeps the comment-only lines and nothing else` | The mirror view, for the rare assertion genuinely about what a file SAYS |
 | `only_comments: is the exact complement of strip_comments` | No line may be dropped by both filters or counted by both -- the invariant that makes "code" and "documentation" an exhaustive split |
 | `only_comments: keeps a trailing-comment line out of the comment view` | A trailing-comment line belongs to the code view alone; counting it as documentation would let a pin's version comment satisfy a prose assertion |
