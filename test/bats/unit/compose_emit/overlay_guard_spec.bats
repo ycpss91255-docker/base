@@ -244,7 +244,7 @@ CONF
 @test "the field-deploy emitter's baked container_name is a STATED exemption (#920)" {
   # The guard above scans `generate_compose_yaml` -- the dev stack, the
   # only emission a multi_run overlay ever expands. It is not the only
-  # emitter base ships: `_generate_resolved_compose` (just setup deploy)
+  # emitter base ships: `_generate_resolved_compose` (just docker setup deploy)
   # writes a fully-resolved single-device bundle and DOES bake a
   # container_name, deliberately, so an operator has a stable name to
   # `docker logs`. Two emitters, two rules.
