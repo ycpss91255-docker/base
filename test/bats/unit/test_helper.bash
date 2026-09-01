@@ -150,19 +150,51 @@ only_comments() {
 }
 
 # code_lines <file>
-#   <file> with its comment-only and blank lines dropped. Exits non-zero when
-#   nothing survives (grep's own no-match status), so a spec that asserts
-#   success also learns that the file has no code at all.
+#   <file> with its comment-only and blank lines dropped.
+#
+#   The STATUS separates the two readings a caller must never merge:
+#     0  code lines were emitted;
+#     1  the file was READ and nothing survived the strip (grep's own
+#        no-match status) -- an all-comment or empty file;
+#     2  the file was not read at all -- missing, a directory, unreadable.
+#   Without the split the redirection's own failure arrives as 1, which is
+#   the status every guard in this tree reads as "the subject simply does
+#   not contain that string". A subject that was renamed away would then be
+#   reported as a clean subject. The `BUG:` line goes to stdout, the way
+#   every other derivation here reports one, because the scans that consume
+#   these helpers read stdout inside a pipeline where a status is invisible.
 code_lines() {
-    strip_comments < "${1}"
+    local _file="${1}"
+    if [[ ! -f "${_file}" || ! -r "${_file}" ]]; then
+        printf 'BUG: code_lines cannot read %s\n' "${_file}"
+        return 2
+    fi
+    strip_comments < "${_file}"
 }
 
 # code_grep <grep-arg>... <file>
 #   `grep <arg>... <file>` restricted to the code lines of <file>. Argument
 #   order mirrors grep's own, file last.
+#
+#   Statuses are code_lines' plus grep's, and they do not collide: 0 match,
+#   1 no match over a file that WAS read, 2 a file that was not. The read is
+#   therefore done into a variable rather than piped -- a pipeline's status
+#   is its LAST command's, so an unreadable subject would reach grep as
+#   empty stdin and come back as a plain no-match. Empty code is still fed
+#   to grep rather than short-circuited, so counting flags keep answering
+#   (`-c` over an all-comment file prints 0, exit 1).
 code_grep() {
-    local _file="${*: -1}"
-    code_lines "${_file}" | grep "${@:1:$#-1}"
+    local _file="${*: -1}" _code _status=0
+    _code="$(code_lines "${_file}")" || _status=$?
+    if [[ "${_status}" -gt 1 ]]; then
+        printf '%s\n' "${_code}"
+        return "${_status}"
+    fi
+    if [[ -n "${_code}" ]]; then
+        printf '%s\n' "${_code}" | grep "${@:1:$#-1}"
+    else
+        printf '' | grep "${@:1:$#-1}"
+    fi
 }
 
 # yaml_job_text <file> <job>
