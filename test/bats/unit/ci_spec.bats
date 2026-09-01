@@ -1250,6 +1250,7 @@ SH
   # statement.
   local _script="${BATS_TEST_TMPDIR}/scan.awk"
   cat > "${_script}" <<'AWK'
+    FNR == 1 { files++ }
     /^@test / { blk = $0; body = ""; inblk = 1; next }
     inblk && /^[[:space:]]*#/ { next }
     inblk { body = body "\n" $0 }
@@ -1265,7 +1266,7 @@ SH
       if (body ~ /_dispatch_script /) next
       print FILENAME ": " blk
     }
-    END { print "TOTAL=" total }
+    END { print "FILES=" files; print "TOTAL=" total }
 AWK
 
   run awk -f "${_script}" /source/test/bats/unit/*.bats \
@@ -1278,8 +1279,32 @@ AWK
   [ -n "${_total}" ]
   [ "${_total}" -ge 8 ]
 
+  # ... and a scan that enumerated only SOME of the tree reports the rest
+  # compliant, which is the same failure one folder down. The roster the
+  # scan is handed must be the whole spec tree -- every level, every
+  # subfolder -- so it is checked against an independent enumeration by a
+  # different mechanism (shell globstar here, whatever the scan uses
+  # there). A spec that moves into test/bats/unit/<lib>/ must not fall out
+  # of this guard the way it fell out of the two flat globs this started
+  # as.
+  local _globstar_was_set=0
+  shopt -q globstar && _globstar_was_set=1
+  shopt -s globstar
+  local -a _all_specs=(/source/test/bats/**/*.bats)
+  (( _globstar_was_set )) || shopt -u globstar
+  [ "${#_all_specs[@]}" -gt 100 ]
+
+  local _files
+  _files="$(printf '%s\n' "${output}" | sed -n 's/^FILES=//p')"
+  [ -n "${_files}" ]
+  if [ "${_files}" -ne "${#_all_specs[@]}" ]; then
+    printf 'scanned %s spec files, the tree has %s\n' \
+      "${_files}" "${#_all_specs[@]}"
+    false
+  fi
+
   local _offenders
-  _offenders="$(printf '%s\n' "${output}" | grep -v '^TOTAL=' || true)"
+  _offenders="$(printf '%s\n' "${output}" | grep -Ev '^(TOTAL|FILES)=' || true)"
   if [[ -n "${_offenders}" ]]; then
     printf 'specs mutating the checkout coverage evidence:\n%s\n' "${_offenders}"
     false
