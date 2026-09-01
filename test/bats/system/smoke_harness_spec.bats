@@ -177,7 +177,15 @@ teardown() {
     '}'
   run _build_harness "${CONTEXT_DIR}"
   [ "${status}" -ne 0 ]
-  echo "${output}" | grep -q 'failing on purpose'
+  # The TAP OUTCOME, not the test name. bats prints a spec's name on
+  # every result -- `ok 3 failing on purpose` and `ok 3 # skip` carry it
+  # verbatim -- so a name-only grep is matched by a run in which this
+  # fixture passed or never ran, leaving `status` as the only
+  # discriminating half, and `status` is non-zero for any failure
+  # anywhere in the harness. `_build_harness` forces `--progress=plain`,
+  # which prefixes each line with a `#<step> <elapsed>` stamp, so the
+  # anchor is "start of line or whitespace" rather than `^`.
+  echo "${output}" | grep -qE '(^|[[:space:]])not ok [0-9]+ .*failing on purpose'
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -276,5 +284,13 @@ OTHER_DIGEST="sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765
     --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}" \
     --build-arg "BASE_IMAGE_DIGEST=${OTHER_DIGEST}"
   [ "${status}" -ne 0 ]
-  echo "${output}" | grep -q 'does not contradict'
+  # Asserted as the shipped spec's TAP OUTCOME, for the reason spelled
+  # out on the gate-fires case above: `does not contradict` is that
+  # spec's NAME, which bats prints for a pass (`ok 10 the manifest's
+  # digest field does not contradict the reference` -- verbatim in every
+  # green `just test smoke`) and for a skip. Keyed on the name alone this
+  # case is green whenever the contradiction assertion silently stops
+  # running -- body emptied, or the manifest RUN dropped so all four
+  # repro specs skip -- as long as anything else in the harness fails.
+  echo "${output}" | grep -qE '(^|[[:space:]])not ok [0-9]+ .*does not contradict'
 }
