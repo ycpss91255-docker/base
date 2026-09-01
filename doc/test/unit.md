@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3137 tests**.
+Unit specs under `test/bats/unit/`: **3138 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2008,7 +2008,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (116)
+### test/bats/unit/ci_spec.bats (117)
 
 | Test | Description |
 |------|-------------|
@@ -2046,6 +2046,7 @@ builds the env block only for the knobs the conf sets.
 | `_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)` | - |
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
 | `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
+| `_run_coverage: the full run covers the pools the inventory reads (#952)` | - |
 | `_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)` | - |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
