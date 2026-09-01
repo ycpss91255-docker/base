@@ -429,70 +429,137 @@ _migrate_nounset_source_apply() {
 
 # ── Migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
 #
-# Up to v0.41.0 base shipped ONE flat smoke tree and the consumer Dockerfile
-# copied it whole:
-#   COPY .base/test/smoke/ /smoke_test/
-# The shipped specs now live under dist/test/bats/smoke/, split into a
-# shared/ baseline plus one folder per Dockerfile stage, so that source is
-# gone. Rewriting it to the shared baseline alone would build, but would
-# silently drop the specs the stage used to run -- so the statement is
-# replaced by the shared baseline PLUS the enclosing stage's own folder,
-# which is what the current template Dockerfile writes by hand.
+# Up to v0.41.0 base shipped ONE flat smoke tree, and consumer Dockerfiles
+# reference it in TWO spellings, both of which are out there today:
 #
-# The stage folder is emitted only when the freshly pulled subtree actually
-# ships one for that stage: a stage base has no specs for (or an unnamed
-# final stage) gets the shared baseline and nothing else, rather than a COPY
-# of a directory that does not exist. Runs BEFORE flat_to_dist so the
-# generic .base/script rewrite never sees these lines.
-# Idempotent: once rewritten no flat .base/test/smoke reference remains.
+#   the whole directory   COPY .base/test/smoke/ /smoke_test/
+#   file by file          COPY .base/test/smoke/test_helper.bash /smoke_test/
+#                         COPY .base/test/smoke/a.bash .base/test/smoke/b.bats /smoke_test/
+#
+# The shipped specs now live under dist/test/bats/smoke/, split into a
+# shared/ baseline plus one folder per Dockerfile stage, so both sources are
+# gone. The two spellings need different repairs and that is the whole point
+# of this migration:
+#
+#   * the DIRECTORY spelling is one statement standing for a whole tree.
+#     Rewriting it to the shared baseline alone would build but would
+#     silently drop the specs the stage used to run, so it becomes the
+#     shared baseline PLUS the enclosing stage's own folder -- what the
+#     current template Dockerfile writes by hand.
+#   * the FILE spelling names specs that did not move together. The flat
+#     tree was SPLIT: test_helper.bash landed in shared/, script_help.bats
+#     in the per-stage folder. So each named file is resolved against the
+#     subtree the upgrade just pulled and rewritten to wherever that tree
+#     actually ships it. A blanket rewrite to shared/ -- or a blanket
+#     `.base/ -> .base/dist/` prefix insertion -- names a file that is not
+#     there, which is the same broken build one step later.
+#
+# Both the stage-folder set and the file index are READ FROM THE PULLED
+# TREE, never listed here, so a folder or spec base adds later is carried
+# without editing this migration. A named file the tree does not ship is
+# left untouched and warned about rather than rewritten to a guess.
+#
+# Runs BEFORE flat_to_dist so the generic .base/script rewrite never sees
+# these lines. Idempotent: once rewritten no flat .base/test/smoke
+# reference remains.
 _migrate_smoke_copy_detect() {
   local _file="$1"
-  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke/?[[:space:]]' "${_file}"
+  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke([/[:space:]]|$)' "${_file}"
 }
 
 _migrate_smoke_copy_apply() {
   local _file="$1"
 
-  # Which stage folders the subtree ships, as a ":a:b:" membership string
-  # awk can test with index(). Read from the tree next to the Dockerfile,
-  # i.e. the subtree the upgrade just pulled.
   local _root
   _root="$(dirname -- "${_file}")"
+  local _smoke_root="${_root}/.base/dist/test/bats/smoke"
+
+  # Two membership strings awk tests with index(): the stage folders the
+  # subtree ships (":devel-test:shared:") and every spec file it ships,
+  # relative to the smoke root (":shared/test_helper.bash:...:"). Both are
+  # derived by walking the tree next to the Dockerfile -- the subtree the
+  # upgrade just pulled -- so neither is a list that can go stale.
   local _stages=":"
-  local _dir
-  for _dir in "${_root}"/.base/dist/test/bats/smoke/*/; do
-    [[ -d "${_dir}" ]] || continue
-    _stages+="$(basename -- "${_dir}"):"
-  done
+  local _files=":"
+  local _dir _path
+  if [[ -d "${_smoke_root}" ]]; then
+    for _dir in "${_smoke_root}"/*/; do
+      [[ -d "${_dir}" ]] || continue
+      _stages+="$(basename -- "${_dir}"):"
+    done
+    while IFS= read -r _path; do
+      _files+="${_path#"${_smoke_root}/"}:"
+    done < <(find "${_smoke_root}" -type f | LC_ALL=C sort)
+  fi
 
   local _tmp
   _tmp="$(mktemp)"
-  # Track the enclosing build stage (`FROM ... AS <name>`) so each rewritten
-  # COPY can name its own folder. Substituting into a COPY of the original
-  # line preserves whatever flags, destination and column alignment the
-  # consumer had.
-  awk -v stages="${_stages}" '
+  # Track the enclosing build stage (`FROM ... AS <name>`) so a rewritten
+  # COPY can name its own folder and a named file can prefer its own stage.
+  # Substituting into a copy of the original line preserves whatever flags,
+  # destination and column alignment the consumer had.
+  awk -v stages="${_stages}" -v files="${_files}" '
+    # Where the pulled tree ships <rel>: shared/ first (it runs on every
+    # stage), then the enclosing stage, then the remaining stage folders in
+    # sorted order. Empty when the tree ships it nowhere.
+    function resolve(rel, stage,   i, n, arr) {
+      if (index(files, ":shared/" rel ":") > 0) { return "shared/" rel }
+      if (stage != "" && index(files, ":" stage "/" rel ":") > 0) {
+        return stage "/" rel
+      }
+      n = split(substr(stages, 2, length(stages) - 2), arr, ":")
+      for (i = 1; i <= n; i++) {
+        if (arr[i] == "" || arr[i] == "shared") { continue }
+        if (index(files, ":" arr[i] "/" rel ":") > 0) { return arr[i] "/" rel }
+      }
+      return ""
+    }
     toupper($1) == "FROM" {
       stage = ""
       for (i = 2; i < NF; i++) {
         if (toupper($i) == "AS") { stage = $(i + 1) }
       }
     }
-    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke\/?[[:space:]]/ {
-      shared = $0
-      sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
-      print shared
-      if (stage != "" && index(stages, ":" stage ":") > 0) {
-        own = $0
-        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
-        print own
+    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke/ {
+      # Whole-directory spelling: one statement standing for the tree.
+      if ($0 ~ /\.base\/test\/smoke\/?[[:space:]]/) {
+        shared = $0
+        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
+        print shared
+        if (stage != "" && index(stages, ":" stage ":") > 0) {
+          own = $0
+          sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
+          print own
+        }
+        next
       }
+      # Explicit-FILE spelling: rewrite every named source in place, one
+      # match at a time, so the surrounding text (flags, further sources,
+      # destination, spacing) survives byte for byte.
+      rest = $0
+      out = ""
+      while (match(rest, /\.base\/test\/smoke\/[^[:space:]"]+/)) {
+        out = out substr(rest, 1, RSTART - 1)
+        tok = substr(rest, RSTART, RLENGTH)
+        rel = substr(tok, length(".base/test/smoke/") + 1)
+        where = resolve(rel, stage)
+        out = out (where == "" ? tok : ".base/dist/test/bats/smoke/" where)
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      print out rest
       next
     }
     { print }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+
+  # Anything still naming the flat tree is a spec this base does not ship.
+  # Guessing a folder for it would trade a visible COPY failure for a
+  # silently missing test, so it is left exactly as written and reported.
+  if grep -q '\.base/test/smoke' "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile: .base/test/smoke source(s) could not be resolved in the pulled subtree — left untouched, repoint them by hand"
+  fi
 }
 
 # ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────
@@ -511,8 +578,11 @@ _migrate_smoke_copy_apply() {
 #
 # Rewrites both prefixes wherever they appear, comments included, so the
 # commented-out runtime-stage hints a consumer later uncomments are correct
-# too. `.base/test` is deliberately NOT in this table: the smoke tree did not
-# just move, it was restructured, and smoke_copy above owns it.
+# too. `.base/test` is deliberately NOT in this table, and a blanket
+# `.base/ -> .base/dist/` rewrite would be WRONG for it: the smoke tree did
+# not just move, it was restructured, so inserting `dist/` in front of it
+# still names a path that is not there. smoke_copy above owns that path in
+# both the directory and the file spelling.
 #
 # Order is load-bearing. It runs AFTER the migrations whose detect anchors on
 # the flat spelling (wrapper_copy, explicit_copy) so those still recognise it,

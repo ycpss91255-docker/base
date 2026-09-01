@@ -97,6 +97,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just upgrade` now heals the file-by-file smoke COPY six consumers actually carry (closes #969)** -- the smoke migration recognised only `COPY .base/test/smoke/ /smoke_test/`; the spelling that names each file was invisible to it, and nothing else rewrites `.base/test`, so the upgrade committed the subtree pull and the next build died on `COPY source not found`. Each named file is now resolved against the tree just pulled -- `test_helper.bash` ships in `shared/`, `script_help.bats` in the stage folder, so a blanket `dist/` prefix insertion would still be wrong -- and a file that tree does not ship is left untouched and reported.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
