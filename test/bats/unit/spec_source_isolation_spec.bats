@@ -58,36 +58,48 @@
 # traded away, but it is the residual gap, and closing it means snapshotting
 # per SPEC rather than per run.
 #
-# ── Why the COMPARISON scan stays ─────────────────────────────────────────
+# ── Why the COMPARISON scan stays, and exactly what it is worth ───────────
 #
-# Because the snapshot cannot subsume it. A comparison against the live tree
-# leaves no trace: the spec reads, decides, and the checkout is byte-
-# identical afterwards. There is nothing for an executed residue check to
-# find, and the failure is not residue at all -- it is a verdict half of
-# which someone else wrote. A static scan is the only shape that can see it
+# Because the residue check cannot subsume it. A comparison against the live
+# tree leaves no trace: the spec reads, decides, and the checkout is byte-
+# identical afterwards. There is nothing for an executed snapshot to find,
+# and the failure is not residue at all -- it is a verdict half of which
+# somebody else wrote. A static scan is the only shape that can see that
 # before it costs a gate run.
 #
-# What separates it from the write roster is not that it needs no widening
-# -- it DID need widening, and the claim that it did not was false: a review
-# planted six positions it named and could not see (`if`, `elif`, `while`,
-# `until`, a leading `!`, `run` with a flag), one of which is a live idiom
-# in this repo. What separates it is that its set is CLOSED and derivable.
-# The write roster enumerated commands that can write, which is every binary
-# that exists; this enumerates the places a shell can begin a command, which
-# is the shell's finite grammar. The positions are now taken from that
-# grammar and every one of them is planted in a case.
+# WHAT IT IS NOT IS A CLOSED SET, and two rounds of this header said it was.
+# The argument ran: the deleted write roster enumerated the commands that
+# can write, which is every binary that exists, while this enumerates the
+# places a shell can begin a command, which is the shell's finite grammar.
+# The POSITION axis really is derivable that way and its positions are taken
+# from the grammar -- but the scan has two more axes and both of them are
+# rosters. It matches two command NAMES, and it matches the live path as the
+# first or the second OPERAND. A review planted eighteen comparison
+# spellings and sixteen went unseen: a checksum pair, a comparison driven
+# through git, an equality test over two command substitutions, a live path
+# pushed past the second operand by an option that takes an argument of its
+# own. None of those is exotic, and no derivation reaches them.
 #
-# It is an over-approximation on purpose -- `diff /source/a /source/b`
-# compares two live paths and is flagged as well.
+# So the claim is the narrow one the body can carry: an OVER-APPROXIMATION
+# that catches the COMMON spellings at the moment the line is written, and
+# names the line. Over- in the other direction too, on purpose -- two live
+# paths compared against each other are flagged as well.
 #
-# What it CANNOT see, measured rather than asserted, in the case named "the
-# comparison scan's disclosed blind spots really are blind": it is line-wise
-# and it matches a literal path, so a comparison split across a continuation
-# line, one whose command name arrives through a variable or an alias, and
-# one whose live operand is built out of a variable all go unseen. Being
-# incomplete is acceptable HERE in a way it was not for the write scan --
-# nothing else was standing behind that one -- but only while the disclosure
-# is the true one, which is why the blind spots have a case of their own.
+# WHAT ACTUALLY HOLDS THE LINE, since this does not. For the WRITE property
+# there is an executed gate with no roster in it: script/test/test.sh
+# snapshots the checkout either side of the bats phase and names any path
+# that differs, whatever wrote it and however it was spelled. The comparison
+# property has no such backstop -- that is the whole reason a scan is still
+# here -- so what stands behind it is the discipline it is a reminder of:
+# settle a verdict on bytes the spec captured itself. A spelling this scan
+# misses costs what the defect it was written for cost: a verdict flipped by
+# a concurrent writer, and a gate re-run until it went green.
+#
+# Which is why the disclosure may not be a word wider than the body. A
+# reader who believes a scan is complete stops looking. What it misses is
+# sampled instead, one per axis, in the case named "the comparison scan is
+# an over-approximation, not a closed set" -- and those samples are examples
+# drawn from an OPEN set, not the set.
 #
 # Why a spec and not a lint driver: test.sh's _LINT_TOOLS table is asserted
 # by self_test_yaml_spec to have a CI job per entry, so a driver costs a
@@ -197,7 +209,7 @@ _assert_clean_scan() {
   assert_equal "${status}" 2
 }
 
-@test "the comparison scan sees a live operand in every position a command can open in (#965)" {
+@test "the comparison scan sees a live operand in each command position it names (#965)" {
   # The other way an invariant goes quietly blind: it holds because its
   # PATTERN misses the line, not because no such line exists. A review
   # planted six spellings this scan NAMED and could not see -- `if`,
@@ -206,15 +218,21 @@ _assert_clean_scan() {
   # this repo keeps producing, so the positions are now derived and every
   # one of them is planted here.
   #
-  # Derived from the shell grammar, which is what makes this a CLOSED set
-  # rather than the open roster the write scan was: a command can begin at
-  # the start of a line, after a separator or opener (`;` `&` `|` `&&`
-  # `||` `(` `{`), after one of the reserved words that is followed by a
-  # command (`if` `elif` `while` `until` `then` `else` `do` `time`), after
-  # a negating `!`, or after bats' own `run` and its flags. Reserved words
-  # that are followed by a WORD rather than a command (`case`, `for`,
-  # `in`, `select`, `function`) cannot open one, and the rest close a
-  # construct.
+  # The positions are taken from the shell grammar rather than from taste:
+  # a command can begin at the start of a line, after a separator or opener
+  # (`;` `&` `|` `&&` `||` `(` `{`), after one of the reserved words that is
+  # followed by a command (`if` `elif` `while` `until` `then` `else` `do`
+  # `time`), after a negating `!`, or after bats' own `run` and its flags.
+  # Reserved words that are followed by a WORD rather than a command
+  # (`case`, `for`, `in`, `select`, `function`) cannot open one, and the
+  # rest close a construct.
+  #
+  # That derivation makes the POSITION axis narrower than the scan's other
+  # two -- it is not what makes the scan complete, and the scan is not. One
+  # derivable position is unscanned by choice (a backtick, rejected with its
+  # measurement where CMD_POS is defined), and the command and operand axes
+  # are rosters. This case pins the positions the scan NAMES; the ones it
+  # does not are sampled in the case below.
   #
   # Every fixture keeps the live path as a printf ARGUMENT, never a
   # literal: a literal would put a matching line into the tree the
@@ -254,20 +272,36 @@ time_keyword|  time diff %s/a "${SCRATCH}/a"
 SPELLINGS
 }
 
-@test "the comparison scan's disclosed blind spots really are blind, and they are all of them (#965)" {
-  # The disclosure, made executable. What the scan cannot see is a
-  # property of being LINE-WISE and of matching a literal path: a
-  # comparison split across a continuation line, one whose command name
-  # arrives through a variable or an alias, and one whose live operand is
-  # built out of a variable. Those three are what the header says, and a
-  # case that measures them is what keeps the header from drifting back
-  # into a wider claim than the body.
+@test "the comparison scan is an over-approximation, not a closed set (#965)" {
+  # The disclosure, made executable -- and the disclosure is that this scan
+  # is NOT a closed set. An earlier version of this case claimed the
+  # opposite in its own title ("and they are all of them") over a list of
+  # three; a review then planted eighteen comparison spellings and sixteen
+  # went unseen. A wide claim with a narrow body is the defect this repo
+  # keeps producing, and a test that asserts completeness it does not have
+  # is the worst place to produce it.
   #
-  # A fourth is here for a different reason: a backtick command
-  # substitution is a real command position, and it is unscanned by choice,
-  # because the one-character widening that would see it matched four lines
-  # of this repo's own comment prose and no command at all. Blind is blind
-  # either way, so it is measured here with the rest.
+  # So what is planted here is a SAMPLE, one per axis, of an open set:
+  #
+  #   - the COMMAND axis. The scan knows two names. A comparison driven
+  #     through git, or settled by comparing two checksums, or written as an
+  #     equality test over two command substitutions, is a comparison the
+  #     scan has no name for. That axis is a roster exactly like the write
+  #     roster this file deleted -- the difference being that the write
+  #     property has an executed gate behind it and this one does not.
+  #   - the OPERAND axis. The scan matches the live path as the first or
+  #     the second operand; an option that takes an argument of its own
+  #     pushes it past both.
+  #   - LINE-WISE and LITERAL, which is inherent rather than a roster: a
+  #     comparison split across a continuation line, a command name arriving
+  #     through a variable or an alias, a live path built out of a variable.
+  #   - one derivable command POSITION left unscanned by choice, a backtick,
+  #     because the widening that sees it matched four lines of this repo's
+  #     own comment prose and no command at all.
+  #
+  # Widening the pattern to catch one of these is starting a roster, which
+  # this file has refused twice; this case is where that decision gets made
+  # out loud rather than by editing a regex.
   local _planted="${BATS_TEST_TMPDIR}/planted_blind"
   mkdir -p "${_planted}"
   local _spelling _fmt
@@ -277,11 +311,15 @@ SPELLINGS
     printf "${_fmt}\n" "${LIVE_TREE}" > "${_planted}/${_spelling}.bats"
     run grep -nE "${COMPARE_RE}" "${_planted}/${_spelling}.bats"
     [[ "${status}" -eq 1 ]] || fail \
-      "the ${_spelling} spelling IS matched, so the header understates what this scan sees; an accurate narrow claim is the whole point of the disclosure"
+      "the ${_spelling} spelling IS matched, so this file's account of what the scan sees is out of date; the samples here are what keeps the header from claiming more than the pattern does, and widening the pattern is a decision to state, not a silent edit"
   done <<'BLIND'
 command_in_a_variable|  _cmp=diff; "${_cmp}" %s/a "${SCRATCH}/a"
 path_in_a_variable|  _live=%s; diff "${_live}/a" "${SCRATCH}/a"
 backtick_substitution|  _out=`diff %s/a "${SCRATCH}/a"`
+comparison_through_git|  run git diff --no-index %s/doc "${SCRATCH}/doc"
+checksum_pair|  run md5sum %s/a "${SCRATCH}/a"
+equality_test|  [[ "$(cat %s/README.md)" == "$(cat "${SCRATCH}/README.md")" ]]
+past_the_second_operand|  run diff --exclude foo "${SCRATCH}/doc" %s/doc
 BLIND
   # The continuation line, which cannot be written as one line by
   # definition: the operand is on the NEXT line, so a line-wise scan
