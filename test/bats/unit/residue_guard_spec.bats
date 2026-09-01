@@ -220,6 +220,42 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output --partial "planted.md"
 }
 
+@test "_residue_check: a run that changed nothing does not report that it did (#965)" {
+  # What the memory did to the REPORT. The lead sentence -- "the test run
+  # changed the checkout it does not own" -- was built from the union of
+  # what this run wrote and what an earlier run left, so every re-run
+  # asserted a write that did not happen in it. A reader who takes that
+  # sentence at face value goes looking through a run that touched nothing,
+  # and the clause that would have told them otherwise arrives second.
+  #
+  # The two facts are different and the report has to keep them apart: what
+  # THIS run did, and what is still unanswered from before.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  assert_output --partial "The test run changed the checkout"
+
+  # The second run writes nothing at all. The path is in both snapshots, so
+  # only the memory has anything to say about it.
+  _snapshot_before
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  assert_output --partial "planted.md"
+  assert_output --partial "This run changed nothing"
+  refute_output --partial "The test run changed the checkout"
+
+  # And a run that writes while a remembered path is still there says both,
+  # each about its own path -- otherwise keeping them apart would just have
+  # moved the false statement to the other case.
+  _snapshot_before
+  printf 'second\n' > "${REPO}/planted-too.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  assert_output --partial "The test run changed the checkout it does not own: planted-too.md"
+  assert_output --partial "Already reported by an earlier run and still there: planted.md"
+}
+
 @test "_residue_check: the memory clears when the residue is GONE (#965)" {
   # The other direction, and the one that keeps the memory from being a
   # permanent red. Nothing has to be acknowledged for a path that is no
