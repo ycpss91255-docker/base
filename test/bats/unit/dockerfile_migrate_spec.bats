@@ -363,6 +363,76 @@ EOF
   assert_failure
 }
 
+# The same tree was also reached FILE BY FILE. Two consumer repos hand-list
+# the specs instead of copying the directory -- one COPY per spec, and every
+# spec on a single COPY -- and those sources died in the same relocation.
+# The migration resolves each named spec against the freshly pulled subtree
+# by basename, so what heals them is where the tree says the spec now is.
+
+@test "migration (smoke-copy): rewrites a hand-listed spec to where the subtree ships it (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  # Each spec lands where the subtree actually ships it -- the two are in
+  # DIFFERENT folders, so a single blanket prefix could not have done this.
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash /smoke_test/test_helper.bash" "${DF}"
+  grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/script_help.bats" "${DF}"
+  ! grep -q '\.base/test/smoke/' "${DF}"
+}
+
+@test "migration (smoke-copy): rewrites every source of a multi-source hand-listed COPY (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash .base/test/smoke/script_help.bats /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/" "${DF}"
+  ! grep -q '\.base/test/smoke/' "${DF}"
+}
+
+@test "migration (smoke-copy): declines a hand-listed spec the subtree no longer ships (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/retired.bats /smoke_test/retired.bats
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  # Left as written, and SAID so: a guessed destination would resolve to a
+  # path the subtree does not ship, which is the failure this heals.
+  grep -Fq "COPY .base/test/smoke/retired.bats /smoke_test/retired.bats" "${DF}"
+  assert_output --partial "resolve it by hand"
+}
+
+@test "migration (smoke-copy): declines a hand-listed spec the subtree ships at two paths (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/ambiguous.bats"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/ambiguous.bats"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/ambiguous.bats /smoke_test/ambiguous.bats
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/test/smoke/ambiguous.bats /smoke_test/ambiguous.bats" "${DF}"
+  assert_output --partial "resolve it by hand"
+}
+
 # ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
 # The stable layout deployed on every consumer is the FLAT one: .base/config,
 # .base/script/... . The dist relocation deleted both. downstream_to_dist
