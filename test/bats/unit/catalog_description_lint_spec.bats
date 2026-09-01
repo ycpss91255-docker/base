@@ -1268,10 +1268,11 @@ refute_finding() {
   # "12 tests" against a document that holds 13.
   #
   # So the header is READ rather than reviewed. Every paragraph of it is
-  # scanned, every figure it states is collected, and a figure is a
-  # finding unless its paragraph carries an ISO date or the figure is one
-  # of the live values derived below. Deriving the paragraphs from the
-  # file means a paragraph added tomorrow is scanned the day it lands.
+  # scanned, every figure it states is collected -- at any width, a lone
+  # digit included -- and a figure is a finding unless its paragraph
+  # carries an ISO date or the figure is one of the live values derived
+  # below. Deriving the paragraphs from the file means a paragraph added
+  # tomorrow is scanned the day it lands.
   local _driver='/source/script/test/drivers/catalog_description.sh'
   local -a _pinned=()
   _pinned+=("$(sed -n 's/^# entries: \([0-9]\{1,\}\)$/\1/p' \
@@ -1284,18 +1285,37 @@ refute_finding() {
   mapfile -t _paras < <(awk '
     NR > 1 && !/^#/ { exit }
     /^#$/ { if (_p != "") { print _p }; _p = ""; next }
-    { sub(/^# ?/, ""); _p = _p " " $0 }
+    { sub(/^# ?/, ""); sub(/^[[:space:]]*[0-9]+\.[[:space:]]/, ""); _p = _p " " $0 }
     END { if (_p != "") { print _p } }' "${_driver}")
   (( ${#_paras[@]} > 0 )) \
     || { fail "the driver header has no paragraphs -- the scan read nothing"; return 1; }
-  # A figure is two digits or more, or a percentage: a lone digit in this
-  # header is a list marker ("1.", "2.") or a depth, never a measurement.
-  local _para _figs _fig _p _ok _with_figures=0
+  # A figure is ANY run of digits, or a percentage. Width is the wrong
+  # exemption: it made every one-digit measurement invisible, so a
+  # sentence stating "the scan reached 9 catalogues" passed undated and
+  # unpinned. The one thing that is genuinely not a figure -- the "1."
+  # / "2." enumerator of this header's ordered lists -- is exempted by
+  # POSITION instead, dropped by the awk above only where it opens a
+  # header line, which leaves a digit anywhere inside a sentence
+  # collected. The percentage alternative comes first so "41%" is one
+  # figure rather than "41".
+  local _fig_re='[0-9]+%|[0-9]+'
+  # The width the scan promises, probed rather than assumed: this is the
+  # exact sentence the narrower pattern let through.
+  [[ "$(printf '%s\n' 'the scan reached 9 catalogues' \
+    | grep -oE "${_fig_re}")" == '9' ]] \
+    || { fail "the figure pattern '${_fig_re}' does not collect a one-digit measurement"; return 1; }
+  local _para _figs _fig _p _ok _raw _status _with_figures=0
   local -a _bad=() _seen=()
   for _para in "${_paras[@]}"; do
-    _figs="$(printf '%s\n' "${_para}" \
-      | grep -oE '[0-9]+%|[0-9]{2,}' | LC_ALL=C sort -u | tr '\n' ' ')" || true
-    [[ -n "${_figs}" ]] || continue
+    # grep's status is pinned: 0 found, 1 none in THIS paragraph (normal,
+    # the population floor below is what refuses an empty scan), and
+    # anything else is the scan erroring rather than finding nothing.
+    _raw="$(printf '%s\n' "${_para}" | grep -oE "${_fig_re}")" \
+      && _status=0 || _status=$?
+    (( _status <= 1 )) \
+      || { fail "the figure scan errored (grep exit ${_status}) on: ${_para:0:80}"; return 1; }
+    [[ -n "${_raw}" ]] || continue
+    _figs="$(printf '%s\n' "${_raw}" | LC_ALL=C sort -u | tr '\n' ' ')"
     _with_figures=$(( _with_figures + 1 ))
     for _fig in ${_figs}; do
       _seen+=("${_fig}")
@@ -1320,6 +1340,11 @@ refute_finding() {
     || { fail "no paragraph in the driver header states a figure -- the scan found nothing to check"; return 1; }
   [[ " ${_seen[*]} " == *" ${_pinned[0]} "* ]] \
     || { fail "the scan never saw the live baseline figure ${_pinned[0]}; it is not reading the header it claims to (${_with_figures} paragraph(s) with figures)"; return 1; }
+  # And it must have seen the reach paragraph's section count, which is a
+  # short figure: the scan that missed one-digit measurements collected
+  # every other figure in the header and still looked healthy here.
+  [[ " ${_seen[*]} " == *" ${_pinned[2]} "* ]] \
+    || { fail "the scan never saw the live section figure ${_pinned[2]} the reach paragraph states; a figure of that width is escaping it"; return 1; }
   (( ${#_bad[@]} == 0 )) \
     || { fail "$(printf 'figures in the driver header that are neither dated nor pinned:\n%s\n' "$(printf '  %s\n' "${_bad[@]}")")"; return 1; }
 }
