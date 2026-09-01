@@ -1084,12 +1084,21 @@ _residue_check() {
     return 0
   fi
   _residue_remember "${_repo}" "${_paths}"
-  local _carried_note=""
+  # Two different facts, reported as two: what THIS run wrote, and what an
+  # earlier run left that nobody has answered for. Leading with the union
+  # asserted a write on every re-run of an unfixed residue, and a reader who
+  # believes that sentence goes looking through a run that touched nothing.
+  local _new_note="" _carried_note=""
+  [[ -z "${_new}" ]] || _new_note="The test run changed the checkout it does not own: $(printf '%s' "${_new}" | tr '\n' ' '). "
   # printf with a trailing newline, so `tr` leaves a trailing SPACE whether
   # the set has one path or ten.
-  [[ -z "${_carried}" ]] || _carried_note="Already reported by an earlier run and still there: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  if [[ -n "${_carried}" ]] && [[ -n "${_new}" ]]; then
+    _carried_note="Already reported by an earlier run and still there: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  elif [[ -n "${_carried}" ]]; then
+    _carried_note="This run changed nothing. What is named here was reported by an EARLIER run and is still in the checkout: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  fi
   _log_err ci ci_live_tree_residue \
-    "display=The test run changed the checkout it does not own: $(printf '%s' "${_paths}" | tr '\n' ' '). ${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record."
+    "display=${_new_note}${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record."
   return 1
 }
 
