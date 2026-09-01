@@ -69,7 +69,10 @@
 # measurement of a past tree and carries the date it was taken, because no
 # checkout can re-measure one. That division is not a convention anybody
 # has to remember: the spec reads this header paragraph by paragraph and a
-# figure that is neither dated nor pinned is a failing test.
+# figure that is neither dated nor pinned is a failing test. A figure is
+# any run of digits, a lone one included; the only thing exempt is the
+# enumerator that opens a list item, and it is exempt by its position at
+# the head of the line rather than by how short it is.
 #
 # Failing all of them at once turns CI red until every one has a sentence,
 # which blocks everyone on a backfill nobody asked for -- and a rushed
@@ -91,8 +94,8 @@
 #
 # Nothing in a checkout can answer "was this line here yesterday?" -- only
 # history can, and this driver deliberately does not shell out to git (the
-# lint-static runner checks out at depth 1, and a lint whose verdict
-# depends on how much history was fetched is worse than no lint). So the
+# lint-static runner takes a shallow checkout with no history, and a lint
+# whose verdict depends on how much was fetched is worse than no lint). So the
 # guard does not claim to detect growth. It makes growth impossible to
 # commit SILENTLY, from three directions at once:
 #
@@ -120,8 +123,10 @@
 #      `### <path> (N)` section is refused as well: it is a document
 #      contradicting itself, and the generator fills both copies.
 #
-# That is the honest boundary: (1) and (4) are mechanical and do the work,
-# (2) and (3) make the remaining move visible rather than impossible.
+# That is the honest boundary: the stale-entry rule and the
+# already-described rule are mechanical and do the work; the declared
+# count and the sort order make the remaining move visible rather than
+# impossible.
 #
 # Scope: doc/test/*.md, and within them only the tables that a generated
 # `### <path> (N)` section opens with a `| Test | Description |` header.
