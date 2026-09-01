@@ -1864,12 +1864,16 @@ _df_flatten() {
   assert_success
 
   # The digest is recorded ONCE, by one expression, into both sinks. A
-  # LABEL cannot run a case statement, so any expression the file can
-  # evaluate and the label cannot is a field that answers differently for
-  # the same image -- which is the one field this record exists to make
-  # comparable. Read out of the stage and COMPARED rather than spelled as
-  # two literals: a pair of literals goes green the moment either side
-  # moves, which is exactly how the two answers got there.
+  # LABEL cannot BRANCH, so an expression whose answer DEPENDS on the
+  # reference's shape gives the file one value and the label another --
+  # in the one field this record exists to make comparable. (Reading a
+  # digest is well within a label: `${BASE_IMAGE##*@}` in one comes back
+  # as `sha256:<hex>`, which a probe build of this repo's harness proves.
+  # The same expression comes back as `ubuntu:24.04` for an unpinned
+  # reference, and that is the half a label has no way to tell apart.)
+  # Read out of the stage and COMPARED rather than spelled as two
+  # literals: a pair of literals goes green the moment either side moves,
+  # which is exactly how the two answers got there.
   local _file_digest _label_digest
   _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
   _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
