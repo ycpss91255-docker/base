@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3122 tests**.
+Unit specs under `test/bats/unit/`: **3131 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3605,7 +3605,7 @@ the four specs that existed, a fifth worker landing with an unpinned
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec pinning its grants (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec reading its permission surface. The spec list is derived by `find` over the spec tree (this file excluded, since it names build-worker.yaml's path itself) and floored at the derived worker count |
 
-### test/bats/unit/yaml_permission_surface_spec.bats (16)
+### test/bats/unit/yaml_permission_surface_spec.bats (25)
 
 Unit tests for the DERIVED job and permission surfaces in
 `test/bats/unit/test_helper.bash` (`yaml_job_names` /
@@ -3634,9 +3634,22 @@ YAML parser (`yq`, added to `dockerfile/Dockerfile.test-tools` as Alpine's
 `yq-go`), which also fails CLOSED: a file it cannot parse is a `BUG:` line
 and a non-zero status, where the awk simply produced a shorter answer.
 
+A fifth derivation joins them: `spec_permission_surface_subjects`, which
+answers "which workflow file is this spec's surface call applied TO". The
+class-level guard used to answer that with two independent substring
+questions of the same file -- does it contain the string
+`yaml_permission_surface`, and does it contain the worker's path -- so any
+spec answering both certified a worker whose surface it never reads.
+Appending one call about worker A to a spec that merely MENTIONS worker B
+certified B. The derivation resolves the call's own ARGUMENT (a literal, or
+a variable with exactly one unambiguous literal assignment in the same
+file), and everything it cannot resolve is reported as `UNRESOLVED:` or as
+`BUG:` rather than assumed either way.
+
 Fixtures are written to a scratch directory, never to the checkout: these
 are tests OF the extractor, so they need shapes the real workflows do not
-have.
+have. The fixtures' own `@test` headers are indented one space, because the
+doc count generator counts a spec's tests with `grep -c '^@test'`.
 
 | Test | Description |
 |------|-------------|
@@ -3656,3 +3669,12 @@ have.
 | `reusable_workflow_files: a flow-style on mapping is still read (#957)` | `on: {workflow_call: null}` is the same declaration in flow style |
 | `reusable_workflow_files: a workflow that is not callable is not listed (#957)` | The other direction: a `push`-only workflow runs on its own repo's token and is not part of this population |
 | `reusable_workflow_files: an unreadable workflow is reported, not skipped (#957)` | A worker the derivation cannot parse is a worker nothing downstream scans, so it joins the listing as a `BUG:` line |
+| `spec_permission_surface_subjects: a mentioned path is not a subject (#957)` | The defect the class-level guard shipped with: a spec that MENTIONS a worker and separately calls the surface on another one certified both. The subject is resolved from the call's own argument |
+| `spec_permission_surface_subjects: a literal argument resolves to itself (#957)` | A call site that names the workflow inline needs no resolution |
+| `spec_permission_surface_subjects: reads a call inside a process substitution (#957)` | The shape the scanning specs use: the argument carries the substitution's closing paren and the line continues after it |
+| `spec_permission_surface_subjects: a path named only in a comment is not a subject (#957)` | A prose paragraph naming a worker is not a pin -- the same reason every structural assertion here reads code lines |
+| `spec_permission_surface_subjects: an argument it cannot resolve says so (#957)` | A generated fixture path is a legitimate subject that is no tracked workflow; it reads as UNRESOLVED, never as one of the paths the file happens to mention and never as nothing |
+| `spec_permission_surface_subjects: an ambiguous variable is not resolved (#957)` | Two assignments and two literals: which one the call site saw is not decidable from the text, and guessing would certify a worker on a coin flip |
+| `spec_permission_surface_subjects: a call with no argument is a BUG line (#957)` | A call whose argument cannot be seen must not be dropped -- dropping it is how a spec that pins a worker stops counting as its pin |
+| `spec_permission_surface_subjects: a spec that never calls it prints nothing and exits 1 (#957)` | The status splits "read, no call site" from "not read", so a caller cannot count an unreadable spec as one that pins nothing |
+| `spec_permission_surface_subjects: a spec it cannot read is a BUG line, not silence (#957)` | The other half of that split, and the one that would otherwise shrink the certified population silently |

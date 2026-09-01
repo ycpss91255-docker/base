@@ -336,3 +336,178 @@ YAML
   run reusable_workflow_files "${_dir}"
   assert_output --partial 'BUG:'
 }
+
+# ── which FILE a spec's surface call is applied to ───────────────────
+#
+# The class-level guard in reusable_worker_permissions_spec asks "does some
+# other spec pin this worker's grants". It used to ask that as two
+# independent substring questions of the same file -- does it contain the
+# string `yaml_permission_surface`, and does it contain the worker's path --
+# which any spec satisfying both answered YES for a worker whose surface it
+# never reads. Appending one call about worker A to a spec that merely
+# MENTIONS worker B certified B. So the derivation below resolves the call's
+# own ARGUMENT, and everything it cannot resolve is reported rather than
+# assumed.
+#
+# The fixtures' own `@test` headers are indented by one space: the doc/test
+# count generator counts a spec's tests with `grep -c '^@test'`, so a
+# fixture written at column 0 would be counted as a test of this file.
+
+@test "spec_permission_surface_subjects: a mentioned path is not a subject (#957)" {
+  # The defect itself. The fixture names beta.yaml twice -- an assignment
+  # and a call to another helper -- and applies the surface only to alpha.
+  local _spec
+  _spec="$(_fixture 'mentions_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/alpha.yaml"
+  OTHER="/fixture/workflows/beta.yaml"
+}
+
+ @test "beta yields jobs" {
+  run yaml_job_names "${OTHER}"
+}
+
+ @test "alpha pins its grants" {
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/alpha.yaml'
+}
+
+@test "spec_permission_surface_subjects: a literal argument resolves to itself (#957)" {
+  local _spec
+  _spec="$(_fixture 'literal_spec.bats' << 'SPEC'
+ @test "gamma pins its grants" {
+  run yaml_permission_surface /fixture/workflows/gamma.yaml
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/gamma.yaml'
+}
+
+@test "spec_permission_surface_subjects: reads a call inside a process substitution (#957)" {
+  # The call shape the scanning specs use: the argument carries the
+  # substitution's closing paren, and the line continues afterwards.
+  local _spec
+  _spec="$(_fixture 'procsub_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/delta.yaml"
+}
+
+ @test "delta" {
+  while IFS= read -r _line; do
+    printf '%s\n' "${_line}"
+  done < <(yaml_permission_surface "${WF}")
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/delta.yaml'
+}
+
+@test "spec_permission_surface_subjects: a path named only in a comment is not a subject (#957)" {
+  local _spec
+  _spec="$(_fixture 'comment_spec.bats' << 'SPEC'
+# This spec is about /fixture/workflows/epsilon.yaml and its grants.
+setup() {
+  WF="/fixture/workflows/zeta.yaml"
+}
+
+ @test "zeta" {
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/zeta.yaml'
+}
+
+@test "spec_permission_surface_subjects: an argument it cannot resolve says so (#957)" {
+  # A generated fixture path is a legitimate subject that is not a tracked
+  # workflow. It must read as UNRESOLVED -- never as one of the paths the
+  # file happens to mention, and never as nothing at all, because a caller
+  # that silently drops it cannot tell an unpinnable call from no call.
+  local _spec
+  _spec="$(_fixture 'unresolved_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/eta.yaml"
+}
+
+ @test "a generated fixture" {
+  local _f="${SCRATCH}/generated.yaml"
+  run yaml_permission_surface "${_f}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output 'UNRESOLVED: ${_f}'
+}
+
+@test "spec_permission_surface_subjects: an ambiguous variable is not resolved (#957)" {
+  # Two assignments, two different literals: which one the call site saw is
+  # not decidable from the text, and guessing either would certify a worker
+  # on the strength of a coin flip.
+  local _spec
+  _spec="$(_fixture 'ambiguous_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/theta.yaml"
+}
+
+teardown() {
+  WF="/fixture/workflows/iota.yaml"
+}
+
+ @test "theta or iota" {
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output 'UNRESOLVED: ${WF}'
+}
+
+@test "spec_permission_surface_subjects: a call with no argument is a BUG line (#957)" {
+  # A call this cannot see the argument of must not be dropped: dropping it
+  # is exactly how a spec that pins a worker stops counting as its pin.
+  local _spec
+  _spec="$(_fixture 'noarg_spec.bats' << 'SPEC'
+ @test "piped" {
+  printf '%s\n' /fixture/workflows/kappa.yaml \
+    | xargs yaml_permission_surface
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_failure
+  assert_output --partial 'BUG:'
+}
+
+@test "spec_permission_surface_subjects: a spec that never calls it prints nothing and exits 1 (#957)" {
+  local _spec
+  _spec="$(_fixture 'silent_spec.bats' << 'SPEC'
+ @test "unrelated" {
+  run yaml_job_names /fixture/workflows/lambda.yaml
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  [ "${status}" -eq 1 ] \
+    || fail "expected 1 (read, no call site), got ${status}"
+  assert_output ''
+}
+
+@test "spec_permission_surface_subjects: a spec it cannot read is a BUG line, not silence (#957)" {
+  run spec_permission_surface_subjects "${SCRATCH}/no-such-spec.bats"
+  [ "${status}" -eq 2 ] \
+    || fail "expected 2 (not read), got ${status}"
+  assert_output --partial 'BUG:'
+}
