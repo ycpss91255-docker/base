@@ -1269,8 +1269,17 @@ SH
     END { print "FILES=" files; print "TOTAL=" total }
 AWK
 
-  run awk -f "${_script}" /source/test/bats/unit/*.bats \
-    /source/test/bats/integration/*.bats
+  # The roster is FOUND, not typed: every *.bats under test/bats, at any
+  # depth and at every level. The two flat globs this replaces were the
+  # defect -- a hand-kept roster of two directories, exempting whatever
+  # moved into a subfolder or a new level.
+  local -a _scanned=()
+  local _f
+  while IFS= read -r _f; do
+    _scanned+=("${_f}")
+  done < <(find /source/test/bats -type f -name '*.bats' | sort)
+
+  run awk -f "${_script}" "${_scanned[@]}"
   assert_success
 
   # A scan that enumerated nothing would report every spec compliant.
