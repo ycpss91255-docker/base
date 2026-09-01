@@ -870,14 +870,33 @@ _resolve_compose_project_name() {
 # has the TEST_RESIDUE_GUARD=0 escape hatch, and the failure message names
 # it at the moment a developer needs it.
 #
-# What it deliberately does not cover: a spec that writes into the checkout
-# and removes its own traces before the phase ends. The race window is real
-# and invisible here. Closing it means snapshotting per SPEC rather than per
-# run, which costs a `git status` per spec instead of one per phase, and it
-# is a change to the in-container bats driver rather than to this host-side
-# wrapper. Second: this names PATHS, not the spec that wrote them -- with 32
-# jobs in flight there is no attribution to be had at the phase boundary,
-# and a `grep -rn` over test/bats/ turns a path into a spec in one step.
+# WHAT IT DOES NOT COVER, listed because a guard whose limits are implied
+# gets believed past them. Every one of these is measured by a case in
+# test/bats/unit/residue_guard_spec.bats rather than assumed:
+#
+#   - a spec that writes into the checkout and removes its own traces
+#     before the phase ends. The race window is real and invisible here.
+#     Closing it means snapshotting per SPEC rather than per run, which
+#     costs a `git status` per spec instead of one per phase, and it is a
+#     change to the in-container bats driver rather than to this host-side
+#     wrapper.
+#   - anything git ignores, through any of the files git reads to decide
+#     that -- see `_residue_snapshot`.
+#   - anything under `.git/`, which `git status` never reports: a planted
+#     hook, config key or alternates entry is the most damaging write there
+#     is and this cannot see it. Excluded rather than closed, because
+#     snapshotting that directory is noise by construction (git rewrites it
+#     on almost any command, this guard's own `git status` included) and
+#     narrowing it to "the parts that matter" is an open-set roster.
+#   - a permission change git does not track. Git records one bit of a
+#     file's mode, the exec bit, so 644 -> 755 IS named and 644 -> 600 is
+#     invisible: the status line stays clean and the content hash does not
+#     move.
+#
+# And one thing it does not attempt: this names PATHS, not the spec that
+# wrote them -- with 32 jobs in flight there is no attribution to be had at
+# the phase boundary, and a `grep -rn` over test/bats/ turns a path into a
+# spec in one step.
 
 # _residue_guard_available <repo>
 #   Whether the guard can speak about <repo> at all. A released tarball is

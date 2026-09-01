@@ -35,6 +35,12 @@
 # would close it is a per-spec snapshot, which costs a `git status` per spec
 # rather than per run.
 #
+# The third: a permission change git does not track. Git records the exec
+# bit and nothing else of a file's mode, so 644 -> 755 IS named while
+# 644 -> 600 leaves both the status line and the content hash where they
+# were. A spec that tightens a file in the live checkout is invisible here
+# and shows up as some other job failing to read it.
+#
 # The other residual: this names PATHS, not the spec that wrote them. With
 # 32 jobs in flight there is no attribution to be had at the phase
 # boundary; the path is what a `grep -rn` over test/bats/ turns into a spec
@@ -207,6 +213,31 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   run _residue_paths "${BEFORE}" "${AFTER}"
   assert_success
   assert_output "planted.md"
+}
+
+@test "_residue_paths: a permission change is seen only where git tracks one (#965)" {
+  # Git records ONE bit of a file's mode. A spec that tightens a file in the
+  # live checkout to 600 leaves the status line clean and the content hash
+  # where it was, so this guard says nothing -- and the next job that tries
+  # to read that file fails somewhere else entirely.
+  #
+  # It is measured in both directions because the shape of the limit is the
+  # part that is easy to get wrong: "permission changes are invisible" is
+  # not true, and a disclosure that says so would be wrong in the direction
+  # that matters (a reader would stop expecting the guard to catch the one
+  # it does catch).
+  _snapshot_before
+  chmod 600 "${REPO}/tracked.txt"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output ""
+
+  chmod 755 "${REPO}/tracked.txt"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output "tracked.txt"
 }
 
 @test "_residue_check: fails naming the path, and says what to do about it (#965)" {
