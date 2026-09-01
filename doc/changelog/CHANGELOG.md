@@ -80,15 +80,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
 
 - **`errexit-bang`: a bats assertion that cannot fail its test now fails the
-  lint (refs #956)** -- bash exempts a `!` pipeline from errexit, so inside a
-  test body `! <cmd>` asserts something only as the LAST COMMAND of the body's
-  last statement; anywhere else -- including after a `;` or `||` ANYWHERE in
-  that statement, a `\` continuation line included -- the command runs, the
-  negation is computed and the answer is discarded while the case name still
-  claims the property. `&&` is exempt and
-  the spec runs the shape to show why. The population is WALKED, not listed,
-  so the shipped `dist/test/bats/smoke/` tree counts too, and a header the
-  parser never opened or a body that never closed fails the lint.
+  lint (refs #956)** -- bash exempts a `!` pipeline from errexit, so in a test
+  body `! <cmd>` asserts only as the LAST COMMAND of the body's last
+  statement; anywhere else -- including after a `;` or an `|| true` ANYWHERE
+  in it, continuation lines included -- the negation is computed and discarded
+  while the case name still claims the property. `&&`, and any `||` whose
+  operand CAN fail, are exempt; the spec pins both by running them. Quoted
+  text and trailing comments are not separators. The population is WALKED (the
+  shipped `dist/test/bats/smoke/` tree counts), and an unopened header or an
+  unclosed body fails the lint.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 

@@ -197,8 +197,10 @@ _write() {
   # `(! A) && B`: when A SUCCEEDS -- the case the assertion must catch --
   # the negation is 1, `&&` short-circuits, and 1 is the body's status.
   # The verdict is never handed to B in that direction, so the assertion
-  # cannot be masked and the lint has nothing to say about it. `;` and
-  # `||` are flagged because in both of them it IS handed over.
+  # cannot be masked and the lint has nothing to say about it. A `;` is
+  # flagged because it hands the verdict over unconditionally, and an
+  # `|| true` / `|| :` because it hands it to an operand that cannot
+  # fail; any other `||` is out for the same reason `&&` is.
   run bash -c 'set -e; body() { ! true && true; }; body'
   [ "${status}" -eq 1 ]
   run bash -c 'set -e; body() { ! false && true; }; body'

@@ -49,16 +49,17 @@
 # What is a violation: inside a `@test ... {` body, a STATEMENT whose
 # first token is `!`, when EITHER
 #   (a) the statement does not end on the body's last statement line, or
-#   (b) the statement hands its verdict to another command via `;` or
-#       `||` ANYWHERE in it -- including on a `\` continuation line.
+#   (b) the statement hands its verdict to a command that cannot fail --
+#       a `;` with anything after it, or `|| true` / `|| :` -- ANYWHERE
+#       in it, including on a `\` continuation line.
 #
 # (b) exists because (a) is judged by POSITION, and one statement can hold
 # more than one command. `! cmd; other` returns `other`'s status
-# unconditionally, and `! cmd || other` returns `other`'s status in
-# precisely the branch that matters -- the one where cmd SUCCEEDED and the
-# assertion was supposed to fail. Both are the same discarded negation as
-# a `!` on an earlier line, so both are reported wherever they sit rather
-# than only when they land last.
+# unconditionally, and `! cmd || true` returns 0 in precisely the branch
+# that matters -- the one where cmd SUCCEEDED and the assertion was
+# supposed to fail. Both are the same discarded negation as a `!` on an
+# earlier line, so both are reported wherever they sit rather than only
+# when they land last.
 #
 # The WHOLE statement is read, not its opening physical line. A backslash
 # moves a separator one line down and changes nothing about who owns the
@@ -67,19 +68,39 @@
 # where the position rule declines to fire. Judging the first line only
 # left `! grep -q A \` / `"${_f}"; true` reported by nothing at all.
 #
-# `&&` is deliberately NOT in that list. `! A && B` parses as `(! A) && B`
-# and short-circuits to 1 whenever A succeeded, so the failing case still
-# reaches the body's return status and the assertion cannot be masked.
-# This lint is named for statements that CANNOT fail their test; flagging
-# one that can would be a wider claim than the rule makes.
-# errexit_bang_lint_spec pins that by RUNNING the shape, not by asserting
-# it here.
+# NOT every `||` is that hand-off, and the two named above are the only
+# ones flagged. `! A || B` runs B exactly when A SUCCEEDED, so who owns
+# the verdict is decided by B: `! A || return 1` and `! A || fail "..."`
+# fail the test in that branch, correctly, and B's failure is not exempt
+# from errexit either, so they fail it from a non-final position too --
+# such a statement is out of BOTH rules. `true` and `:` are the only
+# operands that cannot fail; they are the language's two always-zero
+# builtins, a closed set fixed by bash rather than a roster of this tree,
+# which is why listing them is not the listed-population defect this file
+# otherwise refuses.
 #
-# The `;` / `||` scan is textual, so a separator inside a quoted argument
-# (`! grep -q 'a;b' f`) reads as a second command. There is no instance in
-# the tree and the allow region below answers one if it appears; a
-# quote-aware scan would be a second bash parser, which the heredoc note
-# already refuses on the same grounds.
+# That is a deliberate narrowing with a cost: `! A || echo x` is inert and
+# goes unreported. This lint is named for statements that CANNOT fail
+# their test, and flagging one that can would be a wider claim than the
+# rule makes -- on a blocking gate the price of the wider claim is an
+# allow region hand-written for a line that was never a violation.
+#
+# `&&` is out for the same reason. `! A && B` parses as `(! A) && B` and
+# short-circuits to 1 whenever A succeeded, so as the body's last
+# statement the failing case still reaches its return status. Earlier in
+# the body it is inert like any other `!` statement, which is what (a)
+# already says about it.
+# errexit_bang_lint_spec pins both by RUNNING the shapes, not by asserting
+# them here.
+#
+# The separator scan reads the statement's CODE, not its raw text:
+# quoted spans are blanked and a trailing comment is dropped first, so
+# `! grep -q 'a;b' f` and `! grep -q A f  # see also; below` are not read
+# as two commands. The quote tracker is three states plus a backslash
+# escape -- it is not a second bash parser and does not try to be one (no
+# expansion, no nesting, no heredoc). An unbalanced quote blanks the rest
+# of the line, which can only HIDE a separator: the safe direction, since
+# the only other answer is an allow region written by hand.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -146,15 +167,72 @@ readonly _ERREXIT_BANG_TEST_CLOSE_RE='^\}[[:space:]]*$'
 readonly _ERREXIT_BANG_STMT_RE='^[[:space:]]*![[:space:]]'
 # A line continued onto the next one.
 readonly _ERREXIT_BANG_CONT_RE='\\[[:space:]]*$'
-# A `;` or `||` with another command after it, tested against the whole
-# statement (its continuation lines joined on), not one physical line. A
-# bare trailing `;`, or one followed only by a comment, terminates the
-# statement and is fine. `&&` is absent on purpose -- see the header.
-readonly _ERREXIT_BANG_MASKED_RE='(;|\|\|)[[:space:]]*[^[:space:]#]'
+# The three separator tests, all applied to the statement's CODE (quoted
+# spans blanked, trailing comment dropped) with its continuation lines
+# joined on -- never to one physical line.
+#
+# A `;` with another command after it. A bare trailing `;` terminates the
+# statement and is fine.
+readonly _ERREXIT_BANG_SEQ_RE=';[[:space:]]*[^[:space:]]'
+# An `||` whose right operand CANNOT fail: the only `||` shape that makes
+# the statement inert. `true` and `:` are bash's two always-zero builtins.
+readonly _ERREXIT_BANG_INERT_OR_RE='\|\|[[:space:]]*(true|:)([[:space:]]*;|[[:space:]]*$)'
+# An `||` that belongs to the bang command itself -- no `;` closes the
+# list before it. With any other right operand the verdict is that
+# operand's and the statement leaves this rule entirely (see the header).
+readonly _ERREXIT_BANG_LIVE_OR_RE='^[^;]*\|\|'
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _ERREXIT_BANG_ALLOW_BEGIN='errexit-bang-lint: allow-begin'
 readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
+
+# _errexit_bang_code_part <line>
+#   Print the CODE of one physical line: every character inside a quote
+#   replaced by a space, and a trailing comment dropped. The separator
+#   tests run on this, so that a `;` the shell would read as an argument
+#   or as prose is not read here as a second command.
+#
+#   Three states (unquoted / single / double) plus a backslash escape
+#   outside single quotes, and nothing else -- expansions, nesting and
+#   heredocs are not modelled, exactly as the header says. A `#` ends the
+#   line only when it starts a word (preceded by whitespace or nothing),
+#   which is when the shell starts a comment. Blanking rather than
+#   deleting keeps the column count, so a reported line still lines up
+#   with the file.
+_errexit_bang_code_part() {
+  local _s="${1}" _out='' _i _ch _q='' _prev=' '
+  for (( _i = 0; _i < ${#_s}; _i++ )); do
+    _ch="${_s:_i:1}"
+    if [[ "${_q}" != "'" && "${_ch}" == $'\\' ]]; then
+      # An escaped character is data, and a trailing backslash is the
+      # continuation marker. Neither is a separator.
+      _out+='  '
+      _i=$(( _i + 1 ))
+      _prev=' '
+      continue
+    fi
+    if [[ -n "${_q}" ]]; then
+      [[ "${_ch}" == "${_q}" ]] && _q=''
+      _out+=' '
+      _prev=' '
+      continue
+    fi
+    case "${_ch}" in
+      "'"|'"')
+        _q="${_ch}"
+        _out+=' '
+        _prev=' '
+        continue
+        ;;
+      '#')
+        [[ "${_prev}" == ' ' || "${_prev}" == $'\t' ]] && break
+        ;;
+    esac
+    _out+="${_ch}"
+    _prev="${_ch}"
+  done
+  printf '%s' "${_out}"
+}
 
 # _errexit_bang_scan_file <abs_path> <rel_path> <rows_outvar> <headers_outvar>
 #   Append one `<rel>:<line>: <text>` row per violation to <rows_outvar>
@@ -242,7 +320,7 @@ _errexit_bang_scan_file() {
     if [[ "${_prev_cont}" -eq 1 ]]; then
       if [[ "${_bang_start}" -gt 0 ]]; then
         _bang_end="${_lineno}"
-        _bang_code+=" ${_line}"
+        _bang_code+=" $(_errexit_bang_code_part "${_line}")"
       fi
     else
       _bang_start=0
@@ -250,7 +328,7 @@ _errexit_bang_scan_file() {
         _bang_start="${_lineno}"
         _bang_end="${_lineno}"
         _bang_text="${_line}"
-        _bang_code="${_line}"
+        _bang_code="$(_errexit_bang_code_part "${_line}")"
       fi
     fi
 
@@ -259,12 +337,22 @@ _errexit_bang_scan_file() {
     # line further along masks the negation exactly as one on the opening
     # line does.
     if [[ "${_bang_start}" -gt 0 && "${_cont}" -eq 0 ]]; then
-      if [[ "${_bang_code}" =~ ${_ERREXIT_BANG_MASKED_RE} ]]; then
+      # Order matters: an `|| true` is judged before the generic `||`
+      # escape, so the one hand-off that IS inert is still reported.
+      if [[ "${_bang_code}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
         # Inert in EVERY position, so it is judged here rather than
         # queued: waiting for the body to close would report it only when
         # it happened not to be last, which is the hole this closes. It
         # is deliberately not ALSO queued -- one statement, one row.
-        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' hands its status to another command in this statement (';' / '||')")
+        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
+      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
+        # `! A || B` with a B that can fail. The verdict is B's, and B's
+        # failure is not exempt from errexit, so this statement can fail
+        # its test from any position: out of both rules, not merely out
+        # of this one. See the header.
+        :
+      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
+        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' hands its status to another command in this statement (';')")
       else
         _pending_line+=("${_bang_start}")
         _pending_end+=("${_bang_end}")
@@ -389,7 +477,7 @@ _run_errexit_bang() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_errexit_bang \
-      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or a '||' anywhere in that statement, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
+      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or an '|| true' / '|| :' anywhere in that statement, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
     return 1
   fi
   echo "non-final bang-statement lint: clean (${#_files[@]} spec file(s) under ${_roots[*]}, ${_headers} test bodies)"
