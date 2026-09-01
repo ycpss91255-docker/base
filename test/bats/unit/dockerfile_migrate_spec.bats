@@ -315,6 +315,98 @@ EOF
   assert_equal "${status}" 2
 }
 
+# The file's ABSENCE is the other half of the same question, and
+# `[[ -f ]]` answers it with the same single `false` whether the file is
+# genuinely not there or the path could not be traversed at all. Only the
+# first is proof, and status 1 -- the one that authorises the delete --
+# must mean only the first.
+
+@test "migration 2 (pip-helper): keeps the line when the pip directory cannot be traversed (#956)" {
+  # An unreadable config/pip/ used to reach the delete as "the file is
+  # absent, so this line installs nothing", which is exactly the silent
+  # package loss the migration's own contract forbids: a directory this
+  # migration never read is not a directory with nothing in it.
+  #
+  # The fixture is a self-referential symlink rather than a mode-000
+  # directory because this suite's container reads as root, where a mode
+  # cannot make anything unreadable. ELOOP stops root too, so the test
+  # asserts the real code path with no seam injection at all.
+  mkdir -p "${TEMP_DIR}/config"
+  ln -s pip "${TEMP_DIR}/config/pip"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): an untraversable pip dir answers 2, an absent one 1 (#956)" {
+  # Both halves of the contract in one place, because the fix is only
+  # correct if it keeps BOTH. A config/ that was read and holds no pip/ is
+  # status 1 -- proof, and the v0.41.0 breakage the migration exists to
+  # repair. A pip/ that could not be resolved is status 2.
+  mkdir -p "${TEMP_DIR}/config"
+  run bash -c "$(_src); _dfm_pip_requirements_populated '${TEMP_DIR}/config'"
+  assert_equal "${status}" 1
+  ln -s pip "${TEMP_DIR}/config/pip"
+  run bash -c "$(_src); _dfm_pip_requirements_populated '${TEMP_DIR}/config'"
+  assert_equal "${status}" 2
+}
+
+@test "migration 2 (pip-helper): keeps the line when a conf layer cannot be read (#956)" {
+  # The same shape one function up. A conf layer that is not a readable
+  # regular file was skipped outright, and the chain then reported "no
+  # layer declares a redirect" for a chain it did not read end to end --
+  # an unread layer counted as a layer that says nothing. It is an
+  # unanswered question, and an unanswered question keeps the line.
+  _seed_requirements "# install python dep"
+  ln -s .setup.conf "${TEMP_DIR}/.setup.conf"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+@test "migration 2 (pip-helper): keeps the line when a conf layer's DIRECTORY cannot be read (#956)" {
+  # The last way a layer can read as absent without being absent: the
+  # directory that would hold it could not be traversed, so the `-f` test
+  # returns false having observed nothing. Today's derived chain cannot
+  # reach this -- both its directories are ones this process has already
+  # read (the template dist/ it was sourced from, and the Dockerfile's own
+  # directory) -- so the chain, and only the chain, is injected; the
+  # unreadable directory in it is real.
+  _seed_requirements "# install python dep"
+  ln -s loopdir "${TEMP_DIR}/loopdir"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+  run bash -c "$(_src); \
+    _setup_conf_layers() { local -n _o=\"\${2}\"; \
+      _o=(\"\${1}/.setup.conf\" \"\${1}/loopdir/.setup.conf\" \"\${1}/.setup.conf.local\"); }; \
+    _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+  assert_success
+  assert_output --partial "kept"
+  diff "${DF}.orig" "${DF}"
+}
+
+
 @test "migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)" {
   # Deleting this physical line leaves `RUN apt-get update && \` dangling,
   # which swallows the next instruction into the same shell command.

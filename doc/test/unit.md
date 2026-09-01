@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3134 tests**.
+Unit specs under `test/bats/unit/`: **3138 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (65)
+### test/bats/unit/dockerfile_migrate_spec.bats (69)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1004,6 +1004,10 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the requirements file cannot be READ (#956)` | - |
 | `migration 2 (pip-helper): an unreadable requirements file answers 2, not 1 (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the pip directory cannot be traversed (#956)` | - |
+| `migration 2 (pip-helper): an untraversable pip dir answers 2, an absent one 1 (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer cannot be read (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer's DIRECTORY cannot be read (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
