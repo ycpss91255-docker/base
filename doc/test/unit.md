@@ -3578,17 +3578,21 @@ CALLING repo's whole token while build-worker.yaml's own guard was green.
 Which scopes a job may name is deliberately NOT asserted here (publish-worker
 holds `packages: write` legitimately, release-worker `contents: write`); the
 property here is that the grant is DECLARED rather than inherited. The exact
-per-job sets live with each worker's own spec -- `build_worker_yaml_spec`,
-`publish_worker_yaml_spec`, `release_worker_yaml_spec` and
-`multi_distro_build_worker_yaml_spec` each pin their file's whole derived
-permission surface. While that division was a promise rather than a fact,
-every grant outside build-worker.yaml was pinned by nothing and widening one
-of them to `packages: write` passed the whole suite.
+per-job sets live with each worker's own spec, and the third test holds that
+delegation to its word: for every DERIVED reusable worker it requires some
+other spec in the tree whose code lines read `yaml_permission_surface` for
+that file's full path, and names the worker that has none. The division was
+prose twice before that. As a promise about jobs, every grant outside
+build-worker.yaml was pinned by nothing and widening one to `packages: write`
+passed the whole suite; as a promise about FILES backed by an enumeration of
+the four specs that existed, a fifth worker landing with an unpinned
+`contents: write` still passed.
 
 | Test | Description |
 |------|-------------|
 | `reusable workers: every one of them yields at least one job (#957)` | The guard for the guard: every assertion here is "nothing came back wrong", which an extractor returning nothing at all satisfies perfectly. Pairs with the population floor (at least the 4 reusable workers the repo ships, build-worker.yaml among them) that both tests assert before reading a scan |
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
+| `reusable workers: every one of them has a spec pinning its grants (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec reading its permission surface. The spec list is derived by `find` over the spec tree (this file excluded, since it names build-worker.yaml's path itself) and floored at the derived worker count |
 
 ### test/bats/unit/yaml_permission_surface_spec.bats (16)
 

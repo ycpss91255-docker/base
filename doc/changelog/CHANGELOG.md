@@ -117,6 +117,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `cache_backend: registry` is unreachable, and the preflight hint says so.
   The seeded `main.yaml` moves `contents: write` onto `call-release`, which
   reaches newly created repos only.
+- **every reusable worker must now HAVE a spec pinning its grants, not just
+  today's four (refs #957)** -- which scopes a worker's jobs may name is
+  delegated to that worker's own spec, and the delegation was a sentence
+  backed by an enumeration of the four specs that happened to exist. A fifth
+  `workflow_call` worker landing with `contents: write` on every job passed
+  the whole suite: it DECLARED a grant, and nothing asked whether anyone had
+  pinned which. The spec list is now derived by `find` over the spec tree,
+  and a derived worker no spec reads is named.
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted. Every row of that
