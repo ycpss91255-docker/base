@@ -495,8 +495,12 @@ setup() {
   # A derived population that came back empty is the vacuous pass this guard
   # exists to refuse, so the roster asserts a floor before it is scanned:
   # both halves non-empty, and every entry a real file. The allowlist below
-  # is the second, much harder floor -- it names reads in six different
-  # files, so a roster that lost any one of them fails there.
+  # is the second, much harder floor -- every entry is anchored to the file
+  # its read was reviewed in, and each of those files is asserted to be in
+  # the roster, so a roster that lost any of them fails there. The floor is
+  # the anchor set itself rather than a count restated in prose: an earlier
+  # version of this comment claimed six files where the entries resolve to
+  # eight.
   local _n_wrappers=0 _n_libs=0
   for _f in "${_files[@]}"; do
     case "${_f}" in
@@ -527,7 +531,8 @@ setup() {
 
   # Every reviewed read of the OS user in the wrapper runtime. None is a
   # container lookup; each is the user as an identity, a build arg, an
-  # emitted env line, or message text:
+  # emitted env line, or message text. Each entry is `<file>|<token>`, and
+  # the token is allowlisted ONLY on lines of that file:
   #
   #   xhost ...            run.sh, an X11 identity
   #   /home/.../data:rw    setup_tui mount-spec example, one per locale
@@ -541,29 +546,81 @@ setup() {
   # They are allowlisted by STRIPPING THE TOKEN, not by dropping the line:
   # dropping the line exempts anything that shares it, and appending
   # `; _legacy="${USER_NAME}-${IMAGE_NAME}"` to the xhost line walked past
-  # an earlier line-dropping version untouched. Each token must still be
-  # FOUND -- an allowlist entry that stopped matching would widen the guard
-  # into "nothing is checked", the same vacuous pass it exists to refuse.
+  # an earlier line-dropping version untouched.
+  #
+  # The token is ANCHORED TO ITS FILE because stripping it from the whole
+  # residue exempted files the read was never reviewed in. A reconstruction
+  # appended to run.sh that spells the read the way config_summary.sh does
+  # -- `_legacy_container_name() { printf '%s' "${USER_NAME:--}-${IMAGE_NAME}"; }`
+  # -- had its USER_NAME text deleted before the residue was scanned and
+  # passed, while the same function spelt `${USER_NAME}` was caught: the
+  # only difference between missed and caught was reusing an allowlisted
+  # spelling. An anchored token cannot travel to another file that way.
+  #
+  # What anchoring does NOT separate is a second use of a reviewed spelling
+  # inside its own file. Line anchoring would, at the cost of a guard that
+  # reddens for every edit above a token, and pinning an occurrence count
+  # would redden on a new setup_tui locale -- the mount-spec example is one
+  # read per locale, a legitimately repeating token. The narrower residual
+  # is taken deliberately and is recorded here rather than left implied.
+  #
+  # Each token must still be FOUND in its own file -- an allowlist entry
+  # that stopped matching would widen the guard into "nothing is checked",
+  # the same vacuous pass it exists to refuse.
   local -a _allowed=(
-    'xhost "+SI:localuser:${USER_NAME}"'
-    '/home/${USER_NAME}/data:rw'
-    'ARG USER="${USER_NAME}"'
-    'ARG USER=\${USER_NAME}'
-    '\${USER_NAME} = %s'
-    '${USER_NAME:--}'
-    'USER_NAME=%s'
-    '/home/${USER_NAME}/work'
-    '/home/\${USER_NAME}/work'
-    'USER_NAME: \${USER_NAME}'
-    'USER_NAME=${_user_name}'
+    'wrapper/run.sh|xhost "+SI:localuser:${USER_NAME}"'
+    'wrapper/setup_tui.sh|/home/${USER_NAME}/data:rw'
+    'lib/dockerfile_migrate.sh|ARG USER="${USER_NAME}"'
+    'lib/dockerfile_migrate.sh|ARG USER=\${USER_NAME}'
+    'lib/config_summary.sh|\${USER_NAME} = %s'
+    'lib/config_summary.sh|${USER_NAME:--}'
+    'lib/setup_cmd.sh|USER_NAME=%s'
+    'lib/setup_detect.sh|/home/${USER_NAME}/work'
+    'lib/setup_detect.sh|/home/\${USER_NAME}/work'
+    'lib/compose_emit.sh|USER_NAME: \${USER_NAME}'
+    'lib/env_emit.sh|USER_NAME=${_user_name}'
   )
-  # Literal substring removal via bash pattern quoting -- no sed escaping,
-  # so a token carrying `\$` strips the text it actually is.
-  local _residue="${_code}" _a
+
+  # The anchors are the harder floor: each names a file that must be in the
+  # derived roster, so a roster that lost one fails here instead of passing
+  # with less to scan.
+  local _a _anchor _anchored
   for _a in "${_allowed[@]}"; do
-    [[ "${_residue}" == *"${_a}"* ]] || fail \
-      "allowlisted USER_NAME read is gone: ${_a} -- the roster scanned nothing, or the allowlist went stale"
-    _residue="${_residue//"${_a}"/}"
+    _anchor="${_a%%|*}"
+    _anchored=0
+    for _f in "${_files[@]}"; do
+      [[ "${_f}" == */"${_anchor}" ]] && { _anchored=1; break; }
+    done
+    (( _anchored )) || fail \
+      "allowlist anchor ${_anchor} is absent from the derived roster: the roster lost a file this guard's floor names"
+  done
+
+  # Strip each token from the lines of its own file only. Literal substring
+  # removal via bash pattern quoting -- no sed escaping, so a token carrying
+  # `\$` strips the text it actually is.
+  local -a _hit=()
+  local _i
+  for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do _hit[_i]=0; done
+
+  local _residue="" _line _path _kept _af _at
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    _path="${_line%%:*}"
+    _kept="${_line}"
+    for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
+      _af="${_allowed[_i]%%|*}"
+      _at="${_allowed[_i]#*|}"
+      [[ "${_path}" == */"${_af}" ]] || continue
+      [[ "${_kept}" == *"${_at}"* ]] || continue
+      _kept="${_kept//"${_at}"/}"
+      _hit[_i]=1
+    done
+    _residue+="${_kept}"$'\n'
+  done <<< "${_code}"
+
+  for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
+    (( _hit[_i] )) || fail \
+      "allowlisted USER_NAME read is gone: ${_allowed[_i]} -- the roster scanned nothing, or the allowlist went stale"
   done
 
   local _left _rc2=0
