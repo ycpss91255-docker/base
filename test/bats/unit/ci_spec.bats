@@ -981,7 +981,7 @@ SH
              "${BATS_TEST_TMPDIR}/repo/test/bats/unit/sub" \
              "${BATS_TEST_TMPDIR}/repo/test/bats/integration"
     for _f in unit/a_spec.bats unit/b_spec.bats unit/sub/c_spec.bats \
-              integration/d_spec.bats; do
+              integration/d_spec.bats unit/e.bats; do
       printf "@test \"t\" { :; }\n" \
         > "${BATS_TEST_TMPDIR}/repo/test/bats/${_f}"
     done
@@ -1005,9 +1005,64 @@ SH
   assert_output --partial "1 c_spec.bats"
   assert_output --partial "1 d_spec.bats"
 
+  # `e.bats` is the file shape half of the same question. The run hands
+  # kcov two DIRECTORIES and `bats --recursive`, which executes every
+  # *.bats under them -- not only the ones named *_spec.bats. A manifest
+  # therefore names files an inventory keyed on the *_spec.bats
+  # convention would not, and the scope comes out `partial n/n specs`:
+  # unpublishable, and pointing at nothing.
+  assert_output --partial "1 e.bats"
+
   # The whole point: a complete manifest is what earns `full`, and it is
   # earned over a tree with a subfolder in it.
   assert_output --partial "SCOPE: full"
+}
+
+@test "_run_coverage: the full run covers the pools the inventory reads (#952)" {
+  # Two rosters of the same list is one roster too many. The full run
+  # hands kcov a list of DIRECTORIES; the scope on the release
+  # certificate is derived by enumerating the specs under a list of
+  # directories (_coverage_spec_inventory). Typed out twice, a pool can
+  # join the run without joining the inventory -- and every release is
+  # then refused with `partial n/n specs`, a self-contradictory message
+  # that points at nothing. So there is ONE roster, and this reads the
+  # run's targets back against it.
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "bats" 'exit 0'
+
+  run bash -c '
+    set -e
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    for _p in ${_COVERAGE_FULL_SUITE_POOLS[@]+"${_COVERAGE_FULL_SUITE_POOLS[@]}"}; do
+      printf "POOL %s\n" "${_p}"
+    done
+    _run_coverage >/dev/null
+  '
+  assert_success
+
+  local _pools
+  _pools="$(printf '%s\n' "${output}" | sed -n 's/^POOL //p' | sort -u)"
+  # A roster that enumerated nothing would make the comparison below
+  # vacuous, which is how a guard over a list becomes a guard over
+  # nothing.
+  [ "$(printf '%s\n' "${_pools}" | grep -c .)" -ge 2 ]
+
+  # What the run actually handed kcov, root prefix and trailing slash
+  # removed: it must be that roster, and nothing besides.
+  local _targets
+  _targets="$(tr ' ' '\n' < "${_log}" \
+    | sed -n 's#^.*/\(test/bats/.*\)$#\1#p' \
+    | sed 's#/$##' | sort -u)"
+  if [[ "${_targets}" != "${_pools}" ]]; then
+    printf 'run targets:\n%s\nroster:\n%s\n' "${_targets}" "${_pools}"
+    false
+  fi
 }
 
 @test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {
