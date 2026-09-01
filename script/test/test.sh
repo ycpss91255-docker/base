@@ -690,17 +690,14 @@ readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
 _coverage_spec_inventory() {
   local _root="${1:-${REPO_ROOT}}"
   local _pool _f
-  local -a _names=()
-  local _globstar_was_set=0
-  shopt -q globstar && _globstar_was_set=1
-  shopt -s globstar
+  local -a _names=() _dirs=()
   for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
-    for _f in "${_root}/${_pool}"/**/${_COVERAGE_SPEC_GLOB}; do
-      [[ -f "${_f}" ]] || continue
-      _names+=("${_f##*/}")
-    done
+    [[ -d "${_root}/${_pool}" ]] && _dirs+=("${_root}/${_pool}")
   done
-  (( _globstar_was_set )) || shopt -u globstar
+  (( ${#_dirs[@]} > 0 )) || return 1
+  while IFS= read -r _f; do
+    _names+=("${_f##*/}")
+  done < <(find "${_dirs[@]}" -type f -name "${_COVERAGE_SPEC_GLOB}")
   (( ${#_names[@]} > 0 )) || return 1
   printf '%s\n' "${_names[@]}" | LC_ALL=C sort -u
 }

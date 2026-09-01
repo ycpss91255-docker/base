@@ -197,20 +197,21 @@ _shard_unit_files() {
   # each spec to the lightest shard, and prints only the files landing in
   # the requested shard. The `sort -k1` secondary on the path keeps the
   # partition deterministic across runs (ties broken by name).
-  # globstar so `**` descends into per-lib sub-folders
-  # (test/bats/unit/<lib>/<subunit>_spec.bats, ADR-00000015); each
-  # foldered spec is still its own kcov/shard unit. Saved/restored so the
-  # sourced driver does not leak the shell option to callers.
-  local _files _pool _f _globstar_was_set=0
-  shopt -q globstar && _globstar_was_set=1
-  shopt -s globstar
+  # find, so the walk descends into per-lib sub-folders
+  # (test/bats/unit/<lib>/<subunit>_spec.bats, ADR-00000015) exactly as
+  # `bats --recursive` does; each foldered spec is still its own
+  # kcov/shard unit. A missing pool is not fatal here -- the empty-match
+  # check below reports it once, with the shard that asked.
+  local _files _pool _f
   _files=$(
-    for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
-      for _f in "${REPO_ROOT}/${_pool}"/**/${_COVERAGE_SPEC_GLOB}; do
-        [[ -e "${_f}" ]] || continue
-        printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
+    while IFS= read -r _f; do
+      printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
+    done < <(
+      for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+        find "${REPO_ROOT}/${_pool}" -type f \
+          -name "${_COVERAGE_SPEC_GLOB}" 2>/dev/null
       done
-    done \
+    ) \
       | sort -k1,1nr -k2,2 \
       | awk -v want="${_shard}" -v t="${_total}" '
           BEGIN { for (i = 1; i <= t; i++) load[i] = 0 }
@@ -222,7 +223,6 @@ _shard_unit_files() {
             if (min == want) print $2
           }'
   )
-  (( _globstar_was_set )) || shopt -u globstar
   if [[ -z "${_files}" ]]; then
     _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/bats/{unit,integration}/ ?"
   fi
