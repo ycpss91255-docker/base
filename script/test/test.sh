@@ -1009,6 +1009,33 @@ _residue_paths() {
 # second knob nobody would remember. There is no second knob --
 # TEST_RESIDUE_GUARD=0, which the failure message already names, drops the
 # record on its way past.
+#
+# WHAT THE ACKNOWLEDGEMENT COSTS, and why it is permanent. Dropping the
+# record ends the alarm for good for a spec that writes the SAME BYTES on
+# every run: the path is then identical in both snapshots for ever, so
+# nothing at the phase boundary ever mentions it again. One flag, once, and
+# a genuine defect is silent -- the "one more run and it goes green" habit
+# with an extra keystroke.
+#
+# It is permanent anyway, because the two candidate fixes both fail on the
+# same fact. EXPIRING the acknowledgement re-raises whatever it silenced on
+# a timer, and what it silenced is by construction the developer's own edit
+# -- an alarm that returns on a schedule teaches re-running exactly as well
+# as one that never fires. SCOPING it to the paths it acknowledged changes
+# nothing: those are the same paths, and the signal is missing rather than
+# misrouted. An acknowledged path rewritten with identical bytes is, at the
+# phase boundary, indistinguishable from an unfinished edit sitting in the
+# tree -- same status line, same hash, and no snapshot of the tree either
+# side of the run can tell them apart.
+#
+# Nor does the residual gap above close it. A per-SPEC snapshot catches a
+# write-then-restore, but an identical rewrite moves no bytes at any
+# granularity; separating those two would mean watching the WRITES (mtime
+# across the whole tree, or an audit of the phase), which reports every file
+# git itself touched and is noise by construction. So the cost is stated
+# here, the failure message says what the flag gives up at the moment it
+# offers it, and a case pins both the silence and its limit: bytes that
+# CHANGE after an acknowledgement are named again.
 
 # _residue_state_file <repo>
 #   Where the pending record lives: inside the GIT DIR, never in the working
@@ -1124,7 +1151,7 @@ _residue_check() {
     _carried_note="This run changed nothing. What is named here was reported by an EARLIER run and is still in the checkout: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
   fi
   _log_err ci ci_live_tree_residue \
-    "display=${_new_note}${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record."
+    "display=${_new_note}${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record -- and with it the guard's memory of that path, so a spec rewriting exactly the same bytes there stays unreported until they change."
   return 1
 }
 

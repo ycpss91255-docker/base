@@ -41,6 +41,16 @@
 # were. A spec that tightens a file in the live checkout is invisible here
 # and shows up as some other job failing to read it.
 #
+# The fourth is the escape hatch's price. `TEST_RESIDUE_GUARD=0` drops the
+# pending record, and for a spec that writes the same bytes on every run
+# that ends the alarm permanently: the path is identical in both snapshots
+# afterwards and no memory is left to say otherwise. It stays permanent
+# because an acknowledged path and an unfinished edit are the same thing at
+# the phase boundary -- same status line, same hash -- so expiring the
+# acknowledgement re-raises the developer's edit on a timer and scoping it
+# points at the same absent signal. The decision and both directions of it
+# are pinned below.
+#
 # The other residual: this names PATHS, not the spec that wrote them. With
 # 32 jobs in flight there is no attribution to be had at the phase
 # boundary; the path is what a `grep -rn` over test/bats/ turns into a spec
@@ -347,6 +357,42 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   _snapshot_before
   run _residue_check "${BEFORE}" "${REPO}"
   assert_success
+}
+
+@test "_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)" {
+  # The cost of the escape hatch, made executable rather than discovered in
+  # a gate run. Once the record is dropped, a spec that writes the SAME
+  # bytes into that path on every run is silent for ever: the file is
+  # identical in both snapshots, so the comparison has nothing to say and
+  # there is no memory left to say it.
+  #
+  # It stays permanent because the alternatives fail on one fact. What the
+  # acknowledgement silenced is, at the phase boundary, indistinguishable
+  # from an unfinished edit sitting in the tree -- same status line, same
+  # hash. Expiring it re-raises the developer's own edit on a timer;
+  # scoping it to the acknowledged paths points at the same paths and the
+  # same absent signal. The reasoning is in the guard's header, this case is
+  # the behaviour it decided on.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  _residue_forget "${REPO}"
+
+  # The next run, with the writing spec still installed and still writing.
+  _snapshot_before
+  printf 'planted\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_success
+
+  # The limit of that silence, and the reason it is not a blanket off
+  # switch for the path: bytes that CHANGE are a write this run made, and
+  # the guard names it again with no acknowledgement to undo.
+  _snapshot_before
+  printf 'planted, differently\n' > "${REPO}/planted.md"
+  run _residue_check "${BEFORE}" "${REPO}"
+  assert_failure
+  assert_output --partial "planted.md"
 }
 
 @test "the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)" {
