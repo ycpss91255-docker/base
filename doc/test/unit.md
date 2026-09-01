@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3117 tests**.
+Unit specs under `test/bats/unit/`: **3118 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3560,7 +3560,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/reusable_worker_permissions_spec.bats (2)
+### test/bats/unit/reusable_worker_permissions_spec.bats (3)
 
 Least privilege across EVERY reusable workflow in `.github/workflows/`,
 rather than the one file #957 was filed against. The population is derived:
