@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3152 tests**.
+Unit specs under `test/bats/unit/`: **3153 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (70)
+### test/bats/unit/dockerfile_migrate_spec.bats (71)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1026,6 +1026,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)` | - |
 | `migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)` | - |
 | `migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)` | - |
+| `migration (smoke-copy): an unresolvable per-stage path costs the stage its own COPY (#956)` | - |
 | `migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)` | - |
 | `migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)` | - |
 | `migration (flat-to-dist): rewrites the flat config COPY (#915)` | - |

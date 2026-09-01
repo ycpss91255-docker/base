@@ -244,12 +244,25 @@ readonly _DFM_CONF_LAYER_FLOOR=3
 # one here that DELETES a line on the strength of what it read outside the
 # Dockerfile, so it is the one where the distinction is load-bearing: its
 # guards return 0/1/2 and only 1 -- the observed NO -- reaches the delete.
-# The other migrations decide only whether to ADD or rewrite a known
-# shape, so an unanswered question there means "detect did not fire" and
-# the file is left alone, which is already the safe direction:
+# Every other migration decides only whether to ADD or rewrite a known
+# shape, so an unanswered question in its DETECT means "detect did not
+# fire" and the file is left alone, which is already the safe direction:
 # _dfm_needs_dl4006 / _dfm_needs_dl3006 and every `_detect` fold 2 into
 # "no", and _dfm_pip_line_is_standalone returns non-zero (= keep the line)
 # when it cannot read the file at all.
+#
+# ONE migration asks an unanswered question in its APPLY instead, where
+# that argument does not reach it, and it is NOT fixed: _migrate_smoke_copy
+# globs <repo>/.base/dist/test/bats/smoke/*/ to decide which per-stage
+# folders the freshly pulled subtree ships, and its `[[ -d ]] || continue`
+# reads a path it could not traverse as "this stage ships no folder". The
+# Dockerfile is then rewritten with the shared baseline COPY alone and the
+# `-test` stage silently loses the smoke specs it used to run -- the same
+# "a path nobody read is not an empty one" this block is about, one
+# migration further down. Stated rather than implied, and pinned by
+# dockerfile_migrate_spec ("an unresolvable per-stage path costs the stage
+# its own COPY") so the deviation is a measured fact; a follow-up issue
+# carries the fix, which is why this block does not claim it is closed.
 
 # _dfm_dir_is_readable <path>
 #   Exit 0 when <path> is a directory this process can stat AND list, 1

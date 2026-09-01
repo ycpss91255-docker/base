@@ -779,6 +779,37 @@ EOF
   refute grep -q 'smoke/custom-test/' "${DF}"
 }
 
+@test "migration (smoke-copy): an unresolvable per-stage path costs the stage its own COPY (#956)" {
+  # A PINNED DEVIATION, not desired behaviour. The status block at the top
+  # of lib/dockerfile_migrate.sh says that outside migration 2 an
+  # unanswered question leaves the file alone. This apply asks one -- which
+  # per-stage folders the freshly pulled subtree ships -- in its APPLY
+  # rather than its detect, and answers it with a glob plus
+  # `[[ -d ]] || continue`, which folds "this path could not be read" into
+  # "this stage ships no folder". The Dockerfile is rewritten anyway and
+  # the stage loses the specs it used to run.
+  #
+  # The case above proves the intended shape (a real devel-test folder
+  # gives a per-stage COPY); this one differs from it in exactly one way,
+  # the folder being unreachable rather than absent, so what it measures is
+  # the fold and nothing else. A self-referential symlink, because this
+  # suite reads as root and a mode cannot make anything unreadable there.
+  #
+  # It is a characterization test: when the follow-up teaches the apply to
+  # refuse a path it could not read, this case is what has to change, and
+  # the header claim it backs changes with it.
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  ln -s devel-test "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  refute grep -q 'smoke/devel-test/' "${DF}"
+}
+
 @test "migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)" {
   cat > "${DF}" <<'EOF'
 FROM devel AS devel-test
