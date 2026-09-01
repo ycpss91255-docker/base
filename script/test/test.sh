@@ -668,9 +668,11 @@ readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
 # _coverage_spec_inventory [root] -- print, one per line, the sorted unique
 # BASENAMES of every spec a full coverage run covers.
 #
-# The pools and the recursion match _run_coverage's full-suite targets
-# (test/bats/unit/ + test/bats/integration/, `bats --recursive`), so the
-# per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
+# The pools and the file shape are NOT a second roster: both come from
+# _COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB in drivers/bats.sh, the
+# same values _run_coverage builds its full-suite targets from and
+# _shard_unit_files partitions. The recursion is `bats --recursive`'s, so
+# the per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
 # that is the key space the manifest is written in -- _junit_to_timings
 # reduces bats' junit `name=` to a basename so _spec_weight can read the
 # merged weights back.
@@ -692,8 +694,8 @@ _coverage_spec_inventory() {
   local _globstar_was_set=0
   shopt -q globstar && _globstar_was_set=1
   shopt -s globstar
-  for _pool in "${_root}/test/bats/unit" "${_root}/test/bats/integration"; do
-    for _f in "${_pool}"/**/*_spec.bats; do
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    for _f in "${_root}/${_pool}"/**/${_COVERAGE_SPEC_GLOB}; do
       [[ -f "${_f}" ]] || continue
       _names+=("${_f##*/}")
     done

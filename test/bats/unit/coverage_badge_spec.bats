@@ -396,15 +396,36 @@ _make_cobertura() {
   # every manifest look complete -- nothing missing -- which is the
   # vacuous-scan failure the instrumented-source guard below also has to
   # defend against. So it is anchored on THIS tree, and read the way the
-  # full coverage run reads it: both pools, recursively, so the
-  # test/bats/unit/<lib>/ subfolders (ADR-00000015) count.
+  # full coverage run reads it: every pool of the run's roster,
+  # recursively, so the test/bats/unit/<lib>/ subfolders (ADR-00000015)
+  # count.
+  #
+  # The expectation is NOT a second copy of the implementation's find: the
+  # pools and the file shape are read out of the roster the RUN uses
+  # (_COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB, drivers/bats.sh),
+  # and only the enumeration is redone here. A pool added to the run
+  # therefore changes both sides, and a pool added to the inventory alone
+  # changes neither.
   run bash -c 'source /source/script/test/test.sh; _coverage_spec_inventory /source'
   [ "${status}" -eq 0 ]
 
-  local _n _expected
+  local _n _expected _roster _glob _p
   _n="$(printf '%s\n' "${output}" | grep -c .)"
-  _expected="$(find /source/test/bats/unit /source/test/bats/integration \
-    -name '*_spec.bats' | sed 's#.*/##' | sort -u | grep -c .)"
+
+  _roster="$(bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_COVERAGE_FULL_SUITE_POOLS[@]}"')"
+  _glob="$(bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_COVERAGE_SPEC_GLOB}"')"
+  [ "$(printf '%s\n' "${_roster}" | grep -c .)" -ge 2 ]
+
+  local -a _dirs=()
+  while IFS= read -r _p; do
+    [[ -n "${_p}" ]] && _dirs+=("/source/${_p}")
+  done <<< "${_roster}"
+  _expected="$(find "${_dirs[@]}" -name "${_glob}" \
+    | sed 's#.*/##' | sort -u | grep -c .)"
   [ "${_n}" -eq "${_expected}" ]
   [ "${_n}" -gt 100 ]
 }

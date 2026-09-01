@@ -143,6 +143,27 @@ _junit_to_timings() {
   ' "${_xml}"
 }
 
+# The pools a coverage run covers, repo-root-relative and in the order the
+# run walks them. ONE roster, read by three places that must agree:
+#
+#   - _run_coverage's full-suite targets (the directories handed to kcov's
+#     `bats --recursive`),
+#   - _shard_unit_files' partition pool (the same specs, sliced), and
+#   - _coverage_spec_inventory in test.sh, the list the release
+#     certificate's scope is derived against.
+#
+# Typed out three times, a pool could join the run without joining the
+# inventory, and every release would then be refused with `partial n/n
+# specs` -- a message that contradicts itself and points at nothing.
+readonly _COVERAGE_FULL_SUITE_POOLS=(test/bats/unit test/bats/integration)
+
+# The file shape those pools are enumerated by. It is what bats EXECUTES
+# under a directory target (`bats --recursive` runs every *.bats), not the
+# *_spec.bats naming convention: a manifest names what ran, so an
+# inventory keyed on the convention would be a subset of it the day a file
+# is named otherwise.
+readonly _COVERAGE_SPEC_GLOB='*.bats'
+
 _shard_unit_files() {
   # Shared shard-partition primitive for the coverage matrix. Echoes the
   # newline-separated subset of test/bats/unit/*_spec.bats for shard <n>
@@ -180,14 +201,15 @@ _shard_unit_files() {
   # (test/bats/unit/<lib>/<subunit>_spec.bats, ADR-00000015); each
   # foldered spec is still its own kcov/shard unit. Saved/restored so the
   # sourced driver does not leak the shell option to callers.
-  local _files _globstar_was_set=0
+  local _files _pool _f _globstar_was_set=0
   shopt -q globstar && _globstar_was_set=1
   shopt -s globstar
   _files=$(
-    for _f in "${REPO_ROOT}"/test/bats/unit/**/*_spec.bats \
-              "${REPO_ROOT}"/test/bats/integration/**/*_spec.bats; do
-      [[ -e "${_f}" ]] || continue
-      printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
+    for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+      for _f in "${REPO_ROOT}/${_pool}"/**/${_COVERAGE_SPEC_GLOB}; do
+        [[ -e "${_f}" ]] || continue
+        printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
+      done
     done \
       | sort -k1,1nr -k2,2 \
       | awk -v want="${_shard}" -v t="${_total}" '
@@ -391,9 +413,14 @@ _run_coverage() {
   _exclude_path="$(_coverage_exclude_path)"
 
   local -a _targets=()
+  local _pool
   if [[ -z "${_shard_spec}" ]]; then
     echo "--- Running Tests with Kcov Coverage (full suite) ---"
-    _targets=("${REPO_ROOT}/test/bats/unit/" "${REPO_ROOT}/test/bats/integration/")
+    # The pools, from the one roster the inventory reads too -- so what
+    # the certificate is measured against is what the run walked.
+    for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+      _targets+=("${REPO_ROOT}/${_pool}/")
+    done
   else
     # _shard_unit_files _die's on a malformed / empty shard spec. Its pool
     # now spans unit + integration specs (time-balanced), so a shard slice
