@@ -429,70 +429,148 @@ _migrate_nounset_source_apply() {
 
 # ── Migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
 #
-# Up to v0.41.0 base shipped ONE flat smoke tree and the consumer Dockerfile
-# copied it whole:
-#   COPY .base/test/smoke/ /smoke_test/
-# The shipped specs now live under dist/test/bats/smoke/, split into a
-# shared/ baseline plus one folder per Dockerfile stage, so that source is
-# gone. Rewriting it to the shared baseline alone would build, but would
-# silently drop the specs the stage used to run -- so the statement is
-# replaced by the shared baseline PLUS the enclosing stage's own folder,
-# which is what the current template Dockerfile writes by hand.
+# Up to v0.41.0 base shipped ONE flat smoke tree, and a consumer Dockerfile
+# reached it in one of two spellings:
+#   COPY .base/test/smoke/ /smoke_test/                       wholesale
+#   COPY .base/test/smoke/test_helper.bash /smoke_test/       hand-listed
+# Both are in the wild. The shipped specs now live under
+# dist/test/bats/smoke/, split into a shared/ baseline plus one folder per
+# Dockerfile stage, so every source in both spellings is gone.
 #
-# The stage folder is emitted only when the freshly pulled subtree actually
+# The wholesale spelling cannot be rewritten to the shared baseline alone:
+# that would build, but would silently drop the specs the stage used to
+# run. It is replaced by the shared baseline PLUS the enclosing stage's own
+# folder, which is what the current template Dockerfile writes by hand. The
+# stage folder is emitted only when the freshly pulled subtree actually
 # ships one for that stage: a stage base has no specs for (or an unnamed
 # final stage) gets the shared baseline and nothing else, rather than a COPY
-# of a directory that does not exist. Runs BEFORE flat_to_dist so the
-# generic .base/script rewrite never sees these lines.
-# Idempotent: once rewritten no flat .base/test/smoke reference remains.
+# of a directory that does not exist.
+#
+# The hand-listed spelling names one spec, so it maps to one path -- the
+# place that spec now lives. Where that is comes from the freshly pulled
+# subtree, looked up by basename, never from a table here: the tree is what
+# moved, so the tree is what knows. A basename the subtree ships at two
+# paths, or no longer ships at all, is ambiguous or gone; the rewrite
+# declines it and warns, leaving a reference a reader can act on rather
+# than a guess that resolves somewhere wrong.
+#
+# Runs BEFORE flat_to_dist so the generic .base/script rewrite never sees
+# these lines. Idempotent: once rewritten no flat .base/test/smoke
+# reference remains, so detect is false on a second run.
 _migrate_smoke_copy_detect() {
   local _file="$1"
-  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke/?[[:space:]]' "${_file}"
+  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke' "${_file}"
 }
 
 _migrate_smoke_copy_apply() {
   local _file="$1"
 
-  # Which stage folders the subtree ships, as a ":a:b:" membership string
-  # awk can test with index(). Read from the tree next to the Dockerfile,
-  # i.e. the subtree the upgrade just pulled.
+  # Both derivations read the tree NEXT TO the Dockerfile, i.e. the subtree
+  # the upgrade just pulled.
   local _root
   _root="$(dirname -- "${_file}")"
+  local _smoke_root="${_root}/.base/dist/test/bats/smoke"
+
+  # Which stage folders the subtree ships, as a ":a:b:" membership string
+  # awk can test with index().
   local _stages=":"
   local _dir
-  for _dir in "${_root}"/.base/dist/test/bats/smoke/*/; do
+  for _dir in "${_smoke_root}"/*/; do
     [[ -d "${_dir}" ]] || continue
     _stages+="$(basename -- "${_dir}"):"
   done
 
+  # Every spec the subtree ships, subtree-relative, newline-separated. awk
+  # turns it into the basename -> path lookup the hand-listed spelling
+  # needs. Passed as a VALUE rather than a second input file on purpose: a
+  # subtree that ships no spec yet makes that file empty, and awk's
+  # NR == FNR idiom then treats the Dockerfile itself as the list.
+  local _specs=""
+  if [[ -d "${_smoke_root}" ]]; then
+    _specs="$( ( cd "${_smoke_root}" && find . -type f ) | sed 's#^\./##' )"
+  fi
+
   local _tmp
   _tmp="$(mktemp)"
   # Track the enclosing build stage (`FROM ... AS <name>`) so each rewritten
-  # COPY can name its own folder. Substituting into a COPY of the original
-  # line preserves whatever flags, destination and column alignment the
-  # consumer had.
-  awk -v stages="${_stages}" '
+  # wholesale COPY can name its own folder. Substituting into a copy of the
+  # original line preserves whatever flags, destination and column alignment
+  # the consumer had.
+  awk -v stages="${_stages}" -v specs="${_specs}" '
+    # Exact, whitespace-delimited literal substitution. A regex would let
+    # the dots in a spec name match anything, and these are file names read
+    # off disk, not patterns.
+    function repl(s, from, to,   p, tail, pre, off) {
+      off = 0
+      while (1) {
+        p = index(substr(s, off + 1), from)
+        if (p == 0) { return s }
+        p = p + off
+        tail = substr(s, p + length(from), 1)
+        pre = (p == 1) ? " " : substr(s, p - 1, 1)
+        if ((tail == "" || tail == " " || tail == "\t") \
+            && (pre == " " || pre == "\t")) {
+          return substr(s, 1, p - 1) to substr(s, p + length(from))
+        }
+        off = p
+      }
+    }
+    BEGIN {
+      n = split(specs, spec, "\n")
+      for (j = 1; j <= n; j++) {
+        if (spec[j] == "") { continue }
+        b = spec[j]
+        sub(/.*\//, "", b)
+        # A basename at two paths cannot be resolved from the name alone.
+        seen[b] = (b in seen) ? "?" : spec[j]
+      }
+    }
     toupper($1) == "FROM" {
       stage = ""
       for (i = 2; i < NF; i++) {
         if (toupper($i) == "AS") { stage = $(i + 1) }
       }
     }
-    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke\/?[[:space:]]/ {
-      shared = $0
-      sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
-      print shared
-      if (stage != "" && index(stages, ":" stage ":") > 0) {
-        own = $0
-        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
-        print own
+    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke/ {
+      # Wholesale: the source ENDS at the smoke directory.
+      if ($0 ~ /\.base\/test\/smoke\/?([[:space:]]|$)/) {
+        shared = $0
+        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
+        print shared
+        if (stage != "" && index(stages, ":" stage ":") > 0) {
+          own = $0
+          sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
+          print own
+        }
+        next
       }
+      # Hand-listed: rewrite each named spec to where it now lives. A
+      # statement may name several (one COPY, many sources), so every
+      # token is considered, not just the first.
+      line = $0
+      n = split($0, tok, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        t = tok[i]
+        if (t !~ /^\.base\/test\/smoke\//) { continue }
+        b = t
+        sub(/.*\//, "", b)
+        if (!(b in seen) || seen[b] == "?") { continue }
+        line = repl(line, t, ".base/dist/test/bats/smoke/" seen[b])
+      }
+      print line
       next
     }
     { print }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+
+  # Anything still naming the retired tree is a spec the pulled subtree no
+  # longer ships under that name, or ships twice. Say so: the build will
+  # fail on it, and the message is the only chance to say why.
+  if grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke' "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired .base/test/smoke/ spec the pulled subtree ships at no single path — resolve it by hand (#928)"
+  fi
 }
 
 # ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────
