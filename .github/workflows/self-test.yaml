@@ -278,6 +278,13 @@ jobs:
     #                     block, the pair a serial append-vs-append merge
     #                     lands with nothing to review; released sections
     #                     are never checked
+    #   just-provenance   every site that OBTAINS the `just` runner names
+    #                     the one pinned version -- the image's fetch, the
+    #                     setup-just input, the just.systems installer's
+    #                     --tag -- or carries a justified advisory marker
+    #                     saying it cannot be pinned. `just` is the only
+    #                     control surface, so a version spread across the
+    #                     paths is a spread across the whole interface
     #   action-ref-agreement
     #                     every call site of one action's REPOSITORY across
     #                     this directory names the same ref. actionlint
@@ -326,6 +333,7 @@ jobs:
           - self-hosted-guard
           - changelog-entry
           - action-ref-agreement
+          - just-provenance
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1062,6 +1070,19 @@ jobs:
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Resolve the pinned just version
+        id: just_pin
+        # ONE declaration, read rather than restated: ARG JUST_VERSION in
+        # dockerfile/Dockerfile.test-tools, via the shipped accessor. The
+        # `just-version` input below used to be omitted, which installed
+        # whatever `just` released most recently -- so a parsing change
+        # upstream turned this job red on a day nobody touched the repo,
+        # and the e2e job ran a different `just` from the one baked into
+        # the image the rest of the suite uses.
+        run: |
+          printf 'version=%s\n' "$(./dist/script/base/just-version.sh)" \
+            >> "${GITHUB_OUTPUT}"
+
       - name: Install just (container-ops entry point)
         # The e2e job drives the runnability contract through the SAME
         # `just` verbs downstream users invoke (post-#573 the documented
@@ -1071,6 +1092,8 @@ jobs:
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
         uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just_pin.outputs.version }}
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}

@@ -120,6 +120,8 @@ source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
 source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
+# shellcheck source=script/test/drivers/just_provenance.sh
+source "${SCRIPT_DIR}/drivers/just_provenance.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -152,6 +154,7 @@ readonly _LINT_TOOLS=(
   self-hosted-guard
   changelog-entry
   action-ref-agreement
+  just-provenance
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -222,6 +225,7 @@ _run_lint_tool() {
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
     action-ref-agreement) _run_action_ref_agreement ;;
+    just-provenance)  _run_just_provenance ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -347,6 +351,16 @@ Options:
                           never re-raises a version pair whose PR was
                           closed. One call site may hold back behind an
                           `action-ref-agreement: allow -- <why>` comment)
+  --just-provenance       With --lint: run only the just provenance pin
+                          lint (every site under dockerfile/,
+                          .github/workflows/, dist/ or script/ that
+                          OBTAINS the `just` runner names the one pinned
+                          version -- ARG JUST_VERSION in
+                          dockerfile/Dockerfile.test-tools, read through
+                          dist/script/base/just-version.sh -- or carries a
+                          justified advisory region saying why it cannot
+                          be pinned; the marker grammar is documented in
+                          script/test/drivers/just_provenance.sh)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -452,6 +466,7 @@ Examples:
   just test lint --arch-literal   # bare architecture literal lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   just test lint --early-close-reader # early-closing-reader pipeline lint only
+  just test lint --just-provenance # just provenance pin lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
@@ -464,6 +479,7 @@ Examples:
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
+  ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -958,6 +974,7 @@ main() {
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
+      --just-provenance) lint_tool="just-provenance"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -973,6 +990,7 @@ main() {
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
+      --just-provenance-only) host_lint="just-provenance"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;

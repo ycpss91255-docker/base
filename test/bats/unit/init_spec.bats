@@ -678,7 +678,7 @@ _nojust_path() {
   assert_success
   assert_output --partial "${_pin}"
   assert_output --partial "--tag ${_pin}"
-  assert_output --partial "fallback"
+  assert_output --partial "FALLBACK, not an equivalent"
 }
 
 @test "_preflight_just: silent and exits 0 when just is present (#607)" {

@@ -1283,8 +1283,9 @@ Parity with the removed `makefile_user_spec`: sandboxes a repo with the
 entry + module symlink chain at root + stub `script/*.sh` recorders, and
 RUNS `just <ns> <verb>` to assert 1:1 forwarding with `{{args}}`
 passthrough. Skips when `just` is not yet in the test-tools image
-(pre-release GHCR pull -- see template_spec for the `apk add ... just`
-guard + the release smoke check).
+(pre-release GHCR pull -- see template_spec for the pinned-fetch guard +
+the release smoke check, which compares the version string rather than the
+exit status).
 
 | Test | Description |
 |------|-------------|

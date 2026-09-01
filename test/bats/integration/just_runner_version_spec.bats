@@ -27,7 +27,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   export LOG_FORMAT=text
-  load "${BATS_TEST_DIRNAME}/test_helper"
+  load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 }
 
 @test "test-tools image: just --version equals the declared pin (#948)" {
