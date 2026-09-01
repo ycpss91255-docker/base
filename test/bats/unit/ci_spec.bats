@@ -953,6 +953,63 @@ SH
   assert_output "4 mock_spec.bats"
 }
 
+@test "_run_coverage: a full-suite run names every spec file, subfolders included (#952)" {
+  # The full run is the ONLY one whose manifest has to come out complete:
+  # `scope=full` on the release certificate is exactly the claim that
+  # coverage/timings.tsv names every spec in the tree. And the full run is
+  # the one place the manifest is produced differently -- kcov is handed
+  # two DIRECTORIES and bats recurses into them, where a shard is handed a
+  # list of FILES. If the junit report named the directory, or skipped the
+  # test/bats/unit/<lib>/ subfolders, every release would be refused with
+  # nothing to point at.
+  #
+  # So bats runs for real here. kcov is replaced by a shim that drops its
+  # own flags and the report directory and execs the command it wraps,
+  # which leaves the genuine
+  # `bats --recursive --report-formatter junit --output DIR <dirs>` --
+  # the invocation whose output _junit_to_timings has to parse.
+  mock_cmd "kcov" '
+    while [ $# -gt 0 ]; do
+      case "$1" in --*) shift ;; *) break ;; esac
+    done
+    shift
+    exec "$@"'
+
+  run bash -c '
+    set -e
+    mkdir -p "${BATS_TEST_TMPDIR}/repo/coverage" \
+             "${BATS_TEST_TMPDIR}/repo/test/bats/unit/sub" \
+             "${BATS_TEST_TMPDIR}/repo/test/bats/integration"
+    for _f in unit/a_spec.bats unit/b_spec.bats unit/sub/c_spec.bats \
+              integration/d_spec.bats; do
+      printf "@test \"t\" { :; }\n" \
+        > "${BATS_TEST_TMPDIR}/repo/test/bats/${_f}"
+    done
+    (
+      REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+      _die() { echo "DIE: $*"; exit 1; }
+      source /source/script/test/drivers/bats.sh
+      _run_coverage >/dev/null
+    )
+    echo "MANIFEST:"
+    sort "${BATS_TEST_TMPDIR}/repo/coverage/timings.tsv"
+    # The reader, on the tree the writer just described. REPO_ROOT is
+    # readonly in test.sh and stays /source; the scope is asked of the
+    # scratch root by argument.
+    source /source/script/test/test.sh
+    echo "SCOPE: $(_measured_coverage_scope "${BATS_TEST_TMPDIR}/repo")"
+  '
+  assert_success
+  assert_output --partial "1 a_spec.bats"
+  assert_output --partial "1 b_spec.bats"
+  assert_output --partial "1 c_spec.bats"
+  assert_output --partial "1 d_spec.bats"
+
+  # The whole point: a complete manifest is what earns `full`, and it is
+  # earned over a tree with a subfolder in it.
+  assert_output --partial "SCOPE: full"
+}
+
 @test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {
   # Previously ALL integration specs ran on the last shard (count-era). They
   # are now folded into the time-balanced pool so an integration spec lands
