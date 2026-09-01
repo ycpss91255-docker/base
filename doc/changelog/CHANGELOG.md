@@ -82,9 +82,10 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **`errexit-bang`: a bats assertion that cannot fail its test now fails the
   lint (refs #956)** -- bash exempts a `!` pipeline from errexit, so inside a
   test body `! <cmd>` asserts something only as the LAST COMMAND of the body's
-  last statement; anywhere else -- including after a `;` or `||` on that same
-  line -- the command runs, the negation is computed and the answer is
-  discarded while the case name still claims the property. `&&` is exempt and
+  last statement; anywhere else -- including after a `;` or `||` ANYWHERE in
+  that statement, a `\` continuation line included -- the command runs, the
+  negation is computed and the answer is discarded while the case name still
+  claims the property. `&&` is exempt and
   the spec runs the shape to show why. The population is WALKED, not listed,
   so the shipped `dist/test/bats/smoke/` tree counts too, and a header the
   parser never opened or a body that never closed fails the lint.
