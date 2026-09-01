@@ -508,11 +508,27 @@ EOF
   assert_success
 }
 
-@test "Dockerfile.test-tools installs just (justfile entry-point execution in CI)" {
+@test "Dockerfile.test-tools installs just from the PINNED release (#948)" {
   # The test-tools image must carry `just` so justfile_user_spec /
-  # upgrade-check can exercise the entry point for real.
-  run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  # upgrade-check can exercise the entry point for real -- and it must
+  # carry the SAME `just` the CI e2e job and the init.sh bootstrap
+  # install. A bare `apk add ... just` is whatever the alpine series
+  # happens to package (measured 1.37.0 on 3.21 against 1.58.0 from the
+  # floating CI action), and this assertion used to pass on exactly that,
+  # so an image 37 minors behind every other path read as covered.
+  run grep -E '^ARG[[:space:]]+JUST_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' \
+    /source/dockerfile/Dockerfile.test-tools
   assert_success
+  run grep -F 'casey/just/releases/download/${JUST_VERSION}' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+  run grep -E '^COPY --from=just-runner .*/just ' \
+    /source/dockerfile/Dockerfile.test-tools
+  assert_success
+  run grep -nE 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  assert_failure
+  [ "${status}" -eq 1 ] \
+    || fail "grep errored (${status}), it did not merely fail to match"
 }
 
 @test "Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)" {

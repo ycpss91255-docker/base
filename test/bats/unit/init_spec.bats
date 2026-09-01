@@ -33,6 +33,14 @@ setup() {
   # monitor), so the seeded subtree needs it next to init.sh.
   ln -s /source/dist/script/base/upstream.sh \
         "${TMP_REPO}/.base/dist/script/base/upstream.sh"
+  # init.sh also sources its sibling just-version.sh on load: the
+  # ONE declaration of the pinned `just` runner version, read out of the
+  # tooling Dockerfile, which the install hint and --bootstrap-just both
+  # quote. Seed the accessor AND the file it reads.
+  ln -s /source/dist/script/base/just-version.sh \
+        "${TMP_REPO}/.base/dist/script/base/just-version.sh"
+  ln -s /source/dockerfile/Dockerfile.test-tools \
+        "${TMP_REPO}/.base/dockerfile/Dockerfile.test-tools"
   # init.sh sources lib/gitignore.sh on load. Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
   ln -s /source/dist/script/docker/lib/gitignore.sh \
@@ -656,6 +664,23 @@ _nojust_path() {
   assert_output --partial "--bootstrap-just"
 }
 
+@test "_preflight_just: the install hint quotes the pin and calls package managers a fallback (#948)" {
+  # The hint used to present apt / brew / cargo / the installer as a menu
+  # of equivalent options. Measured 2026-08-28, `apt install just` on
+  # Ubuntu 24.04 was 1.21.0 against an installer that fetched 1.52.0 --
+  # 37 minors of "equivalent". The hint must name the version this repo
+  # pins, offer the installer AT that version, and say that a host
+  # package manager is a fallback rather than the same thing.
+  _source_init
+  local _pin
+  _pin="$(/source/dist/script/base/just-version.sh)"
+  PATH="$(_nojust_path)" run _preflight_just
+  assert_success
+  assert_output --partial "${_pin}"
+  assert_output --partial "--tag ${_pin}"
+  assert_output --partial "fallback"
+}
+
 @test "_preflight_just: silent and exits 0 when just is present (#607)" {
   _source_init
   mock_cmd "just" 'exit 0'
@@ -690,6 +715,20 @@ _nojust_path() {
   assert_output --partial "install.sh"
   assert_output --partial "BASH_INSTALLER -s -- --to"
   [[ -d "${TMP_REPO}/home/.local/bin" ]] || { echo "~/.local/bin not created"; return 1; }
+}
+
+@test "_bootstrap_just: installs the pinned version, not whatever is latest (#948)" {
+  # Without --tag the official installer fetches the newest release, so
+  # the host ends up on a version nothing else in the repo uses -- the
+  # third of the four provenance paths that named no version.
+  _source_init
+  local _pin
+  _pin="$(/source/dist/script/base/just-version.sh)"
+  mock_cmd "curl" 'echo "CURL_INVOKED $*"'
+  mock_cmd "bash" 'echo "STDIN: $(cat)"; echo "BASH_INSTALLER $*"'
+  PATH="$(_nojust_path)" HOME="${TMP_REPO}/home" run _bootstrap_just
+  assert_success
+  assert_output --partial "--tag ${_pin}"
 }
 
 @test "_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)" {

@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **149 tests**.
+Integration specs under `test/bats/integration/`: **150 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -311,3 +311,9 @@ vacuity is why the same defect shipped twice.
 | Test | Description |
 |------|-------------|
 | `the printed manifest equals what the resync installs (refs #927)` | - |
+
+### test/bats/integration/just_runner_version_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: just --version equals the declared pin (#948)` | - |
