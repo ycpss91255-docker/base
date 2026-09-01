@@ -118,6 +118,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   end to end and nothing but blanks and comments. A file, a directory or a
   conf layer the check could not read answers "unknown", never "empty", and
   the line is kept.
+- **the last read that could authorise that delete now refuses a file it could
+  not open (refs #956)** -- `_dfm_pip_line_is_standalone` decides whether the
+  helper line is one a line-delete can remove safely. It read the Dockerfile
+  through a `while ... done < "${_file}"` redirect and ended in an
+  unconditional `return 0`, so a path it could not open -- missing, unreadable,
+  a broken symlink -- answered "standalone, delete it", the one answer the
+  lib's own header promises that guard never gives. It captures the redirect's
+  status and keeps the line instead. Unreachable in production today, but it
+  was the documented safety leg for everything below it.
 - **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
 - **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
 - **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.

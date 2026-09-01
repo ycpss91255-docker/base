@@ -410,9 +410,20 @@ _dfm_pip_requirements_populated() {
 #   Exit 0 when every matched helper line is a complete physical
 #   instruction -- it neither continues the previous line nor continues
 #   onto the next. Only that shape survives a line-based delete intact.
+#
+#   Exit 1 both when one of them does not AND when the file could not be
+#   READ at all. The loop below reads through a redirect, and a redirect
+#   that fails leaves the loop unrun: without the status check the
+#   unconditional `return 0` at the end would answer "standalone, safe to
+#   delete" for a file nothing opened. This is the leg of the status block
+#   at the top of the file that names this function, so it has to hold --
+#   I-COULD-NOT-TELL never authorises the delete. The redirect's own
+#   status is the whole probe: it covers a missing path, an unreadable
+#   one, an unresolvable symlink and a directory alike, where a `-r` test
+#   would answer for only some of them.
 _dfm_pip_line_is_standalone() {
   local _file="$1"
-  local _line _prev_cont=false _cont
+  local _line _prev_cont=false _cont _read_st=0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     if [[ "${_line}" =~ ${_DFM_LINE_CONTINUES_RE} ]]; then
       _cont=true
@@ -424,7 +435,8 @@ _dfm_pip_line_is_standalone() {
       return 1
     fi
     _prev_cont="${_cont}"
-  done < "${_file}"
+  done < "${_file}" || _read_st=$?
+  [[ "${_read_st}" -eq 0 ]] || return 1
   return 0
 }
 
