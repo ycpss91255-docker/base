@@ -27,22 +27,26 @@
 # status code + content hash + path, not the status line alone, so a spec
 # writing a file the developer had already modified still moves the record.
 #
-# What the executed check still does not cover, said out loud: a spec that
-# writes into the checkout and then removes its own traces before the run
-# ends. The race window it opens is real and invisible here. The scan could
-# not see that reliably either (it missed six spellings), so nothing was
-# traded away -- but it is the residual gap, and the runtime shape that
-# would close it is a per-spec snapshot, which costs a `git status` per spec
-# rather than per run.
+# What the executed check still does not cover, said out loud. There are
+# four blind spots and one price; all five are listed where the guard is
+# defined (script/test/test.sh) and every one of them has a case below.
+# Two of them shape this file's design and are stated here as well.
 #
-# The third: a permission change git does not track. Git records the exec
-# bit and nothing else of a file's mode, so 644 -> 755 IS named while
-# 644 -> 600 leaves both the status line and the content hash where they
-# were. A spec that tightens a file in the live checkout is invisible here
-# and shows up as some other job failing to read it.
+# A spec that writes into the checkout and then removes its own traces
+# before the run ends. The race window it opens is real and invisible
+# here. The scan could not see that reliably either (it missed six
+# spellings), so nothing was traded away -- but it is the residual gap,
+# and the runtime shape that would close it is a per-spec snapshot, which
+# costs a `git status` per spec rather than per run.
 #
-# The fourth is the escape hatch's price. `TEST_RESIDUE_GUARD=0` drops the
-# pending record, and for a spec that writes the same bytes on every run
+# A permission change git does not track. Git records the exec bit and
+# nothing else of a file's mode, so 644 -> 755 IS named while 644 -> 600
+# leaves both the status line and the content hash where they were. A spec
+# that tightens a file in the live checkout is invisible here and shows up
+# as some other job failing to read it.
+#
+# And the escape hatch's price. `TEST_RESIDUE_GUARD=0` drops the pending
+# record, and for a spec that writes the same bytes on every run
 # that ends the alarm permanently: the path is identical in both snapshots
 # afterwards and no memory is left to say otherwise. It stays permanent
 # because an acknowledged path and an unfinished edit are the same thing at
