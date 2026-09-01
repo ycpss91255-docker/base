@@ -205,6 +205,92 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+@test "bash: '! A || return 1' DOES fail its test in the failing direction (#956)" {
+  # Why not every '||' is a hand-off. `! A || B` runs B exactly when A
+  # SUCCEEDED -- the case the assertion exists to catch -- so whether the
+  # assertion survives is decided by B, not by the `||`. With `return 1`
+  # (or a bats `fail`) the body fails, correctly. Only an operand that
+  # CANNOT fail makes the statement inert.
+  run bash -c 'set -e; body() { ! true || return 1; }; body'
+  [ "${status}" -eq 1 ]
+  run bash -c 'set -e; body() { ! false || return 1; }; body'
+  [ "${status}" -eq 0 ]
+  # ... and it fails from a non-final position too: B's failure is NOT
+  # exempt from errexit, so this shape is out of the rule in every
+  # position, not only the last.
+  run bash -c 'set -e; body() { ! true || return 1; true; }; body'
+  [ "${status}" -eq 1 ]
+}
+
+@test "_run_errexit_bang: PASSES on '|| return 1' / '|| fail', which CAN fail the test (#956)" {
+  # The lint is named for statements that CANNOT fail their test. These
+  # can, so flagging them would be a wider claim than the rule makes --
+  # and on a blocking gate the cost is an allow region hand-written for a
+  # line that was never a violation.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "or return" {' \
+    '  ! grep -q A "${_f}" || return 1' \
+    '  true' \
+    '}'
+  _write "test/bats/unit/y_spec.bats" \
+    '@test "or fail" {' \
+    '  ! grep -q A "${_f}" || fail "A is present"' \
+    '  true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: still FAILS on '|| true' / '|| :', the operands that cannot fail (#956)" {
+  # The narrowing above is a narrowing, not a retreat: the two always-zero
+  # builtins are still a hand-off, wherever the statement sits.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "or true" {' \
+    '  ! grep -q A "${_f}" || true' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "or colon" {' \
+    '  ! grep -q A "${_f}" || :' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)" {
+  # The separator scan reads the statement's CODE. A ';' after the '#'
+  # is prose, and the shell never sees a second command there.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a note with a semicolon" {' \
+    '  ! grep -q A "${_f}"  # see also; the note below' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)" {
+  # Same reason, one quote further along: `a;b` is one argument to grep,
+  # not a statement separator. This was a disclosed limitation of the
+  # textual scan and is the sibling of the trailing comment above -- both
+  # are text the shell does not read as a separator.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a quoted semicolon" {' \
+    "  ! grep -q 'a;b' \"\${_f}\"" \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a quoted or" {' \
+    '  ! grep -q "a || true" "${_f}"' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
   # A semicolon that terminates the statement rather than starting a
   # second one leaves the negation as the body's status.

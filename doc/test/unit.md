@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3146 tests**.
+Unit specs under `test/bats/unit/`: **3151 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3554,7 +3554,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (29)
+### test/bats/unit/errexit_bang_lint_spec.bats (34)
 
 | Test | Description |
 |------|-------------|
@@ -3569,6 +3569,11 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS when the ';' sits on a continuation line (#956)` | - |
 | `_run_errexit_bang: FAILS when the '\|\| true' sits on a continuation line (#956)` | - |
 | `bash: '! A && B' as the last statement still fails its test (#956)` | - |
+| `bash: '! A \|\| return 1' DOES fail its test in the failing direction (#956)` | - |
+| `_run_errexit_bang: PASSES on '\|\| return 1' / '\|\| fail', which CAN fail the test (#956)` | - |
+| `_run_errexit_bang: still FAILS on '\|\| true' / '\|\| :', the operands that cannot fail (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
 | `_run_errexit_bang: PASSES when only comments and blanks follow the bang (#956)` | - |
