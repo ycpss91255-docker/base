@@ -230,6 +230,43 @@ readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
 # for. That is a refusal, not a pass.
 readonly _DFM_CONF_LAYER_FLOOR=3
 
+# READING A STATUS IN THIS FILE. Every decision below comes from some
+# command's exit status, and each one of them has THREE answers, not two:
+#
+#   YES              the thing is there / the property holds
+#   NO               it is provably not there -- the check OBSERVED its
+#                    absence, having read everything it had to read
+#   I-COULD-NOT-TELL the check returned "not found" without observing
+#                    anything: grep exited 2, a directory could not be
+#                    traversed, a path did not resolve
+#
+# The third answer must never authorise an action. Migration 2 is the only
+# one here that DELETES a line on the strength of what it read outside the
+# Dockerfile, so it is the one where the distinction is load-bearing: its
+# guards return 0/1/2 and only 1 -- the observed NO -- reaches the delete.
+# The other migrations decide only whether to ADD or rewrite a known
+# shape, so an unanswered question there means "detect did not fire" and
+# the file is left alone, which is already the safe direction:
+# _dfm_needs_dl4006 / _dfm_needs_dl3006 and every `_detect` fold 2 into
+# "no", and _dfm_pip_line_is_standalone returns non-zero (= keep the line)
+# when it cannot read the file at all.
+
+# _dfm_dir_is_readable <path>
+#   Exit 0 when <path> is a directory this process can stat AND list, 1
+#   otherwise -- it is not a directory, the path did not resolve (a
+#   dangling or looping symlink, a non-directory component), or its mode
+#   forbids reading or searching it.
+#
+#   This is the question the word "absent" depends on. `[[ -f <dir>/x ]]`
+#   is false both when x is not in <dir> and when <dir> was never read,
+#   and only the first is proof; a caller that folds the second into it
+#   turns an unreadable directory into permission to delete. Callers ask
+#   this BEFORE they are allowed to call a missing file absent.
+_dfm_dir_is_readable() {
+  local _dir="$1"
+  [[ -d "${_dir}" && -r "${_dir}" && -x "${_dir}" ]]
+}
+
 # _dfm_conf_declares_redirect <conf_file>
 #   Exit 0 when this layer redirects CONFIG_SRC, 1 when it provably does
 #   not, 2 when the question could not be answered (grep could not read
@@ -248,13 +285,15 @@ _dfm_conf_declares_redirect() {
 
 # _dfm_pip_config_dir <dockerfile>
 #   Print the repo directory ${CONFIG_DIR} is overlaid from, or exit
-#   non-zero when this migration cannot know it. Non-zero on either of the
-#   two ways the answer stops being <repo>/config: something redirects
-#   CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the Dockerfile itself,
-#   or a `[build] arg_N = CONFIG_SRC=...` in ANY layer of the setup.conf
-#   chain, which reaches the build as a compose build arg), or the default
-#   directory is not next to the Dockerfile at all. A bare `ARG CONFIG_SRC`
-#   with no `=` is a per-stage re-scope, not a redirect, and is ignored.
+#   non-zero when this migration cannot know it. Non-zero on each of the
+#   three ways the answer stops being a provable <repo>/config: something
+#   redirects CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the
+#   Dockerfile itself, or a `[build] arg_N = CONFIG_SRC=...` in ANY layer
+#   of the setup.conf chain, which reaches the build as a compose build
+#   arg); the default directory is not next to the Dockerfile at all; or
+#   some layer of the chain could not be READ, which is not the same as a
+#   layer that says nothing. A bare `ARG CONFIG_SRC` with no `=` is a
+#   per-stage re-scope, not a redirect, and is ignored.
 #
 #   The conf layers are DERIVED from _setup_conf_layers rather than listed
 #   here. The chain is three files, not the two per-repo ones: the lowest
@@ -295,7 +334,17 @@ _dfm_pip_config_dir() {
 
   local _conf _cst
   for _conf in "${_layers[@]}"; do
-    [[ -f "${_conf}" ]] || continue
+    if [[ ! -f "${_conf}" ]]; then
+      # An absent layer declares nothing, which is a legitimate NO -- but
+      # only once this has OBSERVED the absence. `[[ -f ]]` also answers
+      # false for a layer that exists and is not a readable regular file,
+      # and for one whose directory could not be traversed; both are
+      # I-COULD-NOT-TELL, and a chain with an unread layer in it cannot
+      # say the build reads <repo>/config.
+      _dfm_dir_is_readable "$(dirname -- "${_conf}")" || return 1
+      [[ -e "${_conf}" || -L "${_conf}" ]] && return 1
+      continue
+    fi
     _cst=0
     _dfm_conf_declares_redirect "${_conf}" || _cst=$?
     # 1 -- and only 1 -- is "this layer provably declares no redirect".
@@ -313,19 +362,41 @@ _dfm_pip_config_dir() {
 #   requirement (any line that is neither blank nor a `#` comment), 1 when
 #   it PROVABLY ships none -- the file is absent, which is the case whose
 #   build the migration is repairing, or it was read end to end and holds
-#   nothing but blanks and comments -- and 2 when the question could not be
-#   answered because grep could not read what it was pointed at.
+#   nothing but blanks and comments -- and 2 when the question could not
+#   be answered because something on the way to the file, or the file
+#   itself, could not be read.
 #
 #   The third status is the point, and it is the same one
-#   _dfm_conf_declares_redirect carries: `grep -q` exits 2 when it scanned
-#   nothing, and a caller that folds 2 into "no requirements" turns an
-#   unreadable file into permission to delete a working install. Takes the
-#   RESOLVED config source dir, so it is never the one that decides where
-#   to look.
+#   _dfm_conf_declares_redirect carries. It has TWO sources here, not one.
+#   `grep -q` exits 2 when it scanned nothing -- and, before grep is ever
+#   reached, `[[ -f ]]` answers false both for a file that is not there
+#   and for a path that could not be traversed at all (a mode that
+#   forbids searching config/ or config/pip/, a symlink that does not
+#   resolve). Only the first is the absence this migration repairs; the
+#   second is a file nobody read, and a file nobody read is not a file
+#   with nothing in it. Takes the RESOLVED config source dir, so it is
+#   never the one that decides where to look.
 _dfm_pip_requirements_populated() {
   local _config_dir="$1"
-  local _req="${_config_dir}/pip/requirements.txt"
-  [[ -f "${_req}" ]] || return 1
+  local _pip_dir="${_config_dir}/pip"
+  local _req="${_pip_dir}/requirements.txt"
+
+  if [[ ! -f "${_req}" ]]; then
+    # Walk down to the file, refusing at the first level this process
+    # could not read. Absence counts as proof only below a directory that
+    # was actually listed.
+    _dfm_dir_is_readable "${_config_dir}" || return 2
+    if [[ -e "${_pip_dir}" || -L "${_pip_dir}" ]]; then
+      _dfm_dir_is_readable "${_pip_dir}" || return 2
+      # pip/ was read; something sits at requirements.txt that is not a
+      # regular file this process can open.
+      [[ -e "${_req}" || -L "${_req}" ]] && return 2
+    fi
+    # config/ was read and holds no pip/requirements.txt: the observed
+    # absence, and the v0.41.0 build breakage this migration exists for.
+    return 1
+  fi
+
   local _st=0
   grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}" || _st=$?
   case "${_st}" in
@@ -367,7 +438,7 @@ _migrate_pip_helper_apply() {
 
   local _config_dir
   if ! _config_dir="$(_dfm_pip_config_dir "${_file}")"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not overlaid from <repo>/config here (CONFIG_SRC is redirected, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not provably overlaid from <repo>/config here (CONFIG_SRC is redirected, a conf layer could not be read, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
     return 0
   fi
 
