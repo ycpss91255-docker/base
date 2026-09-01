@@ -1300,7 +1300,7 @@ refute_finding() {
   # quiet: the indented enumerator is dropped, the sentence-final figure
   # at column zero survives.
   local _probe
-  _probe="$(printf '%s\n' '#!/usr/bin/env bash' '# the sweep reached' \
+  _probe="$(printf '%s\n' '#' '# the sweep reached' \
     '# 9999. that is sentence-final' '#' '#   1. an enumerated item' \
     | awk "${_para_awk}")"
   [[ "${_probe}" == $' the sweep reached 9999. that is sentence-final\n an enumerated item' ]] \
