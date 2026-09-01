@@ -132,6 +132,16 @@ setup() {
   #   - after a negating `!`, which may follow any of the above;
   #   - after bats' own `run`, with any run of its flags.
   #
+  # One position the grammar has and this set deliberately OMITS: a backtick
+  # opens a command substitution exactly as `$(` does, and `$(` is matched
+  # only because the class already carries `(`. Adding the backtick was
+  # tried and measured before it was rejected -- one character, and the scan
+  # then matched four lines of this repo's own COMMENT prose, every one of
+  # them a comparison quoted in markdown backticks and not one of them a
+  # command. The corpus decides: in spec files that spelling is punctuation,
+  # so scanning it cries wolf, which is the one failure mode CMD_POS exists
+  # to prevent. It is planted in the blind-spot case instead.
+  #
   # That is what makes this set CLOSED where the deleted write roster's was
   # open: the shell has a finite grammar, while the set of commands that can
   # write a file is every binary that exists.
@@ -241,7 +251,6 @@ after_and|  true && diff %s/a "${SCRATCH}/a"
 after_or|  false || cmp %s/a "${SCRATCH}/a"
 semicolon|  :; diff %s/a "${SCRATCH}/a"
 time_keyword|  time diff %s/a "${SCRATCH}/a"
-backtick_substitution|  _out=`diff %s/a "${SCRATCH}/a"`
 SPELLINGS
 }
 
@@ -253,6 +262,12 @@ SPELLINGS
   # built out of a variable. Those three are what the header says, and a
   # case that measures them is what keeps the header from drifting back
   # into a wider claim than the body.
+  #
+  # A fourth is here for a different reason: a backtick command
+  # substitution is a real command position, and it is unscanned by choice,
+  # because the one-character widening that would see it matched four lines
+  # of this repo's own comment prose and no command at all. Blind is blind
+  # either way, so it is measured here with the rest.
   local _planted="${BATS_TEST_TMPDIR}/planted_blind"
   mkdir -p "${_planted}"
   local _spelling _fmt
@@ -266,6 +281,7 @@ SPELLINGS
   done <<'BLIND'
 command_in_a_variable|  _cmp=diff; "${_cmp}" %s/a "${SCRATCH}/a"
 path_in_a_variable|  _live=%s; diff "${_live}/a" "${SCRATCH}/a"
+backtick_substitution|  _out=`diff %s/a "${SCRATCH}/a"`
 BLIND
   # The continuation line, which cannot be written as one line by
   # definition: the operand is on the NEXT line, so a line-wise scan
