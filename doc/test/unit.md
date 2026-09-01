@@ -3626,13 +3626,15 @@ commands that can write, which is every binary that exists, while this
 enumerates the places a shell can begin a command, which is the shell's
 finite grammar -- holds for the POSITION axis alone. The scan has two more
 axes and both are rosters: it matches two command NAMES, and the live path
-as the first or second OPERAND. A review planted 18 comparison spellings
-and 16 went unseen -- a checksum pair, a comparison driven through git, an
-equality test over two command substitutions, a live path pushed past the
-second operand by an option that takes an argument of its own. One
-derivable position is unscanned by choice as well: a backtick, because the
-one-character widening that sees it matched four lines of this repo's own
-comment prose and no command at all.
+as the first or second WORD after a run of flags -- not the first or second
+OPERAND, which is a spelling it misses. A review planted 18 comparison
+spellings and 16 went unseen -- a checksum pair, a comparison driven through
+git, an equality test over two command substitutions, a live path that is
+the second operand of a comparison and its third word because an option
+ahead of it took an argument of its own. One derivable position is unscanned
+by choice as well: a backtick, because every line the one-character widening
+that sees it matched was this repo's own comment prose and no command at all
+(three of them when re-measured 2026-09-01).
 
 So the claim is the narrow one the body can carry: an over-approximation
 that catches the COMMON spellings at the moment the line is written, and
@@ -3651,7 +3653,7 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 | `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
 | `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
 | `the comparison scan sees a live operand in each command position it names (#965)` | The positions come from the grammar, which makes that axis narrow rather than complete |
-| `the comparison scan is an over-approximation, not a closed set (#965)` | A sample of what it misses, one per axis: the command name, the operand position, line-wise literal matching, and the position omitted by choice |
+| `the comparison scan is an over-approximation, not a closed set (#965)` | A sample of what it misses, one per axis: the command name, the word position, line-wise literal matching, and the position omitted by choice |
 
 ### test/bats/unit/residue_guard_spec.bats (22)
 

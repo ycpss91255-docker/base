@@ -74,11 +74,14 @@
 # The POSITION axis really is derivable that way and its positions are taken
 # from the grammar -- but the scan has two more axes and both of them are
 # rosters. It matches two command NAMES, and it matches the live path as the
-# first or the second OPERAND. A review planted eighteen comparison
-# spellings and sixteen went unseen: a checksum pair, a comparison driven
-# through git, an equality test over two command substitutions, a live path
-# pushed past the second operand by an option that takes an argument of its
-# own. None of those is exotic, and no derivation reaches them.
+# first or the second WORD after a run of flags -- which is NOT the same as
+# the first or the second operand, and the difference is a spelling it
+# misses. A review planted eighteen comparison spellings and sixteen went
+# unseen: a checksum pair, a comparison driven through git, an equality test
+# over two command substitutions, a live path that is the second operand of
+# a comparison and its third word, because an option ahead of it took an
+# argument of its own. None of those is exotic, and no derivation reaches
+# them.
 #
 # So the claim is the narrow one the body can carry: an OVER-APPROXIMATION
 # that catches the COMMON spellings at the moment the line is written, and
@@ -147,22 +150,26 @@ setup() {
   # One position the grammar has and this set deliberately OMITS: a backtick
   # opens a command substitution exactly as `$(` does, and `$(` is matched
   # only because the class already carries `(`. Adding the backtick was
-  # tried and measured before it was rejected -- one character, and the scan
-  # then matched four lines of this repo's own COMMENT prose, every one of
-  # them a comparison quoted in markdown backticks and not one of them a
-  # command. The corpus decides: in spec files that spelling is punctuation,
-  # so scanning it cries wolf, which is the one failure mode CMD_POS exists
-  # to prevent. It is planted in the blind-spot case instead.
+  # tried and measured before it was rejected -- one character, and every
+  # line it then matched was this repo's own COMMENT prose, a comparison
+  # quoted in markdown backticks, not one of them a command (three such
+  # lines when re-measured 2026-09-01; the count moves whenever a comment
+  # is reworded, what the lines ARE does not). The corpus decides: in spec
+  # files that spelling is punctuation, so scanning it cries wolf, which is
+  # the one failure mode CMD_POS exists to prevent. It is planted in the
+  # blind-spot case instead.
   #
   # That is what makes this set CLOSED where the deleted write roster's was
   # open: the shell has a finite grammar, while the set of commands that can
   # write a file is every binary that exists.
   CMD_POS='(^|[;&|(){]|&&|\|\||\b(if|elif|while|until|then|else|do|time)[[:space:]]|\brun([[:space:]]+-[^[:space:]]+)*[[:space:]])[[:space:]]*(![[:space:]]*)?'
 
-  # An OPERAND position: the live path as the first or the second argument,
-  # after any run of option flags. `cmp "${SCRATCH}/x" /source/x` settles
-  # its verdict from the SECOND operand, so first-operand-only would miss
-  # half of the shape.
+  # A position measured in WORDS, not in operands -- the variable name is
+  # older than the measurement: the live path as the first or the second
+  # word after any run of option flags. `cmp "${SCRATCH}/x" /source/x`
+  # settles its verdict from the second of them, so first-word-only would
+  # miss half of the shape; and an option that takes an argument of its own
+  # spends one of the two, which is what the blind-spot case plants.
   OPERAND="([[:space:]]+-[^[:space:]]+)*([[:space:]]+[^[:space:]]+)?[[:space:]]+\"?${LIVE_TREE}"
 
   # A live path as an operand of a comparison: the shape that made a correct
@@ -289,15 +296,19 @@ SPELLINGS
   #     scan has no name for. That axis is a roster exactly like the write
   #     roster this file deleted -- the difference being that the write
   #     property has an executed gate behind it and this one does not.
-  #   - the OPERAND axis. The scan matches the live path as the first or
-  #     the second operand; an option that takes an argument of its own
-  #     pushes it past both.
+  #   - the WORD-POSITION axis, which the name OPERAND overstates. The
+  #     scan matches the live path as the first or the second WORD after a
+  #     run of flags, and an option that takes an argument of its own
+  #     spends one of those words: in the sample planted below the live
+  #     path IS the second operand of the comparison, and the scan misses
+  #     it because it is the third word.
   #   - LINE-WISE and LITERAL, which is inherent rather than a roster: a
   #     comparison split across a continuation line, a command name arriving
   #     through a variable or an alias, a live path built out of a variable.
   #   - one derivable command POSITION left unscanned by choice, a backtick,
-  #     because the widening that sees it matched four lines of this repo's
-  #     own comment prose and no command at all.
+  #     because every line the widening that sees it matched was this
+  #     repo's own comment prose and no command at all (three of them when
+  #     re-measured 2026-09-01).
   #
   # Widening the pattern to catch one of these is starting a roster, which
   # this file has refused twice; this case is where that decision gets made
@@ -319,7 +330,7 @@ backtick_substitution|  _out=`diff %s/a "${SCRATCH}/a"`
 comparison_through_git|  run git diff --no-index %s/doc "${SCRATCH}/doc"
 checksum_pair|  run md5sum %s/a "${SCRATCH}/a"
 equality_test|  [[ "$(cat %s/README.md)" == "$(cat "${SCRATCH}/README.md")" ]]
-past_the_second_operand|  run diff --exclude foo "${SCRATCH}/doc" %s/doc
+past_the_second_word|  run diff --exclude foo "${SCRATCH}/doc" %s/doc
 BLIND
   # The continuation line, which cannot be written as one line by
   # definition: the operand is on the NEXT line, so a line-wise scan
