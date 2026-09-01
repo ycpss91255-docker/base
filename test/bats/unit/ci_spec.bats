@@ -1269,6 +1269,30 @@ SH
     END { print "FILES=" files; print "TOTAL=" total }
 AWK
 
+  # First the detector, on a fixture that enumerates the shapes it has to
+  # tell apart -- because the tree scan below can only report what the
+  # detector can see, and a shape it cannot see is reported as compliance.
+  # Every entry point that reaches a coverage run has to be COUNTED
+  # (statement-start call, one-liner call after a `;`, the flag entry, the
+  # in-container entry), the two complying forms have to be counted and
+  # not accused, and a runner merely NAMED in a word list has to be
+  # neither. The half-stubbed block is the one that reads like compliance
+  # and is not: stubbing the eraser alone leaves the real
+  # _stamp_coverage_head writing /source/coverage/.head-sha.
+  run awk -f "${_script}" \
+    /source/test/fixtures/coverage_checkout_shapes.bats.txt
+  assert_success
+  assert_output --partial "FILES=1"
+  assert_output --partial "TOTAL=7"
+  assert_output --partial "FLAG statement-start runner call"
+  assert_output --partial "FLAG one-liner runner call"
+  assert_output --partial "FLAG the flag entry"
+  assert_output --partial "FLAG the in-container entry"
+  assert_output --partial "FLAG half-stubbed provenance"
+  refute_output --partial "PASS scratch REPO_ROOT"
+  refute_output --partial "PASS both provenance halves"
+  refute_output --partial "IGNORE a runner named"
+
   # The roster is FOUND, not typed: every *.bats under test/bats, at any
   # depth and at every level. The two flat globs this replaces were the
   # defect -- a hand-kept roster of two directories, exempting whatever
