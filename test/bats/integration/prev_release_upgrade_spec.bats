@@ -163,6 +163,102 @@ _released_entry() {
   fi
 }
 
+# ── Making the fixture consumer-shaped ──────────────────────────────────────
+#
+# _seed_consumer leaves a repo whose Dockerfile is base's OWN -- init.sh
+# copies it out of the release being seeded. Base ships both halves of
+# every `.base/` path in that file, so every COPY source in it resolves by
+# construction, and _assert_dockerfile_copy_sources_exist below can only
+# ever report what base already knows about itself.
+#
+# Real consumers do not have that Dockerfile. They have a DERIVATIVE, and
+# where base copied a subtree directory wholesale they hand-listed its
+# files -- two spellings are in the wild, one COPY per file and every file
+# on a single COPY. Those references break on a base file move exactly the
+# same way the wholesale one does, and nothing here was asking about them.
+#
+# So the fixture is re-spelled before the upgrade runs. Which statements
+# get re-spelled is DERIVED from the Dockerfile plus the vendored subtree,
+# never listed: a wholesale-directory COPY qualifies when hand-listing its
+# contents is EQUIVALENT to it, which Docker makes true exactly when the
+# destination ends in `/` (a multi-source COPY flattens into a destination
+# directory; without the trailing slash the hand-listed form is a
+# different statement, not a different spelling of the same one). A tree
+# that stops offering such a statement fails rather than quietly
+# consumerising nothing.
+
+# _copy_expandable_source <line>
+#   The single `.base/`-rooted directory source of a one-line COPY whose
+#   destination ends in `/`. Non-zero when the line is not that shape.
+#   Quoted and `$`-bearing arguments are out by construction: their value
+#   exists only at build time, so neither side of the equivalence above
+#   can be checked against the tree.
+_copy_expandable_source() {
+  local _line="$1"
+  [[ "${_line}" =~ ^[[:space:]]*COPY[[:space:]] ]] || return 1
+  # A backslash-continued statement spans lines; re-spelling it in place
+  # would need the fold, and no shipped Dockerfile writes one. The
+  # "expanded nothing" failure below is what reports it if that changes.
+  [[ "${_line}" == *'\' ]] && return 1
+
+  local -a _args=()
+  read -r -a _args <<< "${_line}"
+  local -a _pos=()
+  local _a
+  for _a in "${_args[@]:1}"; do
+    [[ "${_a}" == --* ]] && continue
+    _pos+=("${_a}")
+  done
+  (( ${#_pos[@]} == 2 )) || return 1
+
+  local _src="${_pos[0]}" _dst="${_pos[1]}"
+  [[ "${_dst}" == */ ]] || return 1
+  [[ "${_src}" == .base/* ]] || return 1
+  [[ "${_src}" == *'$'* ]] && return 1
+  printf '%s' "${_src}"
+}
+
+# _consumerise_dir_copies
+#   Re-spell every qualifying wholesale-directory COPY in the seeded
+#   consumer's Dockerfile as the two hand-listed spellings real consumers
+#   wrote. Fails when it re-spelled nothing: a fixture that silently
+#   consumerises zero statements is the vacuous pass this exists to end.
+_consumerise_dir_copies() {
+  local _df="${CONSUMER}/Dockerfile"
+  local _tmp="${BATS_TEST_TMPDIR}/Dockerfile.consumerised"
+  local _count=0
+  : > "${_tmp}"
+
+  local _line _src _rel _all
+  local -a _files=()
+  while IFS= read -r _line; do
+    if ! _src="$(_copy_expandable_source "${_line}")" \
+      || [[ ! -d "${CONSUMER}/${_src%/}" ]]; then
+      printf '%s\n' "${_line}" >> "${_tmp}"
+      continue
+    fi
+    _files=()
+    mapfile -t _files < <(cd "${CONSUMER}" && find "${_src%/}" -type f | sort)
+    if (( ${#_files[@]} == 0 )); then
+      printf '%s\n' "${_line}" >> "${_tmp}"
+      continue
+    fi
+    # One COPY per file, then every file on one COPY. Substituting into
+    # the original line keeps that statement's own flags, destination and
+    # column alignment, so what changes is the spelling and nothing else.
+    for _rel in "${_files[@]}"; do
+      printf '%s\n' "${_line/"${_src}"/"${_rel}"}" >> "${_tmp}"
+    done
+    _all="${_files[*]}"
+    printf '%s\n' "${_line/"${_src}"/"${_all}"}" >> "${_tmp}"
+    _count=$(( _count + 1 ))
+  done < "${_df}"
+
+  (( _count > 0 )) \
+    || fail "consumerised nothing: the seeded Dockerfile has no wholesale-directory .base/ COPY with a directory destination, so this arm would assert against the same shape base itself ships"
+  mv "${_tmp}" "${_df}"
+}
+
 # _dangling_symlinks
 #   Every symlink in the consumer that resolves to nothing. This is the
 #   assertion that matters: it names no path, so it keeps working across
@@ -259,6 +355,11 @@ _assert_release_can_upgrade() {
   _seed_current_remote
   _seed_released_remote "${_tag}"
   _seed_consumer "${_tag}"
+  # Ask the delivery guard below about a shape a consumer actually has,
+  # not about base's own Dockerfile handed back to base.
+  _consumerise_dir_copies
+  git -C "${CONSUMER}" commit -q -a \
+    -m "chore: hand-list the subtree COPY sources"
 
   local _upgrade
   _upgrade="$(_released_entry upgrade.sh)"
