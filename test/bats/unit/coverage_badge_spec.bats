@@ -714,14 +714,18 @@ _make_cobertura() {
 @test "coverage_badge: refuses when the reports cover one shard, not the suite" {
   local _root
   _root="$(_make_release_tree 13 100)"
-  _stamp_head "${_root}" "shard 1/4"
+  # The scope string a REAL writer emits for a partition: `partial <m>/<n>
+  # specs`, derived from the manifest. `shard 1/4` was the invocation-era
+  # wording and no writer produces it any more, so a reader pinned on it
+  # would be reading a string this repo cannot generate.
+  _stamp_head "${_root}" "partial 1/4 specs"
 
   # Every identity check passes here: the sha IS HEAD, the worktree is
   # clean, the reports are newer than the commit. What is wrong is the
   # coverage, not the tree -- 13 lines of 100 is one partition's slice.
   run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
   [ "${status}" -eq 1 ]
-  assert_output --partial "shard 1/4"
+  assert_output --partial "partial 1/4 specs"
   [ ! -f "${_root}/badge.svg" ]
 }
 
@@ -743,6 +747,9 @@ _make_cobertura() {
   local _root
   _root="$(_make_release_tree 13 100)"
   rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats \
+    unit/sub/c_spec.bats integration/d_spec.bats
+  _write_manifest "${_root}" a_spec.bats
 
   # End to end over the real writer and the real reader, at ONE commit:
   # `just test coverage 1/4` leaves reports covering a QUARTER of the
@@ -756,8 +763,12 @@ _make_cobertura() {
   # missing-provenance path -- which is the subject of another test above,
   # and would leave this sequence's real failure mode (a stamped partial
   # scope reaching the badge) untested.
-  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
-    _ "${_root}" "1/4"
+  # One argument: the writer takes the root and reads the scope off the
+  # measurement. The `1/4` a caller used to pass here described the
+  # INVOCATION, and that is exactly the input the scope stopped being
+  # derived from.
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
   [ "${status}" -eq 0 ]
   [ -f "${_root}/coverage/.head-sha" ]
   run cat "${_root}/coverage/.head-sha"
