@@ -47,8 +47,32 @@
 # branch). Nothing else is skipped.
 #
 # What is a violation: inside a `@test ... {` body, a STATEMENT whose
-# first token is `!`, when the statement does not end on the body's last
-# statement line.
+# first token is `!`, when EITHER
+#   (a) the statement does not end on the body's last statement line, or
+#   (b) the statement hands its verdict to another command on the same
+#       physical line via `;` or `||`.
+#
+# (b) exists because (a) is judged by LINE, and a line can hold more than
+# one command. `! cmd; other` returns `other`'s status unconditionally,
+# and `! cmd || other` returns `other`'s status in precisely the branch
+# that matters -- the one where cmd SUCCEEDED and the assertion was
+# supposed to fail. Both are the same discarded negation as a `!` on an
+# earlier line, so both are reported wherever they sit rather than only
+# when they land last.
+#
+# `&&` is deliberately NOT in that list. `! A && B` parses as `(! A) && B`
+# and short-circuits to 1 whenever A succeeded, so the failing case still
+# reaches the body's return status and the assertion cannot be masked.
+# This lint is named for statements that CANNOT fail their test; flagging
+# one that can would be a wider claim than the rule makes.
+# errexit_bang_lint_spec pins that by RUNNING the shape, not by asserting
+# it here.
+#
+# The `;` / `||` scan is textual, so a separator inside a quoted argument
+# (`! grep -q 'a;b' f`) reads as a second command. There is no instance in
+# the tree and the allow region below answers one if it appears; a
+# quote-aware scan would be a second bash parser, which the heredoc note
+# already refuses on the same grounds.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -115,6 +139,10 @@ readonly _ERREXIT_BANG_TEST_CLOSE_RE='^\}[[:space:]]*$'
 readonly _ERREXIT_BANG_STMT_RE='^[[:space:]]*![[:space:]]'
 # A line continued onto the next one.
 readonly _ERREXIT_BANG_CONT_RE='\\[[:space:]]*$'
+# A `;` or `||` with another command after it on the same physical line
+# (a bare trailing `;`, or one followed only by a comment, terminates the
+# statement and is fine). `&&` is absent on purpose -- see the header.
+readonly _ERREXIT_BANG_MASKED_RE='(;|\|\|)[[:space:]]*[^[:space:]#]'
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _ERREXIT_BANG_ALLOW_BEGIN='errexit-bang-lint: allow-begin'
@@ -210,10 +238,18 @@ _errexit_bang_scan_file() {
     [[ "${_in_allow}" -eq 1 ]] && continue
 
     if [[ "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
-      _pending_line+=("${_lineno}")
-      _pending_end+=("${_lineno}")
-      _pending_text+=("${_line}")
-      [[ "${_cont}" -eq 1 ]] && _bang_open=$(( ${#_pending_line[@]} - 1 ))
+      if [[ "${_line}" =~ ${_ERREXIT_BANG_MASKED_RE} ]]; then
+        # Inert in EVERY position, so it is judged here rather than
+        # queued: waiting for the body to close would report it only when
+        # it happened not to be last, which is the hole this closes. It
+        # is deliberately not ALSO queued -- one line, one row.
+        _ebsf_rows+=("${_rel}:${_lineno}: ${_line}  -- the '!' hands its status to another command on this line (';' / '||')")
+      else
+        _pending_line+=("${_lineno}")
+        _pending_end+=("${_lineno}")
+        _pending_text+=("${_line}")
+        [[ "${_cont}" -eq 1 ]] && _bang_open=$(( ${#_pending_line[@]} - 1 ))
+      fi
     fi
   done < "${_abs}"
 
@@ -332,7 +368,7 @@ _run_errexit_bang() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_errexit_bang \
-      "${_violations} non-final '!' statement(s) / unclosed body/bodies / unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as a test body's last statement -- anywhere else the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
+      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or a '||' on the same line, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
     return 1
   fi
   echo "non-final bang-statement lint: clean (${#_files[@]} spec file(s) under ${_roots[*]}, ${_headers} test bodies)"
