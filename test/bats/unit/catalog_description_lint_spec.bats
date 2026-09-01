@@ -1314,16 +1314,24 @@ refute_finding() {
   # sentence stating "the scan reached 9 catalogues" passed undated and
   # unpinned. The one thing that is genuinely not a figure -- the "1."
   # / "2." enumerator of this header's ordered lists -- is exempted by
-  # POSITION instead, dropped by the awk above only where it opens a
-  # header line, which leaves a digit anywhere inside a sentence
-  # collected. The percentage alternative comes first so "41%" is one
-  # figure rather than "41".
+  # the bounded POSITION rule above, which leaves a digit anywhere
+  # inside a sentence collected.
+  #
+  # "41%" is collected as one figure and not as a bare "41". The
+  # alternation ORDER buys nothing either way: ERE matching is
+  # leftmost-longest, so '[0-9]+%|[0-9]+' and '[0-9]+|[0-9]+%' behave
+  # identically, and a reader who reorders them breaks nothing. What is
+  # worth pinning is the outcome, not the ordering, so the probe below
+  # asserts it instead of a comment claiming it.
   local _fig_re='[0-9]+%|[0-9]+'
   # The width the scan promises, probed rather than assumed: this is the
   # exact sentence the narrower pattern let through.
   [[ "$(printf '%s\n' 'the scan reached 9 catalogues' \
     | grep -oE "${_fig_re}")" == '9' ]] \
     || { fail "the figure pattern '${_fig_re}' does not collect a one-digit measurement"; return 1; }
+  [[ "$(printf '%s\n' 'it parked 41% of rows' \
+    | grep -oE "${_fig_re}")" == '41%' ]] \
+    || { fail "the figure pattern '${_fig_re}' splits a percentage into a bare number"; return 1; }
   local _para _figs _fig _p _ok _raw _status _with_figures=0
   local -a _bad=() _seen=()
   for _para in "${_paras[@]}"; do
