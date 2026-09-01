@@ -1452,6 +1452,18 @@ _df_base_image_note() {
 # is a legal Docker comment, so `commented` anchors on the first non-blank
 # character, not on column 0.
 #
+# A BuildKit HEREDOC layer -- `RUN <<EOF` / body / `EOF` -- is a block
+# too. Its body carries no backslash continuations, so the trailing-`\`
+# rule alone closed such a RUN on its first line and left the apt-get
+# calls under it invisible: not asked for a refresh, and not counted
+# toward the floors either, so nothing went red over a layer that was
+# never seen. The delimiter is read off the `<<`, `<<-` and quoted
+# spellings alike (the quoting only changes whether the SHELL expands the
+# body, which is nothing to do with what installs), and the block ends on
+# the line that is exactly the delimiter. `<<<` opens nothing: a
+# here-string is not a heredoc, and reading one as a delimiter would
+# swallow the rest of the file into a single block.
+#
 # Comment lines INSIDE a block are dropped rather than folded in, in both
 # modes, because that is what Docker does with them -- a continuation line
 # the parser removes cannot run. Folding them in is how a refresh that had
@@ -1477,12 +1489,24 @@ _DF_APT_INSTALL_RE='(apt(-get)?|rosdep)([[:space:]]+-[^[:space:]]+([[:space:]]+[
 _df_apt_run_blocks() {
   awk -v mode="${2:?_df_apt_run_blocks: missing mode}" \
       -v install_re="${_DF_APT_INSTALL_RE}" '
-    function flush() { if (buf ~ install_re) print buf; buf = ""; in_r = 0 }
+    function flush() { if (buf ~ install_re) print buf; buf = ""; in_r = 0; hd = "" }
     {
       line = $0
       if (mode == "commented") {
         if (line !~ /^[[:space:]]*#/) { if (in_r) flush(); next }
         sub(/^[[:space:]]*#[[:space:]]?/, "", line)
+      }
+      # Inside a heredoc body the delimiter line closes the layer and
+      # everything else joins it -- including a `RUN` word, which is
+      # shell text here and not a new instruction.
+      if (hd != "") {
+        term = line
+        sub(/^[[:space:]]+/, "", term)
+        sub(/[[:space:]]+$/, "", term)
+        if (term == hd) { flush(); next }
+        if (line ~ /^[[:space:]]*#/) next
+        buf = buf " " line
+        next
       }
       # A comment line neither joins the block nor ends it: the parser
       # removes it, and the continuation it sits inside carries on.
@@ -1493,6 +1517,15 @@ _df_apt_run_blocks() {
         buf = line
       } else {
         buf = buf " " line
+      }
+      # `<<[^<...]` so a `<<<` here-string is not mistaken for one. The
+      # delimiter is whatever is left after the quoting and the `-` are
+      # stripped, and it has to look like a word -- `$((1<<2))` leaves
+      # `2`, which does not.
+      if (match(line, /<<[^<[:space:]][^[:space:]]*/)) {
+        delim = substr(line, RSTART + 2, RLENGTH - 2)
+        gsub(/[^A-Za-z0-9_]/, "", delim)
+        if (delim ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { hd = delim; next }
       }
       if (line !~ /\\[[:space:]]*$/) flush()
     }
@@ -1510,13 +1543,22 @@ _DF_APT_REFRESH='dpkg-query -W > /usr/local/share/base/packages.txt'
 # package set and leaves the added packages out, which is the very defect
 # this relation is named for, and which reads identically to any assertion
 # that only asks whether the literal appears somewhere in the block.
+#
+# `fail` is followed by an explicit `return 1` rather than left to abort
+# through errexit: `run _df_assert_refresh_last ...` -- the only way to
+# assert that this helper REJECTS a block -- runs with errexit off, and
+# `fail`'s own `return 1` returns from `fail`, not from here, so without
+# it the function printed the rejection and then returned 0.
 _df_assert_refresh_last() {
   local _blk="${1}" _what="${2}" _tail
-  [[ "${_blk}" == *"${_DF_APT_REFRESH}"* ]] \
-    || fail "${_what} installs without refreshing the manifest: ${_blk}"
+  if [[ "${_blk}" != *"${_DF_APT_REFRESH}"* ]]; then
+    fail "${_what} installs without refreshing the manifest: ${_blk}"
+    return 1
+  fi
   _tail="${_blk##*"${_DF_APT_REFRESH}"}"
   if [[ "${_tail}" =~ ${_DF_APT_INSTALL_RE} ]]; then
     fail "${_what} installs AFTER its last manifest refresh: ${_blk}"
+    return 1
   fi
   return 0
 }
