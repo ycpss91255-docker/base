@@ -123,9 +123,10 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
 
 @test "_residue_paths: a gitignored path the run wrote is NOT named (#965)" {
   # The suite legitimately writes coverage/, log/ and .prev-release/, all
-  # of them ignored. The guard inherits that list from .gitignore rather
-  # than carrying an allowlist of its own -- one place to add a generated
-  # tree, and it is the place that already had to know.
+  # of them ignored. The guard inherits that list from git rather than
+  # carrying an allowlist of its own -- one place to add a generated tree,
+  # and it is the place that already had to know. What "from git" includes
+  # is pinned by the case below.
   _snapshot_before
   mkdir -p "${REPO}/coverage"
   printf 'report\n' > "${REPO}/coverage/index.html"
@@ -133,6 +134,34 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   run _residue_paths "${BEFORE}" "${AFTER}"
   assert_success
   assert_output ""
+}
+
+@test "_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)" {
+  # The list is inherited, and inheriting it means inheriting all of it.
+  # `git status` obeys `.git/info/exclude` and `core.excludesFile` exactly
+  # as it obeys `.gitignore`, so either of those silences this guard for the
+  # paths it covers -- a file this repo does not ship and never wrote, in
+  # one case per developer.
+  #
+  # That is a second place residue can hide, and the comment used to say
+  # the list was .gitignore's, which reads as "one file to check". It is
+  # measured here so the disclosure cannot go back to the narrower story.
+  printf 'excluded-by-info/\n' > "${REPO}/.git/info/exclude"
+  _snapshot_before
+  mkdir -p "${REPO}/excluded-by-info"
+  printf 'written by a spec\n' > "${REPO}/excluded-by-info/out.txt"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output ""
+
+  # And it is the EXCLUDE that silences it, not a snapshot that has stopped
+  # looking: the same write one directory over is still named.
+  printf 'written by a spec\n' > "${REPO}/named.txt"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output "named.txt"
 }
 
 @test "_residue_paths: a path containing a space is named whole (#965)" {

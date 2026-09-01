@@ -894,8 +894,15 @@ _residue_guard_available() {
 #   One sorted TAB-separated record per path git reports as changed:
 #   `<xy>\t<hash>\t<path>`. Ignored paths are absent, which is how the
 #   trees the suite legitimately writes -- coverage/, log/, .prev-release/
-#   -- stay out of it: the list is .gitignore's, not a second allowlist
-#   here that would have to be remembered separately.
+#   -- stay out of it: the list is git's, not a second allowlist here that
+#   would have to be remembered separately. Git's, and not just
+#   `.gitignore`'s: `git status` also obeys `.git/info/exclude` and
+#   `core.excludesFile`, so a path ignored by either of those is equally
+#   invisible here. That is the cost of inheriting the list rather than
+#   keeping one -- an ignore rule this repo never wrote, in a file it does
+#   not ship, silences the guard for the paths it covers -- and it is
+#   still the better trade than an allowlist that has to be remembered
+#   every time the suite grows a generated tree.
 #
 #   The CONTENT HASH is what makes a record more than git's status code. A
 #   spec overwriting a file the developer had already modified leaves the
