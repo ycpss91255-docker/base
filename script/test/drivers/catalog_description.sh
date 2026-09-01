@@ -70,9 +70,13 @@
 # checkout can re-measure one. That division is not a convention anybody
 # has to remember: the spec reads this header paragraph by paragraph and a
 # figure that is neither dated nor pinned is a failing test. A figure is
-# any run of digits, a lone one included; the only thing exempt is the
-# enumerator that opens a list item, and it is exempt by its position at
-# the head of the line rather than by how short it is.
+# any run of digits, a lone one included. Exactly one thing is exempt,
+# and narrowly: the enumerator that opens an indented list item -- one
+# or two digits, a period and a space, at the head of a line indented by
+# at least two columns, which is how this header writes its lists.
+# Nothing is dropped from column zero, so a figure that merely lands at
+# the head of a re-wrapped line stays a figure. The spec probes both
+# halves of that bound on the same reader it scans this header with.
 #
 # Failing all of them at once turns CI red until every one has a sentence,
 # which blocks everyone on a backfill nobody asked for -- and a rushed

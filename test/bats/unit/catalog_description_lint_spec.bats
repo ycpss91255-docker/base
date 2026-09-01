@@ -1281,12 +1281,32 @@ refute_finding() {
     "/source/${_CATALOG_DESC_EXEMPT_FILE}")")
   _pinned+=("$(_bats_sections_in 'system.md')")
   _pinned+=("$(_index_credit 'system.md')")
-  local -a _paras=()
-  mapfile -t _paras < <(awk '
+  # The enumerator exemption is BOUNDED, and the bound is the whole
+  # point of it. An unbounded strip -- any run of digits at the head of
+  # any header line, followed by ". " -- silently swallows a figure that
+  # merely landed at the head of a re-wrapped line, which is exactly how
+  # a sentence-final "... numbered\n# 9999. That figure ..." gets past a
+  # guard whose name promises every figure. So the strip demands what
+  # this header's list items actually look like: at least two columns of
+  # indentation, then a one- or two-digit enumerator, then ". ". Nothing
+  # is ever dropped from column zero, where prose lives.
+  local _para_awk='
     NR > 1 && !/^#/ { exit }
     /^#$/ { if (_p != "") { print _p }; _p = ""; next }
-    { sub(/^# ?/, ""); sub(/^[[:space:]]*[0-9]+\.[[:space:]]/, ""); _p = _p " " $0 }
-    END { if (_p != "") { print _p } }' "${_driver}")
+    { sub(/^# ?/, ""); sub(/^[ ][ ]+[0-9][0-9]?\. /, ""); _p = _p " " $0 }
+    END { if (_p != "") { print _p } }'
+  # Both halves of that bound, probed on the SAME awk program the scan
+  # runs, so a bound that widens back out fails here rather than going
+  # quiet: the indented enumerator is dropped, the sentence-final figure
+  # at column zero survives.
+  local _probe
+  _probe="$(printf '%s\n' '#!/usr/bin/env bash' '# the sweep reached' \
+    '# 9999. that is sentence-final' '#' '#   1. an enumerated item' \
+    | awk "${_para_awk}")"
+  [[ "${_probe}" == $' the sweep reached 9999. that is sentence-final\n an enumerated item' ]] \
+    || { fail "$(printf 'the header paragraph builder no longer bounds the enumerator exemption; it produced:\n%s\n' "${_probe}")"; return 1; }
+  local -a _paras=()
+  mapfile -t _paras < <(awk "${_para_awk}" "${_driver}")
   (( ${#_paras[@]} > 0 )) \
     || { fail "the driver header has no paragraphs -- the scan read nothing"; return 1; }
   # A figure is ANY run of digits, or a percentage. Width is the wrong
