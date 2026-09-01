@@ -241,6 +241,7 @@ after_and|  true && diff %s/a "${SCRATCH}/a"
 after_or|  false || cmp %s/a "${SCRATCH}/a"
 semicolon|  :; diff %s/a "${SCRATCH}/a"
 time_keyword|  time diff %s/a "${SCRATCH}/a"
+backtick_substitution|  _out=`diff %s/a "${SCRATCH}/a"`
 SPELLINGS
 }
 
