@@ -1393,16 +1393,47 @@ refute_finding() {
   # the gate measures comment width, so a re-wrap that misses a line is
   # otherwise found only by a reader who happens to look.
   local _driver='/source/script/test/drivers/catalog_description.sh'
-  local _scanned _over _status
+  local _scanned _stripped _over _status
   _scanned="$(grep -cE '^[[:space:]]*#' "${_driver}")" && _status=0 || _status=$?
   (( _status == 0 )) \
     || { fail "reading the comment lines of ${_driver} failed (grep exit ${_status}) -- the scan found no file to measure"; return 1; }
   (( _scanned > 100 )) \
     || { fail "only ${_scanned} comment line(s) read from ${_driver}; it is not the file this case claims to measure"; return 1; }
-  _over="$(awk 'length($0) > 80 && /^[[:space:]]*#/ {
-    printf "  %d (%d cols): %s\n", NR, length($0), $0 }' "${_driver}")"
-  [[ -z "${_over}" ]] \
-    || fail "$(printf 'comment lines over 80 columns (%d scanned):\n%s\n' "${_scanned}" "${_over}")"
+  # The measure is CHARACTERS, and it is pinned to be characters rather
+  # than left to the image. awk's length() counts characters only when
+  # the awk that answers `awk` and the runner's locale are both
+  # UTF-8-aware, and this image installs busybox awk, mawk and gawk side
+  # by side (dockerfile/Dockerfile.test-tools) -- so which of them
+  # answers, and under which locale, is an image detail this case must
+  # not silently depend on. Under a byte-counting awk the five
+  # box-drawing section rules in this driver (U+2500, three bytes each)
+  # measure 109-198 "columns" while being about 74 wide, and five
+  # correctly wrapped lines turn red.
+  #
+  # So the stream is forced to C -- where every one of those awks counts
+  # bytes, deterministically -- and every UTF-8 continuation byte is
+  # deleted first. One byte per character, for any awk, in any locale.
+  local _probe
+  _probe="$(printf '%s\n' '──────────' \
+    | LC_ALL=C tr -d '\200-\277' | LC_ALL=C awk '{ print length($0) }')"
+  [[ "${_probe}" == '10' ]] \
+    || { fail "the width measure reports ${_probe} for a 10-character rule of U+2500; it is measuring bytes, not columns"; return 1; }
+  # Deleting continuation bytes cannot add or remove a newline, so the
+  # measured stream must still hold exactly the comment lines counted
+  # above; if it does not, the normalisation ate the population.
+  _stripped="$(LC_ALL=C tr -d '\200-\277' < "${_driver}" \
+    | grep -cE '^[[:space:]]*#')"
+  (( _stripped == _scanned )) \
+    || { fail "normalising ${_driver} to one byte per character left ${_stripped} comment line(s) of ${_scanned}; the measured stream is not the file"; return 1; }
+  _over="$(LC_ALL=C tr -d '\200-\277' < "${_driver}" \
+    | LC_ALL=C awk 'length($0) > 80 && /^[[:space:]]*#/ { print NR "\t" length($0) }')"
+  if [[ -n "${_over}" ]]; then
+    local _report='' _n _w
+    while IFS=$'\t' read -r _n _w; do
+      _report+="  ${_n} (${_w} cols): $(sed -n "${_n}p" "${_driver}")"$'\n'
+    done <<< "${_over}"
+    fail "$(printf 'comment lines over 80 columns (%d scanned):\n%s' "${_scanned}" "${_report}")"
+  fi
 }
 
 @test "_run_catalog_description: the header's reason for keying on the spec path still holds (#922)" {
