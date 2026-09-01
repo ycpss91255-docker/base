@@ -703,9 +703,16 @@ _make_cobertura() {
   # test even though the paragraph above it still says the words.
   local _forwarded _container _pinned _name _n=0
   local _strip='/^[[:space:]]*#/d' 
-  _forwarded="$(sed -n '/docker compose -p/,/^}/p' "${REPO}/script/test/test.sh" \
-    | sed "${_strip}" \
-    | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-}".*/\1/p' | sort -u)"
+  _forwarded="$( {
+    sed -n '/docker compose -p/,/^}/p' "${REPO}/script/test/test.sh" \
+      | sed "${_strip}" \
+      | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-}".*/\1/p'
+    # The second channel, from the same invocation: an `environment:`
+    # entry whose value interpolates the same-named variable is read from
+    # THIS process's environment when compose parses the file.
+    sed -n 's/^[[:space:]]*-[[:space:]]*\([A-Z][A-Z_]*\)=\${\1[:?}-].*/\1/p' \
+      "${REPO}/compose.yaml"
+  } | sort -u)"
   [ -n "${_forwarded}" ]
 
   # Both channels are actually read: the compose file's is the one a
