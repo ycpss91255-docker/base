@@ -1554,14 +1554,40 @@ _hadolint_ignore_rationale() {
 # version was once the sole stated reason for REFUSING a build, so it is
 # swept for by pattern across every file that carried it, including the
 # error text an operator would have been handed.
+#
+# EXTENDED REGEXES, not literals. The categorical claim is a SHAPE -- "the
+# digest arg is the only value the annotation can carry" -- and the round
+# that retracted it left the sentence standing in the changelog by
+# rewording "the only value a label can carry" into "the one value the
+# annotation can carry". A sweep keyed on the exact sentence a file used
+# to hold goes green on the paraphrase, which is a report about the
+# wording rather than about the claim.
 _DF_DISPROVEN_CLAIMS=(
   'LABEL cannot read'
   'LABEL cannot run a case statement'
   'a LABEL cannot run that stage'
-  'only value a label can carry'
-  'only value .base.digest can carry'
+  '(only|one) value ([^ ]+ ){0,4}can carry'
   'two routes this note offers'
 )
+
+# _df_swept_files -- every shipped or published text file the sweep reads:
+# the whole template tree, base's own Dockerfiles, the doc tree (changelog,
+# ADRs, the localized READMEs) and the English README.
+#
+# DERIVED, not enumerated. The five files that had carried the claim were
+# named by hand, so the sweep's reach was a property of that list and not
+# of the repo: a sixth shipped file stating the claim tomorrow was exempt
+# by construction -- the same hole one level up from the literal wording
+# the patterns above now match by shape.
+#
+# test/ is deliberately outside it. The claims are spelled there as DATA
+# (the array above is five of them, and the reasoning comments quote what
+# they ban), so sweeping the spec tree could only mean forbidding a guard
+# from naming the thing it guards against.
+_df_swept_files() {
+  find /source/dist /source/dockerfile /source/doc /source/README.md \
+    -type f | sort
+}
 
 # _df_flatten <file> -- the file as ONE line of prose: comment markers,
 # quotes, backticks and line continuations blanked, whitespace squeezed.
@@ -1578,7 +1604,13 @@ _df_flatten() {
 }
 
 @test "no shipped text repeats the claim a build disproves (#951)" {
-  local _f _claim _flat
+  local _f _claim _flat _roster
+  _roster="$(_df_swept_files)"
+
+  # The derivation has to REACH the files that carried the claim. A `find`
+  # over roots that were renamed returns a shorter list, not an error, so
+  # a shrinking roster reads exactly like a repo that got clean. Named
+  # here as a floor (and fail-closed per #953), never as the roster.
   for _f in \
       /source/dist/dockerfile/Dockerfile \
       /source/dockerfile/Dockerfile.smoke \
@@ -1586,18 +1618,24 @@ _df_flatten() {
       /source/README.md \
       /source/doc/changelog/CHANGELOG.md; do
     assert_spec_subject "${_f}" "a file this spec sweeps for disproven claims"
+    grep -qxF -- "${_f}" <<< "${_roster}" \
+      || fail "${_f} carried the claim and the derived roster misses it"
+  done
+
+  while IFS= read -r _f; do
     _flat="$(_df_flatten "${_f}")"
     for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
-      if grep -qiF -- "${_claim}" <<< "${_flat}"; then
+      if grep -qiE -- "${_claim}" <<< "${_flat}"; then
         fail "${_f} states '${_claim}', which building this repo disproves"
       fi
     done
-  done
-  # The localized READMEs carry the same paragraph in zh-TW / zh-CN / ja.
-  # They are not swept in their own languages: drivers/readme_sync.sh
-  # stamps each translated section with the hash of the English section
-  # it was translated against, so an English fix that leaves a
-  # translation stating the old claim fails that lint instead.
+  done <<< "${_roster}"
+
+  # The localized READMEs are inside the roster, but only their English
+  # fragments can match: drivers/readme_sync.sh stamps each translated
+  # section with the hash of the English section it was translated
+  # against, so an English fix that leaves a translation stating the old
+  # claim in zh-TW / zh-CN / ja fails that lint instead.
   # ... and the narrower constraint that survives has to be STATED where
   # the decision rests on it, or the next reader re-derives the wide one.
   local _df="/source/dist/dockerfile/Dockerfile"
