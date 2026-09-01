@@ -745,15 +745,27 @@ _make_cobertura() {
   rm -f "${_root}/coverage/.head-sha"
 
   # End to end over the real writer and the real reader, at ONE commit:
-  # `just test coverage 1/4` to check the sharded path, then
-  # `just release coverage-badge`. The figure that must not be published
-  # is 13% -- a quarter of the suite wearing the release's name.
+  # `just test coverage 1/4` leaves reports covering a QUARTER of the
+  # suite, then `just release coverage-badge` is asked to publish them.
+  # The figure that must not be published is 13% -- a quarter of the suite
+  # wearing the release's name.
+  #
+  # The refusal has to rest on a certificate the writer ACTUALLY WROTE,
+  # naming the partial measurement. A tree with no manifest makes the
+  # writer stamp nothing at all, and the generator then refuses on the
+  # missing-provenance path -- which is the subject of another test above,
+  # and would leave this sequence's real failure mode (a stamped partial
+  # scope reaching the badge) untested.
   run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1" "$2"' \
     _ "${_root}" "1/4"
   [ "${status}" -eq 0 ]
+  [ -f "${_root}/coverage/.head-sha" ]
+  run cat "${_root}/coverage/.head-sha"
+  assert_output --partial "scope=partial 1/4 specs"
 
   run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
   [ "${status}" -eq 1 ]
+  assert_output --partial "partial 1/4 specs"
   [ ! -f "${_root}/badge.svg" ]
   refute_output --partial "13.0%"
 }
