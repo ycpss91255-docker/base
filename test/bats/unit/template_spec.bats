@@ -1681,7 +1681,8 @@ _df_flatten() {
   # The derivation has to REACH the files that carried the claim. A `find`
   # over roots that were renamed returns a shorter list, not an error, so
   # a shrinking roster reads exactly like a repo that got clean. Named
-  # here as a floor (and fail-closed per #953), never as the roster.
+  # here as a floor, and fail-closed the way every other subject in this
+  # file is, never as the roster.
   for _f in \
       /source/dist/dockerfile/Dockerfile \
       /source/dockerfile/Dockerfile.smoke \
