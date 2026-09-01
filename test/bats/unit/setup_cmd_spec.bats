@@ -749,21 +749,27 @@ EOF
   # spellings, this guard will not see it, and that is stated here
   # rather than implied away.
   #
-  # POPULATION IS DERIVED, NEVER LISTED -- ROOT INCLUDED. The root is
-  # /source/dist, the whole shipped payload (what init/upgrade copies to
-  # a consumer's .base/dist, cf. init_rollback_spec.bats), not one
-  # subdirectory of it: a reader dropped into dist/script/base/ ships
-  # just as far as one in dist/script/docker/, and the earlier
-  # docker-only root let that one through green. Within the root, every
-  # script whose CODE calls `_load_setup_conf_full` /
-  # `_setup_effective_full` -- the two functions that produce the
-  # namespace-key view -- is a reader, so a lib or wrapper added
-  # tomorrow is scanned with no edit here. schema.sh is out because it
-  # calls neither: `_schema_section_keys` prefix-matches the static
-  # SCHEMA_VALIDATOR registry, whose section names carry no dot. The
-  # match is over CODE lines, so _tui_conf.sh -- which names
-  # `_load_setup_conf_full` only in its header prose -- is correctly
-  # not a reader.
+  # POPULATION IS DERIVED, NEVER LISTED -- ROOT AND FILE SHAPE INCLUDED.
+  # The root is /source/dist, the whole shipped payload (what
+  # init/upgrade copies to a consumer's .base/dist, cf.
+  # init_rollback_spec.bats), not one subdirectory of it: a reader
+  # dropped into dist/script/base/ ships just as far as one in
+  # dist/script/docker/, and the earlier docker-only root let that one
+  # through green. Within the root the find carries NO -name filter
+  # either: membership is decided by what a file's CODE says, not by
+  # what it is called, so a reader shipped as `.bash`, as `bashrc`, or
+  # with no extension at all is scanned like any other -- an `*.sh`
+  # filter is a roster spelled as a glob, and dist/ already ships
+  # extensionless shell (config/shell/bashrc). Every file whose CODE
+  # calls `_load_setup_conf_full` / `_setup_effective_full` -- the two
+  # functions that produce the namespace-key view -- is a reader, so a
+  # lib or wrapper added tomorrow is scanned with no edit here. Nothing
+  # else in dist/ matches, so the non-shell payload simply never enters
+  # the loop. schema.sh is out because it calls neither:
+  # `_schema_section_keys` prefix-matches the static SCHEMA_VALIDATOR
+  # registry, whose section names carry no dot. The match is over CODE
+  # lines, so _tui_conf.sh -- which names `_load_setup_conf_full` only
+  # in its header prose -- is correctly not a reader.
   local _root=/source/dist
   [[ -d "${_root}" ]] || fail \
     "missing ${_root} -- the shipped tree this guard derives its population from"
@@ -773,7 +779,7 @@ EOF
     if code_grep -qE '_load_setup_conf_full|_setup_effective_full' "${_f}"; then
       _readers+=("${_f}")
     fi
-  done < <(find "${_root}" -type f -name '*.sh' | sort)
+  done < <(find "${_root}" -type f | sort)
 
   # A scan that found nothing is not a pass. Four readers exist today
   # (conf.sh, setup_cmd.sh, setup_conf.sh, setup_tui.sh); the floor is
