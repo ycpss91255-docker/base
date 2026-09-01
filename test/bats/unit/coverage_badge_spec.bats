@@ -679,10 +679,15 @@ _make_cobertura() {
   # "every environment variable" -- it is the intersection of two lists
   # that both live in this repo's source:
   #
-  #   - what _run_via_compose forwards FROM THE AMBIENT ENVIRONMENT, which
-  #     is exactly its `-e NAME="${NAME:-}"` lines (the same-named
-  #     ambient read is the giveaway; `-e COVERAGE="${_coverage}"` is a
-  #     positional and is not in this set), and
+  #   - what _run_via_compose forwards FROM THE AMBIENT ENVIRONMENT, on
+  #     BOTH of its channels: its `-e NAME="${NAME:-}"` flags, and
+  #     compose.yaml's own `environment:` entries, which compose
+  #     interpolates from this process's environment with no `-e` line at
+  #     all (HOST_UID / HOST_GID reach the container that way today). The
+  #     same-named read is the giveaway on either channel;
+  #     `-e COVERAGE="${_coverage}"` is a positional and is not in this
+  #     set. A roster stated as the `-e` lines alone would exempt a
+  #     selector plumbed through the compose file, and
   #   - what the in-container COVERAGE branch actually reads.
   #
   # Both are read out of the source here rather than transcribed, so a
@@ -702,6 +707,12 @@ _make_cobertura() {
     | sed "${_strip}" \
     | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-}".*/\1/p' | sort -u)"
   [ -n "${_forwarded}" ]
+
+  # Both channels are actually read: the compose file's is the one a
+  # roster stated as the `-e` lines alone would miss, and HOST_UID is
+  # its only member today.
+  printf '%s\n' "${_forwarded}" | grep -qx 'COVERAGE_SHARD'
+  printf '%s\n' "${_forwarded}" | grep -qx 'HOST_UID'
 
   # The in-container coverage branch: from the COVERAGE guard to the arm
   # that ends it. `sed -n` ranges include their closing line, and that
