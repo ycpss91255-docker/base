@@ -1880,17 +1880,27 @@ _df_flatten() {
   assert_success
   run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
   assert_success
-  # One expression into both sinks here too, and the same refusal behind
-  # it. runtime-base is the copy a consumer uncomments, so a divergence
-  # left in it ships to every repo that turns the runtime split on.
+  # One expression into both sinks here too. runtime-base is the copy a
+  # consumer uncomments, so a divergence left in it ships to every repo
+  # that turns the runtime split on.
   local _file_digest _label_digest
   _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
   _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
   assert [ -n "${_file_digest}" ]
   assert [ -n "${_label_digest}" ]
   assert_equal "${_file_digest}" "${_label_digest}"
-  run grep -F '"${_ref_digest}" != "${BASE_IMAGE_DIGEST}"' <<< "${_block}"
-  assert_success
+
+  # ... and this stage does not STOP the build either, for the same
+  # reason the sys window above does not. This scaffold is the copy the
+  # shipped hadolint rationale tells a consumer to paste ("the sys stage
+  # RUN and, if the runtime split is enabled, runtime-base's"), so a
+  # refusal surviving HERE refuses exactly the reference-only pin the
+  # note beside `ARG BASE_IMAGE` recommends -- in the one image of this
+  # graph that ships. Asserted on the same shape as sys, in this stage's
+  # own window, because one window demanding the guard while the other
+  # forbids it is how the refusal outlived its removal.
+  run grep -c 'exit 1' <<< "${_block}"
+  assert_output "0"
 }
 
 @test ".hadolint.yaml DL3008 ignore names its compensating control (#951)" {
