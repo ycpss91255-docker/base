@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3138 tests**.
+Unit specs under `test/bats/unit/`: **3143 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3554,7 +3554,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (21)
+### test/bats/unit/errexit_bang_lint_spec.bats (26)
 
 | Test | Description |
 |------|-------------|
@@ -3562,6 +3562,11 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on a bang statement buried mid-body (#956)` | - |
 | `_run_errexit_bang: FAILS on a bang statement nested in a block (#956)` | - |
 | `_run_errexit_bang: FAILS on the FIRST line of a continued bang statement that is not last (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement followed by another command via ';' (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement whose '\|\|' hands off the verdict (#956)` | - |
+| `_run_errexit_bang: FAILS on such a line even when the body continues past it (#956)` | - |
+| `bash: '! A && B' as the last statement still fails its test (#956)` | - |
+| `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
 | `_run_errexit_bang: PASSES when only comments and blanks follow the bang (#956)` | - |
 | `_run_errexit_bang: PASSES when the bang statement ends the body across a continuation (#956)` | - |

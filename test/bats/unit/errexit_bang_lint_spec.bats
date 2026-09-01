@@ -106,9 +106,77 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+@test "_run_errexit_bang: FAILS on a bang statement followed by another command via ';' (#956)" {
+  # The rule is "not the last statement", but the parser judges by LINE:
+  # a `!` that is not the last COMMAND on the body's last line was exempt.
+  # `! cmd; other` runs the negation and then throws it away exactly as a
+  # `!` on an earlier line does -- the list's status is `other`'s -- so it
+  # is the same inert assertion, one semicolon further along.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two commands, one line" {' \
+    '  ! test -e /definitely/not/here; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a bang statement whose '||' hands off the verdict (#956)" {
+  # `! A || B` returns 0 whenever A failed, and B's status whenever A
+  # SUCCEEDED -- so a `|| true` swallows precisely the case the assertion
+  # exists to catch. Same verdict as the semicolon.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "negation handed to the right operand" {' \
+    '  ! test -e /definitely/not/here || true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on such a line even when the body continues past it (#956)" {
+  # The masked shape is inert in EVERY position, so it is reported where
+  # it stands rather than only when it lands on the last line -- and it is
+  # reported once, not twice.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "masked and buried" {' \
+    '  ! test -e /definitely/not/here; true' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "$(printf '%s\n' "${output}" | grep -c 'x_spec.bats:2')" -eq 1 ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_errexit_bang: what is NOT a violation
 # ════════════════════════════════════════════════════════════════════
+
+@test "bash: '! A && B' as the last statement still fails its test (#956)" {
+  # Why the '&&' arm of the same shape is NOT a violation, pinned by
+  # running it rather than by asserting it in prose. `! A && B` is
+  # `(! A) && B`: when A SUCCEEDS -- the case the assertion must catch --
+  # the negation is 1, `&&` short-circuits, and 1 is the body's status.
+  # The verdict is never handed to B in that direction, so the assertion
+  # cannot be masked and the lint has nothing to say about it. `;` and
+  # `||` are flagged because in both of them it IS handed over.
+  run bash -c 'set -e; body() { ! true && true; }; body'
+  [ "${status}" -eq 1 ]
+  run bash -c 'set -e; body() { ! false && true; }; body'
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
+  # A semicolon that terminates the statement rather than starting a
+  # second one leaves the negation as the body's status.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "terminated, not continued" {' \
+    '  ! ovr_get some.key;' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 
 @test "_run_errexit_bang: PASSES when the bang statement is the body's last (#956)" {
   _write "test/bats/unit/x_spec.bats" \
