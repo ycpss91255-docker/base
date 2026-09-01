@@ -683,10 +683,6 @@ RUN bats /smoke_test/
 #     case "${BASE_IMAGE}" in \
 #       *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
 #     esac; \
-#     if [ -n "${_ref_digest}" ] && [ "${_ref_digest}" != "${BASE_IMAGE_DIGEST}" ]; then \
-#       echo "BASE_IMAGE is pinned to ${_ref_digest}, but BASE_IMAGE_DIGEST=${BASE_IMAGE_DIGEST}." >&2; \
-#       exit 1; \
-#     fi && \
 #     { \
 #       echo "base_image_ref=${BASE_IMAGE}"; \
 #       if [ -n "${_ref_digest}" ]; then \
