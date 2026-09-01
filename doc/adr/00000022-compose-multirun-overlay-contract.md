@@ -77,7 +77,7 @@ channel differs by kind:
 | Field kind | Per-instance override channel | Emitted form |
 |---|---|---|
 | project `name:` | compose interpolation from `--env-file` | `${PROJECT_NAME}` (was `${DOCKER_HUB_USER}-${IMAGE_NAME}`; see the 2026-08-05 amendment below) |
-| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` -- **no longer emitted by the dev stack; see the 2026-08-26 amendment below** |
+| `container_name:` | interpolated **and** removable (non-load-bearing, see §4) | `${USER_NAME}-<repo>[-<svc>]` -- **no longer emitted by the dev stack; the field-deploy bundle (`just docker setup deploy`) still bakes one. See the 2026-08-26 amendment below** |
 | `network_mode:` | compose interpolation | `${NETWORK_MODE}` |
 | `privileged` / `ipc` / `pid` | compose interpolation | `${PRIVILEGED}` / `${IPC_MODE}` / `${PID_MODE}` |
 | **`ports:`** | compose interpolation, **per published port** | `${PORT_<n>:-<default>}` (n = **1-based** index within the service's port list -- `PORT_1` = first port, matching base's 1-based indexed-key convention `port_1` / `mount_1` / `arg_1`) |
