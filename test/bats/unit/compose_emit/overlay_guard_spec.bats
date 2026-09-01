@@ -139,23 +139,51 @@ _assert_emitted_without() {
     "grep exited ${_rc} scanning ${COMPOSE_OUT} for ${_what}: nothing was scanned, so absence was never observed"
 }
 
-# _exemption_stated_with_claim <file>
-#   True iff some paragraph of <file> that mentions the compose field
-#   `container_name:` names the field-deploy emitter -- in that paragraph or
-#   in the one immediately after it. Proximity, not co-occurrence: a
-#   document may name the deploy recipe for unrelated reasons elsewhere.
-_exemption_stated_with_claim() {
+# _every_claim_states_the_exemption <file>
+#   True iff EVERY paragraph of <file> that states the invariant names the
+#   field-deploy emitter -- in that paragraph or in the one immediately
+#   after it. Proximity, not co-occurrence: a document may name the deploy
+#   recipe elsewhere for unrelated reasons.
+#
+#   The accumulator fails on the first UNQUALIFIED paragraph. Its
+#   predecessor set a found-flag on the first QUALIFIED one, which answers
+#   "does SOME statement in this file name the deploy emitter" -- so a
+#   second, unqualified statement appended anywhere in an already-qualified
+#   file was invisible, and the guard's own name and failure message
+#   promised the every-statement property it did not check.
+#
+#   A file selected into the roster whose paragraph pass finds no statement
+#   at all is a failure, not a pass: the two scans disagree about the file,
+#   so nothing was judged.
+#
+#   Population boundary, stated rather than left implied. A statement of
+#   this invariant is a claim about a KEY the emitter writes into YAML, and
+#   every one of them in this tree quotes that key with its colon. The bare
+#   noun `container_name` is how the docs discuss the field as a concept --
+#   "removable", "while any container_name is present", "dropping it is
+#   what makes that dangerous" -- and those paragraphs assert nothing about
+#   what base emits, so requiring the exemption of them would demand the
+#   deploy recipe be named in prose that makes no claim about it. The cost
+#   of the boundary: a statement of the invariant phrased with the bare
+#   noun is outside this population and is not guarded.
+_every_claim_states_the_exemption() {
   awk '
     BEGIN { RS = "" }
     { _para[NR] = $0 }
     END {
       for (i = 1; i <= NR; i++) {
         if (index(_para[i], "container_name:") == 0) continue
+        _seen = 1
         _win = _para[i] "\n" (i < NR ? _para[i + 1] : "")
-        if (index(_win, "just docker setup deploy") > 0 ||
-            index(_win, "_generate_resolved_compose") > 0) _found = 1
+        if (index(_win, "just docker setup deploy") == 0 &&
+            index(_win, "_generate_resolved_compose") == 0) {
+          printf "unqualified statement of the invariant, paragraph %d:\n%s\n", i, _para[i]
+          _bad = 1
+        }
       }
-      exit(_found ? 0 : 1)
+      if (!_seen)
+        print "no paragraph states the invariant, though the roster scan selected this file"
+      exit((_bad || !_seen) ? 1 : 0)
     }' "${1:?}"
 }
 
@@ -301,14 +329,18 @@ CONF
   # so the guard's power came from the prose being WRONG, and correcting
   # the six sentences to the namespaced form falsified it.
   #
-  # The token is required NEXT TO the claim, not anywhere in the file.
-  # README.md names `just docker setup deploy` nine times in its own
-  # field-deployment section, so a file-wide match would stay green with
-  # the exemption paragraph deleted. `_exemption_stated_with_claim` asks
-  # the narrower question the guard's name promises.
+  # The token is required NEXT TO the claim, not anywhere in the file, and
+  # of EVERY claim, not of one of them. README.md names `just docker setup
+  # deploy` nine times: seven inside its own field-deployment section, one
+  # in an unrelated cross-reference, and exactly one in the exemption
+  # sentence -- so a file-wide match would stay green with the exemption
+  # paragraph deleted. And a file-wide match is not the only way to be too
+  # generous: asking whether SOME statement is qualified certifies a
+  # document the moment one of its statements is, which leaves a second
+  # statement appended to the same file unjudged.
   for _d in "${_docs[@]}"; do
-    _exemption_stated_with_claim "${_d}" || fail \
-      "${_d} states the container_name invariant without naming the deploy bundle it does not hold for, in the same paragraph or the one after it"
+    _every_claim_states_the_exemption "${_d}" || fail \
+      "${_d} states the container_name invariant in a paragraph that does not name the deploy bundle it does not hold for, in that paragraph or the one after it (printed above)"
   done
 
   # The two English statements carry the exemption's PREDICATE as well: the
