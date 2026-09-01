@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3127 tests**.
+Unit specs under `test/bats/unit/`: **3128 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3653,7 +3653,7 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 | `the comparison scan sees a live operand in each command position it names (#965)` | The positions come from the grammar, which makes that axis narrow rather than complete |
 | `the comparison scan is an over-approximation, not a closed set (#965)` | A sample of what it misses, one per axis: the command name, the operand position, line-wise literal matching, and the position omitted by choice |
 
-### test/bats/unit/residue_guard_spec.bats (21)
+### test/bats/unit/residue_guard_spec.bats (22)
 
 The live-tree residue guard in `script/test/test.sh`: the EXECUTED answer
 to "did a spec write into the checkout it does not own". Every compose
@@ -3742,6 +3742,7 @@ rather than an assurance.
 | `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; git's ignore list is the allowlist |
 | `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | `.git/info/exclude` silences it too, and the same write one directory over is still named |
 | `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
+| `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | The first blind spot, measured: neither undo shape reaches `git status`, and the same write left in place is still named |
 | `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
 | `_residue_paths: a permission change is seen only where git tracks one (#965)` | 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit, not just its existence |
 | `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |

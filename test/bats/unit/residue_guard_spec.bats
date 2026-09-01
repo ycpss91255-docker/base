@@ -193,6 +193,38 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "a file with spaces.txt"
 }
 
+@test "_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)" {
+  # The blind spot the guard's SHAPE cannot close, measured rather than
+  # assumed. The two snapshots are taken either side of the whole bats
+  # phase, so a spec that writes into the checkout and puts it back before
+  # that phase ends leaves both ends identical -- while every other job in
+  # the 32-way parallel suite read the tree DURING the window, which is the
+  # race this guard exists for. Closing it means snapshotting per SPEC, in
+  # the in-container bats driver rather than in this host-side wrapper.
+  #
+  # Both undo shapes are planted, because they hide for different reasons:
+  # a file created and removed again leaves no path for git to report at
+  # all, and a tracked file rewritten with its ORIGINAL bytes leaves a path
+  # whose content hash never moved.
+  _snapshot_before
+  printf 'written by a spec\n' > "${REPO}/transient.md"
+  rm -f "${REPO}/transient.md"
+  printf 'and then put back\n' > "${REPO}/tracked.txt"
+  printf 'one\n' > "${REPO}/tracked.txt"   # _make_repo's committed bytes
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output ""
+
+  # And it is the UNDO that hides them, not a guard that has gone blind: a
+  # write of the same shape left in place is still named.
+  printf 'written by a spec\n' > "${REPO}/left-behind.md"
+  _snapshot_after
+  run _residue_paths "${BEFORE}" "${AFTER}"
+  assert_success
+  assert_output "left-behind.md"
+}
+
 @test "_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)" {
   # The blind spot, measured rather than assumed. `git status` never reports
   # a path under .git/, so a spec planting a hook, a config or an
