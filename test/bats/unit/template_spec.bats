@@ -1639,10 +1639,23 @@ _DF_DISPROVEN_CLAIMS=(
 # tree is prose like any other, which is where the claim was last found
 # still justifying an assertion. The vocabulary markers carve out the
 # block; nothing carves out a file.
+#
+# The roots are a variable, not an argument list, because a root that has
+# been renamed makes `find` print to stderr and carry on: the roster comes
+# back shorter and the sweep reports a clean repo it never read. The
+# caller asserts every root contributed.
+_DF_SWEPT_ROOTS=(
+  /source/dist
+  /source/dockerfile
+  /source/doc
+  /source/script
+  /source/test
+  /source/.github
+  /source/README.md
+)
+
 _df_swept_files() {
-  find /source/dist /source/dockerfile /source/doc /source/script \
-    /source/test /source/.github /source/README.md \
-    -type f | sort
+  find "${_DF_SWEPT_ROOTS[@]}" -type f | sort
 }
 
 # _df_vocabulary_unbalanced <file> -- prints the file when its `begin` /
@@ -1692,6 +1705,15 @@ _df_flatten() {
     assert_spec_subject "${_f}" "a file this spec sweeps for disproven claims"
     grep -qxF -- "${_f}" <<< "${_roster}" \
       || fail "${_f} carried the claim and the derived roster misses it"
+  done
+
+  # Every root contributed something. Without this a renamed root is a
+  # shorter list, not an error, and this test's report becomes "the files
+  # I could still find are clean".
+  local _root
+  for _root in "${_DF_SWEPT_ROOTS[@]}"; do
+    grep -q "^${_root}" <<< "${_roster}" \
+      || fail "the sweep root ${_root} contributed no file to the roster"
   done
 
   local _unbalanced
