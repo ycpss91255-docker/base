@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3123 tests**.
+Unit specs under `test/bats/unit/`: **3127 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3620,29 +3620,40 @@ see that reliably either.
 
 The comparison scan stays because the snapshot cannot subsume it: a
 comparison against the live tree leaves NOTHING behind, so there is no
-residue to find. It DID need widening -- a review planted six positions it
-named and could not see (`if`, `elif`, `while`, `until`, a leading `!`,
-`run` with a flag), one of which is a live idiom in this repo -- and what
-separates it from the deleted roster is not that it was finished but that
-its set is CLOSED: the write roster enumerated commands that can write,
-which is every binary that exists, while this enumerates the places a shell
-can begin a command, which is the shell's finite grammar. The positions are
-taken from that grammar and all eighteen are planted in a case. What it
-still cannot see is measured too, in a case of its own: a continuation
-line, a command name in a variable or an alias, and a live path built out
-of a variable. Like its sibling `spec_subject_guard_spec.bats`, it pins the
-scan as well as the result: a population floor, `find` under `pipefail`,
-and grep status exactly 1 (scanned, no match) rather than 2 (could not
-scan).
+residue to find. What it is NOT is a closed set, and two rounds of this
+file's header said it was. That argument -- the write roster enumerated the
+commands that can write, which is every binary that exists, while this
+enumerates the places a shell can begin a command, which is the shell's
+finite grammar -- holds for the POSITION axis alone. The scan has two more
+axes and both are rosters: it matches two command NAMES, and the live path
+as the first or second OPERAND. A review planted 18 comparison spellings
+and 16 went unseen -- a checksum pair, a comparison driven through git, an
+equality test over two command substitutions, a live path pushed past the
+second operand by an option that takes an argument of its own. One
+derivable position is unscanned by choice as well: a backtick, because the
+one-character widening that sees it matched four lines of this repo's own
+comment prose and no command at all.
+
+So the claim is the narrow one the body can carry: an over-approximation
+that catches the COMMON spellings at the moment the line is written, and
+names the line. Nothing executed stands behind it -- the residue guard
+holds the WRITE property with no roster at all, and the comparison property
+has no such backstop -- which is the reason not to overstate the scan
+rather than a reason to widen it. What it misses is sampled, one per axis,
+in a case of its own, so a later widening is a decision stated there and
+not a silent edit to a regex. Like its sibling
+`spec_subject_guard_spec.bats`, it pins the scan as well as the result: a
+population floor, `find` under `pipefail`, and grep status exactly 1
+(scanned, no match) rather than 2 (could not scan).
 
 | Test | Description |
 |------|-------------|
 | `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
 | `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
-| `the comparison scan sees a live operand in every position a command can open in (#965)` | - |
-| `the comparison scan's disclosed blind spots really are blind, and they are all of them (#965)` | - |
+| `the comparison scan sees a live operand in each command position it names (#965)` | The positions come from the grammar, which makes that axis narrow rather than complete |
+| `the comparison scan is an over-approximation, not a closed set (#965)` | A sample of what it misses, one per axis: the command name, the operand position, line-wise literal matching, and the position omitted by choice |
 
-### test/bats/unit/residue_guard_spec.bats (17)
+### test/bats/unit/residue_guard_spec.bats (21)
 
 The live-tree residue guard in `script/test/test.sh`: the EXECUTED answer
 to "did a spec write into the checkout it does not own". Every compose
@@ -3661,9 +3672,11 @@ developer with work in flight, whereas an edit made BEFORE the run appears
 in both and cancels. Each record is status code + content hash + path, so a
 spec overwriting a file the developer was already editing still moves it.
 Ignored trees (`coverage/`, `log/`, `.prev-release/`) are absent by
-construction -- `.gitignore` is the list. It is inert outside a git
-checkout, and it must run host-side: a worktree's `.git` is a FILE naming a
-gitdir the container never mounts.
+construction -- the list is git's, and git's means all of it: `.gitignore`,
+`.git/info/exclude` and `core.excludesFile` alike, so an ignore rule this
+repo never wrote silences the guard for the paths it covers. It is inert
+outside a git checkout, and it must run host-side: a worktree's `.git` is a
+FILE naming a gitdir the container never mounts.
 
 That same cancelling made the alarm ONE-SHOT, which is a hole in the shape
 rather than a slip: residue left by run N is on disk before run N+1 starts,
@@ -3686,17 +3699,39 @@ false positive two snapshots cannot cancel -- an edit made WHILE the suite
 ran. That is what `TEST_RESIDUE_GUARD=0` is for, and it now drops the
 record on its way past, so there is one knob rather than two.
 
-Two blind spots, stated because a guard whose limits are implied gets
-believed past them. A spec that writes and then removes its own traces
-before the phase ends is invisible; closing that means snapshotting per
-SPEC, in the in-container driver, which cannot read a worktree's gitdir at
-all. And `git status` never reports a path under `.git/`, so a planted
-hook, config or alternates entry is unseen -- excluded with a reason rather
-than closed, because git rewrites its own dir on almost any command
-(the guard's own `git status` refreshes the index) and narrowing that to
-"the parts that matter" is an open-set roster, the exact shape this round
-deleted. A case pins both the silence and how narrow it is: one directory
-up, the same write is still named.
+The report keeps the two facts it now has apart. The lead sentence names
+what THIS run wrote; a carried path gets a clause of its own that opens by
+saying the run changed nothing when that is what happened. Built from the
+union, as it first was, every re-run of an unfixed residue asserted a write
+that did not happen in it.
+
+Four blind spots and one price, stated because a guard whose limits are
+implied gets believed past them, and each with a case that measures it
+rather than an assurance.
+
+- A spec that writes and then removes its own traces before the phase ends
+  is invisible; closing that means snapshotting per SPEC, in the
+  in-container driver, which cannot read a worktree's gitdir at all.
+- Anything git ignores, through any of the files git reads to decide that.
+- Anything under `.git/`: `git status` never reports it, so a planted hook,
+  config or alternates entry is unseen -- excluded with a reason rather
+  than closed, because git rewrites its own dir on almost any command (the
+  guard's own `git status` refreshes the index) and narrowing that to "the
+  parts that matter" is an open-set roster, the exact shape this round
+  deleted. A case pins both the silence and how narrow it is: one directory
+  up, the same write is still named.
+- A permission change git does not track. Git records the exec bit and
+  nothing else of a file's mode, so 644 -> 755 IS named while 644 -> 600
+  leaves both the status line and the content hash where they were.
+- The price: `TEST_RESIDUE_GUARD=0` ends the alarm permanently for a spec
+  that writes the SAME bytes every run, because the path is then identical
+  in both snapshots and no memory is left to say otherwise. It stays
+  permanent because an acknowledged path and an unfinished edit are the
+  same thing at the phase boundary -- same status line, same hash -- so
+  expiring the acknowledgement re-raises the developer's edit on a timer
+  and scoping it points at the same absent signal. The failure message now
+  says what the flag gives up at the moment it offers it, and a case pins
+  the limit: bytes that CHANGE after an acknowledgement are named again.
 
 | Test | Description |
 |------|-------------|
@@ -3704,14 +3739,18 @@ up, the same write is still named.
 | `_residue_paths: an edit already in flight before the run is NOT named (#965)` | The cry-wolf case; a guard that reds a dirty working tree is switched off within the week |
 | `_residue_paths: a SECOND edit to an already-dirty file IS named (#965)` | Why the record carries a content hash: both snapshots show the same ` M` status line |
 | `_residue_paths: a tracked file the run DELETED is named (#965)` | Residue is any difference, not only an addition |
-| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; .gitignore is the allowlist |
+| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; git's ignore list is the allowlist |
+| `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | `.git/info/exclude` silences it too, and the same write one directory over is still named |
 | `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
 | `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
+| `_residue_paths: a permission change is seen only where git tracks one (#965)` | 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit, not just its existence |
 | `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |
 | `_residue_check: passes on a run that changed nothing (#965)` | The path every green gate takes |
 | `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
+| `_residue_check: a run that changed nothing does not report that it did (#965)` | The lead sentence is about THIS run; a carried path says so in its own clause |
 | `_residue_check: the memory clears when the residue is GONE (#965)` | - |
 | `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
+| `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | The escape hatch's price, decided and pinned: silent for an identical rewrite, named again when the bytes change |
 | `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
 | `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |

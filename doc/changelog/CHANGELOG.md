@@ -108,13 +108,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   boundedly, for the service's own group to appear.
 - **`just test` no longer forgets residue it has already reported (refs
   #965)** -- the guard compares the checkout either side of the run so an
-  edit already in flight cancels, and that also laundered LAST run's residue
-  into this run's "in flight": run 1 named the path and failed, run 2 with
-  nothing fixed was green. It now remembers what it named until the path is
-  gone from the checkout, and `TEST_RESIDUE_GUARD=0` -- the switch the
-  failure message already pointed at -- is what drops the record. A write
-  under `.git/` is still invisible to it and now says so. Affects anyone
-  whose gate reds on residue: re-running is no longer a way past it.
+  edit in flight cancels, and that laundered LAST run's residue into this
+  run's "in flight": run 1 failed naming the path, run 2 with nothing fixed
+  was green. It now remembers what it named until the path leaves the
+  checkout, reports what THIS run wrote apart from what an earlier one left,
+  and states where it can be believed past: git's whole ignore stack,
+  `.git/`, a permission change git does not track, and what
+  `TEST_RESIDUE_GUARD=0` gives up -- it drops the record for good.
 - **a spec that left an untracked workflow in the checkout after every gate
   run (refs #965, refs #927)** -- the ADR-claims R2 case wrote its fixture
   workflow into `.github/workflows/` of the live tree and removed only its
