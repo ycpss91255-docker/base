@@ -445,6 +445,30 @@ EOF
   diff "${DF}.orig" "${DF}"
 }
 
+@test "migration 2 (pip-helper): the standalone check refuses a Dockerfile it cannot READ (#956)" {
+  # The last leg of this lib's own safety argument (the header's status
+  # block names it): _dfm_pip_line_is_standalone is supposed to answer
+  # "keep the line" when it cannot read the file at all. It did not. The
+  # body is a `while ... done < "${_file}"` loop; when the redirect fails
+  # the loop never runs and the unconditional `return 0` at the end of the
+  # function -- "every matched line stands alone, delete it" -- was the
+  # answer, for a file nothing read. Same defect this issue is about, in
+  # the one guard whose job is to prevent it.
+  #
+  # Status 1 exactly, not merely non-zero: 1 is the "not standalone" the
+  # caller keys off, and an unreadable file must land on it rather than on
+  # some other number the caller does not test for.
+  #
+  # Root reads a mode-000 file, so the fixtures are an ELOOP symlink and a
+  # path that is not there at all -- the same technique the sibling cases
+  # above use, and neither injects a seam.
+  ln -s loop "${TEMP_DIR}/loop"
+  run bash -c "$(_src); _dfm_pip_line_is_standalone '${TEMP_DIR}/loop'"
+  assert_equal "${status}" 1
+  run bash -c "$(_src); _dfm_pip_line_is_standalone '${TEMP_DIR}/gone'"
+  assert_equal "${status}" 1
+}
+
 # The requirements file the migration reads is <repo>/config/pip/... only
 # while CONFIG_SRC still holds its default. It is a build ARG
 # (dist/dockerfile/Dockerfile `ARG CONFIG_SRC="config"`, consumed by the

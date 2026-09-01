@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3151 tests**.
+Unit specs under `test/bats/unit/`: **3152 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -972,7 +972,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (69)
+### test/bats/unit/dockerfile_migrate_spec.bats (70)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1010,6 +1010,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 2 (pip-helper): keeps the line when a conf layer's DIRECTORY cannot be read (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
+| `migration 2 (pip-helper): the standalone check refuses a Dockerfile it cannot READ (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)` | - |
