@@ -1542,6 +1542,16 @@ _hadolint_ignore_rationale() {
   ' "${1:?_hadolint_ignore_rationale: missing file}"
 }
 
+# disproven-claim vocabulary: begin
+#
+# Everything between this marker and its `end` twin is EXCISED before the
+# sweep below reads a file. It has to be: a guard that bans a sentence
+# cannot state it, and this block's whole job is to state it -- once as
+# the patterns themselves, once as the examples that explain what shape
+# they match. Excising by marker rather than exempting this FILE is what
+# lets the sweep read the spec tree at all, which is where the claim was
+# last found justifying an assertion.
+#
 # Every claim about a LABEL that this template, its harness, its shipped
 # specs and its READMEs are allowed to make. A LABEL CAN read a digest out
 # of a reference: build this repo's smoke harness with
@@ -1569,6 +1579,7 @@ _DF_DISPROVEN_CLAIMS=(
   '(only|one) value ([^ ]+ ){0,4}can carry'
   'two routes this note offers'
 )
+# disproven-claim vocabulary: end
 
 # _df_swept_files -- every shipped or published text file the sweep reads:
 # the whole template tree, base's own Dockerfiles, the doc tree (changelog,
@@ -1580,13 +1591,27 @@ _DF_DISPROVEN_CLAIMS=(
 # by construction -- the same hole one level up from the literal wording
 # the patterns above now match by shape.
 #
-# test/ is deliberately outside it. The claims are spelled there as DATA
-# (the array above is five of them, and the reasoning comments quote what
-# they ban), so sweeping the spec tree could only mean forbidding a guard
-# from naming the thing it guards against.
+# The spec tree, the tooling tree and the workflows are IN it. They were
+# left out on the theory that the claims are spelled there as data -- but
+# only one block of one file spells them, and outside that block the spec
+# tree is prose like any other, which is where the claim was last found
+# still justifying an assertion. The vocabulary markers carve out the
+# block; nothing carves out a file.
 _df_swept_files() {
-  find /source/dist /source/dockerfile /source/doc /source/README.md \
+  find /source/dist /source/dockerfile /source/doc /source/script \
+    /source/test /source/.github /source/README.md \
     -type f | sort
+}
+
+# _df_vocabulary_unbalanced <file> -- prints the file when its `begin` /
+# `end` marker counts differ. A `begin` with no `end` excises everything
+# after it, which is a sweep that read nothing wearing the report of a
+# sweep that found nothing.
+_df_vocabulary_unbalanced() {
+  local _f="${1:?_df_vocabulary_unbalanced: missing file}" _b _e
+  _b="$(grep -c 'disproven-claim vocabulary: begin' "${_f}" || true)"
+  _e="$(grep -c 'disproven-claim vocabulary: end' "${_f}" || true)"
+  [[ "${_b}" == "${_e}" ]] || printf '%s (begin=%s end=%s)\n' "${_f}" "${_b}" "${_e}"
 }
 
 # _df_flatten <file> -- the file as ONE line of prose: comment markers,
@@ -1599,8 +1624,12 @@ _df_swept_files() {
 # markdown wrap in the README -- so the string a reader sees exists on no
 # single line of any of these files.
 _df_flatten() {
-  sed 's/[#\\"`]/ /g' "${1:?_df_flatten: missing file}" \
-    | tr '\n' ' ' | tr -s '[:space:]' ' '
+  awk '
+    /disproven-claim vocabulary: begin/ { skip = 1 }
+    /disproven-claim vocabulary: end/   { skip = 0; next }
+    !skip
+  ' "${1:?_df_flatten: missing file}" \
+    | sed 's/[#\\"`]/ /g' | tr '\n' ' ' | tr -s '[:space:]' ' '
 }
 
 @test "no shipped text repeats the claim a build disproves (#951)" {
@@ -1622,7 +1651,11 @@ _df_flatten() {
       || fail "${_f} carried the claim and the derived roster misses it"
   done
 
+  local _unbalanced
   while IFS= read -r _f; do
+    _unbalanced="$(_df_vocabulary_unbalanced "${_f}")"
+    [[ -z "${_unbalanced}" ]] \
+      || fail "unbalanced vocabulary markers: ${_unbalanced}"
     _flat="$(_df_flatten "${_f}")"
     for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
       if grep -qiE -- "${_claim}" <<< "${_flat}"; then
