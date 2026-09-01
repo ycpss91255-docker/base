@@ -148,6 +148,45 @@ _write() {
   [[ "$(printf '%s\n' "${output}" | grep -c 'x_spec.bats:2')" -eq 1 ]]
 }
 
+@test "bash: a separator on the CONTINUATION line discards the negation too (#956)" {
+  # Why the two cases below are violations, pinned by running the shape
+  # rather than by asserting it in prose. In both, `! true` stands for the
+  # assertion's failing direction -- the grep FOUND what the test says is
+  # absent -- and in both the body still returns 0. A backslash moves the
+  # separator one physical line down; it changes nothing about who owns
+  # the statement's status.
+  run bash -c $'set -e\nbody() {\n  ! true \\\n    ; true\n}\nbody'
+  [ "${status}" -eq 0 ]
+  run bash -c $'set -e\nbody() {\n  ! true \\\n    || true\n}\nbody'
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS when the ';' sits on a continuation line (#956)" {
+  # The mask test reads the whole STATEMENT, not its first physical line.
+  # Judging only the opening line let this shape through exactly where it
+  # hurts: the statement is also the body's LAST, so the position rule has
+  # nothing to say about it either and NOTHING reported it.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "masked on the continuation line" {' \
+    '  ! grep -q A \' \
+    '      "${_f}"; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS when the '|| true' sits on a continuation line (#956)" {
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "handed off on the continuation line" {' \
+    '  ! grep -q A \' \
+    '      "${_f}" || true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_errexit_bang: what is NOT a violation
 # ════════════════════════════════════════════════════════════════════
