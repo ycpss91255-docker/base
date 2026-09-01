@@ -111,9 +111,9 @@
 #      reviewable line in the diff, and it is the entire ask: the number
 #      may only ever go DOWN.
 #   3. The entries must be sorted (LC_ALL=C) and unique. A baseline this
-#      size is only reviewable while its diff is one line per change; unsorted, an
-#      insertion hides anywhere, and a duplicate overstates the debt so
-#      that deleting one copy looks like progress.
+#      size is only reviewable while its diff is one line per change;
+#      unsorted, an insertion hides anywhere, and a duplicate overstates
+#      the debt so that deleting one copy looks like progress.
 #
 #   4. An entry over a row that is already DESCRIBED is refused. The file
 #      records what was ALREADY missing; the moment it also holds a row
@@ -180,21 +180,22 @@
 # rows the baseline still excuses, sections declared out, and the tests
 # those sections account for.
 #
-# That much is a statement about the documents that are THERE, which is
-# the reach a `find` can bound. Deleting doc/test/system.md would take its
-# 3 sections and the 13 tests the index credits it with out of the rule
-# with this lint and the doc-counts drift gate both green -- the drift gate maps doc name to spec glob
-# through a hand-kept case, so it never misses a document that is absent,
-# and a clean line with no denominator cannot notice either. So the SET of
-# catalogues is declared rather than discovered: doc/test/TEST.md's index
-# table names every catalogue and the tests it holds, it is regenerated
-# from the spec files and drift-gated (so it is not this driver's own
-# arithmetic coming back around), and it still names a document after the
-# document is deleted. Both directions are checked -- an index row with no
-# catalogue, and a catalogue with no index row, which is how the first
-# would be worked around -- along with the tests each document's sections
-# declare against the tests the index credits it with. Whether a section's
-# ROWS match its own declared count stays the drift gate's question.
+# That much is a statement about the documents that are THERE, which is the
+# reach a `find` can bound. Deleting doc/test/system.md would take its 3
+# sections and the 13 tests the index credits it with out of the rule with
+# this lint and the doc-counts drift gate both green -- the drift gate maps
+# doc name to spec glob through a hand-kept case, so it never misses a
+# document that is absent, and a clean line with no denominator cannot
+# notice either. So the SET of catalogues is declared rather than
+# discovered: doc/test/TEST.md's index table names every catalogue and the
+# tests it holds, it is regenerated from the spec files and drift-gated (so
+# it is not this driver's own arithmetic coming back around), and it still
+# names a document after the document is deleted. Both directions are
+# checked -- an index row with no catalogue, and a catalogue with no index
+# row, which is how the first would be worked around -- along with the tests
+# each document's sections declare against the tests the index credits it
+# with. Whether a section's ROWS match its own declared count stays the
+# drift gate's question.
 #
 # Summarising is a legitimate answer, and today there are
 # 13 sections declared outside the per-test rule, each grouping its tests
