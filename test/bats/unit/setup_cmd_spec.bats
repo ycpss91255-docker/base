@@ -797,7 +797,27 @@ EOF
   # All of them are the same defect, so all of them match here. The
   # brace body is "anything but a closing brace", which is what admits
   # the modifier forms the earlier `[A-Za-z0-9_]`-only body dropped.
-  local _dot_glob='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*)"?\."?\*'
+  #
+  # QUOTING IS A CLASS, NOT ONE CHARACTER. bash quotes that literal dot
+  # with either quote character, so `"${_sec}"'.'*` and `${_sec}'.'*`
+  # are the same defect as `"${_sec}."*` -- a single-quoted dot was
+  # invisible while this matched one optional `"`. The quantifier is
+  # `*`, not `?`, for the same reason: `"${_sec}"'.'*` carries TWO
+  # quote characters between the closing brace and the dot.
+  #
+  # One further spelling is deliberately OUT, alongside (a)/(b) above:
+  #
+  #   (c) indirect expansion, `"${!_ref}."*`. The reference alternation
+  #       requires a name character straight after `${`, so `${!...}`
+  #       is not matched. That is deliberate rather than overlooked: the
+  #       name says "a lone SECTION variable", and an indirect reference
+  #       names a variable that names the section -- one level removed,
+  #       and unused anywhere in dist/. If a membership bug is ever
+  #       written that way this guard will not see it, and that is
+  #       stated here rather than implied away.
+  local _var_ref='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*)'
+  local _quotes=$'[\'"]*'
+  local _dot_glob="${_var_ref}${_quotes}\\.${_quotes}\\*"
 
   local _view="${TEMP_DIR}/reader-code-view.txt" _status _hits
   for _f in "${_readers[@]}"; do
