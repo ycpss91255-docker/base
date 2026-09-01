@@ -1243,11 +1243,18 @@ SH
   # spill survived the first version of this guard.
   #
   # REPO_ROOT is readonly, so there are three ways to comply: source the
-  # DRIVER with REPO_ROOT pointed at a scratch tree, stub the provenance
-  # pair before calling main, or stub the runner itself. Comment lines are
-  # stripped first, so a block that only NAMES a runner is not accused of
-  # calling one, and a runner name is only counted at the start of a
-  # statement.
+  # DRIVER with REPO_ROOT pointed at a scratch tree, stub BOTH halves of
+  # the provenance pair before calling main -- the eraser alone is not
+  # compliance, since the real _stamp_coverage_head then writes
+  # /source/coverage/.head-sha -- or stub the runner itself.
+  #
+  # A CALL is a runner name that opens a statement: after a newline, a
+  # `;`, a `&&`, a `||` or a `(`. That is what distinguishes
+  # `bash -c 'source ...; _run_coverage 1/4'`, which drives a run, from
+  # `for _fn in ... _run_coverage ...`, which drives nothing -- and the
+  # one-liner is the form the first version of this rule, anchored on the
+  # start of a LINE, could not see at all. Comment lines are stripped
+  # first, so prose about a runner is not an accusation either.
   local _script="${BATS_TEST_TMPDIR}/scan.awk"
   cat > "${_script}" <<'AWK'
     FNR == 1 { files++ }
@@ -1257,11 +1264,12 @@ SH
     inblk && /^}$/ {
       inblk = 0
       if (body !~ /main --coverage([^-]|-shard)/ \
-          && body !~ /\n[[:space:]]*_run_coverage([^_]|$)/ \
+          && body !~ /(\n[[:space:]]*|;[[:space:]]*|&&[[:space:]]*|[|][|][[:space:]]*|[(][[:space:]]*)_run_coverage([^_]|$)/ \
           && body !~ /COVERAGE=1[^\n]*main --ci/) next
       total++
       if (body ~ /REPO_ROOT="\$\{BATS_TEST_TMPDIR\}/) next
-      if (body ~ /_invalidate_coverage_head\(\)/) next
+      if (body ~ /_invalidate_coverage_head\(\)/ \
+          && body ~ /_stamp_coverage_head\(\)/) next
       if (body ~ /_run_coverage\(\)/) next
       if (body ~ /_dispatch_script /) next
       print FILENAME ": " blk
