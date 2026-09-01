@@ -1930,6 +1930,86 @@ _df_flatten() {
   (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
 }
 
+@test "_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)" {
+  # `RUN <<EOF` ... `EOF` is one layer whose body carries no backslash
+  # continuations, so a scanner that opens on `RUN ` and closes on the
+  # first line without a trailing `\` sees a one-line RUN and stops: the
+  # apt-get lines are invisible, the layer is never asked for a manifest
+  # refresh, and it does not count toward the `>= 2` / `>= 3` floors
+  # either -- so every assertion in the relation above stays green over a
+  # template that grew one. Same class as the option-before-subcommand
+  # hole: a shape the helper never claimed not to handle, silently
+  # exempting a real layer.
+  #
+  # The shipped template writes no heredocs today, so this pins the
+  # HELPER against a fixture rather than the file -- the only way to
+  # state the contract before the shape arrives, and the reason the
+  # fixture is written into a scratch dir instead of into the checkout.
+  local _tmp
+  _tmp="$(mktemp -d)"
+  cat > "${_tmp}/Dockerfile" <<'FIXTURE'
+FROM alpine AS live
+RUN <<EOF
+apt-get update
+apt-get install -y cowsay
+dpkg-query -W > /usr/local/share/base/packages.txt
+EOF
+
+# FROM alpine AS commented
+# RUN <<-'EOF'
+# apt-get update
+# apt-get install -y cowsay
+# dpkg-query -W > /usr/local/share/base/packages.txt
+# EOF
+FIXTURE
+
+  local _n _blk
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "heredoc live apt RUN block"
+  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile" live)
+  assert_equal "${_n}" "1"
+
+  # ... and the commented mirror, which is the copy a consumer uncomments.
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "heredoc commented apt RUN example"
+  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile" commented)
+  assert_equal "${_n}" "1"
+
+  # Seeing the block is only half of it: the ORDER property has to hold
+  # inside a heredoc too, or the helper reports a layer it cannot judge.
+  cat > "${_tmp}/Dockerfile.bad" <<'FIXTURE'
+FROM alpine AS live
+RUN <<EOF
+dpkg-query -W > /usr/local/share/base/packages.txt
+apt-get install -y cowsay
+EOF
+FIXTURE
+  _blk="$(_df_apt_run_blocks "${_tmp}/Dockerfile.bad" live)"
+  [[ -n "${_blk}" ]] || fail "the out-of-order heredoc block was not seen at all"
+  run _df_assert_refresh_last "${_blk}" "heredoc out-of-order"
+  assert_failure
+
+  # A here-STRING is not a heredoc: `<<<` opens nothing, and reading it as
+  # a delimiter would swallow the rest of the file into one block.
+  cat > "${_tmp}/Dockerfile.herestring" <<'FIXTURE'
+FROM alpine AS live
+RUN grep -q x <<<"${y}"
+RUN apt-get install -y cowsay && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
+FIXTURE
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "here-string neighbour"
+  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile.herestring" live)
+  assert_equal "${_n}" "1"
+  rm -rf "${_tmp}"
+}
+
 @test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
