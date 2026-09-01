@@ -363,6 +363,100 @@ EOF
   assert_failure
 }
 
+# ── migration (smoke-copy), the explicit-FILE spelling ─────────────────────
+# The flat tree was also copied FILE BY FILE, and that is the spelling six
+# of the seventeen consumers actually carry:
+#   COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+#   COPY .base/test/smoke/test_helper.bash .base/test/smoke/script_help.bats /smoke_test/
+# A rewrite to the shared/ baseline is not enough either: the flat tree was
+# split across shared/ AND the per-stage folders, so each NAMED file has to
+# be resolved against the subtree that was just pulled -- script_help.bats
+# lives under devel-test/, test_helper.bash under shared/.
+
+# _seed_smoke_tree <root>
+#   Lay down a stand-in for the freshly pulled subtree's smoke tree: the
+#   shared baseline plus one per-stage folder, each carrying the file the
+#   real shipped tree carries there.
+_seed_smoke_tree() {
+  local _root="$1"
+  mkdir -p "${_root}/.base/dist/test/bats/smoke/shared" \
+    "${_root}/.base/dist/test/bats/smoke/devel-test"
+  : > "${_root}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${_root}/.base/dist/test/bats/smoke/shared/entrypoint.bats"
+  : > "${_root}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+}
+
+@test "migration (smoke-copy): detects the explicit per-file COPY spelling (#969)" {
+  _seed_smoke_tree "${TEMP_DIR}"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}'"
+  assert_success
+}
+
+@test "migration (smoke-copy): resolves each named file to the folder that ships it (#969)" {
+  _seed_smoke_tree "${TEMP_DIR}"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  # shared/ ships test_helper.bash; the stage folder ships script_help.bats.
+  # A blanket rewrite to shared/ would name a file that is not there.
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash /smoke_test/test_helper.bash" "${DF}"
+  grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/script_help.bats" "${DF}"
+  run grep -n '\.base/test/smoke' "${DF}"
+  [ "${status}" -eq 1 ]
+}
+
+@test "migration (smoke-copy): rewrites every source of a multi-source COPY line (#969)" {
+  _seed_smoke_tree "${TEMP_DIR}"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash .base/test/smoke/script_help.bats /smoke_test/
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/" "${DF}"
+  # The repo's OWN smoke COPY is not a base path and is left alone.
+  grep -Fq "COPY test/smoke/ /smoke_test/" "${DF}"
+  run grep -n '\.base/test/smoke' "${DF}"
+  [ "${status}" -eq 1 ]
+}
+
+@test "migration (smoke-copy): leaves an unresolvable named file alone and warns (#969)" {
+  _seed_smoke_tree "${TEMP_DIR}"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/repo_only.bats /smoke_test/repo_only.bats
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  assert_output --partial "could not be resolved"
+  grep -Fq "COPY .base/test/smoke/repo_only.bats /smoke_test/repo_only.bats" "${DF}"
+}
+
+@test "migration (smoke-copy): per-file spelling — dispatcher run twice rewrites exactly once (#969)" {
+  _seed_smoke_tree "${TEMP_DIR}"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF 'smoke/shared/test_helper.bash' "${DF}")"
+  [ "${_n}" -eq 1 ]
+  run grep -n 'smoke/shared/shared/' "${DF}"
+  [ "${status}" -eq 1 ]
+}
+
 # ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
 # The stable layout deployed on every consumer is the FLAT one: .base/config,
 # .base/script/... . The dist relocation deleted both. downstream_to_dist
@@ -444,9 +538,85 @@ EOF
   # Nothing may still name the deleted flat layout -- including the
   # logrotate / watchdog COPYs the dispatcher itself appends.
   run grep -nE '\.base/(config|script|test)/' "${DF}"
-  assert_failure
+  [ "${status}" -eq 1 ]
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
+}
+
+# ── every COPY source the dispatcher leaves behind must RESOLVE ────────────
+#
+# The tests above each pin one rewrite by name. This one pins the property
+# those rewrites exist to deliver, and it is deliberately written so that a
+# path added or moved LATER is covered without anyone editing it:
+#
+#   * the subtree under test is the real shipped tree (`.base/dist` is a
+#     symlink to /source/dist), not a set of empty mkdir'd stand-ins, so
+#     "resolves" means the file base actually ships is there;
+#   * the population of paths checked is DERIVED from the migrated
+#     Dockerfile -- every `.base/...` token in a COPY source position,
+#     including the logrotate / watchdog COPYs the dispatcher itself
+#     appends -- never a list written out here. A migration that starts
+#     emitting a new path is checked the moment it emits it, and a shipped
+#     directory that moves fails this test without being named in it;
+#   * the derived population is asserted NON-EMPTY before it is walked, so
+#     a regex that stops matching fails loudly instead of passing with
+#     nothing to check.
+#
+# The fixture is the shape the six file-spelling consumers carry
+# (ai_agent / claude_code / codex_cli / gemini_cli, one file per line;
+# ros1_bridge / urg_node_humble, two sources on one line) folded together
+# with the flat lint/config/logging COPYs every v0.41.0 consumer has.
+
+@test "apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)" {
+  assert_spec_subject "/source/dist/script/docker/lib/dockerfile_migrate.sh" \
+    "the migration list this spec drives"
+  # The subtree the upgrade just pulled, exactly as shipped.
+  mkdir -p "${TEMP_DIR}/.base"
+  ln -s /source/dist "${TEMP_DIR}/.base/dist"
+
+  cat > "${DF}" <<'EOF'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS devel
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+
+FROM devel AS devel-test
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+
+  local _tokens
+  _tokens="$(grep -E '^[[:space:]]*COPY[[:space:]]' "${DF}" \
+    | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
+  local _n
+  _n="$(printf '%s\n' "${_tokens}" | grep -c .)"
+  # Population assertion: eight COPY sources are reachable from this
+  # fixture (five written above plus the wrapper glob's rewrite and the two
+  # runtime siblings the dispatcher appends). Fewer means the extraction
+  # stopped matching, not that the Dockerfile got cleaner.
+  [ "${_n}" -ge 8 ]
+
+  local _tok
+  while IFS= read -r _tok; do
+    if [[ "${_tok}" == *'*'* ]]; then
+      compgen -G "${TEMP_DIR}/${_tok}" > /dev/null \
+        || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+    else
+      [[ -e "${TEMP_DIR}/${_tok}" ]] \
+        || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+    fi
+  done <<< "${_tokens}"
+
+  # And nothing may still name the pre-dist layout. Status pinned to grep's
+  # own no-match: an exit 2 (unreadable file) is a broken assertion, not a
+  # pass.
+  run grep -nE '\.base/(config|script|test)/' "${DF}"
+  [ "${status}" -eq 1 ]
 }
 
 # ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
