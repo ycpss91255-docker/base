@@ -131,6 +131,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a failed `init.sh` resync no longer leaves the consumer's files half-rewritten (closes #937)** -- the resync rewrites the `Dockerfile`, `.gitignore` and the wrapper symlinks inside an upgrade that has already committed the pull, and whether a partial rewrite was undone depended on the caller: the current `upgrade.sh` has a trap, the vendored `v0.41.0` copy every deployed repo runs has none. `init.sh` now snapshots the roots it writes into -- a hand-written `.env` included, which no `git reset` could return -- and restores them itself, staged index removals and all, without touching history. A restore that does not fully work exits 1 naming the tree as NOT restored.
 - **312 tests no longer pass when the artifact they assert on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
 - **the shard-balance guard failed CI on a partition that was fine, and could never fail locally (closes #940)** -- its total was summed over `test/bats/unit/` while `_shard_unit_files` partitions unit **+** integration, so the average was short by every integration spec, condemning a healthy partition. A latent second defect: it counted `@test` lines while the partitioner weighs recorded seconds, which collapse to one number locally. The probe now measures through `_spec_weight` against the bound no partition can beat, over the eight shards CI runs rather than four; synthesised weights drive skewed distributions locally, and a case asserts the probe's total still spans the whole pool.
+- **three test guards now cover the property they are named for (refs #962)** --
+  the fail-open `|| skip` invariant knew `[[ -f ]]`, `[ -f ]` and `test -f`
+  only, so a negated check or an `-e` / `-s` / `-d` stayed green; widening it
+  found two live `[[ -d "${WF_DIR}" ]] || skip` guards, now fail-closed through
+  a directory form of the subject guard, and its companion case generates 36
+  spellings from three axes rather than listing three. `self_test_yaml_spec`'s
+  hand-rolled block extractors read the shared comment-stripped view, so a
+  comment in `ci-rollup` no longer satisfies an assertion about what the job
+  runs. The changelog's count of guarded tests is derived from the tree.
 ### Documentation
 - **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
   the maintainer's, and only X/Y fans out** -- policy behind `semver-bump` /
