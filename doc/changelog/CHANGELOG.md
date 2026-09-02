@@ -113,6 +113,40 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the least-privilege guards now query a YAML parser instead of matching
+  indentation (refs #957)** -- four legal workflow shapes made a job or a
+  grant INVISIBLE to them, which is the fail-open direction for a scan whose
+  whole assertion is that it came back empty: a trailing comment on a job
+  key, a trailing comment or a quoted level on a permission entry, a job id
+  not starting lowercase, and `"on":` or flow style. Each kept the guards
+  green over a live `packages: write`. `yq` (Alpine's `yq-go`) joins the
+  tooling image and an unparsable file now fails closed. The publish,
+  release and multi-distro workers gained the exact-set pin their prose
+  already promised.
+- **no job of any reusable worker inherits the caller's whole token grant
+  (closes #957)** -- eight jobs across four `workflow_call` workflows
+  declared no `permissions:`, so each ran with the CALLING repo's grant.
+  Every job now declares its own, asserted as an exact entry set over a job
+  list DERIVED from each file, so a job added later is scanned rather than
+  exempted. No build-worker job names `packages: write` -- a called job
+  asking for a scope its caller did not grant fails the run outright -- so
+  `cache_backend: registry` is unreachable, and the preflight hint says so.
+  The seeded `main.yaml` moves `contents: write` onto `call-release`, which
+  reaches newly created repos only.
+- **a worker's grants pin must be applied to that worker, and be a CALL
+  (refs #957)** -- which scopes a worker's jobs may name is delegated to
+  that worker's own spec. That delegation was first an enumeration of four
+  specs; then two substring questions of one file; then any occurrence of
+  `yaml_permission_surface` followed by a token, which a path inside a
+  message string or a heredoc fixture also answers -- certifying a worker
+  no spec reads. Call sites are now lexed with the shell's quoting,
+  heredoc and comment rules, and the guard is named for READING a surface,
+  which is what a call-site scan can check. `code_grep` reports an
+  unreadable subject on stderr, keeping its stdout grep-shaped.
+- **the README file table named `setup.conf`, a file that has not existed since
+  the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
+  all four READMEs; the prose around it was already dotted. Every row of that
+  table is now pinned to a path that exists.
 - **the smoke-spec COPY heal now covers the hand-listed spelling (refs
   #928)** -- the dist relocation moved base's smoke specs out of
   `.base/test/smoke/`, and the migration recognised only the wholesale

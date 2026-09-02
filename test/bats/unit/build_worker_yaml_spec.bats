@@ -639,3 +639,231 @@ setup() {
   # The negated form would invert the meaning: only fork PRs would run.
   refute_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
 }
+
+# ── Per-job least privilege ────────────────────────────────────
+
+# Print the name of every job in the worker that declares no permission
+# ENTRY of its own -- no `permissions:` block, or an inline one
+# (`permissions: read-all`, `permissions: {}`) that names no scope. Both
+# leave the job running on a grant base does not control.
+#
+# Read off the shared `yaml_permission_surface`, which asks a YAML parser.
+# This used to be a private awk that matched job keys as
+# `^  [A-Za-z0-9_-]+:[ \t]*$` and permission blocks as text: a job key
+# carrying a trailing comment (`sign-artifacts: # signs the images`) was
+# not a job to it, so the job -- and its grants -- was invisible to a
+# guard whose whole assertion is that nothing came back.
+_jobs_without_permissions() {
+  local _line
+  while IFS= read -r _line; do
+    case "${_line}" in
+      'BUG:'*)          printf '%s\n' "${_line}" ;;
+      *": <no entries>") printf '%s\n' "${_line%%:*}" ;;
+    esac
+  done < <(yaml_permission_surface "${WF}")
+}
+
+# The jobs this spec's least-privilege assertions run over: derived from the
+# workflow file by the shared `yaml_job_names`, never listed here.
+# `_assert_worker_job_population` is what every one of them calls FIRST,
+# because
+# an empty scan and a clean scan are the same output otherwise -- an
+# extractor that stopped matching, or a file that moved, would report "no
+# job grants too much" from zero jobs.
+#
+# The five names below are a FLOOR, not a roster: they are the jobs the
+# worker ships today, and the assertions themselves run over whatever
+# `yaml_job_names` returns, so a sixth job is scanned the day it lands
+# without this spec being edited.
+_assert_worker_job_population() {
+  local _derived _count _job _status=0
+  _derived="$(yaml_job_names "${WF}")" || _status=$?
+  [[ "${_status}" -eq 0 ]] || fail \
+      "the job derivation could not read ${WF}: ${_derived}"
+  _count="$(printf '%s\n' "${_derived}" | awk 'NF { n++ } END { print n + 0 }')"
+  [[ "${_count}" -ge 5 ]] || fail \
+      "expected at least the 5 jobs build-worker.yaml ships, derived ${_count} from ${WF} -- the scan below would have passed over an empty population"
+  # Every derived name must also appear as a two-space key in the file's own
+  # code lines. This is a CONFIRMATION that the parser read this file, not a
+  # second opinion about how many jobs it holds: a re-implementation of the
+  # same regex over the same input cannot disagree with the derivation about
+  # anything, which is what the previous "independent extraction" here
+  # actually was.
+  local _name _seen
+  while IFS= read -r _name; do
+    [[ -n "${_name}" ]] || continue
+    _seen=0
+    code_grep -E "^  \"?${_name}\"?:" "${WF}" >/dev/null || _seen=$?
+    [[ "${_seen}" -eq 0 ]] || fail \
+        "derived job '${_name}' has no '  ${_name}:' key in the code lines of ${WF} (grep exited ${_seen}) -- the derivation is not reading the file this spec is about"
+  done <<< "${_derived}"
+  for _job in preflight path-filter compute-matrix build docker-build; do
+    printf '%s\n' "${_derived}" | grep -x -- "${_job}" >/dev/null || fail \
+        "job '${_job}' is missing from the derived job list of ${WF}: either it was renamed (update this floor) or the extractor stopped seeing the file"
+  done
+}
+
+# Print every `<job>: <entry>` in the worker whose grant is not exactly
+# `contents: read` -- which includes the `<no entries>` placeholder
+# `yaml_permission_surface` emits for a job with no block at all. The job
+# list comes from the FILE, so this names the job added tomorrow.
+#
+# grep's status is pinned: 0 means it found elevations and prints them, 1
+# means every line was `<job>: contents: read`, and anything else is a
+# grep that could not read its input -- reported as a BUG line so it fails
+# the caller's `assert_output ''` instead of passing as "no match".
+_worker_jobs_granting_more_than_contents_read() {
+  local _out _status=0
+  _out="$(yaml_permission_surface "${WF}" \
+      | grep -vxE '[A-Za-z0-9_-]+: contents: read')" || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the permission surface\n' \
+           "${_status}" ;;
+  esac
+}
+
+@test "build-worker.yaml: every job declares its own permissions block (#957)" {
+  # This is a REUSABLE workflow. A job with no `permissions:` inherits the
+  # CALLER's grant -- a downstream repo's token, not base's -- so a caller
+  # that legitimately grants `contents: write` or `packages: write`
+  # workflow-wide hands that write to jobs which only ever read. A job
+  # that declares a block gets exactly that block instead (capped by the
+  # caller, which it may narrow but never widen), which is the only place
+  # base can bound a permission it does not own.
+  _assert_worker_job_population
+  run _jobs_without_permissions
+  assert_success
+  assert_output ''
+}
+
+# Print `<job>: packages: write` for every job that names that scope in its
+# own permissions block. Read off the DERIVED permission surface, so the
+# caller-facing example inside the `cache_backend` input description --
+# which is instructing the CALLER to grant it, and is correct -- is outside
+# the jobs section and never reaches this, and a rationale comment quoting
+# the scope is stripped before matching. grep's status is pinned: 1 is "no
+# job asks for it", anything above that is a scan that failed and is
+# reported rather than read as a pass.
+_jobs_requesting_packages_write() {
+  local _out _status=0
+  _out="$(yaml_permission_surface "${WF}" \
+      | grep -E ': packages:[ \t]*write$')" || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the permission surface\n' \
+           "${_status}" ;;
+  esac
+}
+
+@test "build-worker.yaml: no job requests packages: write (#957)" {
+  # A job in a CALLED workflow may only NARROW the calling job's grant,
+  # never widen it. Declaring any `permissions:` key sets every unnamed
+  # scope to `none`, so every current caller -- base's own worker-selftest,
+  # the seeded main.yaml, ros_distro / ros2_distro, and the ROS repos
+  # routed through multi-distro-build-worker.yaml -- reaches this workflow
+  # with `packages: none`. A job here naming `packages: write` is an
+  # ELEVATION, and GitHub rejects the whole run before it starts:
+  #   The nested job 'build' is requesting 'contents: read, packages:
+  #   write', but is only allowed 'contents: read, packages: none'.
+  # The `cache_backend: registry` write therefore stays a CALLER-side
+  # grant, which is what the input description already asks callers for;
+  # the worker may not declare it on their behalf.
+  _assert_worker_job_population
+  run _jobs_requesting_packages_write
+  assert_success
+  assert_output ''
+}
+
+@test "build-worker.yaml: the build job asks for contents: read alone (#957)" {
+  # The job builds but never pushes an image (`push: false`, no `tags:`),
+  # so on the default `cache_backend: gha` a checkout grant is all it
+  # needs. `permissions:` accepts no expression, so one static set has to
+  # serve both backends, and the only set every caller can satisfy is the
+  # read-only one (see the elevation test above).
+  #
+  # "alone" is asserted as an EXACT entry set, not as presence: `packages:
+  # write` is only the scope this issue happened to find, and any other
+  # scope the caller did not grant (`id-token: write`, `attestations:
+  # write`, ...) fails a caller's run in exactly the same way.
+  run yaml_job_permission_entries "${WF}" build
+  assert_success
+  assert_output 'contents: read'
+}
+
+@test "build-worker.yaml: no job in the worker grants more than contents: read (#957)" {
+  # The whole permission surface, job list DERIVED from the file. Nothing
+  # here loops over known job names: the previous shape did, and a
+  # `sign-artifacts` job appended to the workflow with `contents: write`,
+  # `id-token: write` and `packages: read` left all 61 specs green.
+  # path-filter checks out and diffs; compute-matrix and docker-build only
+  # read `needs` / the repo; preflight probes with a token it deliberately
+  # keeps read-only. None touches a package, so none may inherit a caller's
+  # `packages: write`.
+  #
+  # The assertion is a PROPERTY over the derived set, not a pin of today's
+  # listing: a sixth job asking `contents: read` like its siblings passes
+  # untouched, and a sixth job asking anything else is named here on the
+  # day it lands. A job that declares no block at all surfaces as
+  # `<job>: <no entries>` and fails the same way.
+  _assert_worker_job_population
+  run _worker_jobs_granting_more_than_contents_read
+  assert_success
+  assert_output ''
+}
+
+# Print every comment PARAGRAPH inside the build job (a run of adjacent
+# `#` lines, joined) that cites the preflight while talking about a
+# package permission. Paragraph granularity matters: the claim is a
+# sentence, and a sentence wraps across comment lines.
+#
+# Both greps have their status pinned rather than `|| true`-ed: 1 is "no
+# paragraph says that", and 2 -- a grep that could not read its input, or a
+# build job that vanished -- must not arrive at the caller as an empty,
+# passing scan.
+_build_comments_citing_preflight_for_a_grant() {
+  local _out _status=0
+  _out="$(_build_comment_paragraphs \
+      | grep -i 'preflight' | grep -Ei 'packages|permission|grant')" \
+      || _status=$?
+  case "${_status}" in
+    0) printf '%s\n' "${_out}" ;;
+    1) ;;
+    *) printf 'BUG: grep exited %s scanning the build job comments\n' \
+           "${_status}" ;;
+  esac
+}
+
+# Every comment paragraph of the build job, one per line. Split out so the
+# test can assert the POPULATION it is scanning before reading anything
+# into an empty result.
+_build_comment_paragraphs() {
+  yaml_job_text "${WF}" build | awk '
+    /^[[:space:]]*#/ {
+      line = $0
+      sub(/^[[:space:]]*#[[:space:]]?/, "", line)
+      para = para " " line
+      next
+    }
+    { if (para != "") { print para; para = "" } }
+    END { if (para != "") { print para } }
+  '
+}
+
+@test "build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)" {
+  # The preflight job declares `permissions: contents: read`, so its own
+  # token carries `packages: none` no matter what the caller granted, and
+  # its write-scope probe cannot come back 202. Nothing in the build job
+  # may reason from that probe about a caller holding `packages: write`
+  # -- the probe is the thing that is broken, not the evidence that
+  # anything works. Tracked separately from this issue.
+  local _paragraphs
+  _paragraphs="$(_build_comment_paragraphs | awk 'END { print NR }')"
+  [[ "${_paragraphs}" -ge 10 ]] || fail \
+      "expected the build job to carry its explanatory comment paragraphs, extracted ${_paragraphs} -- the scan below would have read an empty job as a clean one"
+  run _build_comments_citing_preflight_for_a_grant
+  assert_success
+  assert_output ''
+}

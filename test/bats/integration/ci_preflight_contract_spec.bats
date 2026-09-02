@@ -44,18 +44,26 @@ setup() {
   assert_output --partial 'with:'
 }
 
-@test "build manifest: a registry-cache caller missing packages permission fails with the permissions fix (#801)" {
+@test "build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)" {
   # cache_backend: registry selected, image_name supplied, but the GHCR
-  # packages: write probe reported missing -- the registry-cache backend
-  # needs `packages: write`. The caller is told to grant it instead of
-  # 403-ing deep in a 20-min build.
+  # write probe reported missing. This message is the ONLY text a failing
+  # caller actually reads, and it used to tell them to add a `packages:
+  # write` grant to call-docker-build. That grant cannot
+  # reach the worker's `build` job, which declares its own read-only
+  # `permissions:` block -- a called job gets the block it declares, and a
+  # caller's grant does not widen it -- so following the old hint produced
+  # this same failure again. The hint must name the real fix (drop the
+  # registry backend) and must not hand the caller a grant snippet.
   PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
   PREFLIGHT_CACHE_BACKEND=registry \
   PREFLIGHT_PERM_PACKAGES=missing \
     run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
   assert_failure
   assert_output --partial 'packages'
-  assert_output --partial 'permissions:'
+  assert_output --partial 'cache_backend: registry is not usable'
+  # Neither the hint nor the requirement description -- both are printed
+  # on failure -- may spell the grant out: that IS the false promise.
+  refute_output --partial 'packages: write'
 }
 
 @test "build manifest: the default gha caller without packages permission still passes (#801 backward compat)" {

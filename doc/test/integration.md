@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **149 tests**.
+Integration specs under `test/bats/integration/`: **152 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -8,7 +8,7 @@ Integration specs under `test/bats/integration/`: **149 tests**.
 
 ## Test Files
 
-### test/bats/integration/init_new_repo_spec.bats (59)
+### test/bats/integration/init_new_repo_spec.bats (62)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -36,7 +36,8 @@ the unit `tui_spec`.
 | `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
 | `new repo: .github/workflows/base-version-monitor.yaml exists (#777)` | - |
-| `new repo: main.yaml grants permissions: contents: write` | #62 release perms |
+| `new repo: main.yaml grants contents: write on the release job only (#957)` | "only" asserted over the emitted file's OWN job list as an exact per-job entry set, plus a pinned grep status for the absent workflow-scope block. Inspecting the two known job blocks left the word unbacked: a third seeded job carrying two write grants kept all 62 specs green |
+| `new repo: main.yaml leaves the build call at contents: read (#957)` | The build call's entry set is exactly `contents: read`, so an added scope fails as loudly as a widened one; both tests assert the derived job population first |
 | `new repo: .gitignore exists` | gitignore |
 | `new repo: .dockerignore exists (#604)` | - |
 | `new repo: .dockerignore contains compose.yaml (derived artifact) (#604)` | - |
@@ -84,6 +85,8 @@ the unit `tui_spec`.
 | `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
 | `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
 | `init.sh refuses to run when the subtree root carries .git (base template source)` | Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse, no scaffold |
+| `existing repo: init never rewrites a main.yaml it did not create (#957)` | Delivery boundary: an existing repo's hand-maintained CI survives init byte-for-byte |
+| `existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)` | The same boundary stated positively: the monitor converges, main.yaml is new-repo-only (#927 / #928) |
 
 ### test/bats/integration/fresh_clone_portability_spec.bats (2)
 
@@ -199,11 +202,16 @@ manifests (`script/ci/preflight/build.manifest` +
 environment. A complete caller passes; a caller that forgot `image_name`
 (build) or `archive_name_prefix` (release) fails early with the
 plain-language `main.yaml` fix. The packages requirement is
-`cache_backend`-conditional (#801): a `registry`-cache caller missing
-`packages: write` fails with the permissions fix, a `registry` caller
-that granted it passes, and the default `gha` caller passes even without
-the permission (backward compatible); `--list` self-describes the build
-contract, annotating packages as registry-conditional.
+`cache_backend`-conditional (#801): a `registry`-cache caller whose
+probe came back missing fails with a hint that names the real fix --
+drop the registry backend, which base's own `build` job cannot reach
+under its read-only `permissions:` block -- and never hands the caller a
+grant snippet (#957, superseding the #801 wording; the hint and the
+requirement description are both printed on failure, so the assertion
+covers both). A `registry` caller whose probe came back granted passes,
+and the default `gha` caller passes even without the permission
+(backward compatible); `--list` self-describes the build contract,
+annotating packages as registry-conditional.
 
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
