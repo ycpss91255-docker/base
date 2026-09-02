@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3311 tests**.
+Unit specs under `test/bats/unit/`: **3332 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4048,3 +4048,28 @@ rather than an assurance.
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
+
+| Test | Description |
+|------|-------------|
+| `generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)` | The drift itself -- dependabot bumps the workflows and cannot reach the heredoc |
+| `generated-workflow-actions: names the generated ref's file and line (#950)` | A bump proposal is actionable only if it says which line to edit |
+| `generated-workflow-actions: passes when the two copies agree (#950)` | Lockstep is the whole assertion; the lint owns no opinion on which version is right |
+| `generated-workflow-actions: a ref ahead of this repo's own fails too (#950)` | Direction-agnostic: a hand-edit past the workflows is the same defect, other sign |
+| `generated-workflow-actions: ignores an interpolated ref (#950)` | This repo calling its OWN reusable workflow -- no literal to compare, upgrade.sh rewrites it |
+| `generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)` | Prose quoting a step is not a step; a lint that fails on its own docs gets muted |
+| `generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)` | - |
+| `generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)` | - |
+| `generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)` | - |
+| `generated-workflow-actions: one unreadable ref among readable ones still fails (#950)` | - |
+| `generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)` | - |
+| `generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)` | - |
+| `generated-workflow-actions: an action named with no ref is not called unused (#950)` | - |
+| `generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)` | - |
+| `generated-workflow-actions: a docker:// container action is skipped by name (#950)` | - |
+| `generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)` | - |
+| `generated-workflow-actions: ignores a generator under .prev-release/ (#950)` | A shipped release cannot be re-pinned, so scanning it fails a lint no edit can satisfy |
+| `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
+| `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
+| `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
+| `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |

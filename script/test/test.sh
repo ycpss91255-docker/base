@@ -25,7 +25,8 @@
 #                             # --early-close-reader-only /
 #                             # --self-hosted-guard-only /
 #                             # --changelog-entry-only /
-#                             # --action-ref-agreement-only.
+#                             # --action-ref-agreement-only /
+#                             # --generated-workflow-actions-only.
 #                             # These are what the self-test.yaml lint jobs
 #                             # call -- no CI job runs the lint phase itself
 #   ./test.sh --hadolint-only   # Run Hadolint only inside the ci container
@@ -120,6 +121,8 @@ source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
 source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
+# shellcheck source=script/test/drivers/generated_workflow_actions.sh
+source "${SCRIPT_DIR}/drivers/generated_workflow_actions.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -152,6 +155,7 @@ readonly _LINT_TOOLS=(
   self-hosted-guard
   changelog-entry
   action-ref-agreement
+  generated-workflow-actions
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -222,6 +226,7 @@ _run_lint_tool() {
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
     action-ref-agreement) _run_action_ref_agreement ;;
+    generated-workflow-actions) _run_generated_workflow_actions ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -347,6 +352,13 @@ Options:
                           never re-raises a version pair whose PR was
                           closed. One call site may hold back behind an
                           `action-ref-agreement: allow -- <why>` comment)
+  --generated-workflow-actions
+                          With --lint: run only the generated-workflow
+                          action ref lockstep lint (a `uses:` ref a shell
+                          script writes into a generated workflow must
+                          name the ref .github/workflows/ uses, since
+                          dependabot reads workflow files and cannot see
+                          a ref inside a heredoc)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -373,6 +385,7 @@ Options:
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
                             --action-ref-agreement-only pure bash
+                            --generated-workflow-actions-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --hadolint-only         Hadolint only, directly inside the ci container
@@ -473,6 +486,7 @@ Examples:
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
+  ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -1535,6 +1549,7 @@ main() {
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
+      --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -1550,6 +1565,7 @@ main() {
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
+      --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;

@@ -69,6 +69,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   project is empty. `docker exec <fixed-name>` is gone; ask `just exec`.
   The field-deploy bundle (`just docker setup deploy`) still bakes one;
   the shipped Dockerfile no longer lists the field.
+- **the actionlint gate moves 1.7.7 -> 1.7.12 (refs #950)** -- five patches
+  and fourteen months behind, on the linter that gates every workflow change
+  here, because dependabot parses `uses:` refs and this is an image named
+  inside a `run:` step. Measured before landing: no new findings against the
+  whole workflows tree. The `-ignore` workaround stays --
+  `github.job_workflow_sha` is still missing from actionlint's github-context
+  type at 1.7.12.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
@@ -88,6 +95,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   per-line allow opts out, and either must state a reason.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
+
+- **a generated workflow's action refs are held in lockstep with this repo's
+  own (refs #950)** -- `init.sh` writes a workflow into every downstream repo
+  from a heredoc, and dependabot reads workflow FILES, so its
+  `uses: actions/checkout@v7` was watched by nothing: `action-ref-agreement`
+  compares call sites within `.github/workflows/` only, and no dependabot
+  config is generated downstream. It reads v7 only because it was authored the
+  day after that bump. A new `generated-workflow-actions` lint fails when the
+  generated ref disagrees with `.github/workflows/`, so the next bump reaches
+  both or fails the PR. The `docker` ecosystem is NOT added here: it stays
+  open under #946.
+
 - **the README's static `Coverage-Kcov` badge is replaced by a committed SVG carrying the release's measured line rate (closes #952)** -- the gate computed the figure on every run and threw it away, so the badge read the same string whatever coverage did. `just release coverage-badge` renders `doc/badge/coverage.svg` from the local kcov reports, stamped `coverage vX.Y.Z`, and refuses unless `coverage/.head-sha` says the WHOLE suite measured HEAD. That scope is DERIVED from what ran: `coverage/timings.tsv` against ONE spec roster, which the run, the shard partition and the certificate all read, so a run narrowed by anything cannot call itself whole. Hand-run; wiring is docker_harness#289.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
