@@ -117,14 +117,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `cache_backend: registry` is unreachable, and the preflight hint says so.
   The seeded `main.yaml` moves `contents: write` onto `call-release`, which
   reaches newly created repos only.
-- **every reusable worker must now HAVE a spec pinning its grants, not just
-  today's four (refs #957)** -- which scopes a worker's jobs may name is
-  delegated to that worker's own spec, and the delegation was a sentence
-  backed by an enumeration of the four specs that happened to exist. A fifth
-  `workflow_call` worker landing with `contents: write` on every job passed
-  the whole suite: it DECLARED a grant, and nothing asked whether anyone had
-  pinned which. The spec list is now derived by `find` over the spec tree,
-  and a derived worker no spec reads is named.
+- **a worker's grants pin must be applied to that worker (refs #957)** --
+  which scopes a worker's jobs may name is delegated to that worker's own
+  spec. The delegation was first an enumeration of the four specs that
+  existed; then two independent substring questions of one file -- does its
+  text name `yaml_permission_surface`, does its text name the worker --
+  which certified a worker whose surface the spec never reads. Call sites
+  are now derived by `find`, resolved through each call's own argument and
+  matched on the full path; an unresolvable argument pins nothing.
+  `code_lines` / `code_grep` also split "not read" (2) from "no match" (1).
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted. Every row of that
