@@ -94,18 +94,27 @@ _add_fixture_spec() {
 # identical to the previous run's, so without it the second invocation
 # reports success having executed no specs at all -- and the assertion that
 # bats reported a plan is precisely what caught that.
+# Extra arguments after the context are passed to `docker build` before the
+# `-f`, so a case can tag the result or override a build arg.
 _build_harness() {
-  local _ctx="${1}"
+  local _ctx="${1}"; shift
   docker build \
     --no-cache \
     --progress=plain \
     --build-arg "TEST_TOOLS_IMAGE=${TEST_TOOLS_IMAGE}" \
+    "$@" \
     -f /source/dockerfile/Dockerfile.smoke \
     "${_ctx}" 2>&1
 }
 
 teardown() {
   [[ -n "${CONTEXT_DIR:-}" && -d "${CONTEXT_DIR}" ]] && rm -rf "${CONTEXT_DIR}"
+  # A case that tagged its build sets IMAGE_TAG; the image is this file's
+  # litter and nothing else reads it.
+  if [[ -n "${IMAGE_TAG:-}" ]]; then
+    docker rmi -f "${IMAGE_TAG}" >/dev/null 2>&1 || true
+  fi
+  return 0
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -120,6 +129,14 @@ teardown() {
   # harness that copied an empty /smoke_test and short-circuited cannot pass
   # this by doing nothing.
   echo "${output}" | grep -qE '1\.\.[0-9]+'
+  # ... and no spec may have SKIPPED. A plan counts specs that ran, not
+  # specs that asserted: with the manifest RUN deleted from the harness,
+  # smoke/shared/reproducibility.bats hits its own
+  # `_skip_unless_manifest_adopted` guard and this build still exits 0
+  # printing `1..N` with three `ok N # skip` -- a green case over a run
+  # that observed nothing. Every shipped spec is meant to run HERE; a spec
+  # that legitimately cannot must be given a home, not skipped past.
+  ! echo "${output}" | grep -q '# skip'
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -160,5 +177,120 @@ teardown() {
     '}'
   run _build_harness "${CONTEXT_DIR}"
   [ "${status}" -ne 0 ]
-  echo "${output}" | grep -q 'failing on purpose'
+  # The TAP OUTCOME, not the test name. bats prints a spec's name on
+  # every result -- `ok 3 failing on purpose` and `ok 3 # skip` carry it
+  # verbatim -- so a name-only grep is matched by a run in which this
+  # fixture passed or never ran, leaving `status` as the only
+  # discriminating half, and `status` is non-zero for any failure
+  # anywhere in the harness. `_build_harness` forces `--progress=plain`,
+  # which prefixes each line with a `#<step> <elapsed>` stamp, so the
+  # anchor is "start of line or whitespace" rather than `^`.
+  echo "${output}" | grep -qE '(^|[[:space:]])not ok [0-9]+ .*failing on purpose'
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Reproducibility record: the sys stage writes the base digest into TWO
+# sinks -- /usr/local/share/base/base-image.env and the OCI
+# org.opencontainers.image.base.digest annotation -- and one image must
+# not get two answers. base's unit spec compares the two EXPRESSIONS in
+# the template text; only a build resolves them, and only from outside
+# the image can the annotation be read at all. The harness mirrors the
+# stage's record, so this is where that resolution happens.
+# ────────────────────────────────────────────────────────────────────
+
+# Not a real digest: nothing here pulls the reference (the harness is FROM
+# the tooling image), and the shipped spec asserts the SHAPE
+# `sha256:<64 hex>`, which is what a route that drops or reshapes the value
+# stops producing.
+PINNED_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+@test "a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)" {
+  _make_context CONTEXT_DIR
+  # The file half is asserted from INSIDE the build, by a spec running in
+  # the stage that wrote it -- the same place the shipped repro specs run.
+  _add_fixture_spec "${CONTEXT_DIR}" zz_pinned_digest \
+    '@test "the manifest records the pinned digest" {' \
+    "  run grep -x 'base_image_digest=${PINNED_DIGEST}' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    '}'
+  IMAGE_TAG="base-smoke-pinned-digest:test"
+  run _build_harness "${CONTEXT_DIR}" \
+    -t "${IMAGE_TAG}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}" \
+    --build-arg "BASE_IMAGE_DIGEST=${PINNED_DIGEST}"
+  [ "${status}" -eq 0 ]
+  # The annotation half, read off the built image: no spec running inside
+  # the image can see a label, which is why this sink went unchecked while
+  # it disagreed with the file.
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "${PINNED_DIGEST}" ]
+}
+
+# A second value of the same shape, for the one case the record cannot
+# hold: two different answers to the one field it exists to make
+# comparable.
+OTHER_DIGEST="sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+@test "a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)" {
+  _make_context CONTEXT_DIR
+  # The configuration the note documents -- an immutable reference, no
+  # second argument -- which this harness once REFUSED to build. Nothing
+  # about a LABEL makes that refusal necessary: a LABEL reads a digest
+  # out of a reference perfectly well (`${BASE_IMAGE##*@}` in a label
+  # comes back as `sha256:<hex>`), it just cannot BRANCH, so the same
+  # expression comes back as `ubuntu:24.04` for an unpinned reference and
+  # cannot be the annotation's value. The annotation therefore carries
+  # the build arg, and an unsupplied arg is an empty annotation -- which
+  # is the SAME answer the file gives. Empty in both sinks is "not
+  # separately recorded"; it is not two answers, and it is not a reason
+  # to stop a build.
+  _add_fixture_spec "${CONTEXT_DIR}" zz_pin_only \
+    '@test "the manifest records the pin and leaves the digest field empty" {' \
+    "  run grep -x 'base_image_pin=digest' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    "  run grep -x 'base_image_digest=' /usr/local/share/base/base-image.env" \
+    '  [ "${status}" -eq 0 ]' \
+    '}'
+  IMAGE_TAG="base-smoke-pin-only:test"
+  run _build_harness "${CONTEXT_DIR}" \
+    -t "${IMAGE_TAG}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}"
+  [ "${status}" -eq 0 ]
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+  # ... and nothing was lost by not filling it: the digest is still on the
+  # image, in the reference sink, where the caller put it.
+  run docker inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}' \
+    "${IMAGE_TAG}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "ubuntu@${PINNED_DIGEST}" ]
+}
+
+@test "the shipped spec FAILS a build whose digest arg contradicts the reference (#951)" {
+  _make_context CONTEXT_DIR
+  # The one combination that IS false: both halves stated, naming
+  # different digests. No reading of that record is true, so it fails --
+  # in the `-test` stage, from the shipped spec that reads the record,
+  # rather than from a refusal in `sys` that also stopped the honest
+  # build above.
+  run _build_harness "${CONTEXT_DIR}" \
+    --build-arg "BASE_IMAGE=ubuntu@${PINNED_DIGEST}" \
+    --build-arg "BASE_IMAGE_DIGEST=${OTHER_DIGEST}"
+  [ "${status}" -ne 0 ]
+  # Asserted as the shipped spec's TAP OUTCOME, for the reason spelled
+  # out on the gate-fires case above: `does not contradict` is that
+  # spec's NAME, which bats prints for a pass (`ok 10 the manifest's
+  # digest field does not contradict the reference` -- verbatim in every
+  # green `just test smoke`) and for a skip. Keyed on the name alone this
+  # case is green whenever the contradiction assertion silently stops
+  # running -- body emptied, or the manifest RUN dropped so all four
+  # repro specs skip -- as long as anything else in the harness fails.
+  echo "${output}" | grep -qE '(^|[[:space:]])not ok [0-9]+ .*does not contradict'
 }

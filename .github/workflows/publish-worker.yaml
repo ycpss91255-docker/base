@@ -143,6 +143,11 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   compute-matrix:
     runs-on: ubuntu-latest
+    # Expands `inputs.platforms` into a matrix and exits; no checkout, no
+    # package. Its siblings `publish` and `merge` declare their own grants
+    # already -- this one inherited the CALLER's until #957.
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:

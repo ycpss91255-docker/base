@@ -42,6 +42,14 @@ jobs:
   release:
     needs: [preflight]
     runs-on: ubuntu-latest
+    # softprops/action-gh-release creates a Release, which needs
+    # `contents: write`. Declared rather than inherited: the caller's
+    # `call-release` job grants exactly this (init.sh seeds it), so the
+    # ceiling is unchanged and every other scope the caller may hold --
+    # `packages: write` on a repo that also publishes -- stops here
+    # (#957).
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
