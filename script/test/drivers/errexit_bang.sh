@@ -137,19 +137,52 @@
 # states, a backslash escape and one paren depth -- it is not a second
 # bash parser and does not try to be one (no expansion, no heredoc).
 #
-# That state is per PHYSICAL line, and the two ways it can be wrong are
-# stated here rather than claimed away. An unbalanced quote or `(` blanks
-# the rest of ITS line, which HIDES any separator behind it -- a drop, and
-# the direction this lint otherwise refuses; it is disclosed, not
-# preferred. A stray `)` -- how the second line of a `$(` opened on the
-# line above begins -- clamps the depth to zero and reads the rest of that
-# line at top level, which drops a real violation on one shape and raises
-# a false positive on another. Both shapes need a `\` continuation, and
-# neither exists in this tree; the fix for both is structural (scan the
-# JOINED statement, not a join of per-line scans) and is written out at
-# `_errexit_bang_code_part` with the two reproductions. What such a `)`
-# does NOT do is truncate its line: the word rule refuses to read a `)`
-# it cannot account for as opening a comment.
+# That scan runs on the LOGICAL line, never on a physical one, and that
+# is the structure rather than a tuning of the predicate. Whether a `#`
+# opens a comment is not answerable from one line: a `$(` opened on one
+# line and closed on the next left the continuation scanned at depth 0,
+# where a blank-preceded `#` read as a comment and everything behind it
+# was discarded --
+#
+#     ! grep -q A $(echo \
+#       x #y) f; true
+#
+# lost `#y) f; true`, so the `; true` reached NEITHER rule. Three rounds
+# of patching a per-line predicate each moved that drop one shape further
+# out, because the state a physical line needs is the state the previous
+# line ended in. So the lines are FOLDED first and the scan decides once,
+# on the whole statement -- the shape
+# dist/script/docker/lib/dockerfile_migrate.sh already uses for multi-line
+# COPY statements (`_dfm_join_copy_statements`, `_dfm_smoke_copy_present`).
+#
+# A logical line continues while the folded text is INCOMPLETE, which is
+# two things: a line-continuation backslash, and a quote or a `(` still
+# open at the end of it. The second is what carries the paren depth and
+# the quote state across the fold instead of resetting them, and it is
+# also what reads a `$( ... )` spanning lines with no backslash at all as
+# the one statement it is.
+#
+# What the scan does with a construct it does not recognise is the
+# REFUSING direction, because a dropped statement is invisible and a
+# false positive is not. Two answers spell that out.
+#
+# A `)` that closes a `(` opened outside this statement -- a heredoc
+# body, a `case` pattern -- does not end a word. The text stays CODE and
+# is read on rather than truncated on a guess, so no separator behind it
+# is discarded.
+#
+# A quote or a `(` still open when the fold reaches the body's `}` is the
+# scan saying it lost track. It is reported when it can have cost
+# something: when the statement it opened on is a `!` one (its code was
+# read only as far as the scan got), or when a line that OPENS a `!`
+# statement was folded into it while it was open (that line is then
+# judged by no rule). It is NOT reported otherwise, and that is a claim
+# rather than a shrug: the only lines this lint judges are the ones
+# opening with `!`, so a fold that swallowed none of them hid no
+# violation. What stays unreadable is a heredoc body or a multi-line
+# string -- constructs this scan never modelled -- and they no longer
+# fail a gate they have no bearing on. A `!` line inside a heredoc still
+# reads as a statement, the false alarm the allow region answers.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -214,8 +247,6 @@ readonly _ERREXIT_BANG_TEST_CLOSE_RE='^\}[[:space:]]*$'
 # A statement whose first token is `!`. The trailing space matters:
 # `!=` and `!(` are not this.
 readonly _ERREXIT_BANG_STMT_RE='^[[:space:]]*![[:space:]]'
-# A line continued onto the next one.
-readonly _ERREXIT_BANG_CONT_RE='\\[[:space:]]*$'
 # The three separator tests, all applied to the statement's CODE (quoted
 # spans blanked, trailing comment dropped) with its continuation lines
 # joined on -- never to one physical line.
@@ -250,36 +281,53 @@ readonly _ERREXIT_BANG_LIVE_OR_RE='^[^;]*\|\|'
 readonly _ERREXIT_BANG_ALLOW_BEGIN='errexit-bang-lint: allow-begin'
 readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 
-# _errexit_bang_code_part <line>
-#   Print the CODE of one physical line: every character inside a quote
-#   replaced by a space, and a trailing comment dropped. The separator
-#   tests run on this, so that a `;` the shell would read as an argument
-#   or as prose is not read here as a second command.
+# _errexit_bang_code_scan <text> <code_outvar> <cont_outvar>
+#   Scan ONE LOGICAL LINE -- a statement with every continuation line
+#   already folded into it -- from its first character, and answer the
+#   two questions the caller has about it.
 #
-#   Three states (unquoted / single / double) plus a backslash escape
-#   outside single quotes, and nothing else -- expansions and heredocs are
-#   not modelled, exactly as the header says. A `#` ends the line only
-#   where it starts a WORD, which is where the shell starts a comment;
-#   `;# note` is a terminator and prose, not a second command. In mid-word
-#   it is data and the line goes on.
+#   <code_outvar> gets the statement's CODE: every character inside a
+#   quote replaced by a space, everything inside an unquoted `( ... )`
+#   replaced with it, and a trailing comment dropped. The separator tests
+#   run on this, so that a `;` the shell would read as an argument or as
+#   prose is not read here as a second command.
 #
-#   `_word_end` carries that single bit, and every construct below answers
-#   for itself rather than being matched against a list of characters. A
-#   word ends at the start of the line, after a blank, and after `;`, `&`
-#   or `|`. It does NOT end at a closing quote, at a consumed backslash
-#   escape or after any ordinary character: `'a'#b`, `"a"#b` and `a\ #b`
-#   are one argument apiece and the `#` in them is data. Reading such a
-#   `#` as a comment dropped the rest of the line and hid a real
-#   separator -- a MISSED violation, which is the one direction this lint
-#   refuses. That is also why the flag DEFAULTS to 0: a construct this
-#   scan does not recognise leaves the word open, and an open word means
-#   the line is read on rather than discarded on a guess. Over-reporting
-#   costs a hand-written allow region; under-reporting is the defect.
-#   `<` and `>` end a word as well and are deliberately left out: a
-#   comment there eats the redirect's target, so the line is a SYNTAX
-#   ERROR and never a statement this lint judges (the spec runs that one
-#   too). Blanking rather than deleting keeps the column count, so a
-#   reported line still lines up with the file.
+#   <cont_outvar> gets how the text ENDS, which is what decides whether
+#   the next physical line is part of this same statement:
+#     0  complete -- the statement ends here.
+#     1  a line-continuation backslash: the last character is a `\` with
+#        nothing left for it to escape but the newline.
+#     2  a quote or a `(` is still open. bash reads straight on in both
+#        cases, so this scan does too, and this is the value that carries
+#        the paren depth and the quote state ACROSS the fold instead of
+#        resetting them at every line -- the whole point of folding.
+#   The caller appends the next physical line and calls again from the
+#   top: the state is rebuilt from the whole buffer rather than resumed,
+#   so there is no half-scanned state to hand over and get wrong.
+#
+#   Three quote states (unquoted / single / double) plus a backslash
+#   escape outside single quotes, and nothing else -- expansions and
+#   heredocs are not modelled, exactly as the header says. A `#` ends the
+#   text only where it starts a WORD, which is where the shell starts a
+#   comment; `;# note` is a terminator and prose, not a second command.
+#   In mid-word it is data and the scan goes on.
+#
+#   `_word_end` carries that single bit, and every construct below
+#   answers for itself rather than being matched against a list of
+#   characters. A word ends at the start of the text, after a blank, and
+#   after `;`, `&` or `|`. It does NOT end at a closing quote, at a
+#   consumed backslash escape or after any ordinary character: `'a'#b`,
+#   `"a"#b` and `a\ #b` are one argument apiece and the `#` in them is
+#   data. Reading such a `#` as a comment dropped the rest of the text
+#   and hid a real separator -- a MISSED violation, the one direction
+#   this lint refuses. That is also why the flag DEFAULTS to 0: a
+#   construct this scan does not recognise leaves the word open, and an
+#   open word means the text is read on rather than discarded on a guess.
+#   Over-reporting costs a hand-written allow region; under-reporting is
+#   the defect. `<` and `>` end a word as well and are deliberately left
+#   out: a comment there eats the redirect's target, so the line is a
+#   SYNTAX ERROR and never a statement this lint judges (the spec runs
+#   that one too). Blanking rather than deleting keeps the column count.
 #
 #   `)` is not one case but two, and reading it as one was a drop. The
 #   `)` that closes a SUBSHELL ends a word -- `(echo A)# note` really is
@@ -289,10 +337,16 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   argument `[A#b]`, and taking that `#` for a comment blanked the
 #   `; true` behind it. Which one a `)` is depends on the `(` it closes,
 #   so the `(` at depth 0 reads the character in front of it and records
-#   the answer in `_paren_ends_word`; its `)` reads it back. A `)` at
-#   depth 0 closes a `(` this scan never saw -- one that opened on an
-#   earlier physical line -- so there is no answer to read, and unknown
-#   resolves to the open word, per the default above.
+#   the answer in `_paren_ends_word`; its `)` reads it back. Folding is
+#   what makes that answer available: the `(` and its `)` are in the same
+#   text now even when they sit on different lines, which is exactly the
+#   case a per-line scan could not answer.
+#
+#   A `)` at depth 0 is the leftover case, and it is now genuinely
+#   unrecognised rather than merely unread: the `(` it closes was opened
+#   OUTSIDE this statement -- a heredoc body, a `case` pattern -- neither
+#   of which this scan models. There is no answer to read back, and
+#   unknown resolves to the open word, per the default above.
 #
 #   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
 #   blanked, because a separator there belongs to a SUBSHELL or a command
@@ -301,44 +355,21 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   verdict to nobody, and `! grep -q $(foo; bar) f` starts no second
 #   command; reading either separator as this statement's dropped the
 #   first out of both rules and reported the second as a violation it is
-#   not.
-#
-#   Both the depth and the quote state are per PHYSICAL line: the caller
-#   joins the CODE of each line of a continued statement rather than
-#   scanning the joined statement, so every line starts at depth 0 and
-#   unquoted. Only ONE of the two directions that produces is safe. An
-#   unbalanced `(` blanks the rest of ITS line and can only HIDE a
-#   separator -- the same direction as an unbalanced quote. A stray `)`
-#   is the UNSAFE one, and it is the shape that actually occurs: it is
-#   how the second line of a `$(` opened on the first one begins. Depth
-#   clamps at zero there, so the rest of that line is scanned at top
-#   level -- as CODE: the word rule above refuses to read such a `)` as
-#   a word end, so the line is over-read rather than truncated. What is
-#   over-read is still read at the wrong nesting, and both readings are
-#   wrong, in both directions:
-#
-#     ! grep -q $(foo \
-#       || bar) f; true
-#         the `||` reads as this statement's own, takes the live-`||`
-#         exemption, and the `; true` behind it is judged by NEITHER
-#         rule -- a MISSED violation, the direction this lint refuses.
-#
-#     ! grep -q $(foo \
-#       ; bar) f
-#         the `;` reads as this statement's own and is reported: a false
-#         positive on a blocking gate, for a line that is not a
-#         violation at all.
-#
-#   Neither shape exists in this tree. The fix is structural -- scan the
-#   JOINED statement once instead of joining per-line scans -- so it is
-#   written down here, next to the heredoc limitation above, rather than
-#   left to be re-derived from a sentence that claimed the opposite.
-_errexit_bang_code_part() {
-  local _s="${1}" _out='' _i _ch _q='' _prev=' ' _depth=0
-  # Would a `#` HERE open a comment? The caller feeds one physical line at
-  # a time and a line opens a word, so this starts set; every branch below
-  # answers for itself. Anything unrecognised leaves it 0 -- "no comment
-  # here" -- which keeps the rest of the line as code.
+#   not. Blanking is also why a `#` INSIDE a substitution is not modelled
+#   as the comment bash makes of it: its text is blanked with the rest of
+#   the substitution and the `)` still closes the depth, so
+#   `$(echo x #y) f; true` is reported for the `; true` behind it rather
+#   than read as the unterminated substitution bash rejects. Reporting a
+#   line bash will not even parse is the refusing direction.
+_errexit_bang_code_scan() {
+  local _s="${1}"
+  local -n _ebcs_code="${2}"
+  local -n _ebcs_cont="${3}"
+  local _out='' _i _ch _q='' _prev=' ' _depth=0 _trail=0
+  # Would a `#` HERE open a comment? A logical line opens a word, so this
+  # starts set; every branch below answers for itself. Anything
+  # unrecognised leaves it 0 -- "no comment here" -- which keeps the rest
+  # of the text as code.
   local _word_end=1
   # Whether the `)` that closes the `(` currently open at depth 0 ends a
   # word. Recorded when that `(` is read, the only point at which the
@@ -346,12 +377,22 @@ _errexit_bang_code_part() {
   local _paren_ends_word=0
   for (( _i = 0; _i < ${#_s}; _i++ )); do
     _ch="${_s:_i:1}"
+    # Only a backslash that reaches the END of the text continues the
+    # line, so any character read after one clears the flag again.
+    _trail=0
     if [[ "${_q}" != "'" && "${_ch}" == $'\\' ]]; then
-      # An escaped character is data, and a trailing backslash is the
-      # continuation marker. Neither is a separator -- and neither ENDS a
-      # word: `a\ #b` is the one argument `a #b` and the `#` is data.
-      _out+='  '
-      _i=$(( _i + 1 ))
+      # An escaped character is data, and neither it nor the backslash
+      # ENDS a word: `a\ #b` is the one argument `a #b` and the `#` is
+      # data. A backslash with nothing left to escape escapes the
+      # NEWLINE: the statement continues onto the next physical line, and
+      # the caller folds it in.
+      _out+=' '
+      if (( _i + 1 < ${#_s} )); then
+        _out+=' '
+        _i=$(( _i + 1 ))
+      else
+        _trail=1
+      fi
       _prev=$'\\'
       _word_end=0
       continue
@@ -405,10 +446,10 @@ _errexit_bang_code_part() {
             _word_end=0
           fi
         else
-          # A stray `)`: the `(` it closes opened on an earlier physical
-          # line, which this per-line scan does not carry, so what it
-          # closes is unknown. Unknown is not a word end -- the line is
-          # read on rather than truncated on a guess.
+          # A `)` closing a `(` this statement never opened -- a heredoc
+          # body, a `case` pattern. What it closes is unknown, and
+          # unknown is not a word end: the text is read on rather than
+          # truncated on a guess.
           _word_end=0
         fi
         _out+=' '
@@ -443,7 +484,17 @@ _errexit_bang_code_part() {
       *)                     _word_end=0 ;;
     esac
   done
-  printf '%s' "${_out}"
+  _ebcs_code="${_out}"
+  # An open quote or `(` outranks a trailing backslash: both continue the
+  # statement, and the caller only distinguishes them to know whether a
+  # blank or comment line can end it.
+  if [[ -n "${_q}" || "${_depth}" -gt 0 ]]; then
+    _ebcs_cont=2
+  elif [[ "${_trail}" -eq 1 ]]; then
+    _ebcs_cont=1
+  else
+    _ebcs_cont=0
+  fi
 }
 
 # _errexit_bang_scan_file <abs_path> <rel_path> <rows_outvar> <headers_outvar>
@@ -452,31 +503,42 @@ _errexit_bang_code_part() {
 #   directly, never through a command substitution: both outputs are
 #   namerefs, and a subshell would drop the count.
 #
-# One pass, this state: whether we are inside a body, whether the previous
-# physical line continues onto this one, the `!` statement currently being
-# READ (its start line, its end line so far, its opening text for the
-# report and its joined code for the separator test), the pending `!`
-# statements of the current body (start line, END line, text) and the line
-# number of the body's last statement. A statement is judged for (b) when
-# it ENDS -- a separator can still arrive on a continuation line -- and a
-# pending statement is judged for (a) only when the body closes, since
-# "is this the last statement" is not knowable before then.
+# One pass over the PHYSICAL lines that folds them into LOGICAL ones.
+# The state is: whether we are inside a body, the logical line currently
+# being read (its folded text, the physical line it opened on, the line
+# it has reached, its opening text for the report, its code, how that
+# code ENDS and whether it is a `!` statement this lint judges), the
+# pending `!` statements of the current body (start line, END line, text)
+# and the line number of the body's last statement.
+#
+# EVERY line inside a body is folded, not only a `!` one. Which physical
+# line the next statement starts on is exactly the question the fold
+# answers, and folding only the lines already known to be `!` statements
+# would need the answer before it had it -- two scanners again, which is
+# the defect this shape replaces.
+#
+# A statement is judged when it ENDS -- a separator can still arrive on a
+# continuation line -- and a pending statement is judged for (a) only
+# when the body closes, since "is this the last statement" is not
+# knowable before then.
 _errexit_bang_scan_file() {
   local _abs="${1}" _rel="${2}"
   local -n _ebsf_rows="${3}"
   local -n _ebsf_headers="${4}"
 
-  local _line _lineno=0 _in_body=0 _prev_cont=0 _cont=0 _body_open=0 _is_stmt=1
-  local _last_stmt=0 _in_allow=0 _begin_line=0
-  local _bang_start=0 _bang_end=0 _bang_text='' _bang_code=''
+  local _line _lineno=0 _in_body=0 _body_open=0 _last_stmt=0
+  local _in_allow=0 _begin_line=0 _close=0 _is_stmt=0 _judge=0
+  # The logical line in progress; an empty `_lbuf` means there is none.
+  local _lbuf='' _ltext='' _lcode='' _lstart=0 _lend=0 _lcont=0 _lbang=0
+  # Set when a line that OPENS a `!` statement was folded in because the
+  # scan had an unterminated quote or `(` -- the one way the fold can
+  # take a statement this lint judges out of its reach.
+  local _lswallow=0 _why=0
   local -a _pending_line=() _pending_end=() _pending_text=()
   local _i
 
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
-    _prev_cont="${_cont}"
-    _cont=0
-    [[ "${_line}" =~ ${_ERREXIT_BANG_CONT_RE} ]] && _cont=1
 
     if [[ "${_line}" == *"${_ERREXIT_BANG_ALLOW_BEGIN}"* ]]; then
       _in_allow=1
@@ -500,7 +562,7 @@ _errexit_bang_scan_file() {
         _in_body=1
         _body_open="${_lineno}"
         _last_stmt=0
-        _bang_start=0
+        _lbuf=''
         _pending_line=()
         _pending_end=()
         _pending_text=()
@@ -508,7 +570,118 @@ _errexit_bang_scan_file() {
       continue
     fi
 
-    if [[ "${_line}" =~ ${_ERREXIT_BANG_TEST_CLOSE_RE} ]]; then
+    _close=0
+    [[ "${_line}" =~ ${_ERREXIT_BANG_TEST_CLOSE_RE} ]] && _close=1
+    # Blank and comment lines open no statement and start none. They DO
+    # end a backslash continuation -- bash removes the backslash-newline,
+    # so a blank line contributes its own newline as the terminator and a
+    # comment line becomes a comment trailing the command -- but they do
+    # not end a quote or a `(` that is still open, which bash reads
+    # straight through. That is why the fold below asks `_lcont` first.
+    _is_stmt=1
+    if [[ -z "${_line//[[:space:]]/}" ]] || [[ "${_line}" =~ ^[[:space:]]*# ]]; then
+      _is_stmt=0
+    fi
+
+    _judge=0
+    if [[ -n "${_lbuf}" ]]; then
+      if [[ "${_close}" -eq 0 && ( "${_lcont}" -eq 2 || "${_is_stmt}" -eq 1 ) ]]; then
+        # This physical line belongs to the statement above it. Fold it
+        # in and re-decide on the WHOLE text: the quote state and the
+        # paren depth are rebuilt from the first character, which is what
+        # a per-line scan could not do.
+        #
+        # WHY it is folded decides what the fold owes. A backslash is
+        # bash's own continuation and the line is genuinely part of this
+        # statement (`find ... \` + `! -name x` is a find predicate, not
+        # an assertion). An unterminated quote or `(` is instead the scan
+        # admitting it lost track, and a line that would OPEN a `!`
+        # statement disappearing into one is the only way this fold can
+        # hide something the rule judges. Remember it and report it below.
+        _why="${_lcont}"
+        if [[ "${_why}" -eq 2 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+          _lswallow=1
+        fi
+        _lbuf+=" ${_line}"
+        _lend="${_lineno}"
+        _last_stmt="${_lineno}"
+        _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+        [[ "${_lcont}" -eq 0 ]] && _judge=1
+      else
+        # The statement ends WITHOUT consuming this line: a blank or a
+        # comment line closed its backslash continuation, or the body's
+        # `}` arrived while it was still open.
+        _judge=1
+      fi
+    elif [[ "${_close}" -eq 0 && "${_is_stmt}" -eq 1 ]]; then
+      _lbuf="${_line}"
+      _ltext="${_line}"
+      _lstart="${_lineno}"
+      _lend="${_lineno}"
+      _last_stmt="${_lineno}"
+      _lbang=0
+      _lswallow=0
+      if [[ "${_in_allow}" -eq 0 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+        _lbang=1
+      fi
+      _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+      [[ "${_lcont}" -eq 0 ]] && _judge=1
+    fi
+
+    if [[ "${_judge}" -eq 1 ]]; then
+      if [[ "${_lswallow}" -eq 1 ]]; then
+        # The fold took a `!` line with it while the scan had no idea
+        # where the statement ended. That line is judged by nothing, and
+        # a statement judged by nothing is exactly what this lint exists
+        # to stop -- so it is reported, and the price of being wrong is
+        # one hand-written allow region.
+        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- an unterminated quote or '(' folded a line opening with '!' into this statement, so that line was judged by no rule")
+      elif [[ "${_lcont}" -eq 2 && "${_lbang}" -eq 1 ]]; then
+        # A `!` statement whose quote or `(` never closed before the body
+        # did. Its code is whatever the scan could read, which is not the
+        # statement -- so it is reported rather than judged on a partial
+        # reading.
+        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- this '!' statement is still open where the body closes (an unterminated quote or '('), so the scan cannot tell where it ends")
+      elif [[ "${_lcont}" -eq 2 ]]; then
+        # Unreadable, but provably harmless to THIS rule: nothing folded
+        # into it opens with `!`, and the only lines this lint judges are
+        # the ones that do. Stated in the header rather than reported, so
+        # that a heredoc body or a multi-line string does not fail a gate
+        # it has no bearing on.
+        :
+      elif [[ "${_lbang}" -eq 1 ]]; then
+        # Order matters. The async operator is judged FIRST: a `&`
+        # anywhere at top level discards the negation whatever else the
+        # statement holds, so no `||` arm below it can speak for the
+        # statement. Then an `|| true` is judged before the generic `||`
+        # escape, so the one hand-off that IS inert is still reported.
+        if [[ "${_lcode}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
+        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
+          # Inert in EVERY position, so it is judged here rather than
+          # queued: waiting for the body to close would report it only
+          # when it happened not to be last, which is the hole this
+          # closes. It is deliberately not ALSO queued -- one statement,
+          # one row.
+          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
+        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
+          # `! A || B` with a B that can fail. The verdict is B's, and
+          # B's failure is not exempt from errexit, so this statement can
+          # fail its test from any position: out of both rules, not
+          # merely out of this one. See the header.
+          :
+        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' hands its status to another command in this statement (';')")
+        else
+          _pending_line+=("${_lstart}")
+          _pending_end+=("${_lend}")
+          _pending_text+=("${_ltext}")
+        fi
+      fi
+      _lbuf=''
+    fi
+
+    if [[ "${_close}" -eq 1 ]]; then
       # The body is closed: every pending `!` whose statement did not END
       # on the body's last statement line was exempt from errexit and
       # could not have failed the test.
@@ -518,80 +691,7 @@ _errexit_bang_scan_file() {
         fi
       done
       _in_body=0
-      continue
-    fi
-
-    # Blank and comment lines are not statements: they open none and join
-    # none, and neither continues onto the next line (a trailing backslash
-    # inside a comment is comment text). But a `!` statement the line
-    # above left open ENDS on one of them -- bash removes the
-    # backslash-newline, so a blank line contributes its own newline as
-    # the terminator and a comment line becomes a comment trailing the
-    # command -- so this does not `continue` past the judging block below.
-    # Skipping it there was the drop: the statement would be zeroed by the
-    # next real line, having been judged by NEITHER rule.
-    _is_stmt=1
-    if [[ -z "${_line//[[:space:]]/}" ]] || [[ "${_line}" =~ ^[[:space:]]*# ]]; then
-      _is_stmt=0
-      _cont=0
-    fi
-
-    # A statement line. A continuation belongs to the statement that
-    # started above it: it moves that statement's END (and the body's
-    # last-statement mark) and JOINS its text, without starting a new one.
-    # A blank / comment line moves neither: the statement it closes ended
-    # on the last line that carried code, which is the line the position
-    # rule must compare against the body's last statement.
-    if [[ "${_is_stmt}" -eq 1 ]]; then
-      _last_stmt="${_lineno}"
-      if [[ "${_prev_cont}" -eq 1 ]]; then
-        if [[ "${_bang_start}" -gt 0 ]]; then
-          _bang_end="${_lineno}"
-          _bang_code+=" $(_errexit_bang_code_part "${_line}")"
-        fi
-      else
-        _bang_start=0
-        if [[ "${_in_allow}" -eq 0 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
-          _bang_start="${_lineno}"
-          _bang_end="${_lineno}"
-          _bang_text="${_line}"
-          _bang_code="$(_errexit_bang_code_part "${_line}")"
-        fi
-      fi
-    fi
-
-    # The statement ENDS on the first of its lines that does not continue,
-    # and only there is the separator test complete: a `;` or `||` one
-    # line further along masks the negation exactly as one on the opening
-    # line does.
-    if [[ "${_bang_start}" -gt 0 && "${_cont}" -eq 0 ]]; then
-      # Order matters. The async operator is judged FIRST: a `&` anywhere
-      # at top level discards the negation whatever else the statement
-      # holds, so no `||` arm below it can speak for the statement. Then
-      # an `|| true` is judged before the generic `||` escape, so the one
-      # hand-off that IS inert is still reported.
-      if [[ "${_bang_code}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
-        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
-      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
-        # Inert in EVERY position, so it is judged here rather than
-        # queued: waiting for the body to close would report it only when
-        # it happened not to be last, which is the hole this closes. It
-        # is deliberately not ALSO queued -- one statement, one row.
-        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
-      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
-        # `! A || B` with a B that can fail. The verdict is B's, and B's
-        # failure is not exempt from errexit, so this statement can fail
-        # its test from any position: out of both rules, not merely out
-        # of this one. See the header.
-        :
-      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
-        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' hands its status to another command in this statement (';')")
-      else
-        _pending_line+=("${_bang_start}")
-        _pending_end+=("${_bang_end}")
-        _pending_text+=("${_bang_text}")
-      fi
-      _bang_start=0
+      _lbuf=''
     fi
   done < "${_abs}"
 

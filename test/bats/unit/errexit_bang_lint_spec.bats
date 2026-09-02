@@ -553,13 +553,13 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
-@test "_run_errexit_bang: FAILS on a ';' behind a STRAY ')' and a '#' (#956)" {
-  # The unrecognised half of the same character. The scan reads one
-  # PHYSICAL line at a time, so the `)` closing a `$(` that opened on the
-  # line above arrives with nothing known about what it closes. Unknown
-  # must resolve to "not a word end": the rest of the line stays code and
-  # the `; true` is still read. The other answer discards the rest of the
-  # line on a guess -- the drop this lint refuses.
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a FOLDED substitution's ')' (#956)" {
+  # The same expansion, opened on one line and closed on the next. The
+  # fold puts the `(` and its `)` in one text, so the `)` still answers
+  # "leaves the word open" and the `#b` after it is still data: the
+  # `; true` is read. Scanned per line this `)` arrived with nothing
+  # known about what it closed, and only the refusing default -- unknown
+  # is not a word end -- kept the line from being discarded on a guess.
   _write "test/bats/unit/x_spec.bats" \
     '@test "a substitution across a continuation, then data" {' \
     '  ! grep -q A $(printf x \' \
