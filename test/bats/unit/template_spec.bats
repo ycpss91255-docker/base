@@ -1565,6 +1565,1211 @@ EOF
   assert_success
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: BASE_IMAGE reproducibility
+#
+# The shipped template builds from a moving tag and installs unversioned
+# apt packages on top of it, so two consumers building the same template
+# version a month apart do not get the same image. The decision (see the
+# note above `ARG BASE_IMAGE`) is to keep the moving default -- almost
+# every consumer overrides BASE_IMAGE anyway, and a dev image that cannot
+# take a security update without a template release is worse than one
+# that drifts -- and to make the drift RECORDED rather than silent. These
+# specs lock the record, since a manifest nothing asserts is a manifest
+# that quietly stops being written.
+#
+# Several of them read a WINDOW of the file rather than the whole of it.
+# The commented builder / runtime-base scaffold repeats the same apt and
+# manifest lines the live stages carry, so a whole-file `grep` for one of
+# them is satisfied by any of three occurrences: the assertion a test
+# NAMES then is not the assertion it makes, and deleting the line the
+# name is about leaves it green.
+# ════════════════════════════════════════════════════════════════════
+
+# _df_runtime_base_block -- the commented `runtime-base` stage of the
+# shipped template, bounded by its own `FROM` marker and the next stage's.
+# Printed as-is (comment markers included) so a caller greps the literal
+# commented text.
+# _df_sys_block -- the LIVE `sys` stage of the shipped template, bounded
+# by its own `FROM` and the next live stage's. The commented builder /
+# runtime-base scaffold carries a copy of every line the sys record is
+# made of, so a whole-file grep for one of them is satisfied by the
+# comment and the record itself can be deleted with the grep still green.
+# The commented `# FROM ...` markers do not close the window (they never
+# match `^FROM `), which is what keeps the window the STAGE and not the
+# text between two FROM-shaped strings.
+_df_sys_block() {
+  awk '
+    /^FROM \$\{BASE_IMAGE\} AS sys$/ { in_b = 1; next }
+    in_b && /^FROM /                  { in_b = 0 }
+    in_b
+  ' "${1:?_df_sys_block: missing file}"
+}
+
+# _df_base_image_note <file> -- the contiguous run of comment lines
+# immediately above `ARG BASE_IMAGE=`, i.e. the note a downstream author
+# reads before deciding whether to pin. Scoped rather than whole-file for
+# the same reason _df_sys_block is: every path, key and flag the note
+# names is ALSO spelled somewhere in the RUN that implements it (the live
+# sys stage) and again in the commented runtime-base scaffold, so a
+# whole-file grep for them stays green with the entire note deleted --
+# which is the one thing these tests exist to prevent.
+_df_base_image_note() {
+  awk '
+    /^ARG BASE_IMAGE=/ { print buf; found = 1; exit }
+    /^#/               { buf = buf $0 "\n"; next }
+                       { buf = "" }
+    END { if (!found) exit 1 }
+  ' "${1:?_df_base_image_note: missing file}"
+}
+
+# _df_apt_run_blocks <file> <live|commented> -- every logical RUN block of
+# the template that installs apt packages, one per output line with
+# backslash continuations folded, so a caller can ask what a single block
+# does rather than what the file contains somewhere.
+#
+# "Installs apt packages" is the SHAPE, not one literal. `apt-get install`
+# and the `apt install` a consumer writes from muscle memory both count,
+# and so does `rosdep install`, which resolves its dependencies straight
+# into apt. Keying on a single literal is how the template's own rosdep
+# example stayed exempt from a relation whose name is "every apt layer".
+# Options before the subcommand are part of that shape too:
+# `apt-get -y install foo` is an install layer, and a pattern demanding
+# `apt-get` immediately followed by `install` makes one invisible. An
+# option that takes a SEPARATE argument counts as one option, not as an
+# option and then something unrecognised: `-o Dpkg::Options::="..."` is
+# the spelling this template itself writes in devel-base, and a pattern
+# that can only cross glued `-x` / `--x=y` tokens stops at its value --
+# so moving those two words ahead of the subcommand, which apt-get
+# accepts, turned the guard off for that layer while the block still
+# counted toward the floor. The argument is matched as one non-option
+# word, which is what keeps the pattern from walking over a `&&` into an
+# `install` belonging to something else.
+#
+# Leading whitespace is tolerated because Docker tolerates it: `  RUN ...`
+# is a RUN, and a guard that only sees column 0 is a guard a consumer's
+# indentation turns off. The same goes for a comment marker: `  # RUN ...`
+# is a legal Docker comment, so `commented` anchors on the first non-blank
+# character, not on column 0.
+#
+# A BuildKit HEREDOC layer -- `RUN <<EOF` / body / `EOF` -- is a block
+# too. Its body carries no backslash continuations, so the trailing-`\`
+# rule alone closed such a RUN on its first line and left the apt-get
+# calls under it invisible: not asked for a refresh, and not counted
+# toward the floors either, so nothing went red over a layer that was
+# never seen. The delimiter is read off the `<<`, `<<-` and quoted
+# spellings alike (the quoting only changes whether the SHELL expands the
+# body, which is nothing to do with what installs), and the block ends on
+# the line that is exactly the delimiter. `<<<` opens nothing: a
+# here-string is not a heredoc, and reading one as a delimiter swallows
+# every layer below it into a single block -- which the first spelling of
+# this rule did, because awk's `match` is LEFTMOST and found a `<<` inside
+# a `<<<` by starting at its second `<`. The `<<` is required to follow a
+# non-`<` for that reason.
+#
+# Comment lines INSIDE a block are dropped rather than folded in, in both
+# modes, because that is what Docker does with them -- a continuation line
+# the parser removes cannot run. Folding them in is how a refresh that had
+# been commented out ("#    dpkg-query -W > ... && \\") still read as
+# present: the broken layer and the correct one produced the same text for
+# an assertion to search.
+#
+# `commented` strips one leading comment marker first and reads the result
+# as the RUN it becomes when a consumer uncomments it. A doubly-commented
+# illustration nested inside such a block (`# #   RUN ...`) is still a
+# comment after that strip and so is dropped by the rule above, which is
+# also what makes it correctly NOT a block of its own: the only one the
+# template ships sits in `runtime-test`, an ephemeral stage whose image is
+# discarded after the build, so nothing it installs is ever shipped for a
+# manifest to describe.
+#
+# One definition of the install shape, shared with the callers that have
+# to ask the same question about part of a block (see the ordering
+# assertion below) -- two spellings of it is how a relation ends up
+# holding for one of them only.
+_DF_APT_INSTALL_RE='(apt(-get)?|rosdep)([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+install'
+
+_df_apt_run_blocks() {
+  awk -v mode="${2:?_df_apt_run_blocks: missing mode}" \
+      -v install_re="${_DF_APT_INSTALL_RE}" '
+    function flush() { if (buf ~ install_re) print buf; buf = ""; in_r = 0; hd = "" }
+    {
+      line = $0
+      if (mode == "commented") {
+        if (line !~ /^[[:space:]]*#/) { if (in_r) flush(); next }
+        sub(/^[[:space:]]*#[[:space:]]?/, "", line)
+      }
+      # Inside a heredoc body the delimiter line closes the layer and
+      # everything else joins it -- including a `RUN` word, which is
+      # shell text here and not a new instruction.
+      if (hd != "") {
+        term = line
+        sub(/^[[:space:]]+/, "", term)
+        sub(/[[:space:]]+$/, "", term)
+        if (term == hd) { flush(); next }
+        if (line ~ /^[[:space:]]*#/) next
+        buf = buf " " line
+        next
+      }
+      # A comment line neither joins the block nor ends it: the parser
+      # removes it, and the continuation it sits inside carries on.
+      if (line ~ /^[[:space:]]*#/) next
+      if (!in_r) {
+        if (line !~ /^[[:space:]]*RUN[[:space:]]/) next
+        in_r = 1
+        buf = line
+      } else {
+        buf = buf " " line
+      }
+      # The `<<` has to be preceded by a NON-`<`, or the leftmost match awk
+      # takes finds one inside a `<<<` by starting at its second `<`: `grep -q x
+      # <<<"${y}"` then opens a heredoc delimited by `y` and swallows every
+      # layer below it into that block. A space is prepended so the guard
+      # still has a character to look at when the `<<` opens the line.
+      # The delimiter is whatever is left after the `<<`, the `-` and the
+      # quoting are stripped, and it has to look like a word --
+      # `$((1<<2))` leaves `2`, which does not.
+      probe = " " line
+      if (match(probe, /[^<]<<-?[^<[:space:]][^[:space:]]*/)) {
+        delim = substr(probe, RSTART + 1, RLENGTH - 1)
+        sub(/^<<-?/, "", delim)
+        gsub(/[^A-Za-z0-9_]/, "", delim)
+        if (delim ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { hd = delim; next }
+      }
+      if (line !~ /\\[[:space:]]*$/) flush()
+    }
+    END { if (in_r) flush() }
+  ' "${1:?_df_apt_run_blocks: missing file}"
+}
+
+# The one line that rewrites the manifest. Spelled once, next to the shape
+# it has to follow.
+_DF_APT_REFRESH='dpkg-query -W > /usr/local/share/base/packages.txt'
+
+# _df_assert_refresh_last <block> <what> -- <block> rewrites the manifest,
+# and rewrites it AFTER everything it installs. The ORDER is half the
+# property: a refresh that runs before the install records the pre-install
+# package set and leaves the added packages out, which is the very defect
+# this relation is named for, and which reads identically to any assertion
+# that only asks whether the literal appears somewhere in the block.
+#
+# `fail` is followed by an explicit `return 1` rather than left to abort
+# through errexit: `run _df_assert_refresh_last ...` -- the only way to
+# assert that this helper REJECTS a block -- runs with errexit off, and
+# `fail`'s own `return 1` returns from `fail`, not from here, so without
+# it the function printed the rejection and then returned 0.
+_df_assert_refresh_last() {
+  local _blk="${1}" _what="${2}" _tail
+  if [[ "${_blk}" != *"${_DF_APT_REFRESH}"* ]]; then
+    fail "${_what} installs without refreshing the manifest: ${_blk}"
+    return 1
+  fi
+  _tail="${_blk##*"${_DF_APT_REFRESH}"}"
+  if [[ "${_tail}" =~ ${_DF_APT_INSTALL_RE} ]]; then
+    fail "${_what} installs AFTER its last manifest refresh: ${_blk}"
+    return 1
+  fi
+  return 0
+}
+
+# _df_assert_no_herestring_fusion <file> <mode> -- <file> holds a here-string
+# RUN, then a DEFECTIVE apt layer (refresh, then install), then a correct
+# one. Asserts the scanner read three RUNs as two apt blocks rather than
+# fusing them into one.
+#
+# THREE observations, because none of them discriminates alone. The COUNT
+# separates the readings only over a fixture with two layers under the
+# here-string -- over one layer, the correct reading and the fused reading
+# both yield a single block, which is a positive and a negative case with
+# the identical observation. The CONTENT says the here-string RUN's own
+# text is inside no block, which is the fusion itself. The CONSEQUENCE
+# says the defective layer is still REJECTED, and names the rejection: a
+# fused block hides that defect specifically, because the defective
+# install lands ahead of the fused tail's last refresh and so reads as
+# ordered.
+_df_assert_no_herestring_fusion() {
+  local _file="${1:?_df_assert_no_herestring_fusion: missing file}"
+  local _mode="${2:?_df_assert_no_herestring_fusion: missing mode}"
+  local _blk _n=0 _first="" _last=""
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    [[ "${_blk}" != *'grep -q x'* ]] \
+      || fail "${_mode}: the here-string RUN opened a heredoc and swallowed the layers below it: ${_blk}"
+    [[ -n "${_first}" ]] || _first="${_blk}"
+    _last="${_blk}"
+  done < <(_df_apt_run_blocks "${_file}" "${_mode}")
+  [[ "${_n}" == "2" ]] \
+    || fail "${_mode}: expected 2 apt blocks below the here-string RUN, found ${_n}"
+  run _df_assert_refresh_last "${_first}" "${_mode} layer below a here-string"
+  assert_failure
+  assert_output --partial 'installs AFTER its last manifest refresh'
+  _df_assert_refresh_last "${_last}" "${_mode} correct layer below a here-string"
+}
+
+_df_runtime_base_block() {
+  awk '
+    /^# FROM \$\{BASE_IMAGE\} AS runtime-base$/ { in_b = 1; next }
+    in_b && /^# FROM runtime-base/              { in_b = 0 }
+    in_b
+  ' "${1:?_df_runtime_base_block: missing file}"
+}
+
+# _hadolint_ignore_rationale <file> <rule> -- the run of comment lines
+# immediately preceding `- <rule>` in the ignore list. An ignore's
+# rationale is the block attached to it; text describing a compensating
+# control somewhere else in the file does not excuse THIS rule.
+_hadolint_ignore_rationale() {
+  awk -v rule="${2:?_hadolint_ignore_rationale: missing rule}" '
+    $0 ~ "^[[:space:]]*-[[:space:]]*" rule "([[:space:]]|$)" { print buf; found = 1; exit }
+    /^[[:space:]]*#/ { buf = buf $0 "\n"; next }
+    { buf = "" }
+    END { if (!found) exit 1 }
+  ' "${1:?_hadolint_ignore_rationale: missing file}"
+}
+
+# disproven-claim vocabulary: begin
+#
+# Everything between this marker and its `end` twin is EXCISED before the
+# sweep below reads a file. It has to be: a guard that bans a sentence
+# cannot state it, and this block's whole job is to state it -- once as
+# the patterns themselves, once as the examples that explain what shape
+# they match. Excising by marker rather than exempting this FILE is what
+# lets the sweep read the spec tree at all, which is where the claim was
+# last found justifying an assertion.
+#
+# Every claim about a LABEL that this template, its harness, its shipped
+# specs and its READMEs are allowed to make. A LABEL CAN read a digest out
+# of a reference: build this repo's smoke harness with
+# `--build-arg BASE_IMAGE=ubuntu@sha256:<hex>` and a
+# `LABEL probe="${BASE_IMAGE##*@}"` comes back from `docker inspect` as
+# `sha256:<hex>`. What a LABEL cannot do is BRANCH -- the same expression
+# comes back as `ubuntu:24.04` for an unpinned reference -- which is a
+# narrower constraint with a different consequence: it rules out deriving
+# the annotation, it does not rule out reading the digest. The categorical
+# version was once the sole stated reason for REFUSING a build, so it is
+# swept for by pattern across every file that carried it, including the
+# error text an operator would have been handed.
+#
+# EXTENDED REGEXES, not literals. The categorical claim is a SHAPE -- "the
+# digest arg is the only value the annotation can carry" -- and the round
+# that retracted it left the sentence standing in the changelog by
+# rewording "the only value a label can carry" into "the one value the
+# annotation can carry". A sweep keyed on the exact sentence a file used
+# to hold goes green on the paraphrase, which is a report about the
+# wording rather than about the claim.
+_DF_DISPROVEN_CLAIMS=(
+  'LABEL cannot read'
+  'LABEL cannot run a case statement'
+  'a LABEL cannot run that stage'
+  '(only|one) value ([^ ]+ ){0,4}can carry'
+  'two routes this note offers'
+)
+# disproven-claim vocabulary: end
+
+# _df_swept_files -- every shipped or published text file the sweep reads:
+# the whole template tree, base's own Dockerfiles, the doc tree (changelog,
+# ADRs, the localized READMEs) and every file at the top of the checkout.
+#
+# DERIVED, not enumerated. The five files that had carried the claim were
+# named by hand, so the sweep's reach was a property of that list and not
+# of the repo: a sixth shipped file stating the claim tomorrow was exempt
+# by construction -- the same hole one level up from the literal wording
+# the patterns above now match by shape.
+#
+# TWO derivations, because directory roots only derive one level down. A
+# root that is itself a FILE still had to be named, and README.md was the
+# only one named: `init.sh` (the one file a consumer executes on every
+# upgrade), `justfile`, `compose.yaml` and `CONTEXT.md` ship at the top
+# level and were exempt by exactly the construction the roots list had
+# just retired. So the top level is swept as a level -- `-maxdepth 1
+# -type f`, which reaches a fifth such file the day it lands -- and
+# README.md is dropped from the roots because that derivation now covers
+# it. A directory at the top level that is not a root stays out --
+# `-type f` does not descend -- which covers `log/` and the git
+# DIRECTORY of an ordinary clone.
+#
+# It is the WORKING TREE that is walked, not the index, so the roster is
+# what is on disk: in a worktree checkout `.git` is a pointer FILE and is
+# read, and so is any untracked top-level file a developer leaves lying
+# around. The roster therefore differs between two checkouts of one
+# commit. That is tolerated rather than fixed here, because the walk only
+# READS -- an extra file can fail the sweep by stating a disproven claim,
+# never hide one -- and because the derivation that would not vary is
+# unavailable where this runs: /source is a bind mount of the checkout
+# alone, and a worktree's `.git` names a gitdir outside it, so no git
+# question can be asked in the container.
+#
+# The spec tree, the tooling tree and the workflows are IN it. They were
+# left out on the theory that the claims are spelled there as data -- but
+# only one block of one file spells them, and outside that block the spec
+# tree is prose like any other, which is where the claim was last found
+# still justifying an assertion. The vocabulary markers carve out the
+# block; nothing carves out a file.
+#
+# The roots are a variable, not an argument list, because a root that has
+# been renamed makes `find` print to stderr and carry on: the roster comes
+# back shorter and the sweep reports a clean repo it never read. The
+# caller asserts every root contributed.
+_DF_SWEPT_ROOTS=(
+  /source/dist
+  /source/dockerfile
+  /source/doc
+  /source/script
+  /source/test
+  /source/.github
+)
+
+# _df_swept_top_level -- the second derivation, spelled as its own
+# function so the caller can ask whether it CONTRIBUTED. Asking the
+# roster instead -- does it hold a single-component path -- answers that
+# question only while every root is a directory, and the roots are a
+# list someone edits.
+_df_swept_top_level() {
+  find /source -maxdepth 1 -type f
+}
+
+_df_swept_files() {
+  {
+    find "${_DF_SWEPT_ROOTS[@]}" -type f
+    _df_swept_top_level
+  } | sort -u
+}
+
+# _df_vocabulary_unbalanced <file> -- prints the file, and why, when its
+# `begin` / `end` markers do not NEST: a `begin` left open at EOF, an
+# `end` with no `begin` above it, or a second `begin` inside one. A
+# `begin` that never closes excises everything after it, which is a sweep
+# that read nothing wearing the report of a sweep that found nothing.
+#
+# ORDER, not counts. Comparing a count of `begin` against a count of `end`
+# calls an INVERTED pair balanced -- 1 == 1 -- while `_df_flatten` opens
+# at the `begin` and never closes, so the file tail is excised anyway:
+# the same failure the guard is named for, wearing a clean report. Reading
+# the markers in order is also what retires the `|| true` the counting
+# spelling needed, under which a file grep could not read at all came
+# back as a count of zero.
+_df_vocabulary_unbalanced() {
+  local _f="${1:?_df_vocabulary_unbalanced: missing file}" _why
+  _why="$(awk '
+    /disproven-claim vocabulary: begin/ {
+      if (open) {
+        bad = "a second begin at line " NR " inside the one at line " at
+        exit
+      }
+      open = 1; at = NR; next
+    }
+    /disproven-claim vocabulary: end/ {
+      if (!open) { bad = "an end at line " NR " with no begin above it"; exit }
+      open = 0; next
+    }
+    END {
+      if (bad == "" && open) bad = "a begin at line " at " with no end below it"
+      if (bad != "") print bad
+    }
+  ' "${_f}")"
+  [[ -z "${_why}" ]] || printf '%s (%s)\n' "${_f}" "${_why}"
+}
+
+# _df_flatten <file> -- the file as ONE line of prose: comment markers,
+# quotes, backticks and line continuations blanked, whitespace squeezed.
+#
+# The carve-out closes only a block it OPENED. An `end` that closes
+# nothing is prose like any other line, and is swept: dropping it would
+# hide whatever else sits on it. `_df_vocabulary_unbalanced` refuses that
+# arrangement before the sweep reads the file, so this is the two
+# functions agreeing on one rule rather than a second guard.
+#
+# Searching line by line is why a sweep like this would have found one of
+# the nine occurrences and reported the other eight as clean. Every claim
+# below is WRAPPED where it ships -- across two comment lines in the
+# note, across two `echo` arguments in the RUN that printed it, across a
+# markdown wrap in the README -- so the string a reader sees exists on no
+# single line of any of these files.
+_df_flatten() {
+  awk '
+    /disproven-claim vocabulary: begin/ { skip = 1 }
+    /disproven-claim vocabulary: end/   { if (skip) { skip = 0; next } }
+    !skip
+  ' "${1:?_df_flatten: missing file}" \
+    | sed 's/[#\\"`]/ /g' | tr '\n' ' ' | tr -s '[:space:]' ' '
+}
+
+# _df_claim_hits <prose> <claim> -- 0 when the prose states the claim, 1
+# when it does not, 2 when grep could not evaluate the pattern at all.
+#
+# THREE answers, because an `if` around grep has only two branches and
+# reads exit 2 the way it reads exit 1: a sweep that could not run comes
+# back as a file that is clean. The caller has to see the difference, so
+# the status is returned rather than collapsed, and the reason is printed
+# where a failing gate will show it.
+_df_claim_hits() {
+  local _prose="${1?_df_claim_hits: missing prose}" \
+        _claim="${2?_df_claim_hits: missing claim}" _st=0
+  grep -qiE -- "${_claim}" <<< "${_prose}" || _st=$?
+  case "${_st}" in
+    0 | 1) return "${_st}" ;;
+    *)
+      printf 'grep could not evaluate the pattern %s (exit %s)\n' \
+          "${_claim}" "${_st}"
+      return 2
+      ;;
+  esac
+}
+
+@test "no shipped text repeats the claim a build disproves (#951)" {
+  local _f _claim _flat _roster _hit _why
+  _roster="$(_df_swept_files)"
+
+  # The derivation has to REACH the files that carried the claim. A `find`
+  # over roots that were renamed returns a shorter list, not an error, so
+  # a shrinking roster reads exactly like a repo that got clean. Named
+  # here as a floor, and fail-closed the way every other subject in this
+  # file is, never as the roster.
+  for _f in \
+      /source/dist/dockerfile/Dockerfile \
+      /source/dockerfile/Dockerfile.smoke \
+      /source/dist/test/bats/smoke/shared/reproducibility.bats \
+      /source/README.md \
+      /source/doc/changelog/CHANGELOG.md; do
+    assert_spec_subject "${_f}" "a file this spec sweeps for disproven claims"
+    grep -qxF -- "${_f}" <<< "${_roster}" \
+      || fail "${_f} carried the claim and the derived roster misses it"
+  done
+
+  # ... and the shipped TOP-LEVEL files. A `find` over directory roots is
+  # derived one level down only: a root that is itself a FILE still has to
+  # be named, and four shipped ones were not -- `init.sh` (the bootstrap a
+  # consumer executes on every upgrade), `justfile`, `compose.yaml` and
+  # `CONTEXT.md`. Named here as a floor, not as the roster: the derivation
+  # reads the whole top level, so a fifth top-level file added tomorrow is
+  # swept without an edit to this list.
+  for _f in \
+      /source/init.sh \
+      /source/justfile \
+      /source/compose.yaml \
+      /source/CONTEXT.md; do
+    assert_spec_subject "${_f}" "a shipped top-level file this spec sweeps"
+    grep -qxF -- "${_f}" <<< "${_roster}" \
+      || fail "${_f} ships at the top level and the derived roster misses it"
+  done
+
+  # Every root contributed something. Without this a renamed root is a
+  # shorter list, not an error, and this test's report becomes "the files
+  # I could still find are clean".
+  local _root
+  for _root in "${_DF_SWEPT_ROOTS[@]}"; do
+    grep -q "^${_root}" <<< "${_roster}" \
+      || fail "the sweep root ${_root} contributed no file to the roster"
+  done
+  # ... and so did the top-level derivation, which has no root name to
+  # check: a `find` whose -maxdepth walk returned nothing is the same
+  # shorter list wearing the same clean report. Asked of the walk, not
+  # of the roster: a roster holding a single-component path proves only
+  # that SOME walk produced one, and a top-level file among the roots
+  # would produce it without this one running at all.
+  [[ -n "$(_df_swept_top_level)" ]] \
+    || fail "the top-level sweep contributed no file to the roster"
+
+  local _unbalanced
+  while IFS= read -r _f; do
+    _unbalanced="$(_df_vocabulary_unbalanced "${_f}")"
+    [[ -z "${_unbalanced}" ]] \
+      || fail "unbalanced vocabulary markers: ${_unbalanced}"
+    _flat="$(_df_flatten "${_f}")"
+    for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
+      _hit=0
+      _why="$(_df_claim_hits "${_flat}" "${_claim}")" || _hit=$?
+      case "${_hit}" in
+        0) fail "${_f} states '${_claim}', which building this repo disproves" ;;
+        1) ;;
+        *) fail "the sweep could not read ${_f} for '${_claim}': ${_why}" ;;
+      esac
+    done
+  done <<< "${_roster}"
+
+  # The localized READMEs are inside the roster, but only their English
+  # fragments can match: drivers/readme_sync.sh stamps each translated
+  # section with the hash of the English section it was translated
+  # against, so an English fix that leaves a translation stating the old
+  # claim in zh-TW / zh-CN / ja fails that lint instead.
+  # ... and the narrower constraint that survives has to be STATED where
+  # the decision rests on it, or the next reader re-derives the wide one.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  run grep -F 'cannot BRANCH' "${_df}"
+  assert_success
+}
+
+@test "the vocabulary marker guard reads order, not counts (#951)" {
+  # `_df_flatten` excises from a `begin` to the `end` that follows it, so
+  # a marker pair that does not nest deletes the rest of the file from
+  # the sweep: a sweep that read nothing wearing the report of a sweep
+  # that found nothing. `_df_vocabulary_unbalanced` is the guard against
+  # that, and COUNTING the two markers cannot be it -- an INVERTED pair
+  # (the `end` above its `begin`) counts 1 == 1 and reports the file
+  # balanced while the excision happens anyway.
+  #
+  # The marker literals are assembled from a variable rather than written
+  # out, because this spec is itself one of the files the sweep reads:
+  # a fixture spelling the markers in an order of its own would be an
+  # inverted pair IN THIS FILE. The text below the `begin` is a sentinel
+  # for the same reason -- a real claim here would trip the sweep.
+  local _tmp _m='disproven-claim vocabulary' _report _flat
+  _tmp="$(mktemp -d)"
+
+  # An INVERTED pair: what counting calls balanced.
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: end\n' "${_m}"
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-BEGIN'
+  } > "${_tmp}/inverted"
+
+  # The consequence first, so the guard is asserted against a real
+  # excision and not against a rule someone wrote down.
+  _flat="$(_df_flatten "${_tmp}/inverted")"
+  run grep -cF 'ABOVE-THE-MARKERS' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -F 'BELOW-THE-BEGIN' <<< "${_flat}"
+  assert_equal "${status}" "1"
+
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/inverted")"
+  [[ -n "${_report}" ]] \
+    || fail "an inverted marker pair was reported balanced: ${_tmp}/inverted"
+
+  # The siblings: the two spellings a count DOES catch have to keep being
+  # caught, and a properly nested pair must stay silent -- a guard that
+  # reports every file is a guard nobody can act on.
+  {
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-BEGIN'
+  } > "${_tmp}/unclosed"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/unclosed")"
+  [[ -n "${_report}" ]] \
+    || fail "an unclosed begin was reported balanced: ${_tmp}/unclosed"
+
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: end\n' "${_m}"
+  } > "${_tmp}/stray-end"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/stray-end")"
+  [[ -n "${_report}" ]] \
+    || fail "a stray end was reported balanced: ${_tmp}/stray-end"
+
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'INSIDE-THE-BLOCK'
+    printf '# %s: end\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-END'
+  } > "${_tmp}/nested"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/nested")"
+  [[ -z "${_report}" ]] \
+    || fail "a properly nested marker pair was reported unbalanced: ${_report}"
+  _flat="$(_df_flatten "${_tmp}/nested")"
+  run grep -cF 'BELOW-THE-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  rm -rf "${_tmp}"
+}
+
+@test "the top-level walk is read on its own, not off the roster (#951)" {
+  # The roster is the union of two walks, and only one of them has a
+  # name to check: a root that was renamed is caught because the roster
+  # holds nothing under it. The `-maxdepth` walk was checked by asking
+  # the roster for a single-component path -- which discriminates only
+  # while every root is a DIRECTORY. Put one top-level FILE back in the
+  # roots (README.md was one until this round) and the roots walk alone
+  # satisfies it, so a `-maxdepth` walk returning nothing reads as a
+  # contribution. The walk has to answer for itself.
+  local _f _top
+
+  # Control: the roster-shaped question, answered with no top-level walk.
+  run grep -qE '^/source/[^/]+$' <<< '/source/README.md'
+  assert_success
+
+  _top="$(_df_swept_top_level)"
+  [[ -n "${_top}" ]] \
+    || fail "the top-level walk contributed no file"
+  while IFS= read -r _f; do
+    [[ "${_f}" =~ ^/source/[^/]+$ ]] \
+      || fail "the top-level walk returned ${_f}, which is not a top-level file"
+    grep -qxF -- "${_f}" <<< "$(_df_swept_files)" \
+      || fail "${_f} is walked at the top level and the roster misses it"
+  done <<< "${_top}"
+}
+
+@test "the flattener closes only a block it opened (#951)" {
+  # `_df_vocabulary_unbalanced` reads the markers as a NESTING; the
+  # flattener read them as a switch, closing on any `end` whether or not
+  # a `begin` was open -- and dropping that line. Two functions, one
+  # carve-out, and only one of them knew the rule: text sharing a line
+  # with an unopened `end` left the sweep without either of them
+  # reporting anything. The guard refuses that file first, so this is the
+  # rule the two have to agree on, not a live hole.
+  #
+  # The markers are assembled from a variable, and the payload is a
+  # sentinel, for the reason the sibling test states: this spec is one of
+  # the files the sweep reads.
+  local _tmp _m='disproven-claim vocabulary' _flat
+  _tmp="$(mktemp -d)"
+
+  {
+    printf '%s -- # %s: end\n' 'A-SENTINEL-PHRASE' "${_m}"
+    printf '%s\n' 'BELOW-THE-STRAY-END'
+  } > "${_tmp}/stray-end"
+  _flat="$(_df_flatten "${_tmp}/stray-end")"
+  run grep -cF 'A-SENTINEL-PHRASE' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -cF 'BELOW-THE-STRAY-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  # ... and the carve-out the flattener exists for still cuts: a block
+  # that IS opened is excised, ends where its `end` is, and the file
+  # below it comes back.
+  {
+    printf '%s\n' 'ABOVE-THE-BLOCK'
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'INSIDE-THE-BLOCK'
+    printf '# %s: end\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-END'
+  } > "${_tmp}/nested"
+  _flat="$(_df_flatten "${_tmp}/nested")"
+  run grep -F 'INSIDE-THE-BLOCK' <<< "${_flat}"
+  assert_equal "${status}" "1"
+  run grep -cF 'ABOVE-THE-BLOCK' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -cF 'BELOW-THE-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  rm -rf "${_tmp}"
+}
+
+@test "the claim sweep refuses a pattern it could not read (#951)" {
+  # `grep` answers three things, and the sweep read two of them as one:
+  # 0 states the claim, 1 does not, and 2 is "I could not evaluate this
+  # pattern at all". An `if` around grep takes the SAME branch for 1 and
+  # 2, so a sweep that never ran reports the file clean -- the shape this
+  # round exists to remove, one level below the patterns themselves.
+  #
+  # The claim strings here are sentinels: this spec is one of the files
+  # the sweep reads, so a real claim written as a fixture would trip it.
+  local _seen
+
+  # Control: the shape the sweep used cannot tell 1 from 2.
+  if grep -qiE -- '[' <<< 'a sentinel phrase' 2>/dev/null; then
+    _seen='stated'
+  else
+    _seen='clean'
+  fi
+  assert_equal "${_seen}" "clean"
+
+  # So the answer has to carry the third case. A pattern grep cannot
+  # compile is an error that says so, never a silent "no".
+  run _df_claim_hits 'a sentinel phrase' '['
+  assert_equal "${status}" "2"
+  assert_output --partial 'could not evaluate'
+
+  # ... and the two it CAN answer are still answered, both ways: a guard
+  # that errors on everything is as unusable as one that never errors.
+  run _df_claim_hits 'this prose holds a sentinel phrase' 'sentinel phrase'
+  assert_equal "${status}" "0"
+  run _df_claim_hits 'this prose holds nothing of the kind' 'sentinel phrase'
+  assert_equal "${status}" "1"
+}
+
+@test "the note gives one [build] arg slot per key (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # The note spells its routes as `arg_N = KEY=value` lines a reader
+  # pastes into `.setup.conf`. Two paragraphs handing the same N to
+  # different keys is not a typo a reader can absorb: a `[build]` section
+  # written in `.setup.conf.local` REPLACES the section (the note says so
+  # itself), so the second paste silently displaces the first. Derived
+  # from the note rather than spelled as literals -- a literal pair goes
+  # green the moment either paragraph is renumbered.
+  local _note _line _n _key
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+  local -A _by_slot=() _by_key=()
+  while IFS= read -r _line; do
+    _n="${_line%%|*}"
+    _key="${_line#*|}"
+    if [[ -n "${_by_slot[${_n}]:-}" && "${_by_slot[${_n}]}" != "${_key}" ]]; then
+      fail "arg_${_n} is given to both ${_by_slot[${_n}]} and ${_key}"
+    fi
+    if [[ -n "${_by_key[${_key}]:-}" && "${_by_key[${_key}]}" != "${_n}" ]]; then
+      fail "${_key} is given both arg_${_by_key[${_key}]} and arg_${_n}"
+    fi
+    _by_slot["${_n}"]="${_key}"
+    _by_key["${_key}"]="${_n}"
+  done < <(sed -n 's/.*arg_\([0-9][0-9]*\)[[:space:]]*=[[:space:]]*\([A-Z_][A-Z_0-9]*\)=.*/\1|\2/p' <<< "${_note}")
+  # A note that stopped spelling any slot would satisfy the relation
+  # vacuously, and the local route is the one this repo drives builds
+  # through.
+  (( ${#_by_slot[@]} >= 2 )) \
+    || fail "expected the note to spell >= 2 '[build] arg_N = KEY=' routes, found ${#_by_slot[@]}"
+}
+
+@test "the apt-layer guard sees the install shapes this template writes (#951)" {
+  # The guard's REACH is the property "every apt layer refreshes the
+  # manifest": a shape _DF_APT_INSTALL_RE does not match is a layer the
+  # relation is never asked about, while the block still counts toward
+  # the `>= 2` floor -- so the suite stays green over exactly the drift
+  # this spec is named for. The template already writes
+  # `-o Dpkg::Options::="--force-confdef"` (devel-base); positioned
+  # BEFORE the subcommand, which apt-get accepts, an option that takes a
+  # separate argument is what a glued-token-only pattern cannot cross.
+  local _shape
+  for _shape in \
+      'apt-get install -y foo' \
+      'apt-get -y install foo' \
+      'apt install --no-install-recommends foo' \
+      'rosdep install --from-paths src' \
+      'apt-get -o Dpkg::Options::="--force-confdef" install cowsay' \
+      'apt-get -y -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" install cowsay'; do
+    [[ "${_shape}" =~ ${_DF_APT_INSTALL_RE} ]] \
+      || fail "apt-layer guard cannot see this install layer: ${_shape}"
+  done
+  # ... and reach is only half of it. Widened until it matches a block
+  # that installs nothing, the same guard demands a manifest refresh from
+  # `apt-get clean` and reports "installs AFTER its last refresh" for a
+  # tail that installs nothing.
+  for _shape in \
+      'apt-get update && apt-get clean && rm -rf /var/lib/apt/lists/*' \
+      'apt-get -y update && echo install' \
+      'pip install foo'; do
+    if [[ "${_shape}" =~ ${_DF_APT_INSTALL_RE} ]]; then
+      fail "apt-layer guard reads a non-install layer as one: ${_shape}"
+    fi
+  done
+}
+
+@test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # A downstream author meets this trade in the file they edit, not in
+  # base's docs, so the file has to name the drift, the compensating
+  # record, and the escape hatch -- in the NOTE, which is where that
+  # author reads it. Read from the note's own window, not the file: both
+  # manifest paths below are also spelled in the live sys RUN and again
+  # in the commented runtime-base scaffold, so a whole-file grep is
+  # satisfied by the implementation with the explanation deleted.
+  local _note
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+
+  run grep -F 'MOVING tag' <<< "${_note}"
+  assert_success
+  run grep -F '/usr/local/share/base/base-image.env' <<< "${_note}"
+  assert_success
+  run grep -F '/usr/local/share/base/packages.txt' <<< "${_note}"
+  assert_success
+  # The escape hatch is a build arg, so pinning costs a consumer no edit
+  # to this file and no divergence from the template.
+  run grep -F 'BASE_IMAGE=ubuntu@sha256:' <<< "${_note}"
+  assert_success
+  # ... and the route it names first has to be the one this repo actually
+  # drives builds through. `[build] arg_N` in .setup.conf reaches the
+  # build via `just setup` + `just build`; a note that offers only
+  # `--build-arg` sends a local reader to the one surface the repo's
+  # convention refuses, and offering only an `ARG` default edit sends
+  # them to a template-owned line a later migration may rewrite.
+  run grep -F '.setup.conf' <<< "${_note}"
+  assert_success
+  run grep -F 'just setup' <<< "${_note}"
+  assert_success
+}
+
+@test "Dockerfile.example states what the UNPINNED default does not record (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # The half of the reproducibility question the shipped default does NOT
+  # answer. With `ubuntu:24.04` and no BASE_IMAGE_DIGEST the manifest
+  # records the reference as given and `base_image_pin=none` -- it cannot
+  # say WHICH image that tag resolved to, which is precisely the case the
+  # moving tag is a problem in. A note that describes only the record and
+  # not its blind spot reads as a stronger guarantee than the file gives,
+  # so the limitation is asserted, not left to the reader.
+  # Read from the note's own window for the same reason as the test
+  # above: `base_image_digest` and `BASE_IMAGE_DIGEST` are both spelled
+  # in the live sys stage that emits them, so a whole-file grep passes
+  # with the note's statement of the blind spot deleted.
+  local _note
+  _note="$(_df_base_image_note "${_df}")"
+  [[ -n "${_note}" ]] || fail "no comment run found above 'ARG BASE_IMAGE=' in ${_df}"
+
+  run grep -F 'base_image_digest' <<< "${_note}"
+  assert_success
+  run grep -F 'does NOT record which digest' <<< "${_note}"
+  assert_success
+  # ... and the one-argument way out of it, for a consumer who wants the
+  # digest recorded without pinning to it.
+  run grep -F 'BASE_IMAGE_DIGEST' <<< "${_note}"
+  assert_success
+  # Spelled as the config entry a reader can paste, not as prose about a
+  # config file: the `[build] arg_N` list is the local control surface,
+  # and `arg_4` is the next free slot after the three the template ships.
+  run grep -F 'arg_4 = BASE_IMAGE_DIGEST=sha256:' <<< "${_note}"
+  assert_success
+  # The recipe the note gives for OBTAINING that value has to produce
+  # that shape. `docker image inspect --format '{{index .RepoDigests 0}}'`
+  # prints a REFERENCE (`ubuntu@sha256:<hex>`), not a digest, and the
+  # value is emitted verbatim into base_image_digest and into the OCI
+  # `base.digest` annotation -- where OCI defines a digest, not a
+  # reference. Following the note as written therefore produced a record
+  # of a different shape than the pin route produces for the same image.
+  # The strip is what makes the two routes comparable, so it is asserted
+  # next to the storage line it has to agree with.
+  run grep -F '${BASE_IMAGE_DIGEST##*@}' <<< "${_note}"
+  assert_success
+  # The layering caveat travels with it. `.setup.conf.local` merges
+  # section-REPLACE, so adding one arg there silently drops the
+  # APT_MIRROR_* / TZ args the repo already had.
+  run grep -F 'replaces the whole' <<< "${_note}"
+  assert_success
+}
+
+@test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # Read the LIVE sys stage's own window, not the file. Every line below
+  # also exists, commented, in the runtime-base scaffold, so a whole-file
+  # grep is satisfied by the comment: the primary deliverable of this
+  # change could be deleted outright with each assertion still green.
+  local _block
+  _block="$(_df_sys_block "${_df}")"
+  [[ -n "${_block}" ]] || fail "sys stage window not found in ${_df}"
+
+  # The pre-FROM ARG is FROM-scope only. Without a bare re-declaration
+  # inside the stage, ${BASE_IMAGE} expands to the empty string in the
+  # RUN that records it and the manifest records nothing, silently.
+  run grep -cE '^ARG BASE_IMAGE$' <<< "${_block}"
+  assert_output "1"
+  run grep -F 'echo "base_image_ref=${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  # ... written to the file a consumer and the runtime smoke both read.
+  run grep -F '} > /usr/local/share/base/base-image.env' <<< "${_block}"
+  assert_success
+  # Whether the reference was digest-pinned is part of the record: an
+  # unpinned reference names an image that may already have moved.
+  run grep -F 'base_image_pin=digest' <<< "${_block}"
+  assert_success
+  run grep -cE '^ARG BASE_IMAGE_DIGEST=' <<< "${_block}"
+  assert_output "1"
+  # OCI annotations too, so `docker inspect` answers without unpacking.
+  run grep -F 'LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+
+  # The digest is recorded ONCE, by one expression, into both sinks. A
+  # LABEL cannot BRANCH, so an expression whose answer DEPENDS on the
+  # reference's shape gives the file one value and the label another --
+  # in the one field this record exists to make comparable. (Reading a
+  # digest is well within a label: `${BASE_IMAGE##*@}` in one comes back
+  # as `sha256:<hex>`, which a probe build of this repo's harness proves.
+  # The same expression comes back as `ubuntu:24.04` for an unpinned
+  # reference, and that is the half a label has no way to tell apart.)
+  # Read out of the stage and COMPARED rather than spelled as two
+  # literals: a pair of literals goes green the moment either side moves,
+  # which is exactly how the two answers got there.
+  local _file_digest _label_digest
+  _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
+  _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
+  assert [ -n "${_file_digest}" ]
+  assert [ -n "${_label_digest}" ]
+  assert_equal "${_file_digest}" "${_label_digest}"
+
+  # ... and the stage does not STOP over the half a label cannot derive.
+  # A digest-carrying BASE_IMAGE with no build arg is a configuration
+  # this same file documents; refusing it makes every consumer who
+  # digest-pins re-pass a value they already gave, to fill a field whose
+  # emptiness was already truthful. The record answers it instead:
+  # `base_image_pin=digest` next to an empty digest is "pinned, digest
+  # not separately recorded". Asserted as the ABSENCE of a build-stopping
+  # exit in the recording window, because that is the shape a refusal
+  # takes here and the one a reader of this stage would meet.
+  run grep -c 'exit 1' <<< "${_block}"
+  assert_output "0"
+}
+
+@test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # The property is a RELATION over the apt layers, not a tally of
+  # refreshes. A hand-kept count ("2 live, 3 commented") is green for a
+  # template that grew a fourth apt layer and no fourth refresh -- the
+  # exact defect this test is named for -- because the number it checks
+  # is not derived from the thing it is about.
+  local _blk _n
+
+  # sys and devel-base each install packages. A manifest written only in
+  # sys would omit the devel-base set (sudo / git / curl / ...) -- the
+  # larger half of what floats -- while reading as complete.
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "live apt RUN block"
+  done < <(_df_apt_run_blocks "${_df}" live)
+  # ... and a template that lost its apt layers would satisfy the
+  # relation vacuously, so the two known live installers are a floor.
+  (( _n >= 2 )) || fail "expected >= 2 live apt RUN blocks in ${_df}, found ${_n}"
+
+  # Every commented-out apt block a consumer is invited to uncomment
+  # (devel's application packages, builder's build deps, runtime-base's
+  # runtime deps) carries the refresh too, so following the template does
+  # not silently produce an image whose manifest omits the packages the
+  # consumer added.
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "commented apt RUN example"
+  done < <(_df_apt_run_blocks "${_df}" commented)
+  (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
+}
+
+@test "_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)" {
+  # `RUN <<EOF` ... `EOF` is one layer whose body carries no backslash
+  # continuations, so a scanner that opens on `RUN ` and closes on the
+  # first line without a trailing `\` sees a one-line RUN and stops: the
+  # apt-get lines are invisible, the layer is never asked for a manifest
+  # refresh, and it does not count toward the `>= 2` / `>= 3` floors
+  # either -- so every assertion in the relation above stays green over a
+  # template that grew one. Same class as the option-before-subcommand
+  # hole: a shape the helper never claimed not to handle, silently
+  # exempting a real layer.
+  #
+  # The shipped template writes no heredocs today, so this pins the
+  # HELPER against a fixture rather than the file -- the only way to
+  # state the contract before the shape arrives, and the reason the
+  # fixture is written into a scratch dir instead of into the checkout.
+  local _tmp
+  _tmp="$(mktemp -d)"
+  cat > "${_tmp}/Dockerfile" <<'FIXTURE'
+FROM alpine AS live
+RUN <<EOF
+apt-get update
+apt-get install -y cowsay
+dpkg-query -W > /usr/local/share/base/packages.txt
+EOF
+
+# FROM alpine AS commented
+# RUN <<-'EOF'
+# apt-get update
+# apt-get install -y cowsay
+# dpkg-query -W > /usr/local/share/base/packages.txt
+# EOF
+FIXTURE
+
+  local _n _blk
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "heredoc live apt RUN block"
+  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile" live)
+  assert_equal "${_n}" "1"
+
+  # ... and the commented mirror, which is the copy a consumer uncomments.
+  _n=0
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    _df_assert_refresh_last "${_blk}" "heredoc commented apt RUN example"
+  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile" commented)
+  assert_equal "${_n}" "1"
+
+  # Seeing the block is only half of it: the ORDER property has to hold
+  # inside a heredoc too, or the helper reports a layer it cannot judge.
+  cat > "${_tmp}/Dockerfile.bad" <<'FIXTURE'
+FROM alpine AS live
+RUN <<EOF
+dpkg-query -W > /usr/local/share/base/packages.txt
+apt-get install -y cowsay
+EOF
+FIXTURE
+  _blk="$(_df_apt_run_blocks "${_tmp}/Dockerfile.bad" live)"
+  [[ -n "${_blk}" ]] || fail "the out-of-order heredoc block was not seen at all"
+  run _df_assert_refresh_last "${_blk}" "heredoc out-of-order"
+  assert_failure
+
+  # A here-STRING is not a heredoc: `<<<` opens nothing, and reading it as
+  # a delimiter swallows every layer below it into one block.
+  #
+  # COUNTING the blocks cannot see that happen. The correct reading of a
+  # here-string RUN followed by one apt layer is one block; the fused
+  # reading of the same two lines is also one block, so the positive and
+  # the negative case produce the identical observation. What separates
+  # them is the CONTENT -- whether the here-string RUN's own text is
+  # inside a block -- and the CONSEQUENCE: the fixture puts a DEFECTIVE
+  # layer (refresh, then install) under the here-string, because fusing
+  # hides exactly that defect. Its install lands before the fused tail's
+  # last refresh, so the relation reports the layer clean.
+  cat > "${_tmp}/Dockerfile.herestring" <<'FIXTURE'
+FROM alpine AS live
+RUN grep -q x <<<"${y}"
+RUN dpkg-query -W > /usr/local/share/base/packages.txt && \
+    apt-get install -y baddefect
+RUN apt-get install -y cowsay && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
+FIXTURE
+  _df_assert_no_herestring_fusion "${_tmp}/Dockerfile.herestring" live
+
+  # ... and the commented mirror, the copy a consumer uncomments: the same
+  # awk reads both modes, so a shape the live mode mistakes for a heredoc
+  # the commented mode mistakes for one too.
+  sed 's/^/# /' "${_tmp}/Dockerfile.herestring" > "${_tmp}/Dockerfile.herestring.commented"
+  _df_assert_no_herestring_fusion "${_tmp}/Dockerfile.herestring.commented" commented
+  rm -rf "${_tmp}"
+}
+
+@test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  # runtime-base is a FRESH ${BASE_IMAGE}, so it inherits nothing the sys
+  # stage wrote. Uncommenting the optional builder/runtime split must not
+  # produce the one image in the graph that cannot say what built it.
+  #
+  # Read the stage's own window: every line asserted here also appears in
+  # devel's or builder's commented apt block, so a whole-file grep would
+  # stay green with runtime-base's copy deleted.
+  local _block
+  _block="$(_df_runtime_base_block "${_df}")"
+  [[ -n "${_block}" ]] || fail "runtime-base stage window not found in ${_df}"
+
+  run grep -xF '# ARG BASE_IMAGE' <<< "${_block}"
+  assert_success
+  run grep -xF '# ARG BASE_IMAGE_DIGEST' <<< "${_block}"
+  assert_success
+  run grep -F '#     dpkg-query -W > /usr/local/share/base/packages.txt' <<< "${_block}"
+  assert_success
+  run grep -F '#       echo "base_image_ref=${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  run grep -F '# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"' <<< "${_block}"
+  assert_success
+  # One expression into both sinks here too. runtime-base is the copy a
+  # consumer uncomments, so a divergence left in it ships to every repo
+  # that turns the runtime split on.
+  local _file_digest _label_digest
+  _file_digest="$(sed -n 's/.*base_image_digest=\([^"]*\)".*/\1/p' <<< "${_block}")"
+  _label_digest="$(sed -n 's/.*image\.base\.digest="\([^"]*\)".*/\1/p' <<< "${_block}")"
+  assert [ -n "${_file_digest}" ]
+  assert [ -n "${_label_digest}" ]
+  assert_equal "${_file_digest}" "${_label_digest}"
+
+  # ... and this stage does not STOP the build either, for the same
+  # reason the sys window above does not. This scaffold is the copy the
+  # shipped hadolint rationale tells a consumer to paste ("the sys stage
+  # RUN and, if the runtime split is enabled, runtime-base's"), so a
+  # refusal surviving HERE refuses exactly the reference-only pin the
+  # note beside `ARG BASE_IMAGE` recommends -- in the one image of this
+  # graph that ships. Asserted on the same shape as sys, in this stage's
+  # own window, because one window demanding the guard while the other
+  # forbids it is how the refusal outlived its removal.
+  run grep -c 'exit 1' <<< "${_block}"
+  assert_output "0"
+}
+
+@test ".hadolint.yaml DL3008 ignore names its compensating control (#951)" {
+  local _cfg="/source/dist/.hadolint.yaml"
+  assert_spec_subject "${_cfg}" \
+      "the shipped hadolint config this spec pins"
+  # DL3008 is the one rule that exists for the unpinned apt lines this
+  # template ships. Ignoring it with no compensating control is what
+  # makes the template lint clean while being non-reproducible, so the
+  # ignore has to name what compensates for it -- in ITS OWN rationale
+  # block, not somewhere else in the file under an unrelated rule.
+  local _why
+  _why="$(_hadolint_ignore_rationale "${_cfg}" DL3008)" \
+    || fail "no '- DL3008' entry found in ${_cfg}"
+  [[ -n "${_why}" ]] || fail "DL3008 is ignored with no rationale block above it"
+
+  run grep -F '/usr/local/share/base/packages.txt' <<< "${_why}"
+  assert_success
+  # This config is symlinked into every downstream repo by init.sh, where
+  # it lints that repo's OWN hand-edited Dockerfile -- which carries the
+  # manifest only once the repo has adopted this template revision. A
+  # rationale that says "every image built from this template records its
+  # packages" is read there as a claim about the reader's image, so it
+  # has to name the condition and how to meet it.
+  run grep -F 'Dockerfile predates' <<< "${_why}"
+  assert_success
+  run grep -F 'just upgrade' <<< "${_why}"
+  assert_success
+  # And it has to say WHY the upgrade does not close the gap on its own.
+  # `just upgrade` can rewrite a consumer Dockerfile (init.sh and
+  # upgrade.sh both call apply_migrations over the `_MIGRATIONS` list in
+  # dist/script/docker/lib/dockerfile_migrate.sh), so "the upgrade does
+  # not rewrite it" is not the reason; "no
+  # migration was written for this record, because it splices into the
+  # middle of a hand-shaped RUN chain" is. Naming the mechanism is what
+  # stops the false reason coming back.
+  run grep -F 'dockerfile_migrate.sh' <<< "${_why}"
+  assert_success
+}
+
+@test "the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)" {
+  local _spec="/source/dist/test/bats/smoke/shared/reproducibility.bats"
+  # This test is TEXT about a spec, and it is named for what text can
+  # actually establish. Whether that spec RUNS rather than skipping where
+  # base itself runs it is a property of base's harness, asserted in
+  # test/bats/unit/smoke_harness_spec.bats against
+  # dockerfile/Dockerfile.smoke -- a grep of this file cannot tell a spec
+  # that ran from one that skipped, and a name claiming otherwise is a
+  # guarantee nothing checks.
+  #
+  # What the shipped spec is for: text cannot catch a manifest that IS
+  # written and records nothing -- the exact failure an out-of-scope
+  # ${BASE_IMAGE} produces. That assertion has to run inside a built
+  # image, which is what the shared smoke tree is: COPYed into every
+  # `-test` stage and executed by `RUN bats`.
+  assert [ -f "${_spec}" ]
+  # The load-bearing half is the non-empty VALUE. A spec that only checks
+  # the file exists passes on the empty record.
+  run grep -F 'base_image_ref=[^[:space:]]+' "${_spec}"
+  assert_success
+  # ... and the digest, when the record carries one, has to be a DIGEST.
+  # The one expression that supplies it (the BASE_IMAGE_DIGEST build arg
+  # the note tells a reader how to compute) is copied verbatim into the
+  # OCI base.digest annotation as well, so a reference pasted into it
+  # lands in both sinks at once.
+  run grep -F 'base_image_digest=(sha256:[0-9a-f]' "${_spec}"
+  assert_success
+  # ... and where the record states the digest TWICE -- once inside
+  # `base_image_ref`, once in `base_image_digest` -- the two have to
+  # agree. That check lives here, in the spec that runs inside the built
+  # image, and not in a build refusal: refusing was indiscriminate (it
+  # stopped the honest digest-pinned build that simply omits the arg),
+  # while a record answering one field two ways is false whoever built
+  # it. It is the `-test` stage's job to say so.
+  run grep -F 'does not contradict' "${_spec}"
+  assert_success
+  # The skip is narrow by construction: it fires only when NEITHER file
+  # exists, so a repo that writes one and not the other, or writes an
+  # empty record, has adopted the manifest and broken it -- and that
+  # fails. A guard widened to "either is missing" would turn every real
+  # regression this file exists for into a green skip.
+  run grep -F '[[ ! -e "${REPRO_ENV}" && ! -e "${REPRO_PKGS}" ]]' "${_spec}"
+  assert_success
+  # The skip's stated REASON has to match the wiring. `just upgrade` does
+  # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call
+  # apply_migrations -- so "the consumer's Dockerfile is not rewritten by
+  # the upgrade" was false where this file ships it to 17 repos. The true
+  # reason is that no migration was written for this record, which means
+  # the header has to name the mechanism it is declining or the next
+  # reader re-derives the wrong one.
+  run grep -F 'dockerfile_migrate.sh' "${_spec}"
+  assert_success
+}
+
 @test "build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)" {
   # When runtime-test does COPY --from=test-tools-stage, test-tools
   # enters its build graph, so its build must receive the pinned
