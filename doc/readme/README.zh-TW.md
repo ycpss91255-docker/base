@@ -805,7 +805,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 37216896ac3f 9ca3106d37b8 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 0890e8fcfd09 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
 `setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
@@ -836,7 +836,8 @@ Docker Hub layer 共用會直接破功。Project name 用的就是同一個身�
 已經因人而異。這個身份唯一分不開的情況，是兩個 OS user 共用同一個
 Docker Hub 登入；見下方範例。
 
-**開發 stack 不 emit `container_name:`。** Container 名稱是 daemon
+**開發 stack 不 emit `container_name:`，唯一的例外是 field deploy
+bundle（`just docker setup deploy`）。** Container 名稱是 daemon
 層的 namespace、不是 project 層的，所以寫死一個名字等於把該 service
 綁在「每台 host 只能有一份」：同一個 repo 的第二份 stack 不管取什麼
 project name，都會以 `name ... is already in use` 起不來，而且只要

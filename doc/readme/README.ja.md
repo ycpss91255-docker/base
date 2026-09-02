@@ -854,7 +854,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 37216896ac3f 0103e645e167 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 5dd858b76e55 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
@@ -891,7 +891,8 @@ Hub の layer 共有が破綻します。Project name も同じ identity を使�
 分けられないのは、2 人の OS user が 1 つの Docker Hub ログインを
 共有している場合です。下の具体例を参照してください。
 
-**開発 stack は `container_name:` を emit しません。** container 名は
+**開発 stack は `container_name:` を emit しません — 唯一の例外は field
+deploy bundle (`just docker setup deploy`) です。** container 名は
 project ではなく daemon の namespace に属するため、固定名を書くと
 その service は「1 ホストにつき 1 インスタンス」に固定されます:
 同一 repo の 2 つめの stack は project name を何にしても

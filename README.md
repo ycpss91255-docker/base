@@ -1247,7 +1247,8 @@ the detection above already falls back to the OS user. The one thing
 that identity cannot separate is two OS users sharing a single Docker
 Hub login; see the worked example below.
 
-**The dev stack emits no `container_name:`.** A container name is
+**The dev stack emits no `container_name:`, and the field-deploy bundle
+(`just docker setup deploy`) is the one exemption.** A container name is
 namespaced by the daemon rather than by the project, so a fixed one pins
 the service to a single instance per host: a second stack of the same
 repo fails to start with `name ... is already in use` however it is

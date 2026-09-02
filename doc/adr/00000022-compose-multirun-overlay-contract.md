@@ -108,11 +108,12 @@ pipeline, and neither mechanism can do the other's job. ADR-00000025 sec. 5
 carries the full division of labour.
 
 **Amendment (2026-08-26, issue #920): the dev-stack emitter stopped
-emitting `container_name:` itself.** §4 below records that the field is
-removable and that `multi_run` *may* drop it;
-`generate_compose_yaml` has now dropped it, so there is no
-`container_name:` line in the `compose.yaml` a repo runs for an overlay to
-override or remove. Scope: this is the dev stack, the only emission an
+emitting `container_name:` itself, and the field-deploy bundle
+(`just docker setup deploy`) did not.** §4 below records that the field is
+removable and that `multi_run` *may* drop it; `generate_compose_yaml` has
+now dropped it, so there is no `container_name:` line in the dev
+`compose.yaml` a repo runs for an overlay to override or remove, while
+`_generate_resolved_compose` still writes one. Scope: this is the dev stack, the only emission an
 overlay ever expands. The field-deploy bundle (`_generate_resolved_compose`,
 `just docker setup deploy`) still bakes one, deliberately -- it is a fully
 resolved single-device artifact, one stack per device, never co-located,

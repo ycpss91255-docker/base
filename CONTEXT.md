@@ -166,10 +166,11 @@ derive `<DOCKER_HUB_USER>-<IMAGE_NAME>`; there is no second OS-user rung,
 because detection already falls back to the OS user) into
 `.env.generated` as `PROJECT_NAME`. Both the wrapper's `-p` and the emitted
 `name:` read that one value. It is also the ONLY per-host isolation the
-stack has: no `container_name:` is emitted, so compose derives
-`<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment). That is
-the DEV stack; the field-deploy bundle (`just docker setup deploy`) still bakes a
-`container_name:`, deliberately -- one stack per device, never co-located.
+stack has: the DEV stack emits no `container_name:` and the field-deploy
+bundle (`just docker setup deploy`) is the one exemption, so compose
+derives `<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment).
+That bundle -- `_generate_resolved_compose` -- still bakes a
+`container_name:`, deliberately: one stack per device, never co-located.
 Not the image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.
 
