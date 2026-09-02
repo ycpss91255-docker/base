@@ -430,12 +430,20 @@ _dfm_pip_requirements_populated() {
 #   unconditional `return 0` at the end would answer "standalone, safe to
 #   delete" for a file nothing opened. This is the leg of the status block
 #   at the top of the file that names this function, so it has to hold --
-#   I-COULD-NOT-TELL never authorises the delete. The redirect's own
-#   status is the whole probe: it covers a missing path, an unreadable
-#   one, an unresolvable symlink and a directory alike, where a `-r` test
-#   would answer for only some of them.
+#   I-COULD-NOT-TELL never authorises the delete.
+#
+#   Two probes, because one does not cover it. `[[ -f ]]` answers for
+#   every path that is not a regular file to begin with: a missing one,
+#   an unresolvable symlink, and a DIRECTORY -- which the redirect alone
+#   reads as clean, since on Linux open(2) on a directory succeeds, the
+#   first `read` fails with EISDIR, and the loop then exits with the
+#   status of its last assignment, 0. The redirect's own status answers
+#   for the rest: a path that IS a regular file and still could not be
+#   opened (its mode, a mount that went away between the test and the
+#   open). Neither is redundant and neither is the whole probe.
 _dfm_pip_line_is_standalone() {
   local _file="$1"
+  [[ -f "${_file}" ]] || return 1
   local _line _prev_cont=false _cont _read_st=0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     if [[ "${_line}" =~ ${_DFM_LINE_CONTINUES_RE} ]]; then
