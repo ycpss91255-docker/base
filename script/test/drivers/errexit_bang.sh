@@ -49,17 +49,18 @@
 # What is a violation: inside a `@test ... {` body, a STATEMENT whose
 # first token is `!`, when EITHER
 #   (a) the statement does not end on the body's last statement line, or
-#   (b) the statement hands its verdict to a command that cannot fail --
-#       a `;` with anything after it, or `|| true` / `|| :` -- ANYWHERE
-#       in it, including on a `\` continuation line.
+#   (b) the statement hands its verdict away -- a `;` with anything after
+#       it, an async `&` (trailing or not), or `|| true` / `|| :` --
+#       ANYWHERE in it, including on a `\` continuation line.
 #
 # (b) exists because (a) is judged by POSITION, and one statement can hold
 # more than one command. `! cmd; other` returns `other`'s status
-# unconditionally, and `! cmd || true` returns 0 in precisely the branch
-# that matters -- the one where cmd SUCCEEDED and the assertion was
-# supposed to fail. Both are the same discarded negation as a `!` on an
-# earlier line, so both are reported wherever they sit rather than only
-# when they land last.
+# unconditionally, `! cmd &` returns the fork's -- 0, whatever cmd did --
+# and `! cmd || true` returns 0 in precisely the branch that matters --
+# the one where cmd SUCCEEDED and the assertion was supposed to fail.
+# All three are the same discarded negation as a `!` on an earlier line,
+# so all three are reported wherever they sit rather than only when they
+# land last.
 #
 # The WHOLE statement is read, not its opening physical line. A backslash
 # moves a separator one line down and changes nothing about who owns the
@@ -98,6 +99,15 @@
 # statement the failing case still reaches its return status. Earlier in
 # the body it is inert like any other `!` statement, which is what (a)
 # already says about it.
+#
+# A single `&` is the opposite case and IS reported. It is not a list
+# operator but the async one: `! A &` forks, and the list's status is 0
+# whatever A did, so the statement cannot fail its test even as the
+# body's last -- the one position rule (a) declines to judge. `! A & B`
+# discards the negation just as unconditionally and returns B's status,
+# which is the `;` case spelled differently. The neighbouring spellings
+# that merely contain the character -- `&&`, `|&`, `>&` / `<&`, `&>` --
+# are excluded by the operator they belong to, not by a roster.
 # errexit_bang_lint_spec pins both by RUNNING the shapes, not by asserting
 # them here.
 #
@@ -190,6 +200,17 @@ readonly _ERREXIT_BANG_CONT_RE='\\[[:space:]]*$'
 # A `;` with another command after it. A bare trailing `;` terminates the
 # statement and is fine.
 readonly _ERREXIT_BANG_SEQ_RE=';[[:space:]]*[^[:space:]]'
+# The ASYNC operator. A lone `&` forks: trailing, the list's status is 0
+# whatever the command did; with a command after it, the status is that
+# command's, unconditionally -- the same discard as a `;`. The four
+# neighbouring spellings that are NOT it are excluded by their adjacent
+# character rather than by a roster: `&&` (a list operator), `|&` (part
+# of the pipe operator), `>&` / `<&` and `&>` (parts of a redirection
+# operator). An unquoted `&` inside `[[ ... ]]` needs no exemption --
+# bash rejects it as a syntax error, so no statement this lint judges
+# can hold one, the same argument that keeps `<` and `>` out of the
+# comment-start set.
+readonly _ERREXIT_BANG_ASYNC_RE='(^|[^&<>|])&([^&>]|$)'
 # An `||` whose right operand CANNOT fail: the only `||` shape that makes
 # the statement inert. `true` and `:` are bash's two always-zero builtins.
 readonly _ERREXIT_BANG_INERT_OR_RE='\|\|[[:space:]]*(true|:)([[:space:]]*;|[[:space:]]*$)'
@@ -431,9 +452,14 @@ _errexit_bang_scan_file() {
     # line further along masks the negation exactly as one on the opening
     # line does.
     if [[ "${_bang_start}" -gt 0 && "${_cont}" -eq 0 ]]; then
-      # Order matters: an `|| true` is judged before the generic `||`
-      # escape, so the one hand-off that IS inert is still reported.
-      if [[ "${_bang_code}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
+      # Order matters. The async operator is judged FIRST: a `&` anywhere
+      # at top level discards the negation whatever else the statement
+      # holds, so no `||` arm below it can speak for the statement. Then
+      # an `|| true` is judged before the generic `||` escape, so the one
+      # hand-off that IS inert is still reported.
+      if [[ "${_bang_code}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
+        _ebsf_rows+=("${_rel}:${_bang_start}: ${_bang_text}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
+      elif [[ "${_bang_code}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
         # Inert in EVERY position, so it is judged here rather than
         # queued: waiting for the body to close would report it only when
         # it happened not to be last, which is the hole this closes. It
@@ -571,7 +597,7 @@ _run_errexit_bang() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_errexit_bang \
-      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or an '|| true' / '|| :' anywhere in that statement, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
+      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or an '|| true' / '|| :' anywhere in that statement, or with an async '&' anywhere in it, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
     return 1
   fi
   echo "non-final bang-statement lint: clean (${#_files[@]} spec file(s) under ${_roots[*]}, ${_headers} test bodies)"
