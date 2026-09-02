@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3102 tests**.
+Unit specs under `test/bats/unit/`: **3103 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1825,7 +1825,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (169)
+### test/bats/unit/template_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -1955,6 +1955,7 @@ builds the env block only for the knobs the conf sets.
 | `Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)` | anti-pattern guard + consumer-owns-flavour-tools |
 | `Dockerfile.example states the /opt-not-$HOME baking convention (#799)` | - |
 | `no shipped text repeats the claim a build disproves (#951)` | A LABEL does read a digest out of a reference (probed by build); it only cannot BRANCH. Sweeps template, harness, shipped spec, README and CHANGELOG for the categorical claim, and demands the narrow one where the design rests on it |
+| `the vocabulary marker guard reads order, not counts (#951)` | An inverted marker pair (`end` above its `begin`) counts 1 == 1 while `_df_flatten` still excises the file tail, so the balance guard reads the markers in order |
 | `the note gives one [build] arg slot per key (#951)` | Derived from the note's own `arg_N = KEY=` lines: two paragraphs handing one slot to different keys is silent, because a `[build]` section in `.setup.conf.local` replaces the whole section |
 | `the apt-layer guard sees the install shapes this template writes (#951)` | Reach and restraint of `_DF_APT_INSTALL_RE`: an option taking a separate argument (`-o Dpkg::Options::=` before the subcommand) is an install layer, while `apt-get clean` chains and `pip install` are not |
 | `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | read from the note's own comment window above `ARG BASE_IMAGE=`, since every path it names is also spelled in the code that implements it: the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |

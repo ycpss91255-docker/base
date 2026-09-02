@@ -1784,6 +1784,81 @@ _df_flatten() {
   assert_success
 }
 
+@test "the vocabulary marker guard reads order, not counts (#951)" {
+  # `_df_flatten` excises from a `begin` to the `end` that follows it, so
+  # a marker pair that does not nest deletes the rest of the file from
+  # the sweep: a sweep that read nothing wearing the report of a sweep
+  # that found nothing. `_df_vocabulary_unbalanced` is the guard against
+  # that, and COUNTING the two markers cannot be it -- an INVERTED pair
+  # (the `end` above its `begin`) counts 1 == 1 and reports the file
+  # balanced while the excision happens anyway.
+  #
+  # The marker literals are assembled from a variable rather than written
+  # out, because this spec is itself one of the files the sweep reads:
+  # a fixture spelling the markers in an order of its own would be an
+  # inverted pair IN THIS FILE. The text below the `begin` is a sentinel
+  # for the same reason -- a real claim here would trip the sweep.
+  local _tmp _m='disproven-claim vocabulary' _report _flat
+  _tmp="$(mktemp -d)"
+
+  # An INVERTED pair: what counting calls balanced.
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: end\n' "${_m}"
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-BEGIN'
+  } > "${_tmp}/inverted"
+
+  # The consequence first, so the guard is asserted against a real
+  # excision and not against a rule someone wrote down.
+  _flat="$(_df_flatten "${_tmp}/inverted")"
+  run grep -cF 'ABOVE-THE-MARKERS' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -F 'BELOW-THE-BEGIN' <<< "${_flat}"
+  assert_equal "${status}" "1"
+
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/inverted")"
+  [[ -n "${_report}" ]] \
+    || fail "an inverted marker pair was reported balanced: ${_tmp}/inverted"
+
+  # The siblings: the two spellings a count DOES catch have to keep being
+  # caught, and a properly nested pair must stay silent -- a guard that
+  # reports every file is a guard nobody can act on.
+  {
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-BEGIN'
+  } > "${_tmp}/unclosed"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/unclosed")"
+  [[ -n "${_report}" ]] \
+    || fail "an unclosed begin was reported balanced: ${_tmp}/unclosed"
+
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: end\n' "${_m}"
+  } > "${_tmp}/stray-end"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/stray-end")"
+  [[ -n "${_report}" ]] \
+    || fail "a stray end was reported balanced: ${_tmp}/stray-end"
+
+  {
+    printf '%s\n' 'ABOVE-THE-MARKERS'
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'INSIDE-THE-BLOCK'
+    printf '# %s: end\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-END'
+  } > "${_tmp}/nested"
+  _report="$(_df_vocabulary_unbalanced "${_tmp}/nested")"
+  [[ -z "${_report}" ]] \
+    || fail "a properly nested marker pair was reported unbalanced: ${_report}"
+  _flat="$(_df_flatten "${_tmp}/nested")"
+  run grep -cF 'BELOW-THE-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  rm -rf "${_tmp}"
+}
+
 @test "the note gives one [build] arg slot per key (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
