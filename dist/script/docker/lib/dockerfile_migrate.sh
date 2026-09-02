@@ -265,13 +265,33 @@ _migrate_logging_rename_apply() {
 _migrate_hadolint_detect() {
   local _file="$1"
   grep -Eq '^FROM (bats/bats|alpine):latest' "${_file}" && return 0
-  grep -Eq 'useradd[[:space:]]+-u[[:space:]]' "${_file}" && return 0
+  _dfm_needs_dl3046 "${_file}" && return 0
   grep -Eq '^[[:space:]]*RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint' "${_file}" && return 0
   grep -Eq 'pip install[[:space:]]+-r' "${_file}" && return 0
   _dfm_needs_dl4006 "${_file}" && return 0
   _dfm_needs_dl3006 "${_file}" && return 0
   _dfm_needs_dl3066 "${_file}" && return 0
   return 1
+}
+
+# _dfm_needs_dl3046 <file>
+#   True when a `useradd` that sets a uid carries no `-l`, whatever order
+#   its flags are in. Same head/tail split as the transform, so detect and
+#   apply cannot disagree about which line is a candidate.
+_dfm_needs_dl3046() {
+  local _file="$1"
+  awk '
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _tail = substr($0, RSTART + RLENGTH)
+        if (_tail ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _tail !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          found = 1
+        }
+      }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
 }
 
 # _dfm_needs_dl4006 <file>
@@ -326,8 +346,32 @@ _migrate_hadolint_apply() {
   # the moment nobody reads the diff.
   sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.24|' "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
-  sed -i -E 's|useradd[[:space:]]+-u[[:space:]]|useradd -l -u |' "${_file}"
-  sed -i -E 's|useradd -l[[:space:]]+-l |useradd -l |' "${_file}"
+  #
+  # `-l` goes directly after the `useradd` token, not in front of `-u`.
+  # Anchoring on `useradd -u` matches only the order base's own template
+  # happens to use; a downstream repo writes
+  # `useradd -m -s /bin/bash -u ...` and the anchored form walks past it,
+  # leaving DL3046 live in a Dockerfile the migration reported as patched.
+  # Rewriting the head of the command instead makes the position of the
+  # flag being answered irrelevant. Scoped to the text AFTER the useradd
+  # token so a sibling `usermod -l` on the same line cannot be read as
+  # this command already carrying the flag.
+  local _tmp3046
+  _tmp3046="$(mktemp)"
+  awk '
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _head = substr($0, 1, RSTART + RLENGTH - 1)
+        _tail = substr($0, RSTART + RLENGTH)
+        if (_tail ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _tail !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          $0 = _head "-l " _tail
+        }
+      }
+      print
+    }
+  ' "${_file}" > "${_tmp3046}"
+  mv "${_tmp3046}" "${_file}"
   # DL3042: pip --no-cache-dir (idempotent).
   sed -i -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|' "${_file}"
   sed -i -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|' "${_file}"
