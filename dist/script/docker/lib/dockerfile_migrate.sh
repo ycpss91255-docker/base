@@ -542,70 +542,222 @@ _migrate_nounset_source_apply() {
 
 # ── Migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
 #
-# Up to v0.41.0 base shipped ONE flat smoke tree and the consumer Dockerfile
-# copied it whole:
-#   COPY .base/test/smoke/ /smoke_test/
-# The shipped specs now live under dist/test/bats/smoke/, split into a
-# shared/ baseline plus one folder per Dockerfile stage, so that source is
-# gone. Rewriting it to the shared baseline alone would build, but would
-# silently drop the specs the stage used to run -- so the statement is
-# replaced by the shared baseline PLUS the enclosing stage's own folder,
-# which is what the current template Dockerfile writes by hand.
+# Up to v0.41.0 base shipped ONE flat smoke tree, and a consumer Dockerfile
+# reached it in one of two spellings:
+#   COPY .base/test/smoke/ /smoke_test/                       wholesale
+#   COPY .base/test/smoke/test_helper.bash /smoke_test/       hand-listed
+# Both are in the wild. The shipped specs now live under
+# dist/test/bats/smoke/, split into a shared/ baseline plus one folder per
+# Dockerfile stage, so every source in both spellings is gone.
 #
-# The stage folder is emitted only when the freshly pulled subtree actually
+# The wholesale spelling cannot be rewritten to the shared baseline alone:
+# that would build, but would silently drop the specs the stage used to
+# run. It is replaced by the shared baseline PLUS the enclosing stage's own
+# folder, which is what the current template Dockerfile writes by hand. The
+# stage folder is emitted only when the freshly pulled subtree actually
 # ships one for that stage: a stage base has no specs for (or an unnamed
 # final stage) gets the shared baseline and nothing else, rather than a COPY
-# of a directory that does not exist. Runs BEFORE flat_to_dist so the
-# generic .base/script rewrite never sees these lines.
-# Idempotent: once rewritten no flat .base/test/smoke reference remains.
+# of a directory that does not exist.
+#
+# The hand-listed spelling names one spec, so it maps to one path -- the
+# place that spec now lives. Where that is comes from the freshly pulled
+# subtree, looked up by basename, never from a table here: the tree is what
+# moved, so the tree is what knows. A basename the subtree ships at two
+# paths, or no longer ships at all, is ambiguous or gone; the rewrite
+# declines it and warns, leaving a reference a reader can act on rather
+# than a guess that resolves somewhere wrong.
+#
+# Runs BEFORE flat_to_dist so the generic .base/script rewrite never sees
+# these lines. Idempotent: once rewritten no flat .base/test/smoke
+# reference remains, so detect is false on a second run.
+#
+# _dfm_smoke_copy_present <file>
+#   True when a COPY statement in <file> names the retired flat
+#   .base/test/smoke tree. The file is read FOLDED, so a source wrapped onto
+#   a backslash continuation counts as part of the statement it belongs to
+#   -- a ^COPY-anchored grep over raw lines cannot see one. Anchored at a
+#   path boundary (`/`, whitespace, or end of statement) so a sibling tree
+#   merely PREFIXED by the retired name -- .base/test/smoke_helpers -- is
+#   not mistaken for it.
+#
+#   The fold is captured into a variable rather than piped into grep: `grep
+#   -q` stops reading at the first match, which SIGPIPEs the writer, and
+#   under pipefail the caller would read a SUCCESSFUL match as "not found".
+_dfm_smoke_copy_present() {
+  local _file="$1"
+  local _joined
+  _joined="$(_dfm_join_copy_statements "${_file}")"
+  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)' \
+    <<< "${_joined}"
+}
+
+# A COPY is a STATEMENT, not a line: a consumer wraps a long hand-listed one
+# across backslash continuations and Docker still reads it as one. Both the
+# detect and the post-apply warning ask _dfm_smoke_copy_present, which folds
+# first, so neither can miss a source on a continuation line or fire on a
+# sibling path merely prefixed by the retired name.
 _migrate_smoke_copy_detect() {
   local _file="$1"
-  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke/?[[:space:]]' "${_file}"
+  _dfm_smoke_copy_present "${_file}"
 }
 
 _migrate_smoke_copy_apply() {
   local _file="$1"
 
-  # Which stage folders the subtree ships, as a ":a:b:" membership string
-  # awk can test with index(). Read from the tree next to the Dockerfile,
-  # i.e. the subtree the upgrade just pulled.
+  # Both derivations read the tree NEXT TO the Dockerfile, i.e. the subtree
+  # the upgrade just pulled.
   local _root
   _root="$(dirname -- "${_file}")"
+  local _smoke_root="${_root}/.base/dist/test/bats/smoke"
+
+  # Which stage folders the subtree ships, as a ":a:b:" membership string
+  # awk can test with index().
   local _stages=":"
   local _dir
-  for _dir in "${_root}"/.base/dist/test/bats/smoke/*/; do
+  for _dir in "${_smoke_root}"/*/; do
     [[ -d "${_dir}" ]] || continue
     _stages+="$(basename -- "${_dir}"):"
   done
 
+  # Every spec the subtree ships, subtree-relative, newline-separated. awk
+  # turns it into the basename -> path lookup the hand-listed spelling
+  # needs. Passed as a VALUE rather than a second input file on purpose: a
+  # subtree that ships no spec yet makes that file empty, and awk's
+  # NR == FNR idiom then treats the Dockerfile itself as the list.
+  local _specs=""
+  if [[ -d "${_smoke_root}" ]]; then
+    _specs="$( ( cd "${_smoke_root}" && find . -type f ) | sed 's#^\./##' )"
+  fi
+
   local _tmp
   _tmp="$(mktemp)"
-  # Track the enclosing build stage (`FROM ... AS <name>`) so each rewritten
-  # COPY can name its own folder. Substituting into a COPY of the original
-  # line preserves whatever flags, destination and column alignment the
-  # consumer had.
-  awk -v stages="${_stages}" '
-    toupper($1) == "FROM" {
-      stage = ""
-      for (i = 2; i < NF; i++) {
-        if (toupper($i) == "AS") { stage = $(i + 1) }
+  # The awk below buffers each backslash-continued statement whole and
+  # decides once, on the folded text, then rewrites the PHYSICAL lines it
+  # buffered -- so a source on a continuation line is healed like any other
+  # and the consumer's own wrapping, flags, destination and column
+  # alignment survive. Track the enclosing build stage (`FROM ... AS
+  # <name>`) so each rewritten wholesale COPY can name its own folder.
+  awk -v stages="${_stages}" -v specs="${_specs}" '
+    # Exact, whitespace-delimited literal substitution. A regex would let
+    # the dots in a spec name match anything, and these are file names read
+    # off disk, not patterns.
+    function repl(s, from, to,   p, tail, pre, off) {
+      off = 0
+      while (1) {
+        p = index(substr(s, off + 1), from)
+        if (p == 0) { return s }
+        p = p + off
+        tail = substr(s, p + length(from), 1)
+        pre = (p == 1) ? " " : substr(s, p - 1, 1)
+        if ((tail == "" || tail == " " || tail == "\t") \
+            && (pre == " " || pre == "\t")) {
+          return substr(s, 1, p - 1) to substr(s, p + length(from))
+        }
+        off = p
       }
     }
-    /^[[:space:]]*COPY[[:space:]]/ && $0 ~ /\.base\/test\/smoke\/?[[:space:]]/ {
-      shared = $0
-      sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/shared/", shared)
-      print shared
-      if (stage != "" && index(stages, ":" stage ":") > 0) {
-        own = $0
-        sub(/\.base\/test\/smoke\/?/, ".base/dist/test/bats/smoke/" stage "/", own)
-        print own
-      }
-      next
+    # Emit the buffered statement as it stands.
+    function emit(   i) {
+      for (i = 1; i <= nb; i++) { print buf[i] }
     }
-    { print }
+    # Emit the buffered statement with the FIRST wholesale smoke source
+    # re-rooted at prefix, wherever in the statement that source sits.
+    function emit_rerooted(prefix,   i, done, line) {
+      done = 0
+      for (i = 1; i <= nb; i++) {
+        line = buf[i]
+        if (!done && line ~ /\.base\/test\/smoke\/?([ \t\\]|$)/) {
+          sub(/\.base\/test\/smoke\/?/, prefix, line)
+          done = 1
+        }
+        print line
+      }
+    }
+    function reset() {
+      nb = 0
+      joined = ""
+    }
+    function flush(   s, m, f, i, j, k, t, b, line, tok) {
+      if (nb == 0) { return }
+      s = joined
+      sub(/^[ \t]+/, "", s)
+      m = split(s, f, /[ \t]+/)
+      if (toupper(f[1]) == "FROM") {
+        stage = ""
+        for (i = 2; i < m; i++) {
+          if (toupper(f[i]) == "AS") { stage = f[i + 1] }
+        }
+        emit(); reset(); return
+      }
+      if (toupper(f[1]) != "COPY" \
+          || s !~ /^[^#]*\.base\/test\/smoke(\/|[ \t]|$)/) {
+        emit(); reset(); return
+      }
+      # Wholesale: a source ENDS at the smoke directory. The whole
+      # statement is reproduced twice -- once re-rooted at the shared
+      # baseline, once at the enclosing stage folder when the pulled
+      # subtree ships one.
+      if (s ~ /\.base\/test\/smoke\/?([ \t]|$)/) {
+        emit_rerooted(".base/dist/test/bats/smoke/shared/")
+        if (stage != "" && index(stages, ":" stage ":") > 0) {
+          emit_rerooted(".base/dist/test/bats/smoke/" stage "/")
+        }
+        reset(); return
+      }
+      # Hand-listed: rewrite each named spec to where it now lives. A
+      # statement may name several (one COPY, many sources) across any
+      # number of physical lines, so every token of every line is
+      # considered, not only the ones on the line that opens it.
+      for (i = 1; i <= nb; i++) {
+        line = buf[i]
+        k = split(line, tok, /[ \t]+/)
+        for (j = 1; j <= k; j++) {
+          t = tok[j]
+          if (t !~ /^\.base\/test\/smoke\//) { continue }
+          b = t
+          sub(/.*\//, "", b)
+          if (!(b in seen) || seen[b] == "?") { continue }
+          line = repl(line, t, ".base/dist/test/bats/smoke/" seen[b])
+        }
+        buf[i] = line
+      }
+      emit(); reset()
+    }
+    BEGIN {
+      nb = 0
+      joined = ""
+      n = split(specs, spec, "\n")
+      for (j = 1; j <= n; j++) {
+        if (spec[j] == "") { continue }
+        b = spec[j]
+        sub(/.*\//, "", b)
+        # A basename at two paths cannot be resolved from the name alone.
+        seen[b] = (b in seen) ? "?" : spec[j]
+      }
+    }
+    {
+      buf[++nb] = $0
+      joined = joined $0
+      if ($0 ~ /\\[ \t]*$/) {
+        sub(/\\[ \t]*$/, " ", joined)
+        next
+      }
+      flush()
+    }
+    END { flush() }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+
+  # Anything still naming the retired tree is a spec the pulled subtree no
+  # longer ships under that name, or ships twice. Say so: the build will
+  # fail on it, and the message is the only chance to say why. Asked of the
+  # same folded view the detect uses: a half-healed statement leaves its
+  # unresolved sources on continuation lines, which is exactly where a
+  # ^COPY-anchored grep over raw lines cannot see them.
+  if _dfm_smoke_copy_present "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired .base/test/smoke/ spec the pulled subtree ships at no single path — resolve it by hand (#928)"
+  fi
 }
 
 # ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────

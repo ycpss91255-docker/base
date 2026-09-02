@@ -10,6 +10,21 @@
 #
 # Distinct from lib/compose.sh, which is the `docker compose` INVOCATION
 # wrapper + project naming (_compose / _compose_project / _compute_project_name).
+#
+# No service here emits `container_name:`, and that absence is load-bearing
+# (ADR-00000022 s4). A container name is namespaced by the DAEMON -- one flat
+# global list -- while everything else this file emits is namespaced by the
+# compose project. Naming a container therefore pins the service to exactly
+# one instance per host whatever project it is brought up under: a second
+# stack of the same repo dies with `name ... is already in use`, and compose
+# refuses `--scale` outright ("Compose does not scale a service beyond one
+# container if the Compose file specifies a container_name"). Omitting it
+# lets compose derive `<project>-<service>-<n>`, which is unique by
+# construction -- so per-host isolation is the PROJECT NAME's job. That name
+# differs per OS user with nothing configured because its `${DOCKER_HUB_USER}`
+# prefix does: detection falls back to the OS user when there is no Docker
+# Hub login (lib/compose.sh's _resolve_project_name header carries the whole
+# chain, including the one case it cannot separate).
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). Calls into
 # setup.sh-resident deps (resolvers, _setup_msg, _SETUP_SCRIPT_DIR), deploy.sh
 # (_resolve_deploy_context), and conf.sh accessors; all resolve at call-time
@@ -660,7 +675,6 @@ YAML
     _emit_additional_contexts_block "${_additional_contexts_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
@@ -749,7 +763,6 @@ YAML
   _emit_user_build_args "${_user_build_args_str}"
   cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
@@ -1046,8 +1059,8 @@ generate_compose_yaml() {
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, devel-base, devel, runtime-test} (legacy
   # {base, test}) as a compose service that
-  # `extends: devel` and only overrides target / image / container_name /
-  # stdin_open / tty / profiles. generalized the v0.10.0
+  # `extends: devel` and only overrides target / image / stdin_open /
+  # tty / profiles. generalized the v0.10.0
   # `runtime`-only detection so any user-added stage gets a
   # corresponding service automatically — e.g. NVIDIA Isaac Sim's
   # `headless` + `gui` stages share devel's baseline (GPU / network /
@@ -1173,7 +1186,6 @@ YAML
     _emit_user_build_args "${_user_build_args_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
-    container_name: \${USER_NAME}-${_name}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
 YAML
@@ -1325,8 +1337,8 @@ YAML
     #   - extends `devel` (compose merges network / ipc / privileged /
     #     cap_add / volumes / environment / deploy.resources / runtime)
     #   - overrides build.target so docker builds the right stage
-    #   - tags `image:` and `container_name:` per stage so multiple
-    #     stages coexist locally without clobbering devel's `:devel`
+    #   - tags `image:` per stage so multiple stages coexist locally
+    #     without clobbering devel's `:devel`
     #   - disables stdin_open / tty: stages are typically headless
     #     entrypoints (e.g. `headless` runs runheadless.sh, `runtime`
     #     runs CMD-driven daemons). Interactive debug uses

@@ -319,8 +319,8 @@ setup() {
 # of grepping the `_app_cleanup` identifier (renamed in).
 
 @test "run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)" {
-  # non-devel + no CMD uses foreground `compose up` so container_name
-  # takes effect (Dockerfile CMD runs).
+  # non-devel + no CMD uses foreground `compose up` so the Dockerfile CMD
+  # runs.
   run grep -E 'up "?\$\{TARGET\}"?' /source/dist/script/docker/wrapper/run.sh
   assert_success
   # non-devel + CMD uses `compose run --rm` so the ENTRYPOINT runs
@@ -348,13 +348,21 @@ setup() {
   # `if [[ "${DETACH}" != true ... ]]` / _wrapper_container_running /
   # `exit 1` block left this spec green.
   #
-  # So: pin the enclosing condition, pin the running-container probe, and
+  # So: pin the enclosing condition, pin the running-service probe, and
   # read the refusal out of the probe's OWN block -- a bare `exit 1`
   # appears all over the file and proves nothing on its own.
+  #
+  # The probe is `_wrapper_service_running "${TARGET}"` and not the
+  # `_wrapper_container_running "${CONTAINER_NAME}"` this guard used to
+  # name: there is no CONTAINER_NAME any more, because nothing
+  # emits `container_name:` for a wrapper to rebuild and look up. The
+  # question the refusal asks is now "is this SERVICE up inside THIS
+  # project", which is the only form that stays true when two stacks of
+  # one repo share a host.
   run code_grep -F 'if [[ "${DETACH}" != true' \
     /source/dist/script/docker/wrapper/run.sh
   assert_success
-  run code_grep -A7 -F 'if _wrapper_container_running "${CONTAINER_NAME}"; then' \
+  run code_grep -A12 -F 'if _wrapper_service_running "${TARGET}"; then' \
     /source/dist/script/docker/wrapper/run.sh
   assert_success
   assert_output --partial '_log_err run run_already_running'
@@ -429,18 +437,210 @@ setup() {
 # exec.sh container precheck (PR B)
 # ════════════════════════════════════════════════════════════════════
 
-@test "exec.sh checks container is running before exec" {
-  # The precheck asks the shared probe rather than spelling `docker ps`
+@test "exec.sh checks the service is running before exec (#920)" {
+  # The precheck asks the shared probe rather than spelling the query
   # inline: run.sh asks the identical question, and the two inline copies
   # were identical down to the `| grep -qx` that made both of them answer
   # backwards. Assert the seam from both ends -- exec.sh calls the probe,
-  # and the probe is the thing that queries the daemon -- so this stays a
-  # check that the precheck EXISTS rather than a pin on where the string
-  # `docker ps` happens to sit today.
-  run grep -F '_wrapper_container_running' /source/dist/script/docker/wrapper/exec.sh
+  # and the probe is the thing that asks compose -- so this stays a check
+  # that the precheck EXISTS rather than a pin on the exact query.
+  #
+  # The question is asked of the PROJECT now, not of the daemon's global
+  # container-name namespace: with no container_name emitted, a derived name
+  # is compose's to compute, and `compose ps` is where it is already known.
+  #
+  # Over CODE lines, not the whole file. A plain grep for the identifier
+  # passed with the precheck deleted outright, so long as the name survived
+  # in a comment -- and exec.sh carries several comment paragraphs
+  # discussing the probe it replaced, which makes a leftover mention the
+  # likely shape of a real deletion rather than a contrived one. The
+  # assertion is the CALL, in the refusal's own condition, not the bare
+  # identifier.
+  run code_grep -F '&& ! _wrapper_service_running "${TARGET}"; then' \
+    /source/dist/script/docker/wrapper/exec.sh
   assert_success
-  run grep -E 'docker (ps|inspect)' /source/dist/script/docker/lib/wrapper.sh
+  run code_grep -E '_compose_project ps' /source/dist/script/docker/lib/wrapper.sh
   assert_success
+}
+
+@test "no wrapper or wrapper library reconstructs a container name from USER_NAME (#920)" {
+  # The derived-name reconstruction is what made the precheck a second
+  # answerer to "what is this container called". Compose owns that name now;
+  # nothing a wrapper runs may assemble one to compare against.
+  #
+  # The population is DERIVED, never listed, and it is as wide as the name
+  # claims. A predecessor listed three files. Its successor derived the
+  # wrapper directory but appended `lib/wrapper.sh` as one literal path --
+  # and the reconstruction being removed lived partly in lib/, which makes
+  # lib/ a demonstrated home for it: appending `_legacy_container_name()`
+  # to lib/compose.sh, the file that owns project naming and which every
+  # wrapper sources, left that guard green. So BOTH halves are read off the
+  # tree: the wrappers, and the library they dispatch through. Symlinks are
+  # included -- `-type f` alone exempted any wrapper added as one.
+  local _wrapper_dir="/source/dist/script/docker/wrapper"
+  local _lib_dir="/source/dist/script/docker/lib"
+  local _dir
+  for _dir in "${_wrapper_dir}" "${_lib_dir}"; do
+    [[ -d "${_dir}" ]] \
+      || fail "missing ${_dir} -- a tree this guard derives its population from"
+  done
+
+  local -a _files=()
+  local _f
+  while IFS= read -r _f; do
+    _files+=("${_f}")
+  done < <(find "${_wrapper_dir}" "${_lib_dir}" -name '*.sh' \
+                \( -type f -o -type l \) | sort)
+
+  # A derived population that came back empty is the vacuous pass this guard
+  # exists to refuse, so the roster asserts a floor before it is scanned:
+  # both halves non-empty, and every entry a real file. The allowlist below
+  # is the second, much harder floor -- every entry is anchored to the file
+  # its read was reviewed in, and each of those files is asserted to be in
+  # the roster, so a roster that lost any of them fails there. The floor is
+  # the anchor set itself rather than a count restated in prose: an earlier
+  # version of this comment claimed six files where the entries resolve to
+  # eight.
+  local _n_wrappers=0 _n_libs=0
+  for _f in "${_files[@]}"; do
+    case "${_f}" in
+      "${_wrapper_dir}"/*) (( ++_n_wrappers )) ;;
+      "${_lib_dir}"/*)     (( ++_n_libs )) ;;
+    esac
+    assert_spec_subject "${_f}" \
+        "a wrapper-runtime script this guard scans for a rebuilt container name"
+  done
+  (( _n_wrappers > 0 )) \
+    || fail "${_wrapper_dir} holds no *.sh: the roster derived nothing to scan"
+  (( _n_libs > 0 )) \
+    || fail "${_lib_dir} holds no *.sh: the roster derived nothing to scan"
+
+  # grep exit 2 (unreadable path) must never read as "no match". A
+  # predecessor captured stdout with `|| true`, so a renamed scan root --
+  # nothing scanned -- passed as clean.
+  local _out _rc=0
+  _out="$(grep -Hn 'USER_NAME' "${_files[@]}")" || _rc=$?
+  (( _rc <= 1 )) || fail "grep exited ${_rc} scanning the wrapper-runtime roster"
+
+  # Comment lines are prose ABOUT the removed reconstruction; keep only
+  # code, but keep each hit's file:line prefix so a failure names a place.
+  local _code
+  _code="$(printf '%s\n' "${_out}" \
+    | awk '{ _l = $0; sub(/^[^:]*:[0-9]+:/, "", _l)
+             if (_l !~ /^[[:space:]]*#/ && _l != "") print $0 }')"
+
+  # Every reviewed read of the OS user in the wrapper runtime. None is a
+  # container lookup; each is the user as an identity, a build arg, an
+  # emitted env line, or message text.
+  #
+  # Each entry is `<file>|<the exact reviewed LINE>`: a scanned line is
+  # exempt only when it comes from that file AND is that line, byte for
+  # byte. Two weaker anchors were tried here and each exempted a
+  # reconstruction:
+  #
+  #   - dropping the whole line a token matched exempts whatever shares it,
+  #     so `; _legacy="${USER_NAME}-${IMAGE_NAME}"` appended to the xhost
+  #     line walked past untouched. An exact line stops matching the moment
+  #     anything is appended to it.
+  #   - stripping the TOKEN from the lines of its own file exempted a
+  #     SECOND use of a reviewed spelling inside that file. Appending
+  #     `_legacy_container_name() { printf %s "${USER_NAME:--}-${IMAGE_NAME}"; }`
+  #     to config_summary.sh -- the file that owns `${USER_NAME:--}` -- left
+  #     the guard at 159 ok / 0 not ok. That text is neither reviewed line
+  #     of that file, so it is now residue.
+  #
+  # The anchor is the line CONTENT, never a line NUMBER: a number would
+  # redden for every edit above a token. The cost of content is that a
+  # reworded read, or a fifth setup_tui locale adding a fifth mount-spec
+  # example, reddens once -- which is the correct signal, because a changed
+  # or new read has not been reviewed. Counting occurrences instead was
+  # rejected for exactly the case content handles: a new locale is a
+  # legitimate new line, and a count cannot tell one from a reconstruction.
+  #
+  # Fed from a quoted heredoc rather than an array literal: these are
+  # verbatim source lines carrying single quotes, `$`, backslashes and `|`,
+  # and a quoted heredoc is the one form that needs no escaping. The `|`
+  # separator is unambiguous because it is the FIRST one and no file name
+  # contains it (dockerfile_migrate.sh's sed expression contains several).
+  #
+  # Every entry must still MATCH a scanned line -- an entry that stopped
+  # matching would widen the guard into "nothing is checked", the same
+  # vacuous pass it exists to refuse.
+  local -a _allowed=()
+  local _entry
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] && _allowed+=("${_entry}")
+  done <<'ALLOWED'
+lib/compose_emit.sh|        USER_NAME: \${USER_NAME}
+lib/config_summary.sh|    "$(_lib_msg user)" "${USER_NAME:--}" "${USER_UID:--}" \
+lib/config_summary.sh|  printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
+lib/dockerfile_migrate.sh|  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
+lib/dockerfile_migrate.sh|  sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
+lib/env_emit.sh|USER_NAME=${_user_name}
+lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
+lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
+lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
+wrapper/run.sh|    xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
+wrapper/setup_tui.sh|_TUI_MSG_EN[volumes.edit.prompt]=$'Mount spec\n  - Format: <host>:<container>[:ro|rw]\n  - Empty = delete this entry\n  - Example: /data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_JA[volumes.edit.prompt]=$'マウント指定\n  - 形式: <host>:<container>[:ro|rw]\n  - 空 = この項目を削除\n  - 例: /data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_ZH_CN[volumes.edit.prompt]=$'挂载规格\n  - 格式：<host>:<container>[:ro|rw]\n  - 留空 = 删除此项目\n  - 示例：/data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_ZH_TW[volumes.edit.prompt]=$'掛載規格\n  - 格式：<host>:<container>[:ro|rw]\n  - 留空 = 刪除此項目\n  - 範例：/data:/home/${USER_NAME}/data:rw'
+ALLOWED
+
+  # The anchors are the harder floor: each names a file that must be in the
+  # derived roster, so a roster that lost one fails here instead of passing
+  # with less to scan.
+  local _a _anchor _anchored
+  for _a in "${_allowed[@]}"; do
+    _anchor="${_a%%|*}"
+    _anchored=0
+    for _f in "${_files[@]}"; do
+      [[ "${_f}" == */"${_anchor}" ]] && { _anchored=1; break; }
+    done
+    (( _anchored )) || fail \
+      "allowlist anchor ${_anchor} is absent from the derived roster: the roster lost a file this guard's floor names"
+  done
+
+  local -a _hit=()
+  local _i
+  for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do _hit[_i]=0; done
+
+  # Exempt a scanned line only when its FILE and its whole CONTENT are the
+  # reviewed pair. `_code` lines are `<path>:<lineno>:<content>`; neither a
+  # path nor a line number contains a colon, so the content is what follows
+  # the second one -- kept byte for byte, indentation included.
+  local _residue="" _line _path _content _af _at _exempt
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    _path="${_line%%:*}"
+    _content="${_line#*:}"
+    _content="${_content#*:}"
+    _exempt=0
+    for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
+      _af="${_allowed[_i]%%|*}"
+      _at="${_allowed[_i]#*|}"
+      [[ "${_path}" == */"${_af}" ]] || continue
+      [[ "${_content}" == "${_at}" ]] || continue
+      _hit[_i]=1
+      _exempt=1
+      break
+    done
+    (( _exempt )) || _residue+="${_line}"$'\n'
+  done <<< "${_code}"
+
+  for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
+    (( _hit[_i] )) || fail \
+      "allowlisted USER_NAME read is gone: ${_allowed[_i]} -- the roster scanned nothing, or the allowlist went stale"
+  done
+
+  local _left _rc2=0
+  _left="$(grep 'USER_NAME' <<< "${_residue}")" || _rc2=$?
+  (( _rc2 <= 1 )) || fail "grep exited ${_rc2} over the filtered residue"
+  [[ -z "${_left}" ]] || {
+    echo "unreviewed USER_NAME read in the wrapper runtime (name reconstruction?):"
+    echo "${_left}"
+    return 1
+  }
 }
 
 @test "exec.sh precheck error mentions run.sh hint" {

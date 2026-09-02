@@ -47,8 +47,10 @@
 # baseline blocklist {sys, devel-base, devel, devel-test, runtime-test}
 # is auto-emitted as a compose service that extends `devel` (inherits
 # volumes / network / GPU / GUI / cap_add / additional_contexts) and
-# overrides only build.target / image / container_name / stdin_open /
-# tty / profiles. Stage names must match `^[a-z][a-z0-9_-]*$` and must
+# overrides only build.target / image / stdin_open / tty / profiles.
+# No service carries a name of its own: compose derives
+# `<project>-<stage>-<n>`, which is what lets two stacks of one repo
+# coexist on a host. Stage names must match `^[a-z][a-z0-9_-]*$` and must
 # not collide with `latest` / `v[0-9]*` (reserved release tag
 # namespace). Use case: entrypoint variants like `headless` + `gui`
 # for the same baseline. No setup.conf change needed; run any wrapper
