@@ -187,6 +187,54 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+@test "_run_errexit_bang: FAILS when a BLANK line ends a continued bang statement (#956)" {
+  # bash removes the backslash-newline, so what ends the statement is the
+  # BLANK line's own newline: `! grep -q A` is one statement and
+  # `assert_success` is the next, which leaves the bang non-final and
+  # inert. The parser has to judge the statement the blank line closed;
+  # dropping it there exempts the statement from BOTH rules at once --
+  # rule (b) never runs and rule (a) never receives it -- and nothing
+  # reports a violation the lint exists for.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "closed by a blank line" {' \
+    '  ! grep -q A \' \
+    '' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS when a COMMENT line ends a continued bang statement (#956)" {
+  # The blank line's sibling, and the same drop: the join puts the comment
+  # after the bang command (`! grep -q A   # a note`), the statement ends
+  # there, and `assert_success` below it is the body's last statement.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "closed by a comment line" {' \
+    '  ! grep -q A \' \
+    '  # a note' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES when the blank line that ends a continued bang ends the BODY too (#956)" {
+  # The other direction of the same judgement: the statement closed by a
+  # blank line is still the body's LAST statement, so judging it there
+  # must not move its end line onto the blank -- that would make a clean
+  # body fail the position rule against itself.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "final bang, closed by a blank line" {' \
+    '  ! grep -q A \' \
+    '' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_errexit_bang: what is NOT a violation
 # ════════════════════════════════════════════════════════════════════
