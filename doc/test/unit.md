@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (62)
+### test/bats/unit/dockerfile_migrate_spec.bats (63)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1042,6 +1042,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)` | - |
 | `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
 | `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
+| `apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)` | - |
 | `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
 | `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
 | `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
