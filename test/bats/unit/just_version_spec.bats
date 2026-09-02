@@ -175,12 +175,11 @@ _seed_tree() {
   [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
     || fail "the acceptance job installs just but never reads the declaration through dist/script/base/just-version.sh"
   # ... and setup-just consumes THAT step's output. The id is derived from
-  # the body rather than remembered here, so the assertion states "the
+  # the workflow rather than remembered here, so the assertion states "the
   # input comes from the step that read the declaration" instead of "some
   # step output reaches the input".
-  _pin_id="$(printf '%s\n' "${_body}" \
-    | awk '/^[[:space:]]*id:[[:space:]]/{_id=$2}
-           /dist\/script\/base\/just-version\.sh/{print _id; exit}')"
+  _pin_id="$(yaml_step_id_for "${_wf}" acceptance \
+    'dist/script/base/just-version[.]sh')"
   [ -n "${_pin_id}" ] \
     || fail "the accessor call sits in a step with no 'id:', so no other step can consume what it resolved"
   [[ "${_body}" == *"just-version: \${{ steps.${_pin_id}.outputs."* ]] \

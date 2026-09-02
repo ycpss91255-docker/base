@@ -184,6 +184,28 @@ yaml_job_lines() {
     yaml_job_text "${1}" "${2}" | strip_comments
 }
 
+# yaml_step_id_for <file> <job> <ere>
+#   The `id:` of the step inside <job> whose OWN body matches <ere>. This is
+#   the value an assertion needs when it wants to say "the consumer reads
+#   THAT step", rather than the weaker "some step output reaches the
+#   consumer" -- the id is derived from the file, so renaming the step in the
+#   workflow moves the assertion with it instead of leaving it pinned to a
+#   remembered string.
+#
+#   Reads the job's CODE lines, so a mention of <ere> in a comment paragraph
+#   cannot name a step.
+#
+#   Prints NOTHING for every input whose shape it does not recognise -- the
+#   matching step carries no `id:`, the pattern matches nowhere in the job,
+#   the job does not exist, the match sits outside any step. Callers guard
+#   with `[ -n ... ]`, so an unrecognised shape fails the assertion loud
+#   rather than letting it pass on an id this function invented.
+yaml_step_id_for() {
+    yaml_job_lines "${1}" "${2}" \
+        | _pat="${3}" awk '/^[[:space:]]*id:[[:space:]]/{_id=$2}
+                           $0 ~ ENVIRON["_pat"]{print _id; exit}'
+}
+
 # yaml_job_names <file>
 #   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
 #   job roster, DERIVED from the file rather than remembered by the spec. A
