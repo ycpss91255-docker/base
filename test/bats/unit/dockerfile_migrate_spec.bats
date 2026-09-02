@@ -771,3 +771,47 @@ EOF
   run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
   assert_failure
 }
+
+# ── DL3007: the series this migration WRITES is a series we still support ───
+#
+# The DL3007 migration replaces a consumer's floating `FROM alpine:latest`
+# with a pinned series. Pinning is the point, but a literal in a sed is a
+# pin nobody ever re-reads: it wrote 3.21 -- a series reaching end-of-life
+# on 2026-11-01 -- into every Dockerfile it healed, which is the same silent
+# expiry the test-tools image had, with a longer blast radius because the
+# result lands in a downstream repo.
+#
+# So the migration's literal is tied to the one series this repo builds,
+# tests and dates: the ALPINE_VERSION pinned in
+# dockerfile/Dockerfile.test-tools, which alpine_eol_spec.bats already
+# fails the suite over 180 days before its recorded expiry. One series, one
+# place to bump, one expiry that is already being counted down. The
+# alternative -- a second literal with its own date -- is a second thing to
+# forget.
+#
+# Derived on both sides: neither test below names a version.
+
+@test "migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)" {
+  local _pinned _written
+  _pinned="$(sed -n 's|^ARG ALPINE_VERSION=\(.*\)$|\1|p' \
+    /source/dockerfile/Dockerfile.test-tools)"
+  [[ -n "${_pinned}" ]] || fail \
+    "could not read ARG ALPINE_VERSION from dockerfile/Dockerfile.test-tools -- the migration's target series is derived from it, and an unreadable source must not be compared against as an empty string."
+
+  printf 'FROM alpine:latest AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  _written="$(sed -n 's|^FROM alpine:\([^[:space:]]*\).*|\1|p' "${DF}")"
+  [[ "${_written}" == "${_pinned}" ]] || fail \
+    "the DL3007 migration writes alpine:${_written} into a consumer's Dockerfile while this repo pins alpine:${_pinned}. A literal in a sed is a pin nobody re-reads: it would keep installing an end-of-life base into downstream repos long after this repo moved off it. Bump the sed in _migrate_hadolint_apply to match, and the dated expiry beside ARG ALPINE_VERSION covers both."
+}
+
+@test "migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)" {
+  printf 'FROM alpine:3.19 AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # The migration heals `:latest`, it does not overwrite a deliberate pin --
+  # a consumer on an older series has a reason, and silently retagging their
+  # base image is not a lint fix.
+  grep -Fq 'FROM alpine:3.19' "${DF}"
+}

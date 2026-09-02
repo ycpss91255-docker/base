@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3160 tests**.
+Unit specs under `test/bats/unit/`: **3162 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -973,7 +973,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (53)
+### test/bats/unit/dockerfile_migrate_spec.bats (55)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1041,6 +1041,8 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
+| `migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)` | The series written into a consumer's Dockerfile is the one this repo builds, tests and dates |
+| `migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)` | Healing `:latest` is a lint fix; retagging a deliberate pin is not |
 
 ### test/bats/unit/build_sh_spec.bats (58)
 
