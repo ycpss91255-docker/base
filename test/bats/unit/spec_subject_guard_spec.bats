@@ -124,26 +124,85 @@ INNER_EOF
   assert_output ""
 }
 
-@test "the fail-open guard scan sees every spelling of the check, not just [[ -f ]]" {
+# _guard_spelling <bracket> <negation> <operator>
+#   Render ONE fail-open existence guard, in the spelling named by the three
+#   axes, as a line of bats source. Rendered rather than listed so the case
+#   below cannot fall behind the pattern one variant at a time.
+#
+#   `printf` rather than a heredoc, and assembled from pieces rather than
+#   written out: a literal guard line in THIS file would sit under the tree
+#   the invariant above scans, and that invariant would then fail on its own
+#   fixture. Every line here opens with `printf`, a case label or a quote,
+#   so no line of the generator can match the pattern the generator feeds.
+_guard_spelling() {
+  local _bracket="${1:?BUG: _guard_spelling expects a bracket form}"
+  local _negation="${2:?BUG: _guard_spelling expects a negation form}"
+  local _operator="${3:?BUG: _guard_spelling expects an operator}"
+  local _open _close _outer='' _inner='' _joiner='||'
+
+  case "${_bracket}" in
+    double) _open='[['   ; _close=' ]]' ;;
+    single) _open='['    ; _close=' ]'  ;;
+    builtin) _open='test'; _close=''    ;;
+    *) fail "BUG: unknown bracket form ${_bracket}" ;;
+  esac
+
+  # A negated existence check answers with `&&` instead of `||`; both say
+  # "skip when the subject is missing", which is the defect either way.
+  case "${_negation}" in
+    plain) : ;;
+    inner) _inner='! '; _joiner='&&' ;;
+    outer) _outer='! '; _joiner='&&' ;;
+    *) fail "BUG: unknown negation form ${_negation}" ;;
+  esac
+
+  printf '  %s%s %s-%s "${WF}"%s %s skip "gone"\n' \
+    "${_outer}" "${_open}" "${_inner}" "${_operator}" "${_close}" "${_joiner}"
+}
+
+@test "the fail-open guard scan sees each spelling of the check it claims to cover" {
   # The other way the invariant above goes quietly blind: it holds because
   # its PATTERN misses the guard, not because no guard exists. Reintroducing
-  # a real fail-open guard as `[ -f "${WF}" ] || skip "gone"` left it green.
+  # a real fail-open guard as `[ -f "${WF}" ] || skip "gone"` left it green,
+  # and so does a negated form or an existence test that is not `-f` --
+  # `[[ -d "${WF_DIR}" ]] || skip` was sitting in this suite, unseen, while
+  # the invariant reported clean.
   #
-  # Each spelling is written by `printf` rather than a heredoc on purpose:
-  # a heredoc would put a literal guard line into THIS file, which lives
-  # under the tree the invariant above scans, and the invariant would fail
-  # on its own fixture. A `printf` line starts with `printf`, so the pattern
-  # cannot match the source that produces the match.
+  # The spellings are GENERATED from three axes -- bracket form, negation,
+  # operator -- rather than listed, so a spelling this scan is claimed to
+  # cover cannot go untested by being left off a list.
+  #
+  # NOT exhaustive, and this case does not claim to be: bash spells a
+  # conditional in ways no cross-product enumerates (an `if ... then skip;
+  # fi` across three lines, `[[ -f x ]] || { skip; }`, a helper function
+  # that hides the test entirely). The scan over-approximates the shapes it
+  # knows and this case pins exactly those; a guard written outside the
+  # three axes is NOT covered, and saying so here is the point -- an
+  # invariant that claimed a closed set would be making the same promise
+  # the `-f`-only pattern made.
   local _planted="${BATS_TEST_TMPDIR}/planted"
   mkdir -p "${_planted}"
-  printf '  [[ -f "${WF}" ]] || skip "gone"\n' > "${_planted}/double_bracket.bats"
-  printf '  [ -f "${WF}" ] || skip "gone"\n'   > "${_planted}/single_bracket.bats"
-  printf '  test -f "${WF}" || skip "gone"\n'  > "${_planted}/test_builtin.bats"
 
-  local _spelling
-  for _spelling in double_bracket single_bracket test_builtin; do
-    run grep -nE "${GUARD_RE}" "${_planted}/${_spelling}.bats"
-    [[ "${status}" -eq 0 ]] || fail \
-      "the fail-open guard scan does not match the ${_spelling} spelling, so the repo-wide invariant would stay green with that guard in the tree"
+  local _bracket _negation _operator _name _planted_count=0
+  for _bracket in double single builtin; do
+    for _negation in plain inner outer; do
+      # The existence predicates a guard on a tracked artifact can use.
+      # `-f` was the only one the pattern knew.
+      for _operator in f e s d; do
+        _name="${_bracket}_${_negation}_${_operator}"
+        _guard_spelling "${_bracket}" "${_negation}" "${_operator}" \
+          > "${_planted}/${_name}.bats"
+        _planted_count=$(( _planted_count + 1 ))
+
+        run grep -nE "${GUARD_RE}" "${_planted}/${_name}.bats"
+        [[ "${status}" -eq 0 ]] || fail \
+          "the fail-open guard scan does not match the ${_name} spelling ($(cat "${_planted}/${_name}.bats")), so the repo-wide invariant would stay green with that guard in the tree"
+      done
+    done
   done
+
+  # Non-vacuity: a loop that planted nothing would report every spelling
+  # covered, which is this file's own subject matter one level up.
+  [ "${_planted_count}" -eq 36 ] || fail \
+    "planted ${_planted_count} spellings, expected 36 (3 bracket forms x 3 negations x 4 operators)"
 }

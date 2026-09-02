@@ -3535,4 +3535,4 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
-| `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
+| `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
