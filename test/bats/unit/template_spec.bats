@@ -1668,13 +1668,24 @@ _DF_DISPROVEN_CLAIMS=(
 
 # _df_swept_files -- every shipped or published text file the sweep reads:
 # the whole template tree, base's own Dockerfiles, the doc tree (changelog,
-# ADRs, the localized READMEs) and the English README.
+# ADRs, the localized READMEs) and every file at the top of the checkout.
 #
 # DERIVED, not enumerated. The five files that had carried the claim were
 # named by hand, so the sweep's reach was a property of that list and not
 # of the repo: a sixth shipped file stating the claim tomorrow was exempt
 # by construction -- the same hole one level up from the literal wording
 # the patterns above now match by shape.
+#
+# TWO derivations, because directory roots only derive one level down. A
+# root that is itself a FILE still had to be named, and README.md was the
+# only one named: `init.sh` (the one file a consumer executes on every
+# upgrade), `justfile`, `compose.yaml` and `CONTEXT.md` ship at the top
+# level and were exempt by exactly the construction the roots list had
+# just retired. So the top level is swept as a level -- `-maxdepth 1
+# -type f`, which reaches a fifth such file the day it lands -- and
+# README.md is dropped from the roots because that derivation now covers
+# it. Directories at the top level that are not roots (`log/`, the git
+# dir) stay out: `-type f` does not descend.
 #
 # The spec tree, the tooling tree and the workflows are IN it. They were
 # left out on the theory that the claims are spelled there as data -- but
@@ -1694,11 +1705,13 @@ _DF_SWEPT_ROOTS=(
   /source/script
   /source/test
   /source/.github
-  /source/README.md
 )
 
 _df_swept_files() {
-  find "${_DF_SWEPT_ROOTS[@]}" -type f | sort
+  {
+    find "${_DF_SWEPT_ROOTS[@]}" -type f
+    find /source -maxdepth 1 -type f
+  } | sort -u
 }
 
 # _df_vocabulary_unbalanced <file> -- prints the file, and why, when its
@@ -1799,6 +1812,11 @@ _df_flatten() {
     grep -q "^${_root}" <<< "${_roster}" \
       || fail "the sweep root ${_root} contributed no file to the roster"
   done
+  # ... and so did the top-level derivation, which has no root name to
+  # check: a `find` whose -maxdepth walk returned nothing is the same
+  # shorter list wearing the same clean report.
+  grep -qE '^/source/[^/]+$' <<< "${_roster}" \
+    || fail "the top-level sweep contributed no file to the roster"
 
   local _unbalanced
   while IFS= read -r _f; do
