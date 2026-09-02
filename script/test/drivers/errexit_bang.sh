@@ -244,22 +244,40 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   Three states (unquoted / single / double) plus a backslash escape
 #   outside single quotes, and nothing else -- expansions and heredocs are
 #   not modelled, exactly as the header says. A `#` ends the line only
-#   where it starts a WORD -- at the start of the line, after whitespace,
-#   or after one of the five word-ending metacharacters a statement can
-#   continue past (`;`, `&`, `|`, `(`, `)`) -- which is where the shell
-#   starts a comment; `;# note` is a terminator and prose, not a second
-#   command. In mid-word it is data and the line goes on. That is why the
-#   `_prev` marker is not blanked by a construct that CONTINUES a word: a
-#   closing quote and a consumed backslash escape each record themselves,
-#   because `'a'#b`, `"a"#b` and `a\ #b` are one argument apiece and the
-#   `#` in them is data. Blanking them to a space read the `#` as a
-#   comment and dropped the rest of the line, hiding a real separator --
-#   a MISSED violation, which is the one direction this lint refuses.
-#   `<` and `>` end a word as well and are deliberately not in the set: a
+#   where it starts a WORD, which is where the shell starts a comment;
+#   `;# note` is a terminator and prose, not a second command. In mid-word
+#   it is data and the line goes on.
+#
+#   `_word_end` carries that single bit, and every construct below answers
+#   for itself rather than being matched against a list of characters. A
+#   word ends at the start of the line, after a blank, and after `;`, `&`
+#   or `|`. It does NOT end at a closing quote, at a consumed backslash
+#   escape or after any ordinary character: `'a'#b`, `"a"#b` and `a\ #b`
+#   are one argument apiece and the `#` in them is data. Reading such a
+#   `#` as a comment dropped the rest of the line and hid a real
+#   separator -- a MISSED violation, which is the one direction this lint
+#   refuses. That is also why the flag DEFAULTS to 0: a construct this
+#   scan does not recognise leaves the word open, and an open word means
+#   the line is read on rather than discarded on a guess. Over-reporting
+#   costs a hand-written allow region; under-reporting is the defect.
+#   `<` and `>` end a word as well and are deliberately left out: a
 #   comment there eats the redirect's target, so the line is a SYNTAX
 #   ERROR and never a statement this lint judges (the spec runs that one
 #   too). Blanking rather than deleting keeps the column count, so a
 #   reported line still lines up with the file.
+#
+#   `)` is not one case but two, and reading it as one was a drop. The
+#   `)` that closes a SUBSHELL ends a word -- `(echo A)# note` really is
+#   a comment, and so is `(( x & 1 ))#b`. The `)` that closes an
+#   EXPANSION does not: `$( )`, `$(( ))`, `<( )` and `>( )` leave the
+#   surrounding word open, `printf '[%s]\n' $(echo A)#b` prints the one
+#   argument `[A#b]`, and taking that `#` for a comment blanked the
+#   `; true` behind it. Which one a `)` is depends on the `(` it closes,
+#   so the `(` at depth 0 reads the character in front of it and records
+#   the answer in `_paren_ends_word`; its `)` reads it back. A `)` at
+#   depth 0 closes a `(` this scan never saw -- one that opened on an
+#   earlier physical line -- so there is no answer to read, and unknown
+#   resolves to the open word, per the default above.
 #
 #   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
 #   blanked, because a separator there belongs to a SUBSHELL or a command
@@ -279,7 +297,10 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   is the UNSAFE one, and it is the shape that actually occurs: it is
 #   how the second line of a `$(` opened on the first one begins. Depth
 #   clamps at zero there, so the rest of that line is scanned at top
-#   level. Both readings are wrong, in both directions:
+#   level -- as CODE: the word rule above refuses to read such a `)` as
+#   a word end, so the line is over-read rather than truncated. What is
+#   over-read is still read at the wrong nesting, and both readings are
+#   wrong, in both directions:
 #
 #     ! grep -q $(foo \
 #       || bar) f; true
@@ -299,62 +320,93 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   left to be re-derived from a sentence that claimed the opposite.
 _errexit_bang_code_part() {
   local _s="${1}" _out='' _i _ch _q='' _prev=' ' _depth=0
+  # Would a `#` HERE open a comment? The caller feeds one physical line at
+  # a time and a line opens a word, so this starts set; every branch below
+  # answers for itself. Anything unrecognised leaves it 0 -- "no comment
+  # here" -- which keeps the rest of the line as code.
+  local _word_end=1
+  # Whether the `)` that closes the `(` currently open at depth 0 ends a
+  # word. Recorded when that `(` is read, the only point at which the
+  # character in front of it is visible.
+  local _paren_ends_word=0
   for (( _i = 0; _i < ${#_s}; _i++ )); do
     _ch="${_s:_i:1}"
     if [[ "${_q}" != "'" && "${_ch}" == $'\\' ]]; then
       # An escaped character is data, and a trailing backslash is the
-      # continuation marker. Neither is a separator -- and neither ENDS
-      # a word, so `_prev` records the backslash itself: `a\ #b` is the
-      # one argument `a #b` and the `#` is data.
+      # continuation marker. Neither is a separator -- and neither ENDS a
+      # word: `a\ #b` is the one argument `a #b` and the `#` is data.
       _out+='  '
       _i=$(( _i + 1 ))
       _prev=$'\\'
+      _word_end=0
       continue
     fi
     if [[ -n "${_q}" ]]; then
       # A quote that CLOSES does not end the word either (`'a'#b` is the
-      # one argument `a#b`), so `_prev` records the quote, not a blank.
-      # Inside the span the marker is never read: a `#` there reaches
-      # this branch, not the comment case below.
+      # one argument `a#b`). Inside the span nothing is read as syntax: a
+      # `#` there reaches this branch, not the comment case below.
       if [[ "${_ch}" == "${_q}" ]]; then
         _q=''
-        _prev="${_ch}"
-      else
-        _prev=' '
       fi
       _out+=' '
+      _prev="${_ch}"
+      _word_end=0
       continue
     fi
     case "${_ch}" in
       "'"|'"')
         _q="${_ch}"
         _out+=' '
-        _prev=' '
+        _prev="${_ch}"
+        _word_end=0
         continue
         ;;
       '(')
+        # Which `(` this is decides whether its `)` ends a word (see the
+        # doc above). `$(`, `$((`, `<(` and `>(` open an EXPANSION, whose
+        # close leaves the surrounding word open; a bare `(` opens a
+        # subshell -- or, doubled, an arithmetic command -- whose close
+        # ends one. Only the outermost is recorded, because the comment
+        # test runs at depth 0 alone.
+        if [[ "${_depth}" -eq 0 ]]; then
+          case "${_prev}" in
+            '$'|'<'|'>') _paren_ends_word=0 ;;
+            *)           _paren_ends_word=1 ;;
+          esac
+        fi
         _depth=$(( _depth + 1 ))
         _out+=' '
         _prev='('
+        _word_end=1
         continue
         ;;
       ')')
-        [[ "${_depth}" -gt 0 ]] && _depth=$(( _depth - 1 ))
+        if [[ "${_depth}" -gt 0 ]]; then
+          _depth=$(( _depth - 1 ))
+          # Back at top level this `)` is whatever its `(` said it was.
+          if [[ "${_depth}" -eq 0 ]]; then
+            _word_end="${_paren_ends_word}"
+          else
+            _word_end=0
+          fi
+        else
+          # A stray `)`: the `(` it closes opened on an earlier physical
+          # line, which this per-line scan does not carry, so what it
+          # closes is unknown. Unknown is not a word end -- the line is
+          # read on rather than truncated on a guess.
+          _word_end=0
+        fi
         _out+=' '
         _prev=')'
         continue
         ;;
       '#')
-        # A comment starts where the `#` starts a WORD: after a blank, at
-        # the start of the line, or after one of the five word-ending
-        # metacharacters a statement can continue past. Anywhere else it
-        # is data (`echo B#note` prints `B#note`, and so do `'a'#b` and
-        # `a\ #b`), which is why this is not an unconditional break.
-        # `<` / `>` are out by the doc above.
-        if [[ "${_depth}" -eq 0 ]]; then
-          case "${_prev}" in
-            ' '|$'\t'|';'|'&'|'|'|'('|')') break ;;
-          esac
+        # A comment starts where the `#` starts a WORD. In mid-word it is
+        # data (`echo B#note` prints `B#note`, and so do `'a'#b`, `a\ #b`
+        # and `$(echo a)#b`), which is why this is not an unconditional
+        # break.
+        if [[ "${_depth}" -eq 0 && "${_word_end}" -eq 1 ]]; then
+          break
         fi
         ;;
     esac
@@ -363,10 +415,18 @@ _errexit_bang_code_part() {
       # separator.
       _out+=' '
       _prev=' '
+      _word_end=0
       continue
     fi
     _out+="${_ch}"
     _prev="${_ch}"
+    # The word-ending characters a statement can continue past. `)` is not
+    # among them: it answered for itself above, and everything else -- an
+    # ordinary character -- continues the word.
+    case "${_ch}" in
+      ' '|$'\t'|';'|'&'|'|') _word_end=1 ;;
+      *)                     _word_end=0 ;;
+    esac
   done
   printf '%s' "${_out}"
 }
