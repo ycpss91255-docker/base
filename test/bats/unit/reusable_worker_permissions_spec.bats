@@ -18,9 +18,11 @@
 # next door:
 # multi-distro-build-worker.yaml had three jobs and no `permissions:` line
 # anywhere, and nothing was red. The population here is DERIVED -- every
-# `*.yaml` under the workflow directory whose `on:` mapping declares
-# `workflow_call` -- so a reusable worker added tomorrow is covered the day
-# it lands, and so is a job added to one.
+# `*.yaml` and every `*.yml` under the workflow directory whose `on:`
+# mapping declares `workflow_call`, read through `workflow_files`, which
+# is where that extension set is written and nowhere else -- so a
+# reusable worker added tomorrow is covered the day it lands, and so is a
+# job added to one.
 #
 # What this spec deliberately does NOT assert is WHICH scopes a job may
 # name: publish-worker's jobs legitimately hold `packages: write` and
