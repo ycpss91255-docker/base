@@ -259,6 +259,9 @@ _migrate_logging_rename_apply() {
 #   DL3006  parameterized `FROM ${BASE_IMAGE}` / `${TEST_TOOLS_IMAGE}` gains
 #           an inline `# hadolint ignore=DL3006` (an ARG-driven base image
 #           cannot be explicitly tagged)
+#   DL3066  a literal `USER root` gains an inline `# hadolint ignore=DL3066`
+#           (the rule postdates hadolint 2.12.0, so no existing consumer
+#           Dockerfile answers it, and every one of them has the line)
 _migrate_hadolint_detect() {
   local _file="$1"
   grep -Eq '^FROM (bats/bats|alpine):latest' "${_file}" && return 0
@@ -267,6 +270,7 @@ _migrate_hadolint_detect() {
   grep -Eq 'pip install[[:space:]]+-r' "${_file}" && return 0
   _dfm_needs_dl4006 "${_file}" && return 0
   _dfm_needs_dl3006 "${_file}" && return 0
+  _dfm_needs_dl3066 "${_file}" && return 0
   return 1
 }
 
@@ -285,6 +289,26 @@ _dfm_needs_dl3006() {
   local _file="$1"
   awk '
     /^FROM \$\{[A-Za-z_]+\}/ && prev !~ /hadolint ignore=DL3006/ { found=1 }
+    { prev=$0 }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
+}
+
+# _dfm_needs_dl3066 <file>
+#   True when a literal `USER root` is present whose preceding line does not
+#   already ignore DL3066.
+#
+#   Only the literal `root` is in scope. DL3066 asks for a NUMERIC user-id so
+#   a host or orchestrator can resolve the identity a container runs as, and
+#   `root` is the one name every image resolves by definition. Any other
+#   literal user is the case the rule is worth having, and `USER "${USER}"`
+#   -- the identity these images actually ship with -- is a parameter
+#   hadolint does not evaluate. Neither is touched.
+_dfm_needs_dl3066() {
+  local _file="$1"
+  awk '
+    /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/ &&
+      prev !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/ { found=1 }
     { prev=$0 }
     END { exit (found ? 0 : 1) }
   ' "${_file}"
@@ -325,7 +349,45 @@ _migrate_hadolint_apply() {
     ' "${_file}" > "${_tmp}"
     mv "${_tmp}" "${_file}"
   fi
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006 (#567 m5)"
+  # DL3066: inline ignore before each unguarded literal `USER root`.
+  #
+  # A pragma already sitting above the instruction is EXTENDED, never
+  # displaced: hadolint binds an ignore to the NEXT LINE, so inserting a
+  # second pragma between an existing one and its instruction would silently
+  # re-arm the rule that pragma was answering (the shipped shape of a real
+  # downstream Dockerfile is `# hadolint ignore=DL3002` directly above
+  # `USER root`). The inserted line copies the USER line's own indentation
+  # so the pragma cannot land outside a block it was meant to sit in.
+  if _dfm_needs_dl3066 "${_file}"; then
+    local _tmp3066
+    _tmp3066="$(mktemp)"
+    awk '
+      function flush(  ) { if (have) { print held; have = 0 } }
+      {
+        if ($0 ~ /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/) {
+          if (have && held ~ /hadolint ignore=/) {
+            if (held !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/) {
+              sub(/hadolint ignore=[A-Za-z0-9,]+/, "&,DL3066", held)
+            }
+            print held
+            have = 0
+          } else {
+            flush()
+            match($0, /^[[:space:]]*/)
+            print substr($0, 1, RLENGTH) "# hadolint ignore=DL3066"
+          }
+          print $0
+          next
+        }
+        flush()
+        held = $0
+        have = 1
+      }
+      END { flush() }
+    ' "${_file}" > "${_tmp3066}"
+    mv "${_tmp3066}" "${_file}"
+  fi
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
 }
 
 # ── Migration 6: noetic entrypoint SC1090 directive ─────────────────────────
