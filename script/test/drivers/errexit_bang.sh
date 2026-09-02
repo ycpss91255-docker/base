@@ -68,6 +68,14 @@
 # where the position rule declines to fire. Judging the first line only
 # left `! grep -q A \` / `"${_f}"; true` reported by nothing at all.
 #
+# Reading the whole statement means reading it to its END, wherever that
+# falls. A continued statement ends on the first line that does not
+# continue -- INCLUDING a blank or a comment line, which bash reads as
+# the terminator once the backslash-newline is removed. Such a statement
+# is judged there, on the last line that carried code, rather than being
+# carried to the next real line (where it was silently discarded, and so
+# escaped both rules).
+#
 # NOT every `||` is that hand-off, and the two named above are the only
 # ones flagged. `! A || B` runs B exactly when A SUCCEEDED, so who owns
 # the verdict is decided by B: `! A || return 1` and `! A || fail "..."`
@@ -254,7 +262,7 @@ _errexit_bang_scan_file() {
   local -n _ebsf_rows="${3}"
   local -n _ebsf_headers="${4}"
 
-  local _line _lineno=0 _in_body=0 _prev_cont=0 _cont=0 _body_open=0
+  local _line _lineno=0 _in_body=0 _prev_cont=0 _cont=0 _body_open=0 _is_stmt=1
   local _last_stmt=0 _in_allow=0 _begin_line=0
   local _bang_start=0 _bang_end=0 _bang_text='' _bang_code=''
   local -a _pending_line=() _pending_end=() _pending_text=()
@@ -309,26 +317,42 @@ _errexit_bang_scan_file() {
       continue
     fi
 
-    # Blank and comment lines are not statements.
-    [[ -z "${_line//[[:space:]]/}" ]] && continue
-    [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
+    # Blank and comment lines are not statements: they open none and join
+    # none, and neither continues onto the next line (a trailing backslash
+    # inside a comment is comment text). But a `!` statement the line
+    # above left open ENDS on one of them -- bash removes the
+    # backslash-newline, so a blank line contributes its own newline as
+    # the terminator and a comment line becomes a comment trailing the
+    # command -- so this does not `continue` past the judging block below.
+    # Skipping it there was the drop: the statement would be zeroed by the
+    # next real line, having been judged by NEITHER rule.
+    _is_stmt=1
+    if [[ -z "${_line//[[:space:]]/}" ]] || [[ "${_line}" =~ ^[[:space:]]*# ]]; then
+      _is_stmt=0
+      _cont=0
+    fi
 
     # A statement line. A continuation belongs to the statement that
     # started above it: it moves that statement's END (and the body's
     # last-statement mark) and JOINS its text, without starting a new one.
-    _last_stmt="${_lineno}"
-    if [[ "${_prev_cont}" -eq 1 ]]; then
-      if [[ "${_bang_start}" -gt 0 ]]; then
-        _bang_end="${_lineno}"
-        _bang_code+=" $(_errexit_bang_code_part "${_line}")"
-      fi
-    else
-      _bang_start=0
-      if [[ "${_in_allow}" -eq 0 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
-        _bang_start="${_lineno}"
-        _bang_end="${_lineno}"
-        _bang_text="${_line}"
-        _bang_code="$(_errexit_bang_code_part "${_line}")"
+    # A blank / comment line moves neither: the statement it closes ended
+    # on the last line that carried code, which is the line the position
+    # rule must compare against the body's last statement.
+    if [[ "${_is_stmt}" -eq 1 ]]; then
+      _last_stmt="${_lineno}"
+      if [[ "${_prev_cont}" -eq 1 ]]; then
+        if [[ "${_bang_start}" -gt 0 ]]; then
+          _bang_end="${_lineno}"
+          _bang_code+=" $(_errexit_bang_code_part "${_line}")"
+        fi
+      else
+        _bang_start=0
+        if [[ "${_in_allow}" -eq 0 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+          _bang_start="${_lineno}"
+          _bang_end="${_lineno}"
+          _bang_text="${_line}"
+          _bang_code="$(_errexit_bang_code_part "${_line}")"
+        fi
       fi
     fi
 
