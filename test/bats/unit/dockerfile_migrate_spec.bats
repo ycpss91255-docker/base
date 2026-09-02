@@ -818,7 +818,7 @@ EOF
 
 # ── DL3066: the rule the 2022 hadolint could not report ─────────────────────
 #
-# hadolint 2.15.1 (this repo's pin since #947) reports DL3066 "non-numeric
+# hadolint 2.15.1, this repo's current pin, reports DL3066 "non-numeric
 # user-id may not be resolvable by host system" on a literal `USER root`.
 # The rule postdates the 2.12.0 that stood here for three and a half years,
 # so no consumer Dockerfile carries a pragma for it -- and every consumer

@@ -23,6 +23,16 @@
 # strips the leading v and bounds the number on both sides -- 0.11.0 must
 # not be satisfied by 0.11.01 or by any longer digit run that contains it.
 #
+# These two tests can only pass in an image that matches the checkout, and
+# CI does not rebuild the image for every PR -- it pulls the rolling
+# `test-tools:main`. That is why self-test.yaml's Obtain step compares the
+# pulled image's tool VERSIONS with this same Dockerfile before accepting
+# it (script/ci/probe_test_tools.sh) and rebuilds from source when they
+# disagree. So a pin bump does not leave unrelated PRs failing here until
+# `:main` is republished: the mismatch is self-corrected one layer down,
+# where it can be, rather than skipped here, where skipping would retire
+# the check on exactly the runs it was written for.
+#
 # The pin is READ from the Dockerfile, never restated here: this file names
 # no version, so a bump touches the Dockerfile and leaves the spec alone.
 # The reader's failure path is exercised on a fixture rather than assumed,

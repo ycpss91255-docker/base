@@ -354,15 +354,21 @@ _job_comments() {
   assert_output --partial "'dist/script/docker/wrapper/prune.sh'"
 }
 
-@test "self-test.yaml: classify system block-list covers the build_worker scripts + self-test fixture (#802)" {
+@test "self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)" {
   # The worker-selftest job consumes script/ci/build_worker/** (its YAML
   # plumbing / output contract) and builds test/fixtures/build-worker/**, so
   # a PR touching ONLY those -- without a .github/workflows/** change -- must
   # still flip system_relevant=true and re-run the System self-test instead
   # of skipping it.
+  #
+  # The whole of script/ci/, not the worker subdirectory alone: the system
+  # job now decides WHICH IMAGE it runs in via script/ci/probe_test_tools.sh,
+  # so that script's behaviour is as load-bearing for it as the worker's is
+  # for worker-selftest. Listing the directory rather than each file is what
+  # keeps the next CI script from landing outside the gate by omission.
   run yaml_job_lines "${WF}" classify
   assert_success
-  assert_output --partial "'script/ci/build_worker/**'"
+  assert_output --partial "'script/ci/**'"
   assert_output --partial "'test/fixtures/build-worker/**'"
 }
 

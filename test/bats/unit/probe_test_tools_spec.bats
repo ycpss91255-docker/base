@@ -154,7 +154,11 @@ _probe_image img '${DOCKERFILE}'"
   # empty expectation against an empty reading agrees with itself.
   local _f="${TEMP_DIR}/no-pin"
   printf 'FROM alpine\n' > "${_f}"
-  run bash -c "$(_src); _probe_image img '${_f}'"
+  # Every tool is PRESENT, so the only thing left to refuse is the missing
+  # expectation itself.
+  run bash -c "$(_src)
+$(_fake_run "")
+_probe_image img '${_f}'"
   assert_failure
   assert_output --partial 'pin'
 }

@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+#
+# probe_test_tools.sh - Does this test-tools image match THIS checkout?
+#
+# CI does not rebuild the tooling image for a PR that leaves
+# dockerfile/Dockerfile.test-tools alone. It pulls the rolling `:main` tag
+# instead, and `:main` is republished only by a push to main that touches
+# that Dockerfile -- a multi-arch build including a native arm64 shard. So
+# there is always a window, and after a failed republish an open-ended one,
+# in which an unrelated PR's suite would run inside an image that does not
+# correspond to its own checkout.
+#
+# Two distinct ways that hurts, and the guard used to see only the first:
+#
+#   ABSENT   a tool baked in by a change already on main is missing from
+#            the :main this run pulled (the kcov case). Loud: the suite
+#            fast-fails "kcov: not found".
+#   STALE    the tool is there, at the version the pin used to name. Silent
+#            and worse: shellcheck and hadolint are lint GATES, and a gate
+#            running an older rule set does not fail, it under-reports.
+#            Every rule added since the previous pin simply never runs,
+#            and the green check is reporting on something other than what
+#            the checkout asked for.
+#
+# So presence is necessary and not sufficient. For a tool whose version is
+# pinned by literal release URL in the Dockerfile, the probe reads the pin
+# out of the checkout and compares it with what the image actually reports.
+# The expectation is never written here: a literal in this file would be a
+# second place to bump, and two literals that agree with each other prove
+# only that someone edited both.
+#
+# The caller's contract is a verdict, not a diagnosis:
+#
+#   exit 0   the image corresponds to this checkout; use it
+#   exit 1   it does not; the reason is on stderr. Every caller answers
+#            this by rebuilding from dockerfile/Dockerfile.test-tools,
+#            which is the strict side -- a rebuild costs minutes, a wrong
+#            rule set costs a review.
+#   exit 2   the probe could not form an expectation at all (a moved
+#            release URL, a renamed file, a contradictory tool list).
+#            Separated from 1 because "cannot tell" is not "does not
+#            match", but it is emphatically not a pass: comparing an empty
+#            expectation against an empty reading agrees with itself, and
+#            that is the shape of pass this whole mechanism exists to
+#            refuse.
+#
+# Usage:
+#   ./script/ci/probe_test_tools.sh <image> [dockerfile]
+#
+# Env:
+#   REQUIRED_TOOLS  tools the run EXECUTES and must therefore be present
+#                   (default: kcov bats shellcheck hadolint). A job that
+#                   only uses the image as a `FROM` base needs no probe at
+#                   all -- see the acceptance job.
+#   PINNED_TOOLS    subset whose VERSION is pinned by release URL and is
+#                   therefore compared, not merely found
+#                   (default: shellcheck hadolint).
+#
+# Style: Google Shell Style Guide.
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
+
+_PROBE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+
+# The tools a run executes, and the subset whose version is load-bearing.
+# Overridable so a caller can narrow, never silently: an override that
+# drops a PINNED tool is refused below rather than honoured.
+: "${REQUIRED_TOOLS:=kcov bats shellcheck hadolint}"
+: "${PINNED_TOOLS:=shellcheck hadolint}"
+
+# _probe_default_dockerfile
+#   The checkout's test-tools Dockerfile, resolved from THIS script's own
+#   location rather than the caller's cwd: CI invokes the probe with the
+#   image alone, and a cwd that is not the repo root must not turn the
+#   comparison into an unreadable-pin refusal.
+_probe_default_dockerfile() {
+  local _root
+  _root="$(cd -- "${_PROBE_DIR}/../.." && pwd -P)" || return 1
+  printf '%s\n' "${_root}/dockerfile/Dockerfile.test-tools"
+}
+
+# _probe_run <image> <command>
+#   Run one command inside the image and print its stdout. The single
+#   seam through which this script touches docker, so the decision logic
+#   above it is drivable from a unit spec with no daemon.
+_probe_run() {
+  local _image="${1:?BUG: _probe_run expects an image}"
+  local _cmd="${2:?BUG: _probe_run expects a command}"
+  docker run --rm "${_image}" sh -c "${_cmd}"
+}
+
+# _probe_pinned_version <dockerfile> <tool>
+#   The version in the tool's pinned release URL, leading v stripped.
+#   Prints nothing and returns 1 when no such URL is present -- an
+#   unreadable pin is a defect for the caller to report, never an absent
+#   constraint the caller may skip.
+_probe_pinned_version() {
+  local _file="${1:?BUG: _probe_pinned_version expects a file}"
+  local _tool="${2:?BUG: _probe_pinned_version expects a tool}"
+  [[ -f "${_file}" ]] || return 1
+  local _all _v
+  # No `| head -n1`: the writer would take SIGPIPE and pipefail would turn
+  # a successful match into a failed pipeline. Read them all, keep the
+  # first.
+  _all="$(sed -n "s|.*${_tool}/releases/download/v\([0-9][0-9.]*\)/.*|\1|p" \
+    "${_file}")"
+  _v="${_all%%$'\n'*}"
+  [[ -n "${_v}" ]] || return 1
+  printf '%s\n' "${_v}"
+}
+
+# _probe_reports_version <text> <version>
+#   Does the tool's own --version output carry exactly this version? The
+#   dots are escaped so they cannot match any character, and the number is
+#   bounded on both sides so 0.11.0 is not satisfied by 0.11.01 or by a
+#   longer digit run that merely contains it.
+_probe_reports_version() {
+  local _text="${1?BUG: _probe_reports_version expects the tool output}"
+  local _version="${2:?BUG: _probe_reports_version expects a version}"
+  local _re="${_version//./\\.}"
+  [[ "${_text}" =~ (^|[^0-9.])${_re}([^0-9.]|$) ]]
+}
+
+# _probe_image <image> [dockerfile]
+#   The verdict. See the exit-status contract in the header.
+_probe_image() {
+  local _image="${1:?BUG: _probe_image expects an image}"
+  local _file="${2:-$(_probe_default_dockerfile)}"
+
+  local -a _required=() _pinned=()
+  read -ra _required <<< "${REQUIRED_TOOLS}"
+  read -ra _pinned <<< "${PINNED_TOOLS}"
+
+  # Non-vacuity. A probe over an empty list answers "yes" to every image.
+  if [[ "${#_required[@]}" -eq 0 ]]; then
+    printf 'probe: REQUIRED_TOOLS is empty, so this probe would accept any image. Name the tools the run executes.\n' >&2
+    return 2
+  fi
+
+  # A tool whose version matters that the probe never even looks for is a
+  # list that has drifted apart, not a deliberately narrower probe.
+  local _p _r _found
+  for _p in "${_pinned[@]}"; do
+    _found=false
+    for _r in "${_required[@]}"; do
+      [[ "${_r}" == "${_p}" ]] && _found=true
+    done
+    if [[ "${_found}" != "true" ]]; then
+      printf 'probe: %s is in PINNED_TOOLS but not in REQUIRED_TOOLS (%s), so its version would never be compared.\n' \
+        "${_p}" "${REQUIRED_TOOLS}" >&2
+      return 2
+    fi
+  done
+
+  local _tool _pin _actual
+  for _tool in "${_required[@]}"; do
+    if ! _probe_run "${_image}" "command -v ${_tool}" >/dev/null 2>&1; then
+      printf 'probe: %s carries no %s.\n' "${_image}" "${_tool}" >&2
+      return 1
+    fi
+
+    _found=false
+    for _p in "${_pinned[@]}"; do
+      [[ "${_p}" == "${_tool}" ]] && _found=true
+    done
+    [[ "${_found}" == "true" ]] || continue
+
+    if ! _pin="$(_probe_pinned_version "${_file}" "${_tool}")"; then
+      printf 'probe: could not read the %s pin from %s. The release URL moved, or the file did. Refusing to report agreement between two empty strings.\n' \
+        "${_tool}" "${_file}" >&2
+      return 2
+    fi
+    _actual="$(_probe_run "${_image}" "${_tool} --version" 2>/dev/null)" \
+      || _actual=""
+    if ! _probe_reports_version "${_actual}" "${_pin}"; then
+      printf 'probe: %s pins %s v%s but %s reports: %s\n' \
+        "${_file}" "${_tool}" "${_pin}" "${_image}" "${_actual:-<nothing>}" >&2
+      return 1
+    fi
+    printf 'probe: %s v%s matches the pin.\n' "${_tool}" "${_pin}"
+  done
+
+  printf 'probe: %s carries every required tool at the pinned version.\n' \
+    "${_image}"
+}
+
+main() {
+  if [[ "$#" -lt 1 || -z "${1}" ]]; then
+    printf 'usage: probe_test_tools.sh <image> [dockerfile]\n' >&2
+    return 2
+  fi
+  _probe_image "${1}" "${2:-$(_probe_default_dockerfile)}"
+}
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
+fi
