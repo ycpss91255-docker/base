@@ -103,9 +103,11 @@
 #
 # The separator scan reads the statement's CODE, not its raw text:
 # quoted spans are blanked, an unquoted `( ... )` is blanked with them,
-# and a trailing comment is dropped first, so `! grep -q 'a;b' f`,
-# `! grep -q $(foo; bar) f` and `! grep -q A f  # see also; below` are
-# not read as two commands. Both rules ask about the statement's OWN
+# and a comment is dropped first -- one that opens after a blank or after
+# a word-ending metacharacter, which is where the shell opens one -- so
+# `! grep -q 'a;b' f`, `! grep -q $(foo; bar) f`,
+# `! grep -q A f  # see also; below` and `! ovr_get k;# a note` are not
+# read as two commands. Both rules ask about the statement's OWN
 # top-level list: a separator inside a subshell or a command substitution
 # is an argument's, and reading it as the statement's exempted an inert
 # `! grep -q $(foo || bar) f` from both rules while reporting a
@@ -209,9 +211,12 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   Three states (unquoted / single / double) plus a backslash escape
 #   outside single quotes, and nothing else -- expansions and heredocs are
 #   not modelled, exactly as the header says. A `#` ends the line only
-#   when it starts a word (preceded by whitespace or nothing), which is
-#   when the shell starts a comment. Blanking rather than deleting keeps
-#   the column count, so a reported line still lines up with the file.
+#   where it starts a WORD -- at the start of the line, after whitespace,
+#   or after one of the metacharacters that end a word (`;`, `&`, `|`,
+#   `(`, `)`) -- which is where the shell starts a comment; `;# note` is
+#   a terminator and prose, not a second command. In mid-word it is data
+#   and the line goes on. Blanking rather than deleting keeps the column
+#   count, so a reported line still lines up with the file.
 #
 #   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
 #   blanked, because a separator there belongs to a SUBSHELL or a command
@@ -261,7 +266,15 @@ _errexit_bang_code_part() {
         continue
         ;;
       '#')
-        [[ "${_depth}" -eq 0 && ( "${_prev}" == ' ' || "${_prev}" == $'\t' ) ]] && break
+        # A comment starts where the `#` starts a WORD: after a blank, at
+        # the start of the line, or after one of the metacharacters that
+        # end a word. Anywhere else it is data (`echo B#note` prints
+        # `B#note`), which is why this is not an unconditional break.
+        if [[ "${_depth}" -eq 0 ]]; then
+          case "${_prev}" in
+            ' '|$'\t'|';'|'&'|'|'|'('|')') break ;;
+          esac
+        fi
         ;;
     esac
     if [[ "${_depth}" -gt 0 ]]; then
