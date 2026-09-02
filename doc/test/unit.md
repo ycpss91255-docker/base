@@ -1,7 +1,7 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3184 tests**.
-Unit specs under `test/bats/unit/`: **3332 tests**.
+Unit specs under `test/bats/unit/`: **3376 tests**.
+Unit specs under `test/bats/unit/`: **3376 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3616,8 +3616,8 @@ three tests assert the repo's own published figure, not the generator.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (28)
-### test/bats/unit/code_lines_spec.bats (29)
+### test/bats/unit/code_lines_spec.bats (35)
+### test/bats/unit/code_lines_spec.bats (35)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -3900,30 +3900,10 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 
 | Test | Description |
 |------|-------------|
-| `just provenance: a tree whose every site names the pin is clean (#948)` | - |
-| `just provenance: setup-just with no just-version input is a finding (#948)` | - |
-| `just provenance: the just.systems installer with no --tag is a finding (#948)` | - |
-| `just provenance: a pinned release URL that drops the version arg is a finding (#948)` | - |
-| `just provenance: a package-manager install of just needs an advisory marker (#948)` | - |
-| `just provenance: a package-manager install inside a justified advisory region is allowed (#948)` | - |
-| `just provenance: an advisory region with no stated reason is a finding (#948)` | - |
-| `just provenance: an unterminated advisory region is a finding (#948)` | - |
-| `just provenance: an unmatched advisory-end is a finding (#948)` | - |
-| `just provenance: a step cannot borrow the NEXT step's just-version input (#948)` | - |
-| `just provenance: the installer cannot borrow a --tag from a later command (#948)` | - |
-| `just provenance: the installer cannot borrow a --tag from a command chained onto its own line (#948)` | - |
-| `just provenance: a --tag after a ';' on a continued line is not the installer's either (#948)` | - |
-| `just provenance: a second acquisition on one logical line is its own site (#948)` | - |
-| `just provenance: the hidden second acquisition is found in either order (#948)` | - |
-| `just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)` | - |
-| `just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)` | - |
-| `just provenance: a pointer to the project's homepage is not an acquisition site (#948)` | - |
-| `just provenance: a missing scan root fails rather than passing vacuously (#948)` | - |
-| `just provenance: an empty scan root fails rather than passing vacuously (#948)` | - |
-| `just provenance: a tree with no provenance site at all fails vacuously-closed (#948)` | - |
-| `just provenance: a tree where nothing is pinned fails vacuously-closed (#948)` | - |
-| `just provenance: pin evidence on a backslash continuation still counts (#948)` | - |
-| `just provenance: the live tree passes its own lint (#948)` | - |
+| `no spec settles an assertion by comparing against the live checkout (#965)` | - |
+| `a scan of a tree that is not there answers 2, not 1 (#965)` | - |
+| `the comparison scan sees a live operand in each command position it names (#965)` | - |
+| `the comparison scan is an over-approximation, not a closed set (#965)` | - |
 
 ### test/bats/unit/just_version_spec.bats (9)
 
@@ -3974,28 +3954,6 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 | `a scan of a tree that is not there answers 2, not 1 (#965)` | - |
 | `the comparison scan sees a live operand in each command position it names (#965)` | - |
 | `the comparison scan is an over-approximation, not a closed set (#965)` | - |
-| `_residue_paths: a file the run CREATED is named (#965)` | The base case: an untracked file that was not there before |
-| `_residue_paths: an edit already in flight before the run is NOT named (#965)` | The cry-wolf case; a guard that reds a dirty working tree is switched off within the week |
-| `_residue_paths: a SECOND edit to an already-dirty file IS named (#965)` | Why the record carries a content hash: both snapshots show the same ` M` status line |
-| `_residue_paths: a tracked file the run DELETED is named (#965)` | Residue is any difference, not only an addition |
-| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; git's ignore list is the allowlist |
-| `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | `.git/info/exclude` silences it too, and the same write one directory over is still named |
-| `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
-| `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | The first blind spot, measured: neither undo shape reaches `git status`, and the same write left in place is still named |
-| `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
-| `_residue_paths: a permission change is seen only where git tracks one (#965)` | 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit, not just its existence |
-| `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |
-| `_residue_check: passes on a run that changed nothing (#965)` | The path every green gate takes |
-| `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
-| `_residue_check: a run that changed nothing does not report that it did (#965)` | The lead sentence is about THIS run; a carried path says so in its own clause |
-| `_residue_check: the memory clears when the residue is GONE (#965)` | - |
-| `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
-| `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | The escape hatch's price, decided and pinned: silent for an identical rewrite, named again when the bytes change |
-| `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
-| `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
-| `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
-| `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
-| `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 ### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
 
 | Test | Description |
