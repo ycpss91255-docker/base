@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3156 tests**.
+Unit specs under `test/bats/unit/`: **3206 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -614,7 +614,7 @@ idempotency.
 | `_migrate_env_to_local is a no-op when there is no .env (#868)` | - |
 | `_migrate_env_to_local stages the removal when .env was git-tracked (#868)` | - |
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (126)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -679,11 +679,16 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |
 | `show prints all entries of a whole section in on-disk order` | - |
+| `show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)` | - |
+| `show logging.<svc> dumps the sub-section it accepts as a valid section (#955)` | - |
+| `show reports a typo under [logging] as a missing KEY, not an empty section (#955)` | - |
 | `show returns non-zero on a missing key` | - |
 | `show falls back to template baseline when section absent in .local (#174)` | - |
 | `show rejects an unknown section name` | - |
 | `show with no arguments fails clean` | - |
 | `list with no arg prints every section header + key` | - |
+| `list emits a per-service logging key once, under its own section (#955)` | - |
+| `no setup.conf namespace-key reader re-derives section membership with a trailing-dot glob on a lone section variable (#955)` | - |
 | `list <section> mirrors show <section>` | - |
 | `list <section> rejects an unknown section` | - |
 | `set / show / list run end-to-end via subprocess` | - |
@@ -692,6 +697,7 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `main add bootstraps setup.conf empty when missing (#174)` | - |
 | `main add picks max+1 even with gap from prior remove` | - |
 | `main add rejects unknown section` | - |
+| `main add binds a logging.<svc> spec to the sub-section, not the parent (#955)` | - |
 | `main add rejects invalid mount value` | - |
 | `main add rejects missing list / value` | - |
 | `main add does not regen .env` | - |
@@ -883,7 +889,7 @@ single FROM line and asserts one verdict per site.
 | `_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)` | - |
 | `_resolve_docker_flags: no legacy alias, no deprecation warning (#876)` | - |
 
-### test/bats/unit/tui_spec.bats (135)
+### test/bats/unit/tui_spec.bats (138)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -2675,7 +2681,7 @@ paths live in `watchdog_supervision_spec.bats`.
 | `watchdog log setup writes a per-start file + stable symlink under watchdog/ (#797, #805)` | - |
 | `watchdog log is stderr-only (no file) when no log dir is configured (#797)` | - |
 
-### test/bats/unit/watchdog_supervision_spec.bats (7)
+### test/bats/unit/watchdog_supervision_spec.bats (16)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -2741,11 +2747,20 @@ processes / sleeps / signals, so the file is **kcov-fragile** (each test carries
 |------|-------------|
 | `restart-container monitor DEFERS checks during the start period (#797)` | - |
 | `restart-container monitor EXITS the container after consecutive failures (#797)` | - |
+| `_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)` | - |
 | `restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)` | - |
 | `_watchdog_stop_service SIGKILLs a SIGTERM-ignoring service within the bounded grace (no hang) (#797)` | - |
 | `_watchdog_stop_service kills the whole service subtree (no orphaned grandchild) (#797)` | - |
 | `restart-service give-up against a wedged (SIGTERM-ignoring) service still exits the container (#797)` | - |
 | `restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)` | - |
+| `the readiness wait's own failure path returns within its bound, it does not hang (#965)` | - |
+| `a service the case gives up on cannot hold the case open past its bound (#965)` | - |
+| `a harness that swallows its own ceiling's signal is still bounded (#965)` | - |
+| `_kill_case_groups: never signals a bare pid, only a process GROUP (#965)` | - |
+| `_await_gone: a killed process nobody has reaped is GONE, not still alive (#965)` | - |
+| `_reap_child: a killed child and a completed one report DIFFERENT statuses (#965)` | - |
+| `_within_case_bound: answers no exactly when a case outran its own ceiling (#965)` | - |
+| `every SHELL this file starts is started inside the one bounded harness (#965)` | - |
 
 ### test/bats/unit/compose_watchdog_spec.bats (6)
 
