@@ -118,6 +118,20 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   end to end and nothing but blanks and comments. A file, a directory or a
   conf layer the check could not read answers "unknown", never "empty", and
   the line is kept.
+- **the bang lint dropped the statements it had opened, and flagged two shapes
+  that were never violations (refs #956)** -- a `!` statement whose
+  continuation line was followed by a BLANK or a comment line was judged by
+  neither rule: the skip for those lines sat above the point where a statement
+  is judged, so the open statement was discarded by the next real line and
+  nothing reported it. They now END the statement they follow. Two false
+  positives go with it: a separator inside `( ... )` is the argument's, not the
+  statement's, and a `#` opens a comment wherever the shell opens one -- after
+  `;`, `&`, `\|`, `(`, `)` as well as after a blank.
+- **the standalone check still authorised a delete for a DIRECTORY it never
+  read (refs #956)** -- open(2) on a directory succeeds, so the redirect probe
+  `_dfm_pip_line_is_standalone` relies on returned 0 for a path whose every
+  `read` failed. It tests `[[ -f ]]` first now, and the header sentence says
+  which probe answers for what instead of claiming one covers all of it.
 - **the last read that could authorise that delete now refuses a file it could
   not open (refs #956)** -- `_dfm_pip_line_is_standalone` decides whether the
   helper line is one a line-delete can remove safely. It read the Dockerfile
