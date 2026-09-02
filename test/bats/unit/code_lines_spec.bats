@@ -2,7 +2,8 @@
 #
 # code_lines_spec.bats -- unit tests for the comment-stripped file views in
 # test/bats/unit/test_helper.bash (strip_comments / only_comments /
-# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}).
+# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}),
+# and for yaml_step_id_for, the step-scoped reader built on top of them.
 #
 # These helpers exist because a structural spec that greps a WHOLE file lets
 # a string appearing only in a COMMENT satisfy an assertion about CODE, and

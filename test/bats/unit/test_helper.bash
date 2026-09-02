@@ -185,10 +185,10 @@ yaml_job_lines() {
 }
 
 # yaml_step_id_for <file> <job> <ere>
-#   The `id:` of the step inside <job> whose OWN body matches <ere>. This is
+#   The `id:` of the FIRST step inside <job> whose OWN body matches <ere> --
 #   the value an assertion needs when it wants to say "the consumer reads
 #   THAT step", rather than the weaker "some step output reaches the
-#   consumer" -- the id is derived from the file, so renaming the step in the
+#   consumer". The id is derived from the file, so renaming the step in the
 #   workflow moves the assertion with it instead of leaving it pinned to a
 #   remembered string.
 #
@@ -196,14 +196,27 @@ yaml_job_lines() {
 #   cannot name a step.
 #
 #   Prints NOTHING for every input whose shape it does not recognise -- the
-#   matching step carries no `id:`, the pattern matches nowhere in the job,
-#   the job does not exist, the match sits outside any step. Callers guard
-#   with `[ -n ... ]`, so an unrecognised shape fails the assertion loud
-#   rather than letting it pass on an id this function invented.
+#   matching step carries no `id:`, the step declares its `id:` only AFTER
+#   the matching line, the pattern matches nowhere in the job, the job does
+#   not exist, the match sits ahead of the job's first step. Empty is the
+#   only answer it gives when it cannot attribute the match, and callers
+#   guard with `[ -n ... ]`, so an unrecognised shape fails the assertion
+#   loud rather than passing it an id this function guessed.
 yaml_step_id_for() {
     yaml_job_lines "${1}" "${2}" \
-        | _pat="${3}" awk '/^[[:space:]]*id:[[:space:]]/{_id=$2}
-                           $0 ~ ENVIRON["_pat"]{print _id; exit}'
+        | _pat="${3}" awk -v _depth=-1 '
+            # A step BOUNDARY: a sequence dash at the shallowest indent the
+            # job has shown. Anything deeper is inside the current step -- a
+            # `with:` list, a `- ` in a block scalar -- and must not clear
+            # the id that step declared. Crossing a boundary forgets the id,
+            # so an id never travels into the step that follows it.
+            /^[[:space:]]*-[[:space:]]/ {
+                _ind = index($0, "-") - 1
+                if (_depth < 0 || _ind <= _depth) { _depth = _ind; _id = "" }
+            }
+            /^[[:space:]]*id:[[:space:]]/ { _id = $2 }
+            $0 ~ ENVIRON["_pat"] { print _id; exit }
+        '
 }
 
 # yaml_job_names <file>

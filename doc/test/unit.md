@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3178 tests**.
+Unit specs under `test/bats/unit/`: **3184 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3481,12 +3481,13 @@ untested) and uncommented.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (22)
+### test/bats/unit/code_lines_spec.bats (28)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
-`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
-template structural specs assert against instead of the raw file.
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}` / `yaml_step_id_for`),
+which the workflow and template structural specs assert against instead of
+the raw file.
 
 They exist because a spec that greps a WHOLE file lets a string appearing
 only in a COMMENT satisfy an assertion about CODE, and this repo's comments
@@ -3527,6 +3528,12 @@ got wrong.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
+| `yaml_step_id_for: names the step whose own body matches` | The step id an assertion needs to say "the consumer reads THE STEP THAT DID THE WORK", derived from the file so a rename moves the assertion with it |
+| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | The regression it was extracted for: the inline awk carried the last id forward across step boundaries, so a match in a later id-less step wore an earlier step's id and the assertion vouched for a step that no longer contained its subject |
+| `yaml_step_id_for: a nested list inside a step is not a step boundary` | The inverse mistake: resetting on every sequence dash loses the id of a step whose match sits in a `with:` list. Only a dash at the step indent is a boundary |
+| `yaml_step_id_for: a match in a comment cannot name a step` | It reads the job's code lines, so the same prose hazard the rest of this file exists for cannot name a step either |
+| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | An unattributable match is answered with an empty id, never a guessed one; the caller's `[ -n ... ]` turns that into a loud failure |
+| `yaml_step_id_for: does not reach into another job for its match` | Job scoping, inherited from `yaml_job_lines`: a step in a neighbouring job cannot supply this job's id |
 ### test/bats/unit/spec_subject_guard_spec.bats (6)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed

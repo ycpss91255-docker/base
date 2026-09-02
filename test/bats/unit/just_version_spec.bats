@@ -174,10 +174,17 @@ _seed_tree() {
   # The resolve step runs the accessor into a step output ...
   [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
     || fail "the acceptance job installs just but never reads the declaration through dist/script/base/just-version.sh"
-  # ... and setup-just consumes THAT step's output. The id is derived from
-  # the workflow rather than remembered here, so the assertion states "the
-  # input comes from the step that read the declaration" instead of "some
-  # step output reaches the input".
+  # ... and setup-just consumes THAT step's output. yaml_step_id_for names
+  # the step the job's first accessor call sits in -- derived from the
+  # workflow, so renaming the step moves this assertion with it -- and the
+  # input is then required to read that id. The assertion therefore says
+  # "the input comes from the step that read the declaration", not the
+  # weaker "some step output reaches the input".
+  #
+  # When the shape is not the one it recognises -- the accessor call is in
+  # a step with no id, or the job stopped calling the accessor at all --
+  # the helper answers with an empty id and the guard below fails. An
+  # unattributable match never becomes a step name here.
   _pin_id="$(yaml_step_id_for "${_wf}" acceptance \
     'dist/script/base/just-version[.]sh')"
   [ -n "${_pin_id}" ] \
