@@ -246,12 +246,18 @@ generator can produce: intent, rationale, and the reason a thing is shaped
 the way it is.
 
 The corollary that decides where derived values live: **a derived figure
-committed to the tree is stale from the moment the next commit lands.**
+that describes the tree is stale from the moment the next commit lands.**
 Storing it at a slower cadence than it changes does not fix that -- it
 makes the staleness harder to notice, and a number that is only sometimes
 right is harder to use than no number, because it must be distrusted every
-time. So a derived value is not stored at a slower cadence; it is not
-stored.
+time. So such a value is not stored at a slower cadence; it is not stored.
+
+What that turns on is the referent, not the storage. A figure that names
+what it measured -- a coverage rate labelled with the version it was
+measured on -- makes no claim about the moving tree, so it cannot go stale
+and it may be committed. The test totals had no referent: `3239 tests`
+asserted something about the tree, which is why every branch had to edit
+it.
 
 Where a derived value is genuinely wanted by a reader, it is attached to
 the thing it describes at the moment it was measured -- a release carries
@@ -269,8 +275,10 @@ invariant 2's silent failure, propagated -- and it is worse than a wrong
 figure in a report, because the reader has no way to tell which sentences
 are derived and stale from which are authored and current. So how base
 stores its documentation is a property of the product on exactly the
-footing invariant 7 stands on, not a housekeeping preference. The duplicate also costs on three measured axes at once
-(figures measured 2026-09-02). It **rots**: 46% of the per-test
+footing invariant 7 stands on, not a housekeeping preference.
+
+The duplicate also costs on three measured axes at once (figures measured
+2026-09-02). It **rots**: 46% of the per-test
 catalogue's hand-written descriptions are placeholders (761 of 1,658 rows
 in `doc/test/unit.md`), and where filled they mostly restate the test name
 they sit beside. It **collides**: five lines carrying a test total are
@@ -287,7 +295,8 @@ source); ADR-00000027 (the release cadence this rides); the
 constants it covers. Invariant 2's guard list names the doc-count drift
 gate, which ADR-00000028 removes along with the figures it guarded; that
 entry drops from invariant 2 when that mechanism lands. #952 (the release
-coverage figure) is the open case this invariant decides.
+coverage badge, merged as PR #974) is the case that fixes where the line
+falls: it names the version it measured, so it is stored.
 
 ## Product Shape
 

@@ -13,8 +13,8 @@
   dropped" is answered here by removing the table it lives in); **#924**
   and PR **#943** (the hand-built release archive that PR deleted -- the
   reason recorded there is narrower than it reads, see sec. 4);
-  **#952** (the coverage figure in the release -- an open sibling case
-  whose branch currently contradicts this record, see sec. 3);
+  **#952** (the coverage figure in the release -- the sibling case that
+  fixes where the line falls, merged as PR #974, see sec. 3);
   ADR-00000018 (the ISTQB taxonomy whose level directories the report
   groups by); ADR-00000027 (release cadence -- this rides the release
   commit that cadence already produces); docker_harness **#287** (the
@@ -96,11 +96,16 @@ This is the living-documentation position: documentation is extracted
 from the code and the tests rather than duplicated into a separate
 document, so it cannot drift out of agreement with them.
 
-The corollary that decides where the numbers go: **a derived figure stored
-in the tree is stale from the moment the next commit lands.** Storing it
-at a slower cadence than it changes does not fix that -- it only makes the
+The corollary that decides where the numbers go: **a derived figure that
+describes the tree is stale from the moment the next commit lands.** Storing
+it at a slower cadence than it changes does not fix that -- it only makes the
 staleness harder to notice. So it is not stored at a slower cadence; it is
 not stored at all.
+
+What that turns on is the referent, not the storage. A figure that names the
+thing it measured -- a coverage rate labelled with the version it was measured
+on -- does not describe the moving tree and cannot go stale, so it may be
+stored. Section 3 works this through on the case that forced it.
 
 ### 1. No test statistic is committed to the tree
 
@@ -170,13 +175,38 @@ number, because it must be distrusted every time.
 Removing it entirely means the only place a test statistic appears is the
 place where it was measured, attached to the artifact it describes.
 
-There is a live counter-example inside the repo, named here so it is not
-missed. #952 is open, and its branch `feat/952-coverage-badge` commits
-`doc/badge/coverage.svg`: a figure derived from a coverage run, written
-into a tracked file and refreshed at release cadence. That is the
-arrangement this section rejects. Which shape the coverage figure ends up
-taking is #952's call and not this record's; what this record settles is
-that the two cannot both stand.
+The coverage badge is the case that shows where the line falls, and it landed
+while this record was being written. #952 merged as PR #974 on 2026-09-02 and
+commits `doc/badge/coverage.svg`: a figure derived from a coverage run,
+written into a tracked file and refreshed at release cadence. Read against the
+paragraph above it looks like the arrangement this section rejects. It is not,
+and the reason is the discriminator this record needs:
+
+**A derived figure may be stored when it names what it measured.**
+
+`doc/badge/coverage.svg` renders `coverage v0.42.0: not measured` -- the
+version is inside the artefact, and `coverage_badge_spec` asserts it matches
+the current `.version`. So the badge is not a claim about the working tree
+that goes stale; it is a claim about v0.42.0, and it stays true forever. The
+objection above -- "a reader has no way to see which" -- has no purchase,
+because the artefact answers it. The five grand-total lines had no referent:
+`3239 tests` asserted something about *the tree*, which is why it was wrong
+between every commit and its resync, and why every branch had to edit it.
+
+The two costs separate the same way. The counts had a merge surface of 61
+conflicts in 65 merges and a gate that forced every branch to run a
+regenerator. The badge is written by one commit per release and by nothing
+else, so it has no merge surface at all.
+
+What does not survive review is the badge's *cadence enforcement*, and it is
+recorded here because it is invariant 2's failure mode rather than this
+record's. `script/release/justfile.release` states that the write is a
+hand-run step today -- the bump that should call it lives in the harness repo,
+tracked as docker_harness#289 -- and that forgetting it "is caught by
+coverage_badge_spec ... but only after the tag, as a red main". A guard that
+fires after the artefact it guards has shipped is a late failure, not a
+prevented one. Storing the figure is fine; requiring a person to remember to
+write it is not.
 
 ### 4. What PR #943 actually decided
 
