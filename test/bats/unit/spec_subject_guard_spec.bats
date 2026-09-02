@@ -26,13 +26,23 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   INNER="${BATS_TEST_TMPDIR}/inner_spec.bats"
 
-  # The spelling variants a fail-open existence guard can take. `[[ -f X ]]`,
-  # `[ -f X ]` and `test -f X` ask the identical question, so a scan that
-  # knows only the first leaves the invariant one keystroke from being
-  # unenforced -- the guard comes back under another spelling and the scan
-  # stays green. Held in one variable so the scan below and the test that
-  # proves the scan can SEE each spelling cannot drift apart.
-  GUARD_RE='^[[:space:]]*(\[\[|\[|test)[[:space:]]+-f[[:space:]].*\|\|[[:space:]]*skip'
+  # The spelling variants a fail-open existence guard can take, over three
+  # axes: the bracket form (`[[ ]]`, `[ ]`, `test`), the negation (none, a
+  # `!` inside the brackets, a `!` in front of them -- a negated check
+  # answers with `&&` and says exactly the same thing), and the existence
+  # predicate (`-f`, `-e`, `-s`, `-d`). All of them ask "is the subject
+  # there", so a scan that knows only `[[ -f X ]] || skip` leaves the
+  # invariant one keystroke from being unenforced.
+  #
+  # OVER-approximating on purpose, and not a closed set: `[[ -f x ]] || {
+  # skip; }`, an `if ... then skip; fi` across three lines, or a helper
+  # that hides the test are all outside it. The case below plants every
+  # combination of the three axes so the coverage this pattern DOES claim
+  # is proven rather than asserted here; nothing claims the rest.
+  #
+  # Held in one variable so the scan below and the case that proves what
+  # the scan can see cannot drift apart.
+  GUARD_RE='^[[:space:]]*!?[[:space:]]*(\[\[|\[|test)[[:space:]]+!?[[:space:]]*-[defs][[:space:]].*(\|\||&&)[[:space:]]*skip'
 
   # Where the scan looks, and the floor the population may not fall below.
   SPEC_TREE=/source/test/bats
